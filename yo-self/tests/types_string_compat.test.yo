@@ -89,9 +89,9 @@ test("type_to_string FnTraitT simple", {
 });
 test("type_to_string FutureTraitT simple", {
   assert_str_eq(
-    type_to_string(t_future_trait_simple(String.from("IO"), t_unit())),
-    `Future[IO](unit)`,
-    "Future[IO](unit)"
+    type_to_string(t_future_trait_simple(String.from("Io"), t_unit())),
+    `Future[Io](unit)`,
+    "Future[Io](unit)"
   );
 });
 test("type_to_string EffectsRowT", {
@@ -141,11 +141,11 @@ test("compatibility — FnTraitT structural", {
   assert(!(are_types_compatible(fn1, fn3)), "Fn !~ FnMut");
 });
 test("compatibility — FutureTraitT simple", {
-  f1 := t_future_trait_simple(String.from("IO"), t_unit());
-  f2 := t_future_trait_simple(String.from("IO"), t_unit());
-  f3 := t_future_trait_simple(String.from("IO"), t_i32());
-  assert(are_types_compatible(f1, f2), "Future[IO](unit) ~ Future[IO](unit)");
-  assert(!(are_types_compatible(f1, f3)), "Future[IO](unit) !~ Future[IO](i32)");
+  f1 := t_future_trait_simple(String.from("Io"), t_unit());
+  f2 := t_future_trait_simple(String.from("Io"), t_unit());
+  f3 := t_future_trait_simple(String.from("Io"), t_i32());
+  assert(are_types_compatible(f1, f2), "Future[Io](unit) ~ Future[Io](unit)");
+  assert(!(are_types_compatible(f1, f3)), "Future[Io](unit) !~ Future[Io](i32)");
 });
 test("compatibility — are_types_compatible_exact no comptime widening", {
   assert(!(are_types_compatible_exact(t_comptime_int(), t_i32())), "ci !~exact i32");

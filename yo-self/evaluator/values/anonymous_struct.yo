@@ -5,6 +5,7 @@
 //!
 //! Evaluates anonymous struct literals: `_(field1: val1, field2: val2, ...)`.
 //! `autoDeriveTraitsAndAddRcFunctionsForStructType` is a no-op stub (Phase 3).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -47,7 +48,7 @@ evaluate_anonymous_struct_value :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -258,7 +259,7 @@ evaluate_anonymous_struct_value :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), func_info);
   // Add struct type to env as a comptime variable named by struct_id
   ___ := add_variable_to_env(
-    &(cur_env),
+    cur_env,
     String.from(struct_id.as_str()),
     meta_ty,
     Option(EvalValue).Some(struct_type_val),

@@ -1,12 +1,12 @@
 //! Network error types.
 // std/net/errors.yo - Network error type
 //
-// Higher-level network error that wraps IOError with network-specific variants.
+// Higher-level network error that wraps IoError with network-specific variants.
 //
 // Example:
 //   { NetError } :: import "std/net/errors";
 open(import("../string"));
-{ IOError } :: import("../sys/errors");
+{ IoError } :: import("../sys/errors");
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
 // ============================================================================
@@ -33,14 +33,14 @@ NetError :: enum(
   /// DNS resolution failed.
   DNSFailed(msg : String),
   /// A wrapped lower-level I/O error.
-  IO(err : IOError),
+  Io(err : IoError),
   /// An unclassified network error with a message.
   Other(msg : String)
 );
 impl(
   NetError,
-  /// Convert an `IOError` into the corresponding `NetError` variant.
-  from_io : (fn(err : IOError) -> Self)(
+  /// Convert an `IoError` into the corresponding `NetError` variant.
+  from_io : (fn(err : IoError) -> Self)(
     match(
       err,
       .ConnectionRefused =>.ConnectionRefused,
@@ -51,7 +51,7 @@ impl(
       .TimedOut =>.TimedOut,
       .HostUnreachable =>.HostUnreachable,
       .NetworkUnreachable =>.NetworkUnreachable,
-      _ =>.IO(err)
+      _ =>.Io(err)
     )
   )
 );
@@ -71,7 +71,7 @@ impl(
           .HostUnreachable => String.from("host unreachable"),
           .NetworkUnreachable => String.from("network unreachable"),
           .DNSFailed(msg) => `DNS lookup failed: ${msg}`,
-          .IO(err) => err.to_string(),
+          .Io(err) => err.to_string(),
           .Other(msg) => msg
         );
         return(s);
@@ -87,7 +87,7 @@ impl(
   check : (fn(result : i32, exn : Exception) -> i32)(
     cond(
       (result >= i32(0)) => result,
-      true => exn.throw(dyn(Self.from_io(IOError.from_errno(i32(0) - result))))
+      true => exn.throw(dyn(Self.from_io(IoError.from_errno(i32(0) - result))))
     )
   )
 );

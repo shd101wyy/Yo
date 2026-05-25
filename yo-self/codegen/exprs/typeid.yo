@@ -16,6 +16,7 @@
 //!   caller can fall back to a bootstrap heuristic — though no current
 //!   bootstrap heuristic handles `typeid`; calls reach this handler only
 //!   in the typed-AST pipeline.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -74,15 +75,15 @@ extract_type_value :: (fn(v : EvalValue) -> Option(TypeValue))(
 /// Used by both `generate_typeid` and the downcast emit so the
 /// typeid-pointer registration is a single source of truth.
 register_typeid_static :: (
-  fn(ty : TypeValue, ctx : *(CodegenContext)) -> String
+  fn(ty : TypeValue, ctx : CodegenContext) -> String
 )({
   type_id_str := type_to_string(ty);
   sanitized := sanitize_for_c_identifier(type_id_str);
   static_var_name := format_typeid_static_name(sanitized);
-  already_emitted := ctx.*.type_id_statics.get(type_id_str).is_some();
+  already_emitted := ctx.type_id_statics.get(type_id_str).is_some();
   if(!(already_emitted), {
-    _ := ctx.*.type_id_statics.set(type_id_str, (&(static_var_name)).clone());
-    ctx.*.emitter.emit_declaration_string_line(format_typeid_static_decl(static_var_name));
+    _ := ctx.type_id_statics.set(type_id_str, static_var_name.clone());
+    ctx.emitter.emit_declaration_string_line(format_typeid_static_decl(static_var_name));
   });
   // typeid expressions resolve to `(uintptr_t)&__yo_typeid_...`, so
   // the emitted module needs `<stdint.h>` for `uintptr_t`. Mirrors
@@ -91,7 +92,7 @@ register_typeid_static :: (
   // this is currently a no-op dedup — but wire the call so the
   // include-tracking infrastructure stays accurate once the preamble
   // becomes demand-driven.
-  ctx.*.add_c_include(String.from("<stdint.h>"));
+  ctx.add_c_include(String.from("<stdint.h>"));
   static_var_name
 });
 /// Generate the C expression for a `typeid(T)` call.
@@ -102,7 +103,7 @@ register_typeid_static :: (
 generate_typeid :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> Option(String)
 )(
   cond(
@@ -111,7 +112,7 @@ generate_typeid :: (
       args.get(usize(0)),
       .None => Option(String).None,
       .Some(arg_expr) => match(
-        ctx.*.get_expr_info(ast_expr_id(arg_expr)),
+        ctx.get_expr_info(ast_expr_id(arg_expr)),
         .None => Option(String).None,
         .Some(info) => match(
           info.value,

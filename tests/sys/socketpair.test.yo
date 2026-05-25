@@ -1,5 +1,6 @@
-// @skip_wasm32-emscripten — no network stack in WASM (socketpair unavailable)
-// @skip_wasm32-wasi — no network stack in WASM (socketpair unavailable)
+pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM (socketpair unavailable)
+pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM (socketpair unavailable)
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 socketpair_io :: import("std/sys/socketpair");
 tcp :: import("std/sys/tcp");
@@ -8,7 +9,7 @@ test("socketpair create and close", {
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := *(i32)(sv_uninit.as_ptr());
   sp := socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv);
-  printf("  socketpair = %d\n", sp);
+  unsafe(printf("  socketpair = %d\n", sp));
   assert(sp == i32(0), "socketpair should succeed");
   fd0 := (sv &+ usize(0)).*;
   fd1 := (sv &+ usize(1)).*;

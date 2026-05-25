@@ -22,6 +22,7 @@
 //!   metadata at all the handler returns `.None` and the caller can fall
 //!   back to a bootstrap heuristic — though the production TS code paths
 //!   require the metadata.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -155,13 +156,13 @@ generate_panic :: (
   fn(
     call_expr : AstExpr,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
   // The TS implementation reads `expr.$?.type` first and bails out with
   // a comment if it is missing.
-  info_opt := ctx.*.get_expr_info(ast_expr_id(call_expr));
+  info_opt := ctx.get_expr_info(ast_expr_id(call_expr));
   match(
     info_opt,
     .None => Option(String).None,
@@ -170,14 +171,14 @@ generate_panic :: (
       cond(
         (n == usize(0)) => {
           // panic() — just abort.
-          ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
+          ctx.emitter.emit_string_line(format_panic_abort_line(indent));
         },
         (n == usize(1)) => {
           match(
             args.get(usize(0)),
             .None => (),
             .Some(message_arg) => match(
-              ctx.*.get_expr_info(ast_expr_id(message_arg)),
+              ctx.get_expr_info(ast_expr_id(message_arg)),
               .None => {
                 // Message arg has no metadata — fall back to runtime path
                 // with the bootstrap codegen of the message expression.
@@ -185,12 +186,12 @@ generate_panic :: (
                   call_gen_expr(message_arg, ctx, indent),
                   .None => (),
                   .Some(msg_code) => {
-                    ctx.*.emitter.emit_string_line(
+                    ctx.emitter.emit_string_line(
                       format_panic_fprintf_cstr(indent, msg_code)
                     );
                   }
                 );
-                ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
+                ctx.emitter.emit_string_line(format_panic_abort_line(indent));
               },
               .Some(msg_info) => {
                 comptime_str_opt := match(
@@ -202,10 +203,10 @@ generate_panic :: (
                   comptime_str_opt,
                   .Some(raw) => {
                     quoted := quote_as_c_string(raw);
-                    ctx.*.emitter.emit_string_line(
+                    ctx.emitter.emit_string_line(
                       format_panic_fprintf_cstr(indent, quoted)
                     );
-                    ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
+                    ctx.emitter.emit_string_line(format_panic_abort_line(indent));
                   },
                   .None => match(
                     call_gen_expr(message_arg, ctx, indent),
@@ -218,8 +219,8 @@ generate_panic :: (
                           format_panic_fprintf_str_newtype(indent, msg_code),
                         true => format_panic_fprintf_cstr(indent, msg_code)
                       );
-                      ctx.*.emitter.emit_string_line(line);
-                      ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
+                      ctx.emitter.emit_string_line(line);
+                      ctx.emitter.emit_string_line(format_panic_abort_line(indent));
                     }
                   )
                 );

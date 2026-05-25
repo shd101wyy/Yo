@@ -1,4 +1,5 @@
-// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
 open(import("std/libc/stdio"));
 open(import("std/string"));
 { platform, Platform } :: import("std/process");
@@ -13,15 +14,15 @@ test("mkdtemp creates and removes directory", {
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   mk := temp_io.mkdtemp(template_path);
-  printf("  mkdtemp = %d\n", mk);
+  unsafe(printf("  mkdtemp = %d\n", mk));
   assert(mk == i32(0));
   open_flags := (O_RDONLY | O_DIRECTORY);
   open_dir := io.await(file.openat(AT_FDCWD, template_path, open_flags, i32(0)), io);
-  printf("  open dir = %d\n", open_dir);
+  unsafe(printf("  open dir = %d\n", open_dir));
   assert(open_dir >= i32(0));
   io.await(file.close(open_dir), io);
   rm := io.await(dir.unlink(AT_FDCWD, template_path, AT_REMOVEDIR), io);
-  printf("  rmdir = %d\n", rm);
+  unsafe(printf("  rmdir = %d\n", rm));
   assert(rm == i32(0));
 });
 test("mkstemp creates and removes file", {
@@ -30,11 +31,11 @@ test("mkstemp creates and removes file", {
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
-  printf("  mkstemp = %d\n", fd);
+  unsafe(printf("  mkstemp = %d\n", fd));
   assert(fd >= i32(0));
   close_result := io.await(file.close(fd), io);
   assert(close_result == i32(0));
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
-  printf("  unlink = %d\n", rm);
+  unsafe(printf("  unlink = %d\n", rm));
   assert(rm == i32(0));
 });

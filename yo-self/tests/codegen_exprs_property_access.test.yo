@@ -1,4 +1,5 @@
 /// Tests for yo-self/codegen/exprs/property_access.yo (partial port).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../types/definitions.yo");
@@ -103,9 +104,9 @@ mk_func_val :: (fn(id : str) -> EvalValue)(
 );
 test("method field access: registered FuncVal → C name", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   fv := mk_func_val("greet_id");
-  pctx.*.register_function(String.from("greet_id"), fv, String.from("fn_greet"));
+  pctx.register_function(String.from("greet_id"), fv, String.from("fn_greet"));
   match(
     generate_method_field_access(fv, pctx),
     .Some(s) => assert(s == String.from("fn_greet"), "registered c_name"),
@@ -118,7 +119,7 @@ test("method field access: unregistered FuncVal → fallback to func_id", {
   ctx := CodegenContext.new();
   fv := mk_func_val("orphan_id");
   match(
-    generate_method_field_access(fv, &(ctx)),
+    generate_method_field_access(fv, ctx),
     .Some(s) => assert(s == String.from("orphan_id"), "fallback to func_id"),
     .None => assert(false, "expected Some(func_id fallback)")
   );
@@ -129,11 +130,11 @@ test("method field access: non-FuncVal → None", {
   // defers to the bootstrap struct/field-access path.
   ctx := CodegenContext.new();
   assert(
-    generate_method_field_access(EvalValue.IntLit(String.from("0")), &(ctx)).is_none(),
+    generate_method_field_access(EvalValue.IntLit(String.from("0")), ctx).is_none(),
     "IntLit → None"
   );
   assert(
-    generate_method_field_access(EvalValue.UnitVal, &(ctx)).is_none(),
+    generate_method_field_access(EvalValue.UnitVal, ctx).is_none(),
     "UnitVal → None"
   );
 });

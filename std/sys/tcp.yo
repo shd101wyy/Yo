@@ -3,7 +3,7 @@
 //! Provides TCP socket wrappers around the low-level C runtime externs.
 //! Uses the socket address helpers to construct `sockaddr_in`/`sockaddr_in6` buffers.
 //!
-//! All async operations return `IOFuture` which resolves to:
+//! All async operations return `IoFuture` which resolves to:
 //! - Positive value: success (fd for socket/accept, bytes for send/recv, 0 for others)
 //! - Negative value: -errno on failure
 //
@@ -33,9 +33,10 @@
 //     client_fd := await tcp.accept(sockfd);
 //     // ...
 //   };
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
-{ IOFuture } :: import("./future.yo");
+{ IoFuture } :: import("./future.yo");
 { __yo_async_socket_start, __yo_async_bind_start, __yo_async_listen_start, __yo_async_accept_start, __yo_async_connect_start, __yo_async_send_start, __yo_async_recv_start, __yo_async_shutdown_start, __yo_async_setsockopt_start, __yo_async_getsockopt_start, __yo_async_close_start, __yo_sockaddr_set_family, __yo_sockaddr_get_family, __yo_sockaddr_in_set_port, __yo_sockaddr_in_get_port, __yo_sockaddr_in_set_addr, __yo_sockaddr_in_get_addr, __yo_sockaddr_in6_set_port, __yo_sockaddr_in6_get_port, __yo_sockaddr_in6_set_addr, __yo_sockaddr_in6_get_addr, __yo_inet_pton, __yo_inet_ntop, __yo_htons, __yo_ntohs, __yo_htonl, __yo_ntohl } :: import("./externs.yo");
 { AF_INET, AF_INET6, SOCK_STREAM, sockaddr_in_size, sockaddr_in6_size } :: import("./socket.yo");
 // ============================================================================
@@ -47,55 +48,55 @@ SockAddr :: struct(
 );
 export(SockAddr);
 // ============================================================================
-// Core TCP Operations (return IOFuture, use with await)
+// Core TCP Operations (return IoFuture, use with await)
 // ============================================================================
 // Create a TCP socket.
 // domain: AF_INET or AF_INET6
 // Returns fd on success, -errno on failure.
-socket :: (fn(domain : i32, sock_type : i32, protocol : i32) -> IOFuture)(
+socket :: (fn(domain : i32, sock_type : i32, protocol : i32) -> IoFuture)(
   __yo_async_socket_start(domain, sock_type, protocol)
 );
 // Bind a socket to a local address.
 // Returns 0 on success, -errno on failure.
-bind :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IOFuture)(
+bind :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IoFuture)(
   __yo_async_bind_start(sockfd, addr, addrlen)
 );
 // Listen for incoming connections on a socket.
 // backlog: maximum length of the pending connections queue.
 // Returns 0 on success, -errno on failure.
-listen :: (fn(sockfd : i32, backlog : i32) -> IOFuture)(
+listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
   __yo_async_listen_start(sockfd, backlog)
 );
 // Accept an incoming connection on a listening socket.
 // Returns the new connection fd on success, -errno on failure.
 // addr/addrlen can be used to retrieve the peer address.
-accept :: (fn(sockfd : i32, addr : *(u8), addrlen : *(u32)) -> IOFuture)(
+accept :: (fn(sockfd : i32, addr : *(u8), addrlen : *(u32)) -> IoFuture)(
   __yo_async_accept_start(sockfd, addr, addrlen)
 );
 // Connect to a remote address.
 // Returns 0 on success, -errno on failure.
-connect :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IOFuture)(
+connect :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IoFuture)(
   __yo_async_connect_start(sockfd, addr, addrlen)
 );
 // Send data on a connected socket.
 // Returns number of bytes sent on success, -errno on failure.
-send :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IOFuture)(
+send :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
 // Receive data from a connected socket.
 // Returns number of bytes received on success (0 = peer closed), -errno on failure.
-recv :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IOFuture)(
+recv :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
 // Shut down part of a full-duplex connection.
 // how: SHUT_RD (0), SHUT_WR (1), or SHUT_RDWR (2).
 // Returns 0 on success, -errno on failure.
-shutdown :: (fn(sockfd : i32, how : i32) -> IOFuture)(
+shutdown :: (fn(sockfd : i32, how : i32) -> IoFuture)(
   __yo_async_shutdown_start(sockfd, how)
 );
 // Close a socket file descriptor.
 // Returns 0 on success, -errno on failure.
-close :: (fn(fd : i32) -> IOFuture)(
+close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );
 // ============================================================================
@@ -103,12 +104,12 @@ close :: (fn(fd : i32) -> IOFuture)(
 // ============================================================================
 // Set a socket option (raw).
 // Returns 0 on success, -errno on failure.
-setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : u32) -> IOFuture)(
+setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : u32) -> IoFuture)(
   __yo_async_setsockopt_start(sockfd, level, optname, optval, optlen)
 );
 // Get a socket option (raw).
 // Returns 0 on success, -errno on failure.
-getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : *(u32)) -> IOFuture)(
+getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : *(u32)) -> IoFuture)(
   __yo_async_getsockopt_start(sockfd, level, optname, optval, optlen)
 );
 // ============================================================================

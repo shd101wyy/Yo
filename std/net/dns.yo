@@ -9,14 +9,15 @@
 //   { IpAddr } :: import "std/net/addr";
 //   { Exception } :: import "std/error";
 //
-//   main :: (fn(io : IO, exn : Exception) -> unit)({
+//   main :: (fn(io : Io, exn : Exception) -> unit)({
 //     addrs := io.await(lookup_host(`localhost`, io), { io, exn });
 //     i := usize(0);
 //     while runtime((i < addrs.len())), {
-//       println(addrs.get(i).unwrap().to_string());
+//       println(addrs(i).to_string());
 //       i = (i + usize(1));
 //     };
 //   });
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 { ArrayList } :: import("../collections/array_list");
@@ -24,14 +25,14 @@ open(import("../string"));
 open(import("../fmt"));
 { NetError } :: import("./errors");
 { IpAddr, SocketAddr } :: import("./addr");
-{ Error, AnyError, Exception, IOErr } :: import("../error");
+{ Error, AnyError, Exception, IoExn } :: import("../error");
 IO_dns :: import("../sys/dns");
 { AF_INET, AF_INET6 } :: import("../sys/socket");
 // ============================================================================
 // DNS lookup
 // ============================================================================
 /// Resolve a hostname to a list of IP addresses.
-lookup_host :: (fn(host : String, io : IO) -> Impl(Future(ArrayList(IpAddr), IOErr)))(
+lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
   io.async((e) => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
@@ -82,13 +83,13 @@ lookup_host :: (fn(host : String, io : IO) -> Impl(Future(ArrayList(IpAddr), IOE
   })
 );
 /// Resolve a hostname and port to a list of socket addresses.
-resolve :: (fn(host : String, port : u16, io : IO) -> Impl(Future(ArrayList(SocketAddr), IOErr)))(
+resolve :: (fn(host : String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))(
   io.async((e) => {
     addrs := e.io.await(lookup_host(host, io), e);
     result := ArrayList(SocketAddr).new();
     i := usize(0);
     while(runtime(i < addrs.len()), {
-      ip := addrs.get(i).unwrap();
+      ip := addrs(i);
       result.push(SocketAddr.new(ip, port));
       i = (i + usize(1));
     });

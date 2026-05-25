@@ -15,11 +15,13 @@
 //!
 //! Phase 3.5: Basic matching via `synthesize_types`. Where-clause checking and
 //! `find_methods_from_generic_impls` are present as simplified implementations.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
-{ TypeValue, t_type, t_unit, t_some_t, is_some_type, generate_some_type_id }
-:: import("../../types/type.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_type, t_unit, t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
+{ is_some_type } :: import("../../types/guards.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env, synthetic_token, clone_env }
 :: import("../../env.yo");
@@ -96,7 +98,7 @@ get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
 /// Register a new generic impl entry.
 /// Mirrors `registerGenericImpl` in impl.ts.
 register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
-  key := (&(entry.trait_key)).clone();
+  key := entry.trait_key.clone();
   // Find existing bucket for this key, or create a new one.
   (key_idx : Option(usize)) = Option(usize).None;
   (ki : usize) = usize(0);
@@ -183,7 +185,7 @@ try_match_generic_impl :: (
       }
     );
     _ := add_variable_to_env(
-      &(unify_env),
+      unify_env,
       fa_name,
       t_type(),
       Option(EvalValue).Some(create_type_value(fa_some)),
@@ -215,7 +217,7 @@ try_match_generic_impl :: (
     unify_env,
     resolved_concrete,
     env,
-    &(checked),
+    checked,
     opts,
     exn_match
   );

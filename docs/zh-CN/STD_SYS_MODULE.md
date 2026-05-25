@@ -50,13 +50,13 @@ std/sys/
 ├── copy.yo         — copyfile、sendfile
 ├── dir.yo          — mkdir、unlink、rename、symlink、link、readlink、getdents/readdir
 ├── dns.yo          — getaddrinfo、getnameinfo、addrinfo 访问器
-├── errors.yo       — IOError 枚举与 errno 映射、ToString 实现
+├── errors.yo       — IoError 枚举与 errno 映射、ToString 实现
 ├── events.yo       — TTY/poll/FS 事件常量 + FS 事件/poll 包装器
 ├── externs.yo      — 所有 C extern 函数声明
 ├── fallocate.yo    — fallocate（预分配文件空间）
 ├── fcntl.yo        — getfl/setfl/getfd/setfd（文件描述符标志）
 ├── file.yo         — 异步 + 同步文件操作（openat、read、write、stat、fsync 等）
-├── future.yo       — IOFuture extern 类型，包装 __yo_io_future_t
+├── future.yo       — IoFuture extern 类型，包装 __yo_io_future_t
 ├── iov.yo          — readv/writev/preadv/pwritev + iovec 辅助函数
 ├── lock.yo         — flock 建议性锁
 ├── mmap.yo         — mmap、munmap、mprotect、msync
@@ -104,8 +104,8 @@ timer  :: import "std/sys/timer";
 | Socket 常量 | `socket.yo`     | ✅ 已完成 | 平台感知的 AF*\*、SOCK*\_、SO\_\_、TCP*\*、NI*\*         |
 | 信号        | `signals.yo`    | ✅ 已完成 | 平台感知的 POSIX 信号编号                                |
 | 事件        | `events.yo`     | ✅ 已完成 | TTY/poll/FS 事件常量 + FS/poll 包装器                    |
-| IOError     | `errors.yo`     | ✅ 已完成 | 枚举与 errno 映射、ToString 实现                         |
-| IOFuture    | `future.yo`     | ✅ 已完成 | 包装 `__yo_io_future_t` 的 extern 类型                   |
+| IoError     | `errors.yo`     | ✅ 已完成 | 枚举与 errno 映射、ToString 实现                         |
+| IoFuture    | `future.yo`     | ✅ 已完成 | 包装 `__yo_io_future_t` 的 extern 类型                   |
 | Externs     | `externs.yo`    | ✅ 已完成 | 所有 C extern 函数声明                                   |
 | Statx       | `statx.yo`      | ✅ 已完成 | 文件元数据访问器对象                                     |
 | Timer       | `timer.yo`      | ✅ 已完成 | `sleep(ms)`                                              |

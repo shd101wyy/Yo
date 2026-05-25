@@ -1,0 +1,69 @@
+/// Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := call(...)`
+/// local binding form, the flowability rule (R1–R4) on the RHS, and
+/// the corresponding read/write semantics.
+///
+/// These tests exercise the binding end-to-end at runtime, not just at
+/// type-check time. Each test uses a user-written helper that returns
+/// `ref(T)` (rooted in a ref-bound param via `&(p.field)`), so the
+/// `ref(r) := helper(...)` site is what the macro/test framework
+/// actually compiles against.
+pragma(Pragma.AllowUnsafe);
+Point :: struct(x : i32, y : i32);
+/// Helper: returns `ref(i32)` rooted in `p.x`. Flowability rule R2
+/// (field of flowable is flowable) admits `p.x` because `p` is the
+/// `ref`-bound parameter. `&(p.x)` is the C-ABI place expression
+/// `&p->x`, which the `ref(i32)` return slot delivers as a `T*`.
+get_x_ref :: (fn(ref(p) : Point) -> ref(i32))(
+  unsafe(&(p.x))
+);
+get_y_ref :: (fn(ref(p) : Point) -> ref(i32))(
+  unsafe(&(p.y))
+);
+test("Phase B — read through ref(name) := flowable call", {
+  caller :: (fn(ref(outer) : Point) -> i32)({
+    ref(r) := get_x_ref(outer);
+    r
+  });
+  pt := Point(x : i32(10), y : i32(20));
+  v := caller(pt);
+  assert(v == i32(10), "read via ref-binding returns underlying x");
+});
+test("Phase B — write through ref(name) := flowable call", {
+  caller :: (fn(ref(outer) : Point, value : i32) -> unit)({
+    ref(r) := get_x_ref(outer);
+    r = value;
+  });
+  pt := Point(x : i32(10), y : i32(20));
+  caller(pt, i32(99));
+  assert(pt.x == i32(99), "write via ref-binding propagates to caller's pt.x");
+  assert(pt.y == i32(20), "unrelated field is untouched");
+});
+test("Phase B — multiple ref bindings into different fields of same source", {
+  caller :: (fn(ref(outer) : Point) -> i32)({
+    ref(rx) := get_x_ref(outer);
+    ref(ry) := get_y_ref(outer);
+    rx + ry
+  });
+  pt := Point(x : i32(3), y : i32(4));
+  sum := caller(pt);
+  assert(sum == i32(7), "two ref-bindings sourced from the same ref-bound param both read correctly");
+});
+test("Phase B — ref binding survives reassignment of underlying field", {
+  caller :: (fn(ref(outer) : Point) -> i32)({
+    ref(r) := get_x_ref(outer);
+    r = i32(100);
+    r
+  });
+  pt := Point(x : i32(0), y : i32(0));
+  v := caller(pt);
+  assert(v == i32(100), "writing through ref then reading returns the new value");
+});
+// NOTE: Chained ref-returning calls (an intermediate `mid :: fn(ref(p)) -> ref(T)`
+// whose body is `another_ref_fn(p)`) currently fail evaluator type-check:
+// the body's expected type is `*(T)` (per Phase C's body-typing fix for
+// `-> ref(T)` functions to make match-arm unification work) but a
+// ref-returning call's evaluator-level type is `T` (auto-deref-on-read).
+// See plans/PHASE_BCD_AUDIT_FINDINGS.md and consider this a known
+// limitation — the workaround is to make the intermediate body
+// explicitly produce `*(T)` via `unsafe(&(...))`. Tracked as Phase B
+// follow-up work.

@@ -13,6 +13,7 @@
 //! This registry is the only way to retrieve TypeField metadata post-construction,
 //! since `TypeValue.Struct` only stores field labels and types (no `TypeField[]`),
 //! to avoid a circular dependency between the types and evaluator layers.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -99,7 +100,7 @@ evaluate_type_field :: (
     expr : AstExpr,
     tuple_field_index : usize,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     for_type : str,
     exn : Exception
   ) -> EvalTypeFieldResult

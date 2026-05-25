@@ -119,7 +119,7 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
   };
 }
 
-// --- IO builtin checks (kept here since they're imported by many codegen files) ---
+// --- Io builtin checks (kept here since they're imported by many codegen files) ---
 
 /**
  * Checks if an expression is an io.async(closure) call.

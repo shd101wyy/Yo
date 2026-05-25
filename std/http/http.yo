@@ -71,7 +71,7 @@ impl(
     result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
     i := usize(0);
     while(i < self.headers.len(), i = (i + usize(1)), {
-      h := self.headers.get(i).unwrap();
+      h := self.headers(i);
       result = `${result}${h.name}: ${h.value}\r\n`;
     });
     result = `${result}\r\n`;
@@ -102,7 +102,7 @@ impl(
     lower_name := name.to_lowercase();
     i := usize(0);
     while(i < self.headers.len(), i = (i + usize(1)), {
-      h := self.headers.get(i).unwrap();
+      h := self.headers(i);
       cond(
         (h.name.to_lowercase() == lower_name) => {
           return(.Some(h.value));
@@ -134,7 +134,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
     },
     true => ()
   );
-  status_line := lines.get(usize(0)).unwrap();
+  status_line := lines(usize(0));
   cond(
     (!(status_line.starts_with(`HTTP/`))) => {
       return(.Err(`Invalid status line`));
@@ -172,7 +172,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
   j := usize(1);
   body_start := lines.len();
   while(j < lines.len(), j = (j + usize(1)), {
-    hline := lines.get(j).unwrap();
+    hline := lines(j);
     cond(
       hline.is_empty() => {
         body_start = (j + usize(1));
@@ -194,10 +194,10 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
   });
   cond(
     (body_start < lines.len()) => {
-      resp.body = lines.get(body_start).unwrap();
+      resp.body = lines(body_start);
       m := (body_start + usize(1));
       while(m < lines.len(), m = (m + usize(1)), {
-        resp.body = `${resp.body}\r\n${lines.get(m).unwrap()}`;
+        resp.body = `${resp.body}\r\n${lines(m)}`;
       });
     },
     true => ()

@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 open(import("std/fmt"));
 open(import("std/collections/array_list"));
 open(import("std/collections/hash_map"));
@@ -10,11 +11,11 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.*.data0),
-        (idx == usize(1)) => &(self.*.data1),
-        (idx == usize(2)) => &(self.*.data2),
+        (idx == usize(0)) => &(self.data0),
+        (idx == usize(1)) => &(self.data1),
+        (idx == usize(2)) => &(self.data2),
         true => panic("MyArray: index out of bounds")
       )
     )
@@ -439,7 +440,7 @@ impl(
   Point,
   Index(usize)(
     Output : i32,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -451,7 +452,7 @@ impl(
   Point,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -486,7 +487,7 @@ impl(
   StrictPoint,
   Index(usize)(
     Output : i32,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.x),
         (idx == usize(1)) => &(self.y),
@@ -499,7 +500,7 @@ impl(
   StrictPoint,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.x),
         (idx == usize(1)) => &(self.y),
@@ -524,7 +525,7 @@ impl(
   GenericPoint(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -538,7 +539,7 @@ impl(
   GenericPoint(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -576,7 +577,7 @@ impl(
   Pair,
   Index(usize)(
     Output : i32,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.first),
         true => &(self.second)
@@ -588,7 +589,7 @@ impl(
   Pair,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.first),
         true => &(self.second)

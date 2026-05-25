@@ -1,5 +1,6 @@
-// @skip_wasm32-emscripten — POSIX signals are limited/stubbed in Emscripten WASM
-// @skip_wasm32-wasi — POSIX signals not available in WASI
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Emscripten); // POSIX signals are limited/stubbed in Emscripten WASM
+pragma(Pragma.SkipWasm32Wasi); // POSIX signals not available in WASI
 open(import("std/libc/stdio"));
 { platform, Platform } :: import("std/process");
 { SIGUSR1 } :: import("std/sys/signals");
@@ -11,27 +12,27 @@ test("signal handler installs and handles SIGUSR1", {
   cond(
     (platform == Platform.Windows) => {
       r1 := Sig.on_signal(SIGUSR1, signal_handler);
-      printf("  on_signal (win) = %d\n", r1);
+      unsafe(printf("  on_signal (win) = %d\n", r1));
       assert(r1 == i32(0));
       r2 := Sig.kill(i32(0), SIGUSR1);
-      printf("  kill (win) = %d\n", r2);
+      unsafe(printf("  kill (win) = %d\n", r2));
       assert(r2 == i32(0));
       r3 := Sig.off_signal(SIGUSR1);
-      printf("  off_signal (win) = %d\n", r3);
+      unsafe(printf("  off_signal (win) = %d\n", r3));
       assert(r3 == i32(0));
     },
     true => {
       open(import("std/libc/unistd"));
       r1 := Sig.on_signal(SIGUSR1, signal_handler);
-      printf("  on_signal = %d\n", r1);
+      unsafe(printf("  on_signal = %d\n", r1));
       assert(r1 == i32(0));
-      pid := i32(getpid());
+      pid := i32(unsafe(getpid()));
       r2 := Sig.kill(pid, SIGUSR1);
-      printf("  kill = %d\n", r2);
+      unsafe(printf("  kill = %d\n", r2));
       assert(r2 == i32(0));
-      _ := usleep(u32(100000));
+      _ := unsafe(usleep(u32(100000)));
       r3 := Sig.off_signal(SIGUSR1);
-      printf("  off_signal = %d\n", r3);
+      unsafe(printf("  off_signal = %d\n", r3));
       assert(r3 == i32(0));
     }
   );

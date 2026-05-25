@@ -12,6 +12,7 @@
 //! v := json_parse(`{"x": 1}`);
 //! println(json_stringify(v));
 //! ```
+pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 { snprintf } :: import("../libc/stdio");
@@ -90,8 +91,8 @@ impl(
         i := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
-            (keys.get(i).unwrap() == key) => {
-              return(.Some(values.get(i).unwrap()));
+            (keys(i) == key) => {
+              return(.Some(values(i)));
             },
             true => ()
           );
@@ -149,11 +150,59 @@ impl(
         result := ArrayList(JsonKV).new();
         i := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
-          result.push(JsonKV(key : keys.get(i).unwrap(), value : values.get(i).unwrap()));
+          result.push(JsonKV(key : keys(i), value : values(i)));
         });
         .Some(result)
       },
       _ =>.None
+    )
+  )
+);
+/// Index trait — `v(key)` returns the child JsonValue for `key`, panicking
+/// if `v` is not an Object or the key is missing.
+impl(
+  JsonValue,
+  Index(String)(
+    Output : JsonValue,
+    index : (fn(ref(self) : Self, key : String) -> *(Self.Output))(
+      match(
+        self,
+        .Object(keys, values) => {
+          i := usize(0);
+          while(i < keys.len(), i = (i + usize(1)), {
+            if(keys(i) == key, {
+              // SAFETY: `i` is bounded by `keys.len()` and the
+              // Object variant invariant says `values.len() ==
+              // keys.len()`, so `values.project(i)` yields a valid
+              // ref into the Rc-managed values list.
+              return(unsafe(&(values.project(i))));
+            });
+          });
+          panic("JsonValue: key not found in Object")
+        },
+        _ => panic("JsonValue: index by String requires .Object variant")
+      )
+    )
+  )
+);
+/// Index trait — `v(i)` returns the i-th JsonValue, panicking if `v` is
+/// not an Array or `i` is out of bounds.
+impl(
+  JsonValue,
+  Index(usize)(
+    Output : JsonValue,
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+      match(
+        self,
+        .Array(items) => {
+          assert(idx < items.len(), "JsonValue: Array index out of bounds");
+          // SAFETY: assert above bounds `idx`; `items` is the
+          // Rc-managed Array list whose storage outlives this call
+          // (ref(self) keeps `self` and therefore `items` alive).
+          return(unsafe(&(items.project(idx))));
+        },
+        _ => panic("JsonValue: index by usize requires .Array variant")
+      )
     )
   )
 );
@@ -364,7 +413,7 @@ impl(
     num_buf.push(u8(0));
     num_ptr := *(char)(num_buf.ptr().unwrap());
     { atof } :: import("../libc/stdlib");
-    val := atof(num_ptr);
+    val := unsafe(atof(num_ptr));
     .Ok(val)
   })
 );
@@ -570,7 +619,7 @@ _write_str_escaped :: (fn(s : String, out : ArrayList(u8)) -> unit)({
   bytes := s.as_bytes();
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
-    b := bytes.get(i).unwrap();
+    b := bytes(i);
     cond(
       (b == u8(34)) => {
         out.push(u8(92));
@@ -628,12 +677,12 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
     .Number(n) => {
       buf := Array(u8, usize(32)).fill(u8(0));
       buf_ptr := &(buf(usize(0)));
-      snprintf(*(char)(buf_ptr), usize(32), "%g", n);
+      unsafe(snprintf(*(char)(buf_ptr), usize(32), "%g", n));
       s2 := String.from_cstr(buf_ptr).unwrap();
       bytes := s2.as_bytes();
       i := usize(0);
       while(i < bytes.len(), i = (i + usize(1)), {
-        out.push(bytes.get(i).unwrap());
+        out.push(bytes(i));
       });
     },
     .Str(s) => {
@@ -649,7 +698,7 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
           },
           true => ()
         );
-        recur(items.get(i).unwrap(), out);
+        recur(items(i), out);
       });
       out.push(u8(93)); // ']'
     },
@@ -663,9 +712,9 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
           },
           true => ()
         );
-        _write_str_escaped(keys.get(i).unwrap(), out);
+        _write_str_escaped(keys(i), out);
         out.push(u8(58)); // ':'
-        recur(values.get(i).unwrap(), out);
+        recur(values(i), out);
       });
       out.push(u8(125)); // '}'
     }

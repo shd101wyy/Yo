@@ -1,11 +1,14 @@
+import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinKeywords,
+  type Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
-import { isUnitType } from "../../types/guards";
+import { isPtrType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
 import { type FunctionGenerationContext } from "../functions/context";
@@ -33,6 +36,29 @@ export function generateCondExpression(
     const tempVar = expr.$.variableName;
     const valueType = expr.$.type;
     const isUnit = valueType && isUnitType(valueType);
+
+    // For `-> ref(T)` enclosing functions, the cond as a whole is a
+    // place expression whose temp var is declared as `T*`. Arm bodies
+    // that produce raw `T` (e.g. a field projection `p.x` of a ref-bound
+    // parameter, accepted by the evaluator's PtrRelaxedMatch in
+    // exprs/cond.ts) must have their assignment to that temp wrapped in
+    // `&(...)` so the C-level lvalue types agree. Flowability has
+    // already verified the arm roots back to a ref-bound parameter, so
+    // taking the address is sound.
+    const functionContext = context as FunctionGenerationContext;
+    const condOuterIsPtr =
+      !!functionContext.currentFunctionType?.return.isRef &&
+      !!valueType &&
+      isPtrType(valueType);
+    const maybeAddressOf = (
+      armExpr: Expr | undefined,
+      code: string
+    ): string => {
+      if (!condOuterIsPtr) return code;
+      const armType = armExpr?.$?.type;
+      if (!armType || isPtrType(armType)) return code;
+      return `&(${code})`;
+    };
 
     // Generate if-else chain for each condition => value pair
     // Strategy:
@@ -218,7 +244,6 @@ export function generateCondExpression(
 
             // Save and update pendingDeferredDrops for this nested begin block
             // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
-            const functionContext = context as FunctionGenerationContext;
             const previousPendingDeferredDrops =
               functionContext.pendingDeferredDrops;
             const currentDrops = value.$?.deferredDropExpressions ?? [];
@@ -281,7 +306,22 @@ export function generateCondExpression(
                       finalExpr.$.env
                     );
 
-                    if (argTempVar !== rawCode) {
+                    // Skip the temp-var declaration when finalExpr is
+                    // an ref-param atom — `T name = (*name);` would
+                    // shadow the pointer parameter. See
+                    // plans/MEMORY_SAFETY.md and
+                    // issues/inout-multi-stmt-body-shadow.md.
+                    let isInoutAtom = false;
+                    if (exprIsAtom(finalExpr) && finalExpr.$?.env) {
+                      const vars = getVariablesFromEnv(
+                        finalExpr.$.env,
+                        savedVariableName
+                      );
+                      if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
+                        isInoutAtom = true;
+                      }
+                    }
+                    if (!isInoutAtom && argTempVar !== rawCode) {
                       context.emitter.emitLine(
                         `${valueIndent}${argType} ${argTempVar} = ${rawCode};`
                       );
@@ -313,7 +353,7 @@ export function generateCondExpression(
                     );
                     if (finalExprCode && tempVar && !isUnit) {
                       context.emitter.emitLine(
-                        `${valueIndent}${tempVar} = ${finalExprCode};`
+                        `${valueIndent}${tempVar} = ${maybeAddressOf(finalExpr, finalExprCode)};`
                       );
                     }
                   }
@@ -346,7 +386,7 @@ export function generateCondExpression(
                       );
                     } else if (tempVar && !isUnit) {
                       context.emitter.emitLine(
-                        `${valueIndent}${tempVar} = ${finalExprCode};`
+                        `${valueIndent}${tempVar} = ${maybeAddressOf(finalExpr, finalExprCode)};`
                       );
                     }
                   }
@@ -381,7 +421,21 @@ export function generateCondExpression(
                   value.$.env
                 );
 
-                if (argTempVar !== rawCode) {
+                // Skip the temp-var declaration when value is an
+                // ref-param atom — `T name = (*name);` would shadow
+                // the pointer parameter. See
+                // issues/inout-multi-stmt-body-shadow.md.
+                let isInoutAtom = false;
+                if (exprIsAtom(value) && value.$?.env) {
+                  const vars = getVariablesFromEnv(
+                    value.$.env,
+                    savedVariableName
+                  );
+                  if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
+                    isInoutAtom = true;
+                  }
+                }
+                if (!isInoutAtom && argTempVar !== rawCode) {
                   context.emitter.emitLine(
                     `${valueIndent}${argType} ${argTempVar} = ${rawCode};`
                   );
@@ -408,7 +462,7 @@ export function generateCondExpression(
                 const valueCode = generateExpr(value, valueIndent, context);
                 if (valueCode && tempVar && !isUnit) {
                   context.emitter.emitLine(
-                    `${valueIndent}${tempVar} = ${valueCode};`
+                    `${valueIndent}${tempVar} = ${maybeAddressOf(value, valueCode)};`
                   );
                 }
               }
@@ -433,7 +487,7 @@ export function generateCondExpression(
                 // For regular expressions, assign to temp variable (only if not unit type)
                 if (!isUnit) {
                   context.emitter.emitLine(
-                    `${valueIndent}${tempVar} = ${valueCode};`
+                    `${valueIndent}${tempVar} = ${maybeAddressOf(value, valueCode)};`
                   );
                 }
               }

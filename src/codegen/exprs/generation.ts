@@ -36,7 +36,12 @@ import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
 import { emitAsyncFutureEscape } from "./async-completion";
 import { generateAtom } from "./atom";
-import { generateAwait, generateJoinHandleAwait, generateState } from "./await";
+import {
+  emitIoSpawnEffectInjection,
+  generateAwait,
+  generateJoinHandleAwait,
+  generateState,
+} from "./await";
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
@@ -342,13 +347,22 @@ function generateUnwind(
       generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
     }
     // For functions with non-void return type, return a dummy value
-    // (the caller checks __yo_effect_escaped and ignores the return value)
+    // (the caller checks __yo_effect_escaped and ignores the return value).
+    // Phase B of plans/ITERATOR_REDESIGN.md — for `-> ref(T)` functions,
+    // the C-level return is `T*` (a pointer). The dummy must be NULL of
+    // that pointer type, not `(T){0}` (which is a value of T).
     if (functionContext.currentFunctionType) {
       const returnType = functionContext.currentFunctionType.return.type;
       if (!isUnitType(returnType)) {
-        const returnTypeStr =
+        let returnTypeStr =
           functionContext.overrideReturnTypeStr ??
           getTypeString(returnType, context);
+        if (
+          functionContext.currentFunctionType.return.isRef &&
+          !returnTypeStr.endsWith("*")
+        ) {
+          returnTypeStr = `${returnTypeStr}*`;
+        }
         if (returnTypeStr !== "void") {
           return `return (${returnTypeStr}){0}`;
         }
@@ -445,9 +459,15 @@ function generateUnwind(
     }
     const returnType = functionContext.currentFunctionType.return.type;
     if (!isUnitType(returnType)) {
-      const returnTypeStr =
+      let returnTypeStr =
         functionContext.overrideReturnTypeStr ??
         getTypeString(returnType, context);
+      if (
+        functionContext.currentFunctionType.return.isRef &&
+        !returnTypeStr.endsWith("*")
+      ) {
+        returnTypeStr = `${returnTypeStr}*`;
+      }
       if (returnTypeStr !== "void") {
         return `return (${returnTypeStr}){0}`;
       }
@@ -698,7 +718,7 @@ function generateFuncCall(
     return generateDynCall(expr, indent, context);
   }
 
-  // io.await(future) - extract value from Future (via IO module)
+  // io.await(future) - extract value from Future (via Io module)
   if (isIoAwaitCall(expr)) {
     return generateAwait(expr, indent, context);
   }
@@ -746,6 +766,12 @@ function generateFuncCall(
     );
     emitter.emitLine(`${indent}  abort();`);
     emitter.emitLine(`${indent}}`);
+    // Phase 7: inject the bundle effect (e.g. `IoExn(io, exn)`) into the
+    // future's SM via its set_effect callback BEFORE cold-starting. This is
+    // the same mechanism used by io.await — see emitEffectInjectionForAwait
+    // and src/codegen/exprs/async.ts:findBundleFieldName.
+    emitIoSpawnEffectInjection(expr, spawnVar, indent, context);
+
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(
@@ -943,6 +969,11 @@ function generateFuncCall(
   // consume
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
     return generateConsume(expr, indent, context);
+  }
+  // unsafe(expr) — pure compile-time marker, lowers to its inner
+  // expression. See plans/MEMORY_SAFETY.md.
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)) {
+    return generateExpr(expr.args[0]!, indent, context);
   }
   // functions that should be skipped
   // comptime_expect_error

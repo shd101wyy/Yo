@@ -37,6 +37,7 @@
 //! per-field `isCompileTimeOnly` flag), `is_comptime_function`
 //! (needs `Func.return.isCompileTimeOnly`), `find_returned_async_block`
 //! (async-runtime traversal).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -421,11 +422,11 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
 /// `getTypeString` fallback of `"int32_t"` — use that when the caller
 /// always wants a string.
 get_type_string_opt :: (
-  fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String)
+  fn(t : TypeValue, ctx : CodegenContext) -> Option(String)
 )({
   key := type_to_string(t);
   match(
-    ctx.*.get_type_c_name(key),
+    ctx.get_type_c_name(key),
     .Some(c_name) => Option(String).Some(c_name),
     .None => type_value_to_c_field(t)
   )
@@ -437,7 +438,7 @@ get_type_string_opt :: (
 /// TS's outer fallback (the same default the TS `if (!type)` guard
 /// uses).
 get_type_string :: (
-  fn(t : TypeValue, ctx : *(CodegenContext)) -> String
+  fn(t : TypeValue, ctx : CodegenContext) -> String
 )(
   match(
     get_type_string_opt(t, ctx),
@@ -466,7 +467,7 @@ format_typed_var_name :: (fn(c_type : String, sanitized_name : String) -> String
   s
 });
 get_variable_type_string :: (
-  fn(t : TypeValue, var_name : String, ctx : *(CodegenContext)) -> String
+  fn(t : TypeValue, var_name : String, ctx : CodegenContext) -> String
 )({
   c_ty := get_type_string(t, ctx);
   san := sanitize_for_c_identifier(var_name);
@@ -474,7 +475,7 @@ get_variable_type_string :: (
 });
 /// Convenience overload accepting `str` for the variable name.
 get_variable_type_string_str :: (
-  fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> String
+  fn(t : TypeValue, var_name : str, ctx : CodegenContext) -> String
 )(get_variable_type_string(t, String.from(var_name), ctx));
 /// Deferral variant of `get_variable_type_string`: returns `.None`
 /// when `get_type_string_opt(t, ctx)` misses (i.e. the type is neither
@@ -482,7 +483,7 @@ get_variable_type_string_str :: (
 /// defer to the legacy bootstrap codegen rather than emit an
 /// `int32_t` cast that would be wrong.
 get_variable_type_string_opt :: (
-  fn(t : TypeValue, var_name : String, ctx : *(CodegenContext)) -> Option(String)
+  fn(t : TypeValue, var_name : String, ctx : CodegenContext) -> Option(String)
 )(
   match(
     get_type_string_opt(t, ctx),
@@ -494,7 +495,7 @@ get_variable_type_string_opt :: (
 );
 /// Convenience `str` overload of `get_variable_type_string_opt`.
 get_variable_type_string_opt_str :: (
-  fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> Option(String)
+  fn(t : TypeValue, var_name : str, ctx : CodegenContext) -> Option(String)
 )(get_variable_type_string_opt(t, String.from(var_name), ctx));
 /// C name for the variant `variant_name` of enum `enum_ty`. Mirrors
 /// TS `getEnumVariantCName` in `src/codegen/utils/index.ts`:
@@ -507,11 +508,11 @@ get_variable_type_string_opt_str :: (
 /// by `type_to_string(enum_ty)` in yo-self (TS keys by `enum.id`); the
 /// payload's `c_name` field carries the canonical lower-case form.
 get_enum_variant_c_name :: (
-  fn(enum_ty : TypeValue, variant_name : String, ctx : *(CodegenContext)) -> Option(String)
+  fn(enum_ty : TypeValue, variant_name : String, ctx : CodegenContext) -> Option(String)
 )({
   key := type_to_string(enum_ty);
   match(
-    ctx.*.get_type_c_name(key),
+    ctx.get_type_c_name(key),
     .None => Option(String).None,
     .Some(c_name) => {
       result := c_name.to_uppercase();

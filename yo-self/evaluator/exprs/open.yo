@@ -86,7 +86,7 @@ evaluate_open :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -197,7 +197,7 @@ evaluate_open :: (
               field_val := match(mvals.get(i),.Some(x) => x,.None => EvalValue.UnitVal);
               field_ty := type_of_eval_value(field_val);
               _added := add_variable_to_env(
-                &(next_env),
+                next_env,
                 field_name,
                 field_ty,
                 .Some(field_val),
@@ -237,7 +237,7 @@ evaluate_open :: (
             );
             is_comptime := match(fval_opt,.Some(_) => true,.None => false);
             _added := add_variable_to_env(
-              &(next_env),
+              next_env,
               label,
               fty,
               fval_opt,

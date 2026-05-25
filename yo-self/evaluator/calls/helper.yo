@@ -19,6 +19,7 @@
 //! Note: `getVariablesNeedingDrop` is now ported in full in
 //! `yo-self/env.yo:get_variables_needing_drop`; the prior simplified
 //! stub that lived here has been retired.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -213,7 +214,7 @@ generate_deferred_drop_expressions :: (
   fn(
     variables_to_drop : ArrayList(Variable),
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> Option(ArrayList(AstExpr))
 )({
@@ -261,7 +262,7 @@ validate_function_return_type :: (
     return_type : TypeValue,
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -396,7 +397,7 @@ check_if_function_parameter_matches_argument :: (
     arg_expr_raw : AstExpr,
     callee_env : Environment,
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     runtime_arg_exprs_in_order : ArrayList(AstExpr),
     exn : Exception
   ) -> CheckParamResult
@@ -481,7 +482,7 @@ check_if_function_parameter_matches_argument :: (
     callee_env_r,
     arg_type,
     caller_env_r,
-    &(checked),
+    checked,
     synth_opts,
     exn
   );
@@ -705,7 +706,7 @@ compute_compile_time_signature :: (
 /// or `None` if no entry exists.
 _find_specialization_cache :: (
   fn(
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     func_id : str,
     compile_time_arg_values : ArrayList(EvalValue),
     runtime_parameter_types : ArrayList(TypeValue),
@@ -780,7 +781,7 @@ _find_specialization_cache :: (
 /// Store a specialization in the cache.
 _store_specialization_cache :: (
   fn(
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     func_id : String,
     compile_time_arg_values : ArrayList(EvalValue),
     runtime_parameter_types : ArrayList(TypeValue),
@@ -852,7 +853,7 @@ create_specialized_function_inline :: (
     arg_values : ArgValues,
     callee_env : Environment,
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> EvalValue
 )({
@@ -1044,7 +1045,7 @@ create_specialized_function_inline :: (
           parent_is_ctl := is_control_fn(func_id.as_str());
           body_has_unwind := evaluated_body_contains_unwind(specialized_body);
           if(parent_is_ctl || body_has_unwind, {
-            mark_as_control_fn((&(specialized_func_id)).clone());
+            mark_as_control_fn(specialized_func_id.clone());
           });
           // Store in cache
           _store_specialization_cache(
@@ -1082,7 +1083,7 @@ evaluate_ctl_function_body_inline :: (
     func_type : TypeValue,
     callee_env : Environment,
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> EvalValue
 )({
@@ -1197,8 +1198,8 @@ evaluate_ctl_function_body_inline :: (
                   existing := get_variables_from_env(specialized_env, caller_var.name);
                   if(existing.len() == usize(0), {
                     _add_caller_var_res := add_variable_to_env(
-                      &(specialized_env),
-                      (&(caller_var.name)).clone(),
+                      specialized_env,
+                      caller_var.name.clone(),
                       caller_var.ty,
                       caller_var.value,
                       true,
@@ -1239,10 +1240,10 @@ evaluate_ctl_function_body_inline :: (
   while(runtime(fi2 < n_forall), {
     fl_label := match(forall_labels.get(fi2),.Some(s) => s,.None => String.from(""));
     fl_ty := match(forall_types_list.get(fi2),.Some(t) => t,.None => TypeValue.Unit);
-    ctl_tok := synthetic_token((&(fl_label)).clone(), specialized_env.module_path);
+    ctl_tok := synthetic_token(fl_label.clone(), specialized_env.module_path);
     _add_forall_var_res := add_variable_to_env(
-      &(specialized_env),
-      (&(fl_label)).clone(),
+      specialized_env,
+      fl_label.clone(),
       fl_ty,
       Option(EvalValue).Some(create_type_value(concrete_type_for_forall)),
       true,
@@ -1301,7 +1302,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
   ctl_body_has_unwind := evaluated_body_contains_unwind(ctl_body);
   if(ctl_parent_is_ctl || ctl_body_has_unwind, {
-    mark_as_control_fn((&(ctl_func_id)).clone());
+    mark_as_control_fn(ctl_func_id.clone());
   });
   // Rebuild captures (same as original + forall type bindings).
   ctl_cap_names := ArrayList(String).new();
@@ -1320,7 +1321,7 @@ evaluate_ctl_function_body_inline :: (
   while(runtime(fi3 < n_forall), {
     fl3 := match(forall_labels.get(fi3),.Some(s) => s,.None => String.new());
     ft3 := match(forall_types_list.get(fi3),.Some(t) => t,.None => TypeValue.Unit);
-    ctl_cap_names.push((&(fl3)).clone());
+    ctl_cap_names.push(fl3.clone());
     ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     fi3 = (fi3 + usize(1));
@@ -1334,7 +1335,7 @@ evaluate_ctl_function_body_inline :: (
     ctl_cap_names,
     ctl_cap_tys,
     ctl_cap_vals,
-    (&(ctl_func_id)).clone()
+    ctl_func_id.clone()
   );
   // -------------------------------------------------------------------------
   // Cache the result.
@@ -1344,7 +1345,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_cache_args.push(create_type_value(concrete_type_for_forall));
   _store_specialization_cache(
     ctx,
-    (&(ctl_func_id)).clone(),
+    ctl_func_id.clone(),
     ctl_cache_args,
     ArrayList(TypeValue).new(),
     ctl_func_val,
@@ -1378,7 +1379,7 @@ try_to_call_function_with_arguments :: (
     callee_expr : AstExpr,
     arg_exprs : ArrayList(AstExpr),
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     is_method_call : bool,
     skip_specialization : bool,
     skip_ctfe_execution : bool,
@@ -1537,7 +1538,7 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
         _ := add_variable_to_env(
-          &(callee_env),
+          callee_env,
           flabel,
           ftype,
           Option(EvalValue).Some(forall_val),
@@ -1635,7 +1636,7 @@ try_to_call_function_with_arguments :: (
               callee_env_m,
               et.ty,
               et.env,
-              &(checked_ret),
+              checked_ret,
               synth_ret_opts,
               exn
             );

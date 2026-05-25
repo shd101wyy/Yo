@@ -1,6 +1,8 @@
 import type { Expr } from "../../expr";
+import type { FunctionType } from "../../types/definitions";
 import {
   isComptimeStringType,
+  isFunctionType,
   isNewtypeType,
   isPtrType,
   isSliceType,
@@ -291,9 +293,30 @@ export function generateComptimeValue(
     const cName = context.functions[value.funcId]?.cName;
     if (cName) {
       return cName; // Return the function name as a function pointer
-    } else {
-      return `// Error: No C function name found for function value with ID ${value.funcId}\n`;
     }
+    // io.async / io.await / io.state / io.spawn (and join_handle.await) are
+    // ioBuiltin MARKERS — they have no C function body. Every call site is
+    // inlined into direct runtime calls by codegen, so the field value
+    // stored in an `Io` / `JoinHandle` struct literal is never invoked
+    // through a function pointer. Emit a NULL pointer so the struct
+    // initializer is valid C; if a caller ever did dispatch through the
+    // field it would crash, which is the same failure mode the explicit
+    // injection of `(Io){0}` from main wrapper gives.
+    if (value.type.ioBuiltin) {
+      return "NULL";
+    }
+    return `// Error: No C function name found for function value with ID ${value.funcId}\n`;
+  } else if (
+    value.tag === ValueTag.Unknown &&
+    isFunctionType(value.type) &&
+    (value.type as FunctionType).ioBuiltin
+  ) {
+    // Same as the FunctionValue case above — when an Io/JoinHandle struct
+    // is constructed at a runtime call site, its fields can show up as
+    // UnknownValue placeholders (variableName set to e.g. "__yo_io_async")
+    // rather than fully-resolved FunctionValue. The ioBuiltin markers
+    // are never dispatched through, so NULL is a safe field initializer.
+    return "NULL";
   } else if (isTypeValue(value)) {
     // For type values, we can return the C type name if available
     const type = value.value;

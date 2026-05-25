@@ -39,8 +39,23 @@ export function generateInitializationAssignment(
   indent: string,
   context: CodeGenContext
 ): string | undefined {
-  const lhs = expr.args[0]!;
+  let lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
+
+  // Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;`
+  // wraps the lhs identifier in a `ref(...)` call. The evaluator
+  // has already unwrapped it for type-checking (and tagged the
+  // bound variable with `isRef: true`), but here we still see the
+  // surface AST shape `ref(r) := ...`. Unwrap to the inner atom
+  // so the existing atom-lhs codegen path takes over. The temp-
+  // var-type tweak below uses `isRef` on the bound variable to
+  // pick `T*` instead of `T`.
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.ref, 1)
+  ) {
+    lhs = lhs.args[0]!;
+  }
 
   // Debug: Log all := assignments in state machines
   const functionContext = context as FunctionGenerationContext;
@@ -398,11 +413,38 @@ export function generateInitializationAssignment(
               // Generate temp variable assignment first
               // Use convertedRuntimeType if available (e.g., comptime_string -> str)
               const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type!;
-              const tempVarType = getVariableTypeString(
+              let tempVarType = getVariableTypeString(
                 effectiveType,
                 tempVarName,
                 context
               );
+              // Phase B of plans/ITERATOR_REDESIGN.md — when the RHS is
+              // a call to a `-> ref(T)` function, the C-level result is
+              // `T*` even though the evaluator-level type is `T`.
+              // `attachTempVariableToExpr` marks the call's temp
+              // variable with `isRef: true`; we use that to recover the
+              // pointer shape here. Without this, we'd declare the temp
+              // as `T` and assign `T*` to it, producing the C error
+              // "incompatible pointer to integer conversion".
+              const rhsVars =
+                rhs.$?.env && rhs.$?.variableName
+                  ? getVariablesFromEnv(rhs.$.env, rhs.$.variableName)
+                  : [];
+              if (
+                rhsVars.length > 0 &&
+                rhsVars[rhsVars.length - 1]!.isRef &&
+                !tempVarType.includes("*")
+              ) {
+                // `tempVarType` is `<type> <var>`; insert `*` before the
+                // last space (between type and identifier).
+                const spaceIdx = tempVarType.lastIndexOf(" ");
+                if (spaceIdx > 0) {
+                  tempVarType =
+                    tempVarType.slice(0, spaceIdx) +
+                    "*" +
+                    tempVarType.slice(spaceIdx);
+                }
+              }
               context.emitter.emitLine(
                 `${indent}${tempVarType} = ${rhsExprCode};`
               );
@@ -510,6 +552,23 @@ export function generateInitializationAssignment(
             }
           } else {
             cTypeString = getTypeString(lhs.$.type, context);
+          }
+
+          // Phase B of plans/ITERATOR_REDESIGN.md — a `ref(name) := expr;`
+          // binding's `name` has `isRef: true`. The C-level storage
+          // is `T*` (the same shape as `ref(name) : T` parameters);
+          // subsequent reads of `name` emit `(*name)` via the
+          // existing inout-aware atom codegen, and writes emit
+          // `(*name) = v`.
+          const lhsVars = lhs.$.env
+            ? getVariablesFromEnv(lhs.$.env, varName)
+            : [];
+          if (
+            lhsVars.length > 0 &&
+            lhsVars[lhsVars.length - 1]!.isRef &&
+            !cTypeString.endsWith("*")
+          ) {
+            cTypeString = `${cTypeString}*`;
           }
 
           // Skip unit type variables (zero-sized types, optimized away like Rust)

@@ -39,14 +39,32 @@ import { typeContainsSomeType } from "../../types/utils";
  * A struct whose only SomeType content lives inside function-typed fields
  * is still registerable as a concrete C type — the fn-ptr fields get
  * type-erased at the C ABI (forall functions become void*-cast call sites).
- * IO, Exception, and other effect-record structs match this shape.
+ * Io, Exception, and other effect-record structs match this shape.
  */
-function structSomeTypeIsOnlyInFunctionFields(type: Type): boolean {
+function structSomeTypeIsOnlyInFunctionFields(
+  type: Type,
+  visited: Set<string> = new Set()
+): boolean {
   if (!isStructType(type)) return false;
+  if (visited.has(type.id)) return true; // cyclic reference is fine
+  visited.add(type.id);
   for (const field of type.fields) {
     // Function-typed fields are fine — they become fn-ptrs in C.
     if (isFunctionType(field.type)) continue;
-    // Non-function field that contains SomeType blocks registration.
+    // Non-function field is OK if it itself is a struct whose SomeType
+    // content is also confined to fn-ptr fields (recursive check).
+    // This covers effect-bundle structs like `IoExn :: struct(io : Io,
+    // exn : Exception)` where the nested Io/Exception structs hide
+    // their forall behind function fields. Without this recursion,
+    // such bundles can't be registered as C types and any code that
+    // constructs / returns them fails codegen with
+    // "No C type name found for struct …".
+    if (
+      isStructType(field.type) &&
+      structSomeTypeIsOnlyInFunctionFields(field.type, visited)
+    ) {
+      continue;
+    }
     if (typeContainsSomeType(field.type)) return false;
   }
   return true;
@@ -356,7 +374,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
   // Skip collecting any types that contain SomeType (generic type parameters).
   // Exception: struct types whose only SomeType content lives inside
-  // function-typed fields (e.g., IO, Exception with forall fn-ptr fields).
+  // function-typed fields (e.g., Io, Exception with forall fn-ptr fields).
   // Such structs are concrete at C level — the fn-ptr fields are
   // type-erased at the C ABI; the containing struct is registerable.
   if (typeContainsSomeType(type)) {

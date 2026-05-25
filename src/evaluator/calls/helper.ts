@@ -40,6 +40,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import {
   createExprType,
   createFunctionType,
+  createPtrType,
   createSomeType,
   createUnitType,
 } from "../../types/creators";
@@ -60,6 +61,7 @@ import {
   isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
+  isPtrType,
   isSourceNamespaceType,
   isSomeType,
   isStructType,
@@ -103,7 +105,11 @@ import type {
 import { _evaluateExpression } from "../exprs/_expr";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../trait-checking";
 import {
   applyWhereClauseConstraints,
   evaluateFunctionParameterTypeAgain,
@@ -362,7 +368,7 @@ export function checkIfFunctionParameterMatchesArgument({
     // This is normal function call parameter
     else {
       // For io.await, evaluate the argument WITHOUT expectedType so the argument
-      // retains its natural type (e.g., IOFuture = Impl(Concrete(...), Future(i32))).
+      // retains its natural type (e.g., IoFuture = Impl(Concrete(...), Future(i32))).
       // This prevents the expected SomeType from coercing the arg type, which would
       // make synthesis unable to resolve forall type parameter T from Future(T).
       const expectedType =
@@ -566,6 +572,13 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
       isOwningTheRcValue: parameter.isOwningTheRcValue,
+      // inout(name) : T parameters — propagate the flag so the
+      // callee binding accepts `name = v` reassignment. Required
+      // for both runtime inout (codegen lowers to T*) and
+      // comptime(inout(...)) inout (comptime mutations propagate
+      // via the evaluator's binding update path).
+      isRef: parameter.isRef || undefined,
+      isReassignable: parameter.isRef,
     },
   });
   calleeEnv = nextEnv;
@@ -1296,6 +1309,56 @@ Got:   ${typeToString(typeValue.type)}`,
   // is evaluated with async-block context (allowing `await` inside).
   if (functionType.ioBuiltin === "io_async") {
     context = { ...context, isInsideIoAsyncCall: true };
+
+    // Pre-bind io.async's forall(T, E) from the expected return type when
+    // available. io.async's signature is
+    //   fn(forall(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
+    // and the closure argument's parameter type references E. Without this
+    // binding the closure body walks with `e : SomeType_E` and field
+    // accesses like `e.io.await(...)` fail (E has no `.io` field at
+    // compile time). The generic `synthesizeTypes` pass above sometimes
+    // catches this, but for io.async specifically the structural
+    // unification through requiredTraits hops can silently drop the
+    // bindings — handle it directly here when we can read T and E off the
+    // expected Impl(Future(T_concrete, E_concrete)) at the call site.
+    if (context.expectedType?.type) {
+      const expectedFutureTrait = extractFutureTraitFromType(
+        context.expectedType.type
+      );
+      if (expectedFutureTrait) {
+        const tConcrete = expectedFutureTrait.isFuture.outputType;
+        const eConcrete = expectedFutureTrait.isFuture.effect?.type;
+        for (const forallParam of functionType.forallParameters) {
+          let bound: Type | undefined;
+          if (forallParam.label === "T") bound = tConcrete;
+          else if (forallParam.label === "E") bound = eConcrete;
+          if (!bound) continue;
+          const existing = getVariablesFromEnv(calleeEnv, forallParam.label);
+          // Only bind if not already bound to a concrete (non-SomeType) value.
+          const latest = existing[existing.length - 1];
+          const latestVal = latest?.value?.[0];
+          const alreadyConcrete =
+            latestVal && isTypeValue(latestVal) && !isSomeType(latestVal.value);
+          if (alreadyConcrete) continue;
+          const value = createTypeValue(bound);
+          const { env: nextEnv } = addVariableToEnv({
+            env: calleeEnv,
+            variable: {
+              name: forallParam.label,
+              type: value.type,
+              isCompileTimeOnly: true,
+              value: [value],
+              token: PlaceholderToken,
+              initializedAtToken: PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+            allowVariableShadowing: true,
+          });
+          calleeEnv = nextEnv;
+        }
+      }
+    }
   }
 
   // Early where-clause application: Apply where-clause constraints BEFORE argument
@@ -1466,8 +1529,26 @@ Got:   ${typeToString(typeValue.type)}`,
   // Skip synthesis for macro functions (isUnquote return type) because the actual
   // return type will be determined after macro expansion.
   if (context.expectedType && !functionType.return.isUnquote) {
+    // For `-> ref(T)` callees, the user-visible return type is `T` but at
+    // the C ABI the call evaluates to `*(T)`. Only lift to the Ptr-shaped
+    // form when the surrounding expected type IS itself a Ptr — which
+    // happens when the body of an enclosing `-> ref(T)` function has had
+    // its expected type lowered to `*(T)` (see function-type.ts
+    // `bodyExpectedType`). When the caller asks for the raw `T` (auto-
+    // deref'd by the consumer, e.g. binding the call result to a value
+    // variable, or comparing in an arm), leave it raw. Skip when
+    // returnType is already a Ptr — a generic forall T may have been
+    // pre-resolved upstream to `*(JsonValue)` and double-wrapping would
+    // re-introduce the mismatch (std/encoding/json's Index.index calling
+    // `values.project(...)`).
+    const returnTypeForSynth: Type =
+      functionType.return.isRef &&
+      !isPtrType(returnType) &&
+      isPtrType(context.expectedType.type)
+        ? createPtrType(returnType)
+        : returnType;
     const { expectedEnv } = synthesizeTypes(
-      { type: returnType, env: calleeEnv },
+      { type: returnTypeForSynth, env: calleeEnv },
       { type: context.expectedType.type, env: context.expectedType.env }
     );
     calleeEnv = expectedEnv;
@@ -1762,7 +1843,7 @@ Got:   ${typeToString(typeValue.type)}`,
   const hasUnknownImplicitArgs = argValues_.implicitArgs?.some((arg) =>
     isUnknownValue(arg.value)
   );
-  // Allow specialization when the only unknown implicit args are record effects (like IO)
+  // Allow specialization when the only unknown implicit args are record effects (like Io)
   // AND the call has runtime parameters with SomeType (e.g., Impl(Future(...)))
   // that need concrete type resolution from the call site.
   // This avoids unnecessary re-evaluation for functions where specialization
@@ -1815,7 +1896,7 @@ Got:   ${typeToString(typeValue.type)}`,
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).
     // This prevents creating broken specializations that reference unresolved functions.
-    // Exception 1: allow when only effect-record implicit args (like IO) are unknown AND
+    // Exception 1: allow when only effect-record implicit args (like Io) are unknown AND
     // the call has SomeType runtime parameters that benefit from specialization.
     // Exception 2: allow when the only Unknown args come from effect row spread
     // parameters — those are forwarded effects that the body may not reference.

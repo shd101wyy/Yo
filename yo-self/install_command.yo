@@ -10,7 +10,7 @@ open(import("std/fmt"));
 { env } :: import("std/env");
 { cwd } :: import("std/env");
 { Path } :: import("std/path");
-{ AnyError, Exception, IOErr } :: import("std/error");
+{ AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Command, ExitStatus, Output } :: import("std/process/command");
 { exists, read_file, write_file } :: import("std/fs/file");
@@ -446,9 +446,9 @@ append_dep_to_deps_file :: (
     deps_path : Path,
     dep_line : String,
     dep_name : str,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(bool, IOErr))
+  ) -> Impl(Future(bool, IoExn))
 )(
   io.async((io, exn) => {
     // Create deps.yo from template if it does not exist yet
@@ -475,9 +475,9 @@ append_dep_to_deps_file :: (
 resolve_default_branch :: (
   fn(
     url : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     cmd := Command.new(String.from("git"));
@@ -535,9 +535,9 @@ resolve_latest_ref :: (
   fn(
     url : String,
     verbose : bool,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(String, String), IOErr))
+  ) -> Impl(Future(Result(String, String), IoExn))
 )(
   io.async((io, exn) => {
     // Disable interactive credential prompts
@@ -592,7 +592,7 @@ resolve_latest_ref :: (
 _print_add_import_guidance :: (fn(build_path : Path, project_dir : Path) -> unit)({
   build_exists_sync := true; // build_path was verified above
   if(build_exists_sync, {
-    // Read build.yo synchronously would require IO — skip check and always print guidance.
+    // Read build.yo synchronously would require Io — skip check and always print guidance.
     // (In practice the user already has deps.yo wired if they ran install before.)
     println("If you haven't already, add the following to your build.yo:");
     println("  { imports } :: import(\"./deps.yo\");");
@@ -613,9 +613,9 @@ _print_add_import_guidance :: (fn(build_path : Path, project_dir : Path) -> unit
 run_install :: (
   fn(
     options : InstallOptions,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     // 1. Parse package specifier

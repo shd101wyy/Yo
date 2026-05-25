@@ -15,6 +15,7 @@
 //! assert((xs.head().unwrap() == i32(1)), "head is 1");
 //! assert((xs.len() == usize(3)), "length is 3");
 //! ```
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
 { memcpy } :: import("../libc/string.yo");
@@ -240,6 +241,38 @@ impl(
         );
       });
       true
+    })
+  )
+);
+/// Index trait — `list(idx)` walks the chain and returns the element at
+/// `idx`, panicking on out-of-bounds. O(n). The Rc-managed `ListNode`
+/// keeps the value field on the heap, so `&(node._value)` is a valid
+/// pointer for the immediate read; the dispatcher inlines and
+/// dereferences before any drop runs.
+impl(
+  forall(T : Type),
+  where(T <: Send),
+  List(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+      assert(idx < self._len, "imm.List: index out of bounds");
+      (current : Option(ListNode(T))) = self._head;
+      i := usize(0);
+      while(runtime(true), {
+        match(
+          current,
+          .Some(node) => {
+            if(i == idx, {
+              return(unsafe(&(node._value)));
+            });
+            current = node._next;
+            i = (i + usize(1));
+          },
+          .None => panic("imm.List: unreachable past length check")
+        );
+      });
+      panic("imm.List: index loop exited without return")
     })
   )
 );

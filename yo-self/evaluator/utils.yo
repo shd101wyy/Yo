@@ -42,6 +42,7 @@
 //! `is_temp_variable_name`, `random_id`, `generate_temp_variable_name_prefix`)
 //! were relocated to `yo-self/utils.yo` (mirroring `src/utils.ts`) — that
 //! split was safe because those helpers have no env/value dependencies.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -105,7 +106,7 @@ attach_temp_variable_to_expr :: (
   fn(
     expr : AstExpr,
     is_owning_the_rc_value : bool,
-    ctx : *(EvalContext)
+    ctx : EvalContext
   ) -> unit
 )({
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
@@ -155,7 +156,7 @@ attach_temp_variable_to_expr :: (
           }, {
             // Variable name exists but not in env: add it to begin-block frame.
             ___ := add_variable_to_begin_block_frame(
-              &(info.env),
+              info.env,
               existing_name,
               effective_ty,
               var_value,
@@ -177,7 +178,7 @@ attach_temp_variable_to_expr :: (
           // Create a new temp variable.
           temp_name := generate_new_temp_variable_name(info.env.module_path);
           ___ := add_variable_to_begin_block_frame(
-            &(info.env),
+            info.env,
             temp_name,
             effective_ty,
             var_value,
@@ -225,7 +226,7 @@ find_rc_value_owner_relationship :: (
   fn(
     rhs : AstExpr,
     env : Environment,
-    ctx : *(EvalContext)
+    ctx : EvalContext
   ) -> Option(Variable)
 )({
   name_opt := match(
@@ -295,7 +296,7 @@ throw_expr_is_implicit_variable_error :: (
   fn(
     rhs : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -367,7 +368,7 @@ require_expr_not_consumed :: (
   fn(
     rhs : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -436,12 +437,12 @@ expect_expr_to_have_been_evaluated :: (
   fn(
     expr : AstExpr,
     error_message : String,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> ExprInfo
 )(
   match(
-    expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(expr)),
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
     .Some(info) => info,
     .None => {
       entries := ArrayList(TokenAndError).new();
@@ -482,7 +483,7 @@ set_expr_as_consumed :: (
     expr : AstExpr,
     env : Environment,
     allow_consume_again : bool,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -563,7 +564,7 @@ set_expr_as_consumed :: (
 set_expr_as_needs_to_call_dup :: (
   fn(
     _rhs : AstExpr,
-    _ctx : *(EvalContext)
+    _ctx : EvalContext
   ) -> unit
 )(());
 // ---------------------------------------------------------------------------
@@ -591,7 +592,7 @@ consume_case_body_temp_var :: (
   fn(
     evaluated_body : AstExpr,
     env : Environment,
-    ctx : *(EvalContext)
+    ctx : EvalContext
   ) -> unit
 )({
   var_name_opt := match(
@@ -641,7 +642,7 @@ merge_and_check_envs :: (
   fn(
     env : Environment,
     bodies : ArrayList(AstExpr),
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> Environment
 )({
@@ -1245,7 +1246,7 @@ parse_raw_float :: (fn(raw : String) -> Option(f64))({
   cs := raw.to_cstr();
   match(
     cs.ptr(),
-    .Some(ptr) =>.Some(atof(*(char)(ptr))),
+    .Some(ptr) =>.Some(unsafe(atof(*(char)(ptr)))),
     .None =>.None
   )
 });

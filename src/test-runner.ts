@@ -132,15 +132,21 @@ export interface TestRunSummary {
 // See plans/WASM_SUPPORT.md for details.
 
 /**
- * Check if a test file has a skip directive for the given WASM target.
+ * Check if a test file has a `pragma(Pragma.SkipWasm*)` declaration
+ * matching the given WASM target.
  *
- * Directives:
- *   `// @skip_wasm`              — skip on ALL WASM targets
- *   `// @skip_wasm32-emscripten` — skip when target is wasm32-emscripten
- *   `// @skip_wasm32-wasi`       — skip when target is wasm32-wasi
+ * Pragmas:
+ *   `pragma(Pragma.SkipWasm);`              — skip on ALL WASM targets
+ *   `pragma(Pragma.SkipWasm32Emscripten);`  — skip wasm32-emscripten
+ *   `pragma(Pragma.SkipWasm32Wasi);`        — skip wasm32-wasi
  *
- * Scans the first 20 lines of the file for the comment annotation.
- * This is intentionally a fast text scan (no tokenization needed).
+ * Scans the first 50 lines of the file with a regex. We intentionally
+ * don't tokenize/evaluate — this runs before the evaluator on every
+ * test file, so it must stay cheap. The regex tolerates whitespace
+ * and is permissive enough to match the call from anywhere in a top
+ * comment-stripped header (after a doc-comment block, etc.). See
+ * `pragma(...)` in `src/evaluator/builtins/pragma.ts` for the
+ * authoritative semantic recognition.
  */
 function hasSkipDirectiveForTarget(
   filePath: string,
@@ -148,15 +154,16 @@ function hasSkipDirectiveForTarget(
 ): boolean {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
-    const lines = content.split("\n", 20);
-    const directive = isTargetStandaloneWasi(target)
-      ? "@skip_wasm32-wasi"
-      : "@skip_wasm32-emscripten";
-    return lines.some(
-      (line) =>
-        line.includes(directive) ||
-        (line.includes("@skip_wasm") && !line.includes("@skip_wasm32-"))
-    );
+    const lines = content.split("\n").slice(0, 50);
+    const targetVariant = isTargetStandaloneWasi(target)
+      ? "SkipWasm32Wasi"
+      : "SkipWasm32Emscripten";
+    // Match `pragma(Pragma.X)` allowing arbitrary intra-call whitespace.
+    const variantPattern = (variant: string) =>
+      new RegExp(`pragma\\s*\\(\\s*Pragma\\s*\\.\\s*${variant}\\s*\\)`);
+    const skipAll = variantPattern("SkipWasm");
+    const skipTargeted = variantPattern(targetVariant);
+    return lines.some((line) => skipTargeted.test(line) || skipAll.test(line));
   } catch {
     return false;
   }
@@ -333,18 +340,28 @@ function generateBatchedTestProgram(
 
   // Import env module for env var dispatch (unique name to avoid conflicts)
   lines.push('__yo_batch_env :: import("std/env");');
-  // Import Exception so the generated main signature can reference it
-  lines.push('__yo_test_exn :: import("std/error");');
   lines.push("");
 
   // Inline all test bodies into main's cond branches.
   // We can't use separate functions because tests with algebraic effects
   // (unwind/given) need to be in the same codegen scope as main.
   //
-  // main declares `io : IO, exn : Exception` so test bodies can reference
-  // `io` (for io.await/io.async) and `exn` (for exn.throw) directly. The
-  // C main wrapper injects the runtime values for these params.
-  lines.push(`main :: (fn(io : IO, exn : __yo_test_exn.Exception) -> unit)({`);
+  // main takes no parameters. We expose `io` as a local binding to
+  // `__yo_builtin_io` (the Io instance defined in `std/prelude.yo`) so
+  // test bodies that use `io.async`/`io.await`/`io.spawn`/`io.state`
+  // keep compiling unchanged.
+  //
+  // We tried declaring `io : Io` directly so the body could reference
+  // the parameter — this works in isolation but regresses 3 Thread /
+  // Worker async tests where the closure captures `io`. Pre-fix, those
+  // tests use `__yo_builtin_io` via the comptime alias path which the
+  // capture-struct codegen handles differently than a runtime parameter.
+  // Keep the alias form until the capture-of-runtime-io path is fixed.
+  //
+  // Tests that throw exceptions construct their own `Exception` value
+  // locally (e.g. `tests/error.test.yo`); we don't inject one here.
+  lines.push(`main :: (fn() -> unit)({`);
+  lines.push("  io :: __yo_builtin_io;");
   lines.push("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),");
   lines.push("    .Some(__yo_test_idx) => cond(");
   for (let i = 0; i < tests.length; i++) {
@@ -518,6 +535,10 @@ __attribute__((constructor)) static void _yo_increase_stack_limit(void) {
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
           "-fno-strict-aliasing",
+          // Define signed-integer overflow as two's-complement wrap.
+          // See plans/MEMORY_SAFETY.md Limitation #6 and the matching
+          // codegen/index.ts setting for the rationale.
+          "-fwrapv",
           // Increase bracket nesting limit (default 256 is too low for large
           // batch test binaries that include the full yo-self evaluator).
           // Not supported by MSVC, so guard on !isMSVC is applied below.
@@ -1216,15 +1237,47 @@ async function runTestsSequentially(
     }
   };
 
-  const batchCount = Math.ceil(testsToRun.length / options.testBatchSize);
-  for (let batchIndex = 0; batchIndex < batchCount; batchIndex++) {
-    if (bailed) break;
+  // Worklist of batches still to compile. Initially seeded with one
+  // batch per `testBatchSize` slice of testsToRun. If a batch fails
+  // to compile AND has more than one test, we don't report all of its
+  // tests as failed (which conflates a single bad test with all the
+  // others sharing its batch); instead we push the batch back onto the
+  // worklist as two halves and retry. This bottoms out at single-test
+  // batches, where compile failure is genuinely that one test's fault.
+  //
+  // Bisection has a `depth` to cap how many times a failing batch can
+  // be split before we give up and report its tests as failed. For
+  // test files where ALL tests share the same compile error (e.g. all
+  // 30 imm_threading tests trip the same closure-body-emission bug),
+  // unbounded bisection wastes compile time without ever finding a
+  // mixed batch. Cap depth so the worst-case cost for an all-failing
+  // N-test batch is bounded — once depth is exhausted, fall through
+  // to the per-test "report failed" path with the original error
+  // message. The cap is chosen as `ceil(log2(testBatchSize)) + 1` so
+  // a full bisect of a maximally-sized initial batch can still reach
+  // single-test resolution; that bound only matters as a guard
+  // against pathological re-compile storms.
+  type WorklistEntry = { tests: TestToRun[]; bisectDepth: number };
+  const MAX_BISECT_DEPTH = Math.max(
+    4,
+    Math.ceil(Math.log2(Math.max(2, options.testBatchSize))) + 1
+  );
+  const remainingBatches: WorklistEntry[] = [];
+  for (
+    let batchStart = 0;
+    batchStart < testsToRun.length;
+    batchStart += options.testBatchSize
+  ) {
+    remainingBatches.push({
+      tests: testsToRun.slice(batchStart, batchStart + options.testBatchSize),
+      bisectDepth: 0,
+    });
+  }
 
-    const batchStart = batchIndex * options.testBatchSize;
-    const batchTests = testsToRun.slice(
-      batchStart,
-      batchStart + options.testBatchSize
-    );
+  while (remainingBatches.length > 0) {
+    if (bailed) break;
+    const entry = remainingBatches.shift()!;
+    const batchTests = entry.tests;
     const firstTest = batchTests[0]!;
 
     let batchResult: BatchCompileResult;
@@ -1239,6 +1292,23 @@ async function runTestsSequentially(
         options.noSanitize
       );
     } catch (compileError) {
+      // If this batch has more than one test AND we haven't blown the
+      // bisect-depth budget, the compile error might be caused by a
+      // single bad test poisoning the whole batch. Split it in half
+      // and retry. The depth cap prevents pathological re-compile
+      // storms when every test shares the same fatal error.
+      if (batchTests.length > 1 && entry.bisectDepth < MAX_BISECT_DEPTH) {
+        const mid = Math.ceil(batchTests.length / 2);
+        // Unshift in order so the first half runs next, then the second.
+        remainingBatches.unshift(
+          {
+            tests: batchTests.slice(0, mid),
+            bisectDepth: entry.bisectDepth + 1,
+          },
+          { tests: batchTests.slice(mid), bisectDepth: entry.bisectDepth + 1 }
+        );
+        continue;
+      }
       const errorMsg =
         compileError instanceof Error
           ? compileError.message
@@ -1258,10 +1328,8 @@ async function runTestsSequentially(
 
     try {
       if (options.profile && batchResult.yoCompileMs != null) {
-        const batchLabel =
-          batchCount === 1 ? "batch" : `batch ${batchIndex + 1}/${batchCount}`;
         console.log(
-          `  ${colors.dim}${batchLabel}: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${batchTests.length} tests)${colors.reset}`
+          `  ${colors.dim}batch: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${batchTests.length} tests)${colors.reset}`
         );
       }
 
@@ -1319,13 +1387,13 @@ export async function runTests(
   }
   const isWasmBuild = wasmTarget !== undefined;
 
-  // Filter out files with target-specific skip directives
+  // Filter out files with target-specific skip pragmas
   let skippedTests = 0;
   let filteredTestFiles = testFiles;
   if (isWasmBuild && wasmTarget) {
-    const directive = isTargetStandaloneWasi(wasmTarget)
-      ? "@skip_wasm32-wasi"
-      : "@skip_wasm32-emscripten";
+    const pragmaVariant = isTargetStandaloneWasi(wasmTarget)
+      ? "pragma(Pragma.SkipWasm32Wasi)"
+      : "pragma(Pragma.SkipWasm32Emscripten)";
     filteredTestFiles = [];
     for (const filePath of testFiles) {
       if (hasSkipDirectiveForTarget(filePath, wasmTarget)) {
@@ -1336,7 +1404,7 @@ export async function runTests(
     }
     if (skippedTests > 0) {
       console.log(
-        `${colors.yellow}Skipping ${skippedTests} test file(s) with ${directive}${colors.reset}\n`
+        `${colors.yellow}Skipping ${skippedTests} test file(s) with ${pragmaVariant}${colors.reset}\n`
       );
     }
   }

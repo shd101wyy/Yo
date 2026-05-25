@@ -23,6 +23,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { type EvaluatorContext } from "../context";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { evaluateRecordField } from "../types/record";
 import { evaluateExpression } from "./expr";
 
@@ -39,6 +40,27 @@ export function evaluateCInclude({
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected c_include, got ${expr.tag}`,
+    });
+  }
+
+  // Privilege gate (mirrors evaluateExtern). `c_include(...)` brings
+  // C header symbols into scope as `extern "c"` declarations; safe
+  // code (no `pragma(Pragma.AllowUnsafe);`) must not be able to do
+  // this. The call-site gate in `function.ts` would catch any actual
+  // call later, but type-level uses (referencing an imported extern
+  // Type in a struct field or trait bound) would slip through.
+  if (!isImplicitlyUnsafeCapableFile(expr.token.modulePath)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'c_include(...)' is not available in safe code.
+
+C header imports declare 'extern "c"' symbols, which are outside Yo's
+type-checking reach. To use them, declare at the top of this file:
+
+    pragma(Pragma.AllowUnsafe);
+
+User code should normally call stdlib wrappers (e.g. functions in
+'std/sys', 'std/fs') instead of pulling in C headers directly.`,
     });
   }
 

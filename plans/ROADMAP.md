@@ -16,7 +16,7 @@ The roadmap from 2024 is now revised and updated for 2025, based on the new desi
 ### 2025 - October
 
 - [x] Async/await stackless coroutine design and evaluator/codegen implementation.
-- [x] Async IO design.
+- [x] Async Io design.
 
 ### To be considered
 

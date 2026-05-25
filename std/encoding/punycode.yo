@@ -12,6 +12,7 @@
 //! ascii_domain := to_ascii(`münchen.de`);  // "xn--mnchen-3ya.de"
 //! unicode_domain := to_unicode(ascii_domain);  // "münchen.de"
 //! ```
+pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 // Punycode constants (RFC 3492 section 5)
@@ -53,25 +54,25 @@ _adapt :: (fn(delta_val : i32, num_points : i32, first_time : bool) -> i32)({
   k + ((((_BASE - _TMIN) + i32(1)) * d) / (d + _SKEW))
 });
 // Encode a single Unicode code point as UTF-8 bytes.
-_encode_codepoint :: (fn(cp : i32, out : *(ArrayList(u8))) -> unit)(
+_encode_codepoint :: (fn(cp : i32, out : ArrayList(u8)) -> unit)(
   cond(
     (cp < i32(0x80)) => {
-      out.*.push(u8(cp));
+      out.push(u8(cp));
     },
     (cp < i32(0x800)) => {
-      out.*.push(u8(i32(0xC0) | (cp >> i32(6))));
-      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
+      out.push(u8(i32(0xC0) | (cp >> i32(6))));
+      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
     },
     (cp < i32(0x10000)) => {
-      out.*.push(u8(i32(0xE0) | (cp >> i32(12))));
-      out.*.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
-      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
+      out.push(u8(i32(0xE0) | (cp >> i32(12))));
+      out.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
+      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
     },
     true => {
-      out.*.push(u8(i32(0xF0) | (cp >> i32(18))));
-      out.*.push(u8(i32(0x80) | ((cp >> i32(12)) & i32(0x3F))));
-      out.*.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
-      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
+      out.push(u8(i32(0xF0) | (cp >> i32(18))));
+      out.push(u8(i32(0x80) | ((cp >> i32(12)) & i32(0x3F))));
+      out.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
+      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
     }
   )
 );
@@ -82,7 +83,7 @@ _string_to_codepoints :: (fn(s : String) -> ArrayList(i32))({
   (i : usize) = usize(0);
   (blen : usize) = bytes.len();
   while(i < blen, {
-    (b : i32) = i32(bytes.get(i).unwrap());
+    (b : i32) = i32(bytes(i));
     (cp : i32) = i32(0);
     (size : usize) = usize(1);
     cond(
@@ -108,7 +109,7 @@ _string_to_codepoints :: (fn(s : String) -> ArrayList(i32))({
     (j : usize) = usize(1);
     while(j < size, {
       if((i + j) < blen, {
-        cp = ((cp << i32(6)) | (i32(bytes.get(i + j).unwrap()) & i32(0x3F)));
+        cp = ((cp << i32(6)) | (i32(bytes(i + j)) & i32(0x3F)));
       });
       j = (j + usize(1));
     });
@@ -127,7 +128,7 @@ punycode_decode :: (fn(input : String) -> Option(String))({
   (basic_end : i32) = i32(-(1));
   (j : i32) = (input_len - i32(1));
   while((j >= i32(0)) && (basic_end < i32(0)), {
-    if(i32(bytes.get(usize(j)).unwrap()) == i32(0x2D), {
+    if(i32(bytes(usize(j))) == i32(0x2D), {
       basic_end = j;
     });
     j = (j - i32(1));
@@ -139,7 +140,7 @@ punycode_decode :: (fn(input : String) -> Option(String))({
   );
   (bi : i32) = i32(0);
   while(bi < basic_length, {
-    (cp : i32) = i32(bytes.get(usize(bi)).unwrap());
+    (cp : i32) = i32(bytes(usize(bi)));
     if(cp >= i32(0x80), {
       return(.None);
     });
@@ -162,7 +163,7 @@ punycode_decode :: (fn(input : String) -> Option(String))({
       if(idx >= input_len, {
         return(.None);
       });
-      (digit : i32) = _decode_digit(i32(bytes.get(usize(idx)).unwrap()));
+      (digit : i32) = _decode_digit(i32(bytes(usize(idx))));
       idx = (idx + i32(1));
       if(digit < i32(0), {
         return(.None);
@@ -198,7 +199,7 @@ punycode_decode :: (fn(input : String) -> Option(String))({
   (result_bytes : ArrayList(u8)) = ArrayList(u8).new();
   (ri : usize) = usize(0);
   while(ri < output.len(), {
-    _encode_codepoint(output.get(ri).unwrap(), &(result_bytes));
+    _encode_codepoint(output(ri), result_bytes);
     ri = (ri + usize(1));
   });
   .Some(String.from_bytes(result_bytes))
@@ -212,7 +213,7 @@ punycode_encode :: (fn(input : String) -> String)({
   (basic_count : i32) = i32(0);
   (ci : i32) = i32(0);
   while(ci < cp_count, {
-    (cp : i32) = cps.get(usize(ci)).unwrap();
+    (cp : i32) = cps(usize(ci));
     if(cp < i32(0x80), {
       out.push(u8(cp));
       basic_count = (basic_count + i32(1));
@@ -231,7 +232,7 @@ punycode_encode :: (fn(input : String) -> String)({
     (m : i32) = i32(0x7FFFFFFF);
     (mi : i32) = i32(0);
     while(mi < cp_count, {
-      (cp : i32) = cps.get(usize(mi)).unwrap();
+      (cp : i32) = cps(usize(mi));
       if((cp >= n) && (cp < m), {
         m = cp;
       });
@@ -241,7 +242,7 @@ punycode_encode :: (fn(input : String) -> String)({
     n = m;
     (ei : i32) = i32(0);
     while(ei < cp_count, {
-      (cp : i32) = cps.get(usize(ei)).unwrap();
+      (cp : i32) = cps(usize(ei));
       if(cp < n, {
         delta = (delta + i32(1));
       });
@@ -283,7 +284,7 @@ to_unicode :: (fn(hostname : String) -> String)({
   (result : String) = ``;
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    (part : String) = parts.get(pi).unwrap();
+    (part : String) = parts(pi);
     if(pi > usize(0), {
       result = `${result}.`;
     });
@@ -315,7 +316,7 @@ to_ascii :: (fn(hostname : String) -> String)({
   (result : String) = ``;
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    (part : String) = parts.get(pi).unwrap();
+    (part : String) = parts(pi);
     if(pi > usize(0), {
       result = `${result}.`;
     });
@@ -324,7 +325,7 @@ to_ascii :: (fn(hostname : String) -> String)({
     (bytes : ArrayList(u8)) = part.as_bytes();
     (bi : usize) = usize(0);
     while(bi < bytes.len(), {
-      if(i32(bytes.get(bi).unwrap()) >= i32(0x80), {
+      if(i32(bytes(bi)) >= i32(0x80), {
         has_non_ascii = true;
       });
       bi = (bi + usize(1));

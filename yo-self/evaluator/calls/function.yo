@@ -11,6 +11,7 @@
 //!
 //! Complex dispatch (overloads, CTFE, method calls, trait dispatch, macros)
 //! still deferred to Phase 4.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -103,7 +104,7 @@ _try_find_receiver_method :: (
   fn(
     callee : AstExpr,
     env : Environment,
-    ctx : *(EvalContext)
+    ctx : EvalContext
   ) -> Option(ReceiverMethodResult)
 )({
   // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
@@ -141,7 +142,7 @@ _try_find_receiver_method :: (
   );
   // 3. Method name token.
   method_tok := ast_expr_token(method_name_expr);
-  method_name := (&(method_tok.value)).clone();
+  method_name := method_tok.value.clone();
   // 4. Delegate to env.yo's full receiver-method lookup. It handles
   //    pointer auto-deref, the trait-method registry (direct +
   //    impl'd), the generic-impl fallback, and the
@@ -186,7 +187,7 @@ evaluate_function_call :: (
     env : Environment,
     given_type : TypeValue,
     given_value : Option(EvalValue),
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -429,7 +430,7 @@ evaluate_function_call :: (
             // Treat default UnknownVal fields as compile-time placeholders (mirrors
             // TS createUnknownValue's default `isRuntimeOnly: false/undefined`).
             // Only `.None` positions (no value at all) make the struct non-comptime.
-            // This lets `__yo_builtin_io :: IO(async : __yo_io_async, ...)` in the
+            // This lets `__yo_builtin_io :: Io(async : __yo_io_async, ...)` in the
             // prelude evaluate to a comptime StructVal even though extern-fn fields
             // carry UnknownVal values.
             (all_known_s : bool) = true;
@@ -874,7 +875,7 @@ evaluate_function_call :: (
           cap_v := match(cap_vals.get(cap_i),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
           is_ct_only := match(cap_v,.Some(_) => true,.None => false);
           _add_cap := add_variable_to_env(
-            &(fresh_env),
+            fresh_env,
             cn,
             ct,
             cap_v,
@@ -900,7 +901,7 @@ evaluate_function_call :: (
           random_id(env.module_path)
         );
         _add_recur := add_variable_to_env(
-          &(fresh_env),
+          fresh_env,
           String.from("__recur_fn"),
           t_unit(),
           Option(EvalValue).Some(fv_for_recur),
@@ -927,7 +928,7 @@ evaluate_function_call :: (
                 .None => new_expr_info(env, t_unit())
               );
               _add_forall := add_variable_to_env(
-                &(fresh_env),
+                fresh_env,
                 fa_name,
                 TypeValue.TypeUni(usize(0)),
                 Option(EvalValue).Some(EvalValue.TypeVal(box(arg_info.ty))),
@@ -951,7 +952,7 @@ evaluate_function_call :: (
           arg_info := match(evaled_arg_infos.get(pi),.Some(i) => i,.None => new_expr_info(env, t_unit()));
           is_ct := match(arg_info.value,.Some(_) => true,.None => false);
           var_opt := add_variable_to_env(
-            &(fresh_env),
+            fresh_env,
             pname,
             arg_info.ty,
             arg_info.value,
@@ -977,7 +978,7 @@ evaluate_function_call :: (
           ev_info := match(evaled_arg_infos.get(n_p + evi),.Some(i) => i,.None => new_expr_info(env, t_unit()));
           is_ct_ev := match(ev_info.value,.Some(_) => true,.None => false);
           _add_ev := add_variable_to_env(
-            &(fresh_env),
+            fresh_env,
             ev_name,
             ev_info.ty,
             ev_info.value,

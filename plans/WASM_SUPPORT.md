@@ -55,12 +55,12 @@ numbers. The constants are resolved at C compile time via `#include <errno.h>`.
 ## I/O Architecture
 
 The WASM runtime (`src/codegen/async/runtime-io-wasm.ts`) uses **synchronous POSIX calls wrapped in
-immediately-completed IOFutures**, the same pattern as the macOS runtime for regular files. With
+immediately-completed IoFutures**, the same pattern as the macOS runtime for regular files. With
 `-sNODERAWFS=1`, Emscripten uses Node.js's real filesystem instead of a virtual MEMFS, so all
 file/directory operations work on actual files.
 
 The async timer/sleep uses a **sorted linked list timer queue** (same pattern as Windows runtime).
-Timers are registered as pending IOFutures with due times, and the event loop polls/waits for them
+Timers are registered as pending IoFutures with due times, and the event loop polls/waits for them
 via `__yo_io_poll`/`__yo_io_wait`. This enables cooperative scheduling during sleep.
 
 ### WASI-specific runtime
@@ -81,18 +81,17 @@ The codegen conditionally emits the WASI or Emscripten variant based on the targ
 
 ## Test Skip Mechanisms
 
-**File-level skip directives** are target-specific comments in the first 20 lines of a test file:
+**File-level skip pragmas** are target-specific `pragma(Pragma.SkipWasm*)` calls in the first 50 lines of a test file:
 
-- `// @skip_wasm32-emscripten` — skip when running with `--cc emcc` (Emscripten/Node.js)
-- `// @skip_wasm32-wasi` — skip when running with `--target wasm-wasi` (standalone WASI)
-- `// @skip_wasm` — skip on ALL WASM targets (generic catch-all)
+- `pragma(Pragma.SkipWasm32Emscripten);` — skip when running with `--cc emcc` (Emscripten/Node.js)
+- `pragma(Pragma.SkipWasm32Wasi);` — skip when running with `--target wasm-wasi` (standalone WASI)
+- `pragma(Pragma.SkipWasm);` — skip on ALL WASM targets (generic catch-all)
 
-A file can have one or both target-specific directives, or the generic one. The test runner checks
-for the directive matching the current target and skips the file before compilation.
+A file can have one or both target-specific pragmas, or the generic one. The test runner scans the file for the matching pragma call and skips the file before compilation. Pragmas are validated by the evaluator against the `Pragma` enum in `std/prelude.yo`, so typos are caught at compile time.
 
 ```rust
-// @skip_wasm32-emscripten — no network stack in WASM
-// @skip_wasm32-wasi — no network stack in WASM
+pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
+pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 open import "std/libc/stdio";
 // ... rest of test file
 ```
@@ -105,7 +104,7 @@ Since `process.arch` is comptime, the guard is resolved at compile time — no r
 ```rust
 { arch, Arch } :: import "std/process";
 
-test "my test", using(io : IO), {
+test "my test", using(io : Io), {
   if((arch == Arch.Wasm32), {
     printf("  skipped on wasm32\n");
     return ();
@@ -198,7 +197,7 @@ The `.github/workflows/test.yml` includes two WASM test jobs:
 # Run a specific test on WASI:
 ./yo-cli test ./tests/comptime.test.yo --target wasm-wasi --bail -v
 
-# Run all tests on WASI (skipped tests are filtered by @skip_wasm32-wasi):
+# Run all tests on WASI (skipped tests are filtered by pragma(Pragma.SkipWasm32Wasi);):
 ./yo-cli test ./tests --target wasm-wasi
 ```
 
@@ -283,7 +282,7 @@ Emscripten supports POSIX threads via the `-pthread` flag. The compiler automati
 
 All async file/directory/pipe/metadata I/O operations now work on WASM using NODERAWFS.
 The `runtime-io-wasm.ts` was rewritten from stubs to real POSIX calls wrapped in
-immediately-completed IOFutures (same pattern as macOS).
+immediately-completed IoFutures (same pattern as macOS).
 
 ### Async Timer/Sleep
 
@@ -302,7 +301,7 @@ the Yo standard library.
 Added standalone WASI target (`--target wasm-wasi`) that compiles to a pure `.wasm` file
 runnable via `wasmtime`. Key changes:
 
-- Target-specific skip directives (`@skip_wasm32-emscripten`, `@skip_wasm32-wasi`)
+- Target-specific skip pragmas (`pragma(Pragma.SkipWasm32Emscripten);`, `pragma(Pragma.SkipWasm32Wasi);`)
 - `__wasi_poll_oneoff` replaces `usleep()` in the async timer runtime for WASI targets
 - Test runner executes WASI binaries via `wasmtime --dir <dirs>` with filesystem grants
 - 750+ tests pass on standalone WASI (all non-filesystem, non-threading tests)

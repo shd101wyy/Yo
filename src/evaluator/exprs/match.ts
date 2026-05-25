@@ -456,7 +456,13 @@ export function evaluateMatch({
         caseExecuted: true, // Mark the case as executed
       };
 
-      // Evaluate the result expression
+      // Evaluate the result expression. Pass the running resultType as
+      // expectedType so divergent constructs like `panic(...)` in this arm
+      // can pick up the unified type from earlier arms instead of falling
+      // back to the function's overall return type. Without this, a
+      // match like `.Some(v) => unit_body`, `.None => panic("...")` in a
+      // function returning `*(T)` would type-mismatch (panic := *(T), arm
+      // body := unit).
       const evaluatedBody = evaluateBeginExpression({
         expr: bodyExpr,
         env: caseEnv,
@@ -465,6 +471,7 @@ export function evaluateMatch({
           isExecuting:
             isEnumValue(scrutineeValue) &&
             scrutineeValue.variantName === variantName,
+          expectedType: resultType ?? context.expectedType,
         },
         variablesToAdd: [],
       });
@@ -954,7 +961,13 @@ export function evaluateMatch({
 
       const bodyExpr = rhsExpr;
 
-      // Evaluate the result expression
+      // Evaluate the result expression. Pass the running resultType as
+      // expectedType so divergent constructs like `panic(...)` in this arm
+      // can pick up the unified type from earlier arms instead of falling
+      // back to the function's overall return type. Without this, a
+      // match like `.Some(v) => unit_body`, `.None => panic("...")` in a
+      // function returning `*(T)` would type-mismatch (panic := *(T), arm
+      // body := unit).
       const evaluatedBody = evaluateBeginExpression({
         expr: bodyExpr,
         env: caseEnv,
@@ -963,6 +976,7 @@ export function evaluateMatch({
           isExecuting:
             isEnumValue(scrutineeValue) &&
             scrutineeValue.variantName === variantName,
+          expectedType: resultType ?? context.expectedType,
         },
         variablesToAdd: [],
       });

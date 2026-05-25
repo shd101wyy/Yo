@@ -22,26 +22,26 @@ The `Index` trait is defined in the prelude and is available to all Yo programs:
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self: *(Self), idx: Idx) -> *(Self.Output))
+    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 ```
 
 - **`Idx`**: The index type (e.g., `usize`, or a custom key type).
 - **`Output`**: An associated type specifying the element type returned.
-- **`index`**: A method that takes a pointer to `Self` and an index, returning a **pointer** to the element.
+- **`index`**: A method that takes `self` by `ref` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
 
 The `index` method returns `*(Output)` (a pointer), which is automatically dereferenced when used in value context. This design enables both reading and writing through the same trait:
 
 ```rust
 // Read: auto-deref happens
-v := collection(idx);        // calls index(&collection, idx).*
+v := collection(idx);        // calls index(collection, idx).*
 
-// Write: take address, skip deref
-&(collection(idx)).* = val;  // calls index(&collection, idx), writes through pointer
+// Write via call-syntax assignment (preferred)
+collection(idx) = val;       // calls index(collection, idx), writes through pointer
 
 // Address-of: returns pointer directly
-p := &(collection(idx));     // calls index(&collection, idx), no deref
+p := &(collection(idx));     // calls index(collection, idx), no deref
 ```
 
 ## Implementing Index
@@ -53,11 +53,11 @@ MyArray :: struct(data0: i32, data1: i32, data2: i32);
 
 impl(MyArray, Index(usize)(
   Output : i32,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
     cond(
-      (idx == usize(0)) => &(self.*.data0),
-      (idx == usize(1)) => &(self.*.data1),
-      (idx == usize(2)) => &(self.*.data2),
+      (idx == usize(0)) => &(self.data0),
+      (idx == usize(1)) => &(self.data1),
+      (idx == usize(2)) => &(self.data2),
       true => panic("MyArray: index out of bounds")
     )
   )
@@ -76,9 +76,9 @@ For generic types like `ArrayList(T)`, use `forall` in the impl:
 ```rust
 impl(forall(T : Type), ArrayList(T), Index(usize)(
   Output : T,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))({
-    assert((idx < self.*._length), "ArrayList: index out of bounds");
-    match(self.*._ptr,
+  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    assert((idx < self._length), "ArrayList: index out of bounds");
+    match(self._ptr,
       .Some(_ptr) => (_ptr &+ idx),
       .None => panic("ArrayList: index on empty list")
     )
@@ -109,8 +109,8 @@ This is critical for correctness — the pointer remains valid and points direct
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(100));
 
-// Mutate through pointer
-&(list(usize(0))).* = i32(999);
+// Mutate via call-syntax assignment
+list(usize(0)) = i32(999);
 assert((list(usize(0)) == i32(999)), "should be 999");
 ```
 

@@ -12,6 +12,7 @@
 // Fix: When a control function is called as a regular function, register
 // it and mark `isEffectRecordMember=true` so `generateEscape` uses the
 // thread-local `__yo_effect_escaped` flag for escape propagation.
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 { Exception, Error, AnyError } :: import("std/error");
 { yield } :: import("std/async");
@@ -19,17 +20,17 @@ Worker :: import("std/worker");
 // Top-level fn with a locally installed effect handler that escapes.
 // The body pattern mirrors a server accept loop: install handler,
 // perform some async operations, return via `return ()` on early exit.
-do_work :: (fn(iterations : i32, io : IO) -> i32)({
+do_work :: (fn(iterations : i32, io : Io) -> i32)({
   exn := Exception(
     throw : (
       (err) -> {
-        printf("do_work: unexpected exception\n");
+        unsafe(printf("do_work: unexpected exception\n"));
         unwind(i32(-(1)));
       }
     )
   );
   // An await forces this function to be a state-machine function.
-  io.await(yield(), io);
+  io.await(yield(io), io);
   total := i32(0);
   i := i32(0);
   while(runtime(i < iterations), {

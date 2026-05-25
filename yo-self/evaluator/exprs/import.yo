@@ -10,6 +10,7 @@
 //!   with a descriptive error until those helpers are ported.
 //! * The `safeRelativePath` Windows cross-drive helper is omitted; absolute
 //!   paths returned by `Path.join` are used directly.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -37,7 +38,7 @@ open(import("std/string"));
 _file_exists_sync :: (fn(absolute_path : String) -> bool)({
   cstr := absolute_path.to_cstr();
   ptr := *(char)(cstr.ptr().unwrap());
-  access(ptr, F_OK) == int(0)
+  unsafe(access(ptr, F_OK)) == int(0)
 });
 // ---------------------------------------------------------------------------
 // _find_project_root
@@ -152,7 +153,7 @@ evaluate_import :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

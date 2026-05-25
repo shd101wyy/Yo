@@ -67,10 +67,10 @@ test("hex_decode valid lowercase", {
   );
   bytes := hex_decode("deadbeef", exn);
   assert(bytes.len() == usize(4), "deadbeef should decode to 4 bytes");
-  assert(bytes.get(usize(0)).unwrap() == u8(0xDE), "first byte should be 0xDE");
-  assert(bytes.get(usize(1)).unwrap() == u8(0xAD), "second byte should be 0xAD");
-  assert(bytes.get(usize(2)).unwrap() == u8(0xBE), "third byte should be 0xBE");
-  assert(bytes.get(usize(3)).unwrap() == u8(0xEF), "fourth byte should be 0xEF");
+  assert(bytes(usize(0)) == u8(0xDE), "first byte should be 0xDE");
+  assert(bytes(usize(1)) == u8(0xAD), "second byte should be 0xAD");
+  assert(bytes(usize(2)) == u8(0xBE), "third byte should be 0xBE");
+  assert(bytes(usize(3)) == u8(0xEF), "fourth byte should be 0xEF");
 });
 test("hex_decode valid uppercase", {
   exn := Exception(
@@ -83,8 +83,8 @@ test("hex_decode valid uppercase", {
   );
   bytes := hex_decode("DEADBEEF", exn);
   assert(bytes.len() == usize(4), "DEADBEEF should decode to 4 bytes");
-  assert(bytes.get(usize(0)).unwrap() == u8(0xDE), "first byte should be 0xDE");
-  assert(bytes.get(usize(3)).unwrap() == u8(0xEF), "fourth byte should be 0xEF");
+  assert(bytes(usize(0)) == u8(0xDE), "first byte should be 0xDE");
+  assert(bytes(usize(3)) == u8(0xEF), "fourth byte should be 0xEF");
 });
 test("hex_decode odd length error", {
   exn := Exception(
@@ -127,9 +127,9 @@ test("hex roundtrip", {
   encoded := hex_encode(data);
   decoded := hex_decode(encoded.as_str(), exn);
   assert(decoded.len() == usize(5), "roundtrip should preserve length");
-  assert(decoded.get(usize(0)).unwrap() == u8(0x48), "roundtrip byte 0");
-  assert(decoded.get(usize(1)).unwrap() == u8(0x65), "roundtrip byte 1");
-  assert(decoded.get(usize(2)).unwrap() == u8(0x6C), "roundtrip byte 2");
-  assert(decoded.get(usize(3)).unwrap() == u8(0x6C), "roundtrip byte 3");
-  assert(decoded.get(usize(4)).unwrap() == u8(0x6F), "roundtrip byte 4");
+  assert(decoded(usize(0)) == u8(0x48), "roundtrip byte 0");
+  assert(decoded(usize(1)) == u8(0x65), "roundtrip byte 1");
+  assert(decoded(usize(2)) == u8(0x6C), "roundtrip byte 2");
+  assert(decoded(usize(3)) == u8(0x6C), "roundtrip byte 3");
+  assert(decoded(usize(4)) == u8(0x6F), "roundtrip byte 4");
 });

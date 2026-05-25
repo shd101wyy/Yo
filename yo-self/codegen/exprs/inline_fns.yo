@@ -8,6 +8,7 @@
 //! `generate_yo_inline_meta` handles metadata-dependent builtins that need
 //! `expr.$.type` (via `ExprInfoTable`): `__yo_as`, `__yo_slice_new`,
 //! `__yo_maybe_uninit_new`, `__yo_maybe_uninit_as_ptr`, and index-range ops.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
@@ -238,13 +239,13 @@ generate_yo_inline_meta :: (
     expr : AstExpr,
     args : ArrayList(AstExpr),
     arg_codes : ArrayList(String),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
   arg0 := match(arg_codes.get(usize(0)),.None => str(""),.Some(s) => s.as_str());
   arg1 := match(arg_codes.get(usize(1)),.None => str(""),.Some(s) => s.as_str());
-  expr_info_opt := ctx.*.get_expr_info(ast_expr_id(expr));
+  expr_info_opt := ctx.get_expr_info(ast_expr_id(expr));
   cond(
     // __yo_as: cast to target type; for non-simple enums access .tag field.
     (func_name == BF_YO_AS) => match(
@@ -261,7 +262,7 @@ generate_yo_inline_meta :: (
             args.get(usize(0)),
             .None => false,
             .Some(arg0_expr) => match(
-              ctx.*.get_expr_info(ast_expr_id(arg0_expr)),
+              ctx.get_expr_info(ast_expr_id(arg0_expr)),
               .None => false,
               .Some(arg0_info) => match(
                 arg0_info.ty,
@@ -298,13 +299,13 @@ generate_yo_inline_meta :: (
         get_type_string_opt(info.ty, ctx),
         .None => Option(String).None,
         .Some(self_c_type) => {
-          uninit_var := (String.from("__yo_uninit_") + ctx.*.fresh_temp());
+          uninit_var := (String.from("__yo_uninit_") + ctx.fresh_temp());
           decl_line := String.from(indent.as_str());
           decl_line.push_string(self_c_type);
           decl_line.push_str(" ");
           decl_line.push_str(uninit_var.as_str());
-          ctx.*.emitter.emit_string(decl_line);
-          ctx.*.emitter.emit_line(";");
+          ctx.emitter.emit_string(decl_line);
+          ctx.emitter.emit_line(";");
           Option(String).Some(uninit_var)
         }
       )

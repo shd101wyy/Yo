@@ -21,6 +21,7 @@
 //! Stubs (deferred to Phase 3):
 //!   - ?= (default value) and =/`:=` (assigned value) module field forms
 //!   - `...` spread (extend) operator
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -67,7 +68,7 @@ evaluate_module_field :: (
     expr : AstExpr,
     module_field_idx : usize,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     is_for_module_type : bool,
     exn : Exception
   ) -> EvalModuleFieldResult
@@ -184,7 +185,7 @@ evaluate_module_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

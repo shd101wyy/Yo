@@ -53,6 +53,7 @@ import {
   emitAsyncFutureCompletion,
   emitAsyncFutureEscape,
 } from "../exprs/async-completion";
+import { findBundleFieldName } from "../exprs/async";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -482,12 +483,12 @@ export function getFutureFieldName(
 }
 
 /**
- * Check if a future type is an IO future (__yo_io_future_t) rather than a state
- * machine future (from io.async). IO futures have a Concrete(...) trait and are
+ * Check if a future type is an Io future (__yo_io_future_t) rather than a state
+ * machine future (from io.async). Io futures have a Concrete(...) trait and are
  * already submitted to io_uring at creation — they don't have __yo_resume_fn
  * and should not be "cold-started".
  *
- * Detection: IO futures (from Impl(Concrete(__yo_io_future_t), Future(i32)))
+ * Detection: Io futures (from Impl(Concrete(__yo_io_future_t), Future(i32)))
  * have their resolvedConcreteType set to an extern SomeType (the Concrete type).
  * State machine futures may also have resolvedConcreteType as a SomeType, but
  * it won't be extern.
@@ -2021,7 +2022,7 @@ export function generateAsyncBlockResumeFunction(
           analysis
         );
 
-        // Determine if the future is an IO future (__yo_io_future_t) which is
+        // Determine if the future is an Io future (__yo_io_future_t) which is
         // already submitted to io_uring and doesn't have __yo_resume_fn.
         const awaitExprForTypeCheck = segment.awaitPoint.expr as {
           args?: Expr[];
@@ -2088,11 +2089,11 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`      }`);
         emitter.emitLine(``);
         // Cold future: start it via stored resume function pointer
-        // IO futures (__yo_io_future_t) are already submitted to io_uring and don't
+        // Io futures (__yo_io_future_t) are already submitted to io_uring and don't
         // have __yo_resume_fn — skip cold-start for them.
         if (!isIoFuture) {
           // SM futures need an extra ref because the SM future's own completion
-          // code calls __yo_decr_rc on itself. IO futures don't — their completion
+          // code calls __yo_decr_rc on itself. Io futures don't — their completion
           // handler (__yo_io_process_cqe) doesn't decrement, so the single RC=1
           // from allocation is sufficient.
           emitter.emitLine(
@@ -2103,7 +2104,7 @@ export function generateAsyncBlockResumeFunction(
           );
         } else {
           emitter.emitLine(
-            `      // IO future: no extra ref needed (completion handler does not decr_rc)`
+            `      // Io future: no extra ref needed (completion handler does not decr_rc)`
           );
         }
         if (!isIoFuture) {
@@ -2453,6 +2454,30 @@ function emitEffectInjectionForSM(
       );
     }
   } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    // Phase 7 (SM-internal counterpart): when the awaited future's effect
+    // is a struct bundle (e.g. `IoExn`), forward the outer SM's bundle
+    // field (the closure's `e` param, stored at `sm->var_<id>_<param>`)
+    // into the inner future's SM via its
+    // `set_effect("__bundle", &outer_bundle)` callback. The matching
+    // set_effect impl on the inner SM copies the struct into its own
+    // bundle field. See src/codegen/exprs/async.ts:findBundleFieldName.
+    //
+    // We don't go through `generateExpr(awaitExpr.args[1])` because the
+    // atom-resolution in atom.ts doesn't always rewrite the bundle atom
+    // to its SM-level field name from the callsite of an io.await call
+    // tree — looking up via the outer SM's variable map directly is
+    // both more reliable and avoids generating a temporary copy.
+    const outerBundleField = findBundleFieldName(
+      futureTraitType,
+      context.stateMachineVariables,
+      context.stateMachineFieldAliases
+    );
+    if (outerBundleField) {
+      context.emitter.emitLine(
+        `${indent}if (${futureAccess}->__yo_set_effect_fn) ${futureAccess}->__yo_set_effect_fn((void*)${futureAccess}, "__bundle", (void*)&sm->${outerBundleField});`
+      );
+      return;
+    }
     emitEffectRecordInjectionForSM(
       effect.type,
       futureArg.$.type,

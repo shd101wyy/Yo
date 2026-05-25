@@ -27,6 +27,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 
 // Register class names recognized in asm operands
 const REGISTER_CLASSES = new Set([
@@ -42,7 +43,10 @@ const REGISTER_CLASSES = new Set([
 /** Operand direction kinds recognized as sub-calls in asm(). */
 const INPUT_OPERAND_KINDS = new Set(["in"]);
 const OUTPUT_OPERAND_KINDS = new Set(["out", "lateout"]);
-const INOUT_OPERAND_KINDS = new Set(["inout", "inlateout"]);
+// `ref` is an alias for `inout`, kept around because the inout→ref rename
+// (commit 746b4f60) updated the asm test sources but didn't update this
+// recognition set. Either spelling is accepted by the operand parser.
+const INOUT_OPERAND_KINDS = new Set(["inout", "inlateout", "ref"]);
 // clobber/clobber_abi/asm_options are handled separately (not as operands)
 const SPECIAL_OPERAND_KINDS = new Set(["const_val", "sym"]);
 
@@ -185,6 +189,14 @@ function parseOperand(
   context: EvaluatorContext,
   kind: string
 ): AsmOperand {
+  // Normalize the `ref` alias to `inout` so the downstream codegen
+  // (which switches on `op.kind === "inout"` / "inlateout") sees the
+  // canonical kind string. The rename in commit 746b4f60 surfaced
+  // `ref` in user-facing positions but kept the internal enum tag as
+  // "inout".
+  if (kind === "ref") {
+    kind = "inout";
+  }
   const args = operandExpr.args;
 
   if (kind === "const_val" || kind === "sym") {
@@ -492,6 +504,20 @@ export function evaluateAsm({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
+  // Phase C privilege gate: asm is unsafe-by-construction and requires
+  // `pragma(Pragma.AllowUnsafe);` at the top of the file. See
+  // plans/MEMORY_SAFETY.md.
+  if (!isImplicitlyUnsafeCapableFile(expr.token.modulePath)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'asm(...)' is not available in safe code.
+
+Inline assembly can corrupt memory, violate calling conventions, and
+break the type system. To use it, declare at the top of this file:
+
+    pragma(Pragma.AllowUnsafe);`,
+    });
+  }
   // asm can only be called inside a function body or test block
   if (
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "function-body" &&
@@ -756,6 +782,13 @@ export function evaluateGlobalAsm({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
+  // Phase C privilege gate. See plans/MEMORY_SAFETY.md.
+  if (!isImplicitlyUnsafeCapableFile(expr.token.modulePath)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'global_asm(...)' is not available in safe code. Declare 'pragma(Pragma.AllowUnsafe);' at the top of the file to use inline assembly.`,
+    });
+  }
   if (expr.args.length === 0) {
     throw formatErrorMessage({
       token: expr.token,

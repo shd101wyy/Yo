@@ -38,6 +38,7 @@ import { isFunctionType, isObjectType, isSomeType } from "../../types/guards";
 import {
   typeContainsRcType,
   typeIsControlBound,
+  typeRepresentationContainsRawPtr,
   typeToString,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
@@ -45,7 +46,9 @@ import { isFunctionValue, isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { typeImplementsFn } from "../trait-checking";
+import { isFlowableExpr } from "../types/flowability";
 import { synthesizeTypes } from "../types/synthesizer";
 
 /**
@@ -1165,6 +1168,32 @@ export function evaluateBeginExpression({
           });
         }
 
+        // Mark `&(ref-returning-call)` arguments to `return(...)` as
+        // sitting in a return slot. The codegen for `&` then forwards
+        // the inner pointer instead of spilling to a stack temp and
+        // taking its address. See generateAddressOf in ptr-fns.ts.
+        // Looks through a wrapping `unsafe(...)` (transparent at the
+        // value level).
+        {
+          let candidate: Expr = evaluatedReturnArgExpr;
+          while (
+            exprIsFunctionCall(candidate) &&
+            exprIsFunctionCallOf(candidate, BuiltinFunctions.unsafe, 1)
+          ) {
+            candidate = candidate.args[0]!;
+          }
+          if (
+            exprIsFunctionCallOf(
+              candidate,
+              BuiltinFunctions.__yo_address_of,
+              1
+            ) &&
+            candidate.$
+          ) {
+            candidate.$.isReturnSlot = true;
+          }
+        }
+
         // §4 escape boundary 1: function return type cannot be
         // control-bound. A control-bound type carries a control function
         // (transitively); returning it from a function takes the value
@@ -1175,9 +1204,23 @@ export function evaluateBeginExpression({
         // the type contains a `ctl(...) -> ret` (directly or in a struct
         // field / tuple element / etc). This catches both bare CF
         // returns and aggregate-containing-CF returns.
+        //
+        // Carve-out: auto-generated derive functions (`___dup`, `___drop`,
+        // `___dispose`, …) emit `return(__yo_self)` to satisfy their
+        // signature. For struct types that transitively contain a `ctl`
+        // field, these derive bodies trip the check at definition time
+        // even though the function is never actually called for such
+        // values at runtime (control-bound structs are stack-only and
+        // skip RC). The token's `modulePath` starts with
+        // `auto-generated://` for these expansions; skip the rule
+        // there. User code on real source files still hits the check.
         {
           const returnedType = evaluatedReturnArgExpr.$?.type;
-          if (returnedType && typeIsControlBound(returnedType)) {
+          if (
+            returnedType &&
+            typeIsControlBound(returnedType) &&
+            !returnArg.token.modulePath.startsWith("auto-generated://")
+          ) {
             throw formatErrorMessage({
               token: returnArg.token,
               errorMessage: `Cannot return a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type). Control-function values are stack-bound to their install frame; returning them lets them outlive that frame, and invoking them later would unwind to a dead frame.
@@ -1188,6 +1231,53 @@ Install the handler at its use site instead:
   (raise : Raise) = ((msg) -> { unwind(...); });
   some_call(args, raise);`,
             });
+          }
+        }
+
+        // plans/SLICE_FLOWABILITY.md Phase D — explicit `return(expr)`
+        // inside a function whose declared return type carries a raw
+        // pointer in its representation (Slice/str/struct-wrapping-slice,
+        // etc.) must root the value in caller-owned storage. Matches the
+        // function-return-position check in function-type.ts and
+        // anonymous-function.ts.
+        if (
+          context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ) {
+          const fnType = context.isEvaluatingFunctionBodyOrAsyncBlock.type;
+          // Defense-in-depth for `-> ref(T)` returns. The
+          // `isFlowableExpr` walk at function-body level vacuously
+          // accepts `return(...)` because the return wrapper has
+          // controlFlow → true; that walk would otherwise validate
+          // the returned expression. In practice the dangling-ref
+          // attempts get rejected by the return-arg type-check
+          // ("Expected i32, got *(i32)" or vice versa) because
+          // `return(expr)` always evaluates `expr` to its value-typed
+          // form. Re-running the flowability predicate here makes
+          // the soundness story explicit instead of relying on the
+          // type-mismatch fallback.
+          if (fnType.return.isRef) {
+            if (!isFlowableExpr(evaluatedReturnArgExpr)) {
+              throw formatErrorMessage({
+                token: returnArg.token,
+                errorMessage: `'return(...)' from a function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The returned expression is not flowable:\n  ${exprToString(returnArg)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
+              });
+            }
+          } else if (
+            !fnType.return.isCompileTimeOnly &&
+            typeRepresentationContainsRawPtr(fnType.return.type) &&
+            !isImplicitlyUnsafeCapableFile(returnArg.token.modulePath)
+          ) {
+            if (
+              !isFlowableExpr(evaluatedReturnArgExpr, {
+                allowParameterSource: true,
+                allowComptimeSource: true,
+              })
+            ) {
+              throw formatErrorMessage({
+                token: returnArg.token,
+                errorMessage: `'return(...)' from a function returning '${typeToString(fnType.return.type)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${exprToString(returnArg)}\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter (caller's value is alive across the call); a 'comptime' constant or string literal; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.\n\nFixes:\n  - Take the source as a 'ref(name) : T' parameter and project a slice from it.\n  - Return an owned type ('ArrayList', 'String') instead — heap-allocated, no lifetime concern.\n  - Wrap unsafe construction in 'pragma(Pragma.AllowUnsafe);' at the file top if you genuinely need the raw form.`,
+              });
+            }
           }
         }
 

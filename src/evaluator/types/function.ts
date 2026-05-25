@@ -148,6 +148,7 @@ export function evaluateFunctionParameter({
   let isCompileTimeOnly: boolean = isParameterComptimeByDefault;
   let isQuote: boolean = false;
   let isOwningTheRcValue: boolean = false;
+  let isRef: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -260,6 +261,36 @@ export function evaluateFunctionParameter({
           errorMessage: `Expected one argument for "own", got ${lhsExpr.args.length}`,
         });
       }
+      lhsExpr = lhsExpr.args[0]!;
+    }
+
+    if (
+      exprIsFunctionCall(lhsExpr) &&
+      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.ref)
+    ) {
+      if (lhsExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected one argument for "ref", got ${lhsExpr.args.length}`,
+        });
+      }
+      if (isOwningTheRcValue) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Cannot combine 'own' and 'ref' on the same parameter — they have opposite calling conventions.`,
+        });
+      }
+      if (isParameterComptimeByDefault) {
+        // forall/using params are erased at runtime; they have no callee-
+        // side binding for ref to refer to. comptime(ref(...)) is
+        // permitted (sets isCompileTimeOnly here), but forall(ref(...))
+        // makes no sense.
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `'ref' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
+        });
+      }
+      isRef = true;
       lhsExpr = lhsExpr.args[0]!;
     }
 
@@ -637,7 +668,7 @@ use_id :: (fn(forall(T : Type),
     existingPreAddedVar.isCompileTimeOnly &&
     existingPreAddedVar.value &&
     // Only reuse if the pre-added variable is in the current (top) frame.
-    // Variables from outer frames (e.g., an outer function's using(io : IO))
+    // Variables from outer frames (e.g., an outer function's using(io : Io))
     // must NOT be reused — we need to create a new variable in the current
     // parameters frame so it appears in parametersFrame for body evaluation.
     existingPreAddedVar.frameLevel === env.frames.length - 1
@@ -673,7 +704,13 @@ use_id :: (fn(forall(T : Type),
         consumedAtToken: undefined, // Not consumed yet
         isOwningTheRcValue: isOwningTheRcValue,
         isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
-        isReassignable: false, // Mark as not reassigable
+        // inout(name) : T parameters are second-class references —
+        // assignments inside the callee write through to the caller's
+        // variable. Mark reassignable so `a = b;` inside the body
+        // type-checks. Codegen lowers reads/writes through a T*.
+        isReassignable: isRef,
+        isRef: isRef || undefined,
+        isParameter: true,
         docComment: lhsExpr
           ? context.docCommentLookup?.get(getDocCommentLookupKey(lhsExpr.token))
           : undefined,
@@ -721,6 +758,7 @@ use_id :: (fn(forall(T : Type),
       isCompileTimeOnly,
       isQuote,
       isOwningTheRcValue,
+      isRef,
       assignedValue,
     },
     env,
@@ -796,6 +834,7 @@ function prepareWhereClauseVariables({
             isOwningTheRcValue: false,
             isOwningTheSameRcValueAs: undefined,
             isReassignable: false,
+            isParameter: true,
           },
         });
         env = nextEnv;
@@ -1189,6 +1228,7 @@ function parseWhereClauseConstraints({
             isOwningTheRcValue: false,
             isOwningTheSameRcValueAs: undefined,
             isReassignable: false,
+            isParameter: true,
           },
         });
         env = nextEnv;
@@ -1689,6 +1729,7 @@ export function evaluateFunctionParameters({
           isOwningTheRcValue: false,
           isOwningTheSameRcValueAs: undefined,
           isReassignable: false,
+          isParameter: true,
         },
       });
       env = nextEnv;
@@ -1958,6 +1999,7 @@ export function evaluateFunctionParameters({
             isOwningTheRcValue: createdVariadicParameter.isOwningTheRcValue,
             isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
+            isParameter: true,
             docComment: context.docCommentLookup?.get(
               getDocCommentLookupKey(labelExpr.token)
             ),
@@ -2159,6 +2201,7 @@ export function evaluateFunctionType({
   let returnLabel: string | undefined = undefined;
   let isReturnTypeCompileTimeOnly = false;
   let isReturnTypeUnquote = false;
+  let isReturnTypeRef = false;
   let returnTypeExpr: Expr = returnExpr;
   /// has label
   /// -> (ret : i32)
@@ -2213,6 +2256,42 @@ export function evaluateFunctionType({
         token: returnLabelExpr.token,
         errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
       });
+    }
+    // `(ref(name) : T)` — labeled-ref-return form. Mirrors the
+    // parameter-side `ref(name) : T` shape so users don't have to
+    // remember a different convention for return-slot labels.
+    // Sets isReturnTypeRef just like `-> ref(T)` does at the
+    // unlabeled path below (lines 2336+); the inner identifier
+    // becomes the label.
+    if (
+      exprIsFunctionCall(returnLabelExpr) &&
+      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.ref)
+    ) {
+      if (returnLabelExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: returnLabelExpr.token,
+          errorMessage: `Expected one argument for "ref" in return label, got ${returnLabelExpr.args.length}`,
+        });
+      }
+      // Forbid `(ref(name) : ref(T))` — ref appears twice for the
+      // same return slot. Pick one form, not both.
+      if (
+        exprIsFunctionCall(returnTypeExpr) &&
+        exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
+      ) {
+        throw formatErrorMessage({
+          token: returnTypeExpr.token,
+          errorMessage: `Cannot use 'ref' on both the label and the type of a return slot. Pick one: '-> (ref(name) : T)' or '-> (name : ref(T))'.`,
+        });
+      }
+      if (isReturnTypeUnquote) {
+        throw formatErrorMessage({
+          token: returnLabelExpr.token,
+          errorMessage: `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
+        });
+      }
+      isReturnTypeRef = true;
+      returnLabelExpr = returnLabelExpr.args[0]!;
     }
     if (!isValidVariableName(returnLabelExpr)) {
       throw formatErrorMessage({
@@ -2272,6 +2351,42 @@ export function evaluateFunctionType({
         errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
       });
     }
+  }
+
+  // `ref(T)` in the return slot — Phase A of plans/ITERATOR_REDESIGN.md.
+  // The function yields a second-class reference into storage rooted
+  // in one of its `ref`-typed parameters; the C-ABI return is `T*`
+  // and the call site receives a `ref`-bindable expression. We
+  // unwrap `ref(...)` here to evaluate `T` as the underlying type,
+  // and mark `isReturnTypeRef` so the function type carries the
+  // distinction.
+  //
+  // `ref(T)` is only legal at the OUTERMOST position of a return
+  // slot. The rule that bars it from appearing inside `Option(...)`,
+  // generic args, struct fields, etc. is enforced by NOT recognizing
+  // `ref(...)` anywhere else in the type evaluator — outside this
+  // narrow spot, the evaluator falls through and tries to evaluate
+  // `ref` as a regular identifier, producing a "Variable not found"
+  // error. (We could add a more targeted diagnostic later; for v1
+  // the structural impossibility is sufficient.)
+  if (
+    exprIsFunctionCall(returnTypeExpr) &&
+    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
+  ) {
+    if (returnTypeExpr.args.length !== 1) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Expected one argument for "ref" return slot, got ${returnTypeExpr.args.length}`,
+      });
+    }
+    if (isReturnTypeUnquote) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
+      });
+    }
+    isReturnTypeRef = true;
+    returnTypeExpr = returnTypeExpr.args[0]!;
   }
 
   // Evaluate the return type expression
@@ -2407,6 +2522,7 @@ ${typeToString(returnType)}`,
       isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       isUnquote: isReturnTypeUnquote,
       label: returnLabel ?? `fn_return_${randomId(env.modulePath)}`,
+      isRef: isReturnTypeRef || undefined,
     },
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,

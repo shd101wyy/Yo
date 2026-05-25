@@ -45,6 +45,7 @@
 //!   }
 //!
 //! Wildcard arms (tag_const = "") emit a `default:` case.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -438,10 +439,10 @@ emit_match_temp_decl :: (
   fn(
     result_type_c : str,
     temp_name : str,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
-  ctx.*.emitter.emit_line(format_match_temp_decl_line(result_type_c, temp_name).as_str());
+  ctx.emitter.emit_line(format_match_temp_decl_line(result_type_c, temp_name).as_str());
 });
 /// Format the C switch header line:
 ///   - `switch (<scrutinee_c>) {`              (use_tag_field=false)
@@ -483,26 +484,26 @@ emit_switch_open :: (
   fn(
     scrutinee_c : str,
     use_tag_field : bool,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
-  ctx.*.emitter.emit_line(format_match_switch_open(scrutinee_c, use_tag_field).as_str());
+  ctx.emitter.emit_line(format_match_switch_open(scrutinee_c, use_tag_field).as_str());
 });
 /// Emit `case TAG: {` or `default: {`.
-emit_case_open :: (fn(tag_const : str, ctx : *(CodegenContext)) -> unit)({
-  ctx.*.emitter.emit_line(format_match_case_open(tag_const).as_str());
+emit_case_open :: (fn(tag_const : str, ctx : CodegenContext) -> unit)({
+  ctx.emitter.emit_line(format_match_case_open(tag_const).as_str());
 });
 /// Emit `  temp_name = body_c;\n  break;\n}`.
 emit_case_body :: (
   fn(
     temp_name : str,
     body_c : str,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
-  ctx.*.emitter.emit_line(format_match_case_assignment(temp_name, body_c).as_str());
-  ctx.*.emitter.emit_line("  break;");
-  ctx.*.emitter.emit_line("}");
+  ctx.emitter.emit_line(format_match_case_assignment(temp_name, body_c).as_str());
+  ctx.emitter.emit_line("  break;");
+  ctx.emitter.emit_line("}");
 });
 // ---------------------------------------------------------------------------
 // Simple match (unit enums)
@@ -522,8 +523,8 @@ generate_match_simple :: (
     result_type_c : str,
     temp_name : str,
     arms : ArrayList(SimpleArm),
-    gen_body : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
-    ctx : *(CodegenContext),
+    gen_body : (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)),
+    ctx : CodegenContext,
     indent : str
   ) -> unit
 )({
@@ -548,7 +549,7 @@ generate_match_simple :: (
     );
     i = (i + usize(1));
   });
-  ctx.*.emitter.emit_line("}");
+  ctx.emitter.emit_line("}");
 });
 // ---------------------------------------------------------------------------
 // Data match (data enums with field bindings)
@@ -561,7 +562,7 @@ emit_data_bindings :: (
   fn(
     scrutinee_c : str,
     bindings : ArrayList(DataBinding),
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
   (i : usize) = usize(0);
@@ -577,7 +578,7 @@ emit_data_bindings :: (
           scrutinee_c,
           b.field_path.as_str()
         );
-        ctx.*.emitter.emit_line(decl.as_str());
+        ctx.emitter.emit_line(decl.as_str());
       },
       .None => ()
     );
@@ -594,8 +595,8 @@ generate_match_data :: (
     result_type_c : str,
     temp_name : str,
     arms : ArrayList(DataArm),
-    gen_body : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
-    ctx : *(CodegenContext),
+    gen_body : (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)),
+    ctx : CodegenContext,
     indent : str
   ) -> unit
 )({
@@ -621,7 +622,7 @@ generate_match_data :: (
     );
     i = (i + usize(1));
   });
-  ctx.*.emitter.emit_line("}");
+  ctx.emitter.emit_line("}");
 });
 export(
   is_control_flow_code,

@@ -88,6 +88,17 @@ export interface FunctionGenerationContext extends CodeGenContext {
     resultTypeCName: string;
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
+    // Closure parameter slots: io.async-shaped closures take a bundle param
+    // (e : E). For full-SM closures (with awaits) the param value is supplied
+    // at io.await/io.spawn time via set_effect("__bundle", &value) — we store
+    // it in a dedicated __yo_param_<i> slot on the SM struct so the resume
+    // segments can read it across yield boundaries.
+    closureParamSlots?: {
+      fieldName: string;
+      cType: string;
+      paramName: string;
+      paramType: Type;
+    }[];
   }>;
   // Branch tracking for cond expressions with await
   asyncCondBranchInfo?: Map<

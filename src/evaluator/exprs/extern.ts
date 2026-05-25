@@ -24,6 +24,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { evaluateRecordField } from "../types/record";
 
 export function evaluateExtern({
@@ -39,6 +40,25 @@ export function evaluateExtern({
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected extern, got ${expr.tag}`,
+    });
+  }
+
+  // Phase C privilege gate: extern fn declarations are FFI; they bind
+  // names to symbols outside the type system's reach. Only files with
+  // `pragma(Pragma.AllowUnsafe);` can declare them. User code calls
+  // stdlib wrappers instead. See plans/MEMORY_SAFETY.md.
+  if (!isImplicitlyUnsafeCapableFile(expr.token.modulePath)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'extern(...)' is not available in safe code.
+
+FFI declarations bind names to symbols outside Yo's type-checking
+reach. To use them, declare at the top of this file:
+
+    pragma(Pragma.AllowUnsafe);
+
+User code should normally call stdlib wrappers (e.g. functions in
+'std/sys', 'std/fs') instead of declaring FFI directly.`,
     });
   }
 

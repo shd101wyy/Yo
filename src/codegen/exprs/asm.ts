@@ -530,11 +530,15 @@ export function generateAsm(
         "inout",
         "lateout",
         "inlateout",
+        "ref",
         "const_val",
         "sym",
       ].includes(callName)
     ) {
-      operands.push(parseOperandForCodegen(arg, indent, context, callName));
+      // `ref` is a user-facing alias for `inout` (see evaluator/builtins/asm.ts).
+      // Normalize here so the downstream kind switches see the canonical tag.
+      const kind = callName === "ref" ? "inout" : callName;
+      operands.push(parseOperandForCodegen(arg, indent, context, kind));
     } else if (callName === "clobber" || callName === "clobber_abi") {
       allClobbers.push(...parseClobbers(arg, context));
     } else if (callName === "asm_options") {

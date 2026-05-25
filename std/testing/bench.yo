@@ -11,6 +11,7 @@
 //! result := bench(`sort`, u64(1000), () => { /* work */ });
 //! println(result.to_string());
 //! ```
+pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ToString } :: import("../fmt");
 { snprintf } :: import("../libc/stdio");
@@ -36,19 +37,19 @@ BenchResult :: struct(
 _i64_to_string :: (fn(v : i64) -> String)({
   buf := Array(u8, usize(32)).fill(u8(0));
   buf_ptr := &(buf(usize(0)));
-  snprintf(*(char)(buf_ptr), usize(32), "%lld", v);
+  unsafe(snprintf(*(char)(buf_ptr), usize(32), "%lld", v));
   String.from_cstr(buf_ptr).unwrap()
 });
 _u64_to_string :: (fn(v : u64) -> String)({
   buf := Array(u8, usize(32)).fill(u8(0));
   buf_ptr := &(buf(usize(0)));
-  snprintf(*(char)(buf_ptr), usize(32), "%llu", v);
+  unsafe(snprintf(*(char)(buf_ptr), usize(32), "%llu", v));
   String.from_cstr(buf_ptr).unwrap()
 });
 impl(
   BenchResult,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       prefix := String.from("bench '");
       part1 := prefix.concat(self.name);
       part2 := part1.concat(String.from("': iters="));

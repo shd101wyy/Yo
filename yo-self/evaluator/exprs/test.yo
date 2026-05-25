@@ -5,13 +5,14 @@
 //! During normal compilation, test declarations are skipped (no-op, returns unit).
 //! The test runner extracts these declarations and compiles/runs them separately.
 //!
-//! All tests implicitly have `io : IO` — the IO effect is always available.
-//! This evaluator injects `io : IO` into the body's scope automatically.
+//! All tests implicitly have `io : Io` — the Io effect is always available.
+//! This evaluator injects `io : Io` into the body's scope automatically.
 //!
 //! Syntax:
 //!   test "test_name", { body };
 //!
 //! Returns unit (no-op, preserves original env).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -66,7 +67,7 @@ evaluate_test :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -95,7 +96,7 @@ evaluate_test :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `test expects 2 arguments (name, body), got ${arg_count}. IO is implicitly available via "io" — no using clause needed.`,
+          `test expects 2 arguments (name, body), got ${arg_count}. Io is implicitly available via "io" — no using clause needed.`,
           false,
           .None
         )
@@ -148,16 +149,16 @@ evaluate_test :: (
       )
     );
   });
-  // Inject `io : IO` into the body scope.
-  // The IO module type is looked up from the env.
-  io_vars := get_variables_from_env(env, String.from("IO"));
+  // Inject `io : Io` into the body scope.
+  // The Io module type is looked up from the env.
+  io_vars := get_variables_from_env(env, String.from("Io"));
   n_io := io_vars.len();
   if(n_io == usize(0), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("IO module not found in environment. Is the prelude loaded?"),
+          String.from("Io module not found in environment. Is the prelude loaded?"),
           false,
           .None
         )
@@ -172,7 +173,7 @@ evaluate_test :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("IO module not found in environment."),
+            String.from("Io module not found in environment."),
             false,
             .None
           )
@@ -182,8 +183,8 @@ evaluate_test :: (
       return(make_err_expr());
     }
   );
-  // Extract the actual module type from IO's TypeVal.
-  // IO :: module(...) means io_module_var.value == .Some(.TypeVal(ModuleType)).
+  // Extract the actual module type from Io's TypeVal.
+  // Io :: module(...) means io_module_var.value == .Some(.TypeVal(ModuleType)).
   io_module_type := match(
     io_module_var.value,
     .Some(v) => match(
@@ -194,11 +195,11 @@ evaluate_test :: (
     .None => io_module_var.ty
   );
   // Push a new frame for the test body (isolates io variable from outer scope).
-  _frame_idx := (&(env)).push_frame(false);
-  // Add the implicit `io : IO` variable to the new frame.
+  _frame_idx := env.push_frame(false);
+  // Add the implicit `io : Io` variable to the new frame.
   io_unknown_val := create_unknown_val(io_module_type);
   _io_var_opt := add_variable_to_env(
-    &(env),
+    env,
     String.from("io"),
     io_module_type,
     Option(EvalValue).Some(io_unknown_val),
@@ -229,7 +230,7 @@ evaluate_test :: (
   // Restore context.
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
   // Pop the frame to restore env to pre-test state.
-  (&(env)).pop_frame();
+  env.pop_frame();
   // Validate that the test body returns unit.
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_body_expr));
   if(!(body_info_opt.is_some()), {

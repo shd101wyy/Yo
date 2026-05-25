@@ -2,6 +2,7 @@
 //!
 //! Uses atomic reference counting for safe sharing across threads.
 //! All "modification" operations return a new string; the original is unchanged.
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
 { memcpy, memcmp } :: import("../libc/string.yo");
@@ -57,7 +58,7 @@ impl(
       return(Self(_ptr :.None, _len : usize(0), _capacity : usize(0)));
     });
     ptr := _alloc_bytes(slen);
-    memcpy(*(void)(ptr), *(void)(s.ptr()), slen);
+    unsafe(memcpy(*(void)(ptr), *(void)(s.ptr()), slen));
     return(Self(_ptr :.Some(ptr), _len : slen, _capacity : slen));
   }),
   /// Create a string from a standard (mutable) String by copying its bytes.
@@ -68,7 +69,7 @@ impl(
     });
     ptr := _alloc_bytes(slen);
     (as_str : str) = s.as_str();
-    memcpy(*(void)(ptr), *(void)(as_str.ptr()), slen);
+    unsafe(memcpy(*(void)(ptr), *(void)(as_str.ptr()), slen));
     return(Self(_ptr :.Some(ptr), _len : slen, _capacity : slen));
   }),
   /// Byte length of the string.
@@ -138,7 +139,7 @@ impl(
           .Some(op) => match(
             self._ptr,
             .Some(sp) => {
-              memcpy(*(void)(sp &+ self._len), *(void)(op), other._len);
+              unsafe(memcpy(*(void)(sp &+ self._len), *(void)(op), other._len));
             },
             .None => ()
           ),
@@ -155,7 +156,7 @@ impl(
       match(
         self._ptr,
         .Some(sp) => {
-          memcpy(*(void)(ptr), *(void)(sp), self._len);
+          unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
           free(.Some(*(void)(sp)));
         },
         .None => ()
@@ -163,7 +164,7 @@ impl(
       match(
         other._ptr,
         .Some(op) => {
-          memcpy(*(void)(ptr &+ self._len), *(void)(op), other._len);
+          unsafe(memcpy(*(void)(ptr &+ self._len), *(void)(op), other._len));
         },
         .None => ()
       );
@@ -176,14 +177,14 @@ impl(
     match(
       self._ptr,
       .Some(sp) => {
-        memcpy(*(void)(ptr), *(void)(sp), self._len);
+        unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
       },
       .None => ()
     );
     match(
       other._ptr,
       .Some(op) => {
-        memcpy(*(void)(ptr &+ self._len), *(void)(op), other._len);
+        unsafe(memcpy(*(void)(ptr &+ self._len), *(void)(op), other._len));
       },
       .None => ()
     );
@@ -203,7 +204,7 @@ impl(
     match(
       self._ptr,
       .Some(sp) => {
-        memcpy(*(void)(ptr), *(void)(sp &+ clamped_start), new_len);
+        unsafe(memcpy(*(void)(ptr), *(void)(sp &+ clamped_start), new_len));
       },
       .None => ()
     );
@@ -221,7 +222,7 @@ impl(
       self._ptr,
       .Some(sp) => match(
         prefix._ptr,
-        .Some(pp) => (memcmp(*(void)(sp), *(void)(pp), prefix._len) == int(0)),
+        .Some(pp) => (unsafe(memcmp(*(void)(sp), *(void)(pp), prefix._len)) == int(0)),
         .None => true
       ),
       .None => (prefix._len == usize(0))
@@ -240,7 +241,7 @@ impl(
       self._ptr,
       .Some(sp) => match(
         suffix._ptr,
-        .Some(xp) => (memcmp(*(void)(sp &+ offset), *(void)(xp), suffix._len) == int(0)),
+        .Some(xp) => (unsafe(memcmp(*(void)(sp &+ offset), *(void)(xp), suffix._len)) == int(0)),
         .None => true
       ),
       .None => (suffix._len == usize(0))
@@ -269,7 +270,7 @@ impl(
           i := from_index;
           limit := ((self._len - needle._len) + usize(1));
           while(i < limit, i = (i + usize(1)), {
-            if(memcmp(*(void)(sp &+ i), *(void)(np), needle._len) == int(0), {
+            if(unsafe(memcmp(*(void)(sp &+ i), *(void)(np), needle._len)) == int(0), {
               return(.Some(i));
             });
           });
@@ -410,7 +411,7 @@ impl(
           return(self);
         });
         ptr := _alloc_bytes(self._len);
-        memcpy(*(void)(ptr), *(void)(sp), self._len);
+        unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
         i := usize(0);
         while(i < self._len, i = (i + usize(1)), {
           (b : u8) = (ptr &+ i).*;
@@ -447,7 +448,7 @@ impl(
           return(self);
         });
         ptr := _alloc_bytes(self._len);
-        memcpy(*(void)(ptr), *(void)(sp), self._len);
+        unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
         i := usize(0);
         while(i < self._len, i = (i + usize(1)), {
           (b : u8) = (ptr &+ i).*;
@@ -516,7 +517,7 @@ impl(
       .Some(sp) => {
         i := usize(0);
         while(i < n, i = (i + usize(1)), {
-          memcpy(*(void)(ptr &+ (i * self._len)), *(void)(sp), self._len);
+          unsafe(memcpy(*(void)(ptr &+ (i * self._len)), *(void)(sp), self._len));
         });
       },
       .None => ()
@@ -623,7 +624,7 @@ impl(
         self._ptr,
         .Some(sp) => match(
           other._ptr,
-          .Some(op) => (memcmp(*(void)(sp), *(void)(op), self._len) == int(0)),
+          .Some(op) => (unsafe(memcmp(*(void)(sp), *(void)(op), self._len)) == int(0)),
           .None => false
         ),
         .None => match(
@@ -653,7 +654,7 @@ impl(
     });
     match(
       self._ptr,
-      .Some(sp) => (memcmp(*(void)(sp), *(void)(other.ptr()), self._len) == int(0)),
+      .Some(sp) => (unsafe(memcmp(*(void)(sp), *(void)(other.ptr()), self._len)) == int(0)),
       .None => (other_len == usize(0))
     )
   })
@@ -670,7 +671,7 @@ impl(
           .Some(sp) => match(
             other._ptr,
             .Some(op) => {
-              (cmp_result : int) = memcmp(*(void)(sp), *(void)(op), min_len);
+              (cmp_result : int) = unsafe(memcmp(*(void)(sp), *(void)(op), min_len));
               if(cmp_result != int(0), {
                 return(cmp_result < int(0));
               });
@@ -697,15 +698,18 @@ impl(
 impl(
   String,
   Hash(
-    (hash) : (fn(self : *(Self)) -> u64)({
+    (hash) : (fn(ref(self) : Self) -> u64)({
       h := u64(14695981039346656037);
       match(
-        self.*._ptr,
+        self._ptr,
         .None => (),
         .Some(p) => {
           i := usize(0);
-          while(i < self.*._len, i = (i + usize(1)), {
-            h = (h ^ u64((p &+ i).*));
+          while(i < self._len, i = (i + usize(1)), {
+            // SAFETY: `p` points at the Rc-managed UTF-8 byte
+            // buffer of length `self._len`; the loop guard
+            // `i < self._len` keeps `p &+ i` inside the allocation.
+            h = (h ^ u64(unsafe((p &+ i).*)));
             h = (h * u64(1099511628211));
           });
         }
@@ -718,8 +722,8 @@ impl(
 impl(
   String,
   ToString(
-    to_string : (fn(self : *(Self)) -> std_string.String)(
-      std_string.String.from(self.*.as_str())
+    to_string : (fn(ref(self) : Self) -> std_string.String)(
+      std_string.String.from(self.as_str())
     )
   )
 );

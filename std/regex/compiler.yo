@@ -1,5 +1,6 @@
 //! NFA compiler — compiles a `RegexNode` AST into a flat list of NFA instructions
 //! using Thompson's construction algorithm.
+pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 open(import("std/string"));
 { RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import("./node.yo");
@@ -269,13 +270,13 @@ impl(
       .Sequence => {
         i := usize(0);
         while(i < node.children.len(), i = (i + usize(1)), {
-          child := node.children.get(i).unwrap();
+          child := node.children(i);
           recur(self, child);
         });
       },
       .Alternation => {
-        left := node.children.get(usize(0)).unwrap();
-        right := node.children.get(usize(1)).unwrap();
+        left := node.children(usize(0));
+        right := node.children(usize(1));
         split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
         left_start := self._current_pc();
         &(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, usize(0));
@@ -288,7 +289,7 @@ impl(
         &(self._program.instructions(jump_pc)).* = Instr.jump_instr(end_pc);
       },
       .Quantifier => {
-        child := node.children.get(usize(0)).unwrap();
+        child := node.children(usize(0));
         min_val := node.q_min;
         max_val := node.q_max;
         greedy := node.q_greedy;
@@ -352,7 +353,7 @@ impl(
         );
       },
       .Group => {
-        child := node.children.get(usize(0)).unwrap();
+        child := node.children(usize(0));
         start_slot := (node.group_index * usize(2));
         end_slot := ((node.group_index * usize(2)) + usize(1));
         self._emit(Instr.save_instr(start_slot));
@@ -360,14 +361,14 @@ impl(
         self._emit(Instr.save_instr(end_slot));
       },
       .NonCapturingGroup => {
-        child := node.children.get(usize(0)).unwrap();
+        child := node.children(usize(0));
         recur(self, child);
       },
       .Backreference => {
         self._emit(Instr.backref_instr(node.group_index));
       },
       .Lookahead => {
-        child := node.children.get(usize(0)).unwrap();
+        child := node.children(usize(0));
         positive := (!(node.negated));
         // Emit lookahead instruction with placeholder sub_end
         la_pc := self._emit(Instr.lookahead_instr(usize(0), usize(0), positive));
@@ -378,7 +379,7 @@ impl(
         &(self._program.instructions(la_pc)).* = Instr.lookahead_instr(sub_start, sub_end, positive);
       },
       .Lookbehind => {
-        child := node.children.get(usize(0)).unwrap();
+        child := node.children(usize(0));
         positive := (!(node.negated));
         lb_pc := self._emit(Instr.lookbehind_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
@@ -401,7 +402,7 @@ impl(
     instrs := self._program.instructions;
     (done : bool) = false;
     while((pc < instrs.len()) && (!(done)), {
-      instr := instrs.get(pc).unwrap();
+      instr := instrs(pc);
       match(
         instr.kind,
         .Save => {

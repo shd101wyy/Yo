@@ -21,6 +21,7 @@
 //! - `ModuleT` has no `assignedValue`/`defaultValue` per field → error if field missing.
 //! - `isFunctionValue` / `specializedType` / `ioBuiltin` propagation omitted (codegen deferred).
 //! - Return type is `ModuleTypeCallResult` (not `Option(AstExpr)` as in stub).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -63,7 +64,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     module_type : TypeValue,
     arg_exprs : ArrayList(AstExpr),
     caller_env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> ModuleTypeCallResult
 )({
@@ -157,7 +158,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         );
       });
       // Parse the label token value.
-      label_tok := match(label_sub,.Atom(_, tok) => (&(tok.value)).clone(), _ => String.from(""));
+      label_tok := match(label_sub,.Atom(_, tok) => tok.value.clone(), _ => String.from(""));
       // Validate the label exists in the module type.
       (label_exists_in_type : bool) = false;
       (li : usize) = usize(0);
@@ -223,7 +224,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
           );
         });
         // Store the evaluated value at position i.
-        (&(values)).index(i).* = arg_info.value;
+        values(i) = arg_info.value;
         // Annotate the label sub-expr with the same ExprInfo as the value.
         label_info := new_expr_info(caller_env, arg_type);
         label_info.value = arg_info.value;
@@ -253,7 +254,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     match(
       field_labels.get(k),
       .Some(lbl) => {
-        result_names.push((&(lbl)).clone());
+        result_names.push(lbl.clone());
       },
       .None => ()
     );

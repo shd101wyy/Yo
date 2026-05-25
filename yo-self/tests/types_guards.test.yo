@@ -355,7 +355,7 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
   it_ := ArrayList(TypeValue).new();
   is_ := ArrayList(bool).new();
   il.push(String.from("io"));
-  it_.push(t_module_simple(String.from("IO")));
+  it_.push(t_module_simple(String.from("Io")));
   is_.push(false);
   f := TypeValue.Func(
     ArrayList(String).new(),
@@ -424,13 +424,13 @@ test("is_fn_trait_type: FnTraitT returns true", {
   assert(!(is_fn_trait_type(t_i32())), "i32 → false");
 });
 test("is_future_trait_type: FutureTraitT returns true", {
-  f1 := t_future_trait_simple(String.from("IO"), t_unit());
+  f1 := t_future_trait_simple(String.from("Io"), t_unit());
   assert(is_future_trait_type(f1), "FutureTraitT → true");
   assert(!(is_future_trait_type(t_i32())), "i32 → false");
 });
 test("is_trait_type: FnTraitT and FutureTraitT are also trait types", {
   fn1 := t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit());
-  f1 := t_future_trait_simple(String.from("IO"), t_unit());
+  f1 := t_future_trait_simple(String.from("Io"), t_unit());
   assert(is_trait_type(t_trait_simple(String.from("Display"))), "TraitT → true");
   assert(is_trait_type(fn1), "FnTraitT is trait type");
   assert(is_trait_type(f1), "FutureTraitT is trait type");
@@ -489,7 +489,7 @@ test("is_rc_type: SomeT with no Future constraint is not RC", {
 test("is_rc_type: SomeT with Future trait constraint is RC", {
   // A SomeT with a Future trait in required_trait_types
   req := ArrayList(TypeValue).new();
-  req.push(t_future_trait_simple(String.from("IO"), t_unit()));
+  req.push(t_future_trait_simple(String.from("Io"), t_unit()));
   some_ty := TypeValue.SomeT(
     String.from("id3"),
     String.from("T"),

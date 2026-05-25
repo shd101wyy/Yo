@@ -7,6 +7,7 @@
 //!
 //! Note: `addRcFunctionsToIsoType` is not yet implemented (same status as
 //! `addRcFunctionsToDynType` in dyn.yo — deferred, returns env unchanged).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
@@ -39,7 +40,7 @@ evaluate_iso_type_call :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -199,7 +200,7 @@ evaluate_iso_value_call :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     iso_type : TypeValue,
     exn : Exception
   ) -> AstExpr

@@ -2,6 +2,7 @@ import { addVariableToEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -34,6 +35,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
+import { isFlowableExpr } from "../types/flowability";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
@@ -87,7 +89,41 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
-  const actualLhs = lhs;
+  // Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;`
+  // declares a local that is a second-class reference to the storage
+  // yielded by `expr`. The bound name carries `isRef: true`
+  // (same flag used for `ref(name) : T` parameter bindings), so the
+  // existing inout-aware codegen handles reads (`(*name)`) and
+  // writes (`(*name) = v`).
+  //
+  // The RHS must evaluate to an inout-yielding expression — for v1
+  // that means a call to a function whose return slot is `ref(T)`.
+  // We unwrap the `ref(...)` wrapper here so subsequent code sees
+  // the inner identifier as the lhs.
+  let isRefBinding = false;
+  let actualLhs = lhs;
+  if (
+    exprIsFunctionCall(actualLhs) &&
+    exprIsFunctionCallOf(actualLhs, BuiltinKeywords.ref)
+  ) {
+    if (
+      exprIsFunctionCallOf(expr, "::") ||
+      context.forceCompileTimeBindings === true
+    ) {
+      throw formatErrorMessage({
+        token: actualLhs.token,
+        errorMessage: `'ref(name) :=' cannot be used with '::' or in a compile-time-only context — borrows are runtime constructs.`,
+      });
+    }
+    if (actualLhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: actualLhs.token,
+        errorMessage: `Expected one argument for 'ref' in a local binding, got ${actualLhs.args.length}`,
+      });
+    }
+    isRefBinding = true;
+    actualLhs = actualLhs.args[0]!;
+  }
 
   // Prevent declaring variable type using :: or :=
   if (exprIsFunctionCall(actualLhs) && exprIsFunctionCallOf(actualLhs, ":")) {
@@ -122,6 +158,29 @@ export function evaluateInitializationAssignment({
   if (hasAnyControlFlow(rhs.$?.controlFlow)) {
     // Check if the RHS is a cond expression to provide a more specific error message
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$!.controlFlow!);
+  }
+
+  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // the RHS of `ref(name) := expr;`. The RHS must root back to a
+  // `ref`-bound parameter along a projection-respecting chain
+  // (R1–R4 in the plan); otherwise the binding would hand out a
+  // reference into storage that doesn't outlive the call frame.
+  if (isRefBinding) {
+    // At the binding site, a same-frame local can root the borrow even
+    // if it isn't a `ref`-bound parameter — the binding's lifetime is
+    // bounded by its enclosing block, which is itself bounded by the
+    // local's frame. This is what makes the Phase D for-macro expansion
+    // sound: it materializes `__for_coll := coll;` and then
+    // `ref(x) := __for_coll.project(pos)`, where __for_coll outlives
+    // the per-iteration `x`. The strict R1 (ref-bound only) still
+    // applies at function-return sites; see `function-type.ts` and
+    // `anonymous-function.ts`.
+    if (!isFlowableExpr(rhs, { allowSameFrameLocal: true })) {
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
+      });
+    }
   }
 
   // §4 escape boundary 2: module-level binding type cannot be
@@ -428,12 +487,18 @@ Use \`::\` for compile-time definitions inside impl.`,
         token: actualLhs.token,
         initializedAtToken: actualLhs.token,
         consumedAtToken: undefined, // Not consumed yet
-        // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheRcValue: typeContainsRcType(finalLhsType),
+        // `ref(name) := expr;` bindings are second-class references —
+        // the variable's storage IS the caller-side storage yielded
+        // by the RHS, not an owned value. Don't mark as RC-owning;
+        // the closure-capture gate already keys off `isRef`.
+        isOwningTheRcValue: isRefBinding
+          ? false
+          : typeContainsRcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
         isReassignable: true,
+        isRef: isRefBinding || undefined,
         isModuleLevel,
         docComment,
       },

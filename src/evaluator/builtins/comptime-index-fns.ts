@@ -725,7 +725,17 @@ function evaluateComptimeStringIndex({
   env = evaluatedIdx.$.env;
 
   const selfValue = evaluatedSelf.$.value;
-  const resultType = evaluatedSelf.$.type;
+  // Normalize the result type to `*(comptime_string)` regardless of
+  // how `self` was passed. Pre-inout, the trait took `comptime(self)
+  // : *(Self)` so the input was already pointer-typed. With
+  // `comptime(inout(self)) : Self`, the input is plain
+  // `comptime_string`. The trait's return is `*(Self.Output)` in
+  // both shapes — we always wrap here so the type matches.
+  const inputType = evaluatedSelf.$.type;
+  const baseType: Type = isPtrType(inputType)
+    ? (inputType as PtrType).childType
+    : inputType;
+  const resultType: Type = createPtrType(baseType);
 
   if (!selfValue || !isComptimeStringValue(selfValue)) {
     // Unknown value (e.g., during impl evaluation with SomeType params)

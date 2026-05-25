@@ -1,4 +1,4 @@
-// @skip_wasm32-wasi — no pthread support in standalone WASI
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 // Tests for std/imm collections in multi-threaded environments.
 // Verifies that immutable/persistent data structures can be safely
 // shared across threads without data races.
@@ -24,14 +24,14 @@ test("Vec shared across threads read-only", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
   ch := Channel(bool).new(usize(4));
   t1 := Thread.spawn((io) => {
-    assert(v.get(usize(0)).unwrap() == i32(10), "thread1 sees 10");
-    assert(v.get(usize(1)).unwrap() == i32(20), "thread1 sees 20");
-    assert(v.get(usize(2)).unwrap() == i32(30), "thread1 sees 30");
+    assert(v(usize(0)) == i32(10), "thread1 sees 10");
+    assert(v(usize(1)) == i32(20), "thread1 sees 20");
+    assert(v(usize(2)) == i32(30), "thread1 sees 30");
     ch.send(true);
   });
   t2 := Thread.spawn((io) => {
     assert(v.len() == usize(3), "thread2 sees length 3");
-    assert(v.get(usize(2)).unwrap() == i32(30), "thread2 sees 30");
+    assert(v(usize(2)) == i32(30), "thread2 sees 30");
     ch.send(true);
   });
   ch.recv();
@@ -52,12 +52,12 @@ test("Vec persistence — versions created on main, read across threads", {
   // Threads verify the independent versions
   t1 := Thread.spawn((io) => {
     assert(v1.len() == usize(4), "v1 has 4 elements");
-    assert(v1.get(usize(3)).unwrap() == i32(4), "v1 last is 4");
+    assert(v1(usize(3)) == i32(4), "v1 last is 4");
     ch.send(true);
   });
   t2 := Thread.spawn((io) => {
     assert(v2.len() == usize(3), "v2 has 3 elements");
-    assert(v2.get(usize(2)).unwrap() == i32(99), "v2 last is 99");
+    assert(v2(usize(2)) == i32(99), "v2 last is 99");
     ch.send(true);
   });
   ch.recv();
@@ -561,7 +561,7 @@ test("Mixed List and Vec across threads", {
     sum := i32(0);
     i := usize(0);
     while(runtime(i < v.len()), {
-      sum = (sum + v.get(i).unwrap());
+      sum = (sum + v(i));
       i = (i + usize(1));
     });
     ch.send(sum);

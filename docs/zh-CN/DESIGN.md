@@ -758,7 +758,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(self: *(Self), dx : i32, dy : i32) -> unit)({
+  move_by : (fn(ref(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -768,24 +768,25 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // 类型方法调用 - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // 对于 `*(Self)` 参数自动取指针
+p2.move_by(5, 10);  // `ref(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
 // p2 现在是 Point(5, 10)
 ```
 
-**自动指针转换：**
+**`ref` 的自动指针转换：**
 
-当方法期望 `*(Self)` 但你有 `Self` 时，Yo 会自动为你取指针（Rust 风格）：
+`ref(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
+所以调用方代码看起来就是普通的值传递语法：
 
 ```rust
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : ((self: *(Self), new_x: i32) -> unit)({
+  set_x : (fn(ref(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
 
 p := Point(3, 4);
-p.set_x(10);  // 自动转换为 &(p).set_x(10)
+p.set_x(10);  // 无需写 `&(p)` — 编译器自动插入
 ```
 
 ### recur
@@ -863,22 +864,24 @@ s3 := s2;                    // RC = 3
 
 ## 指针
 
-Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C：
+Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C。对原始指针的解引用、算术运算等危险操作需要显式 `unsafe(...)` 包装 — 详见下文 [内存安全](#内存安全)。
 
 ```rust
 // 指针类型：*(T)
 x := 1;
 y := 2;
 
-swap :: (fn(a : *(i32), b : *(i32)) -> unit)({
+swap :: (fn(a : *(i32), b : *(i32)) -> unit)(unsafe({
   tmp := a.*;  // 解引用指针
   a.* = b.*;
   b.* = tmp;
-});
+}));
 
 swap(&(x), &(y));  // 传入 x 和 y 的指针
 // 现在 x == 2, y == 1
 ```
+
+日常的就地修改应优先使用 `ref(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
 
 ### 指针操作
 
@@ -887,36 +890,36 @@ swap(&(x), &(y));  // 传入 x 和 y 的指针
 x := 42;
 ptr := &(x);  // ptr: *(i32)
 
-// 使用 .* 解引用
-value := ptr.*;  // value == 42
+// 使用 .* 解引用（需要 unsafe — 可能读取无效内存）
+value := unsafe(ptr.*);  // value == 42
 
-// 通过指针修改
-ptr.* = 100;  // x 现在是 100
+// 通过指针修改（需要 unsafe — 可能写入悬空指针）
+unsafe(ptr.* = 100);  // x 现在是 100
 
-// 指针算术（不安全）
+// 指针算术（需要 unsafe — 可能产生越界地址）
 arr := [1, 2, 3, 4, 5];
 ptr := &(arr(0));  // 指向第一个元素的指针
-ptr2 := (ptr &+ 2);  // 指向第三个元素
-value := ptr2.*;  // value == 3
+ptr2 := unsafe(ptr &+ 2);  // 指向第三个元素
+value := unsafe(ptr2.*);  // value == 3
 
-// 指针转换
+// 指针类型转换（安全 — 只修改地址的类型标签）
 float_ptr := *(f32)(ptr);  // 将指针转换为 *(f32)
 ```
 
 ### 指针算术运算
 
-Yo 提供了一整套指针算术运算符：
+Yo 提供了一整套指针算术运算符。算术运算符（`&+`、`&-`、`&/`）需要 `unsafe(...)` 包装；比较运算符（`&<`、`&>`、`&<=`、`&>=`、`&==`、`&!=`）保持安全 — 比较地址本身不会破坏内存安全。
 
 ```rust
 test("Pointer arithmetic", {
   x := 12;
   p := &(x);
 
-  // 加法和减法
-  q := (p &+ 2);   // 指针前进 2 个元素
-  z := (q &- 2);   // 指针后退 2 个元素
+  // 加法和减法（需要 unsafe — 可能产生越界地址）
+  q := unsafe(p &+ 2);   // 指针前进 2 个元素
+  z := unsafe(q &- 2);   // 指针后退 2 个元素
 
-  // 比较运算符
+  // 比较运算符（安全 — 地址只是数据）
   assert(q &> p);  // q 在 p 之后
   assert(p &< q);  // p 在 q 之前
   assert(q &>= p); // 大于等于
@@ -924,8 +927,8 @@ test("Pointer arithmetic", {
   assert(z &== p); // 相等（相同地址）
   assert(p &!= q); // 不相等
 
-  // 指针差值（指针间的距离）
-  diff := (q &/ p);  // 距离：2 个元素
+  // 指针差值同样需要 unsafe（假定两指针指向同一对象）
+  diff := unsafe(q &/ p);  // 距离：2 个元素
   assert(diff == 2);
 });
 ```
@@ -974,6 +977,105 @@ match(some_ptr,
 ```
 
 **注意**：裸指针是不安全的。请尽可能使用对象类型来进行安全的内存管理。
+
+### 内存安全
+
+面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`ref(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`，以及处理有符号整数溢出的 `-fwrapv`。
+
+Yo 的安全模型是分层的（设计计划见 [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)）：
+
+- **`object` 类型**通过引用计数自动释放（RC + 循环回收），从构造上保证内存安全。
+- **`Iso(T)` / `Arc(T)`** 分别提供仿射所有权传递和原子 RC 共享所有权。
+- **`*(T)` 原始指针**的解引用、算术运算和「穿透指针的 `consume`」操作必须显式包裹在 `unsafe(...)` 中，否则编译报错。
+
+`unsafe(...)` 是一个普通的内建函数调用，接受一个表达式作为参数。它纯粹是编译时标记 — 在代码生成阶段会被还原为其内部表达式，没有运行时开销。
+
+```rust
+// 指针解引用需要 unsafe：
+read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
+
+// 指针算术同样：
+advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p &+ n));
+
+// 多语句 unsafe 用 begin-block 包裹（必须含分号 —
+// 不带分号的 `{ ... }` 是结构体字面量，而不是块）：
+write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
+  p.* = v;
+  p.*
+}));
+
+// 指针比较（&==、&< 等）和 *(T) 类型转换（如 *(u8)(p)）
+// 保持安全 — 它们不解引用，因此不被门控。
+```
+
+**需要 `unsafe(...)` 的操作**：指针解引用（`.*`）、指针算术（`&+`、`&-`、`&/`）、对指针解引用的 `consume(p.* = v)`。
+
+**仍然安全的操作**：取地址（`&(x)`）、传递/存储/返回指针、指针比较（`&<`、`&==` 等）、指针类型转换（`*(u8)(p)`）、`asm(...)`（本身已经隐式不安全）。
+
+不安全表面是可 grep 的：每个 `unsafe(` token 都标记了一处原始内存操作。文件必须在顶部声明 `pragma(Pragma.AllowUnsafe);` 才能使用 `unsafe(...)` 或执行原始指针操作。`std/`、`yo-self/` 和 `tests/` 下的文件都显式声明了此 pragma；用户代码（`main.yo` 及项目中的其他文件）默认是安全模式，若尝试使用 `unsafe(...)` 将得到编译错误。
+
+如需一目了然地审计，运行 `yo unsafe-report`（或 `yo unsafe-report ./std` 仅扫描标准库）。它列出每一处 `unsafe(...)` 站点、`asm(...)` 块、`extern(...)` 声明以及声明 pragma 的文件，带 `file:line:col` 跳转格式以方便编辑器查看。`--json` 标志输出机器可读格式，便于 CI 集成。
+
+```rust
+// 没有 pragma 的文件 — `unsafe(...)` 被拒绝：
+main :: (fn() -> unit)({
+  x := i32(42);
+  v := unsafe(x);   // error: 'unsafe(...)' is not available in safe code.
+                    //        To use raw pointer operations, declare at the top:
+                    //            pragma(Pragma.AllowUnsafe);
+});
+
+// 在文件顶部添加 pragma 即可启用：
+pragma(Pragma.AllowUnsafe);
+
+main :: (fn() -> unit)({
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);  // OK
+});
+```
+
+### `ref` 参数
+
+要在不使用原始指针的情况下实现原地修改，请使用 `ref(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `ref(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
+
+```rust
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
+
+increment :: (fn(ref(n) : i32) -> unit)({
+  n = (n + i32(1));
+});
+
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  swap(x, y);              // 调用点不需要 `&()` 语法
+  assert((x == i32(2)), "swapped");
+  assert((y == i32(1)), "swapped");
+
+  counter := i32(0);
+  increment(counter);
+  increment(counter);
+  assert((counter == i32(2)), "incremented");
+});
+```
+
+`ref(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（`ref` 是运行时专用的）组合使用。对于链式调用，将 `ref` 参数传递给另一个函数的 `ref` 参数按预期工作：
+
+```rust
+double :: (fn(ref(n) : i32) -> unit)({
+  n = (n + n);
+});
+
+double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
+  double(x);  // 将 &x 透传给 double 的 `ref` 参数
+  double(y);
+});
+```
 
 ### RAII（资源获取即初始化）
 
@@ -1229,7 +1331,7 @@ factorial2 :: (fn(n: i32) -> i32)({
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1271,53 +1373,51 @@ for(iter_expr, (variable) => {
 });
 ```
 
-每个集合提供两种迭代模式：
+`for` 宏通过 **lambda 参数的绑定形式** 区分借用迭代和值迭代——`ref(x) => body` 借用，`(x) => body` 消费：
 
-| 方法          | 产出   | 语义                         |
-| ------------- | ------ | ---------------------------- |
-| `iter()`      | `*(T)` | 通过指针借用集合；产出指针   |
-| `into_iter()` | `T`    | 获取 RC 句柄的所有权；产出值 |
+| 形式                        | 调用               | `x` 是什么                                                                        |
+| --------------------------- | ------------------ | --------------------------------------------------------------------------------- |
+| `for(coll, ref(x) => body)` | `coll.iter()`      | 按引用绑定到每个元素；读取自动解引用，写入回传到集合；`coll` 在循环结束后仍然有效 |
+| `for(coll, (x) => body)`    | `coll.into_iter()` | 持有元素值；集合被移入迭代器并被消费                                              |
 
 ```rust
+arr := Array(i32, 3)(1, 2, 3);
+
+// 借用形式 — `x` 按引用绑定；写入会传播。
+for(arr, ref(x) => {
+  x = (x * i32(10));
+});
+// arr 现在是 [10, 20, 30]。
+
+// 值形式 — 调用 `coll.into_iter()`；每个 `x` 都是拥有的值。
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-
-// iter() — 产出指向元素的指针
-for(list.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// into_iter() — 产出值（获取 RC 句柄的所有权）
 for(list.into_iter(), (value) => {
   println(value);
 });
-
-// 数组使用 iter() — 产出指向元素的指针
-arr := Array(i32, 3)(1, 2, 3);
-for(arr.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// 字符串使用 chars() 和 bytes()
-s := String.from("Hello");
-for(s.chars(), (ch) => {
-  println(ch);
-});
 ```
 
-`for` 宏展开为：
+`for(coll, ref(x) => body)` 在底层展开为一个 `while`，将 `next()` 产出的每个位置与 `coll.project(pos)` 的借用配对：
 
 ```rust
-iter := iter_expr;
+__iter := coll.iter();
 while(runtime(true), {
-  temp := &(iter).next();
-  match(temp,
-    .Some(variable) => body,
+  match(__iter.next(),
+    .Some(__pos) => {
+      ref(x) := coll.project(__pos);
+      body
+    },
     .None => { break; }
   )
 });
 ```
+
+`coll.iter()` 返回一个 `Iterator(Item := Position)`（对于有索引的集合通常是 `usize`）。集合的 `Indexable(Position)` 实现提供 `project(pos) -> ref(Element)`，for 宏将其与每个位置配对，把元素存储的 `ref`-绑定交给循环体。详见 `plans/ITERATOR_REDESIGN.md`。
+
+值迭代 `for(coll, (x) => body)` 展开为 `coll.into_iter()`，后接标准的 `next()` 循环。组合器链（`coll.iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状——它们没有 `Collection` 可投射，因此只支持值形式。一个全覆盖的 `into_iter` 实现 `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
+
+字符串有专门的 `chars()`（rune 迭代）和 `bytes()`（字节迭代）方法；字节级借用形式 `for(s, ref(b) => body)` 也可用。
 
 ## 代数数据类型 (ADT)
 
@@ -1657,11 +1757,11 @@ Trait 被定义为一个返回 `Trait` 类型的函数，其中包含字段定�
 ```rust
 // 定义一个 trait（类似于 Rust 中的 trait）
 Summary :: trait(
-  summarize : (fn(self: *(Self)) -> String)
+  summarize : (fn(ref(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(self: *(Self)) -> String),
+  display : (fn(ref(self) : Self) -> String),
   where(Self <: Summary) // 约束
 );
 
@@ -1687,12 +1787,12 @@ impl(NewsArticle, Display(
 ));
 
 // 传入函数
-notify :: (fn(item: *(NewsArticle)) -> unit)({
+notify :: (fn(ref(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // 带 trait 约束的泛型函数
-notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit)({
+notify2 :: (fn(forall(T : Type), ref(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2269,7 +2369,7 @@ result := use_id(42);  // 打印 "i32: 42"，返回 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(self : *(Self)) -> i32)
+  return_i32 : (fn(ref(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -2536,12 +2636,12 @@ Yo 使用**基于状态机转换的 async/await** 实现高效的**单线程并�
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(io : IO) -> unit)({
-  task1 := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task1 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(1));
   });
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(2));
   });
@@ -2709,7 +2809,7 @@ test("Test description", {
   assert(x == 2);
 });
 
-// IO 通过 `io` 自动注入到所有测试体中
+// Io 通过 `io` 自动注入到所有测试体中
 test("With effects", {
   io.await(sleep(u64(1000)));
 });
@@ -3208,7 +3308,7 @@ asm("mov {0}, #42", out(reg, x));
 
 ## Index 特征
 
-Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `&(value(index))` 获取指针，以及通过 `&(value(index)).* = new_value` 进行修改。
+Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `&(value(index))` 获取指针，以及通过调用语法赋值 `value(index) = new_value` 进行修改。
 
 标准库为 `ArrayList`、`HashMap`、`BTreeMap`、`Deque` 和 `String` 实现了 `Index`。数组和切片使用内置索引（相同语法），并支持 `..` 和 `..=` 的范围切片。
 

@@ -4,6 +4,7 @@
 //!
 //! `evaluate_as` handles the `as(value, TargetType)` builtin, which casts
 //! a value to the target type if they are compatible.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 {
@@ -32,7 +33,7 @@ evaluate_as :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

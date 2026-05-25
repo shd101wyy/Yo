@@ -55,7 +55,8 @@ Below is a non-exhaustive list of features that Yo supports:
 - Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression. Simple syntax rule, Human & AI friendly).
 - Closure.
 - [Algebraic Effects and Handlers](./docs/en-US/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Implicit parameters via `using`/`given`, effect handlers with `return`/`escape`, by [Evidence Passing](https://xnning.github.io/papers/multip.pdf)).
-- [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `IO` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
+- [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `Io` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
+- [Memory safety by default](./docs/en-US/MEMORY_SAFETY.md) — user code can't write UB (no raw pointers, no FFI, no inline assembly) without an explicit `pragma(Pragma.AllowUnsafe);` opt-in. `ref(name)` for in-place mutation; `yo unsafe-report` for auditing the unsafe surface.
 - `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/en-US/CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
 - Thread-per-core parallelism model (see [PARALLELISM.md](./docs/en-US/PARALLELISM.md)).
@@ -234,7 +235,7 @@ Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, whic
 - **C-compatible types**: `int`, `uint`, `short`, `long`, `longlong`, `char`, etc.
 - **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Dispose`, `Send`, `Rc`, `Acyclic`, etc.
 - **Metaprogramming**: `Type`, `Expr`, `ExprList`, `Var`
-- **Async**: `IO`, `FutureState`, `JoinHandle`
+- **Async**: `Io`, `FutureState`, `JoinHandle`
 - **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `arc`, `Box`, `box`
 - etc.
 
@@ -378,7 +379,7 @@ This repository ships a set of **agent skill files** that teach AI agents how to
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | [`yo-syntax`](.github/skills/yo-syntax/SKILL.md)                     | Core language syntax: curly braces, cond/match, structs, enums, operators, modules |
 | [`yo-core-patterns`](.github/skills/yo-core-patterns/SKILL.md)       | Everyday patterns: types, generics, traits, error handling, collections, iterators |
-| [`yo-async-effects`](.github/skills/yo-async-effects/SKILL.md)       | Async/await, algebraic effects, Exception, IO, spawning tasks                      |
+| [`yo-async-effects`](.github/skills/yo-async-effects/SKILL.md)       | Async/await, algebraic effects, Exception, Io, spawning tasks                      |
 | [`yo-project-workflow`](.github/skills/yo-project-workflow/SKILL.md) | `yo` CLI commands, `build.yo` project files, dependency management                 |
 
 ### Using in your own project

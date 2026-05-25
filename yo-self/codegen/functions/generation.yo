@@ -7,6 +7,7 @@
 //!
 //! Phase 4d: generate a complete C function definition from a name,
 //! parameter list, return type, and body expression.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("../../expr.yo");
@@ -83,7 +84,7 @@ emit_function_declaration :: (
     ret_type : str,
     params : ArrayList(String),
     param_tys : ArrayList(String),
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
   ensure_arraylist_c_type(ctx, ret_type);
@@ -104,7 +105,7 @@ emit_function_declaration :: (
     });
   };
   param_list := build_param_list(params, param_tys);
-  ctx.*.emitter.emit_declaration_string_line(
+  ctx.emitter.emit_declaration_string_line(
     format_function_forward_decl(ret_type, name, param_list)
   );
 });
@@ -131,7 +132,7 @@ generate_function :: (
     params : ArrayList(String),
     param_tys : ArrayList(String),
     body : AstExpr,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
   ensure_arraylist_c_type(ctx, ret_type);
@@ -164,13 +165,13 @@ generate_function :: (
     while(runtime(ip < n_params), {
       ty_p := match(param_tys.get(ip),.Some(s) => s,.None => String.from("void*"));
       p_p := match(params.get(ip),.Some(s) => s,.None => String.from("_p"));
-      ctx.*.register_var_type(p_p.as_str(), ty_p.as_str());
+      ctx.register_var_type(p_p.as_str(), ty_p.as_str());
       // If the parameter type is a registered struct, track open var fields
       match(
-        ctx.*.get_struct_fields(ty_p.as_str()),
+        ctx.get_struct_fields(ty_p.as_str()),
         .None => (),
         .Some(fcsv) => {
-          ctx.*.track_open_var(p_p.as_str(), fcsv.as_str());
+          ctx.track_open_var(p_p.as_str(), fcsv.as_str());
         }
       );
       ip = (ip + usize(1));
@@ -178,10 +179,10 @@ generate_function :: (
   };
   // Track current function name so `recur(args)` can be emitted as `name(args)`.
   // Track return type so anonymous struct literals can use the named type.
-  ctx.*.current_fn_name = String.from(name);
-  ctx.*.current_fn_return_type = String.from(ret_type);
+  ctx.current_fn_name = String.from(name);
+  ctx.current_fn_return_type = String.from(ret_type);
   // Emit: static ret_type name(params) {
-  ctx.*.emitter.emit_string_line(format_function_def_open(ret_type, name, param_list));
+  ctx.emitter.emit_string_line(format_function_def_open(ret_type, name, param_list));
   // Generate body — side-effect statements go into ctx.emitter automatically
   indent := String.from("  ");
   body_val := generate_expr(body, ctx, indent);
@@ -193,22 +194,22 @@ generate_function :: (
       .Some(last) => cond(
         // "0" is the sentinel for "nothing meaningful" — skip for void
         (last == String.from("0")) => (),
-        true => ctx.*.emitter.emit_string_line(format_function_body_stmt(last))
+        true => ctx.emitter.emit_string_line(format_function_body_stmt(last))
       )
     ),
     true => match(
       body_val,
-      .None => ctx.*.emitter.emit_line("  /* codegen error: body returned None */"),
+      .None => ctx.emitter.emit_line("  /* codegen error: body returned None */"),
       .Some(last) => cond(
         // "0" is the sentinel for "nothing meaningful" (e.g., function ended with an
         // explicit `return` statement).  Skip the trailing `return(0);` — it would be
         // a type error for non-void return types, and the explicit return already ran.
         (last.as_str() == "0") => (),
-        true => ctx.*.emitter.emit_string_line(format_function_return_stmt(last))
+        true => ctx.emitter.emit_string_line(format_function_return_stmt(last))
       )
     )
   );
-  ctx.*.emitter.emit_line("}");
+  ctx.emitter.emit_line("}");
 });
 export(
   generate_function,

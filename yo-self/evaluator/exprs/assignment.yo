@@ -12,6 +12,7 @@
 //!   - Impl(SomeType) reassignment check
 //!   - attachTempVariableToExpr (no-op stub in utils.yo)
 //!   - synthesizeExprAndType (type-inference for unknown-length arrays)
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -211,7 +212,7 @@ evaluate_assignment :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -533,16 +534,16 @@ evaluate_assignment :: (
             match(
               cr,
               .ArrayRef(cr_elements, cr_index) => {
-                (&(cr_elements)).index(cr_index).* = cr_rhs_val;
+                cr_elements(cr_index) = cr_rhs_val;
               },
               .ComptimeListRef(cr_elements, cr_index) => {
-                (&(cr_elements)).index(cr_index).* = cr_rhs_val;
+                cr_elements(cr_index) = cr_rhs_val;
               },
               .StructRef(cr_field_values, cr_field_index) => {
-                (&(cr_field_values)).index(cr_field_index).* = cr_rhs_val;
+                cr_field_values(cr_field_index) = cr_rhs_val;
               },
               .TupleRef(cr_fields, cr_field_index) => {
-                (&(cr_fields)).index(cr_field_index).* = cr_rhs_val;
+                cr_fields(cr_field_index) = cr_rhs_val;
               }
             );
             is_comptime_only_prop = true;

@@ -361,7 +361,18 @@ export function generateDynWrapperFunctions(
           `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
         );
 
-        const implFirstParamType = funcType.parameters[0]?.type;
+        const implFirstParam = funcType.parameters[0];
+        const implFirstParamType = implFirstParam?.type;
+        // The wrapped impl method may take its receiver either as a raw
+        // `*(Self)` pointer (PtrType in the AST) or as a `ref(self) :
+        // Self` parameter — which the codegen also lowers to `Self*` in
+        // C, but is represented in the AST as a non-pointer type with
+        // `isRef: true`. Both need the same `&box->field` / `&concrete`
+        // address-of treatment; otherwise we'd pass the struct by value
+        // to a pointer-typed parameter and the C compiler rejects it.
+        const passByPointer =
+          (implFirstParamType && isPtrType(implFirstParamType)) ||
+          implFirstParam?.isRef === true;
         let firstArg: string;
 
         if (isBoxedType(dataType)) {
@@ -372,7 +383,7 @@ export function generateDynWrapperFunctions(
             `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
           );
 
-          if (implFirstParamType && isPtrType(implFirstParamType)) {
+          if (passByPointer) {
             firstArg = `&box->${fieldName}`;
           } else {
             firstArg = `box->${fieldName}`;
@@ -383,7 +394,7 @@ export function generateDynWrapperFunctions(
             `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
           );
 
-          if (implFirstParamType && isPtrType(implFirstParamType)) {
+          if (passByPointer) {
             firstArg = `&concrete_value`;
           } else {
             firstArg = `concrete_value`;

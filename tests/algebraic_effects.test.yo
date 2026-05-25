@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 open(import("std/string")); // Let's use `String` instead of `str`
 open(import("std/fmt"));
 { Exception } :: import("std/error");
@@ -754,7 +755,9 @@ test("Test closure with using() effect - resume", {
   assert(x.* == 3, "closure+effect resume: expected x to be 3");
 });
 test("Test closure with using() effect - unwind", {
-  Log :: (fn(msg : String) -> unit);
+  // Closures cannot capture ctl-typed values (they could outlive the install
+  // frame). Pass the effect handler explicitly as a parameter instead.
+  Log :: (ctl(msg : String) -> unit);
   run_test :: (fn() -> i32)({
     x := Box(i32)(0);
     (log : Log) = (
@@ -763,13 +766,12 @@ test("Test closure with using() effect - unwind", {
         unwind(i32(99));
       }
     );
-    (closure : Impl(Fn(v : i32, msg : String) -> i32)) =
-      (v, msg) => {
-        log(msg);
-        x.* = (x.* + v);
-        return(x.*);
-      };
-    result := closure(1, `hello`);
+    apply :: (fn(v : i32, msg : String, b : Box(i32), lg : Log) -> i32)({
+      lg(msg);
+      b.* = (b.* + v);
+      return(b.*);
+    });
+    result := apply(1, `hello`, x, log);
     assert(false, "closure+effect unwind: should not reach here");
     return(result);
   });
@@ -802,12 +804,13 @@ test("Effect row polymorphism with E : Type.Struct spread", {
     };
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
-  traverse(arr, (v, e) => {
+  Eff :: struct(yield : Yield, log : Log);
+  traverse(arr, (v : i32, e : Eff) => {
     e.log(v);
     result := e.yield(v);
     assert(result == v, "effect row: yield should return the value");
     sum.* = (sum.* + result);
-  }, { yield, log });
+  }, Eff(yield, log));
   assert(sum.* == 10, "effect row: sum should be 10");
 });
 test("Effect row inline typed declaration name : Type", {
@@ -837,16 +840,17 @@ test("Effect row inline typed declaration name : Type", {
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
   // Closure declares effect row inline with types — no call-site using() needed
-  traverse(arr, (v, e) => {
+  Eff :: struct(yield : Yield, log : Log);
+  traverse(arr, (v : i32, e : Eff) => {
     e.log(v);
     result := e.yield(v);
     assert(result == v, "inline typed: yield should return the value");
     sum.* = (sum.* + result);
-  }, { yield, log });
+  }, Eff(yield, log));
   assert(sum.* == 10, "inline typed: sum should be 10");
 });
 test("Mixed unwind and return in effect handler", {
-  Yield :: (fn(v : i32) -> i32);
+  Yield :: (ctl(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
   traverse :: (
     fn(
@@ -877,13 +881,14 @@ test("Mixed unwind and return in effect handler", {
     };
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
-  traverse(arr, (v, e) => {
+  Eff :: struct(yield : Yield, log : Log);
+  traverse(arr, (v : i32, e : Eff) => {
     e.log(v);
     result := e.yield(v);
     assert(result == v, "mixed handler: yield should return the value");
     sum.* = (sum.* + result);
 
-  }, { yield, log });
+  }, Eff(yield, log));
   assert(false, "This line should not be reached due to unwind in yield");
 });
 test("Transitive SM while loop with break", {
@@ -1055,7 +1060,7 @@ test("Struct-record effect with forall handler — unwind in while loop", {
   // handler uses unwind inside a while loop to abort traversal.
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
-      throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+      throw : (ctl(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
   safe_divide :: (fn(x : i32, y : i32, exn : MyException(i32)) -> i32)(
@@ -1092,7 +1097,7 @@ test("Struct-record effect with forall handler — resume in while loop", {
   // Struct-record effect with forall(ResumeType), handler resumes with a value.
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
-      throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+      throw : (ctl(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
   safe_divide :: (fn(x : i32, y : i32, exn : MyException(i32)) -> i32)(
@@ -1131,7 +1136,7 @@ test("Struct-record effect with forall handler — resume in while loop", {
 test("Struct-record effect with forall handler — break after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
-      throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+      throw : (ctl(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
   safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
@@ -1166,7 +1171,7 @@ test("Struct-record effect with forall handler — break after resume in while l
 test("Struct-record effect with forall handler — continue after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
-      throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+      throw : (ctl(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
   safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
@@ -1208,7 +1213,7 @@ test("Struct-record effect with forall handler — continue after resume in whil
 test("Struct-record effect with forall handler — early return after resume in while loop", {
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
-      throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+      throw : (ctl(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
     )
   );
   safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
@@ -1811,12 +1816,16 @@ test("ctl rule 3: closure body with unwind is rejected", {
 test("ctl rule 4: closure cannot capture a ctl-typed value", {
   Raise :: (ctl(msg : String) -> i32);
   apply :: (fn(forall(T : Type), f : Impl(Fn() -> T)) -> T)(f());
-  (raise : Raise) = (
-    (msg) -> {
-      unwind(i32(0));
-    }
+  comptime_expect_error(
+    (fn() -> i32)({
+      (raise : Raise) = (
+        (msg) -> {
+          unwind(i32(0));
+        }
+      );
+      return(apply(() => raise(`captured`)));
+    })()
   );
-  comptime_expect_error(apply(() => raise("captured")));
 });
 // Rule 2: an inline lambda whose body contains `unwind` must carry an
 // explicit `ctl(...) -> ret` annotation (either on the LHS binding or on

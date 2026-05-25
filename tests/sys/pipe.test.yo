@@ -1,4 +1,5 @@
-// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 file :: import("std/sys/file");
 pipe_io :: import("std/sys/pipe");
@@ -6,7 +7,7 @@ test("pipe read/write", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
-  printf("  pipe = %d\n", pr);
+  unsafe(printf("  pipe = %d\n", pr));
   assert(pr == i32(0));
   read_fd := (pipefd &+ usize(0)).*;
   write_fd := (pipefd &+ usize(1)).*;
@@ -15,12 +16,12 @@ test("pipe read/write", {
   data := *(u8)("hello pipe");
   data_len := u32(10);
   wr := io.await(file.write(write_fd, data, data_len, u64(0)), io);
-  printf("  write = %d\n", wr);
+  unsafe(printf("  write = %d\n", wr));
   assert(wr == i32(data_len));
   buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
   buf := *(u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
-  printf("  read = %d\n", rd);
+  unsafe(printf("  read = %d\n", rd));
   assert(rd == i32(data_len));
   assert((buf &+ usize(0)).* == u8(104));
   assert((buf &+ usize(6)).* == u8(112));
@@ -38,7 +39,7 @@ test("dup reads from original pipe", {
   read_fd := (pipefd &+ usize(0)).*;
   write_fd := (pipefd &+ usize(1)).*;
   dup_fd := pipe_io.dup(read_fd);
-  printf("  dup = %d\n", dup_fd);
+  unsafe(printf("  dup = %d\n", dup_fd));
   assert(dup_fd >= i32(0));
   close_read := io.await(file.close(read_fd), io);
   assert(close_read == i32(0));
@@ -71,7 +72,7 @@ test("dup2 redirects to target fd", {
   read_fd_b := (pipefd_b &+ usize(0)).*;
   write_fd_dst := (pipefd_b &+ usize(1)).*;
   dup2_fd := pipe_io.dup2(write_fd_src, write_fd_dst);
-  printf("  dup2 = %d\n", dup2_fd);
+  unsafe(printf("  dup2 = %d\n", dup2_fd));
   assert(dup2_fd == write_fd_dst);
   c1 := io.await(file.close(write_fd_src), io);
   c2 := io.await(file.close(read_fd_b), io);

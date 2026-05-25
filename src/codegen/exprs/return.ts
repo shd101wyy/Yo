@@ -481,12 +481,26 @@ export function generateReturn(
           arg.$.env
         );
 
-        if (argTempVar !== rawArgCode) {
+        // Skip the temp declaration when the arg is an ref parameter.
+        // `T name = (*name);` would shadow the pointer parameter and
+        // produce a C redefinition error. The deferred dup below can
+        // reference the inout name directly. See
+        // plans/MEMORY_SAFETY.md and
+        // issues/inout-multi-stmt-body-shadow.md.
+        let isInoutArgAtom = false;
+        if (exprIsAtom(arg) && arg.$?.env) {
+          const vars = getVariablesFromEnv(arg.$.env, savedVariableName);
+          if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
+            isInoutArgAtom = true;
+          }
+        }
+
+        if (!isInoutArgAtom && argTempVar !== rawArgCode) {
           context.emitter.emitLine(
             `${indent}${argType} ${argTempVar} = ${rawArgCode};`
           );
         }
-        argCode = argTempVar;
+        argCode = isInoutArgAtom ? rawArgCode : argTempVar;
       } else {
         argCode = generateExpr(arg, indent, context);
       }

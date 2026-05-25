@@ -6,6 +6,7 @@
 //! Note: `Array(T, _)` (underscore length inference) is NOT supported in the
 //! self-hosted compiler because `t_array` requires a concrete `usize` length.
 //! Attempting to use `_` produces an explicit error.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -35,7 +36,7 @@ evaluate_array_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

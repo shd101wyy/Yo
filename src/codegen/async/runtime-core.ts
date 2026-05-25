@@ -221,7 +221,7 @@ ${
     ? `      if (!__yo_has_pending_io()) {
         ASYNC_DEBUG("[ASYNC] No tasks or I/O, future state=%d\\n", __future_state);
         if (__future_state != -1 && __future_state != -2) {
-          ASYNC_DEBUG("[ASYNC] WARNING: No tasks/IO but future not complete\\n");
+          ASYNC_DEBUG("[ASYNC] WARNING: No tasks/Io but future not complete\\n");
           break;
         }
       }`

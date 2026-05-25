@@ -11,6 +11,10 @@ import Evaluator, {
   clearGenericImplsFromModule,
   clearImplsFromModule,
 } from "./evaluator/index";
+import {
+  _clearPragmaForModule,
+  _clearPragmaRegistry,
+} from "./evaluator/memory-safety";
 import { clearAllModuleCounters, resetModuleIdCounter } from "./utils";
 import { clearAllCachedTypes } from "./types/creators";
 import type { Expr } from "./expr";
@@ -165,6 +169,11 @@ export class ModuleManager {
       clearGenericImplsFromModule(dep);
       this.clearDependencies(dep);
       resetModuleIdCounter(dep);
+      // Drop any `pragma(Pragma.AllowUnsafe);` privilege the module
+      // had registered. Without this, an LSP edit that removes the
+      // pragma from a file would leave the old privilege in the
+      // registry and continue treating the file as unsafe-capable.
+      _clearPragmaForModule(dep);
       this.modules.delete(dep);
     }
 
@@ -173,6 +182,7 @@ export class ModuleManager {
     clearGenericImplsFromModule(modulePath);
     this.clearDependencies(modulePath);
     resetModuleIdCounter(modulePath);
+    _clearPragmaForModule(modulePath);
     this.modules.delete(modulePath);
   }
 
@@ -253,6 +263,7 @@ export class ModuleManager {
     clearEnvContainingPrelude();
     clearAllModuleCounters();
     clearAllCachedTypes();
+    _clearPragmaRegistry();
   }
 
   public loadModule(

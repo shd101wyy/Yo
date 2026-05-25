@@ -8,7 +8,8 @@
 //!   Future(T, E)     — future with a single effect bundle struct E
 //!
 //! Multiple effects must be packed into a single struct (e.g.
-//!   Ctx :: struct(io : IO, raise : Raise); Future(T, Ctx)).
+//!   Ctx :: struct(io : Io, raise : Raise); Future(T, Ctx)).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 {
   AstExpr,
@@ -252,7 +253,7 @@ _resolve_effect_arg :: (
   fn(
     effect_expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     out_labels : ArrayList(String),
     out_types : ArrayList(TypeValue),
     out_spreads : ArrayList(bool),
@@ -328,7 +329,7 @@ evaluate_future_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

@@ -5,6 +5,7 @@
 //! `Concrete(T)` creates a marker trait type that specifies the concrete
 //! type for `Impl`. The `is_concrete` field on `TraitT` stores the wrapped
 //! type so downstream consumers (e.g. `Impl(Concrete(T), ...)`) can read it.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -35,7 +36,7 @@ evaluate_concrete_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

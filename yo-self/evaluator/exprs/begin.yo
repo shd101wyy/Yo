@@ -13,6 +13,7 @@
 //! Exported symbols:
 //!   DupCallsResult, is_unit_value_expression,
 //!   collect_dup_calls_conservatively, evaluate_begin_expression
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -157,7 +158,7 @@ evaluate_begin_expression :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     variables_to_add : ArrayList(Variable),
     _is_evaluating_function_body_begin_block : bool,
     exn : Exception
@@ -209,7 +210,7 @@ evaluate_begin_expression :: (
       }
     );
     _added := add_variable_to_env(
-      &(env),
+      env,
       v.name,
       v.ty,
       v.value,

@@ -1,4 +1,5 @@
-// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 open(import("std/string"));
 { platform, Platform } :: import("std/process");
@@ -109,7 +110,7 @@ test("fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
       assert(rm == i32(0), "unlinking temp file after Linux flag test should succeed");
     },
     true => {
-      printf("  skipping Linux-specific fallocate flag test on non-Linux\n");
+      unsafe(printf("  skipping Linux-specific fallocate flag test on non-Linux\n"));
     }
   );
 });

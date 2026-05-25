@@ -148,11 +148,11 @@ containing the actual handlers:
 
 ```rust
 // Single bundle (most common)
-fut1 : Impl(Future(i32, IOErr));            // IOErr = { io, exn }
+fut1 : Impl(Future(i32, IoExn));            // IoExn = { io, exn }
 y := io.await(fut1, { io, exn });
 
 // Single-effect future — pass the effect value directly
-fut2 : Impl(Future(i32, IO));
+fut2 : Impl(Future(i32, Io));
 x := io.await(fut2, io);
 ```
 
@@ -176,7 +176,7 @@ result := io.await(fut, effects);
 ```rust
 // Inside a function with annotated return type — the return type
 // pins E, so `(e)` without an annotation is fine:
-do_work :: (fn(io : IO) -> Impl(Future(unit, IOErr)))(
+do_work :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
     e.io.await(some_io_call(...), e.io);
     e.exn.throw(...);
@@ -185,10 +185,10 @@ do_work :: (fn(io : IO) -> Impl(Future(unit, IOErr)))(
 ```
 
 Width matching is **strict** — Yo structs are nominal. If a caller
-holds `e : IOErr` but a nested future only needs `IO`, project:
+holds `e : IoExn` but a nested future only needs `Io`, project:
 
 ```rust
-// fut needs IO; project to e.io
+// fut needs Io; project to e.io
 result := io.await(fut, e.io);
 ```
 
@@ -335,7 +335,7 @@ struct field of `ctl` type behaves the same way once accessed.
 
 Effects can be grouped into struct records. The handler fields use
 `ctl(...)` types so the struct value can install them via local
-binding. Common bundles (e.g., `Exception`, `IOErr`) live in
+binding. Common bundles (e.g., `Exception`, `IoExn`) live in
 `std/error.yo`:
 
 ```rust

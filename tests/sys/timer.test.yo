@@ -1,32 +1,33 @@
-// @skip_wasm32-wasi
+pragma(Pragma.SkipWasm32Wasi);
+pragma(Pragma.AllowUnsafe);
 { sleep } :: import("std/sys/timer");
 open(import("std/libc/stdio"));
 { yield } :: import("std/async");
-test("Test IO timer", {
+test("Test Io timer", {
   // =========================================================================
   // Test: async timer operations
   // =========================================================================
   value := Box(i32)(0);
-  task1 := io.async((io : IO) => {
+  task1 := io.async((io : Io) => {
     assert(value.* == 0); // 0
     value.* = (value.* + 1); // 1
-    printf("Timer test: sleeping 50ms...\n");
+    unsafe(printf("Timer test: sleeping 50ms...\n"));
     result := io.await(sleep(u64(50)), io);
-    printf("Timer test: woke up with result=%d\n", result);
+    unsafe(printf("Timer test: woke up with result=%d\n", result));
     assert(result > i32(0));
     assert(value.* == 3); // yield() resumed block2 first, which set it to 3
     value.* = (value.* + 1); // 4
-    printf("Timer test: sleeping 3000ms...\n");
+    unsafe(printf("Timer test: sleeping 3000ms...\n"));
     result2 := io.await(sleep(u64(3000)), io);
-    printf("Timer test: woke up with result=%d\n", result2);
+    unsafe(printf("Timer test: woke up with result=%d\n", result2));
     assert(result2 > i32(0));
     assert(value.* == 4); // 4
-    printf("All async timer tests passed!\n");
+    unsafe(printf("All async timer tests passed!\n"));
   });
-  task2 := io.async((io : IO) => {
+  task2 := io.async((io : Io) => {
     assert(value.* == 1); // 1
     value.* = (value.* + 1); // 2
-    io.await(yield(), io);
+    io.await(yield(io), io);
     assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
     value.* = (value.* + 1); // 3
   });

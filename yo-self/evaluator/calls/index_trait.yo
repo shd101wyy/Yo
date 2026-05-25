@@ -12,6 +12,7 @@
 //!   - _check_range_type: uses struct name heuristic (no CTFE resolution)
 //!   - Custom type ComptimeIndex: not yet implemented (Phase 4)
 //!   - has_index_impl: returns true for Array/Slice, false otherwise
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
@@ -650,7 +651,7 @@ _try_comptime_array_slice_index :: (
     slice_val : Option(EvalValue),
     value_type : TypeValue,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> Option(IndexCallResult)
 )({
@@ -848,7 +849,7 @@ _try_comptime_string_index :: (
     arg_expr : AstExpr,
     str_value : String,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> IndexCallResult
 )({
@@ -925,7 +926,7 @@ try_to_call_with_index_trait :: (
     self_value : Option(EvalValue),
     arg_exprs : ArrayList(AstExpr),
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> IndexCallResult
 )({
@@ -1125,7 +1126,7 @@ has_index_impl :: (
     concrete_type : TypeValue,
     arg_exprs : ArrayList(AstExpr),
     caller_env : Environment,
-    ctx : *(EvalContext)
+    ctx : EvalContext
   ) -> bool
 )({
   _ := caller_env;

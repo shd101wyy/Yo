@@ -1,10 +1,11 @@
 //! ToString trait and implementations for all primitive types.
+pragma(Pragma.AllowUnsafe);
 { String, rune } :: import("../string");
 { snprintf } :: import("../libc/stdio");
 /// Trait for converting values to their `String` representation.
 /// Types implementing this trait can be used with `println`, `print`, and template strings.
 ToString :: trait(
-  to_string : (fn(self : *(Self)) -> String)
+  to_string : (fn(ref(self) : Self) -> String)
 );
 export(ToString);
 // === Helper function for integer conversion ===
@@ -16,10 +17,10 @@ _INT_BUFFER_SIZE :: usize(24);
 impl(
   i8,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhd", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhd", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -27,10 +28,10 @@ impl(
 impl(
   i16,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hd", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hd", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -38,10 +39,10 @@ impl(
 impl(
   i32,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%d", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%d", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -49,10 +50,10 @@ impl(
 impl(
   i64,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lld", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lld", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -60,10 +61,10 @@ impl(
 impl(
   isize,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zd", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zd", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -72,10 +73,10 @@ impl(
 impl(
   u8,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhu", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhu", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -83,10 +84,10 @@ impl(
 impl(
   u16,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hu", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hu", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -94,10 +95,10 @@ impl(
 impl(
   u32,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%u", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%u", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -105,10 +106,10 @@ impl(
 impl(
   u64,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%llu", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%llu", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -116,10 +117,10 @@ impl(
 impl(
   usize,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
-      snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zu", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zu", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -131,11 +132,11 @@ _FLOAT_BUFFER_SIZE :: usize(64);
 impl(
   f32,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       // Use %g for general format (removes trailing zeros)
-      snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", f64(self.*));
+      unsafe(snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", f64(self)));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -143,11 +144,11 @@ impl(
 impl(
   f64,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       // Use %g for general format (removes trailing zeros)
-      snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", self.*);
+      unsafe(snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -156,9 +157,9 @@ impl(
 impl(
   bool,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)(
+    to_string : (fn(ref(self) : Self) -> String)(
       cond(
-        self.* => String.from("true"),
+        self => String.from("true"),
         true => String.from("false")
       )
     )
@@ -168,10 +169,10 @@ impl(
 impl(
   char,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       // char is a single byte, create a 2-byte buffer (char + null)
       buffer := Array(u8, usize(2)).fill(0);
-      buffer(0) = u8(self.*);
+      buffer(0) = u8(self);
       buffer_ptr := (&(buffer(0)));
       String.from_cstr(buffer_ptr).unwrap()
     })
@@ -181,9 +182,9 @@ impl(
 impl(
   String,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)(
+    to_string : (fn(ref(self) : Self) -> String)(
       // String already is a string, just return a clone
-      self.*
+      self
     )
   )
 );
@@ -191,9 +192,9 @@ impl(
 impl(
   str,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       // Convert byte array to String assuming UTF-8
-      return(String.from(self.*));
+      return(String.from(self));
     })
   )
 );
@@ -202,9 +203,9 @@ impl(
 impl(
   rune,
   ToString(
-    to_string : (fn(self : *(Self)) -> String)({
+    to_string : (fn(ref(self) : Self) -> String)({
       // Get the code point value
-      code := self.*.char;
+      code := self.char;
       // UTF-8 encoding:
       // 0x00-0x7F: 1 byte
       // 0x80-0x7FF: 2 bytes
@@ -309,7 +310,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
                 (fi == 0) => a,
                 true => __derive_join_plus(a, "String.from(\", \")")
               );
-              __derive_join_plus(with_sep, __ts_s3("(&(self.*.", fname, ")).to_string()"))
+              __derive_join_plus(with_sep, __ts_s3("self.", fname, ".to_string()"))
             })
           );
           full_body :: __derive_join_plus(body, "String.from(\")\")");
@@ -355,7 +356,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
                     (fi == 0) => a,
                     true => __derive_join_plus(a, "String.from(\", \")")
                   );
-                  __derive_join_plus(with_sep, __ts_s3("(&(__v_", fname, ")).to_string()"))
+                  __derive_join_plus(with_sep, __ts_s3("__v_", fname, ".to_string()"))
                 })
               );
               full_body :: __derive_join_plus(body, "String.from(\")\")");
@@ -368,7 +369,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
           )
         })
       );
-      match_body :: __ts_s3("match(self.*,\n    ", ts_branches, "\n  )");
+      match_body :: __ts_s3("match(self,\n    ", ts_branches, "\n  )");
       ctx.make_impl(
         quote(
           ToString(

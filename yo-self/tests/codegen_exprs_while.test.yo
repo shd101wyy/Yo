@@ -2,6 +2,7 @@
 ///
 /// Exercises `yo-self/codegen/exprs/while.yo`, the 1-to-1 port of
 /// `src/codegen/exprs/while.ts`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind } :: import("../token.yo");
@@ -78,7 +79,7 @@ mk_while :: (fn(id : usize, args : ArrayList(AstExpr)) -> AstExpr)(
 );
 
 stub_generate_expr :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -123,7 +124,7 @@ test("generate_step_expression: single assignment is inline", {
   set_generate_expr_fn(stub_generate_expr);
   ctx := CodegenContext.new();
   step := mk_infix(usize(10), "=", mk_ident(usize(11), "i"), mk_ident(usize(12), "next"));
-  code := generate_step_expression(step, &(ctx));
+  code := generate_step_expression(step, ctx);
   assert(code == String.from("i = next"), "single assignment step");
 });
 
@@ -134,7 +135,7 @@ test("generate_step_expression: begin joins assignments with comma", {
   items.push(mk_infix(usize(20), "=", mk_ident(usize(21), "i"), mk_ident(usize(22), "next_i")));
   items.push(mk_infix(usize(23), "=", mk_ident(usize(24), "j"), mk_ident(usize(25), "next_j")));
   step := mk_begin(usize(26), items);
-  code := generate_step_expression(step, &(ctx));
+  code := generate_step_expression(step, ctx);
   assert(code == String.from("i = next_i, j = next_j"), "comma joined step");
 });
 
@@ -158,7 +159,7 @@ test("generate_while_loop: 2-arg loop emits while true with condition break", {
   args.push(mk_ident(usize(40), "running"));
   args.push(mk_ident(usize(41), "step"));
   call := mk_while(usize(42), args);
-  result := generate_while_loop(call, args, &(ctx), String.from(""));
+  result := generate_while_loop(call, args, ctx, String.from(""));
   output := ctx.emitter.print();
   assert(match(result,.None => false,.Some(s) => (s.len() == usize(0))), "empty result");
   assert(output.contains(String.from("while (true)")), "while true");
@@ -179,7 +180,7 @@ test("generate_expr: 3-arg while routes continue to step label", {
   args.push(step);
   args.push(body);
   call := mk_while(usize(56), args);
-  _result := generate_expr(call, &(ctx), String.from(""));
+  _result := generate_expr(call, ctx, String.from(""));
   output := ctx.emitter.print();
   assert(output.contains(String.from("goto continue_")), "continue jumps to step label");
   assert(output.contains(String.from("i = next;")), "step emitted after continue label");
@@ -201,7 +202,7 @@ test("generate_while_loop: comptime unrolled bodies emit sequentially", {
   args.push(mk_ident(usize(63), "ignored_cond"));
   args.push(mk_ident(usize(64), "ignored_body"));
   call := mk_while(usize(62), args);
-  result := generate_while_loop(call, args, &(ctx), String.from(""));
+  result := generate_while_loop(call, args, ctx, String.from(""));
   output := ctx.emitter.print();
   assert(match(result,.None => false,.Some(s) => (s.len() == usize(0))), "empty result");
   assert(!(output.contains(String.from("while (true)"))), "no loop for unrolled bodies");

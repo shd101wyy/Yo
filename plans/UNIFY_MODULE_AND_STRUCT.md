@@ -178,14 +178,14 @@ StructValue` plus `isEffectRecordValue` /
   types. **This resolves the original "forall on struct field"
   blocker** — see `issues/forall-loses-freshness-on-struct-field-call.md`
   for details. Root cause was actually `ioBuiltin` propagation (not
-  forall freshness); without the marker IO builtin calls fall back
+  forall freshness); without the marker Io builtin calls fall back
   to generic specialization that can't infer T from arg types alone.
 - `tests/algebraic_effects.test.yo`: 2 new tests prove `struct(...)`
   works for both escape and resume effect handlers (60 / 60 pass).
 
 The earlier async/Future codegen blocker was resolved in Phase 4c by emitting
 a generic `FutureTraitType` C interface plus concrete future effect setters.
-`std/prelude.yo` now defines `IO :: struct(...)`, and `std/error.yo` defines
+`std/prelude.yo` now defines `Io :: struct(...)`, and `std/error.yo` defines
 `Exception` / `ResumableException` as struct effect records.
 
 Tracked todos: `p3-forall-struct-field` — DONE (resolved by `9c5b14a6`);
@@ -277,7 +277,7 @@ Once 4b lands and is green:
 **Status: DONE.** Phase 4c migrated standard effect records to nominal
 struct types and removed the FutureTraitType blocker:
 
-- `IO :: struct(...)` in `std/prelude.yo`.
+- `Io :: struct(...)` in `std/prelude.yo`.
 - `Exception :: struct(...)` and `ResumableException(...) -> comptime(Type)`
   in `std/error.yo`.
 - FutureTraitType now has a generic C interface layout and concrete futures
@@ -365,7 +365,7 @@ passing. Source cleanup has also moved evaluator/codegen terminology away from
   use `struct(...)` effect records, explain nominal struct evidence, and
   replace module-effect terminology.
 - `docs/en-US/ASYNC_AWAIT.md` and `docs/zh-CN/ASYNC_AWAIT.md` show
-  `IO :: struct(...)`.
+  `Io :: struct(...)`.
 - `docs/*/TYPE_REFLECTION.md` and `docs/*/DESIGN.md` no longer document a
   distinct `Module`/`is_module()` type reflection variant.
 - `.github/instructions/c-codegen.instructions.md` describes struct-record

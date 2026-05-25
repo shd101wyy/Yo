@@ -3,7 +3,7 @@
 //! Provides a synchronous wrapper around `statfs` and typed accessors
 //! for the statfs buffer returned by the C runtime.
 //!
-//! All operations return `i32` directly (no `IOFuture` overhead):
+//! All operations return `i32` directly (no `IoFuture` overhead):
 //! - 0 on success
 //! - Negative value: -errno on failure
 //
@@ -16,6 +16,7 @@
 //   assert(ret == i32(0));
 //   block_size := statfs.statfs_bsize(buf);
 //   free(.Some(*(void)(buf)));
+pragma(Pragma.AllowUnsafe);
 { __yo_sync_statfs, __yo_statfs_buf_size, __yo_statfs_type, __yo_statfs_bsize, __yo_statfs_blocks, __yo_statfs_bfree, __yo_statfs_bavail, __yo_statfs_files, __yo_statfs_ffree } :: import("./externs.yo");
 // ============================================================================
 // statfs — Filesystem statistics (sync)

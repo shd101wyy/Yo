@@ -120,7 +120,7 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}int ${preAwaitStateVar} = ${syncFutureVar}->state;`
     );
-    // Only cold-start state machine futures; IO futures are already submitted to io_uring
+    // Only cold-start state machine futures; Io futures are already submitted to io_uring
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(
@@ -145,8 +145,8 @@ export function generateAwait(
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
-    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise))
-    // or effect record types (e.g., Future(i32, IO, Exception)).
+    // Check if the Future type includes algebraic effect types (e.g., Future(i32, Io, Raise))
+    // or effect record types (e.g., Future(i32, Io, Exception)).
     // Effectful futures may be intentionally aborted by a ctl/unwind handler
     // during the CURRENT await — don't panic for that case.
     // But if the future was ALREADY aborted before we started awaiting (re-await),
@@ -154,11 +154,21 @@ export function generateAwait(
     // Non-effectful futures being aborted is always unexpected, so panic for those too.
     const futureModuleForCheck = extractFutureTraitFromType(futureType);
     const futureEffect = futureModuleForCheck?.isFuture.effect;
+    // Resolve through SomeType.resolvedConcreteType so closure-param bundles
+    // (where the function.ts post-call sets E.resolvedConcreteType to the
+    // annotated bundle struct) are recognized as effectful futures. Without
+    // this, the unwind path falls through to the panic branch.
+    const effectTypeResolved =
+      futureEffect &&
+      isSomeType(futureEffect.type) &&
+      futureEffect.type.resolvedConcreteType
+        ? futureEffect.type.resolvedConcreteType
+        : futureEffect?.type;
     const hasAlgebraicEffects =
-      futureEffect !== undefined &&
-      (isFunctionType(futureEffect.type) ||
-        isSourceNamespaceType(futureEffect.type) ||
-        isStructType(futureEffect.type));
+      effectTypeResolved !== undefined &&
+      (isFunctionType(effectTypeResolved) ||
+        isSourceNamespaceType(effectTypeResolved) ||
+        isStructType(effectTypeResolved));
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
       emitter.emitLine(`${indent}    if (${preAwaitStateVar} == -2) {`);
@@ -490,7 +500,7 @@ function isAwaitUnwindHandlerInstallation(
       return true; // Not forwarded → locally installed
     }
   } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
-    // Record-type effect (e.g., Exception/IO): check if any member is in evidence
+    // Record-type effect (e.g., Exception/Io): check if any member is in evidence
     let isForwarded = false;
     if (evidenceParams) {
       for (const [key] of evidenceParams) {
@@ -565,6 +575,45 @@ function emitFutureEffectInjectionLine(
 /**
  * Generate effect injection code for io.await call sites.
  */
+/**
+ * Inject the effect bundle from `io.spawn(future, bundle)` / similar callers
+ * into the future's SM via the set_effect callback. Exported variant of the
+ * struct-bundle path of `emitEffectInjectionForAwait`. Caller passes the
+ * bundle as `expr.args[1]`.
+ */
+export function emitIoSpawnEffectInjection(
+  expr: FnCallExpr,
+  futureVar: string,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const futureArg = expr.args[0];
+  if (!futureArg?.$?.type) return;
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  const effect = futureTraitType?.isFuture.effect;
+  if (!effect) return;
+  const bundleArg = expr.args[1];
+  if (!bundleArg) return;
+  const functionContext = context as FunctionGenerationContext;
+  const bundleCode = generateExpr(bundleArg, indent, context);
+  // Prefer the future's resolved effect type for the cast; fall back to the
+  // arg's own type when the effect remains SomeType (closure-param bundles
+  // for io.async-shaped closures, where the SM declares a __yo_param_<i>
+  // slot via the dedicated "__bundle" set_effect case).
+  const castType =
+    isSourceNamespaceType(effect.type) || isStructType(effect.type)
+      ? effect.type
+      : (bundleArg.$?.type ?? effect.type);
+  const bundleType = getTypeString(castType, context);
+  const tmpName = `__yo_eff_bundle_${effectInjectionTmpCounter++}`;
+  functionContext.emitter.emitLine(
+    `${indent}${bundleType} ${tmpName} = ${bundleCode};`
+  );
+  functionContext.emitter.emitLine(
+    `${indent}if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, "__bundle", (void*)&${tmpName});`
+  );
+}
+
 function emitEffectInjectionForAwait(
   expr: FnCallExpr,
   futureVar: string,
@@ -600,6 +649,25 @@ function emitEffectInjectionForAwait(
       );
     }
   } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    // Whole-bundle injection: io.await/io.spawn pass the user's bundle
+    // value as the second positional arg (e.g. `io.await(future, IoExn(...))`).
+    // Generate that expression, store it in a local, and hand its address
+    // to the future's set_effect("__bundle", &bundle) callback. The
+    // matching set_effect impl copies the struct into the SM's bundle
+    // field (see findBundleFieldName / generateFutureEffectSetter).
+    const bundleArg = expr.args[1];
+    if (bundleArg) {
+      const bundleCode = generateExpr(bundleArg, indent, context);
+      const bundleType = getTypeString(effect.type, context);
+      const tmpName = `__yo_eff_bundle_${effectInjectionTmpCounter++}`;
+      functionContext.emitter.emitLine(
+        `${indent}${bundleType} ${tmpName} = ${bundleCode};`
+      );
+      functionContext.emitter.emitLine(
+        `${indent}if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, "__bundle", (void*)&${tmpName});`
+      );
+      return;
+    }
     emitEffectRecordInjection(
       effect.type,
       futureArg.$.type,
@@ -609,8 +677,28 @@ function emitEffectInjectionForAwait(
       functionContext,
       expr
     );
+  } else {
+    // Closure-param bundle injection: when the future's effect type is still
+    // a SomeType (unbound at the future-trait level) but the user supplied a
+    // bundle value as args[1], inject it via set_effect("__bundle", ...).
+    // The receiving sync future SM has a dedicated __yo_param_<i> slot for
+    // exactly this — see generateIoAsyncSyncCall in async.ts.
+    const bundleArg = expr.args[1];
+    if (bundleArg?.$?.type) {
+      const bundleCode = generateExpr(bundleArg, indent, context);
+      const bundleType = getTypeString(bundleArg.$.type, context);
+      const tmpName = `__yo_eff_bundle_${effectInjectionTmpCounter++}`;
+      functionContext.emitter.emitLine(
+        `${indent}${bundleType} ${tmpName} = ${bundleCode};`
+      );
+      functionContext.emitter.emitLine(
+        `${indent}if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, "__bundle", (void*)&${tmpName});`
+      );
+    }
   }
 }
+
+let effectInjectionTmpCounter = 0;
 
 /**
  * Inject struct-record effect fields (e.g., Exception.throw) into a Future's capture struct.

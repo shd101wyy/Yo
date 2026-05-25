@@ -19,7 +19,11 @@ import {
   isSomeType,
   isStructType,
 } from "../../types/guards";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import {
+  typeContainsSomeType,
+  typeContainsSomeTypeForCodegenParam,
+  typeToString,
+} from "../../types/utils";
 import {
   type CodeGenContext,
   findReturnedAsyncBlock,
@@ -161,17 +165,27 @@ export function generateFunctionDeclarations(
     const hasEvidenceParams =
       getEvidenceParameters(functionTypeForCheck).length > 0;
 
-    // IO async state machine closures are generated via the deferred async
+    // Io async state machine closures are generated via the deferred async
     // block system, not as standalone declarations.
     if (!isUserMain && value.isIoAsyncStateMachineClosure) {
       continue;
     }
+
+    // A specialization entry (value.specializedType present, no further specializations
+    // hanging off it) is concrete at the C ABI even though value.type is the original
+    // generic type. Without this carve-out, the hard-generic skip below would drop
+    // both the base AND its specialization, leaving call sites that reference the
+    // specialized cName with no matching declaration.
+    const isConcreteSpecialization =
+      !!value.specializedType &&
+      (value.specializedFunctionCaches?.length ?? 0) === 0;
 
     if (
       !isUserMain &&
       !isEffectfulFunction &&
       !hasEvidenceParams &&
       !value.isEffectRecordMember &&
+      !isConcreteSpecialization &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -186,13 +200,34 @@ export function generateFunctionDeclarations(
     // Or with SomeType in return type that isn't a plain Impl(...) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
+    // Mirror the carve-out from generation.ts: closures are per-
+    // instance with their own concrete capture struct and distinct C
+    // function name. Their parameter list may contain `io : Io`
+    // whose nested fn-pointer fields trip `typeContainsSomeType`,
+    // but the closure value itself is not truly generic. Without
+    // the carve-out, the forward declaration is missing while the
+    // body IS emitted (per generation.ts), causing
+    // "call to undeclared function" / "static declaration follows
+    // non-static declaration" errors when the spawn-wrapper calls
+    // the closure earlier in the file than its definition site.
     const hasGenericParams =
       !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
-      (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      !value.type.isClosure &&
+      (functionType.parameters.some((p) =>
+        typeContainsSomeTypeForCodegenParam(p.type)
+      ) ||
         functionType.forallParameters.length > 0);
-    const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
+    // Mirror the parameter check: a return type of `IoExn` (a struct
+    // whose SomeType content only lives inside nested fn-pointer fields)
+    // is concrete at the C ABI and should not flag the function as
+    // generic. Without this, `fn(..., exn : Exception) -> IoExn`
+    // declarations are skipped and call sites reference the undeclared
+    // function name.
+    const hasGenericReturnType = typeContainsSomeTypeForCodegenParam(
+      functionType.return.type
+    );
 
     // Allow functions returning plain Impl(...) existential types (SomeType at top level)
     // These are not truly generic - the concrete type is determined from the function body
@@ -345,9 +380,19 @@ export function generateFunctionPrototype(
   overrideReturnType?: string,
   originalFunctionType?: FunctionType
 ): string {
-  // For non-main functions, generate based on function type
-  const returnTypeStr =
-    overrideReturnType || getTypeString(functionType.return.type, context);
+  // For non-main functions, generate based on function type.
+  // `-> ref(T)` lowers to a `T*` return at the C ABI — the function
+  // yields a second-class reference whose storage is rooted in one
+  // of its `ref`-typed parameters. See `plans/ITERATOR_REDESIGN.md`.
+  let returnTypeStr: string;
+  if (overrideReturnType) {
+    returnTypeStr = overrideReturnType;
+  } else {
+    const baseReturnType = getTypeString(functionType.return.type, context);
+    returnTypeStr = functionType.return.isRef
+      ? `${baseReturnType}*`
+      : baseReturnType;
+  }
 
   // Generate parameter list (excluding compile-time parameters)
   const runtimeParams = functionType.parameters.filter(
@@ -392,6 +437,14 @@ export function generateFunctionPrototype(
         }
       } else {
         paramTypeStr = getTypeString(param.type, context);
+      }
+
+      // inout(name) : T lowers to T* in C. Reads of `name` in the
+      // body become `(*name)`; writes become `(*name) = v`. The
+      // identifier `name` itself never escapes the callee. See
+      // plans/MEMORY_SAFETY.md Phase B.
+      if (param.isRef) {
+        paramTypeStr = `${paramTypeStr}*`;
       }
 
       return `${paramTypeStr} ${paramName}`;

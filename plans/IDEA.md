@@ -521,7 +521,7 @@ Let's keep it simple for now:
 - Remove the borrow checker which is currently based on second-class references.
 - Remove the Linear/Free type system and the move semantics.
 - Simply the `match` to support destructuring.
-- Add `IO` monad for simple effect system.
+- Add `Io` monad for simple effect system.
 - Update closure syntax. So we have:
   - `fn(...) -> ... { ... }` normal function.
   - `fn(...) => ... { ... }` closure which is esssentially a struct containing context pointer and call function pointer.

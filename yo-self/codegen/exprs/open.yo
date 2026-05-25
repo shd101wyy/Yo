@@ -21,6 +21,7 @@
 //!   implementation also early-returns when the metadata is missing.
 //!   Yo-self returns `.None` so callers can fall back to the bootstrap
 //!   heuristic in `exprs.yo`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
@@ -77,12 +78,12 @@ generate_open :: (
   fn(
     call_expr : AstExpr,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .None => Option(String).None,
     .Some(info) => match(
       info.runtime_destructurings,
@@ -93,7 +94,7 @@ generate_open :: (
           args.get(usize(0)),
           .None => Option(String).Some(String.from("")),
           .Some(arg_expr) => match(
-            ctx.*.get_expr_info(ast_expr_id(arg_expr)),
+            ctx.get_expr_info(ast_expr_id(arg_expr)),
             .None => Option(String).Some(String.from("")),
             .Some(arg_info) => cond(
               // Only emit code for *runtime* struct values: the type is
@@ -114,7 +115,7 @@ generate_open :: (
                         field_type := get_type_string(d.ty, ctx);
                         var_name := sanitize_for_c_identifier(d.variable_name);
                         field_label := sanitize_for_c_identifier(d.label);
-                        ctx.*.emitter.emit_string_line(
+                        ctx.emitter.emit_string_line(
                           format_destructure_field_decl(
                             indent,
                             field_type,

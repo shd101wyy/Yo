@@ -40,7 +40,7 @@ print_bool :: (fn(value: bool) -> i32)(
 );
 
 // WRONG - lambda body wraps single expression in {...}, creating a struct:
-io.async((io : IO) => {
+io.async((io : Io) => {
   cond(
     done => .Ok(()),
     true => .Err(e)
@@ -48,7 +48,7 @@ io.async((io : IO) => {
 })
 
 // CORRECT - lambda body is just the expression, no {...}:
-io.async((io : IO) =>
+io.async((io : Io) =>
   cond(
     done => .Ok(()),
     true => .Err(e)
@@ -265,14 +265,14 @@ This also applies to `fn` type annotations on the same line — always wrap in p
 
 ```rust
 // WRONG — bare fn type on same line as `:`:
-next : fn(self : *(Self)) -> Option(Self.Item)
+next : fn(ref(self) : Self) -> Option(Self.Item)
 
 // CORRECT — parenthesized fn type:
-next : (fn(self : *(Self)) -> Option(Self.Item))
+next : (fn(ref(self) : Self) -> Option(Self.Item))
 
 // ALSO CORRECT — newline after `:` triggers right associativity:
 next :
-  fn(self : *(Self)) -> Option(Self.Item)
+  fn(ref(self) : Self) -> Option(Self.Item)
 ```
 
 Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <: !(Runtime)`.
@@ -332,6 +332,43 @@ This applies at any nesting depth: whenever you write `!expr && rhs`, add an ext
 
 **Special note for `object` types**: passing by value already propagates mutations (RC fields are shared), so `*(MyObject)` pointers are rarely needed. Prefer passing by value and avoid `&obj` in most cases.
 
+## Parameter form by type kind
+
+The right shape for a function parameter depends on what kind of type the value is:
+
+| Type kind                                                     | Shape                                                   | Why                                                                                                             |
+| ------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `object(...)`                                                 | `name : Type`                                           | Object types have reference semantics — mutations propagate via the underlying RC value. No pointer needed.     |
+| `struct(...)` value type (read-only)                          | `name : Type`                                           | Pass by value. Cheap if small; consider `ref` for large structs.                                                |
+| `struct(...)` value type (need mutation)                      | `ref(name) : Type`                                      | Caller's binding sees in-place writes. See [`ref` section](#refname--t-parameters-for-in-place-mutation) below. |
+| `enum(...)` (read-only)                                       | `name : Type`                                           | Same as struct.                                                                                                 |
+| `enum(...)` (need mutation)                                   | `ref(name) : Type`                                      | Same as struct.                                                                                                 |
+| Primitive (`i32`, `bool`, …)                                  | `name : Type` for read, `ref(name) : Type` for mutation | Same rule.                                                                                                      |
+| Receiver of mutating method on `object`                       | `self : Self`                                           | Object semantics — explicit `ref(self)` is unnecessary noise (though it works).                                 |
+| Receiver of mutating method on value type (trait or inherent) | `ref(self) : Self`                                      | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                          |
+| Raw FFI pointer (legitimate `*(T)`)                           | `name : *(T)`                                           | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.         |
+
+**Anti-patterns to avoid:**
+
+```rust
+// ✗ Pointer on an object type — wraps a reference in another reference
+foo : (fn(ctx : *(EvalContext)) -> unit)({ ctx.*.method() })
+
+// ✗ Inout on an object type — redundant; object semantics already share state
+foo : (fn(ref(ctx) : EvalContext) -> unit)({ ctx.method() })
+
+// ✓ Plain — concise and correct
+foo : (fn(ctx : EvalContext) -> unit)({ ctx.method() })
+```
+
+The same applies at call sites: don't wrap object arguments with `&(obj)` to pass to a function expecting an object; just pass `obj`.
+
+When choosing between `ref(self) : Self` and `self : Self` for a method receiver:
+
+- If the receiver type is fundamentally a value type (anything other than `object`), use `ref(self) : Self` for mutators.
+- If the receiver type is `object`, plain `self : Self` is the idiom — the methods documented in `yo-self/env.yo`, `yo-self/codegen/context.yo`, etc. follow this.
+- Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `ref(self) : Self` for the reasons above; new traits that are object-specific can use plain `self : Self`.
+
 ## Recursion requires `recur`
 
 Yo does **not** allow a function to call itself by name. Use the `recur` keyword instead:
@@ -371,21 +408,21 @@ impl(Tree,
 
 ### Async recursion — `recur` does NOT work inside `io.async`
 
-`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((io : IO) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
+`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((io : Io) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
 
 **Pattern for async recursion**: Replace recursion with an iterative worklist:
 
 ```rust
 // WRONG — "Variable 'walk_dir' not found" inside io.async:
-walk_dir :: (fn(path: Path, io: IO) -> Impl(Future(unit, IO)))(
-  io.async((io : IO) => {
+walk_dir :: (fn(path: Path, io: Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
     entries := io.await(read_dir(path, io), io);
     // CANNOT call walk_dir recursively here
   })
 );
 
 // CORRECT — bundle the needed effects into one struct and iterate with a stack:
-WalkCtx :: struct(io : IO, exn : Exception);
+WalkCtx :: struct(io : Io, exn : Exception);
 
 walk_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
@@ -485,20 +522,164 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
-## `for` loop macro — correct form
+## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
 
-The `for` macro is a 2-argument prelude macro. The **first argument must be an iterator** (an expression with a `.next()` method):
+User code is memory-safe by default. To use raw pointers, a `.yo` file must declare `pragma(Pragma.AllowUnsafe);` at the top — this opts the entire file into unsafe-capability. Without the pragma, `unsafe(...)` itself is a compile error and pointer ops are forbidden.
 
 ```rust
-for(list.iter(), x => { process(x); });          // ArrayList/array — call .iter() first
-for(map.into_iter(), bucket => { ... });          // consuming iterator
-for(list.iter(), (ptr) => { ptr.* = transform(ptr.*); });  // borrowing iterator
+pragma(Pragma.AllowUnsafe);
+
+main :: (fn() -> unit)({
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);   // OK
+});
 ```
 
-- First argument: an **iterator** expression — call `.iter()` or `.into_iter()` on collections first
-- Second argument: an anonymous closure `item => { body }` (the `=>` form, no type annotation needed)
-- **Do NOT pass a raw array/ArrayList as first arg without `.iter()`** — they don't have `.next()`
+Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
+
+- Pointer dereference: `p.*` (read), `p.* = v` (write)
+- Pointer arithmetic: `&+`, `&-`, `&/`
+- `consume(p.* = v)` (deref-and-init)
+
+Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`&==`, `&<`, etc.), and pointer-type casts (`*(u8)(p)`).
+
+`unsafe(expr)` is a regular builtin call taking exactly one argument — the same shape as `return(...)`, `consume(...)`. It's a compile-time marker only; at codegen it lowers to its inner expression.
+
+`pragma(...)` is also a regular builtin call. The argument `Pragma.AllowUnsafe` is recognized at the AST level; you can place the pragma anywhere at the top of the file (after the file's leading `//` comments). Multiple `pragma(...)` declarations are allowed.
+
+```rust
+// Single expression:
+v := unsafe(p.*);
+
+// Assignment:
+unsafe(p.* = i32(12));
+
+// cond / match wrapped directly (no braces — `{...}` without `;` is a struct):
+result := unsafe(cond(
+  (n > i32(0)) => p.*,
+  true => i32(0)
+));
+
+// Multi-statement begin-block (semicolons required):
+n := unsafe({
+  p.* = i32(1);
+  (p.* + i32(2))
+});
+```
+
+`unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/MEMORY_SAFETY.md`; user-facing version: `docs/en-US/MEMORY_SAFETY.md`.
+
+### Extern "c" calls also require an `unsafe(...)` wrap
+
+Even inside a pragma'd file, every `extern "c"` call site must be wrapped in `unsafe(...)`. The pragma authorizes DECLARING the FFI symbol (via `extern(...)` / `c_include(...)`); the wrap is the per-call audit marker that lets `yo unsafe-report` line up with the actual UB-capable lines.
+
+```rust
+pragma(Pragma.AllowUnsafe);
+{ memcpy, strlen } :: import("std/libc/string");
+
+copy :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
+  _ := unsafe(memcpy((*(void))(dst), (*(void))(src), n));   // wrap required
+});
+
+len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
+```
+
+`asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
+
+`auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/EXTERN_UNSAFE_WRAP.md`.
+
+### Slice-flowability rule
+
+A function whose return type transitively carries a raw pointer in its representation (`Slice(T)`, `str`, a struct wrapping a Slice, ...) must root the returned value in caller-owned storage. The evaluator runs the same R1–R4 flowability check used for `-> ref(T)` returns, with carve-outs for non-ref parameters and `comptime`/literal sources:
+
+```rust
+// REJECTED: arr is a local, dies with the call frame.
+make_dangling :: (fn() -> Option(Slice(i32)))({
+  arr := ArrayList(i32).new();
+  arr.push(i32(1));
+  arr.as_slice()
+});
+
+// ACCEPTED: caller's storage outlives the call.
+borrow :: (fn(ref(arr) : ArrayList(i32)) -> Option(Slice(i32)))(arr.as_slice());
+
+// ACCEPTED: string literal lives in static storage.
+greet :: (fn() -> str)("hello");
+```
+
+See `plans/SLICE_FLOWABILITY.md` and `tests/slice_flowability.test.yo`.
+
+### Signed-integer overflow is defined (wrap-around)
+
+Yo passes `-fwrapv` to clang/gcc/zig by default, so signed-integer overflow is two's-complement wrap-around, not UB. `x := i32(2147483647); y := (x + i32(1));` evaluates to `i32(-2147483648)`, not silent miscompilation. Opt-out: `--cflags='-fno-wrapv'`.
+
+### `// SAFETY:` comment convention
+
+Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment explaining the contract (what invariant guarantees the deref/arith is in bounds and the pointer is live). `yo unsafe-report` scans the previous ~8 lines preceding each unsafe site and surfaces the comment in the report.
+
+```rust
+match(
+  self._ptr,
+  // SAFETY: pos bounds-checked above (pos < self._length);
+  // _ptr points at the Rc-managed heap buffer.
+  .Some(_ptr) => unsafe(_ptr &+ pos),
+  .None => panic("ArrayList: empty")
+)
+```
+
+## `ref(name) : T` parameters for in-place mutation
+
+For mutating a caller's variable without raw pointers, use the `ref` parameter modifier. It wraps the parameter name (parallel to `own(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage. (Naming note: `ref` was previously called `inout`; the renamed keyword is the same feature, matching C#'s `ref` parameter convention.)
+
+```rust
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
+
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  swap(x, y);              // no `&()` syntax at the call site
+  assert((x == i32(2)), "swapped");
+});
+```
+
+Rules:
+
+- `ref(...)` cannot combine with `own(...)` (opposite calling conventions) or with `forall`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
+- `ref` CAN combine with `comptime` as `comptime(ref(name)) : T` (outer comptime, inner ref). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(ref(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
+- Inside the callee, the ref-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
+- Calls through ref-params chain naturally: `fn outer(ref(x))` calling `fn inner(ref(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
+- At codegen, `ref(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. No runtime cost vs hand-written pointer code. `comptime(ref(name))` has zero codegen impact (the parameter is erased).
+
+`ref` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(ref(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/MEMORY_SAFETY.md`).
+
+### Public stdlib boundary — no raw pointer leaks
+
+Every public top-level `fn(...)` in `std/` should take and return value or `ref`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to `Slice(T)` for buffers, `ref(name) : T` for in-place mutation, or a higher-level safe type.
+
+Verify with `./yo-cli public-safe-report ./std` (or `./yo-self`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `src/public-safe-report.ts`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
+
+## `for` loop macro — correct form
+
+The `for` macro is a 2-argument prelude macro. The **first argument is the collection or an iterator chain** (the macro inserts `.into_iter()` / `.iter()` as needed based on the body's binding shape):
+
+```rust
+for(list, (x) => { process(x); });               // value form: macro expands to list.into_iter()
+for(list, ref(x) => { x = transform(x); });      // borrow form: macro expands to list.iter() + list.project(pos)
+for(chain.map(f), (y) => println(y));            // combinator chain: pass as the value-form iterator
+```
+
+- First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
+- Second argument: an anonymous closure. The binding shape selects the form:
+  - `(x) => body` — value form. Macro expands to `coll.into_iter()`; `x` is `T` by value.
+  - `ref(x) => body` — borrow form. Macro expands to `coll.iter()` (a position iterator yielding `usize`) + `coll.project(pos)` (from the `Indexable` trait); `x` is a writable binding into the collection.
+- **Do NOT write `for(coll.iter(), (x) => …)` for the value form** — `.iter()` now yields _positions_ (usize), not elements. The macro calls `.into_iter()` itself for the value form.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
+- Combinator chains support **only the value form** — they yield computed values, not borrows. `coll.iter().map(f)` works as the first arg in `(x) => body`.
 
 ## Function call syntax — required immediate `(`
 
@@ -740,6 +921,33 @@ ptr.* = i32(100);            // also works
 - `&(list(i))` returns `*(T)` for in-place mutation via pointer (explicit form)
 - `list.get(i)` returns `Option(T)` for safe bounds-checked access
 - Out-of-bounds access via `list(i)` panics at runtime
+
+### Don't write the verbose `(&(X)).index(i).*` form
+
+The Index trait method `.index(i)` returns `*(T)`. The verbose form
+
+```rust
+(&(self.field)).index(i).* = value;    // ✗ writes through raw pointer
+elem := (&(self.field)).index(i).*;    // ✗ same, but as a read
+v := list.get(i).unwrap();             // ✗ Option unwrap of safe form
+```
+
+requires `pragma(Pragma.AllowUnsafe);` because of the `.*` deref, and
+just clutters the call site. Use the call-syntax form everywhere it
+works:
+
+```rust
+self.field(i) = value;                 // ✓ same write, no `.*`
+elem := self.field(i);                 // ✓ same read
+v := list(i);                          // ✓ same panic-on-OOB semantics
+```
+
+Out-of-bounds panic is preserved — `list(i)` panics via the Index
+trait's bounds assertion, the same as `.unwrap()` on `.get(i)` would.
+
+Use the verbose form **only** when you need to keep the raw `*(T)` —
+e.g., to pass it to another routine that mutates through the pointer
+multiple times, or when borrowing through a non-Index trait method.
 
 ## Module-level declarations are processed in order
 

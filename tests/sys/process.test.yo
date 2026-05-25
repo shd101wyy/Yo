@@ -1,5 +1,6 @@
-// @skip_wasm32-emscripten — no process model in WASM (spawn/wait/exec unavailable)
-// @skip_wasm32-wasi — no process model in WASM (spawn/wait/exec unavailable)
+pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM (spawn/wait/exec unavailable)
+pragma(Pragma.SkipWasm32Wasi); // no process model in WASM (spawn/wait/exec unavailable)
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 file :: import("std/sys/file");
 pipe_io :: import("std/sys/pipe");
@@ -33,14 +34,14 @@ test("spawn and waitpid", {
     true => *(u8)("echo")
   );
   pid := io.await(process.spawn(file_path, argv,.None, i32(-(1)), write_fd, i32(-(1))), io);
-  printf("  pid = %d\n", pid);
+  unsafe(printf("  pid = %d\n", pid));
   assert(pid > i32(0), "spawn failed");
   c1 := io.await(file.close(write_fd), io);
   assert(c1 == i32(0), "close write end failed");
   buf_uninit := MaybeUninit(Array(u8, usize(64))).new();
   buf := *(u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(read_fd, buf, u32(64), u64(0)), io);
-  printf("  read = %d\n", rd);
+  unsafe(printf("  read = %d\n", rd));
   expected_len := cond(
     (platform == Platform.Windows) => i32(14),
     true => i32(13)
@@ -62,7 +63,7 @@ test("spawn and waitpid", {
   c2 := io.await(file.close(read_fd), io);
   assert(c2 == i32(0), "close read end failed");
   status := io.await(process.waitpid(pid, i32(0)), io);
-  printf("  status = %d\n", status);
+  unsafe(printf("  status = %d\n", status));
   assert(status >= i32(0), "waitpid failed");
   code := process.exit_status(status);
   assert(code == i32(0), "exit status mismatch");

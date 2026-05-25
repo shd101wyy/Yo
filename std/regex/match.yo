@@ -42,7 +42,7 @@ impl(
       true => {
         actual_idx := (idx - usize(1));
         cond(
-          (actual_idx < self._groups.len()) => self._groups.get(actual_idx).unwrap(),
+          (actual_idx < self._groups.len()) => self._groups(actual_idx),
           true =>.None
         )
       }
@@ -52,7 +52,7 @@ impl(
   named_group : (fn(self : Self, name : String) -> Option(String))({
     i := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
-      entry := self._group_names.get(i).unwrap();
+      entry := self._group_names(i);
       cond(
         (entry.name == name) => {
           return(self.group(entry.index));

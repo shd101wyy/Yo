@@ -7,11 +7,12 @@ FNV_OFFSET_BASIS :: u64(14695981039346656037);
 /// FNV prime constant (0x100000001b3).
 FNV_PRIME :: u64(1099511628211);
 /// Hash a byte sequence using FNV-1a.
-fnv1a_hash_bytes :: (fn(bytes : *(u8), length : usize) -> u64)({
+fnv1a_hash_bytes :: (fn(bytes : Slice(u8)) -> u64)({
   hash := FNV_OFFSET_BASIS;
+  length := bytes.len();
   i := usize(0);
   while(i < length, i = (i + usize(1)), {
-    byte := (bytes &+ i).*;
+    byte := bytes(i);
     xor := (hash ^ u64(byte));
     hash = (xor * FNV_PRIME);
   });

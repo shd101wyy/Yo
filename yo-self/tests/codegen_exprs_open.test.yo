@@ -40,7 +40,7 @@ mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   )
 );
 stub_generate_expr :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -61,8 +61,8 @@ mk_struct_ty :: (fn(name : str, field_labels : ArrayList(String), field_types : 
 );
 test("get_type_string: known primitives → C types (open field path)", {
   ctx := CodegenContext.new();
-  assert(get_type_string(t_i32(), &(ctx)) == String.from("int32_t"), "i32");
-  assert(get_type_string(t_bool(), &(ctx)) == String.from("bool"), "bool");
+  assert(get_type_string(t_i32(), ctx) == String.from("int32_t"), "i32");
+  assert(get_type_string(t_bool(), ctx) == String.from("bool"), "bool");
 });
 test("get_type_string: unknown unregistered type → int32_t fallback", {
   fl := ArrayList(String).new();
@@ -71,7 +71,7 @@ test("get_type_string: unknown unregistered type → int32_t fallback", {
   ctx := CodegenContext.new();
   // Struct types are not in type_value_to_c_field's primitive set and
   // the ctx.types registry is empty → canonical int32_t fallback.
-  assert(get_type_string(struct_ty, &(ctx)) == String.from("int32_t"), "fallback");
+  assert(get_type_string(struct_ty, ctx) == String.from("int32_t"), "fallback");
 });
 test("generate_open: returns None when call has no metadata", {
   set_generate_expr_fn(stub_generate_expr);
@@ -93,7 +93,7 @@ test("generate_open: returns None when call has no metadata", {
       input : String.from("")
     )
   );
-  result := generate_open(call, args, &(ctx), String.from(""));
+  result := generate_open(call, args, ctx, String.from(""));
   assert(result.is_none(), "no metadata → None");
 });
 test("generate_open: emits one decl per runtime_destructuring", {
@@ -148,7 +148,7 @@ test("generate_open: emits one decl per runtime_destructuring", {
       input : String.from("")
     )
   );
-  result := generate_open(call, args, &(ctx), String.from("  "));
+  result := generate_open(call, args, ctx, String.from("  "));
   assert(result.is_some(), "open with destructurings returns Some");
   match(
     result,
@@ -201,7 +201,7 @@ test("generate_open: skips emission when arg has compile-time value", {
       input : String.from("")
     )
   );
-  result := generate_open(call, args, &(ctx), String.from(""));
+  result := generate_open(call, args, ctx, String.from(""));
   assert(result.is_some(), "Some result even when skipped");
   code := ctx.emitter.code;
   assert(!(code.contains(String.from("int32_t x ="))), "no decl emitted for comptime value");

@@ -184,23 +184,23 @@ This applies to all parameters and return types in comptime-only APIs:
 ## Future return types with effects
 
 - `Future` takes the result type as the first argument and (optionally) a single effect bundle as the second: `Future(T)` or `Future(T, E)`.
-- `E` is a single type — typically a struct that bundles every effect the async body needs. Define one bundle struct (e.g. `Ctx :: struct(io : IO, raise : Raise)`) and pass it as the single `E`.
+- `E` is a single type — typically a struct that bundles every effect the async body needs. Define one bundle struct (e.g. `Ctx :: struct(io : Io, raise : Raise)`) and pass it as the single `E`.
 - The async closure takes that bundle as one parameter: `io.async((ctx : Ctx) => { ctx.raise(...); ... })`.
-- When a function uses `io : IO` and runs an async body, the bundle must include `IO`, so the return type names it: `Impl(Future(Result(T, E), Ctx))`.
+- When a function uses `io : Io` and runs an async body, the bundle must include `Io`, so the return type names it: `Impl(Future(Result(T, E), Ctx))`.
 - Return `io.async(...)` directly as the last expression — do NOT assign to an intermediate variable:
 
 ```rust
 // WRONG — intermediate variable prevents enum variant type inference:
-my_fn :: (fn(io : IO) -> Impl(Future(Result(i32, IOError), IO)))({
-  task := io.async((io : IO) => {
+my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, IoError), Io)))({
+  task := io.async((io : Io) => {
     .Ok(i32(42))
   });
   return(task);
 });
 
 // CORRECT — return io.async directly:
-my_fn :: (fn(io : IO) -> Impl(Future(Result(i32, IOError), IO)))(
-  io.async((io : IO) => {
+my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, IoError), Io)))(
+  io.async((io : Io) => {
     .Ok(i32(42))
   })
 );
@@ -241,16 +241,18 @@ The `*(T)` field is required so the type parameter `T` appears in the struct fie
 Traits use direct `trait(...)` syntax with associated types as labeled `Type` fields:
 
 ```rust
-// Trait definition — Item is an associated type
+// Trait definition — Item is an associated type. Iterator was
+// migrated to take ref(self) : Self in plans/ITERATOR_REDESIGN.md
+// (the old *(Self) signature would be forbidden in safe code).
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 
 // impl — provide concrete values for all fields
 impl(Counter, Iterator(
   Item : i32,
-  next : (fn(self : *(Self)) -> Option(Self.Item))(cond(
+  next : (fn(ref(self) : Self) -> Option(Self.Item))(cond(
     (self._current >= self._max) => .None,
     true => { val := self._current; self._current = (self._current + i32(1)); .Some(val) }
   ))
@@ -555,8 +557,8 @@ All container indexing uses the `Index` trait. Array/Slice have special compiler
 
 ### Architecture
 
-- `Index(Idx)` — runtime indexing trait with associated type `Output`
-- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`)
+- `Index(Idx)` — runtime indexing trait with associated type `Output`. Self is taken by `ref(self) : Self` so the index method can return a pointer to a field of the caller's value.
+- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`). Self is taken by `comptime(ref(self)) : Self` — the comptime binding is erased at runtime but mutations through it propagate to the caller via the evaluator's binding-update path.
 - Array/Slice Index impls delegate to compiler builtins (`__yo_array_index`, `__yo_slice_index`, etc.)
 - Other types (ArrayList, HashMap, BTreeMap, Deque, String) implement Index with normal methods
 

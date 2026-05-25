@@ -36,10 +36,13 @@ import {
   isComptimeIntType,
   isComptimeStringType,
   isEnumType,
+  isFunctionType,
+  isFunctionTypeGeneric,
   isSomeType,
   isStructType,
   isTypeHierarchyType,
 } from "../../types/guards";
+import { allPathsUnwind } from "../../expr-traversal";
 import {
   convertComptimeTypeToRuntimeType,
   typeContainsRcType,
@@ -193,6 +196,11 @@ export function evaluateAssignment({
         env,
         context: {
           ...context,
+          // Defer the "Runtime variables with generic function types are
+          // not allowed" check — we run our own copy below after the RHS
+          // is evaluated, so the check can relax for ctl handlers whose
+          // body always unwinds.
+          deferGenericFnTypeCheckToAssignment: true,
         },
       });
       if (bindingExpr.$?.env) {
@@ -380,6 +388,40 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       }
     }
 
+    // Deferred check (from `evaluateBinding`): when the LHS declares a
+    // generic function type at the runtime level, we want to reject it
+    // unless we can statically prove the bound lambda always unwinds.
+    // A handler that always unwinds never delivers its forall'd return
+    // value through the function pointer, so a single C fn pointer
+    // (return-type-erased) faithfully represents every monomorphization
+    // — the rule's underlying ABI mismatch doesn't apply. This is the
+    // same shape `Exception { throw : ctl(forall(ResumeType), ...) }`
+    // already relies on as a struct field.
+    if (
+      !variable.isCompileTimeOnly &&
+      isFunctionType(variable.type) &&
+      isFunctionTypeGeneric(variable.type)
+    ) {
+      const rhsValueForUnwindCheck = rhs.$?.value;
+      const lambdaBody =
+        isFunctionValue(rhsValueForUnwindCheck) && rhsValueForUnwindCheck.body
+          ? rhsValueForUnwindCheck.body
+          : undefined;
+      const proven = lambdaBody ? allPathsUnwind(lambdaBody) : false;
+      if (!proven) {
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Runtime variables with generic function types are not allowed:
+${typeToString(variable.type)}
+
+Generic functions must be compile-time known to enable monomorphization. Consider using:
+comptime(${variableName}) : ${typeToString(variable.type)}
+
+(Carve-out: when the bound lambda's body is a \`ctl(...)\` handler that always \`unwind\`s out of every path, the constraint is relaxed automatically because the C ABI never needs to deliver the forall'd return value. The analysis here didn't see an all-paths-unwind body.)`,
+        });
+      }
+    }
+
     // Get the updated variable from the environment (in case it was updated during synthesis)
     const updatedVariables = getVariablesFromEnv(env, variableName);
     const updatedVariable = updatedVariables[updatedVariables.length - 1]!;
@@ -492,6 +534,24 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
           ? cloneValue(rhsValue)
           : undefined;
 
+      // Mutual-recursion bridge: when `comptime(name) : (fn ...)` declared
+      // the variable, sibling functions evaluated before this assignment
+      // captured an UnknownValue placeholder at their call sites. Back-
+      // patch that UnknownValue with the RHS's funcId so codegen can
+      // resolve the callee via context.functions instead of falling back
+      // to the fn-pointer-cast path (which emits the raw `name` identifier
+      // with no C declaration). See UnknownValue.resolvedFuncValueId.
+      const existingUnknown = variable.value?.[0];
+      const rhsFnVal = Array.isArray(rhsValue) ? rhsValue[0] : rhsValue;
+      if (
+        existingUnknown &&
+        isUnknownValue(existingUnknown) &&
+        rhsFnVal &&
+        isFunctionValue(rhsFnVal)
+      ) {
+        existingUnknown.resolvedFuncValueId = rhsFnVal.funcId;
+      }
+
       // Under the new simplified ownership model:
       // Variables created by := always own their values
       // But we track shared ownership for dup/drop optimization
@@ -578,6 +638,23 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         variable.isCompileTimeOnly && rhsValue
           ? cloneValue(rhsValue)
           : undefined;
+
+      // Mutual-recursion bridge — see UnknownValue.resolvedFuncValueId.
+      // (Same logic mirrored in the first-assignment branch above.)
+      {
+        const existingUnknownReassign = variable.value?.[0];
+        const rhsFnValReassign = Array.isArray(rhsValue)
+          ? rhsValue[0]
+          : rhsValue;
+        if (
+          existingUnknownReassign &&
+          isUnknownValue(existingUnknownReassign) &&
+          rhsFnValReassign &&
+          isFunctionValue(rhsFnValReassign)
+        ) {
+          existingUnknownReassign.resolvedFuncValueId = rhsFnValReassign.funcId;
+        }
+      }
 
       // Generate a new variable ID for reassignment
       // This is crucial for dup/drop optimization: dup calls on the old ID

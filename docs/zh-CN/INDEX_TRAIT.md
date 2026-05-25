@@ -22,26 +22,26 @@ v := list(usize(0));  // 42
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self: *(Self), idx: Idx) -> *(Self.Output))
+    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 ```
 
 - **`Idx`**：索引类型（例如 `usize`，或自定义的键类型）。
 - **`Output`**：关联类型，指定返回的元素类型。
-- **`index`**：方法接受指向 `Self` 的指针和索引，返回指向元素的**指针**。
+- **`index`**：方法以 `inout` 形式接收 `self`（这样它能返回指向调用者存储空间内部的指针）和索引，返回指向元素的**指针**。
 
 `index` 方法返回 `*(Output)`（指针），在值上下文中会自动解引用。这种设计使得读写操作都可以通过同一个特征实现：
 
 ```rust
 // 读取：自动解引用
-v := collection(idx);        // 调用 index(&collection, idx).*
+v := collection(idx);        // 调用 index(collection, idx).*
 
-// 写入：取地址，跳过解引用
-&(collection(idx)).* = val;  // 调用 index(&collection, idx)，通过指针写入
+// 写入：使用调用语法赋值（推荐）
+collection(idx) = val;       // 调用 index(collection, idx)，通过指针写入
 
 // 取地址：直接返回指针
-p := &(collection(idx));     // 调用 index(&collection, idx)，不解引用
+p := &(collection(idx));     // 调用 index(collection, idx)，不解引用
 ```
 
 ## 实现 Index
@@ -53,11 +53,11 @@ MyArray :: struct(data0: i32, data1: i32, data2: i32);
 
 impl(MyArray, Index(usize)(
   Output : i32,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
+  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
     cond(
-      (idx == usize(0)) => &(self.*.data0),
-      (idx == usize(1)) => &(self.*.data1),
-      (idx == usize(2)) => &(self.*.data2),
+      (idx == usize(0)) => &(self.data0),
+      (idx == usize(1)) => &(self.data1),
+      (idx == usize(2)) => &(self.data2),
       true => panic("MyArray: index out of bounds")
     )
   )
@@ -76,9 +76,9 @@ assert((arr(usize(1)) == i32(20)), "应该是 20");
 ```rust
 impl(forall(T : Type), ArrayList(T), Index(usize)(
   Output : T,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))({
-    assert((idx < self.*._length), "ArrayList: index out of bounds");
-    match(self.*._ptr,
+  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    assert((idx < self._length), "ArrayList: index out of bounds");
+    match(self._ptr,
       .Some(_ptr) => (_ptr &+ idx),
       .None => panic("ArrayList: index on empty list")
     )
@@ -109,8 +109,8 @@ T* result = Index_index(&collection, idx);  // ← 直接指针
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(100));
 
-// 通过指针修改
-&(list(usize(0))).* = i32(999);
+// 通过调用语法赋值修改
+list(usize(0)) = i32(999);
 assert((list(usize(0)) == i32(999)), "应该是 999");
 ```
 

@@ -91,6 +91,43 @@ export function generateFieldAccess(
         const objFields = objectType.fields;
         const matchingField = objFields.find((f) => f.label === fieldName);
         if (matchingField && isFunctionType(matchingField.type)) {
+          // If the object is a closure parameter (lives in a __yo_param_<i>
+          // SM slot, not in __capture), route through that slot instead.
+          // See [[yo-anon-closure-param-name-extraction]].
+          // Walk all matching SM vars; prefer one with an alias (closure
+          // params) since that's where set_effect writes the bundle.
+          const objectVarName = objectExpr.token.value;
+          if (
+            functionContext.stateMachineVariables &&
+            functionContext.stateMachineFieldAliases
+          ) {
+            for (const [
+              varId,
+              capturedVar,
+            ] of functionContext.stateMachineVariables) {
+              if (capturedVar.name === objectVarName) {
+                const aliased =
+                  functionContext.stateMachineFieldAliases.get(varId);
+                if (aliased) {
+                  return `sm->${aliased}.${fieldName}`;
+                }
+              }
+            }
+            // Fallback: any name-matching var (no alias) — emit its var_<id>
+            // slot so the body reads from the same place set_effect's
+            // mappings write (when no synthetic slot is in play).
+            for (const [
+              varId,
+              capturedVar,
+            ] of functionContext.stateMachineVariables) {
+              if (
+                capturedVar.name === objectVarName &&
+                capturedVar.kind !== "outer"
+              ) {
+                return `sm->var_${varId}.${fieldName}`;
+              }
+            }
+          }
           return `sm->__capture.${fieldName}`;
         }
       }

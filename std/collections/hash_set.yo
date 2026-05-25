@@ -1,4 +1,5 @@
 //! Hash set using SwissTable algorithm with set-theoretic operations.
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError } :: import("../allocator.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashSet operations.
@@ -688,7 +689,7 @@ impl(
   HashSetIter(T),
   Iterator(
     Item : T,
-    next : (fn(self : *(Self)) -> Option(T))(
+    next : (fn(ref(self) : Self) -> Option(T))(
       cond(
         (self._set.capacity == usize(0)) =>.None,
         true => {
@@ -734,7 +735,7 @@ impl(
   HashSetIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(self : *(Self)) -> Option(*(T)))(
+    next : (fn(ref(self) : Self) -> Option(*(T)))(
       cond(
         (self._set.capacity == usize(0)) =>.None,
         true => {
@@ -760,8 +761,8 @@ impl(
   forall(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSet(T),
-  iter : (fn(self : *(Self)) -> HashSetIterPtr(T))(
-    HashSetIterPtr(T)(_set : self.*, _index : usize(0))
+  iter : (fn(self : Self) -> HashSetIterPtr(T))(
+    HashSetIterPtr(T)(_set : self, _index : usize(0))
   )
 );
 export(

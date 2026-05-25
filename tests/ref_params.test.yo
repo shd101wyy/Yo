@@ -1,0 +1,80 @@
+/// Tests for `ref(name) : T` parameter form
+/// (Phase B of plans/MEMORY_SAFETY.md).
+///
+/// `ref(name) : T` is a parameter modifier (parallel to `own(name)`)
+/// that gives second-class reference semantics: assignments inside the
+/// callee write through to the caller's variable. At codegen time
+/// ref params lower to `T*` in C; the caller automatically passes
+/// `&(arg)`.
+swap_i32 :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
+
+increment :: (fn(ref(n) : i32) -> unit)({
+  n = (n + i32(1));
+});
+
+add_to :: (fn(ref(dst) : i32, src : i32) -> unit)({
+  dst = (dst + src);
+});
+
+set_both :: (fn(ref(a) : i32, ref(b) : i32, v : i32) -> unit)({
+  a = v;
+  b = v;
+});
+
+double_then_swap :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
+  // Calls ref-param fn passing through ref-params.
+  add_to(x, x);
+  add_to(y, y);
+  swap_i32(x, y);
+});
+
+test("swap mutates caller variables", {
+  x := i32(1);
+  y := i32(2);
+  swap_i32(x, y);
+  assert(x == i32(2), "x swapped");
+  assert(y == i32(1), "y swapped");
+});
+
+test("increment mutates caller variable", {
+  counter := i32(0);
+  increment(counter);
+  increment(counter);
+  increment(counter);
+  assert(counter == i32(3), "counter incremented three times");
+});
+
+test("ref + value parameter mix", {
+  acc := i32(10);
+  add_to(acc, i32(5));
+  add_to(acc, i32(7));
+  assert(acc == i32(22), "accumulated");
+});
+
+test("ref with same value via two params", {
+  a := i32(0);
+  b := i32(0);
+  set_both(a, b, i32(42));
+  assert(a == i32(42), "a set");
+  assert(b == i32(42), "b set");
+});
+
+test("ref chained through another ref-param fn", {
+  x := i32(3);
+  y := i32(5);
+  double_then_swap(x, y);
+  // x was 3 -> 6 (doubled), y was 5 -> 10 (doubled), then swapped.
+  assert(x == i32(10), "x doubled then swapped");
+  assert(y == i32(6), "y doubled then swapped");
+});
+
+test("ref read returns current caller value", {
+  v := i32(100);
+  read_back :: (fn(ref(p) : i32) -> i32)(p);
+  result := read_back(v);
+  assert(result == i32(100), "read through ref");
+});

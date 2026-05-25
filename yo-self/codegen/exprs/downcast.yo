@@ -22,6 +22,7 @@
 //! (reading `info.ty` and the second arg's `info.value.TypeVal`)
 //! lives one layer up in the eventual full `generate_downcast` and
 //! is therefore not duplicated here.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
@@ -163,7 +164,7 @@ generate_downcast_for_resolved_types :: (
     dyn_type : TypeValue,
     target_type : TypeValue,
     option_type : TypeValue,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> Option(String)
 )(
   cond(
@@ -222,7 +223,7 @@ generate_downcast_call :: (
   fn(
     call_expr : AstExpr,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -235,10 +236,10 @@ generate_downcast_call :: (
         args.get(usize(1)),
         .None => Option(String).None,
         .Some(type_arg) => match(
-          ctx.*.get_expr_info(ast_expr_id(dyn_arg)),
+          ctx.get_expr_info(ast_expr_id(dyn_arg)),
           .None => Option(String).None,
           .Some(dyn_info) => match(
-            ctx.*.get_expr_info(ast_expr_id(type_arg)),
+            ctx.get_expr_info(ast_expr_id(type_arg)),
             .None => Option(String).None,
             .Some(type_info) => match(
               type_info.value,
@@ -247,7 +248,7 @@ generate_downcast_call :: (
                 extract_type_value(type_val),
                 .None => Option(String).None,
                 .Some(target_type) => match(
-                  ctx.*.get_expr_info(ast_expr_id(call_expr)),
+                  ctx.get_expr_info(ast_expr_id(call_expr)),
                   .None => Option(String).None,
                   .Some(call_info) => match(
                     call_gen_expr(dyn_arg, ctx, indent),

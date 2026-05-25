@@ -4,6 +4,7 @@
 //!
 //! Dispatches every AstExpr node kind to the appropriate sub-evaluator.
 //! The profiler instrumentation from the TypeScript version is omitted (Node.js-specific).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -371,7 +372,7 @@ _evaluate_expression :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )(
@@ -826,7 +827,7 @@ _evaluate_expression_wrapper :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext)
+    ctx : EvalContext
   ) -> AstExpr
 )({
   exn := Exception(
@@ -857,7 +858,7 @@ _evaluate_expression_raw_wrapper :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )(

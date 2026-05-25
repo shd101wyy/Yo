@@ -14,7 +14,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ AnyError, Exception, IOErr } :: import("std/error");
+{ AnyError, Exception, IoExn } :: import("std/error");
 { exists, read_string, write_file } :: import("std/fs/file");
 // ---------------------------------------------------------------------------
 // Data types
@@ -176,9 +176,9 @@ write_lock_file_content :: (fn(lock : LockFile) -> String)({
 read_lock_file :: (
   fn(
     project_dir : Path,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(LockFile, IOErr))
+  ) -> Impl(Future(LockFile, IoExn))
 )(
   io.async((io, exn) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
@@ -197,9 +197,9 @@ save_lock_file :: (
   fn(
     project_dir : Path,
     lock : LockFile,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));

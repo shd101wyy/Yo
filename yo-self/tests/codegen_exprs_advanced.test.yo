@@ -1,4 +1,5 @@
 /// Advanced expression, enum, pointer, lambda, and callback codegen tests split from codegen.test.yo.
+pragma(Pragma.AllowUnsafe);
 open(import("std/fmt"));
 open(import("std/string"));
 open(import("std/error"));
@@ -204,14 +205,14 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -321,7 +322,7 @@ test("is_uppercase_start: empty string returns false", {
 });
 test("handle_struct_constructor: single field emits compound literal", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   field := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "value"),
@@ -338,7 +339,7 @@ test("handle_struct_constructor: single field emits compound literal", {
 });
 test("handle_struct_constructor: two fields", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   f1 := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "x"),
@@ -379,8 +380,8 @@ test("generate_expr: struct constructor via generate_expr dispatch", {
 // ---------------------------------------------------------------------------
 test("handle_regular_call: registered fn gets fn_ prefix", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_fn(String.from("helper"));
+  (pctx : CodegenContext) = ctx;
+  pctx.register_fn(String.from("helper"));
   ind := String.new();
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Integer, "1"));
@@ -393,7 +394,7 @@ test("handle_regular_call: registered fn gets fn_ prefix", {
 });
 test("handle_regular_call: unregistered fn has no prefix", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Integer, "1"));
@@ -483,7 +484,7 @@ make_wildcard_expr :: (fn() -> AstExpr)(
 );
 test("gen_match_arm: integer pattern emits ternary", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   pat := make_atom_expr(TokenKind.Integer, "5");
   body := make_atom_expr(TokenKind.Integer, "10");
   arm_args := ArrayList(AstExpr).new();
@@ -502,7 +503,7 @@ test("gen_match_arm: integer pattern emits ternary", {
 });
 test("gen_match_arm: wildcard arm emits body only", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   wildcard := make_wildcard_expr();
   body := make_atom_expr(TokenKind.Integer, "42");
   arm_args := ArrayList(AstExpr).new();
@@ -517,7 +518,7 @@ test("gen_match_arm: wildcard arm emits body only", {
 });
 test("handle_match_value: two-arm match with wildcard", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   scrut := make_atom_expr(TokenKind.Identifier, "x");
   arm1 := make_arm_expr(
     make_atom_expr(TokenKind.Integer, "5"),
@@ -544,7 +545,7 @@ test("handle_match_value: two-arm match with wildcard", {
 });
 test("handle_match_value: single wildcard arm emits body", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   scrut := make_atom_expr(TokenKind.Identifier, "y");
   wildcard_arm := make_arm_expr(
     make_wildcard_expr(),
@@ -600,7 +601,7 @@ test("extract_enum_def: Color :: enum(Red, Green, Blue)", {
 });
 test("emit_enum_to_c: typedef enum emitted correctly", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   red_ev := EnumVariant(
     name : String.from("Red"),
     disc : usize(0),
@@ -653,8 +654,8 @@ test("compile_module_to_c: enum type is declared before functions", {
 });
 test("handle_dot_access: enum name rewritten to underscore", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_enum(String.from("Color"));
+  (pctx : CodegenContext) = ctx;
+  pctx.register_enum(String.from("Color"));
   // Build Color.Red
   color_expr := make_atom_expr(TokenKind.Identifier, "Color");
   red_expr := make_atom_expr(TokenKind.Identifier, "Red");
@@ -696,7 +697,7 @@ test("generate_expr: &x emits (&x)", {
 });
 test("handle_dot_access: c.* emits (*c)", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   c_expr := make_atom_expr(TokenKind.Identifier, "c");
   star_tok := make_token_raw(TokenKind.Operator, "*");
   star_expr := AstExpr.Atom(usize(0), star_tok);
@@ -795,7 +796,7 @@ test("template string: three-part chain emits nested __yo_str_concat", {
 });
 test("emit_c_preamble: __yo_str_concat helper is present", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_c_preamble("test_mod", pctx);
   output := generate_c_output(pctx);
   assert(output.contains(String.from("__yo_str_concat")), "__yo_str_concat in preamble");
@@ -1253,7 +1254,7 @@ test("Phase 5o: extract_const_def returns None for function def", {
 test("Phase 5o: emit_const_to_c emits string constant", {
   ctx := CodegenContext.new();
   cd := ConstDef(name : String.from("MY_STR"), value : String.from("\"hello\""), kind : String.from("str"));
-  emit_const_to_c(cd, &(ctx));
+  emit_const_to_c(cd, ctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static const char* MY_STR")), "has static const char*");
   assert(output.contains(String.from("\"hello\"")), "has value");
@@ -1261,7 +1262,7 @@ test("Phase 5o: emit_const_to_c emits string constant", {
 test("Phase 5o: emit_const_to_c emits int constant as define", {
   ctx := CodegenContext.new();
   cd := ConstDef(name : String.from("MAX_SIZE"), value : String.from("1024"), kind : String.from("int"));
-  emit_const_to_c(cd, &(ctx));
+  emit_const_to_c(cd, ctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("#define MAX_SIZE 1024")), "has #define");
 });
@@ -1300,7 +1301,7 @@ test("Phase 5o: extract_const_def recognizes float constant", {
 test("Phase 5o: emit_const_to_c emits float as static const double", {
   ctx := CodegenContext.new();
   cd := ConstDef(name : String.from("PI"), value : String.from("3.14159"), kind : String.from("float"));
-  emit_const_to_c(cd, &(ctx));
+  emit_const_to_c(cd, ctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static const double PI")), "has static const double");
   assert(output.contains(String.from("3.14159")), "has value");
@@ -1534,7 +1535,7 @@ test("lift_non_capturing_lambda: single param emits static function", {
   lam := make_lambda_expr("x", body);
   // Function pointer type: int32_t(*_FP_)(int32_t)
   fp_ty := String.from("int32_t(*_FP_)(int32_t)");
-  result := lift_non_capturing_lambda(&(ctx), lam, fp_ty);
+  result := lift_non_capturing_lambda(ctx, lam, fp_ty);
   match(
     result,
     .None => assert(false, "lift should succeed"),
@@ -1559,7 +1560,7 @@ test("lift_non_capturing_lambda: multi param emits correct params", {
   lam := make_multi_lambda_expr(params, body);
   // Function pointer type: int32_t(*_FP_)(int32_t, int32_t)
   fp_ty := String.from("int32_t(*_FP_)(int32_t, int32_t)");
-  result := lift_non_capturing_lambda(&(ctx), lam, fp_ty);
+  result := lift_non_capturing_lambda(ctx, lam, fp_ty);
   match(
     result,
     .None => assert(false, "lift multi-param should succeed"),

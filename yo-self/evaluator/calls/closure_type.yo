@@ -20,6 +20,7 @@
 //!   - No `wrapperType.resolvedConcreteType` mutation (no such field in yo-self).
 //!   - No `deferredDupExpressions` / ARC dup (deferred to Phase 4).
 //!   - No `attachTempVariableToExpr` for DynType (deferred to Phase 4).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -70,7 +71,7 @@ try_to_implement_closure_by_fn_module_type :: (
     fn_module_type : TypeValue,
     wrapper_type : TypeValue,
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> Option(AstExpr)
 )({
@@ -99,7 +100,7 @@ try_to_implement_closure_by_fn_module_type :: (
     .None => make_err_expr()
   );
   // Clone the body so we can use it twice (once in FuncVal box, once for evaluation).
-  closure_body_for_eval := (&(closure_body_expr)).clone();
+  closure_body_for_eval := closure_body_expr.clone();
   // Extract param names and types from the FnTraitT.
   param_labels := match(
     fn_module_type,
@@ -127,7 +128,7 @@ try_to_implement_closure_by_fn_module_type :: (
     p_type := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
     p_tok := synthetic_token(String.from(p_label.as_str()), env.module_path);
     _ := add_variable_to_env(
-      &(env),
+      env,
       String.from(p_label.as_str()),
       p_type,
       Option(EvalValue).None,
@@ -147,14 +148,14 @@ try_to_implement_closure_by_fn_module_type :: (
   // Build a synthetic Func type for create_function_body_evaluation_context.
   // This is needed because create_function_body_evaluation_context expects a Func type
   // to extract the return type for the expected-type context.
-  result_type_copy := (&(result_type)).clone();
+  result_type_copy := result_type.clone();
   synthetic_func_ty := TypeValue.Func(
     ArrayList(String).new(),
     // forall_labels
     ArrayList(TypeValue).new(),
     // forall_types
-    (&(param_labels)).clone(),
-    (&(param_types)).clone(),
+    param_labels.clone(),
+    param_types.clone(),
     ArrayList(String).new(),
     // implicit_labels
     ArrayList(TypeValue).new(),

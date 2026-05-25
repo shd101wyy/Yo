@@ -38,8 +38,13 @@ import {
 import {
   convertComptimeTypeToRuntimeType,
   typeContainsSomeType,
+  typeContainsUnboundSomeType,
+  typeIsControlBound,
+  typeRepresentationContainsRawPtr,
   typeToString,
 } from "../../types/utils";
+import { isFlowableExpr } from "../types/flowability";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import {
   createPtrType,
   createSliceType,
@@ -57,7 +62,12 @@ import type {
   Type,
 } from "../../types/definitions";
 import { randomId } from "../../utils";
-import { createUnknownValue, isTypeValue, type Value } from "../../value";
+import {
+  createTypeValue,
+  createUnknownValue,
+  isTypeValue,
+  type Value,
+} from "../../value";
 import { ValueTag } from "../../value-tag";
 import { analyzeAwaitPoints } from "../async/await-analysis";
 import {
@@ -67,6 +77,7 @@ import {
 import { type EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { evaluateExpression } from "../exprs/expr";
 import { extractFnTraitFromType } from "../trait-checking";
 import { applyWhereClauseConstraints } from "../types/function";
 import {
@@ -216,6 +227,27 @@ export function evaluateAnonymousFunctionImplementation({
       functionType = fnTraitFromWrapper.isFn.callType;
       isCreatingClosure = true;
       wrapperType = expectedType;
+
+      // Phase 2 (lambda-annotation-driven forall unification):
+      // When the lambda explicitly annotates a parameter (e.g. `(io2 :
+      // Io) =>`) and the expected closure parameter type is a bare
+      // NOTE: An attempted Phase 2 lambda-annotation-driven forall
+      // unification (binding `E := Io` in expectedTypeEnv when the
+      // user wrote `(io2 : Io) =>`) was abandoned because:
+      //   (a) addVariableToEnv on a name already present in the
+      //       top frame throws even with allowVariableShadowing —
+      //       working around it via pushEnvFrame broke later body
+      //       lookups (lambda's `io2` not found).
+      //   (b) Mutating expectedP.type.resolvedConcreteType in place
+      //       cascaded across the shared SomeType instance and
+      //       likewise broke unrelated closures.
+      // The return-type-driven Phase 2 path in helper.ts (commit
+      // cf808ec0) still covers the cases where the io.async call
+      // has an outer return-type constraint (most std/ usage).
+      // Test-framework wrappers without explicit return types
+      // remain unhandled — a deeper refactor of the closure
+      // capture/cache path is needed.
+
       // Substitute forall SomeTypes (e.g., `Acc`, `A` from a generic
       // function's where-clause `F <: Fn(acc: Acc, item: A) -> Acc`) with
       // their concrete bindings from the callee's env. Without this, lambda
@@ -361,6 +393,7 @@ Got:      "${paramName}"`,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
         consumedAtToken: undefined,
         isOwningTheRcValue: false,
+        isParameter: true,
       },
       allowVariableShadowing: true,
     });
@@ -387,6 +420,82 @@ Got:      "${paramName}"`,
     type: Type;
     token: Token;
   }> = [];
+  // When a closure parameter has an explicit annotation `(name : Type)` and
+  // the expected (Fn-trait) parameter type is an unresolved SomeType (e.g.
+  // io.async's `Impl(Fn(e : E) -> T)` exposes `e : E`), use the user's
+  // annotation to resolve the SomeType. Without this, the lambda's param
+  // type stays as `E` (free SomeType), `shouldDeferBodyEvaluation` fires,
+  // and the closure body never gets evaluated — leaving sub-expressions
+  // unannotated and producing "Unhandled function call" at codegen time.
+  //
+  // We build a per-lambda substitution env in a fresh frame (so the binding
+  // doesn't conflict with any outer `E` and doesn't escape to the caller),
+  // then run `substituteSomeTypesFromEnv` to produce a new `functionType`
+  // with the SomeType replaced throughout.
+  {
+    let needsSubstitution = false;
+    let substEnv: Environment | undefined;
+    for (let i = 0; i < regularParamExprs.length; i++) {
+      const paramExpr = regularParamExprs[i]!;
+      const expectedParam = functionType.parameters[i]!;
+      if (
+        !isCreatingClosure ||
+        !exprIsFunctionCall(paramExpr) ||
+        !exprIsAtom(paramExpr.func) ||
+        paramExpr.func.token.value !== ":" ||
+        paramExpr.args.length !== 2 ||
+        !isSomeType(expectedParam.type) ||
+        expectedParam.type.resolvedConcreteType
+      ) {
+        continue;
+      }
+      const typeExpr = paramExpr.args[1]!;
+      let userType: Type | undefined;
+      try {
+        const evalRes = evaluateExpression({
+          expr: typeExpr,
+          env,
+          context: { ...context, isEvaluatingFunctionType: true },
+        });
+        const val = evalRes.$?.value;
+        if (val && isTypeValue(val) && !isSomeType(val.value)) {
+          userType = val.value;
+        }
+      } catch {
+        // Annotation didn't evaluate to a concrete type — leave alone.
+      }
+      if (!userType) continue;
+      if (!substEnv) substEnv = pushEnvFrame(env);
+      const someName = expectedParam.type.name;
+      // Skip if a binding with this name already exists in the new frame
+      // (multi-param closures with two annotations using the same forall name).
+      const topFrame = substEnv.frames[substEnv.frames.length - 1]!;
+      if (topFrame.variables.some((v) => v.name === someName)) continue;
+      const addRes = addVariableToEnv({
+        env: substEnv,
+        variable: {
+          name: someName,
+          type: expectedParam.type.parentType,
+          isCompileTimeOnly: true,
+          value: [createTypeValue(userType)],
+          token: paramExpr.token,
+          initializedAtToken: paramExpr.token,
+          consumedAtToken: undefined,
+          isOwningTheRcValue: false,
+        },
+        allowVariableShadowing: true,
+      });
+      substEnv = addRes.env;
+      needsSubstitution = true;
+    }
+    if (needsSubstitution && substEnv) {
+      const substituted = substituteSomeTypesFromEnv(functionType, substEnv);
+      if (substituted !== functionType && isFunctionType(substituted)) {
+        functionType = substituted;
+      }
+    }
+  }
+
   // Check regular parameters (only comptime ones need exact matching)
   for (let i = 0; i < regularParamExprs.length; i++) {
     const paramExpr = regularParamExprs[i]!;
@@ -416,7 +525,18 @@ Got:      "${paramName}"`,
     // Add regular parameter to environment
     // Use the expected parameter's isOwningTheRcValue to properly track ownership
     // (borrowed parameters default to false, owned parameters are true)
-    const anonymousParamName = paramExpr.token.value;
+    //
+    // Param surface forms:
+    //   atom            — `(x) =>`         → paramExpr.token.value is the name
+    //   colon pair      — `(x : T) =>`     → paramExpr is `:`(x, T); extract from args[0]
+    let anonymousParamName = paramExpr.token.value;
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, ":", 2) &&
+      exprIsAtom(paramExpr.args[0]!)
+    ) {
+      anonymousParamName = paramExpr.args[0]!.token.value;
+    }
     const expectedParamName = expectedParam.label;
     const { env: nextEnv } = addVariableToEnv({
       env,
@@ -437,6 +557,15 @@ Got:      "${paramName}"`,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
         isOwningTheRcValue: expectedParam.isOwningTheRcValue, // Parameters borrow by default
+        // Propagate inout-ness from the expected (trait/declared) param.
+        // When a lambda like `((self) -> self)` is being type-checked
+        // against a trait method like `hash : (fn(inout(self) : Self)
+        // -> u64)`, the lambda's `self` binding inherits isRef from
+        // the trait's parameter; codegen then emits (*self) for reads
+        // and writes. See plans/MEMORY_SAFETY.md Phase D.
+        isRef: expectedParam.isRef || undefined,
+        isReassignable: expectedParam.isRef,
+        isParameter: true,
         // If anonymous function uses different parameter name than expected,
         // store the expected name as alias for C codegen
         parameterAlias:
@@ -444,6 +573,14 @@ Got:      "${paramName}"`,
             ? expectedParamName
             : undefined,
       },
+      // Lambda parameter names live in a NEW frame that opens just
+      // for this closure body — they may legitimately shadow outer
+      // bindings (`Thread.spawn(io => …)` is a common case: the
+      // callback's `io` parameter shadows any outer `io` such as
+      // the test-runner-injected one). The 348-line site
+      // (`evaluateNamedFunctionParameter`) already sets this; mirror
+      // it here for consistency.
+      allowVariableShadowing: true,
     });
     env = nextEnv;
 
@@ -476,11 +613,19 @@ Got:      "${paramName}"`,
       } else {
         // Non-comptime parameters can use anonymous function's name with expected type
         const paramExpr = regularParamExprs[index]!;
+        // Surface forms for paramExpr (mirror the binding site above):
+        //   atom            — `(x) =>`        → name from paramExpr.token.value
+        //   colon pair      — `(x : T) =>`    → name from paramExpr.args[0]
+        const userParamLabel = exprIsAtom(paramExpr)
+          ? paramExpr.token.value
+          : exprIsFunctionCall(paramExpr) &&
+              exprIsFunctionCallOf(paramExpr, ":", 2) &&
+              exprIsAtom(paramExpr.args[0]!)
+            ? paramExpr.args[0]!.token.value
+            : expectedParam.label;
         return {
           ...expectedParam,
-          label: exprIsAtom(paramExpr)
-            ? paramExpr.token.value
-            : expectedParam.label,
+          label: userParamLabel,
           exprs: {
             ...expectedParam.exprs,
             expr: paramExpr,
@@ -543,12 +688,77 @@ Got:      "${paramName}"`,
   // When the expected type has forall params but the lambda doesn't declare them
   // (e.g., a concrete throw handler for Exception module), evaluate the body now —
   // the forall type polymorphism is handled by void* erasure at runtime.
+  // Use the codegen-aware variant for the parameter check: an `exn :
+  // Exception` or `io : Io` parameter must NOT trigger body deferral. These
+  // are concrete structs whose only forall content lives in function-typed
+  // fields (e.g. `throw : ctl(forall(R), ...) -> R`) — type-erased function
+  // pointers at runtime, not generic body content. Plain
+  // `typeContainsSomeType` reports the parameter as generic via that
+  // recursion, which previously deferred every `fn(..., exn : Exception)`
+  // and `fn(..., io : Io)` body and left sub-expressions un-annotated for
+  // codegen (manifesting as link errors for `parse` etc. and
+  // "Unhandled function call" errors for closures passed to Thread.spawn /
+  // io.async / Worker).
+  // Use `typeContainsUnboundSomeType` (forall-scope aware) instead of the
+  // older `typeContainsSomeTypeForCodegenParam` to decide whether a parameter
+  // type carries a *free* SomeType that should defer body evaluation. The old
+  // function-fields carve-out treated struct fields containing fn-typed
+  // foralls as concrete, but it stopped recursing entirely — losing fidelity
+  // for other shapes (e.g. `*(T)` direct fields). The unbound variant walks
+  // every shape and only reports SomeTypes whose name isn't bound by a
+  // surrounding `forall(...)`.
+  // Closure inference contract: when the surrounding context's expected
+  // type still carries an unbound SomeType in a closure parameter
+  // position AND the user did not provide a `(name : Type)` annotation
+  // on that parameter (which is the only knob the substitution pass
+  // above honors), the type genuinely cannot be inferred from the
+  // closure source. Deferring the body in that case produces confusing
+  // downstream failures ("Variable not found", "Internal error: return
+  // expression missing metadata", etc.) far from the actual user
+  // mistake. Report the missing annotation up front instead.
+  //
+  // Only fires for closure-creation (`=>`) — `->` regular function
+  // values declare their own type and have a different evaluation
+  // path that doesn't rely on caller-side inference.
+  if (isCreatingClosure) {
+    for (let i = 0; i < regularParamExprs.length; i++) {
+      const paramExpr = regularParamExprs[i]!;
+      const expectedParam = functionType.parameters[i];
+      if (!expectedParam) continue;
+      if (!typeContainsUnboundSomeType(expectedParam.type)) continue;
+      // Did the user write `(name : Type)`? The substitution pass
+      // upstream only honors that exact shape.
+      const userAnnotatedThisParam =
+        exprIsFunctionCall(paramExpr) &&
+        exprIsAtom(paramExpr.func) &&
+        paramExpr.func.token.value === ":" &&
+        paramExpr.args.length === 2;
+      if (userAnnotatedThisParam) continue;
+      const displayName = exprIsAtom(paramExpr)
+        ? paramExpr.token.value
+        : exprToString(paramExpr);
+      throw formatErrorMessage({
+        token: paramExpr.token,
+        errorMessage: `Cannot infer the type of anonymous closure parameter \`${displayName}\`.
+
+The surrounding context expects a parameter of type \`${typeToString(
+          expectedParam.type
+        )}\` (an unbound generic), and the closure source provides no information that lets the evaluator pin it down.
+
+Add an explicit annotation to the closure parameter, e.g.:
+  (${displayName} : <ConcreteType>) => ...`,
+      });
+    }
+  }
+
   const shouldDeferBodyEvaluation =
     forallParamExprs.length > 0 ||
-    functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
+    functionType.parameters.some((param) =>
+      typeContainsUnboundSomeType(param.type)
+    ) ||
     (functionType.SelfTraitType &&
       functionType.SelfType &&
-      typeContainsSomeType(functionType.SelfType));
+      typeContainsUnboundSomeType(functionType.SelfType));
 
   let evaluationContext: EvaluatorContext;
   let evaluatedBody: Expr;
@@ -678,7 +888,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     functionValue.isControlFunction = true;
   }
 
-  // For functions with using(IO) implicit parameters or io.async closures,
+  // For functions with using(Io) implicit parameters or io.async closures,
   // run await analysis on the body to detect io.await calls and mark as async.
   // This enables the codegen to generate the function as a state machine.
   if (
@@ -697,6 +907,68 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // from the enclosing function, not this function. The body's type is the abort value
   // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
+
+  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // the return expression of a `-> ref(T)` function. The body must
+  // root back to a `ref`-bound parameter along a
+  // projection-respecting chain (R1–R4 in the plan); otherwise the
+  // function would hand out a borrow into its own dying frame.
+  //
+  // The body might be a single expression (the implicit return)
+  // OR a begin-block whose final expression is the return value.
+  // For Phase B's first cut we handle both shapes; explicit
+  // `return(expr)` statements buried deeper in the body aren't
+  // checked yet — a follow-up can walk control-flow more
+  // thoroughly when the projection redesign meets real iterator
+  // bodies in Phase D.
+  if (functionType.return.isRef) {
+    let returnExpr: Expr = evaluatedBody;
+    if (
+      exprIsFunctionCall(evaluatedBody) &&
+      exprIsFunctionCallOf(evaluatedBody, BuiltinKeywords.begin)
+    ) {
+      const beginCall = evaluatedBody as FnCallExpr;
+      if (beginCall.args.length > 0) {
+        returnExpr = beginCall.args[beginCall.args.length - 1]!;
+      }
+    }
+    if (!isFlowableExpr(returnExpr)) {
+      throw formatErrorMessage({
+        token: returnExpr.token,
+        errorMessage: `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
+      });
+    }
+  } else if (
+    typeRepresentationContainsRawPtr(functionType.return.type) &&
+    !functionType.return.isCompileTimeOnly &&
+    !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)
+  ) {
+    // plans/SLICE_FLOWABILITY.md Phase C — a function whose return
+    // type is value-typed but transitively carries a raw pointer in
+    // its representation (e.g. `Slice(T)`, `str`, or any struct that
+    // wraps one) must root the returned value in caller-owned storage.
+    let returnExpr: Expr = evaluatedBody;
+    if (
+      exprIsFunctionCall(evaluatedBody) &&
+      exprIsFunctionCallOf(evaluatedBody, BuiltinKeywords.begin)
+    ) {
+      const beginCall = evaluatedBody as FnCallExpr;
+      if (beginCall.args.length > 0) {
+        returnExpr = beginCall.args[beginCall.args.length - 1]!;
+      }
+    }
+    if (
+      !isFlowableExpr(returnExpr, {
+        allowParameterSource: true,
+        allowComptimeSource: true,
+      })
+    ) {
+      throw formatErrorMessage({
+        token: returnExpr.token,
+        errorMessage: `Function returning '${typeToString(functionType.return.type)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter (caller's value is alive across the call); a 'comptime' constant or string literal; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.\n\nFixes:\n  - Take the source as a 'ref(name) : T' parameter and project a slice from it.\n  - Return an owned type ('ArrayList', 'String') instead — heap-allocated, no lifetime concern.\n  - Wrap unsafe construction in 'pragma(Pragma.AllowUnsafe);' at the file top if you genuinely need the raw form.`,
+      });
+    }
+  }
 
   // For closures with SomeType return type (from forall parameters, e.g., T : Type),
   // resolve the body's runtime type as the concrete type for the SomeType.
@@ -784,6 +1056,45 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     | undefined;
 
   if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
+    // Phase B non-escape enforcement (plans/MEMORY_SAFETY.md): an
+    // `inout(name) : T` parameter is a second-class reference to
+    // the caller's storage. Capturing it in a closure would let
+    // that reference outlive the call frame, since the closure can
+    // be stored, returned, or sent to a Future. Reject every such
+    // capture — the synchronous-callback case (Open Question 3) is
+    // forbidden in v1 alongside the escaping cases.
+    for (const [varName, captureInfo] of capturedVariables.entries()) {
+      if (captureInfo.frameLevel >= env.frames.length) continue;
+      const frame = env.frames[captureInfo.frameLevel]!;
+      const variable = frame.variables.find((v) => v.name === varName);
+      if (variable?.isRef) {
+        throw formatErrorMessage({
+          token: captureInfo.token ?? expr.token,
+          errorMessage: `Cannot capture ref binding '${varName}' in a closure. \`ref(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+        });
+      }
+      // §4 typing rule 4: closures cannot capture a value of
+      // control-bound type. The captured ctl handler would escape
+      // with the closure value (which can be stored or returned),
+      // leaving an unwind that targets a dead install frame.
+      // Mirror of the rule enforced in closure-type.ts:151, applied
+      // here for the regular "closure passed as function arg" path
+      // (e.g. `apply(() => raise(...))`).
+      if (
+        variable &&
+        !variable.isCompileTimeOnly &&
+        typeIsControlBound(variable.type)
+      ) {
+        throw formatErrorMessage({
+          token: captureInfo.token ?? expr.token,
+          errorMessage: `Closures cannot capture a value of control-bound type. The captured value \`${varName}\` has type \`${typeToString(
+            variable.type
+          )}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+
+Pass \`${varName}\` as a regular function parameter instead of capturing it in a closure.`,
+        });
+      }
+    }
     capturedVariablesWithValues = enrichCapturedVariables({
       capturedVariables,
       env,

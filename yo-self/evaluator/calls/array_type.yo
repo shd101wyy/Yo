@@ -9,6 +9,7 @@
 //!
 //! Note: `Array(T, _)` length inference is NOT supported in yo-self
 //! because `TypeValue.Array` stores a concrete `usize` length.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
@@ -42,7 +43,7 @@ try_to_implement_array_by_array_type :: (
     array_type : TypeValue,
     arg_exprs : ArrayList(AstExpr),
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

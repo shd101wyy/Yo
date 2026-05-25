@@ -16,8 +16,8 @@ These patterns cover normal Yo async code and algebraic effects.
 ```rust
 { yield } :: import("std/async");
 
-pause_then_answer :: (fn(io : IO) -> Impl(Future(i32, IO)))(
-  io.async((io : IO) => {
+pause_then_answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
     io.await(yield(), io);
     i32(42)
   })
@@ -25,7 +25,7 @@ pause_then_answer :: (fn(io : IO) -> Impl(Future(i32, IO)))(
 ```
 
 - `io.async(...)` is lazy.
-- The closure's parameter is the effect bundle. The simplest bundle is just `IO`.
+- The closure's parameter is the effect bundle. The simplest bundle is just `Io`.
 - The `Future(T, E)` return type names the same bundle type that the closure consumes.
 
 ## Sequential await
@@ -33,8 +33,8 @@ pause_then_answer :: (fn(io : IO) -> Impl(Future(i32, IO)))(
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(io : IO) -> unit)({
-  task := io.async((io : IO) => {
+main :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io) => {
     io.await(yield(), io);
     i32(1)
   });
@@ -51,12 +51,12 @@ export(main);
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(io : IO) -> unit)({
-  task1 := io.async((io : IO) => {
+main :: (fn(io : Io) -> unit)({
+  task1 := io.async((io : Io) => {
     io.await(yield(), io);
     i32(1)
   });
-  task2 := io.async((io : IO) => {
+  task2 := io.async((io : Io) => {
     io.await(yield(), io);
     i32(2)
   });
@@ -128,7 +128,7 @@ bundle struct and pass that.
 { yield } :: import("std/async");
 
 Raise :: (ctl(msg : String) -> i32);
-TaskCtx :: struct(io : IO, raise : Raise);
+TaskCtx :: struct(io : Io, raise : Raise);
 
 work :: (fn(ctx : TaskCtx) -> Impl(Future(i32, TaskCtx)))(
   io.async((ctx : TaskCtx) => {
@@ -153,7 +153,7 @@ work :: (fn(ctx : TaskCtx) -> Impl(Future(i32, TaskCtx)))(
 ```rust
 { read_dir, DirEntry } :: import("std/fs/dir");
 
-WalkCtx :: struct(io : IO, exn : Exception);
+WalkCtx :: struct(io : Io, exn : Exception);
 
 process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
@@ -190,9 +190,17 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   (match arm, `cond` branch, `begin` block, plain `fn` body), use `return`.
 - `unwind` inside an async task aborts the future instead of completing it normally.
 - `io.await(...)` on an already-aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`.
-- Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions.
+- Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
 - **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion.
+- **Closure params bound to a generic `E : Type.Struct` need an explicit annotation.** When a generic function takes `callback : Impl(Fn(v : V, e : E) -> R)` and you pass a closure, the closure's `e` parameter type cannot be inferred from the call's bundle argument — `E` is still unbound at the closure body's evaluation site. Define a concrete struct first and annotate the closure parameter:
+  ```rust
+  // ✗ fails with "Cannot infer the type of anonymous closure parameter `e`"
+  traverse(arr, (v, e) => { e.log(v); ... }, { yield, log });
+  // ✓ annotate via a named bundle struct
+  Eff :: struct(yield : Yield, log : Log);
+  traverse(arr, (v : i32, e : Eff) => { e.log(v); ... }, Eff(yield, log));
+  ```
 
 ## Exception (non-resumable)
 

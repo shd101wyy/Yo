@@ -136,11 +136,11 @@ result := run(pure_func, {});
 
 ```rust
 // 单个捆绑（最常见）
-fut1 : Impl(Future(i32, IOErr));            // IOErr = { io, exn }
+fut1 : Impl(Future(i32, IoExn));            // IoExn = { io, exn }
 y := io.await(fut1, { io, exn });
 
 // 单效应 future — 直接传递效应值
-fut2 : Impl(Future(i32, IO));
+fut2 : Impl(Future(i32, Io));
 x := io.await(fut2, io);
 ```
 
@@ -162,7 +162,7 @@ result := io.await(fut, effects);
 
 ```rust
 // 函数体内、返回类型已标注 — E 由返回类型固定，闭包参数可不标注：
-do_work :: (fn(io : IO) -> Impl(Future(unit, IOErr)))(
+do_work :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
     e.io.await(some_io_call(...), e.io);
     e.exn.throw(...);
@@ -171,10 +171,10 @@ do_work :: (fn(io : IO) -> Impl(Future(unit, IOErr)))(
 ```
 
 宽度匹配是**严格**的 — Yo 的结构体是名义类型。如果调用方持有
-`e : IOErr` 但嵌套 future 只需要 `IO`，必须显式投影：
+`e : IoExn` 但嵌套 future 只需要 `Io`，必须显式投影：
 
 ```rust
-// fut 需要 IO；投影到 e.io
+// fut 需要 Io；投影到 e.io
 result := io.await(fut, e.io);
 ```
 
@@ -303,7 +303,7 @@ Exception :: struct(
 ## 结构体效应记录
 
 效应可以组织为结构体记录。处理器字段使用 `ctl(...)` 类型，结构体
-值可通过本地绑定安装它们。常见捆绑（如 `Exception`、`IOErr`）位于
+值可通过本地绑定安装它们。常见捆绑（如 `Exception`、`IoExn`）位于
 `std/error.yo`：
 
 ```rust

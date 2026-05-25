@@ -1,4 +1,4 @@
-import { type Environment } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   typeImplementsFn,
@@ -12,6 +12,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
 import { type FunctionValue } from "../../function-value";
@@ -34,6 +35,7 @@ import {
 import {
   canTypeFormRcCycle,
   typeContainsSomeType,
+  typeContainsSomeTypeForCodegenParam,
   typeToString,
 } from "../../types/utils";
 import { isTargetWindows } from "../../target";
@@ -45,6 +47,7 @@ import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
 } from "../exprs/drop-dup";
+import { registerImplClosureCallMappings } from "../exprs/closures";
 import { generateExpr } from "../exprs/expr";
 import { generateImplicitReturnStatement } from "../exprs/return";
 import { generateParallelismRuntime } from "../parallelism/runtime";
@@ -188,13 +191,33 @@ function findUserDisposeMethodForType(
 }
 
 /**
+ * True if the expression tree contains a `return(expr)` call with an
+ * argument (a value-returning return statement). Used by the
+ * `isEffectRecordMember` stub-emit gate to detect bodies whose
+ * generic-AST `return` lacks the `.$` metadata that generateReturn requires.
+ */
+function bodyHasExplicitReturn(expr: Expr): boolean {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+    const args = (expr as FnCallExpr).args;
+    if (args.length > 0) return true;
+  }
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of (expr as FnCallExpr).args) {
+      if (bodyHasExplicitReturn(arg)) return true;
+    }
+    if (bodyHasExplicitReturn((expr as FnCallExpr).func)) return true;
+  }
+  return false;
+}
+
+/**
  * Generate all collected functions
  */
 export function generateAllFunctions(context: FunctionGenerationContext): void {
   context.emitter.emitLine(`// Function implementations`);
 
   // Always emit synchronous system helpers (stat, sync ops, signal, TTY).
-  // These have no async/IOFuture dependency.  All functions are `static`, so
+  // These have no async/IoFuture dependency.  All functions are `static`, so
   // unused ones are dead-code-eliminated by the C compiler.
   generateSysRuntime(context.emitter, context.targetInfo);
 
@@ -244,6 +267,14 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate closure constructor and Rc functions
   generateClosureConstructorFunctions(context);
 
+  // Pre-pass: populate `implClosureCallMap` for every Impl(Fn(...)) closure
+  // implementation BEFORE any function body is generated. The body loop below
+  // iterates `context.functions` in insertion order, which doesn't follow the
+  // closure-creator → closure-caller dependency. Without this pre-pass, a
+  // call site processed before the closure's construction site falls through
+  // to an incorrect fn-pointer-cast fallback.
+  registerImplClosureCallMappings(context);
+
   // NOTE: Don't generate capture dispose functions here yet!
   // They will be generated after deferred async blocks are processed
   // because closure creation happens during async block generation
@@ -252,7 +283,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const { value, cName } = context.functions[funcId]!;
 
     // Never skip __yo_user_main - it's the entry point and its implicit
-    // IO parameter is resolved at compile time
+    // Io parameter is resolved at compile time
     const isUserMain = cName === "__yo_user_main";
 
     // Check if this function's body has effect analysis (it uses algebraic effects).
@@ -297,28 +328,45 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       }
     }
 
-    // For isEffectRecordMember functions that have specializations, the generic
-    // body lacks type annotations on sub-expressions (metadata is only filled in
-    // during specialization). We must emit the unspecialized form because its name
-    // is stored as a void* function pointer in async capture structs by
-    // emitEffectRecordInjection (see await.ts). Emit a minimal stub: set the
-    // effect-escaped flag and return a zero value matching the declared return type.
-    if (
-      value.isEffectRecordMember &&
-      (value.specializedFunctionCaches?.length ?? 0) > 0
-    ) {
-      const proto = generateFunctionPrototype(value.type, cName, context);
-      const returnTypeStr = getTypeString(value.type.return.type, context);
-      const returnStmt = isUnitType(value.type.return.type)
-        ? `return;`
-        : returnTypeStr === "void"
+    // For isEffectRecordMember functions whose generic body cannot be safely
+    // emitted, write a minimal stub. The function's address is stored as a
+    // void* fn pointer in the effect record's capture struct (see
+    // emitEffectRecordInjection in await.ts), so the symbol must exist —
+    // but the body is dispatched via the effect runtime (set_effect / unwind),
+    // so the stub return is never observed by user code.
+    //
+    // "Cannot safely emit" covers:
+    //   - the base has registered specializations (specializedFunctionCaches > 0):
+    //     its generic body has unresolved forall returns and sub-expression
+    //     `.$` is only filled in on the specializations.
+    //   - the declared type carries a forall AND the body contains an explicit
+    //     `return(expr)` statement: the body was deferred at definition time
+    //     (`shouldDeferBodyEvaluation`) and the `return`'s `.$` is unpopulated,
+    //     so generateReturn would throw "missing metadata". Bodies that only
+    //     `unwind(...)` don't need `.$` to emit and so should NOT be stubbed
+    //     — emitting their bodies preserves observable side effects (e.g.
+    //     `println(msg)` before `unwind(())` in async raise handlers).
+    if (value.isEffectRecordMember) {
+      const hasRegisteredSpecs =
+        (value.specializedFunctionCaches?.length ?? 0) > 0;
+      const isUnspecializedForallWithReturn =
+        value.type.forallParameters.length > 0 &&
+        !!value.body &&
+        bodyHasExplicitReturn(value.body);
+      if (hasRegisteredSpecs || isUnspecializedForallWithReturn) {
+        const proto = generateFunctionPrototype(value.type, cName, context);
+        const returnTypeStr = getTypeString(value.type.return.type, context);
+        const returnStmt = isUnitType(value.type.return.type)
           ? `return;`
-          : `return (${returnTypeStr}){0};`;
-      context.emitter.emitLine(`static inline ${proto} {`);
-      context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
-      context.emitter.emitLine(`  ${returnStmt}`);
-      context.emitter.emitLine(`}`);
-      continue;
+          : returnTypeStr === "void"
+            ? `return;`
+            : `return (${returnTypeStr}){0};`;
+        context.emitter.emitLine(`static inline ${proto} {`);
+        context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
+        context.emitter.emitLine(`  ${returnStmt}`);
+        context.emitter.emitLine(`}`);
+        continue;
+      }
     }
 
     // If the function is generic or has been specialized, we will handle it later
@@ -362,12 +410,22 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       (!value.isEffectRecordMember || hasComptimeParams) &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      !value.type.isClosure &&
       isFunctionTypeHardGeneric(value.type)
     ) {
+      // Hard-generic comptime-template skip — but closures are per-instance
+      // (each io.async / Thread.spawn site gets its own closure value with a
+      // concrete capture struct and unique funcId), so they must NOT be
+      // skipped here even when their parameter list still mentions forall
+      // SomeType (e.g. `e : E` from io.async's Impl(Fn(e : E) -> T)
+      // signature). The later carve-out at the hasGenericParams gate already
+      // exempts isClosure; mirror it here so the body emission path reaches
+      // such closures instead of leaving `closure_*_id_N` undeclared at the
+      // io.async sync_fut_t_resume call site.
       continue;
     }
 
-    // IO async state machine closures are always generated via the deferred
+    // Io async state machine closures are always generated via the deferred
     // async block system, never as standalone functions. Skip unconditionally
     // to prevent duplicate struct/function definitions.
     if (!isUserMain && value.isIoAsyncStateMachineClosure) {
@@ -394,13 +452,29 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Or with SomeType in return type that isn't a plain Impl(...) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
+    // Closures (`isClosure: true`) are per-instance with their own
+    // concrete capture struct and distinct C function. Their parameter
+    // list may contain `io : Io` or similar effect-record types whose
+    // nested fn-pointer fields trip `typeContainsSomeType`, but the
+    // closure value itself is not truly generic and its body has
+    // been evaluated. Skipping such closures would leave the spawn-
+    // wrapper / state-machine references (`closure_*`) undeclared at
+    // link time. Let them through to emission.
     const hasGenericParams =
       !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
-      (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      !value.type.isClosure &&
+      (functionType.parameters.some((p) =>
+        typeContainsSomeTypeForCodegenParam(p.type)
+      ) ||
         functionType.forallParameters.length > 0);
-    const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
+    // Mirror the parameter check (see declarations.ts): a return type
+    // like `IoExn` (struct whose SomeType is confined to nested
+    // fn-pointer fields) is concrete at C ABI.
+    const hasGenericReturnType = typeContainsSomeTypeForCodegenParam(
+      functionType.return.type
+    );
 
     // Allow functions returning plain Impl(...) existential types (SomeType at top level)
     // These are not truly generic - the concrete type is determined from the function body
@@ -410,7 +484,10 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
     if (
       hasGenericParams ||
-      (hasGenericReturnType && !returnsPlainImpl && !value.isEffectRecordMember)
+      (hasGenericReturnType &&
+        !returnsPlainImpl &&
+        !value.isEffectRecordMember &&
+        !value.type.isClosure)
     ) {
       continue;
     }
@@ -556,12 +633,12 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   {
     // Build the argument list for __yo_user_main.
     // Each regular parameter of main is matched by type-name:
-    //   - IO          → construct from runtime __yo_io_async/await/state/spawn
+    //   - Io          → construct from runtime __yo_io_async/await/state/spawn
     //   - Exception   → construct default panic-on-throw handler
     //   - Other       → fail (no automatic injection for unknown effect types)
     //
     // This replaces the old implicit-parameter injection path. With explicit
-    // effects, main declares `io : IO, exn : Exception` as regular params and
+    // effects, main declares `io : Io, exn : Exception` as regular params and
     // the C wrapper constructs the runtime values.
     const evidenceParams = getEvidenceParameters(mainFunctionValue.type);
     let mainCallArgs: string;
@@ -1288,7 +1365,24 @@ export function generateFunctionBody(
                 lastExpr.$.env
               );
               const rawCode = generateExpr(lastExpr, indent, context);
-              if (exprTempVar !== rawCode) {
+
+              // Skip the temp-var declaration when the last expression
+              // is an ref-param atom — `T name = (*name);` would
+              // shadow the pointer parameter. The deferred dup below
+              // will reference the inout name directly, which is
+              // fine. See plans/MEMORY_SAFETY.md and
+              // issues/inout-multi-stmt-body-shadow.md.
+              let isInoutAtom = false;
+              if (exprIsAtom(lastExpr) && lastExpr.$?.env) {
+                const vars = getVariablesFromEnv(
+                  lastExpr.$.env,
+                  lastExpr.$.variableName
+                );
+                if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
+                  isInoutAtom = true;
+                }
+              }
+              if (!isInoutAtom && exprTempVar !== rawCode) {
                 emitter.emitLine(
                   `${indent}${exprType} ${exprTempVar} = ${rawCode};`
                 );
@@ -1311,7 +1405,37 @@ export function generateFunctionBody(
           }
 
           // For other functions, generate the expression first
-          const exprCode = generateExpr(lastExpr, indent, context);
+          let exprCode = generateExpr(lastExpr, indent, context);
+
+          // `-> ref(T)` return slot: the function's C signature returns
+          // `T*`. The body's last expression must therefore produce a
+          // pointer at the C level. For the simplest case — the body
+          // is a `ref`-bound parameter atom — the generator above
+          // emits `(*name)` (the standard inout read); strip the
+          // deref so we emit the raw pointer instead.
+          //
+          // More complex flowable expressions (field access on a
+          // ref-bound base, projection calls) come in Phase B with
+          // the `ref(name) := ...` binding and the flowability rule.
+          // See `plans/ITERATOR_REDESIGN.md`.
+          if (
+            functionType.return.isRef &&
+            lastExpr &&
+            exprIsAtom(lastExpr) &&
+            lastExpr.$?.env &&
+            lastExpr.$?.variableName
+          ) {
+            const vars = getVariablesFromEnv(
+              lastExpr.$.env,
+              lastExpr.$.variableName
+            );
+            if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
+              exprCode = getVariableNameForCodegen(
+                lastExpr.$.variableName,
+                lastExpr.$.env
+              );
+            }
+          }
 
           // Then generate deferred drop expressions before the return
           generateDeferredDropExpressions(expr, indent, context);
@@ -1395,11 +1519,15 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     }
 
     // Also skip if any parameter type contains SomeType (generic type parameters)
-    // This happens when a function specialization wasn't completed properly
+    // This happens when a function specialization wasn't completed properly.
+    // Use the codegen-aware variant: struct fields whose type is a function
+    // (effect-record handlers like `throw : ctl(forall, ...)`) are type-erased
+    // fn pointers at the C ABI, so their inner forall does NOT make the outer
+    // struct "still generic" for codegen purposes.
     const hasGenericParams = functionValue.specializedType.parameters.some(
-      (p) => typeContainsSomeType(p.type)
+      (p) => typeContainsSomeTypeForCodegenParam(p.type)
     );
-    const hasGenericReturnType = typeContainsSomeType(
+    const hasGenericReturnType = typeContainsSomeTypeForCodegenParam(
       functionValue.specializedType.return.type
     );
     if (hasGenericParams || hasGenericReturnType) {

@@ -76,8 +76,8 @@ export interface Type {
   definedInModulePath?: string;
 
   /**
-   * Marks this type as an IO module builtin function.
-   * Set on IO effect record field types so that io.async and io.await
+   * Marks this type as an Io module builtin function.
+   * Set on Io effect record field types so that io.async and io.await
    * can be detected even when aliased (e.g., `my_async :: io.async`).
    */
   ioBuiltin?:
@@ -403,6 +403,21 @@ export interface FunctionParameter {
    * The parameter becomes the owner and will be dropped at function exit.
    */
   isOwningTheRcValue: boolean;
+
+  /**
+   * Whether this parameter is declared with the `inout(name) : T`
+   * modifier — second-class reference semantics. The caller's
+   * variable is bound to the param by reference; assignments inside
+   * the callee write through to the caller. The param identifier
+   * cannot escape the callee (no return, no store in let/var/struct
+   * field, no closure capture).
+   *
+   * At codegen, inout(name) : T lowers to a T* in C; reads become
+   * (*name), writes become (*name) = v. Callers pass &(caller_var).
+   *
+   * See plans/MEMORY_SAFETY.md Phase B.
+   */
+  isRef?: boolean;
 
   /**
    * The expression information of the parameter.
@@ -776,6 +791,14 @@ export interface FunctionReturn {
   isCompileTimeOnly: boolean;
   isUnquote: boolean;
   label: string;
+  /**
+   * True when the function's return slot is declared `-> ref(T)`.
+   * The function yields a second-class reference (lowered to `T*` at
+   * the C ABI) into storage rooted in one of its `ref`-typed
+   * parameters. The "flowability" rule on the return expression
+   * ensures the borrow is sound. See `plans/ITERATOR_REDESIGN.md`.
+   */
+  isRef?: boolean;
 }
 
 export interface FunctionType extends Type {

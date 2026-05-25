@@ -22,7 +22,7 @@ make_token :: (fn(kind : TokenKind, value : str) -> Token)(
 );
 test("generate_yo_gc_collect: zero args emits __yo_gc_collect()", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   args := ArrayList(AstExpr).new();
   out := generate_yo_gc_collect(args, pctx, ind);
@@ -30,7 +30,7 @@ test("generate_yo_gc_collect: zero args emits __yo_gc_collect()", {
 });
 test("generate_yo_gc_collect: arity error emits comment", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   args := ArrayList(AstExpr).new();
   args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, "x")));

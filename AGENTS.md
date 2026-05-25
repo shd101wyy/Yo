@@ -39,7 +39,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `src/parser.ts`                      | Parses tokens → AST                                                    |
 | `src/expr.ts`                        | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …)  |
 | `src/evaluator/`                     | Compile-time evaluator — type checking, CTFE, trait resolution         |
-| `src/evaluator/exprs/`               | Per-node evaluation logic (`begin.ts`, `cond.ts`, `escape.ts`, …)      |
+| `src/evaluator/exprs/`               | Per-node evaluation logic (`begin.ts`, `cond.ts`, `unwind.ts`, …)      |
 | `src/evaluator/calls/`               | Function call specialization and dispatch                              |
 | `src/evaluator/effects/`             | Algebraic effects analysis                                             |
 | `src/codegen/`                       | C11 code generation                                                    |
@@ -78,9 +78,9 @@ Yo source → Lexer → Parser → AST (expr.ts)
 
 ### Algebraic effects model
 
-- `return expr` inside an effect handler **resumes** the continuation.
-- `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
-- When an async task is escaped, the Future enters `FutureState.Aborted` (state = -2).
+- `return(expr)` inside an effect handler **resumes** the continuation.
+- `unwind(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`. (Was previously named `escape` — renamed in commit `a3510d20`.)
+- When an async task is unwound, the Future enters `FutureState.Aborted` (state = -2).
 - C's `abort()` (process termination on panic) is a **different thing** — never confuse the two.
 
 ### Async/await threading model
@@ -105,7 +105,7 @@ bun test src/tests/build-system.test.ts --timeout 10000
 ./yo-cli test ./tests/algebraic_effects.test.yo --bail -v --parallel 1
 
 # C codegen tests — specific test by name
-./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape" --parallel 1
+./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
 
 # Bootstrap (yo-self) tests — run when modifying yo-self/ components
 ./yo-cli test ./yo-self/tests/ --parallel 1
@@ -135,6 +135,23 @@ Always save verbose output to a file to avoid terminal truncation:
 ./yo-cli test file.yo --bail -v &> output.txt
 ./yo-cli compile src/tests/fixme.yo --release &> compile_output.txt
 ```
+
+### Windows compatibility
+
+`./yo-cli` is a bash script; it does not work on Windows. Use one of these instead:
+
+```bash
+# Option 1: the built JavaScript entry point (works everywhere)
+node ./out/cjs/yo-cli.cjs test ./tests --parallel 8 --bail
+
+# Option 2: the PowerShell wrapper (Windows PowerShell)
+./yo-cli.ps1 test ./tests --parallel 8 --bail
+```
+
+TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
+`pragma-validation.test.ts`, `unsafe-gate.test.ts`) must use
+`execFileSync("node", [YO_CLI, ...])` where `YO_CLI` points to
+`out/cjs/yo-cli.cjs`, not the `yo-cli` bash script.
 
 ### Build system commands
 
@@ -211,7 +228,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - **`expr.$.value == undefined`** means the value is a runtime value (not `UnknownValue`). `UnknownValue` means the type is known but the value itself is not.
 - **`./yo-cli compile` cannot be used on `*.test.yo` files.** Extract the failing test case into a standalone `.yo` file with a `main` function and `export main;`.
 - **`index.ts` barrel files cause circular imports.** Never create them in `src/`.
-- **Algebraic effect `escape` vs C `abort()`**: They are completely different. The Yo keyword `escape` discards a continuation; C's `abort()` terminates the process.
+- **Algebraic effect `unwind` vs C `abort()`**: They are completely different. The Yo keyword `unwind` discards a continuation; C's `abort()` terminates the process. (`unwind` was previously named `escape`, renamed in commit `a3510d20`.)
 - **VS Code extension errors for `.yo` files** are often stale — the extension may not reflect the latest evaluator. Rebuild with `cd vscode-extension && bun package` if needed.
 - **`outdated/` markdown files are stale.** Do not use them for design decisions.
 - **yargs `.scriptName("yo")`** is set in `yo-cli.ts` so help text shows `yo` instead of `bun`. Don't remove it.

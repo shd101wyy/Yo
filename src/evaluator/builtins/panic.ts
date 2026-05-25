@@ -1,6 +1,7 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import type { FnCallExpr } from "../../expr";
+import { createPtrType } from "../../types/creators";
 import { isComptimeStringType, isNewtypeType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
@@ -36,11 +37,32 @@ export function evaluatePanic({
     });
   }
 
-  // Get the return type from the function context
+  // Panic is divergent — it slots into any expression position. To keep
+  // the surrounding type-checker happy, we type it as whatever the local
+  // context expects:
+  //
+  //   1. If the caller propagated an `expectedType` (e.g. a `match` arm's
+  //      sibling-arm type, a `cond` arm, an assignment RHS), use that. The
+  //      match unifier walks arms in order, so by the time it reaches the
+  //      panic-bearing arm it has already inferred the result type — and
+  //      forcing panic into that shape lets the unifier succeed instead of
+  //      mismatching against the function's overall return type.
+  //
+  //   2. Otherwise, fall back to the function's return type (the original
+  //      Phase B/C `*(T)` rule from plans/ITERATOR_REDESIGN.md — needed
+  //      because panic in tail position of an `-> ref(T)` body must
+  //      produce `*(T)` to match the body's expected C-ABI return).
+  //
+  //   3. At module level or outside any function body, fall back to unit.
   const functionReturnType =
-    context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
-      ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
-      : VUnit.type;
+    context.expectedType?.type ??
+    (context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
+      ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.isRef
+        ? createPtrType(
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+          )
+        : context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+      : VUnit.type);
 
   // If there's an argument, evaluate it and use as the panic message
   if (expr.args.length > 0) {

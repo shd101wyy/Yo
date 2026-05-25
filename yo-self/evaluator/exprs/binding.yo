@@ -9,6 +9,7 @@
 //!
 //! Returns a `BindingResult` struct with the evaluated expr, the lhs sub-expr,
 //! and the variable name string.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -92,7 +93,7 @@ evaluate_binding :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> BindingResult
 )({
@@ -341,7 +342,7 @@ evaluate_binding :: (
   );
   // Add the variable to the environment.
   _var_opt := add_variable_to_env(
-    &(env),
+    env,
     variable_name,
     user_defined_type,
     initial_value_opt,

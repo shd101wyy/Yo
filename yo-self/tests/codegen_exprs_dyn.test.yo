@@ -1,5 +1,6 @@
 /// Tests for yo-self/codegen/exprs/dyn.yo (partial port — leaf path
 /// for resolved object / iso underlying types).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../types/definitions.yo");
@@ -41,10 +42,10 @@ mk_dyn :: (fn() -> TypeValue)({
   )
 });
 install_type :: (
-  fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str) -> unit
+  fn(ctx : CodegenContext, ty : TypeValue, c_name : str) -> unit
 )({
   entry := CodegenTypeEntry(type_value : ty, c_name : String.from(c_name));
-  _ := ctx.*.types.set(type_to_string(ty), entry);
+  _ := ctx.types.set(type_to_string(ty), entry);
 });
 test("dyn: non-Dyn target type → None", {
   ctx := CodegenContext.new();
@@ -56,7 +57,7 @@ test("dyn: non-Dyn target type → None", {
     // not Dyn
     ArrayList(EvalValue).new(),
     String.from("tmp"),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   assert(out.is_none(), "t_i32 dyn_type → None");
@@ -71,7 +72,7 @@ test("dyn: value-semantics struct value → None", {
     mk_dyn(),
     ArrayList(EvalValue).new(),
     String.from("tmp"),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   assert(out.is_none(), "value struct → None");
@@ -85,7 +86,7 @@ test("dyn: empty temp-var name → None", {
     mk_dyn(),
     ArrayList(EvalValue).new(),
     String.from(""),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   assert(out.is_none(), "no temp var → None");
@@ -93,16 +94,16 @@ test("dyn: empty temp-var name → None", {
 test("dyn: object type + registered c-names emits struct-literal decl", {
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   dyn_ty := mk_dyn();
-  install_type(&(ctx), dyn_ty, "yo_dyn_show");
+  install_type(ctx, dyn_ty, "yo_dyn_show");
   out := generate_dyn_for_resolved_inputs(
     String.from("c"),
     obj,
     dyn_ty,
     ArrayList(EvalValue).new(),
     String.from("d"),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   match(
@@ -133,16 +134,16 @@ test("dyn: temp-var name is sanitised", {
   // `.` (byte 46) mangles to `_u46_` via the canonical sanitizer.
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   dyn_ty := mk_dyn();
-  install_type(&(ctx), dyn_ty, "yo_dyn_show");
+  install_type(ctx, dyn_ty, "yo_dyn_show");
   out := generate_dyn_for_resolved_inputs(
     String.from("c"),
     obj,
     dyn_ty,
     ArrayList(EvalValue).new(),
     String.from("tmp.value"),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   match(
@@ -154,16 +155,16 @@ test("dyn: temp-var name is sanitised", {
 test("dyn: impl is registered in ctx.dyn_impls", {
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   dyn_ty := mk_dyn();
-  install_type(&(ctx), dyn_ty, "yo_dyn_show");
+  install_type(ctx, dyn_ty, "yo_dyn_show");
   _ := generate_dyn_for_resolved_inputs(
     String.from("c"),
     obj,
     dyn_ty,
     ArrayList(EvalValue).new(),
     String.from("d"),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   key := String.from("yo_counter_yo_dyn_show");
@@ -176,16 +177,16 @@ test("dyn: impl is registered in ctx.dyn_impls", {
 test("dyn: repeated calls deduplicate impl registration", {
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   dyn_ty := mk_dyn();
-  install_type(&(ctx), dyn_ty, "yo_dyn_show");
+  install_type(ctx, dyn_ty, "yo_dyn_show");
   _ := generate_dyn_for_resolved_inputs(
     String.from("c1"),
     obj,
     dyn_ty,
     ArrayList(EvalValue).new(),
     String.from("d1"),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   // Different value_code / temp_var, same (concrete,dyn) pair → should
@@ -197,7 +198,7 @@ test("dyn: repeated calls deduplicate impl registration", {
     dyn_ty,
     ArrayList(EvalValue).new(),
     String.from("d2"),
-    &(ctx),
+    ctx,
     String.from("  ")
   );
   after := ctx.dyn_impls.len();

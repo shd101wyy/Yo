@@ -2,6 +2,7 @@
 //! The Yo AST uses only two node kinds: Atom and FnCall.
 //!
 //! Note: Named `AstExpr` (not `Expr`) to avoid conflict with the prelude's builtin `Expr` type.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TokenKind, Token } :: import("./token.yo");
@@ -39,6 +40,14 @@ BF_ASM :: "asm";
 BF_GLOBAL_ASM :: "global_asm";
 BF_MACRO_EXPAND :: "macro_expand";
 BF_CONSUME :: "consume";
+/// Phase A of plans/MEMORY_SAFETY.md — the `unsafe(expr)` builtin
+/// marks an expression whose raw-pointer operations are permitted.
+BF_UNSAFE :: "unsafe";
+/// Phase C of plans/MEMORY_SAFETY.md — the `pragma(Pragma.X);`
+/// builtin records a file-level flag (e.g. AllowUnsafe, SkipPrelude,
+/// SkipWasm*). The yo-self pre-scan looks for `Pragma.SkipPrelude`
+/// before the prelude loads.
+BF_PRAGMA :: "pragma";
 BF_DROP :: "___drop";
 BF_DUP :: "___dup";
 BF_VA_START :: "va_start";
@@ -631,6 +640,7 @@ export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER
 export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL);
 export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL);
 export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
+export(BF_UNSAFE, BF_PRAGMA);
 export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_RC, BF_THE, BF_DOWNCAST);
 export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
 export(BF_YO_ISO_EXTRACT, BF_YO_ISO_DISPOSE, BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT);

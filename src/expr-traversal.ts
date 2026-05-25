@@ -96,6 +96,151 @@ function traverseCondMatchBranches(
 }
 
 /**
+ * Returns true when every control-flow path through `expr` ends in an
+ * `unwind(...)` (or another diverging call like `panic(...)`) — i.e. the
+ * caller is guaranteed never to receive a normal return value.
+ *
+ * Used by `src/evaluator/exprs/assignment.ts` to relax the
+ * "Runtime variables with generic function types are not allowed" check
+ * when the bound lambda's body always unwinds. In that case the
+ * forall-quantified return type is never delivered through the C
+ * function pointer, so the ABI mismatch (one C fn pointer can't carry
+ * different return shapes per monomorphization) is moot.
+ *
+ * Conservative: returns false whenever the analysis can't prove all
+ * paths unwind. Honors function/closure boundaries the same way as
+ * `evaluatedBodyContainsEscape` — a nested lambda or `fn(...) -> T`
+ * value doesn't count as the surrounding body's exit (its body has its
+ * own analysis when bound).
+ */
+export function allPathsUnwind(expr: Expr): boolean {
+  if (!expr) return false;
+  if (exprIsAtom(expr)) return false;
+  if (!exprIsFunctionCall(expr)) return false;
+
+  // Follow macro expansion the same way the other traversals do — the
+  // pre-expansion shape is the source-level expression, and the
+  // post-expansion shape is the form codegen actually sees.
+  if (expr.$?.macroExpansion) {
+    return allPathsUnwind(expr.$.macroExpansion);
+  }
+
+  // `unwind(...)` — never returns. (Bare atom `unwind` without a call
+  // shouldn't appear in evaluated bodies; the FnCallOf check below is
+  // the canonical form.)
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) {
+    return true;
+  }
+  // `return(...)` — resumes the continuation with a value. From the
+  // caller's standpoint the function pointer DOES deliver this value,
+  // which is exactly what the generic-fn-type ban guards against. So
+  // `return` does NOT count as all-paths-unwind.
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+    return false;
+  }
+  // Builtin diverging calls: `panic(arg)`, `abort()`,
+  // `unreachable()` — terminate the program. Match by callee atom name
+  // so renames don't bypass the check silently.
+  if (exprIsAtom(expr.func)) {
+    const callee = expr.func.token.value;
+    if (callee === "panic" || callee === "abort" || callee === "unreachable") {
+      return true;
+    }
+  }
+
+  // Nested function/closure boundary: `(args -> body)`, `(args => body)`,
+  // `fn(...) -> T` types, `(fn(...) -> T)({...})` function-value
+  // constructions. None of these contribute to the *surrounding* body's
+  // control flow — they only execute when called from elsewhere. Mirror
+  // the boundary skip used by `evaluatedBodyContainsEscape`.
+  if (isFunctionBoundaryArrow(expr)) {
+    return false;
+  }
+  if (
+    exprIsFunctionCall(expr.func) &&
+    expr.func.$?.value !== undefined &&
+    isTypeValue(expr.func.$.value) &&
+    isFunctionType(expr.func.$.value.value)
+  ) {
+    return false;
+  }
+  if (
+    exprIsFunctionCall(expr.func) &&
+    expr.func.$?.value !== undefined &&
+    isTypeValue(expr.func.$.value) &&
+    typeImplementsFn(expr.func.$.value.value)
+  ) {
+    return false;
+  }
+
+  // `begin(s1, s2, ..., sn)` evaluates sequentially. If any `s_i` is
+  // all-paths-unwind, control never reaches the rest — so the whole
+  // begin is all-paths-unwind.
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
+    for (const arg of expr.args) {
+      if (allPathsUnwind(arg)) return true;
+    }
+    return false;
+  }
+
+  // `cond(arm1, arm2, ..., armN)` is all-paths-unwind iff
+  //   (a) every arm's body is all-paths-unwind, AND
+  //   (b) the arm set is exhaustive — i.e. there's a `true =>` or `_ =>`
+  //       default arm. Without (b) the cond can fall through with no
+  //       arm matching, and the surrounding expression returns normally.
+  // `match(subject, arm1, ..., armN)` follows the same logic; the
+  // subject (args[0]) is not an arm. A `_ =>` arm is the default.
+  if (
+    exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+    exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+  ) {
+    const isMatch = exprIsFunctionCallOf(expr, BuiltinKeywords.match);
+    let hasDefault = false;
+    let allArmsUnwind = true;
+    let hasAnyArm = false;
+    const armStart = isMatch ? 1 : 0;
+    for (let i = armStart; i < expr.args.length; i++) {
+      const arm = expr.args[i]!;
+      if (!exprIsFunctionCall(arm) || !exprIsFunctionCallOf(arm, "=>")) {
+        continue;
+      }
+      const armCondition = arm.args[0];
+      const armBody = arm.args[1];
+      if (!armBody) continue;
+      hasAnyArm = true;
+      if (
+        armCondition &&
+        (exprIsAtomOf(armCondition, "true") || exprIsAtomOf(armCondition, "_"))
+      ) {
+        hasDefault = true;
+      }
+      if (!allPathsUnwind(armBody)) {
+        allArmsUnwind = false;
+      }
+    }
+    return hasAnyArm && hasDefault && allArmsUnwind;
+  }
+
+  // `if(cond, then, else)` — both branches must be all-paths-unwind.
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.if) && expr.args.length >= 3) {
+    const thenBranch = expr.args[1]!;
+    const elseBranch = expr.args[2]!;
+    return allPathsUnwind(thenBranch) && allPathsUnwind(elseBranch);
+  }
+
+  // Loops can exit normally — never all-paths-unwind from the outside.
+  // A body that unwinds inside still doesn't guarantee the loop is
+  // reached (zero-iteration), so we report false. `for` is a macro
+  // that expands to a `while` so it falls through to the default
+  // `return false` below.
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
+    return false;
+  }
+
+  return false;
+}
+
+/**
  * Traverse an EVALUATED function body expression tree to check if it contains
  * an `escape` keyword usage. This skips into nested scopes that would create
  * a new function boundary:

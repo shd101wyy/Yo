@@ -17,6 +17,7 @@
 //!   - `SomeType.resolvedConcreteType` mutation skipped (no such field in yo-self).
 //!   - `StructType.functionValue` comparison skipped (not in yo-self); uses `id` only.
 //!   - FnTrait synthesis uses parallel arrays directly instead of `callType`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -107,7 +108,7 @@ SynthesizeTypesFn :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -122,7 +123,7 @@ synthesize_types :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -152,7 +153,7 @@ _synthesize_call :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -214,7 +215,7 @@ _has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : Str
 /// Mirrors the `!variable ? addVariableToEnv(...) : updateExistingVariable(...)` pattern.
 _bind_some_type :: (
   fn(
-    env : *(Environment),
+    env : Environment,
     name : String,
     val : EvalValue,
     ty : TypeValue,
@@ -223,7 +224,7 @@ _bind_some_type :: (
   ) -> unit
 )({
   token := match(tok,.Some(t) => t,.None => synthetic_token(name, env.module_path));
-  vars := get_variables_from_env(env.*, name);
+  vars := get_variables_from_env(env, name);
   n := vars.len();
   cond(
     (n == usize(0)) => {
@@ -276,7 +277,7 @@ _bind_some_type :: (
         is_module_level : old_var.is_module_level,
         doc_comment : old_var.doc_comment
       );
-      update_existing_variable(env.*, old_var, new_var);
+      update_existing_variable(env, old_var, new_var);
     }
   );
 });
@@ -303,16 +304,16 @@ can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> boo
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
 /// Mirrors `occursCheck` in TypeScript.
-_occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayList(String)), exn : Exception) -> bool)({
+_occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(String), exn : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
   (found_visited : bool) = false;
   {
     vi := usize(0);
-    n := visited.*.len();
+    n := visited.len();
     while(runtime((vi < n) && !(found_visited)), {
       v := match(
-        visited.*.get(vi),
+        visited.get(vi),
         .Some(s) => s,
         .None => {
           vi = n;
@@ -328,7 +329,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayLis
   if(found_visited, {
     return(false);
   });
-  visited.*.push(ty_id);
+  visited.push(ty_id);
   match(
     ty,
     .SomeT(sid, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
@@ -563,7 +564,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayLis
 // synthesize_future_effects (private)
 // ---------------------------------------------------------------------------
 /// Extract the token from options (or make a synthetic one).
-opts_token :: (fn(opts : Option(SynthesizeOptions), env : *(Environment)) -> Option(Token))(
+opts_token :: (fn(opts : Option(SynthesizeOptions), env : Environment) -> Option(Token))(
   match(opts,.Some(o) => o.token,.None => Option(Token).None)
 );
 /// Build an ArrayList(ImplicitEntry) from parallel arrays (with expansion
@@ -647,9 +648,9 @@ _synthesize_implicit_params :: (
     given_labels : ArrayList(String),
     given_types : ArrayList(TypeValue),
     given_spreads : ArrayList(bool),
-    expected_env : *(Environment),
-    given_env : *(Environment),
-    checked : *(ArrayList(TypePair)),
+    expected_env : Environment,
+    given_env : Environment,
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> unit
@@ -759,11 +760,11 @@ _synthesize_implicit_params :: (
           }
         );
         if(exp_id == synthesis_type_id(giv.ty), {
-          res := _synthesize_call(exp.ty, expected_env.*, giv.ty, given_env.*, checked, opts, exn);
-          expected_env.* = res.expected_env;
-          given_env.* = res.given_env;
-          (&(matched_given)).index(gj).* = true;
-          (&(matched_expected)).index(cei).* = true;
+          res := _synthesize_call(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
+          expected_env = res.expected_env;
+          given_env = res.given_env;
+          matched_given(gj) = true;
+          matched_expected(cei) = true;
           gj = n_giv; // break
         });
       });
@@ -837,10 +838,10 @@ _synthesize_implicit_params :: (
             }
           );
           if(exp_id == synthesis_type_id(giv.ty), {
-            res := _synthesize_call(exp.ty, expected_env.*, giv.ty, given_env.*, checked, opts, exn);
-            expected_env.* = res.expected_env;
-            given_env.* = res.given_env;
-            (&(matched_given)).index(gj).* = true;
+            res := _synthesize_call(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
+            expected_env = res.expected_env;
+            given_env = res.given_env;
+            matched_given(gj) = true;
             gj = n_giv; // break
           });
         });
@@ -926,7 +927,7 @@ _synthesize_fn_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -975,7 +976,7 @@ _synthesize_future_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -1027,7 +1028,7 @@ _synthesize_types_impl :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -1037,10 +1038,10 @@ _synthesize_types_impl :: (
   (ge : Environment) = given_env;
   giv_id := synthesis_type_id(given_ty);
   // Anti-circularity check
-  if(_has_type_pair(checked.*, exp_id, giv_id), {
+  if(_has_type_pair(checked, exp_id, giv_id), {
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
-  checked.*.push(TypePair(expected_id : exp_id, given_id : giv_id));
+  checked.push(TypePair(expected_id : exp_id, given_id : giv_id));
   tok := opts_token(opts, &(ee));
   // Case: both are SomeTypes
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
@@ -1157,7 +1158,7 @@ _synthesize_types_impl :: (
       // Occurs check
       {
         visited := ArrayList(String).new();
-        if(_occurs_check(exp_id2, given_ty, &(visited), exn), {
+        if(_occurs_check(exp_id2, given_ty, visited, exn), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1224,7 +1225,7 @@ _synthesize_types_impl :: (
       // Occurs check
       {
         visited := ArrayList(String).new();
-        if(_occurs_check(giv_id2, expected_ty, &(visited), exn), {
+        if(_occurs_check(giv_id2, expected_ty, visited, exn), {
           exn.throw(
             dyn(
               format_error_message(

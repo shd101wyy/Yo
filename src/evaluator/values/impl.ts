@@ -22,6 +22,7 @@ import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken, type Token } from "../../token";
 import type { TypeValue } from "../../type-value";
 import {
+  createPtrType,
   createTraitType,
   createType0,
   createTypeHierarchy,
@@ -1385,14 +1386,25 @@ export function findMethodsFromGenericImpls({
             // Clone the function body for re-evaluation
             const clonedBody = cloneExpr(originalValue.body);
 
-            // Re-evaluate the function body with the concrete values
+            // Re-evaluate the function body with the concrete values.
+            // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+            // functions, the body produces `*(T)` (the C-ABI pointer),
+            // so we set the expected body type to `*(T)` here, matching
+            // the parallel logic in `createFunctionBodyEvaluationContext`.
+            // Without this, evaluating the body of e.g. `Array.project`
+            // wrongly expects the body to produce `T` (the unwrapped
+            // return type), and `__yo_array_index(&(self), pos)` which
+            // legitimately returns `*(T)` fails type unification.
+            const _specBodyExpectedType = specializedType.return.isRef
+              ? createPtrType(specializedType.return.type)
+              : specializedType.return.type;
             const specializedBody = evaluateBeginExpression({
               expr: clonedBody,
               env: specializedEnv,
               context: {
                 isEvaluatingGenericImplSpecialization: true,
                 expectedType: {
-                  type: specializedType.return.type,
+                  type: _specBodyExpectedType,
                   env: specializedEnv,
                 },
                 stdPath: "",
@@ -2005,14 +2017,19 @@ export function findMethodFromGenericImplForTrait({
           // Clone the function body for re-evaluation
           const clonedBody = cloneExpr(originalValue.body);
 
-          // Re-evaluate the function body with the concrete values
+          // Re-evaluate the function body with the concrete values.
+          // See parallel comment above for the `-> ref(T)` body-typing
+          // rationale (Phase B/C of plans/ITERATOR_REDESIGN.md).
+          const _specBodyExpectedType2 = specializedType.return.isRef
+            ? createPtrType(specializedType.return.type)
+            : specializedType.return.type;
           const specializedBody = evaluateBeginExpression({
             expr: clonedBody,
             env: specializedEnv,
             context: {
               isEvaluatingGenericImplSpecialization: true,
               expectedType: {
-                type: specializedType.return.type,
+                type: _specBodyExpectedType2,
                 env: specializedEnv,
               },
               stdPath: "",

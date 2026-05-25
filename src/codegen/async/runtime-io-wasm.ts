@@ -6,7 +6,7 @@
  * Emscripten provides a full POSIX-compatible virtual filesystem (MEMFS) with
  * working open/read/write/close/stat/mkdir/pipe/lseek/fcntl etc. This module
  * uses real POSIX calls for file/directory/pipe/metadata operations, following
- * the same synchronous-IOFuture pattern that macOS uses for regular files.
+ * the same synchronous-IoFuture pattern that macOS uses for regular files.
  *
  * Operations that are genuinely unavailable on WASM (sockets, process spawn,
  * FS events, poll, mmap for files) remain as stubs returning -ENOSYS.
@@ -309,7 +309,7 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
  * These correspond to functions emitted by generateAsyncRuntimeIO{Linux,MacOS,Windows}
  * and generateAsyncRuntimeIOCommon.
  *
- * Each stub allocates an IOFuture, marks it as immediately completed with -ENOSYS,
+ * Each stub allocates an IoFuture, marks it as immediately completed with -ENOSYS,
  * and returns it. This allows async/await code to compile and run — the awaited
  * result will be an error code that Yo-level error handling can process.
  */
@@ -320,11 +320,11 @@ export function generateAsyncRuntimeIOWasm(
   const isWasi = targetInfo ? isTargetStandaloneWasi(targetInfo) : false;
   emitter.emitLine(`
 // ============================================================================
-// WASM Platform — Async I/O (Sync-wrapped IOFutures via Emscripten POSIX)
+// WASM Platform — Async I/O (Sync-wrapped IoFutures via Emscripten POSIX)
 // ============================================================================
 // Emscripten's virtual filesystem (MEMFS) provides synchronous POSIX I/O.
 // Each async function performs the real syscall immediately and returns an
-// already-completed IOFuture (state = -1), following the macOS pattern.
+// already-completed IoFuture (state = -1), following the macOS pattern.
 //
 // Timer operations use a sorted linked list of pending timer entries (same
 // pattern as Windows). The event loop polls timers during __yo_io_poll and
@@ -343,7 +343,7 @@ export function generateAsyncRuntimeIOWasm(
   }
 
   emitter.emitLine(`
-// --- Helper to create a completed IOFuture with a result ---
+// --- Helper to create a completed IoFuture with a result ---
 static __yo_io_future_t* __yo_wasm_io_completed(int32_t result) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));

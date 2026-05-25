@@ -15,6 +15,7 @@
 //!   4. generate_function(name, ret, params, tys, body, ctx) per fn
 //!   5. emit_main_wrapper("__yo_user_main", ctx)
 //!   6. generate_c_output(ctx) -> full C source
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { CodegenContext } :: import("./context.yo");
 { format_indented_stmt } :: import("./utils/index.yo");
@@ -44,9 +45,9 @@ format_main_call_line :: (fn(user_main_c_name : str) -> String)(
 ///   - Standard C headers
 ///   - Libc allocator macros
 ///   - Module ID comment
-emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
+emit_c_preamble :: (fn(module_id : str, ctx : CodegenContext) -> unit)({
   e := &(
-    ctx.*.emitter;
+    ctx.emitter;
     // Feature macros
     e.*.emit_header_line("#define _DEFAULT_SOURCE");
     e.*.emit_header_line("#define _GNU_SOURCE");
@@ -66,14 +67,14 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     // the always-emitted preamble. Once the preamble itself becomes
     // demand-driven the explicit `emit_header_line` calls above will
     // disappear and these registrations will be the source of truth.
-    ctx.*.add_c_include(String.from("<stdbool.h>"));
-    ctx.*.add_c_include(String.from("<stdint.h>"));
-    ctx.*.add_c_include(String.from("<stddef.h>"));
-    ctx.*.add_c_include(String.from("<stdarg.h>"));
-    ctx.*.add_c_include(String.from("<stdlib.h>"));
-    ctx.*.add_c_include(String.from("<stdio.h>"));
-    ctx.*.add_c_include(String.from("<string.h>"));
-    ctx.*.add_c_include(String.from("<errno.h>"));
+    ctx.add_c_include(String.from("<stdbool.h>"));
+    ctx.add_c_include(String.from("<stdint.h>"));
+    ctx.add_c_include(String.from("<stddef.h>"));
+    ctx.add_c_include(String.from("<stdarg.h>"));
+    ctx.add_c_include(String.from("<stdlib.h>"));
+    ctx.add_c_include(String.from("<stdio.h>"));
+    ctx.add_c_include(String.from("<string.h>"));
+    ctx.add_c_include(String.from("<errno.h>"));
     e.*.emit_header_line("");
     // Allocator abstraction (libc default)
     e.*.emit_header_line("// Using libc allocator");
@@ -85,7 +86,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     // Template string helpers: concatenate and convert-to-string.
     // Used by the self-hosted codegen to implement `\`...${x}...\`` expressions.
     e.*.emit_header_line("#include <inttypes.h>");
-    ctx.*.add_c_include(String.from("<inttypes.h>"));
+    ctx.add_c_include(String.from("<inttypes.h>"));
     e.*.emit_header_line("// Template string helpers");
     e.*.emit_header_line("static inline char* __yo_str_concat(const char* a, const char* b) {");
     e.*.emit_header_line("  size_t la = strlen(a), lb = strlen(b);");
@@ -164,7 +165,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     // `ctx.has_slice_struct_type("YoSlice_u8")` instead of hardcoding
     // the name. Mirrors the TS pattern of pre-populating
     // `context.sliceStructTypes` with the always-emitted baselines.
-    ctx.*.register_slice_struct_type(
+    ctx.register_slice_struct_type(
       String.from("YoSlice_u8"),
       String.from("uint8_t")
     );
@@ -172,7 +173,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("// Bootstrap-only returned array specializations");
     e.*.emit_header_line("typedef struct { int32_t data[1024]; size_t length; } YoArray_i32;");
     // Same baseline-registration treatment for the array type.
-    ctx.*.register_array_struct_type(
+    ctx.register_array_struct_type(
       String.from("YoArray_i32"),
       String.from("int32_t"),
       usize(1024)
@@ -201,9 +202,9 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
 ///   return 0;
 /// }
 /// ```
-emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> unit)({
+emit_main_wrapper :: (fn(user_main_c_name : str, ctx : CodegenContext) -> unit)({
   e := &(
-    ctx.*.emitter;
+    ctx.emitter;
     e.*.emit_line("int main(void) {");
     e.*.emit_line(format_main_call_line(user_main_c_name).as_str());
     e.*.emit_line("  return(0);");
@@ -217,8 +218,8 @@ emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> uni
 ///
 /// This is a thin wrapper around `ctx.emitter.print()` that makes the
 /// intent explicit.
-generate_c_output :: (fn(ctx : *(CodegenContext)) -> String)(
-  ctx.*.emitter.print()
+generate_c_output :: (fn(ctx : CodegenContext) -> String)(
+  ctx.emitter.print()
 );
 export(
   emit_c_preamble,

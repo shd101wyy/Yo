@@ -10,6 +10,7 @@
 //! elapsed := start.elapsed();
 //! println(elapsed.as_millis());
 //! ```
+pragma(Pragma.AllowUnsafe);
 { Duration } :: import("./duration");
 { CLOCK_MONOTONIC, clock_gettime } :: import("../sys/clock");
 /// Snapshot from the monotonic clock. Use `elapsed` to measure durations.
@@ -29,7 +30,7 @@ impl(
   }),
   // Duration between this instant and an earlier one.
   // Returns Duration.zero() if `earlier` is actually later.
-  duration_since : (fn(self : *(Self), earlier : Instant) -> Duration)({
+  duration_since : (fn(ref(self) : Self, earlier : Instant) -> Duration)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     earlier_ns := ((earlier.secs * i64(1000000000)) + earlier.nanos);
     cond(
@@ -38,10 +39,9 @@ impl(
     )
   }),
   // Duration elapsed since this instant was created.
-  elapsed : (fn(self : *(Self)) -> Duration)({
+  elapsed : (fn(ref(self) : Self) -> Duration)({
     current := Instant.now();
-    cur_ptr := (&(current));
-    cur_ptr.duration_since(self.*)
+    current.duration_since(self)
   })
 );
 export(Instant);

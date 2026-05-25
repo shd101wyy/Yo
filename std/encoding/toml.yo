@@ -10,6 +10,7 @@
 //! // Or via the encoding index:
 //! { toml_parse, TomlValue } :: import "std/encoding";
 //! ```
+pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 /// TOML value type — the result of parsing a TOML document.
@@ -37,8 +38,8 @@ impl(
         i := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
-            (keys.get(i).unwrap() == key) => {
-              return(.Some(values.get(i).unwrap()));
+            (keys(i) == key) => {
+              return(.Some(values(i)));
             },
             true => ()
           );
@@ -62,7 +63,7 @@ impl(
         found := false;
         while(i < len, i = (i + usize(1)), {
           cond(
-            (keys.get(i).unwrap() == key) => {
+            (keys(i) == key) => {
               &(values(i)).* = value;
               found = true;
             },

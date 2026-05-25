@@ -5,7 +5,7 @@
  *
  * 1. generatePlatformSysRuntimeLinux — synchronous POSIX helpers (pipe, dup,
  *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
- *    that do NOT depend on IOFuture or the async event loop.
+ *    that do NOT depend on IoFuture or the async event loop.
  *
  * 2. generateAsyncRuntimeIOLinux — async I/O via io_uring (liburing).
  *    Provides async read, write, openat, close, statx, mkdir, unlink,
@@ -15,12 +15,12 @@
 import { Emitter } from "../../emitter";
 
 // ---------------------------------------------------------------------------
-// 1. Synchronous platform helpers (Linux) — no IOFuture / event-loop dependency
+// 1. Synchronous platform helpers (Linux) — no IoFuture / event-loop dependency
 // ---------------------------------------------------------------------------
 
 /**
  * Emits synchronous Linux-specific POSIX helpers.  These do NOT depend on the
- * async runtime (no IOFuture, no event-loop types).  All functions are `static`
+ * async runtime (no IoFuture, no event-loop types).  All functions are `static`
  * so unused ones are dead-code-eliminated by the C compiler.
  *
  * Sections: sync FD ops (pipe, dup, lseek, fallocate, fcntl, flock, readv/writev,
@@ -50,7 +50,7 @@ export function generatePlatformSysRuntimeLinux(emitter: Emitter): void {
 #include <sys/un.h>
 
 // ============================================================================
-// Synchronous FD Operations (Linux) - no IOFuture overhead
+// Synchronous FD Operations (Linux) - no IoFuture overhead
 // ============================================================================
 
 static int32_t __yo_sync_pipe(int32_t* pipefd) {
@@ -417,12 +417,12 @@ static uint32_t __yo_ntohl(uint32_t netlong) {
 static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
   int fd = open(path, flags, mode);
   int result = fd >= 0 ? fd : -errno;
-  ASYNC_DEBUG("[IO] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
+  ASYNC_DEBUG("[Io] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
   return result;
 }
 
 static void __yo_file_close(int32_t fd) {
-  ASYNC_DEBUG("[IO] close(%d)\\n", fd);
+  ASYNC_DEBUG("[Io] close(%d)\\n", fd);
   close(fd);
 }
 
@@ -430,10 +430,10 @@ static int64_t __yo_file_size(int32_t fd) {
   struct stat st;
   if (fstat(fd, &st) < 0) {
     int result = -errno;
-    ASYNC_DEBUG("[IO] fstat(%d) failed: %d\\n", fd, result);
+    ASYNC_DEBUG("[Io] fstat(%d) failed: %d\\n", fd, result);
     return result;
   }
-  ASYNC_DEBUG("[IO] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
+  ASYNC_DEBUG("[Io] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
   return st.st_size;
 }
 
@@ -520,11 +520,11 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Async I/O runtime (Linux) — requires IOFuture / event-loop types
+// 2. Async I/O runtime (Linux) — requires IoFuture / event-loop types
 // ---------------------------------------------------------------------------
 
 /**
- * Emits async I/O helpers that depend on the IOFuture type and event loop.
+ * Emits async I/O helpers that depend on the IoFuture type and event loop.
  * Uses io_uring via liburing when available, falls back to stubs otherwise.
  */
 export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
@@ -593,7 +593,7 @@ static void __yo_io_init(void) {
     exit(1);
   }
   __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] io_uring initialized with %d entries (flags=0x%x)\\n", __YO_IO_RING_ENTRIES, params.flags);
+  ASYNC_DEBUG("[Io] io_uring initialized with %d entries (flags=0x%x)\\n", __YO_IO_RING_ENTRIES, params.flags);
 }
 
 // Cleanup io_uring
@@ -613,7 +613,7 @@ static void __yo_io_cleanup(void) {
   }
   io_uring_queue_exit(&__yo_io_ring);
   __yo_io_initialized = false;
-  ASYNC_DEBUG("[IO] io_uring cleaned up\\n");
+  ASYNC_DEBUG("[Io] io_uring cleaned up\\n");
 }
 
 // Check if there are pending I/O operations
@@ -664,7 +664,7 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   // Set the result
   future->result = cqe->res;
   
-  ASYNC_DEBUG("[IO] Completed I/O: result=%d (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Completed I/O: result=%d (pending=%zu)\\n",
               future->result, __yo_pending_io_count);
   
   // Mark as completed (state -1 = done)
@@ -674,10 +674,10 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   void (*cont_fn)(void*) = future->continuation_fn;
   void* cont_sm = future->continuation_sm;
   
-  ASYNC_DEBUG("[IO] Continuation check: cont_fn=%p, cont_sm=%p\\n", (void*)cont_fn, cont_sm);
+  ASYNC_DEBUG("[Io] Continuation check: cont_fn=%p, cont_sm=%p\\n", (void*)cont_fn, cont_sm);
   
   if (cont_fn && cont_sm) {
-    ASYNC_DEBUG("[IO] Spawning continuation for I/O completion\\n");
+    ASYNC_DEBUG("[Io] Spawning continuation for I/O completion\\n");
     __yo_async_spawn_task(cont_fn, cont_sm);
   }
 
@@ -710,7 +710,7 @@ static int __yo_io_poll(void) {
   count += __yo_poll_and_fs_event_tick();
 
   if (count > 0) {
-    ASYNC_DEBUG("[IO] Polled %d completions\\n", count);
+    ASYNC_DEBUG("[Io] Polled %d completions\\n", count);
   }
   return count;
 }
@@ -735,7 +735,7 @@ static int __yo_io_wait(void) {
     if (ret < 0) {
       // SQEs remain in the SQ ring; do not drop __yo_sq_unsubmitted so the
       // next poll/wait retries them.
-      ASYNC_DEBUG("[IO] WARNING: io_uring_submit_and_wait failed: %d\\n", ret);
+      ASYNC_DEBUG("[Io] WARNING: io_uring_submit_and_wait failed: %d\\n", ret);
       return 0;
     }
     // ret >= 0: that many SQEs were submitted.
@@ -754,12 +754,12 @@ static int __yo_io_wait(void) {
   } else {
     ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
     if (ret < 0) {
-      ASYNC_DEBUG("[IO] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
+      ASYNC_DEBUG("[Io] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
       return 0;
     }
   }
 
-  ASYNC_DEBUG("[IO] Waiting for I/O completion...\\n");
+  ASYNC_DEBUG("[Io] Waiting for I/O completion...\\n");
   __yo_io_process_cqe(cqe);
   return 1 + __yo_io_poll();  // Process any additional completions
 }
@@ -788,7 +788,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     // Queue full
     future->result = -EAGAIN;
     future->state = -1;  // Mark as completed
-    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
+    ASYNC_DEBUG("[Io] WARNING: io_uring SQ full, returning EAGAIN\\n");
     return future;
   }
   
@@ -796,7 +796,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
   
   return future;
@@ -826,7 +826,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     // Queue full
     future->result = -EAGAIN;
     future->state = -1;  // Mark as completed
-    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
+    ASYNC_DEBUG("[Io] WARNING: io_uring SQ full, returning EAGAIN\\n");
     return future;
   }
   
@@ -834,7 +834,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
   
   return future;
@@ -865,7 +865,7 @@ static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async openat: dirfd=%d path=%s flags=0x%x mode=0%o (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async openat: dirfd=%d path=%s flags=0x%x mode=0%o (pending=%zu)\\n",
               dirfd, path, flags, mode, __yo_pending_io_count);
   
   return future;
@@ -895,7 +895,7 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async close: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
+  ASYNC_DEBUG("[Io] Started async close: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
   
   return future;
 }
@@ -925,7 +925,7 @@ static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path,
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async statx: dirfd=%d path=%s flags=0x%x mask=0x%x (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async statx: dirfd=%d path=%s flags=0x%x mask=0x%x (pending=%zu)\\n",
               dirfd, path, flags, mask, __yo_pending_io_count);
   
   return future;
@@ -955,7 +955,7 @@ static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* pat
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async mkdirat: dirfd=%d path=%s mode=0%o (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async mkdirat: dirfd=%d path=%s mode=0%o (pending=%zu)\\n",
               dirfd, path, mode, __yo_pending_io_count);
   
   return future;
@@ -985,7 +985,7 @@ static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* pa
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async unlinkat: dirfd=%d path=%s flags=0x%x (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async unlinkat: dirfd=%d path=%s flags=0x%x (pending=%zu)\\n",
               dirfd, path, flags, __yo_pending_io_count);
   
   return future;
@@ -1015,7 +1015,7 @@ static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char*
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async renameat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async renameat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s (pending=%zu)\\n",
               olddirfd, oldpath, newdirfd, newpath, __yo_pending_io_count);
   
   return future;
@@ -1045,7 +1045,7 @@ static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t 
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async symlinkat: target=%s newdirfd=%d linkpath=%s (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async symlinkat: target=%s newdirfd=%d linkpath=%s (pending=%zu)\\n",
               target, newdirfd, linkpath, __yo_pending_io_count);
   
   return future;
@@ -1075,7 +1075,7 @@ static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* o
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async linkat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s flags=0x%x (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async linkat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s flags=0x%x (pending=%zu)\\n",
               olddirfd, oldpath, newdirfd, newpath, flags, __yo_pending_io_count);
   
   return future;
@@ -1105,7 +1105,7 @@ static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async fsync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
+  ASYNC_DEBUG("[Io] Started async fsync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
   
   return future;
 }
@@ -1134,7 +1134,7 @@ static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async fdatasync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
+  ASYNC_DEBUG("[Io] Started async fdatasync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
   
   return future;
 }
@@ -1164,14 +1164,14 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
 
-  ASYNC_DEBUG("[IO] Started async ftruncate: fd=%d length=%lld (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async ftruncate: fd=%d length=%lld (pending=%zu)\\n",
               fd, (long long)length, __yo_pending_io_count);
 #else
   int result = ftruncate(fd, (off_t)length);
   future->result = (result < 0) ? -errno : 0;
   future->state = -1;
 
-  ASYNC_DEBUG("[IO] Completed ftruncate synchronously (liburing fallback): fd=%d length=%lld result=%d\\n",
+  ASYNC_DEBUG("[Io] Completed ftruncate synchronously (liburing fallback): fd=%d length=%lld result=%d\\n",
               fd, (long long)length, future->result);
 #endif
   
@@ -1199,7 +1199,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
   future->result = (result < 0) ? -errno : result;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
+  ASYNC_DEBUG("[Io] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
               domain, type, protocol, future->result);
   
   return future;
@@ -1222,7 +1222,7 @@ static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr,
   future->result = (result < 0) ? -errno : 0;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
+  ASYNC_DEBUG("[Io] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
   
   return future;
 }
@@ -1244,7 +1244,7 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   future->result = (result < 0) ? -errno : 0;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
+  ASYNC_DEBUG("[Io] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
   
   return future;
 }
@@ -1273,7 +1273,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async accept: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
+  ASYNC_DEBUG("[Io] Started async accept: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
   
   return future;
 }
@@ -1302,7 +1302,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async connect: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
+  ASYNC_DEBUG("[Io] Started async connect: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
   
   return future;
 }
@@ -1331,7 +1331,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async send: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
+  ASYNC_DEBUG("[Io] Started async send: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
   
   return future;
 }
@@ -1360,7 +1360,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   io_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
-  ASYNC_DEBUG("[IO] Started async recv: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
+  ASYNC_DEBUG("[Io] Started async recv: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
   
   return future;
 }
@@ -1384,7 +1384,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   future->result = (result < 0) ? -errno : (int32_t)result;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] sendto completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  ASYNC_DEBUG("[Io] sendto completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
   
   return future;
 }
@@ -1408,7 +1408,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   future->result = (result < 0) ? -errno : (int32_t)result;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] recvfrom completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  ASYNC_DEBUG("[Io] recvfrom completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
   
   return future;
 }
@@ -1430,7 +1430,7 @@ static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) 
   future->result = (result < 0) ? -errno : 0;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
+  ASYNC_DEBUG("[Io] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
   
   return future;
 }
@@ -1453,7 +1453,7 @@ static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t lev
   future->result = (result < 0) ? -errno : 0;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+  ASYNC_DEBUG("[Io] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);
   
   return future;
@@ -1477,7 +1477,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   future->result = (result < 0) ? -errno : 0;
   future->state = -1;
   
-  ASYNC_DEBUG("[IO] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+  ASYNC_DEBUG("[Io] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);
   
   return future;

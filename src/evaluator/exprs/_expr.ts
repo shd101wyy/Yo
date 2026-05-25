@@ -33,6 +33,9 @@ import { evaluateComptimePrint } from "../builtins/comptime-print";
 import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-fns";
 import { evaluateYoComptimeIndexFunctions } from "../builtins/comptime-index-fns";
 import { evaluateConsume } from "../builtins/consume";
+import { evaluatePragma } from "../builtins/pragma";
+import { evaluateUnsafe } from "../builtins/unsafe";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { evaluateDowncast } from "../builtins/downcast";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
@@ -648,6 +651,20 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)) {
+      // unsafe
+      return evaluateUnsafe({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.pragma)) {
+      // pragma — file-level privilege declaration
+      return evaluatePragma({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
       // ___drop
       return evaluateDrop({ expr, env, context: { ...context } });
@@ -1169,6 +1186,56 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.va_start)) {
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, "&+", 2) ||
+      exprIsFunctionCallOf(expr, "&-", 2) ||
+      exprIsFunctionCallOf(expr, "&/", 2) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_diff)
+    ) {
+      // Memory safety gate: pointer arithmetic requires `unsafe(...)`.
+      // See plans/MEMORY_SAFETY.md. Pointer comparison (&==, &<, etc.
+      // and the __yo_ptr_eq family) stays safe — addresses are just
+      // data. Files under std/, yo-self/, tests/, and
+      // auto-generated:// are implicitly unsafe-capable (Phase C will
+      // replace this with the explicit pragma mechanism).
+      //
+      // We gate on BOTH the operator-name (&+, &-, &/) and the
+      // underlying builtin (__yo_ptr_add, etc.). The operator-name
+      // gate fires at the user's call site (token in user file); the
+      // builtin gate catches direct __yo_ptr_add calls (rare in user
+      // code). For the operator case, the inner builtin call lives
+      // in the prelude impl body — implicitly unsafe-capable by path
+      // — so it does NOT fire the builtin gate redundantly.
+      if (
+        !context.unsafeContext &&
+        !isImplicitlyUnsafeCapableFile(expr.token.modulePath)
+      ) {
+        const fnName =
+          exprIsFunctionCallOf(expr, "&+", 2) ||
+          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
+            ? "&+"
+            : exprIsFunctionCallOf(expr, "&-", 2) ||
+                exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
+              ? "&-"
+              : "&/";
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Pointer arithmetic ('${fnName}') requires 'unsafe(...)'.
+
+Wrap the expression as: unsafe(${exprToString(expr)})
+
+Raw pointer arithmetic produces addresses usually destined to dereference, which may access invalid memory.`,
+        });
+      }
+      // Permitted under unsafe(...) or in unsafe-capable file; fall
+      // through to normal call eval.
+      return evaluateFunctionCall({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else {
       /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
@@ -1179,7 +1246,7 @@ ${exprToString(expr)}`,
       /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });
-      } 
+      }
       */
       // Function call
       return evaluateFunctionCall({

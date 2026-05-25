@@ -40,6 +40,7 @@
 //! Like `codegen/driver.yo` (A.6) and `evaluator/eval.yo` (A.7), the
 //! remainder of this file is an **acceptable divergence
 //! (bootstrap-specific)** with no further 1-to-1 decomposition target.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_BEGIN, BK_ANON_STRUCT, BK_TUPLE } :: import("../expr.yo");
@@ -92,7 +93,7 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — infix/prefix sub-expression generation
 // ---------------------------------------------------------------------------
-gen_infix_side :: (fn(args : ArrayList(AstExpr), idx : usize, ctx : *(CodegenContext), indent : String) -> Option(String))(
+gen_infix_side :: (fn(args : ArrayList(AstExpr), idx : usize, ctx : CodegenContext, indent : String) -> Option(String))(
   match(
     args.get(idx),
     .None => Option(String).None,
@@ -103,7 +104,7 @@ handle_infix_op :: (
   fn(
     op : String,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -119,25 +120,25 @@ handle_infix_op :: (
         // Use strcmp for string equality/inequality comparisons.
         // Detect: either side is a C string literal (starts with '"') or
         // a to_string() call (contains "_to_string(").
-        lhs_is_str := (l.starts_with(String.from("\"")) || (l.contains(String.from("_to_string(")) || (l.contains(String.from("__yo_")) || match(ctx.*.get_var_type(l.as_str()),.None => false,.Some(ltyp) => (ltyp.as_str() == "const char*")))));
-        rhs_is_str := (r.starts_with(String.from("\"")) || (r.contains(String.from("_to_string(")) || (r.contains(String.from("__yo_")) || match(ctx.*.get_var_type(r.as_str()),.None => false,.Some(rtyp) => (rtyp.as_str() == "const char*")))));
+        lhs_is_str := (l.starts_with(String.from("\"")) || (l.contains(String.from("_to_string(")) || (l.contains(String.from("__yo_")) || match(ctx.get_var_type(l.as_str()),.None => false,.Some(ltyp) => (ltyp.as_str() == "const char*")))));
+        rhs_is_str := (r.starts_with(String.from("\"")) || (r.contains(String.from("_to_string(")) || (r.contains(String.from("__yo_")) || match(ctx.get_var_type(r.as_str()),.None => false,.Some(rtyp) => (rtyp.as_str() == "const char*")))));
         // box var check: `box(T)` returns a pointer; compare via deref (*x == *y).
-        lhs_is_box := ctx.*.is_box_var(l.as_str());
+        lhs_is_box := ctx.is_box_var(l.as_str());
         // Derive-Eq type check: look up the type of lhs variable and check for registered Eq.
         lhs_eq_type := match(
-          ctx.*.get_var_type(l.as_str()),
+          ctx.get_var_type(l.as_str()),
           .None => Option(String).None,
           .Some(t) => cond(
-            ctx.*.has_derive_eq(t.as_str()) => Option(String).Some(t),
+            ctx.has_derive_eq(t.as_str()) => Option(String).Some(t),
             true => Option(String).None
           )
         );
         // Derive-Ord type check: look up type of lhs and check for registered Ord.
         lhs_ord_type := match(
-          ctx.*.get_var_type(l.as_str()),
+          ctx.get_var_type(l.as_str()),
           .None => Option(String).None,
           .Some(t) => cond(
-            ctx.*.has_derive_ord(t.as_str()) => Option(String).Some(t),
+            ctx.has_derive_ord(t.as_str()) => Option(String).Some(t),
             true => Option(String).None
           )
         );
@@ -238,7 +239,7 @@ handle_prefix_op :: (
   fn(
     op : String,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -279,7 +280,7 @@ extract_op :: (fn(func_box : Box(AstExpr)) -> Option(String))(
 handle_begin :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -303,11 +304,11 @@ handle_begin :: (
             // Without wrapping, the same variable name (e.g. `x`) in two sibling
             // begin blocks would cause a C "redefinition" compile error.
             is_begin_block(s) => {
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit_line("{");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit_line("{");
               _nested_val := call_gen_expr(s, ctx, inner);
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit_line("}");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit_line("}");
             },
             true => match(
               call_gen_expr(s, ctx, inner),
@@ -338,7 +339,7 @@ handle_begin :: (
 emit_cond_as_if_else :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -389,7 +390,7 @@ emit_cond_as_if_else :: (
                 },
                 // else { body; } — the catch-all arm
                 is_true_catch => {
-                  ctx.*.emitter.emit(" else {\n");
+                  ctx.emitter.emit(" else {\n");
                   match(
                     call_gen_expr(body_expr, ctx, inner),
                     .None => (),
@@ -397,18 +398,18 @@ emit_cond_as_if_else :: (
                       emit_as_stmt(bs, ctx, inner);
                     }
                   );
-                  ctx.*.emitter.emit_string(indent);
-                  ctx.*.emitter.emit("}\n");
+                  ctx.emitter.emit_string(indent);
+                  ctx.emitter.emit("}\n");
                 },
                 // if (cond) { body; }  or  } else if (cond) { body; }
                 true => {
                   cond(
                     is_first => {
-                      ctx.*.emitter.emit_string(indent);
-                      ctx.*.emitter.emit("if (");
+                      ctx.emitter.emit_string(indent);
+                      ctx.emitter.emit("if (");
                     },
                     true => {
-                      ctx.*.emitter.emit(" else if (");
+                      ctx.emitter.emit(" else if (");
                     }
                   );
                   match(
@@ -417,8 +418,8 @@ emit_cond_as_if_else :: (
                       ok = false;
                     },
                     .Some(c) => {
-                      ctx.*.emitter.emit_string(c);
-                      ctx.*.emitter.emit(") {\n");
+                      ctx.emitter.emit_string(c);
+                      ctx.emitter.emit(") {\n");
                       match(
                         call_gen_expr(body_expr, ctx, inner),
                         .None => (),
@@ -426,13 +427,13 @@ emit_cond_as_if_else :: (
                           emit_as_stmt(bs, ctx, inner);
                         }
                       );
-                      ctx.*.emitter.emit_string(indent);
+                      ctx.emitter.emit_string(indent);
                       cond(
                         is_last => {
-                          ctx.*.emitter.emit("}\n");
+                          ctx.emitter.emit("}\n");
                         },
                         true => {
-                          ctx.*.emitter.emit("}");
+                          ctx.emitter.emit("}");
                         }
                       );
                     }
@@ -454,7 +455,7 @@ emit_cond_as_if_else :: (
 emit_returning_branch_body :: (
   fn(
     branch_body : AstExpr,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     inner : String
   ) -> bool
 )(
@@ -463,10 +464,10 @@ emit_returning_branch_body :: (
     .None => false,
     .Some(bs) => {
       if(bs.as_str() != "0", {
-        ctx.*.emitter.emit_string(inner);
-        ctx.*.emitter.emit("return ");
-        ctx.*.emitter.emit_string(bs);
-        ctx.*.emitter.emit_line(";");
+        ctx.emitter.emit_string(inner);
+        ctx.emitter.emit("return ");
+        ctx.emitter.emit_string(bs);
+        ctx.emitter.emit_line(";");
       });
       true
     }
@@ -475,7 +476,7 @@ emit_returning_branch_body :: (
 emit_cond_as_return_if_else :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -518,19 +519,19 @@ emit_cond_as_return_if_else :: (
                   ok = emit_returning_branch_body(body_expr, ctx, inner);
                 },
                 is_true_catch => {
-                  ctx.*.emitter.emit(" else {\n");
+                  ctx.emitter.emit(" else {\n");
                   ok = emit_returning_branch_body(body_expr, ctx, inner);
-                  ctx.*.emitter.emit_string(indent);
-                  ctx.*.emitter.emit("}\n");
+                  ctx.emitter.emit_string(indent);
+                  ctx.emitter.emit("}\n");
                 },
                 true => {
                   cond(
                     is_first => {
-                      ctx.*.emitter.emit_string(indent);
-                      ctx.*.emitter.emit("if (");
+                      ctx.emitter.emit_string(indent);
+                      ctx.emitter.emit("if (");
                     },
                     true => {
-                      ctx.*.emitter.emit(" else if (");
+                      ctx.emitter.emit(" else if (");
                     }
                   );
                   match(
@@ -539,16 +540,16 @@ emit_cond_as_return_if_else :: (
                       ok = false;
                     },
                     .Some(c) => {
-                      ctx.*.emitter.emit_string(c);
-                      ctx.*.emitter.emit(") {\n");
+                      ctx.emitter.emit_string(c);
+                      ctx.emitter.emit(") {\n");
                       ok = emit_returning_branch_body(body_expr, ctx, inner);
-                      ctx.*.emitter.emit_string(indent);
+                      ctx.emitter.emit_string(indent);
                       cond(
                         is_last => {
-                          ctx.*.emitter.emit("}\n");
+                          ctx.emitter.emit("}\n");
                         },
                         true => {
-                          ctx.*.emitter.emit("}");
+                          ctx.emitter.emit("}");
                         }
                       );
                     }
@@ -581,7 +582,7 @@ gen_cond_arm :: (
   fn(
     arm_args : ArrayList(AstExpr),
     rest : String,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -639,7 +640,7 @@ gen_cond_arm :: (
 handle_cond :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -694,7 +695,7 @@ handle_cond :: (
         });
         found_begin
       };
-      can_return_from_cond := ((ctx.*.current_fn_return_type.len() > usize(0)) && (ctx.*.current_fn_return_type.as_str() != "void"));
+      can_return_from_cond := ((ctx.current_fn_return_type.len() > usize(0)) && (ctx.current_fn_return_type.as_str() != "void"));
       cond(
         ((has_begin_body && (!(has_stmt_body))) && can_return_from_cond) => emit_cond_as_return_if_else(args, ctx, indent),
         (has_stmt_body || has_begin_body) => emit_cond_as_if_else(args, ctx, indent),
@@ -767,7 +768,7 @@ _build_match_condition :: (
   fn(
     pat_expr : AstExpr,
     scrut_temp : String,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -822,7 +823,7 @@ gen_match_arm :: (
     arm_args : ArrayList(AstExpr),
     scrut_temp : String,
     rest : String,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -880,7 +881,7 @@ emit_match_value_as_if_else :: (
   fn(
     scrut_temp : String,
     arms : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -917,7 +918,7 @@ emit_match_value_as_if_else :: (
               cond(
                 // Wildcard `_` → else { body }
                 is_wild => {
-                  ctx.*.emitter.emit(" else {\n");
+                  ctx.emitter.emit(" else {\n");
                   match(
                     call_gen_expr(body_expr, ctx, inner),
                     .None => (),
@@ -925,8 +926,8 @@ emit_match_value_as_if_else :: (
                       emit_as_stmt(bs, ctx, inner);
                     }
                   );
-                  ctx.*.emitter.emit_string(indent);
-                  ctx.*.emitter.emit("}\n");
+                  ctx.emitter.emit_string(indent);
+                  ctx.emitter.emit("}\n");
                 },
                 // Regular arm → if (temp == pat) { body } or } else if (temp == pat) {
                 true =>
@@ -938,17 +939,17 @@ emit_match_value_as_if_else :: (
                     .Some(pat_code) => {
                       cond(
                         is_first => {
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("if ((");
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit("if ((");
                         },
                         true => {
-                          ctx.*.emitter.emit(" else if ((");
+                          ctx.emitter.emit(" else if ((");
                         }
                       );
-                      ctx.*.emitter.emit_string(scrut_temp);
-                      ctx.*.emitter.emit(" == ");
-                      ctx.*.emitter.emit_string(pat_code);
-                      ctx.*.emitter.emit(")) {\n");
+                      ctx.emitter.emit_string(scrut_temp);
+                      ctx.emitter.emit(" == ");
+                      ctx.emitter.emit_string(pat_code);
+                      ctx.emitter.emit(")) {\n");
                       match(
                         call_gen_expr(body_expr, ctx, inner),
                         .None => (),
@@ -956,13 +957,13 @@ emit_match_value_as_if_else :: (
                           emit_as_stmt(bs, ctx, inner);
                         }
                       );
-                      ctx.*.emitter.emit_string(indent);
+                      ctx.emitter.emit_string(indent);
                       cond(
                         is_last => {
-                          ctx.*.emitter.emit("}\n");
+                          ctx.emitter.emit("}\n");
                         },
                         true => {
-                          ctx.*.emitter.emit("}");
+                          ctx.emitter.emit("}");
                         }
                       );
                     }
@@ -987,7 +988,7 @@ emit_match_value_as_if_else :: (
 handle_match_value :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -1004,13 +1005,13 @@ handle_match_value :: (
           .None => Option(String).None,
           .Some(scrut_code) => {
             // Emit scrutinee into a temp to avoid re-evaluation
-            temp := ctx.*.fresh_temp();
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit("__auto_type ");
-            ctx.*.emitter.emit_string(temp);
-            ctx.*.emitter.emit(" = ");
-            ctx.*.emitter.emit_string(scrut_code);
-            ctx.*.emitter.emit_line(";");
+            temp := ctx.fresh_temp();
+            ctx.emitter.emit_string(indent);
+            ctx.emitter.emit("__auto_type ");
+            ctx.emitter.emit_string(temp);
+            ctx.emitter.emit(" = ");
+            ctx.emitter.emit_string(scrut_code);
+            ctx.emitter.emit_line(";");
             // Check if any arm body requires statement-level emission.
             arm_count := (n - usize(1));
             has_stmt := {
@@ -1160,9 +1161,9 @@ _split_csv :: (fn(csv : str) -> ArrayList(String))({
 _extract_data_arm :: (
   fn(
     pat_expr : AstExpr,
-    variant_name_out : *(String),
-    bindings_out : *(ArrayList(DataBinding)),
-    ctx : *(CodegenContext)
+    ref(variant_name_out) : String,
+    bindings_out : ArrayList(DataBinding),
+    ctx : CodegenContext
   ) -> String
 )({
   // Case 1: wildcard `_`
@@ -1191,10 +1192,10 @@ _extract_data_arm :: (
             variant_atom,
             .FnCall(_, _, _, _, _) => String.new(),
             .Atom(_, vatom) => match(
-              ctx.*.get_enum_for_variant(vatom.value.as_str()),
+              ctx.get_enum_for_variant(vatom.value.as_str()),
               .None => String.new(),
               .Some(enum_name) => {
-                variant_name_out.* = vatom.value;
+                variant_name_out = vatom.value;
                 result := String.new();
                 result.push_string(enum_name);
                 result.push_str("_");
@@ -1228,17 +1229,17 @@ _extract_data_arm :: (
               variant_atom2,
               .FnCall(_, _, _, _, _) => String.new(),
               .Atom(_, vatom2) => match(
-                ctx.*.get_enum_for_variant(vatom2.value.as_str()),
+                ctx.get_enum_for_variant(vatom2.value.as_str()),
                 .None => String.new(),
                 .Some(enum_name2) => {
-                  variant_name_out.* = vatom2.value;
+                  variant_name_out = vatom2.value;
                   // Build tag constant (owned String — no dangling pointer risk)
                   tag := String.new();
                   tag.push_string(enum_name2);
                   tag.push_str("_");
                   tag.push_string(vatom2.value);
                   // Build bindings from pat_args
-                  fields_csv_opt := ctx.*.get_variant_fields(enum_name2.as_str(), vatom2.value.as_str());
+                  fields_csv_opt := ctx.get_variant_fields(enum_name2.as_str(), vatom2.value.as_str());
                   fields := match(
                     fields_csv_opt,
                     .None => ArrayList(String).new(),
@@ -1270,7 +1271,7 @@ _extract_data_arm :: (
                                   field_path : path,
                                   type_c : String.from("__auto_type")
                                 );
-                                _rr := bindings_out.*.push(db);
+                                _rr := bindings_out.push(db);
                                 ();
                               }
                             )
@@ -1310,7 +1311,7 @@ _extract_data_arm :: (
                                           field_path : path_c,
                                           type_c : String.from("__auto_type")
                                         );
-                                        _rc := bindings_out.*.push(db_c);
+                                        _rc := bindings_out.push(db_c);
                                         ();
                                       }
                                     ),
@@ -1351,7 +1352,7 @@ _extract_data_arm :: (
                                                     field_path : path_l,
                                                     type_c : String.from("__auto_type")
                                                   );
-                                                  _rl := bindings_out.*.push(db_l);
+                                                  _rl := bindings_out.push(db_l);
                                                   ();
                                                 }
                                               )
@@ -1401,7 +1402,7 @@ _extract_data_arm :: (
                                           field_path : path2,
                                           type_c : String.from("__auto_type")
                                         );
-                                        _rr2 := bindings_out.*.push(db2);
+                                        _rr2 := bindings_out.push(db2);
                                         ();
                                       }
                                     )
@@ -1427,19 +1428,19 @@ _extract_data_arm :: (
   )
 });
 emit_simplified_some_binding_name :: (
-  fn(binding_name : str, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
+  fn(binding_name : str, scrut_code : String, ctx : CodegenContext, indent : String) -> unit
 )(
   if(binding_name != "_", {
-    ctx.*.emitter.emit_string(indent);
-    ctx.*.emitter.emit("__auto_type ");
-    ctx.*.emitter.emit_string(sanitize_c_ident(binding_name));
-    ctx.*.emitter.emit(" = ");
-    ctx.*.emitter.emit_string(scrut_code);
-    ctx.*.emitter.emit_line(";");
+    ctx.emitter.emit_string(indent);
+    ctx.emitter.emit("__auto_type ");
+    ctx.emitter.emit_string(sanitize_c_ident(binding_name));
+    ctx.emitter.emit(" = ");
+    ctx.emitter.emit_string(scrut_code);
+    ctx.emitter.emit_line(";");
   })
 );
 emit_simplified_some_binding_expr :: (
-  fn(binding_expr : AstExpr, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
+  fn(binding_expr : AstExpr, scrut_code : String, ctx : CodegenContext, indent : String) -> unit
 )(
   match(
     binding_expr,
@@ -1520,7 +1521,7 @@ build_struct_field_index_expr :: (fn(var_name : String, fields_csv : String, idx
 });
 // Phase A.8.5: `_get_arm_variant_name` was relocated to `./exprs/match.yo`.
 emit_simplified_some_bindings :: (
-  fn(pat_expr : AstExpr, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
+  fn(pat_expr : AstExpr, scrut_code : String, ctx : CodegenContext, indent : String) -> unit
 )(
   match(
     pat_expr,
@@ -1560,7 +1561,7 @@ emit_option_null_if_else :: (
     scrut_c : String,
     n : usize,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> unit
 )({
@@ -1618,10 +1619,10 @@ emit_option_null_if_else :: (
     );
     i = (i + usize(1));
   });
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit("if (");
-  ctx.*.emitter.emit_string(scrut_c);
-  ctx.*.emitter.emit(" != NULL) {\n");
+  ctx.emitter.emit_string(indent);
+  ctx.emitter.emit("if (");
+  ctx.emitter.emit_string(scrut_c);
+  ctx.emitter.emit(" != NULL) {\n");
   match(
     some_body_expr,
     .None => (),
@@ -1638,8 +1639,8 @@ emit_option_null_if_else :: (
       );
     }
   );
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit("} else {\n");
+  ctx.emitter.emit_string(indent);
+  ctx.emitter.emit("} else {\n");
   actual_none_body := match(
     none_body_expr,
     .Some(_) => none_body_expr,
@@ -1654,8 +1655,8 @@ emit_option_null_if_else :: (
       .Some(nc) => emit_as_stmt(nc, ctx, inner)
     )
   );
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit("}\n");
+  ctx.emitter.emit_string(indent);
+  ctx.emitter.emit("}\n");
 });
 /// True if `expr` is `match(scrut, ...)` where any arm pattern is `.Variant(bindings...)`.
 /// Used to decide whether to use `generate_match_data` instead of ternary chains.
@@ -1670,7 +1671,7 @@ emit_option_null_if_else :: (
 handle_match_data :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -1688,7 +1689,7 @@ handle_match_data :: (
           // We detect this by checking if the scrutinee variable has a registered
           // type ending in '*'.
           scrut_c := match(
-            ctx.*.get_var_type(scrut_code.as_str()),
+            ctx.get_var_type(scrut_code.as_str()),
             .None => scrut_code,
             .Some(vtype) => {
               len := vtype.len();
@@ -1729,10 +1730,10 @@ handle_match_data :: (
           // data-enum variant — in that case `generate_match_data` must drive
           // the dispatch through the tagged union.
           can_simplify_some_match := match(
-            ctx.*.get_enum_for_variant("Some"),
+            ctx.get_enum_for_variant("Some"),
             .Some(_) => false,
             .None => match(
-              ctx.*.get_var_type(scrut_code.as_str()),
+              ctx.get_var_type(scrut_code.as_str()),
               .None => true,
               .Some(vt) => cond(
                 (vt.as_str() == "__auto_type") => true,
@@ -1823,7 +1824,7 @@ handle_match_data :: (
                           data_arm_variant_name(pat_check),
                           .None => (),
                           .Some(vn_check) => match(
-                            ctx.*.get_enum_for_variant(vn_check.as_str()),
+                            ctx.get_enum_for_variant(vn_check.as_str()),
                             .None => (),
                             .Some(_) => {
                               any_arm_registered = true;
@@ -1839,7 +1840,7 @@ handle_match_data :: (
               is_void_ptr_opt := cond(
                 any_arm_registered => false,
                 true => match(
-                  ctx.*.get_enum_for_variant("Some"),
+                  ctx.get_enum_for_variant("Some"),
                   .Some(_) => false,
                   .None => true
                 )
@@ -1850,7 +1851,7 @@ handle_match_data :: (
                   Option(String).Some(String.from("0"))
                 },
                 true => {
-                  temp := ctx.*.fresh_temp();
+                  temp := ctx.fresh_temp();
                   data_arms := ArrayList(DataArm).new();
                   (i : usize) = usize(1);
                   while(runtime(i < n), {
@@ -1866,7 +1867,7 @@ handle_match_data :: (
                           .Some(pat_expr) => {
                             variant_name_buf := String.new();
                             bindings := ArrayList(DataBinding).new();
-                            tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), &(bindings), ctx);
+                            tag_const_str := _extract_data_arm(pat_expr, variant_name_buf, bindings, ctx);
                             body_expr_opt := arm_args.get(usize(1));
                             match(
                               body_expr_opt,
@@ -1919,7 +1920,7 @@ handle_match_data :: (
 step_to_c_expr :: (
   fn(
     step_expr : AstExpr,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> String
 )({
@@ -2012,7 +2013,7 @@ step_to_c_expr :: (
 handle_for :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -2117,7 +2118,7 @@ handle_for :: (
                                                   arr_name_e,
                                                   .FnCall(_, _, _, _, _) => Option(String).None,
                                                   .Atom(_, antok) => cond(
-                                                    (!(ctx.*.is_array_var(antok.value.as_str()) || ctx.*.is_slice_var(antok.value.as_str()))) => Option(String).None,
+                                                    (!(ctx.is_array_var(antok.value.as_str()) || ctx.is_slice_var(antok.value.as_str()))) => Option(String).None,
                                                     true => Option(String).Some(antok.value)
                                                   )
                                                 )
@@ -2156,54 +2157,54 @@ handle_for :: (
                           .Some(body_expr) => {
                             san_arr := sanitize_c_ident(arr_name.as_str());
                             san_param := sanitize_c_ident(param_name.as_str());
-                            iter_var := ctx.*.fresh_temp();
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit("for (size_t ");
-                            ctx.*.emitter.emit_string(iter_var);
-                            ctx.*.emitter.emit(" = 0; ");
-                            ctx.*.emitter.emit_string(iter_var);
-                            ctx.*.emitter.emit(" < ");
+                            iter_var := ctx.fresh_temp();
+                            ctx.emitter.emit_string(indent);
+                            ctx.emitter.emit("for (size_t ");
+                            ctx.emitter.emit_string(iter_var);
+                            ctx.emitter.emit(" = 0; ");
+                            ctx.emitter.emit_string(iter_var);
+                            ctx.emitter.emit(" < ");
                             cond(
-                              ctx.*.is_slice_var(arr_name.as_str()) => {
+                              ctx.is_slice_var(arr_name.as_str()) => {
                                 // slice: use slice.length
-                                ctx.*.emitter.emit_string(san_arr);
-                                ctx.*.emitter.emit(".length");
+                                ctx.emitter.emit_string(san_arr);
+                                ctx.emitter.emit(".length");
                               },
                               true => {
                                 // array: use known size constant
                                 size_str := match(
-                                  ctx.*.get_array_var_size(arr_name.as_str()),
+                                  ctx.get_array_var_size(arr_name.as_str()),
                                   .None => String.from("0"),
                                   .Some(sz) => sz
                                 );
-                                ctx.*.emitter.emit_string(size_str);
+                                ctx.emitter.emit_string(size_str);
                               }
                             );
-                            ctx.*.emitter.emit("; ");
-                            ctx.*.emitter.emit_string(iter_var);
-                            ctx.*.emitter.emit_line("++) {");
-                            ctx.*.emitter.emit_string(inner);
-                            ctx.*.emitter.emit("__auto_type* ");
-                            ctx.*.emitter.emit_string(san_param);
-                            ctx.*.emitter.emit(" = &");
-                            ctx.*.emitter.emit_string(san_arr);
+                            ctx.emitter.emit("; ");
+                            ctx.emitter.emit_string(iter_var);
+                            ctx.emitter.emit_line("++) {");
+                            ctx.emitter.emit_string(inner);
+                            ctx.emitter.emit("__auto_type* ");
+                            ctx.emitter.emit_string(san_param);
+                            ctx.emitter.emit(" = &");
+                            ctx.emitter.emit_string(san_arr);
                             cond(
-                              ctx.*.is_slice_var(arr_name.as_str()) => {
-                                ctx.*.emitter.emit(".data[");
+                              ctx.is_slice_var(arr_name.as_str()) => {
+                                ctx.emitter.emit(".data[");
                               },
                               true => {
-                                ctx.*.emitter.emit("[");
+                                ctx.emitter.emit("[");
                               }
                             );
-                            ctx.*.emitter.emit_string(iter_var);
-                            ctx.*.emitter.emit_line("];");
+                            ctx.emitter.emit_string(iter_var);
+                            ctx.emitter.emit_line("];");
                             match(
                               call_gen_expr(body_expr, ctx, inner),
                               .None => (),
                               .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
                             );
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit_line("}");
+                            ctx.emitter.emit_string(indent);
+                            ctx.emitter.emit_line("}");
                             Option(String).Some(String.from("0"))
                           }
                         )
@@ -2221,45 +2222,45 @@ handle_for :: (
                         .None => Option(String).None,
                         .Some(iter_code) => {
                           san_param := sanitize_c_ident(param_name.as_str());
-                          iter_var := ctx.*.fresh_temp();
-                          next_var := ctx.*.fresh_temp();
+                          iter_var := ctx.fresh_temp();
+                          next_var := ctx.fresh_temp();
                           // iter_var = iter;
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("__auto_type ");
-                          ctx.*.emitter.emit_string(iter_var);
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(iter_code);
-                          ctx.*.emitter.emit_line(";");
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit("__auto_type ");
+                          ctx.emitter.emit_string(iter_var);
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(iter_code);
+                          ctx.emitter.emit_line(";");
                           // while (1) { ... }
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit_line("while (1) {");
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit_line("while (1) {");
                           // next_var = iter_var.next()
-                          ctx.*.emitter.emit_string(inner);
-                          ctx.*.emitter.emit("__auto_type ");
-                          ctx.*.emitter.emit_string(next_var);
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(iter_var);
-                          ctx.*.emitter.emit_line(".next();");
+                          ctx.emitter.emit_string(inner);
+                          ctx.emitter.emit("__auto_type ");
+                          ctx.emitter.emit_string(next_var);
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(iter_var);
+                          ctx.emitter.emit_line(".next();");
                           // if (next_var.is_none) break;
-                          ctx.*.emitter.emit_string(inner);
-                          ctx.*.emitter.emit("if (!");
-                          ctx.*.emitter.emit_string(next_var);
-                          ctx.*.emitter.emit_line(") break;");
+                          ctx.emitter.emit_string(inner);
+                          ctx.emitter.emit("if (!");
+                          ctx.emitter.emit_string(next_var);
+                          ctx.emitter.emit_line(") break;");
                           // param = *next_var  (unwrap Some)
-                          ctx.*.emitter.emit_string(inner);
-                          ctx.*.emitter.emit("__auto_type ");
-                          ctx.*.emitter.emit_string(san_param);
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(next_var);
-                          ctx.*.emitter.emit_line(";");
+                          ctx.emitter.emit_string(inner);
+                          ctx.emitter.emit("__auto_type ");
+                          ctx.emitter.emit_string(san_param);
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(next_var);
+                          ctx.emitter.emit_line(";");
                           // body
                           match(
                             call_gen_expr(body_expr, ctx, inner),
                             .None => (),
                             .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
                           );
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit_line("}");
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit_line("}");
                           Option(String).Some(String.from("0"))
                         }
                       )
@@ -2277,7 +2278,7 @@ handle_for :: (
 handle_while :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -2327,12 +2328,12 @@ handle_while :: (
                 .None => String.from("0"),
                 .Some(step_expr) => step_to_c_expr(step_expr, ctx, indent)
               );
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit("for (;");
-              ctx.*.emitter.emit_string(c_cond);
-              ctx.*.emitter.emit(";");
-              ctx.*.emitter.emit_string(step_code);
-              ctx.*.emitter.emit_line(") {");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit("for (;");
+              ctx.emitter.emit_string(c_cond);
+              ctx.emitter.emit(";");
+              ctx.emitter.emit_string(step_code);
+              ctx.emitter.emit_line(") {");
               match(
                 body_arg_opt,
                 .None => (),
@@ -2343,15 +2344,15 @@ handle_while :: (
                     .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
                   )
               );
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit_line("}");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit_line("}");
             },
             true => {
               // 2-arg: emit `while (cond) { body }`
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit("while (");
-              ctx.*.emitter.emit_string(c_cond);
-              ctx.*.emitter.emit_line(") {");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit("while (");
+              ctx.emitter.emit_string(c_cond);
+              ctx.emitter.emit_line(") {");
               match(
                 body_arg_opt,
                 .None => (),
@@ -2362,8 +2363,8 @@ handle_while :: (
                     .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
                   )
               );
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit_line("}");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit_line("}");
             }
           );
           .Some(String.from("0"))
@@ -2384,7 +2385,7 @@ handle_while :: (
 handle_if :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -2422,29 +2423,29 @@ handle_if :: (
                   r.push_str("  ");
                   r
                 };
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit("if (");
-                ctx.*.emitter.emit_string(c);
-                ctx.*.emitter.emit_line(") {");
+                ctx.emitter.emit_string(indent);
+                ctx.emitter.emit("if (");
+                ctx.emitter.emit_string(c);
+                ctx.emitter.emit_line(") {");
                 match(
                   call_gen_expr(then_expr, ctx, inner),
                   .None => (),
                   .Some(body_code) => emit_as_stmt(body_code, ctx, inner)
                 );
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit("}");
+                ctx.emitter.emit_string(indent);
+                ctx.emitter.emit("}");
                 match(
                   else_opt,
-                  .None => ctx.*.emitter.emit_line(""),
+                  .None => ctx.emitter.emit_line(""),
                   .Some(else_expr) => {
-                    ctx.*.emitter.emit_line(" else {");
+                    ctx.emitter.emit_line(" else {");
                     match(
                       call_gen_expr(else_expr, ctx, inner),
                       .None => (),
                       .Some(else_code) => emit_as_stmt(else_code, ctx, inner)
                     );
-                    ctx.*.emitter.emit_string(indent);
-                    ctx.*.emitter.emit_line("}");
+                    ctx.emitter.emit_string(indent);
+                    ctx.emitter.emit_line("}");
                   }
                 );
                 .Some(String.from("0"))
@@ -3108,18 +3109,18 @@ is_primitive_type_cast :: (fn(name : str) -> bool)(
 /// Check whether all identifier atoms referenced in `expr` are available as C variables
 /// (either known to ctx or previously-emitted `::` constants). Used to determine if a
 /// `::` infix binary op binding is safe to emit.
-expr_all_ids_known :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
+expr_all_ids_known :: (fn(expr : AstExpr, ctx : CodegenContext) -> bool)(
   match(
     expr,
     .Atom(_, tok) => cond(
       (tok.kind == TokenKind.Identifier) => (
         is_primitive_type_cast(tok.value.as_str()) ||
-          ctx.*.is_defined_fn(tok.value.as_str()) ||
-            ctx.*.is_struct_name(tok.value.as_str()) ||
-              ctx.*.is_enum_name(tok.value.as_str()) ||
-                ctx.*.is_const_var(tok.value.as_str()) ||
-                  ctx.*.is_array_var(tok.value.as_str()) ||
-                    ctx.*.is_slice_var(tok.value.as_str())
+          ctx.is_defined_fn(tok.value.as_str()) ||
+            ctx.is_struct_name(tok.value.as_str()) ||
+              ctx.is_enum_name(tok.value.as_str()) ||
+                ctx.is_const_var(tok.value.as_str()) ||
+                  ctx.is_array_var(tok.value.as_str()) ||
+                    ctx.is_slice_var(tok.value.as_str())
       ),
       true => true
     ),
@@ -3190,7 +3191,7 @@ handle_type_cast :: (
   fn(
     type_name : String,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -3225,13 +3226,13 @@ handle_type_cast :: (
                   call_gen_expr(recv_e, ctx, indent),
                   .None => false,
                   .Some(recv_c) => (
-                    ctx.*.is_enum_name(recv_c.as_str()) && match(
+                    ctx.is_enum_name(recv_c.as_str()) && match(
                       dot_args.get(usize(1)),
                       .None => false,
                       .Some(method_e) => match(
                         method_e,
                         .FnCall(_, _, _, _, _) => false,
-                        .Atom(_, mtok) => ctx.*.get_variant_fields(recv_c.as_str(), mtok.value.as_str()).is_some()
+                        .Atom(_, mtok) => ctx.get_variant_fields(recv_c.as_str(), mtok.value.as_str()).is_some()
                       )
                     )
                   )
@@ -3284,9 +3285,9 @@ handle_type_cast :: (
             arg,
             .FnCall(_, _, _, _, _) => false,
             .Atom(_, atk) => match(
-              ctx.*.get_var_type(atk.value.as_str()),
+              ctx.get_var_type(atk.value.as_str()),
               .None => false,
-              .Some(vtype) => ctx.*.is_complex_enum_name(vtype.as_str())
+              .Some(vtype) => ctx.is_complex_enum_name(vtype.as_str())
             )
           );
           cond(
@@ -3329,7 +3330,7 @@ handle_type_cast :: (
 handle_bare_colon_decl :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -3384,14 +3385,14 @@ handle_bare_colon_decl :: (
                         size_opt,
                         .None => false,
                         .Some(sz) => {
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit_string(ec);
-                          ctx.*.emitter.emit(" ");
-                          ctx.*.emitter.emit_string(san_name);
-                          ctx.*.emitter.emit("[");
-                          ctx.*.emitter.emit_string(sz);
-                          ctx.*.emitter.emit_line("] = {0};");
-                          ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit_string(ec);
+                          ctx.emitter.emit(" ");
+                          ctx.emitter.emit_string(san_name);
+                          ctx.emitter.emit("[");
+                          ctx.emitter.emit_string(sz);
+                          ctx.emitter.emit_line("] = {0};");
+                          ctx.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
                           true
                         }
                       )
@@ -3408,9 +3409,9 @@ handle_bare_colon_decl :: (
               .None => Option(String).None,
               .Some(c_ty) => {
                 decl := build_typed_decl(c_ty.as_str(), san_name.as_str());
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit_string(decl);
-                ctx.*.emitter.emit_line(";");
+                ctx.emitter.emit_string(indent);
+                ctx.emitter.emit_string(decl);
+                ctx.emitter.emit_line(";");
                 Option(String).Some(String.from("0"))
               }
             )
@@ -3452,9 +3453,9 @@ handle_bare_colon_decl :: (
                             true => {
                               san_name := sanitize_c_ident(itok.value.as_str());
                               decl := build_typed_decl(c_ty.as_str(), san_name.as_str());
-                              ctx.*.emitter.emit_string(indent);
-                              ctx.*.emitter.emit_string(decl);
-                              ctx.*.emitter.emit_line(";");
+                              ctx.emitter.emit_string(indent);
+                              ctx.emitter.emit_string(decl);
+                              ctx.emitter.emit_line(";");
                               .Some(String.from("0"))
                             }
                           )
@@ -3528,7 +3529,7 @@ type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
   )
 );
 array_i32_size_arg_to_c :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -3628,20 +3629,20 @@ is_slice_u8_from_raw_parts_call :: (fn(expr : AstExpr) -> bool)(
     )
   )
 );
-var_type_is :: (fn(ctx : *(CodegenContext), name : str, c_type : str) -> bool)(
+var_type_is :: (fn(ctx : CodegenContext, name : str, c_type : str) -> bool)(
   match(
-    ctx.*.get_var_type(name),
+    ctx.get_var_type(name),
     .None => false,
     .Some(actual) => (actual.as_str() == c_type)
   )
 );
-static_method_receiver_type_name :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(String))(
+static_method_receiver_type_name :: (fn(expr : AstExpr, ctx : CodegenContext) -> Option(String))(
   match(
     expr,
     .FnCall(_, _, _, _, _) => Option(String).None,
     .Atom(_, tok) => cond(
       (tok.value.as_str() == "Self") => {
-        self_ty := ctx.*.get_self_type();
+        self_ty := ctx.get_self_type();
         cond(
           (self_ty == "") => Option(String).None,
           true => Option(String).Some(String.from(self_ty))
@@ -3809,23 +3810,23 @@ generic_struct_template_fields_from_alias_rhs :: (fn(expr : AstExpr) -> Option(S
   )
 );
 register_generic_struct_template_if_supported :: (
-  fn(name : str, rhs_expr : AstExpr, ctx : *(CodegenContext)) -> bool
+  fn(name : str, rhs_expr : AstExpr, ctx : CodegenContext) -> bool
 )(
   match(
     generic_struct_template_fields_from_alias_rhs(rhs_expr),
     .None => false,
     .Some(fields_csv) => {
-      ctx.*.register_generic_struct_template(name, fields_csv.as_str());
+      ctx.register_generic_struct_template(name, fields_csv.as_str());
       true
     }
   )
 );
-ensure_generic_struct_instance :: (fn(ctx : *(CodegenContext), type_app_expr : AstExpr) -> Option(String))(
+ensure_generic_struct_instance :: (fn(ctx : CodegenContext, type_app_expr : AstExpr) -> Option(String))(
   match(
     generic_type_app_base_name(type_app_expr),
     .None => Option(String).None,
     .Some(base_name) => match(
-      ctx.*.get_generic_struct_template_fields(base_name.as_str()),
+      ctx.get_generic_struct_template_fields(base_name.as_str()),
       .None => Option(String).None,
       .Some(fields_csv) => match(
         generic_type_app_c_name(type_app_expr),
@@ -3834,7 +3835,7 @@ ensure_generic_struct_instance :: (fn(ctx : *(CodegenContext), type_app_expr : A
           generic_type_app_field_c_type(type_app_expr),
           .None => Option(String).None,
           .Some(field_c_ty) => {
-            if(!(ctx.*.is_struct_name(concrete_name.as_str())), {
+            if(!(ctx.is_struct_name(concrete_name.as_str())), {
               fields := _split_csv(fields_csv.as_str());
               decl := String.from("typedef struct { ");
               field_types_csv := String.new();
@@ -3860,10 +3861,10 @@ ensure_generic_struct_instance :: (fn(ctx : *(CodegenContext), type_app_expr : A
               decl.push_str("} ");
               decl.push_string(concrete_name);
               decl.push_str(";");
-              ctx.*.emitter.emit_declaration_string_line(decl);
-              ctx.*.register_struct(String.from(concrete_name.as_str()));
-              ctx.*.register_struct_fields(concrete_name.as_str(), fields_csv.as_str());
-              ctx.*.register_struct_field_types(concrete_name.as_str(), field_types_csv.as_str());
+              ctx.emitter.emit_declaration_string_line(decl);
+              ctx.register_struct(String.from(concrete_name.as_str()));
+              ctx.register_struct_fields(concrete_name.as_str(), fields_csv.as_str());
+              ctx.register_struct_field_types(concrete_name.as_str(), field_types_csv.as_str());
             });
             Option(String).Some(concrete_name)
           }
@@ -3873,13 +3874,13 @@ ensure_generic_struct_instance :: (fn(ctx : *(CodegenContext), type_app_expr : A
   )
 );
 generic_struct_constructor_to_c :: (
-  fn(type_app_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(type_app_expr : AstExpr, args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     ensure_generic_struct_instance(ctx, type_app_expr),
     .None => Option(String).None,
     .Some(concrete_name) => match(
-      ctx.*.get_struct_fields(concrete_name.as_str()),
+      ctx.get_struct_fields(concrete_name.as_str()),
       .None => Option(String).None,
       .Some(fields_csv) => {
         fields := _split_csv(fields_csv.as_str());
@@ -3933,7 +3934,7 @@ generic_struct_constructor_to_c :: (
     )
   )
 );
-generic_struct_constructor_type_from_call :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(String))(
+generic_struct_constructor_type_from_call :: (fn(expr : AstExpr, ctx : CodegenContext) -> Option(String))(
   match(
     expr,
     .Atom(_, _) => Option(String).None,
@@ -3947,17 +3948,17 @@ generic_struct_constructor_type_from_call :: (fn(expr : AstExpr, ctx : *(Codegen
     )
   )
 );
-ensure_generic_value_struct :: (fn(ctx : *(CodegenContext), type_name : String, field_c_ty : String) -> unit)({
-  if(!(ctx.*.is_struct_name(type_name.as_str())), {
+ensure_generic_value_struct :: (fn(ctx : CodegenContext, type_name : String, field_c_ty : String) -> unit)({
+  if(!(ctx.is_struct_name(type_name.as_str())), {
     decl := String.from("typedef struct { ");
     decl.push_string(field_c_ty);
     decl.push_str(" value; } ");
     decl.push_string(type_name);
     decl.push_str(";");
-    ctx.*.emitter.emit_declaration_string_line(decl);
-    ctx.*.register_struct(String.from(type_name.as_str()));
-    ctx.*.register_struct_fields(type_name.as_str(), "value");
-    ctx.*.register_struct_field_types(type_name.as_str(), field_c_ty.as_str());
+    ctx.emitter.emit_declaration_string_line(decl);
+    ctx.register_struct(String.from(type_name.as_str()));
+    ctx.register_struct_fields(type_name.as_str(), "value");
+    ctx.register_struct_field_types(type_name.as_str(), field_c_ty.as_str());
   });
 });
 is_arraylist_c_type :: (fn(c_ty : str) -> bool)(
@@ -3984,18 +3985,18 @@ is_compound_aggregate_c_type :: (fn(c_ty : str) -> bool)(
   ((is_arraylist_c_type(c_ty) || is_deque_c_type(c_ty)) || is_runtime_map_c_type(c_ty)) ||
     (String.from(c_ty).starts_with(String.from("YoSlice_")) || String.from(c_ty).starts_with(String.from("YoArray_")))
 );
-is_runtime_index_assignable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> bool)(
+is_runtime_index_assignable_type :: (fn(ctx : CodegenContext, c_ty : str) -> bool)(
   ((is_arraylist_c_type(c_ty) || is_deque_c_type(c_ty)) || is_runtime_map_c_type(c_ty)) ||
     match(
-      ctx.*.get_struct_fields(c_ty),
+      ctx.get_struct_fields(c_ty),
       .None => false,
       .Some(_) => true
     )
 );
-is_runtime_index_callable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> bool)(
+is_runtime_index_callable_type :: (fn(ctx : CodegenContext, c_ty : str) -> bool)(
   (c_ty == "const char*") || is_runtime_index_assignable_type(ctx, c_ty)
 );
-should_skip_comptime_field_assignment :: (fn(ctx : *(CodegenContext), lhs_expr : AstExpr) -> bool)(
+should_skip_comptime_field_assignment :: (fn(ctx : CodegenContext, lhs_expr : AstExpr) -> bool)(
   match(
     lhs_expr,
     .Atom(_, _) => false,
@@ -4013,7 +4014,7 @@ should_skip_comptime_field_assignment :: (fn(ctx : *(CodegenContext), lhs_expr :
               cm_recv,
               .Atom(_, cm_recv_tok) => (
                 (cm_recv_tok.kind == TokenKind.Identifier) &&
-                  ctx.*.is_const_var(cm_recv_tok.value.as_str())
+                  ctx.is_const_var(cm_recv_tok.value.as_str())
               ),
               .FnCall(_, _, _, _, _) => false
             )
@@ -4021,7 +4022,7 @@ should_skip_comptime_field_assignment :: (fn(ctx : *(CodegenContext), lhs_expr :
     )
   )
 );
-should_skip_unsupported_index_assignment :: (fn(ctx : *(CodegenContext), lhs_expr : AstExpr) -> bool)(
+should_skip_unsupported_index_assignment :: (fn(ctx : CodegenContext, lhs_expr : AstExpr) -> bool)(
   match(
     lhs_expr,
     .Atom(_, _) => false,
@@ -4032,11 +4033,11 @@ should_skip_unsupported_index_assignment :: (fn(ctx : *(CodegenContext), lhs_exp
           .FnCall(_, _, _, _, _) => false,
           .Atom(_, nai_tok) => cond(
             (nai_tok.kind != TokenKind.Identifier) => false,
-            ctx.*.is_array_var(nai_tok.value.as_str()) => false,
-            ctx.*.is_slice_var(nai_tok.value.as_str()) => false,
-            ctx.*.is_defined_fn(nai_tok.value.as_str()) => false,
+            ctx.is_array_var(nai_tok.value.as_str()) => false,
+            ctx.is_slice_var(nai_tok.value.as_str()) => false,
+            ctx.is_defined_fn(nai_tok.value.as_str()) => false,
             true => match(
-              ctx.*.get_var_type(nai_tok.value.as_str()),
+              ctx.get_var_type(nai_tok.value.as_str()),
               .None => true,
               .Some(nai_var_ty) => cond(
                 is_runtime_index_assignable_type(ctx, nai_var_ty.as_str()) => false,
@@ -4059,8 +4060,8 @@ arraylist_elem_c_type_from_name :: (fn(c_ty : str) -> Option(String))({
     }
   )
 });
-ensure_arraylist_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
-  if(((c_ty != "ArrayList_u8") && is_arraylist_c_type(c_ty)) && (!(ctx.*.is_struct_name(c_ty))), {
+ensure_arraylist_c_type :: (fn(ctx : CodegenContext, c_ty : str) -> unit)({
+  if(((c_ty != "ArrayList_u8") && is_arraylist_c_type(c_ty)) && (!(ctx.is_struct_name(c_ty))), {
     match(
       arraylist_elem_c_type_from_name(c_ty),
       .None => (),
@@ -4075,9 +4076,9 @@ ensure_arraylist_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
         decl.push_str("* _ptr; } ");
         decl.push_str(c_ty);
         decl.push_str(";");
-        ctx.*.emitter.emit_declaration_string_line(decl);
-        ctx.*.register_struct(String.from(c_ty));
-        ctx.*.register_struct_fields(c_ty, "data,length,_ptr");
+        ctx.emitter.emit_declaration_string_line(decl);
+        ctx.register_struct(String.from(c_ty));
+        ctx.register_struct_fields(c_ty, "data,length,_ptr");
       }
     );
   });
@@ -4085,13 +4086,13 @@ ensure_arraylist_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
 is_impl_fn_c_type :: (fn(c_ty : str) -> bool)(
   c_ty == "__yo_impl_fn_i32_i32"
 );
-ensure_impl_fn_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
-  if((is_impl_fn_c_type(c_ty)) && (!(ctx.*.is_struct_name(c_ty))), {
-    ctx.*.emitter.emit_declaration_string_line(
+ensure_impl_fn_c_type :: (fn(ctx : CodegenContext, c_ty : str) -> unit)({
+  if((is_impl_fn_c_type(c_ty)) && (!(ctx.is_struct_name(c_ty))), {
+    ctx.emitter.emit_declaration_string_line(
       String.from("typedef struct { void* data; int32_t (*call)(void*, int32_t); } __yo_impl_fn_i32_i32;")
     );
-    ctx.*.register_struct(String.from(c_ty));
-    ctx.*.register_struct_fields(c_ty, "data,call");
+    ctx.register_struct(String.from(c_ty));
+    ctx.register_struct_fields(c_ty, "data,call");
   });
 });
 deque_elem_c_type_from_name :: (fn(c_ty : str) -> Option(String))({
@@ -4105,8 +4106,8 @@ deque_elem_c_type_from_name :: (fn(c_ty : str) -> Option(String))({
     }
   )
 });
-ensure_deque_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
-  if(is_deque_c_type(c_ty) && (!(ctx.*.is_struct_name(c_ty))), {
+ensure_deque_c_type :: (fn(ctx : CodegenContext, c_ty : str) -> unit)({
+  if(is_deque_c_type(c_ty) && (!(ctx.is_struct_name(c_ty))), {
     match(
       deque_elem_c_type_from_name(c_ty),
       .None => (),
@@ -4116,9 +4117,9 @@ ensure_deque_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
         decl.push_str(" data[1024]; size_t head; size_t length; } ");
         decl.push_str(c_ty);
         decl.push_str(";");
-        ctx.*.emitter.emit_declaration_string_line(decl);
-        ctx.*.register_struct(String.from(c_ty));
-        ctx.*.register_struct_fields(c_ty, "data,head,length");
+        ctx.emitter.emit_declaration_string_line(decl);
+        ctx.register_struct(String.from(c_ty));
+        ctx.register_struct_fields(c_ty, "data,head,length");
       }
     );
   });
@@ -4159,8 +4160,8 @@ map_value_c_type_from_name :: (fn(c_ty : str, prefix : str) -> Option(String))({
     }
   )
 });
-ensure_runtime_map_c_type :: (fn(ctx : *(CodegenContext), c_ty : str, prefix : str) -> unit)({
-  if((String.from(c_ty).starts_with(String.from(prefix))) && (!(ctx.*.is_struct_name(c_ty))), {
+ensure_runtime_map_c_type :: (fn(ctx : CodegenContext, c_ty : str, prefix : str) -> unit)({
+  if((String.from(c_ty).starts_with(String.from(prefix))) && (!(ctx.is_struct_name(c_ty))), {
     match(
       map_key_c_type_from_name(c_ty, prefix),
       .None => (),
@@ -4175,9 +4176,9 @@ ensure_runtime_map_c_type :: (fn(ctx : *(CodegenContext), c_ty : str, prefix : s
           decl.push_str(" values[1024]; size_t length; } ");
           decl.push_str(c_ty);
           decl.push_str(";");
-          ctx.*.emitter.emit_declaration_string_line(decl);
-          ctx.*.register_struct(String.from(c_ty));
-          ctx.*.register_struct_fields(c_ty, "keys,values,length");
+          ctx.emitter.emit_declaration_string_line(decl);
+          ctx.register_struct(String.from(c_ty));
+          ctx.register_struct_fields(c_ty, "keys,values,length");
         }
       )
     );
@@ -4255,7 +4256,7 @@ box_constructor_elem_c_type :: (fn(expr : AstExpr) -> Option(String))(
   )
 );
 emit_method_extraction_macro_if_supported :: (
-  fn(name : str, rhs_expr : AstExpr, ctx : *(CodegenContext), indent : String) -> bool
+  fn(name : str, rhs_expr : AstExpr, ctx : CodegenContext, indent : String) -> bool
 )(
   match(
     rhs_expr,
@@ -4281,10 +4282,10 @@ emit_method_extraction_macro_if_supported :: (
                   (me_method_tok.value.as_str() != "unwrap") => false,
                   (!(type_app_receiver_is(me_recv, "Option") || type_app_receiver_is(me_recv, "Result"))) => false,
                   true => {
-                    ctx.*.emitter.emit_string(indent);
-                    ctx.*.emitter.emit("#define ");
-                    ctx.*.emitter.emit_string(sanitize_c_ident(name));
-                    ctx.*.emitter.emit_line("(__yo_value) (__yo_value)");
+                    ctx.emitter.emit_string(indent);
+                    ctx.emitter.emit("#define ");
+                    ctx.emitter.emit_string(sanitize_c_ident(name));
+                    ctx.emitter.emit_line("(__yo_value) (__yo_value)");
                     true
                   }
                 )
@@ -4408,7 +4409,7 @@ anon_struct_type_to_c :: (fn(type_args : ArrayList(AstExpr)) -> Option(String))(
 anon_struct_initializer_to_c :: (
   fn(
     value_args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -4448,7 +4449,7 @@ anon_struct_initializer_to_c :: (
 struct_default_values_csv :: (
   fn(
     type_args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> String
 )({
@@ -4513,7 +4514,7 @@ struct_defaults_has_value :: (fn(defaults_csv : String) -> bool)({
 aggregate_initializer_to_c :: (
   fn(
     expr : AstExpr,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -5073,7 +5074,7 @@ emit_simple_closure_value :: (
     var_name : str,
     body_expr : AstExpr,
     param_name : str,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String,
     env_is_ptr : bool
   ) -> bool
@@ -5087,62 +5088,62 @@ emit_simple_closure_value :: (
       env_type := String.from("__yo_closure_env_");
       env_type.push_string(san_var);
       capture_by_ref := match(
-        ctx.*.get_var_type(capture_name.as_str()),
+        ctx.get_var_type(capture_name.as_str()),
         .None => false,
         .Some(capture_ty) => match(
-          ctx.*.get_struct_fields(capture_ty.as_str()),
+          ctx.get_struct_fields(capture_ty.as_str()),
           .None => false,
           .Some(fields_csv) => (fields_csv.as_str() == "_0")
         )
       );
-      ctx.*.emitter.emit_string(indent);
-      ctx.*.emitter.emit("typedef struct { __typeof__(");
+      ctx.emitter.emit_string(indent);
+      ctx.emitter.emit("typedef struct { __typeof__(");
       if(capture_by_ref, {
-        ctx.*.emitter.emit("&");
+        ctx.emitter.emit("&");
       });
-      ctx.*.emitter.emit_string(san_capture);
-      ctx.*.emitter.emit(") ");
-      ctx.*.emitter.emit_string(san_capture);
-      ctx.*.emitter.emit("; } ");
-      ctx.*.emitter.emit_string(env_type);
-      ctx.*.emitter.emit_line(";");
-      ctx.*.emitter.emit_string(indent);
+      ctx.emitter.emit_string(san_capture);
+      ctx.emitter.emit(") ");
+      ctx.emitter.emit_string(san_capture);
+      ctx.emitter.emit("; } ");
+      ctx.emitter.emit_string(env_type);
+      ctx.emitter.emit_line(";");
+      ctx.emitter.emit_string(indent);
       if(env_is_ptr, {
         storage_name := String.from("__yo_closure_storage_");
         storage_name.push_string(san_var);
-        ctx.*.emitter.emit_string(env_type);
-        ctx.*.emitter.emit(" ");
-        ctx.*.emitter.emit_string(storage_name);
-        ctx.*.emitter.emit(" = { .");
-        ctx.*.emitter.emit_string(san_capture);
-        ctx.*.emitter.emit(" = ");
+        ctx.emitter.emit_string(env_type);
+        ctx.emitter.emit(" ");
+        ctx.emitter.emit_string(storage_name);
+        ctx.emitter.emit(" = { .");
+        ctx.emitter.emit_string(san_capture);
+        ctx.emitter.emit(" = ");
         if(capture_by_ref, {
-          ctx.*.emitter.emit("&");
+          ctx.emitter.emit("&");
         });
-        ctx.*.emitter.emit_string(san_capture);
-        ctx.*.emitter.emit_line(" };");
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit_string(env_type);
-        ctx.*.emitter.emit("* ");
-        ctx.*.emitter.emit_string(san_var);
-        ctx.*.emitter.emit(" = &");
-        ctx.*.emitter.emit_string(storage_name);
-        ctx.*.emitter.emit_line(";");
-        ctx.*.register_var_type(var_name, "__yo_closure_env_ptr");
+        ctx.emitter.emit_string(san_capture);
+        ctx.emitter.emit_line(" };");
+        ctx.emitter.emit_string(indent);
+        ctx.emitter.emit_string(env_type);
+        ctx.emitter.emit("* ");
+        ctx.emitter.emit_string(san_var);
+        ctx.emitter.emit(" = &");
+        ctx.emitter.emit_string(storage_name);
+        ctx.emitter.emit_line(";");
+        ctx.register_var_type(var_name, "__yo_closure_env_ptr");
       }, {
-        ctx.*.emitter.emit_string(env_type);
-        ctx.*.emitter.emit(" ");
-        ctx.*.emitter.emit_string(san_var);
-        ctx.*.emitter.emit(" = { .");
-        ctx.*.emitter.emit_string(san_capture);
-        ctx.*.emitter.emit(" = ");
+        ctx.emitter.emit_string(env_type);
+        ctx.emitter.emit(" ");
+        ctx.emitter.emit_string(san_var);
+        ctx.emitter.emit(" = { .");
+        ctx.emitter.emit_string(san_capture);
+        ctx.emitter.emit(" = ");
         if(capture_by_ref, {
-          ctx.*.emitter.emit("&");
+          ctx.emitter.emit("&");
         });
-        ctx.*.emitter.emit_string(san_capture);
-        ctx.*.emitter.emit_line(" };");
+        ctx.emitter.emit_string(san_capture);
+        ctx.emitter.emit_line(" };");
       });
-      ctx.*.register_simple_closure_var(var_name, capture_name.as_str(), param_name);
+      ctx.register_simple_closure_var(var_name, capture_name.as_str(), param_name);
       true
     }
   )
@@ -5151,14 +5152,14 @@ capture_access_for_closure_var :: (
   fn(
     closure_var_name : str,
     capture_name : str,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> String
 )({
   san_var := sanitize_c_ident(closure_var_name);
   san_capture := sanitize_c_ident(capture_name);
   result := String.from(san_var.as_str());
   closure_is_env_ptr := match(
-    ctx.*.get_var_type(closure_var_name),
+    ctx.get_var_type(closure_var_name),
     .None => false,
     .Some(closure_ty) => (closure_ty.as_str() == "__yo_closure_env_ptr")
   );
@@ -5169,10 +5170,10 @@ capture_access_for_closure_var :: (
   });
   result.push_string(san_capture);
   should_use_payload := match(
-    ctx.*.get_var_type(capture_name),
+    ctx.get_var_type(capture_name),
     .None => false,
     .Some(capture_ty) => match(
-      ctx.*.get_struct_fields(capture_ty.as_str()),
+      ctx.get_struct_fields(capture_ty.as_str()),
       .None => false,
       .Some(fields_csv) => (fields_csv.as_str() == "_0")
     )
@@ -5186,7 +5187,7 @@ emit_simple_closure_constructor :: (
   fn(
     var_name : str,
     rhs_expr : AstExpr,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> bool
 )(
@@ -5200,7 +5201,7 @@ emit_simple_closure_constructor :: (
         ctor_fn_box.*,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, ctor_tok) => match(
-          ctx.*.get_closure_alias_param_name(ctor_tok.value.as_str()),
+          ctx.get_closure_alias_param_name(ctor_tok.value.as_str()),
           .None => false,
           .Some(param_name) => match(
             ctor_args.get(usize(0)),
@@ -5221,7 +5222,7 @@ emit_simple_closure_constructor :: (
 handle_define :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -5325,10 +5326,10 @@ handle_define :: (
                   sc_fn_box.*,
                   .FnCall(_, _, _, _, _) => (),
                   .Atom(_, sctok) => match(
-                    ctx.*.get_struct_fields(sctok.value.as_str()),
+                    ctx.get_struct_fields(sctok.value.as_str()),
                     .None => (),
                     .Some(sfields) => {
-                      ctx.*.track_open_var(name_tok.value.as_str(), sfields.as_str());
+                      ctx.track_open_var(name_tok.value.as_str(), sfields.as_str());
                     }
                   )
                 )
@@ -5336,7 +5337,7 @@ handle_define :: (
             );
           },
           .Some(csv_s) => {
-            ctx.*.track_open_var(name_tok.value.as_str(), csv_s.as_str());
+            ctx.track_open_var(name_tok.value.as_str(), csv_s.as_str());
           }
         );
         discard_binding_emitted := cond(
@@ -5376,13 +5377,13 @@ handle_define :: (
                           anon_struct_initializer_to_c(rhs_ctor_args, ctx, indent),
                           .None => false,
                           .Some(init_c) => {
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit_string(anon_c_ty);
-                            ctx.*.emitter.emit(" ");
-                            ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
-                            ctx.*.emitter.emit(" = ");
-                            ctx.*.emitter.emit_string(init_c);
-                            ctx.*.emitter.emit_line(";");
+                            ctx.emitter.emit_string(indent);
+                            ctx.emitter.emit_string(anon_c_ty);
+                            ctx.emitter.emit(" ");
+                            ctx.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
+                            ctx.emitter.emit(" = ");
+                            ctx.emitter.emit_string(init_c);
+                            ctx.emitter.emit_line(";");
                             true
                           }
                         )
@@ -5414,29 +5415,29 @@ handle_define :: (
                       assign_lhs,
                       .FnCall(_, _, _, _, _) => false,
                       .Atom(_, assign_lhs_tok) => cond(
-                        ctx.*.is_array_var(assign_lhs_tok.value.as_str()) => match(
-                          ctx.*.get_array_var_size(assign_lhs_tok.value.as_str()),
+                        ctx.is_array_var(assign_lhs_tok.value.as_str()) => match(
+                          ctx.get_array_var_size(assign_lhs_tok.value.as_str()),
                           .None => false,
                           .Some(array_sz) => {
                             san_src_array := sanitize_c_ident(assign_lhs_tok.value.as_str());
                             san_old_array := sanitize_c_ident(name_tok.value.as_str());
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit("__typeof__(");
-                            ctx.*.emitter.emit_string(san_src_array);
-                            ctx.*.emitter.emit("[0]) ");
-                            ctx.*.emitter.emit_string(san_old_array);
-                            ctx.*.emitter.emit("[");
-                            ctx.*.emitter.emit_string(array_sz);
-                            ctx.*.emitter.emit_line("];");
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit("memcpy(");
-                            ctx.*.emitter.emit_string(san_old_array);
-                            ctx.*.emitter.emit(", ");
-                            ctx.*.emitter.emit_string(san_src_array);
-                            ctx.*.emitter.emit(", sizeof(");
-                            ctx.*.emitter.emit_string(san_old_array);
-                            ctx.*.emitter.emit_line("));");
-                            ctx.*.register_array_var_with_size(name_tok.value.as_str(), array_sz.as_str());
+                            ctx.emitter.emit_string(indent);
+                            ctx.emitter.emit("__typeof__(");
+                            ctx.emitter.emit_string(san_src_array);
+                            ctx.emitter.emit("[0]) ");
+                            ctx.emitter.emit_string(san_old_array);
+                            ctx.emitter.emit("[");
+                            ctx.emitter.emit_string(array_sz);
+                            ctx.emitter.emit_line("];");
+                            ctx.emitter.emit_string(indent);
+                            ctx.emitter.emit("memcpy(");
+                            ctx.emitter.emit_string(san_old_array);
+                            ctx.emitter.emit(", ");
+                            ctx.emitter.emit_string(san_src_array);
+                            ctx.emitter.emit(", sizeof(");
+                            ctx.emitter.emit_string(san_old_array);
+                            ctx.emitter.emit_line("));");
+                            ctx.register_array_var_with_size(name_tok.value.as_str(), array_sz.as_str());
                             match(
                               call_gen_expr(rhs_expr, ctx, indent),
                               .None => (),
@@ -5448,12 +5449,12 @@ handle_define :: (
                           }
                         ),
                         true => {
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("__auto_type ");
-                          ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(sanitize_c_ident(assign_lhs_tok.value.as_str()));
-                          ctx.*.emitter.emit_line(";");
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit("__auto_type ");
+                          ctx.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(sanitize_c_ident(assign_lhs_tok.value.as_str()));
+                          ctx.emitter.emit_line(";");
                           match(
                             call_gen_expr(rhs_expr, ctx, indent),
                             .None => (),
@@ -5489,30 +5490,30 @@ handle_define :: (
             .FnCall(_, _, _, _, _) => false,
             .Atom(_, arr_cp_tok) => cond(
               (arr_cp_tok.kind != TokenKind.Identifier) => false,
-              (!(ctx.*.is_array_var(arr_cp_tok.value.as_str()))) => false,
+              (!(ctx.is_array_var(arr_cp_tok.value.as_str()))) => false,
               true => match(
-                ctx.*.get_array_var_size(arr_cp_tok.value.as_str()),
+                ctx.get_array_var_size(arr_cp_tok.value.as_str()),
                 .None => false,
                 .Some(sz) => {
                   san_src := sanitize_c_ident(arr_cp_tok.value.as_str());
                   san_dst := sanitize_c_ident(name_tok.value.as_str());
-                  ctx.*.emitter.emit_string(indent);
-                  ctx.*.emitter.emit("__typeof__(");
-                  ctx.*.emitter.emit_string(san_src);
-                  ctx.*.emitter.emit("[0]) ");
-                  ctx.*.emitter.emit_string(san_dst);
-                  ctx.*.emitter.emit("[");
-                  ctx.*.emitter.emit_string(sz);
-                  ctx.*.emitter.emit_line("];");
-                  ctx.*.emitter.emit_string(indent);
-                  ctx.*.emitter.emit("memcpy(");
-                  ctx.*.emitter.emit_string(san_dst);
-                  ctx.*.emitter.emit(", ");
-                  ctx.*.emitter.emit_string(san_src);
-                  ctx.*.emitter.emit(", sizeof(");
-                  ctx.*.emitter.emit_string(san_dst);
-                  ctx.*.emitter.emit_line("));");
-                  ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
+                  ctx.emitter.emit_string(indent);
+                  ctx.emitter.emit("__typeof__(");
+                  ctx.emitter.emit_string(san_src);
+                  ctx.emitter.emit("[0]) ");
+                  ctx.emitter.emit_string(san_dst);
+                  ctx.emitter.emit("[");
+                  ctx.emitter.emit_string(sz);
+                  ctx.emitter.emit_line("];");
+                  ctx.emitter.emit_string(indent);
+                  ctx.emitter.emit("memcpy(");
+                  ctx.emitter.emit_string(san_dst);
+                  ctx.emitter.emit(", ");
+                  ctx.emitter.emit_string(san_src);
+                  ctx.emitter.emit(", sizeof(");
+                  ctx.emitter.emit_string(san_dst);
+                  ctx.emitter.emit_line("));");
+                  ctx.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
                   true
                 }
               )
@@ -5603,16 +5604,16 @@ handle_define :: (
                                   ib
                                 }
                               );
-                              ctx.*.emitter.emit_string(indent);
-                              ctx.*.emitter.emit_string(ec);
-                              ctx.*.emitter.emit(" ");
-                              ctx.*.emitter.emit_string(san_dst2);
-                              ctx.*.emitter.emit("[");
-                              ctx.*.emitter.emit_string(sz);
-                              ctx.*.emitter.emit("] = ");
-                              ctx.*.emitter.emit_string(init_buf);
-                              ctx.*.emitter.emit_line(";");
-                              ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
+                              ctx.emitter.emit_string(indent);
+                              ctx.emitter.emit_string(ec);
+                              ctx.emitter.emit(" ");
+                              ctx.emitter.emit_string(san_dst2);
+                              ctx.emitter.emit("[");
+                              ctx.emitter.emit_string(sz);
+                              ctx.emitter.emit("] = ");
+                              ctx.emitter.emit_string(init_buf);
+                              ctx.emitter.emit_line(";");
+                              ctx.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
                               true
                             }
                           )
@@ -5685,17 +5686,17 @@ handle_define :: (
                           .None => false,
                           .Some(first_c) => {
                             san_name := sanitize_c_ident(name_tok.value.as_str());
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit("__typeof__(");
-                            ctx.*.emitter.emit_string(first_c);
-                            ctx.*.emitter.emit(") ");
-                            ctx.*.emitter.emit_string(san_name);
-                            ctx.*.emitter.emit("[");
-                            ctx.*.emitter.emit_string(n_il.to_string());
-                            ctx.*.emitter.emit("] = ");
-                            ctx.*.emitter.emit_string(init_il);
-                            ctx.*.emitter.emit_line(";");
-                            ctx.*.register_array_var_with_size(name_tok.value.as_str(), n_il.to_string().as_str());
+                            ctx.emitter.emit_string(indent);
+                            ctx.emitter.emit("__typeof__(");
+                            ctx.emitter.emit_string(first_c);
+                            ctx.emitter.emit(") ");
+                            ctx.emitter.emit_string(san_name);
+                            ctx.emitter.emit("[");
+                            ctx.emitter.emit_string(n_il.to_string());
+                            ctx.emitter.emit("] = ");
+                            ctx.emitter.emit_string(init_il);
+                            ctx.emitter.emit_line(";");
+                            ctx.register_array_var_with_size(name_tok.value.as_str(), n_il.to_string().as_str());
                             true
                           }
                         )
@@ -5723,10 +5724,10 @@ handle_define :: (
                 .Atom(_, arr_fn_tok) => cond(
                   (arr_fn_tok.kind != TokenKind.Identifier) => false,
                   true => match(
-                    ctx.*.get_array_alias_elem(arr_fn_tok.value.as_str()),
+                    ctx.get_array_alias_elem(arr_fn_tok.value.as_str()),
                     .None => false,
                     .Some(elem_c) => match(
-                      ctx.*.get_array_alias_size(arr_fn_tok.value.as_str()),
+                      ctx.get_array_alias_size(arr_fn_tok.value.as_str()),
                       .None => false,
                       .Some(arr_sz) => {
                         // Build initializer list `{v0, v1, ...}`
@@ -5760,17 +5761,17 @@ handle_define :: (
                           true => {
                             init_buf.push_str("}");
                             // Emit: `elem_type name[N] = {v0, v1, ...};`
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit_string(elem_c);
-                            ctx.*.emitter.emit(" ");
-                            ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
-                            ctx.*.emitter.emit("[");
-                            ctx.*.emitter.emit_string(arr_sz.to_string());
-                            ctx.*.emitter.emit("] = ");
-                            ctx.*.emitter.emit_string(init_buf);
-                            ctx.*.emitter.emit_line(";");
+                            ctx.emitter.emit_string(indent);
+                            ctx.emitter.emit_string(elem_c);
+                            ctx.emitter.emit(" ");
+                            ctx.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
+                            ctx.emitter.emit("[");
+                            ctx.emitter.emit_string(arr_sz.to_string());
+                            ctx.emitter.emit("] = ");
+                            ctx.emitter.emit_string(init_buf);
+                            ctx.emitter.emit_line(";");
                             // Register as C array variable so arr(idx) → arr[idx]
-                            ctx.*.register_array_var_with_size(name_tok.value.as_str(), arr_sz.to_string().as_str());
+                            ctx.register_array_var_with_size(name_tok.value.as_str(), arr_sz.to_string().as_str());
                             true
                           }
                         )
@@ -5790,23 +5791,23 @@ handle_define :: (
               call_gen_expr(rhs_expr, ctx, indent),
               .None => Option(String).None,
               .Some(rhs_code) => {
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit("__auto_type ");
+                ctx.emitter.emit_string(indent);
+                ctx.emitter.emit("__auto_type ");
                 san_def_name := sanitize_c_ident(name_tok.value.as_str());
-                ctx.*.emitter.emit_string(san_def_name);
-                ctx.*.emitter.emit(" = ");
-                ctx.*.emitter.emit_string(rhs_code);
-                ctx.*.emitter.emit_line(";");
+                ctx.emitter.emit_string(san_def_name);
+                ctx.emitter.emit(" = ");
+                ctx.emitter.emit_string(rhs_code);
+                ctx.emitter.emit_line(";");
                 match(
                   rhs_expr,
                   .FnCall(_, _, _, _, _) => (),
                   .Atom(_, rhs_atom_tok) => match(
-                    ctx.*.get_simple_closure_capture_name(rhs_atom_tok.value.as_str()),
+                    ctx.get_simple_closure_capture_name(rhs_atom_tok.value.as_str()),
                     .None => (),
                     .Some(copy_capture_name) => match(
-                      ctx.*.get_simple_closure_param_name(rhs_atom_tok.value.as_str()),
+                      ctx.get_simple_closure_param_name(rhs_atom_tok.value.as_str()),
                       .None => (),
-                      .Some(copy_param_name) => ctx.*.register_simple_closure_var(
+                      .Some(copy_param_name) => ctx.register_simple_closure_var(
                         name_tok.value.as_str(),
                         copy_capture_name.as_str(),
                         copy_param_name.as_str()
@@ -5818,10 +5819,10 @@ handle_define :: (
                   rhs_expr,
                   .FnCall(_, _, _, _, _) => (),
                   .Atom(_, rhs_atom_tok2) => match(
-                    ctx.*.get_var_type(rhs_atom_tok2.value.as_str()),
+                    ctx.get_var_type(rhs_atom_tok2.value.as_str()),
                     .None => (),
                     .Some(rhs_var_ty) => if(rhs_var_ty.as_str() == "__yo_closure_env_ptr", {
-                      ctx.*.register_var_type(name_tok.value.as_str(), "__yo_closure_env_ptr");
+                      ctx.register_var_type(name_tok.value.as_str(), "__yo_closure_env_ptr");
                     })
                   )
                 );
@@ -5831,25 +5832,25 @@ handle_define :: (
                   .FnCall(_, _, _, _, _) => (),
                   .Atom(_, rhs_lit_tok) => cond(
                     (rhs_lit_tok.kind == TokenKind.Integer) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "int64_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "int64_t"),
                     (rhs_lit_tok.kind == TokenKind.Float) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "double"),
+                      ctx.register_var_type(name_tok.value.as_str(), "double"),
                     ((rhs_lit_tok.kind == TokenKind.Bool) || ((rhs_lit_tok.value.as_str() == "true") || (rhs_lit_tok.value.as_str() == "false"))) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "bool"),
+                      ctx.register_var_type(name_tok.value.as_str(), "bool"),
                     true => ()
                   )
                 );
                 // Track const char* for string-producing RHS (string literals, __yo_ helpers, propagation).
                 rhs_is_cstr := (rhs_code.starts_with(String.from("\"")) || (rhs_code.contains(String.from("__yo_int_to_str(")) || (rhs_code.contains(String.from("__yo_uint_to_str(")) || (rhs_code.contains(String.from("__yo_float_to_str(")) || (rhs_code.contains(String.from("__yo_bool_to_str(")) || rhs_code.contains(String.from("__yo_str_concat(")))))));
                 if(rhs_is_cstr, {
-                  ctx.*.register_var_type(name_tok.value.as_str(), "const char*");
+                  ctx.register_var_type(name_tok.value.as_str(), "const char*");
                 });
                 if(!(rhs_is_cstr), {
                   match(
-                    ctx.*.get_var_type(rhs_code.as_str()),
+                    ctx.get_var_type(rhs_code.as_str()),
                     .None => (),
                     .Some(rhs_prop_ty) => if(rhs_prop_ty.as_str() == "const char*", {
-                      ctx.*.register_var_type(name_tok.value.as_str(), "const char*");
+                      ctx.register_var_type(name_tok.value.as_str(), "const char*");
                     })
                   );
                 });
@@ -5859,31 +5860,31 @@ handle_define :: (
                 if(!(rhs_is_cstr), {
                   cond(
                     rhs_code.starts_with(String.from("(int32_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "int32_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "int32_t"),
                     rhs_code.starts_with(String.from("(int64_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "int64_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "int64_t"),
                     rhs_code.starts_with(String.from("(uint32_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "uint32_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "uint32_t"),
                     rhs_code.starts_with(String.from("(uint64_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "uint64_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "uint64_t"),
                     rhs_code.starts_with(String.from("(double)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "double"),
+                      ctx.register_var_type(name_tok.value.as_str(), "double"),
                     rhs_code.starts_with(String.from("(float)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "float"),
+                      ctx.register_var_type(name_tok.value.as_str(), "float"),
                     rhs_code.starts_with(String.from("(bool)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "bool"),
+                      ctx.register_var_type(name_tok.value.as_str(), "bool"),
                     rhs_code.starts_with(String.from("(int8_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "int8_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "int8_t"),
                     rhs_code.starts_with(String.from("(int16_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "int16_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "int16_t"),
                     rhs_code.starts_with(String.from("(uint8_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "uint8_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "uint8_t"),
                     rhs_code.starts_with(String.from("(uint16_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "uint16_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "uint16_t"),
                     rhs_code.starts_with(String.from("(isize)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "isize"),
+                      ctx.register_var_type(name_tok.value.as_str(), "isize"),
                     rhs_code.starts_with(String.from("(size_t)(")) =>
-                      ctx.*.register_var_type(name_tok.value.as_str(), "size_t"),
+                      ctx.register_var_type(name_tok.value.as_str(), "size_t"),
                     true => ()
                   );
                 });
@@ -5901,7 +5902,7 @@ handle_define :: (
                       .Some(cpb_idx) => {
                         compound_c_ty := rhs_code.substring(usize(1), cpb_idx);
                         if(is_compound_aggregate_c_type(compound_c_ty.as_str()), {
-                          ctx.*.register_var_type(name_tok.value.as_str(), compound_c_ty.as_str());
+                          ctx.register_var_type(name_tok.value.as_str(), compound_c_ty.as_str());
                         });
                       }
                     );
@@ -5918,7 +5919,7 @@ handle_define :: (
                       def_rhs_fn.*,
                       .FnCall(_, _, _, _, _) => false,
                       .Atom(_, def_rhs_tok) => cond(
-                        (!(ctx.*.is_array_var(def_rhs_tok.value.as_str()) || ctx.*.is_slice_var(def_rhs_tok.value.as_str()))) => false,
+                        (!(ctx.is_array_var(def_rhs_tok.value.as_str()) || ctx.is_slice_var(def_rhs_tok.value.as_str()))) => false,
                         true => match(
                           def_rhs_args.get(usize(0)),
                           .None => false,
@@ -5940,11 +5941,11 @@ handle_define :: (
                   )
                 );
                 if(is_slice_rhs, {
-                  ctx.*.register_slice_var(name_tok.value.as_str());
+                  ctx.register_slice_var(name_tok.value.as_str());
                 });
                 if(is_slice_u8_from_raw_parts_call(rhs_expr), {
-                  ctx.*.register_slice_var(name_tok.value.as_str());
-                  ctx.*.register_var_type(name_tok.value.as_str(), "YoSlice_u8");
+                  ctx.register_slice_var(name_tok.value.as_str());
+                  ctx.register_var_type(name_tok.value.as_str(), "YoSlice_u8");
                 });
                 // If RHS is a `box(...)` call, register LHS as a box var for deref equality.
                 is_box_rhs := match(
@@ -5960,7 +5961,7 @@ handle_define :: (
                   )
                 );
                 if(is_box_rhs, {
-                  ctx.*.register_box_var(name_tok.value.as_str());
+                  ctx.register_box_var(name_tok.value.as_str());
                 });
                 match(
                   box_constructor_elem_c_type(rhs_expr),
@@ -5968,8 +5969,8 @@ handle_define :: (
                   .Some(box_elem_ty) => {
                     box_ptr_ty := String.from(box_elem_ty.as_str());
                     box_ptr_ty.push_str("*");
-                    ctx.*.register_var_type(name_tok.value.as_str(), box_ptr_ty.as_str());
-                    ctx.*.register_box_var(name_tok.value.as_str());
+                    ctx.register_var_type(name_tok.value.as_str(), box_ptr_ty.as_str());
+                    ctx.register_box_var(name_tok.value.as_str());
                   }
                 );
                 // If RHS is a struct/enum constructor call, track LHS variable's type
@@ -5985,7 +5986,7 @@ handle_define :: (
                       .Atom(_, def_rhs_ctok) => {
                         ctor_name := def_rhs_ctok.value.as_str();
                         cond(
-                          (ctx.*.is_struct_name(ctor_name) || ctx.*.is_enum_name(ctor_name)) =>
+                          (ctx.is_struct_name(ctor_name) || ctx.is_enum_name(ctor_name)) =>
                             Option(String).Some(String.from(ctor_name)),
                           true => Option(String).None
                         )
@@ -6006,7 +6007,7 @@ handle_define :: (
                                 en_e,
                                 .FnCall(_, _, _, _, _) => Option(String).None,
                                 .Atom(_, etok2) => cond(
-                                  (ctx.*.is_enum_name(etok2.value.as_str())) =>
+                                  (ctx.is_enum_name(etok2.value.as_str())) =>
                                     Option(String).Some(etok2.value),
                                   true => Option(String).None
                                 )
@@ -6031,7 +6032,7 @@ handle_define :: (
                               lhs_e,
                               .FnCall(_, _, _, _, _) => Option(String).None,
                               .Atom(_, etok) => cond(
-                                (ctx.*.is_enum_name(etok.value.as_str())) =>
+                                (ctx.is_enum_name(etok.value.as_str())) =>
                                   Option(String).Some(etok.value),
                                 true => Option(String).None
                               )
@@ -6125,12 +6126,12 @@ handle_define :: (
                         match(
                           generic_struct_constructor_type_from_call(rhs_expr, ctx),
                           .Some(generic_struct_ctor_ty) => {
-                            ctx.*.register_var_type(name_tok.value.as_str(), generic_struct_ctor_ty.as_str());
+                            ctx.register_var_type(name_tok.value.as_str(), generic_struct_ctor_ty.as_str());
                           },
                           .None => match(
                             generic_static_constructor_type_from_call(rhs_expr),
                             .Some(generic_ctor_ty) => {
-                              ctx.*.register_var_type(name_tok.value.as_str(), generic_ctor_ty.as_str());
+                              ctx.register_var_type(name_tok.value.as_str(), generic_ctor_ty.as_str());
                             },
                             .None => {
                               fn_return_ty := match(
@@ -6141,7 +6142,7 @@ handle_define :: (
                                   true => match(
                                     ret_fn_box.*,
                                     .FnCall(_, _, _, _, _) => Option(String).None,
-                                    .Atom(_, ret_fn_tok) => ctx.*.get_fn_return_type(ret_fn_tok.value.as_str())
+                                    .Atom(_, ret_fn_tok) => ctx.get_fn_return_type(ret_fn_tok.value.as_str())
                                   )
                                 )
                               );
@@ -6149,7 +6150,7 @@ handle_define :: (
                                 fn_return_ty,
                                 .None => (),
                                 .Some(ret_ty_name) => {
-                                  ctx.*.register_var_type(name_tok.value.as_str(), ret_ty_name.as_str());
+                                  ctx.register_var_type(name_tok.value.as_str(), ret_ty_name.as_str());
                                 }
                               )
                             }
@@ -6157,16 +6158,16 @@ handle_define :: (
                         );
                       },
                       .Some(src_var) => match(
-                        ctx.*.get_var_type(src_var.as_str()),
+                        ctx.get_var_type(src_var.as_str()),
                         .None => (),
                         .Some(src_ty) => {
-                          ctx.*.register_var_type(name_tok.value.as_str(), src_ty.as_str());
+                          ctx.register_var_type(name_tok.value.as_str(), src_ty.as_str());
                         }
                       )
                     );
                   },
                   .Some(ctor_ty) => {
-                    ctx.*.register_var_type(name_tok.value.as_str(), ctor_ty.as_str());
+                    ctx.register_var_type(name_tok.value.as_str(), ctor_ty.as_str());
                   }
                 );
                 Option(String).Some(String.from("0"))
@@ -6199,21 +6200,21 @@ handle_define :: (
                         call_gen_expr(rhs_expr, ctx, indent),
                         .None => Option(String).None,
                         .Some(single_rhs_code) => {
-                          tmp_single := ctx.*.fresh_temp();
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("__auto_type ");
-                          ctx.*.emitter.emit_string(tmp_single);
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(single_rhs_code);
-                          ctx.*.emitter.emit_line(";");
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("__auto_type ");
-                          ctx.*.emitter.emit_string(sanitize_c_ident(single_var_name.value.as_str()));
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(tmp_single);
-                          ctx.*.emitter.emit(".");
-                          ctx.*.emitter.emit_string(single_field_name.value);
-                          ctx.*.emitter.emit_line(";");
+                          tmp_single := ctx.fresh_temp();
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit("__auto_type ");
+                          ctx.emitter.emit_string(tmp_single);
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(single_rhs_code);
+                          ctx.emitter.emit_line(";");
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit("__auto_type ");
+                          ctx.emitter.emit_string(sanitize_c_ident(single_var_name.value.as_str()));
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(tmp_single);
+                          ctx.emitter.emit(".");
+                          ctx.emitter.emit_string(single_field_name.value);
+                          ctx.emitter.emit_line(";");
                           Option(String).Some(String.from("0"))
                         }
                       )
@@ -6244,12 +6245,12 @@ handle_define :: (
                       .None => Option(String).None,
                       .Some(rhs_code) => {
                         san := sanitize_c_ident(inner_tok.value.as_str());
-                        ctx.*.emitter.emit_string(indent);
-                        ctx.*.emitter.emit("__auto_type ");
-                        ctx.*.emitter.emit_string(san);
-                        ctx.*.emitter.emit(" = ");
-                        ctx.*.emitter.emit_string(rhs_code);
-                        ctx.*.emitter.emit_line(";");
+                        ctx.emitter.emit_string(indent);
+                        ctx.emitter.emit("__auto_type ");
+                        ctx.emitter.emit_string(san);
+                        ctx.emitter.emit(" = ");
+                        ctx.emitter.emit_string(rhs_code);
+                        ctx.emitter.emit_line(";");
                         .Some(String.from("0"))
                       }
                     )
@@ -6331,14 +6332,14 @@ handle_define :: (
                       .None => Option(String).None,
                       .Some(rhs_code) => {
                         // Use a temp variable to avoid evaluating RHS multiple times
-                        tmp := ctx.*.fresh_temp();
+                        tmp := ctx.fresh_temp();
                         tmp_decl := String.from(indent.as_str());
                         tmp_decl.push_str("__auto_type ");
                         tmp_decl.push_string(tmp);
                         tmp_decl.push_str(" = ");
                         tmp_decl.push_string(rhs_code);
                         tmp_decl.push_str(";");
-                        ctx.*.emitter.emit_string_line(tmp_decl);
+                        ctx.emitter.emit_string_line(tmp_decl);
                         // Emit per-field bindings
                         nd := destr_args.len();
                         (di : usize) = usize(0);
@@ -6382,7 +6383,7 @@ handle_define :: (
                                           // Spread `...`: emit remaining unbound fields from source struct.
                                           (field_tok.value.as_str() == "...") => {
                                             match(
-                                              ctx.*.get_open_var_fields(rhs_code.as_str()),
+                                              ctx.get_open_var_fields(rhs_code.as_str()),
                                               .None => (),
                                               .Some(all_fields_csv) => {
                                                 all_fields := _split_csv(all_fields_csv.as_str());
@@ -6416,7 +6417,7 @@ handle_define :: (
                                                         spread_bind.push_str(".");
                                                         spread_bind.push_string(af_name);
                                                         spread_bind.push_str(";");
-                                                        ctx.*.emitter.emit_string_line(spread_bind);
+                                                        ctx.emitter.emit_string_line(spread_bind);
                                                       });
                                                     }
                                                   );
@@ -6436,7 +6437,7 @@ handle_define :: (
                                             binding.push_str(".");
                                             binding.push_string(field_tok.value);
                                             binding.push_str(";");
-                                            ctx.*.emitter.emit_string_line(binding);
+                                            ctx.emitter.emit_string_line(binding);
                                           }
                                         )
                                       )
@@ -6468,7 +6469,7 @@ handle_define :: (
                                   binding2.push_string(tmp);
                                   binding2.push_string(field_ref);
                                   binding2.push_str(";");
-                                  ctx.*.emitter.emit_string_line(binding2);
+                                  ctx.emitter.emit_string_line(binding2);
                                 }
                               )
                             )
@@ -6545,7 +6546,7 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
 handle_bare_dot_variant :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -6555,7 +6556,7 @@ handle_bare_dot_variant :: (
     .Some(variant_expr) => match(
       variant_expr,
       .Atom(_, vtok) => match(
-        ctx.*.get_enum_for_variant(vtok.value.as_str()),
+        ctx.get_enum_for_variant(vtok.value.as_str()),
         .None => cond(
           // `.None` without a registered enum → bootstrap encoding is NULL (void*/0)
           (vtok.value.as_str() == "None") => Option(String).Some(String.from("NULL")),
@@ -6582,7 +6583,7 @@ handle_bare_dot_variant :: (
               (vftok.value.as_str() == "Some") ||
                 ((vftok.value.as_str() == "Ok") || (vftok.value.as_str() == "Err"))
             ) => match(
-              ctx.*.get_enum_for_variant(vftok.value.as_str()),
+              ctx.get_enum_for_variant(vftok.value.as_str()),
               .Some(_) => Option(String).None,
               .None => match(
                 vfn_args.get(usize(0)),
@@ -6659,7 +6660,7 @@ replace_all_string :: (fn(input : String, needle : str, replacement : String) ->
   result
 });
 anon_method_template_expr_to_c :: (
-  fn(expr : AstExpr, self_name : str, param_name : str, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, self_name : str, param_name : str, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -6789,7 +6790,7 @@ param_name_from_colon_or_atom :: (fn(expr : AstExpr) -> Option(String))(
   )
 );
 register_anon_typeof_impl :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> bool
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> bool
 )({
   result := false;
   if(args.len() >= usize(2), {
@@ -6866,7 +6867,7 @@ register_anon_typeof_impl :: (
                                           anon_method_template_expr_to_c(body_expr, "self", param_name.as_str(), ctx, indent),
                                           .None => (),
                                           .Some(template) => {
-                                            ctx.*.register_anon_method(
+                                            ctx.register_anon_method(
                                               recv_name.as_str(),
                                               method_name.as_str(),
                                               template.as_str()
@@ -6947,7 +6948,7 @@ _split_c_params :: (fn(params_str : str) -> ArrayList(String))({
   result
 });
 first_captured_ident_name :: (
-  fn(expr : AstExpr, param_name : str, ctx : *(CodegenContext)) -> Option(String)
+  fn(expr : AstExpr, param_name : str, ctx : CodegenContext) -> Option(String)
 )(
   match(
     expr,
@@ -6957,7 +6958,7 @@ first_captured_ident_name :: (
       is_c_type_name(tok.value.as_str()) => Option(String).None,
       is_primitive_type_cast(tok.value.as_str()) => Option(String).None,
       is_builtin_keyword(tok.value.as_str()) => Option(String).None,
-      ctx.*.is_defined_fn(tok.value.as_str()) => Option(String).None,
+      ctx.is_defined_fn(tok.value.as_str()) => Option(String).None,
       true => Option(String).Some(tok.value)
     ),
     .FnCall(_, capture_func_box, capture_args, _, _) => {
@@ -6979,7 +6980,7 @@ first_captured_ident_name :: (
 );
 lift_impl_fn_i32_i32_lambda :: (
   fn(
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     lambda : AstExpr,
     indent : String
   ) -> Option(String)
@@ -6999,8 +7000,8 @@ lift_impl_fn_i32_i32_lambda :: (
             param_names.get(usize(0)),
             .None => Option(String).None,
             .Some(param_name) => {
-              fn_name := ctx.*.fresh_lambda_name();
-              ctx.*.register_var_type(param_name.as_str(), "int32_t");
+              fn_name := ctx.fresh_lambda_name();
+              ctx.register_var_type(param_name.as_str(), "int32_t");
               capture_opt := first_captured_ident_name(body_expr, param_name.as_str(), ctx);
               env_type := {
                 s := String.from(fn_name.as_str());
@@ -7022,7 +7023,7 @@ lift_impl_fn_i32_i32_lambda :: (
                   lambda_code.push_str(") {\n  (void)__yo_env;\n  return ");
                   lambda_code.push_string(body_code);
                   lambda_code.push_str(";\n}");
-                  ctx.*.emitter.emit_declaration_string_line(lambda_code);
+                  ctx.emitter.emit_declaration_string_line(lambda_code);
                   result := String.from("(__yo_impl_fn_i32_i32){ .data = NULL, .call = ");
                   result.push_string(fn_name);
                   result.push_str(" }");
@@ -7030,11 +7031,11 @@ lift_impl_fn_i32_i32_lambda :: (
                 },
                 .Some(capture_name) => {
                   capture_ty := match(
-                    ctx.*.get_var_type(capture_name.as_str()),
+                    ctx.get_var_type(capture_name.as_str()),
                     .None => String.from("int32_t"),
                     .Some(existing_capture_ty) => existing_capture_ty
                   );
-                  ctx.*.register_var_type(capture_name.as_str(), capture_ty.as_str());
+                  ctx.register_var_type(capture_name.as_str(), capture_ty.as_str());
                   env_var := {
                     s2 := String.from(fn_name.as_str());
                     s2.push_str("_env_value");
@@ -7069,16 +7070,16 @@ lift_impl_fn_i32_i32_lambda :: (
                   );
                   decl.push_string(body_code2);
                   decl.push_str(";\n}");
-                  ctx.*.emitter.emit_declaration_string_line(decl);
-                  ctx.*.emitter.emit_string(indent);
-                  ctx.*.emitter.emit_string(env_type);
-                  ctx.*.emitter.emit(" ");
-                  ctx.*.emitter.emit_string(env_var);
-                  ctx.*.emitter.emit(" = { .");
-                  ctx.*.emitter.emit_string(san_capture);
-                  ctx.*.emitter.emit(" = ");
-                  ctx.*.emitter.emit_string(san_capture);
-                  ctx.*.emitter.emit_line(" };");
+                  ctx.emitter.emit_declaration_string_line(decl);
+                  ctx.emitter.emit_string(indent);
+                  ctx.emitter.emit_string(env_type);
+                  ctx.emitter.emit(" ");
+                  ctx.emitter.emit_string(env_var);
+                  ctx.emitter.emit(" = { .");
+                  ctx.emitter.emit_string(san_capture);
+                  ctx.emitter.emit(" = ");
+                  ctx.emitter.emit_string(san_capture);
+                  ctx.emitter.emit_line(" };");
                   result2 := String.from("(__yo_impl_fn_i32_i32){ .data = &");
                   result2.push_string(env_var);
                   result2.push_str(", .call = ");
@@ -7100,7 +7101,7 @@ lift_impl_fn_i32_i32_lambda :: (
 /// Emits the static function to the declarations section and returns the name.
 lift_non_capturing_lambda :: (
   fn(
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     lambda : AstExpr,
     fp_c_ty : String
   ) -> Option(String)
@@ -7144,7 +7145,7 @@ lift_non_capturing_lambda :: (
                 n_pt := param_types.len();
                 n_pn := param_names.len();
                 // Generate a unique lambda name
-                fn_name := ctx.*.fresh_lambda_name();
+                fn_name := ctx.fresh_lambda_name();
                 // Build the C function declaration string
                 lambda_code := {
                   sb := String.from("static ");
@@ -7178,7 +7179,7 @@ lift_non_capturing_lambda :: (
                     while(runtime(ri < n_params), {
                       p_ty2 := match(param_types.get(ri),.Some(s) => s,.None => String.from("void*"));
                       p_nm2 := match(param_names.get(ri),.Some(s) => s,.None => String.from("_p"));
-                      ctx.*.register_var_type(p_nm2.as_str(), p_ty2.as_str());
+                      ctx.register_var_type(p_nm2.as_str(), p_ty2.as_str());
                       ri = (ri + usize(1));
                     });
                   };
@@ -7191,7 +7192,7 @@ lift_non_capturing_lambda :: (
                   sb.push_str(";\n}");
                   sb
                 };
-                ctx.*.emitter.emit_declaration_string_line(lambda_code);
+                ctx.emitter.emit_declaration_string_line(lambda_code);
                 .Some(fn_name)
               }
             )
@@ -7208,7 +7209,7 @@ lift_non_capturing_lambda :: (
 gen_arg_list :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -7251,7 +7252,7 @@ gen_arg_list :: (
           actual_arg,
           .FnCall(_, _, _, _, _) => call_gen_expr(actual_arg, ctx, indent),
           .Atom(_, actual_tok) => cond(
-            ((actual_tok.value.as_str() == "io") && ctx.*.get_var_type("io").is_none()) =>
+            ((actual_tok.value.as_str() == "io") && ctx.get_var_type("io").is_none()) =>
               Option(String).Some(String.from("NULL")),
             true => call_gen_expr(actual_arg, ctx, indent)
           )
@@ -7282,7 +7283,7 @@ handle_regular_call :: (
   fn(
     ident_opt : Option(String),
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -7325,8 +7326,8 @@ handle_regular_call :: (
             true => Option(String).None
           )
         },
-        ((args.len() == usize(1)) && ctx.*.get_simple_closure_capture_name(id.as_str()).is_some()) => match(
-          ctx.*.get_simple_closure_capture_name(id.as_str()),
+        ((args.len() == usize(1)) && ctx.get_simple_closure_capture_name(id.as_str()).is_some()) => match(
+          ctx.get_simple_closure_capture_name(id.as_str()),
           .None => Option(String).None,
           .Some(capture_name) => match(
             args.get(usize(0)),
@@ -7350,7 +7351,7 @@ handle_regular_call :: (
             )
           )
         ),
-        ((args.len() == usize(1)) && match(ctx.*.get_var_type(id.as_str()),.None => false,.Some(id_impl_fn_ty) => is_impl_fn_c_type(id_impl_fn_ty.as_str()))) =>
+        ((args.len() == usize(1)) && match(ctx.get_var_type(id.as_str()),.None => false,.Some(id_impl_fn_ty) => is_impl_fn_c_type(id_impl_fn_ty.as_str()))) =>
           match(
             args.get(usize(0)),
             .None => Option(String).None,
@@ -7371,7 +7372,7 @@ handle_regular_call :: (
           ),
         // Returned-array wrapper indexing: `arr(idx)` → `arr.data[idx]`.
         ((args.len() == usize(1)) && var_type_is(ctx, id.as_str(), "YoArray_i32")) => match(
-          ctx.*.get_var_type(id.as_str()),
+          ctx.get_var_type(id.as_str()),
           .None => Option(String).None,
           .Some(id_ty) => cond(
             (id_ty.as_str() != "YoArray_i32") => Option(String).None,
@@ -7398,15 +7399,15 @@ handle_regular_call :: (
           (args.len() == usize(1)) &&
             (
               match(
-                ctx.*.get_var_type(id.as_str()),
+                ctx.get_var_type(id.as_str()),
                 .None => false,
                 .Some(id_index_candidate_ty) =>
                   is_runtime_index_callable_type(ctx, id_index_candidate_ty.as_str())
               ) &&
-                ((!(ctx.*.is_array_var(id.as_str()))) && (!(ctx.*.is_slice_var(id.as_str()))))
+                ((!(ctx.is_array_var(id.as_str()))) && (!(ctx.is_slice_var(id.as_str()))))
             )
         ) => match(
-          ctx.*.get_var_type(id.as_str()),
+          ctx.get_var_type(id.as_str()),
           .None => Option(String).None,
           .Some(id_ty_for_index) => cond(
             (id_ty_for_index.as_str() == "const char*") => match(
@@ -7476,7 +7477,7 @@ handle_regular_call :: (
               )
             ),
             true => match(
-              ctx.*.get_struct_fields(id_ty_for_index.as_str()),
+              ctx.get_struct_fields(id_ty_for_index.as_str()),
               .None => Option(String).None,
               .Some(struct_fields_csv) => match(
                 args.get(usize(0)),
@@ -7492,7 +7493,7 @@ handle_regular_call :: (
           )
         ),
         // arr(start..end) — slice creation: emit compound literal {.data=&arr[start], .length=end-start}
-        (ctx.*.is_array_var(id.as_str()) && (args.len() == usize(1))) =>
+        (ctx.is_array_var(id.as_str()) && (args.len() == usize(1))) =>
           match(
             args.get(usize(0)),
             .None => Option(String).None,
@@ -7619,7 +7620,7 @@ handle_regular_call :: (
               )
           ),
         // slice(idx) or slice(start..end) — slice element access or slice-of-slice
-        (ctx.*.is_slice_var(id.as_str()) && (args.len() == usize(1))) =>
+        (ctx.is_slice_var(id.as_str()) && (args.len() == usize(1))) =>
           match(
             args.get(usize(0)),
             .None => Option(String).None,
@@ -7755,7 +7756,7 @@ handle_regular_call :: (
                 arg_code_opt := cond(
                   // If this arg is a non-capturing lambda, try to lift it.
                   is_lambda_expr(arg_rc) => {
-                    param_ty_opt := ctx.*.get_fn_param_ty_at(id.as_str(), i_rc);
+                    param_ty_opt := ctx.get_fn_param_ty_at(id.as_str(), i_rc);
                     match(
                       param_ty_opt,
                       .None => call_gen_expr(arg_rc, ctx, indent),
@@ -7789,10 +7790,10 @@ handle_regular_call :: (
           cond(
             (!(ok_rc)) => Option(String).None,
             // If the callee is a comptime-only function, emit `0` (a no-op placeholder).
-            ctx.*.is_skipped_fn(id.as_str()) => Option(String).Some(String.from("0")),
+            ctx.is_skipped_fn(id.as_str()) => Option(String).Some(String.from("0")),
             true => {
               result := String.new();
-              if(ctx.*.is_defined_fn(id.as_str()), {
+              if(ctx.is_defined_fn(id.as_str()), {
                 result.push_str("fn_");
               });
               result.push_string(id);
@@ -7816,7 +7817,7 @@ handle_regular_call :: (
 handle_dot_access :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -7841,23 +7842,23 @@ handle_dot_access :: (
             field_name_opt,
             .None => Option(String).None,
             .Some(fname) => {
-              is_enum := ctx.*.is_enum_name(obj_code.as_str());
+              is_enum := ctx.is_enum_name(obj_code.as_str());
               is_deref := (fname.as_str() == "*");
               // Check if `obj_code` is a pointer variable — if so, emit `obj->field`.
-              is_ptr_var := ctx.*.var_type_is_ptr(obj_code.as_str());
+              is_ptr_var := ctx.var_type_is_ptr(obj_code.as_str());
               // `rune` is a zero-cost newtype over u32.  In C it is `typedef uint32_t rune;`
               // so there is no `.char` field — the `.char` accessor is an identity.
               is_char_field := (fname.as_str() == "char");
               is_arraylist_u8 := match(
-                ctx.*.get_var_type(obj_code.as_str()),
+                ctx.get_var_type(obj_code.as_str()),
                 .None => false,
                 .Some(obj_ty) => (obj_ty.as_str() == "ArrayList_u8")
               );
               deref_is_value_payload := match(
-                ctx.*.get_var_type(obj_code.as_str()),
+                ctx.get_var_type(obj_code.as_str()),
                 .None => false,
                 .Some(obj_ty2) => match(
-                  ctx.*.get_struct_fields(obj_ty2.as_str()),
+                  ctx.get_struct_fields(obj_ty2.as_str()),
                   .None => false,
                   .Some(fields_csv) => (fields_csv.as_str() == "_0")
                 )
@@ -8019,7 +8020,7 @@ handle_method_call :: (
   fn(
     func_box : Box(AstExpr),
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -8218,21 +8219,21 @@ handle_method_call :: (
             )
           ),
           // `arr.len()` on a registered C array variable — emit the known size constant.
-          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.*.is_array_var(recv_code.as_str()))) =>
+          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.is_array_var(recv_code.as_str()))) =>
             match(
-              ctx.*.get_array_var_size(recv_code.as_str()),
+              ctx.get_array_var_size(recv_code.as_str()),
               .None => Option(String).None,
               .Some(sz) => Option(String).Some(sz)
             ),
           // `slice.len()` on a registered C slice variable — emit `slice.length`.
-          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.*.is_slice_var(recv_code.as_str()))) => {
+          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.is_slice_var(recv_code.as_str()))) => {
             sl_len := String.new();
             sl_len.push_string(recv_code);
             sl_len.push_str(".length");
             Option(String).Some(sl_len)
           },
           (var_type_is(ctx, recv_code.as_str(), "YoArray_i32") && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_array_len) => cond(
               (recv_ty_for_array_len.as_str() != "YoArray_i32") => Option(String).None,
@@ -8245,8 +8246,8 @@ handle_method_call :: (
             )
           ),
           // Bootstrap ArrayList(T) value operations.
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push") && (args.len() == usize(1)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push") && (args.len() == usize(1)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_push) => cond(
               (!(is_arraylist_c_type(recv_ty_for_push.as_str()))) => Option(String).None,
@@ -8274,8 +8275,8 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_len) => cond(
               (!(is_arraylist_c_type(recv_ty_for_len.as_str()))) => Option(String).None,
@@ -8287,8 +8288,8 @@ handle_method_call :: (
               }
             )
           ),
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "get") && (args.len() == usize(1)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "get") && (args.len() == usize(1)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_get) => cond(
               (!(is_arraylist_c_type(recv_ty_for_get.as_str()))) => Option(String).None,
@@ -8310,16 +8311,16 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "dispose") && (args.len() == usize(0)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "dispose") && (args.len() == usize(0)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_dispose) => cond(
               is_arraylist_c_type(recv_ty_for_dispose.as_str()) => Option(String).Some(String.from("0")),
               true => Option(String).None
             )
           ),
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "set") && (args.len() == usize(2)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "set") && (args.len() == usize(2)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_map_set) => cond(
               (!(is_runtime_map_c_type(recv_ty_for_map_set.as_str()))) => Option(String).None,
@@ -8359,8 +8360,8 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push_back") && (args.len() == usize(1)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push_back") && (args.len() == usize(1)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_deque_push) => cond(
               (!(is_deque_c_type(recv_ty_for_deque_push.as_str()))) => Option(String).None,
@@ -8388,8 +8389,8 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "pop_front") && (args.len() == usize(0)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "pop_front") && (args.len() == usize(0)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_deque_pop) => cond(
               (!(is_deque_c_type(recv_ty_for_deque_pop.as_str()))) => Option(String).None,
@@ -8407,8 +8408,8 @@ handle_method_call :: (
               }
             )
           ),
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
-            ctx.*.get_var_type(recv_code.as_str()),
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+            ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_deque_len) => cond(
               (!(is_deque_c_type(recv_ty_for_deque_len.as_str()))) => Option(String).None,
@@ -8434,10 +8435,10 @@ handle_method_call :: (
               recv_expr,
               // Direct atom receiver: `x.to_string()` → fn_TypeName_to_string(&x)
               .Atom(_, vatok_ts) => match(
-                ctx.*.get_var_type(vatok_ts.value.as_str()),
+                ctx.get_var_type(vatok_ts.value.as_str()),
                 .None => Option(String).None,
                 .Some(ty_name_a) => cond(
-                  (!(ctx.*.has_derive_tostring(ty_name_a.as_str()))) => Option(String).None,
+                  (!(ctx.has_derive_tostring(ty_name_a.as_str()))) => Option(String).None,
                   true => {
                     call_expr_a := String.from("fn_");
                     call_expr_a.push_string(ty_name_a);
@@ -8463,10 +8464,10 @@ handle_method_call :: (
                         var_expr,
                         .FnCall(_, _, _, _, _) => Option(String).None,
                         .Atom(_, vtok) => match(
-                          ctx.*.get_var_type(vtok.value.as_str()),
+                          ctx.get_var_type(vtok.value.as_str()),
                           .None => Option(String).None,
                           .Some(ty_name) => cond(
-                            (!(ctx.*.has_derive_tostring(ty_name.as_str()))) => Option(String).None,
+                            (!(ctx.has_derive_tostring(ty_name.as_str()))) => Option(String).None,
                             true => {
                               call_expr := String.from("fn_");
                               call_expr.push_string(ty_name);
@@ -8536,7 +8537,7 @@ handle_method_call :: (
                     recv_expr,
                     .FnCall(_, _, _, _, _) => Option(String).None,
                     .Atom(_, recv_var_tok) => match(
-                      ctx.*.get_var_type(recv_var_tok.value.as_str()),
+                      ctx.get_var_type(recv_var_tok.value.as_str()),
                       .None => Option(String).None,
                       .Some(tracked_ty) => cond(
                         ((tracked_ty.as_str() == "int64_t") || ((tracked_ty.as_str() == "int32_t") || ((tracked_ty.as_str() == "int16_t") || ((tracked_ty.as_str() == "int8_t") || (tracked_ty.as_str() == "isize"))))) => {
@@ -8585,10 +8586,10 @@ handle_method_call :: (
               recv_expr,
               // Direct atom: `orig.clone()` → fn_TypeName_clone(&orig)
               .Atom(_, vatok2) => match(
-                ctx.*.get_var_type(vatok2.value.as_str()),
+                ctx.get_var_type(vatok2.value.as_str()),
                 .None => Option(String).None,
                 .Some(ty_name_a) => cond(
-                  (!(ctx.*.has_derive_clone(ty_name_a.as_str()))) => Option(String).None,
+                  (!(ctx.has_derive_clone(ty_name_a.as_str()))) => Option(String).None,
                   true => {
                     clone_expr_a := String.from("fn_");
                     clone_expr_a.push_string(ty_name_a);
@@ -8614,10 +8615,10 @@ handle_method_call :: (
                         var_expr2,
                         .FnCall(_, _, _, _, _) => Option(String).None,
                         .Atom(_, vtok2) => match(
-                          ctx.*.get_var_type(vtok2.value.as_str()),
+                          ctx.get_var_type(vtok2.value.as_str()),
                           .None => Option(String).None,
                           .Some(ty_name2) => cond(
-                            (!(ctx.*.has_derive_clone(ty_name2.as_str()))) => Option(String).None,
+                            (!(ctx.has_derive_clone(ty_name2.as_str()))) => Option(String).None,
                             true => {
                               clone_expr := String.from("fn_");
                               clone_expr.push_string(ty_name2);
@@ -8652,10 +8653,10 @@ handle_method_call :: (
               recv_expr,
               // Direct atom: `orig.hash()` → fn_TypeName_hash(&orig)
               .Atom(_, vatok_h) => match(
-                ctx.*.get_var_type(vatok_h.value.as_str()),
+                ctx.get_var_type(vatok_h.value.as_str()),
                 .None => Option(String).None,
                 .Some(ty_name_ha) => cond(
-                  (!(ctx.*.has_derive_hash(ty_name_ha.as_str()))) => Option(String).None,
+                  (!(ctx.has_derive_hash(ty_name_ha.as_str()))) => Option(String).None,
                   true => {
                     hash_expr_a := String.from("fn_");
                     hash_expr_a.push_string(ty_name_ha);
@@ -8681,10 +8682,10 @@ handle_method_call :: (
                         var_expr_h,
                         .FnCall(_, _, _, _, _) => Option(String).None,
                         .Atom(_, vtok_h) => match(
-                          ctx.*.get_var_type(vtok_h.value.as_str()),
+                          ctx.get_var_type(vtok_h.value.as_str()),
                           .None => Option(String).None,
                           .Some(ty_name_h) => cond(
-                            (!(ctx.*.has_derive_hash(ty_name_h.as_str()))) => Option(String).None,
+                            (!(ctx.has_derive_hash(ty_name_h.as_str()))) => Option(String).None,
                             true => {
                               hash_expr := String.from("fn_");
                               hash_expr.push_string(ty_name_h);
@@ -8737,16 +8738,16 @@ handle_method_call :: (
               recv_expr,
               .FnCall(_, _, _, _, _) => false,
               .Atom(_, recv_tok_method) => match(
-                ctx.*.get_var_type(recv_tok_method.value.as_str()),
+                ctx.get_var_type(recv_tok_method.value.as_str()),
                 .None => false,
-                .Some(recv_ty_method) => ctx.*.is_defined_fn(`${ recv_ty_method }_${ method_name }`.as_str())
+                .Some(recv_ty_method) => ctx.is_defined_fn(`${ recv_ty_method }_${ method_name }`.as_str())
               )
             )
           ) => match(
             recv_expr,
             .FnCall(_, _, _, _, _) => Option(String).None,
             .Atom(_, recv_tok_method2) => match(
-              ctx.*.get_var_type(recv_tok_method2.value.as_str()),
+              ctx.get_var_type(recv_tok_method2.value.as_str()),
               .None => Option(String).None,
               .Some(recv_ty_method2) => match(
                 gen_arg_list(args, ctx, indent),
@@ -8772,7 +8773,7 @@ handle_method_call :: (
             static_method_receiver_type_name(recv_expr, ctx),
             .None => false,
             .Some(static_recv_ty_check) =>
-              ctx.*.is_defined_fn(`${ static_recv_ty_check }_${ method_name }`.as_str())
+              ctx.is_defined_fn(`${ static_recv_ty_check }_${ method_name }`.as_str())
           ) => match(
             static_method_receiver_type_name(recv_expr, ctx),
             .None => Option(String).None,
@@ -8793,9 +8794,9 @@ handle_method_call :: (
           ),
           // Complex enum constructor: `EnumName.Variant(args…)`
           // Emits: `(EnumName){ .tag = EnumName_Variant, .data = { .Variant = { .f0 = a0, … } } }`
-          (ctx.*.is_enum_name(recv_code.as_str()) && ctx.*.get_variant_fields(recv_code.as_str(), method_name.as_str()).is_some()) =>
+          (ctx.is_enum_name(recv_code.as_str()) && ctx.get_variant_fields(recv_code.as_str(), method_name.as_str()).is_some()) =>
             match(
-              ctx.*.get_variant_fields(recv_code.as_str(), method_name.as_str()),
+              ctx.get_variant_fields(recv_code.as_str(), method_name.as_str()),
               .None => Option(String).None,
               .Some(fcsv) => {
                 // Split CSV into field names
@@ -8883,10 +8884,10 @@ handle_method_call :: (
                   recv_expr,
                   .FnCall(_, _, _, _, _) => false,
                   .Atom(_, add_recv_tok) => match(
-                    ctx.*.get_var_type(add_recv_tok.value.as_str()),
+                    ctx.get_var_type(add_recv_tok.value.as_str()),
                     .None => false,
                     .Some(add_recv_ty) => match(
-                      ctx.*.get_struct_fields(add_recv_ty.as_str()),
+                      ctx.get_struct_fields(add_recv_ty.as_str()),
                       .None => false,
                       .Some(add_fields) => (add_fields.as_str() == "value")
                     )
@@ -8978,10 +8979,10 @@ handle_method_call :: (
                     .None => Option(String).None,
                     .Some(map_body_e) => {
                       match(
-                        ctx.*.get_var_type(recv_code.as_str()),
+                        ctx.get_var_type(recv_code.as_str()),
                         .None => (),
                         .Some(recv_ty) => {
-                          ctx.*.register_var_type(map_param_name.as_str(), recv_ty.as_str());
+                          ctx.register_var_type(map_param_name.as_str(), recv_ty.as_str());
                         }
                       );
                       match(
@@ -9023,10 +9024,10 @@ handle_method_call :: (
                     .None => Option(String).None,
                     .Some(map2_body_e) => {
                       match(
-                        ctx.*.get_var_type(recv_code.as_str()),
+                        ctx.get_var_type(recv_code.as_str()),
                         .None => (),
                         .Some(recv_ty2) => {
-                          ctx.*.register_var_type(map2_param_name.as_str(), recv_ty2.as_str());
+                          ctx.register_var_type(map2_param_name.as_str(), recv_ty2.as_str());
                         }
                       );
                       match(
@@ -9066,10 +9067,10 @@ handle_method_call :: (
                     .None => Option(String).None,
                     .Some(tr1_body_e) => {
                       match(
-                        ctx.*.get_var_type(recv_code.as_str()),
+                        ctx.get_var_type(recv_code.as_str()),
                         .None => (),
                         .Some(recv_tr1_ty) => {
-                          ctx.*.register_var_type(tr1_param_name.as_str(), recv_tr1_ty.as_str());
+                          ctx.register_var_type(tr1_param_name.as_str(), recv_tr1_ty.as_str());
                         }
                       );
                       match(
@@ -9109,10 +9110,10 @@ handle_method_call :: (
                     .None => Option(String).None,
                     .Some(tr2_body_e) => {
                       match(
-                        ctx.*.get_var_type(recv_code.as_str()),
+                        ctx.get_var_type(recv_code.as_str()),
                         .None => (),
                         .Some(recv_tr2_ty) => {
-                          ctx.*.register_var_type(tr2_param_name.as_str(), recv_tr2_ty.as_str());
+                          ctx.register_var_type(tr2_param_name.as_str(), recv_tr2_ty.as_str());
                         }
                       );
                       match(
@@ -9164,10 +9165,10 @@ handle_method_call :: (
                     .None => Option(String).None,
                     .Some(at_body_e) => {
                       match(
-                        ctx.*.get_var_type(recv_code.as_str()),
+                        ctx.get_var_type(recv_code.as_str()),
                         .None => (),
                         .Some(at_recv_ty) => {
-                          ctx.*.register_var_type(at_param_name.as_str(), at_recv_ty.as_str());
+                          ctx.register_var_type(at_param_name.as_str(), at_recv_ty.as_str());
                         }
                       );
                       match(
@@ -9208,10 +9209,10 @@ handle_method_call :: (
                     .None => Option(String).None,
                     .Some(filt_body_e) => {
                       match(
-                        ctx.*.get_var_type(recv_code.as_str()),
+                        ctx.get_var_type(recv_code.as_str()),
                         .None => (),
                         .Some(filt_recv_ty) => {
-                          ctx.*.register_var_type(filt_param_name.as_str(), filt_recv_ty.as_str());
+                          ctx.register_var_type(filt_param_name.as_str(), filt_recv_ty.as_str());
                         }
                       );
                       match(
@@ -9298,9 +9299,9 @@ handle_method_call :: (
             ),
           // Bootstrap `impl(typeof(local_anon), method : fn(...))` by inlining
           // the registered method body at the call site.
-          ((ctx.*.get_anon_method_body_template(recv_code.as_str(), method_name.as_str()).is_some()) && (args.len() == usize(1))) =>
+          ((ctx.get_anon_method_body_template(recv_code.as_str(), method_name.as_str()).is_some()) && (args.len() == usize(1))) =>
             match(
-              ctx.*.get_anon_method_body_template(recv_code.as_str(), method_name.as_str()),
+              ctx.get_anon_method_body_template(recv_code.as_str(), method_name.as_str()),
               .None => Option(String).None,
               .Some(template) => match(
                 args.get(usize(0)),
@@ -9389,9 +9390,9 @@ handle_method_call :: (
                         .None => Option(String).None,
                         .Some(mo_body_e) => {
                           match(
-                            ctx.*.get_var_type(recv_code.as_str()),
+                            ctx.get_var_type(recv_code.as_str()),
                             .None => (),
-                            .Some(mo_recv_ty) => ctx.*.register_var_type(mo_param_name.as_str(), mo_recv_ty.as_str())
+                            .Some(mo_recv_ty) => ctx.register_var_type(mo_param_name.as_str(), mo_recv_ty.as_str())
                           );
                           match(
                             call_gen_expr(mo_body_e, ctx, indent),
@@ -9444,9 +9445,9 @@ handle_method_call :: (
                           .None => Option(String).None,
                           .Some(moe_body_e) => {
                             match(
-                              ctx.*.get_var_type(recv_code.as_str()),
+                              ctx.get_var_type(recv_code.as_str()),
                               .None => (),
-                              .Some(moe_recv_ty) => ctx.*.register_var_type(moe_param_name.as_str(), moe_recv_ty.as_str())
+                              .Some(moe_recv_ty) => ctx.register_var_type(moe_param_name.as_str(), moe_recv_ty.as_str())
                             );
                             match(
                               call_gen_expr(moe_body_e, ctx, indent),
@@ -9566,7 +9567,7 @@ gen_anon_struct_compound :: (
   fn(
     struct_args : ArrayList(AstExpr),
     type_name : String,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -9743,7 +9744,7 @@ gen_anon_struct_compound :: (
 handle_assignment :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -9876,16 +9877,16 @@ handle_assignment :: (
                                       rhs_init_opt,
                                       .None => Option(String).None,
                                       .Some(rhs_init) => {
-                                        ctx.*.emitter.emit_string(indent);
-                                        ctx.*.emitter.emit_string(elem_c);
-                                        ctx.*.emitter.emit(" ");
-                                        ctx.*.emitter.emit_string(san_arr_name);
-                                        ctx.*.emitter.emit("[");
-                                        ctx.*.emitter.emit_string(size_str);
-                                        ctx.*.emitter.emit("] = ");
-                                        ctx.*.emitter.emit_string(rhs_init);
-                                        ctx.*.emitter.emit_line(";");
-                                        ctx.*.register_array_var_with_size(lname_tok.value.as_str(), size_str.as_str());
+                                        ctx.emitter.emit_string(indent);
+                                        ctx.emitter.emit_string(elem_c);
+                                        ctx.emitter.emit(" ");
+                                        ctx.emitter.emit_string(san_arr_name);
+                                        ctx.emitter.emit("[");
+                                        ctx.emitter.emit_string(size_str);
+                                        ctx.emitter.emit("] = ");
+                                        ctx.emitter.emit_string(rhs_init);
+                                        ctx.emitter.emit_line(";");
+                                        ctx.register_array_var_with_size(lname_tok.value.as_str(), size_str.as_str());
                                         Option(String).Some(String.from("0"))
                                       }
                                     )
@@ -9993,13 +9994,13 @@ handle_assignment :: (
                         anon_struct_initializer_to_c(value_args_a, ctx, indent),
                         .None => Option(String).None,
                         .Some(init_a) => {
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit_string(anon_ty_a);
-                          ctx.*.emitter.emit(" ");
-                          ctx.*.emitter.emit_string(sanitize_c_ident(var_name_a.as_str()));
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(init_a);
-                          ctx.*.emitter.emit_line(";");
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit_string(anon_ty_a);
+                          ctx.emitter.emit(" ");
+                          ctx.emitter.emit_string(sanitize_c_ident(var_name_a.as_str()));
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(init_a);
+                          ctx.emitter.emit_line(";");
                           Option(String).Some(String.from("0"))
                         }
                       )
@@ -10059,11 +10060,11 @@ handle_assignment :: (
                             init_opt_t,
                             .None => Option(String).None,
                             .Some(init_t) => {
-                              ctx.*.emitter.emit_string(indent);
-                              ctx.*.emitter.emit_string(build_typed_decl(c_ty_t.as_str(), sanitize_c_ident(var_name_t.as_str()).as_str()));
-                              ctx.*.emitter.emit(" = ");
-                              ctx.*.emitter.emit_string(init_t);
-                              ctx.*.emitter.emit_line(";");
+                              ctx.emitter.emit_string(indent);
+                              ctx.emitter.emit_string(build_typed_decl(c_ty_t.as_str(), sanitize_c_ident(var_name_t.as_str()).as_str()));
+                              ctx.emitter.emit(" = ");
+                              ctx.emitter.emit_string(init_t);
+                              ctx.emitter.emit_line(";");
                               Option(String).Some(String.from("0"))
                             }
                           )
@@ -10104,7 +10105,7 @@ handle_assignment :: (
                       .None => match(
                         closure_type_expr,
                         .FnCall(_, _, _, _, _) => Option(String).None,
-                        .Atom(_, closure_type_tok) => ctx.*.get_closure_alias_param_name(closure_type_tok.value.as_str())
+                        .Atom(_, closure_type_tok) => ctx.get_closure_alias_param_name(closure_type_tok.value.as_str())
                       )
                     );
                     match(
@@ -10163,7 +10164,7 @@ handle_assignment :: (
           // --- Special path: arr = [v0, v1, ...] for known array var (element-by-element) ---
           match(
             lhs_expr,
-            .Atom(_, lna_tok) => ctx.*.is_array_var(lna_tok.value.as_str()),
+            .Atom(_, lna_tok) => ctx.is_array_var(lna_tok.value.as_str()),
             .FnCall(_, _, _, _, _) => false
           ) =>
             match(
@@ -10196,13 +10197,13 @@ handle_assignment :: (
                                 ala_ok = false;
                               },
                               .Some(ala_c) => {
-                                ctx.*.emitter.emit_string(indent);
-                                ctx.*.emitter.emit_string(san_arr);
-                                ctx.*.emitter.emit("[");
-                                ctx.*.emitter.emit_string(ala_i.to_string());
-                                ctx.*.emitter.emit("] = ");
-                                ctx.*.emitter.emit_string(ala_c);
-                                ctx.*.emitter.emit_line(";");
+                                ctx.emitter.emit_string(indent);
+                                ctx.emitter.emit_string(san_arr);
+                                ctx.emitter.emit("[");
+                                ctx.emitter.emit_string(ala_i.to_string());
+                                ctx.emitter.emit("] = ");
+                                ctx.emitter.emit_string(ala_c);
+                                ctx.emitter.emit_line(";");
                                 ala_i = (ala_i + usize(1));
                               }
                             )
@@ -10273,13 +10274,13 @@ handle_assignment :: (
                             gen_anon_struct_compound(san_args2, c_ty_a, ctx, indent),
                             .None => Option(String).None,
                             .Some(rhs_code_a) => {
-                              ctx.*.emitter.emit_string(indent);
-                              ctx.*.emitter.emit_string(c_ty_a);
-                              ctx.*.emitter.emit(" ");
-                              ctx.*.emitter.emit_string(sanitize_c_ident(var_name_a.as_str()));
-                              ctx.*.emitter.emit(" = ");
-                              ctx.*.emitter.emit_string(rhs_code_a);
-                              ctx.*.emitter.emit_line(";");
+                              ctx.emitter.emit_string(indent);
+                              ctx.emitter.emit_string(c_ty_a);
+                              ctx.emitter.emit(" ");
+                              ctx.emitter.emit_string(sanitize_c_ident(var_name_a.as_str()));
+                              ctx.emitter.emit(" = ");
+                              ctx.emitter.emit_string(rhs_code_a);
+                              ctx.emitter.emit_line(";");
                               Option(String).Some(String.from("0"))
                             }
                           )
@@ -10401,8 +10402,8 @@ handle_assignment :: (
                           yn := ty_atom_chk.value.as_str();
                           !(
                             is_c_type_name(yn) ||
-                              ctx.*.is_struct_name(yn) ||
-                                ctx.*.is_enum_name(yn)
+                              ctx.is_struct_name(yn) ||
+                                ctx.is_enum_name(yn)
                           )
                         }
                       )
@@ -10508,26 +10509,26 @@ handle_assignment :: (
                                         (!(nt_ok)) => Option(String).None,
                                         true => {
                                           // Temp var to hold RHS without re-evaluation.
-                                          nt_tmp := ctx.*.fresh_temp();
-                                          ctx.*.emitter.emit_string(indent);
-                                          ctx.*.emitter.emit("__auto_type ");
-                                          ctx.*.emitter.emit_string(nt_tmp);
-                                          ctx.*.emitter.emit(" = ");
-                                          ctx.*.emitter.emit_string(rhs_code);
-                                          ctx.*.emitter.emit_line(";");
+                                          nt_tmp := ctx.fresh_temp();
+                                          ctx.emitter.emit_string(indent);
+                                          ctx.emitter.emit("__auto_type ");
+                                          ctx.emitter.emit_string(nt_tmp);
+                                          ctx.emitter.emit(" = ");
+                                          ctx.emitter.emit_string(rhs_code);
+                                          ctx.emitter.emit_line(";");
                                           // struct { T _0; T2 _1; ... T a; T2 b; ... } name = { ... };
-                                          ctx.*.emitter.emit_string(indent);
-                                          ctx.*.emitter.emit("struct { ");
+                                          ctx.emitter.emit_string(indent);
+                                          ctx.emitter.emit("struct { ");
                                           (pi : usize) = usize(0);
                                           while(runtime(pi < n_nt), {
                                             match(
                                               nt_fctypes.get(pi),
                                               .None => (),
                                               .Some(pct) => {
-                                                ctx.*.emitter.emit_string(pct);
-                                                ctx.*.emitter.emit(" _");
-                                                ctx.*.emitter.emit_string(pi.to_string());
-                                                ctx.*.emitter.emit("; ");
+                                                ctx.emitter.emit_string(pct);
+                                                ctx.emitter.emit(" _");
+                                                ctx.emitter.emit_string(pi.to_string());
+                                                ctx.emitter.emit("; ");
                                               }
                                             );
                                             pi = (pi + usize(1));
@@ -10541,48 +10542,48 @@ handle_assignment :: (
                                                 nt_fnames.get(ni2),
                                                 .None => (),
                                                 .Some(nfn) => {
-                                                  ctx.*.emitter.emit_string(nct);
-                                                  ctx.*.emitter.emit(" ");
-                                                  ctx.*.emitter.emit_string(nfn);
-                                                  ctx.*.emitter.emit("; ");
+                                                  ctx.emitter.emit_string(nct);
+                                                  ctx.emitter.emit(" ");
+                                                  ctx.emitter.emit_string(nfn);
+                                                  ctx.emitter.emit("; ");
                                                 }
                                               )
                                             );
                                             ni2 = (ni2 + usize(1));
                                           });
-                                          ctx.*.emitter.emit("} ");
-                                          ctx.*.emitter.emit_string(var_name);
-                                          ctx.*.emitter.emit(" = {");
+                                          ctx.emitter.emit("} ");
+                                          ctx.emitter.emit_string(var_name);
+                                          ctx.emitter.emit(" = {");
                                           // ._0 = tmp._0, ._1 = tmp._1, ...
                                           (ii : usize) = usize(0);
                                           while(runtime(ii < n_nt), {
                                             if(ii > usize(0), {
-                                              ctx.*.emitter.emit(", ");
+                                              ctx.emitter.emit(", ");
                                             });
-                                            ctx.*.emitter.emit("._");
-                                            ctx.*.emitter.emit_string(ii.to_string());
-                                            ctx.*.emitter.emit(" = ");
-                                            ctx.*.emitter.emit_string(nt_tmp);
-                                            ctx.*.emitter.emit("._");
-                                            ctx.*.emitter.emit_string(ii.to_string());
+                                            ctx.emitter.emit("._");
+                                            ctx.emitter.emit_string(ii.to_string());
+                                            ctx.emitter.emit(" = ");
+                                            ctx.emitter.emit_string(nt_tmp);
+                                            ctx.emitter.emit("._");
+                                            ctx.emitter.emit_string(ii.to_string());
                                             ii = (ii + usize(1));
                                           });
                                           // .a = tmp._0, .b = tmp._1, ...
                                           (ii2 : usize) = usize(0);
                                           while(runtime(ii2 < n_nt), {
-                                            ctx.*.emitter.emit(", .");
+                                            ctx.emitter.emit(", .");
                                             match(
                                               nt_fnames.get(ii2),
                                               .None => (),
-                                              .Some(nfn2) => ctx.*.emitter.emit_string(nfn2)
+                                              .Some(nfn2) => ctx.emitter.emit_string(nfn2)
                                             );
-                                            ctx.*.emitter.emit(" = ");
-                                            ctx.*.emitter.emit_string(nt_tmp);
-                                            ctx.*.emitter.emit("._");
-                                            ctx.*.emitter.emit_string(ii2.to_string());
+                                            ctx.emitter.emit(" = ");
+                                            ctx.emitter.emit_string(nt_tmp);
+                                            ctx.emitter.emit("._");
+                                            ctx.emitter.emit_string(ii2.to_string());
                                             ii2 = (ii2 + usize(1));
                                           });
-                                          ctx.*.emitter.emit_line("};");
+                                          ctx.emitter.emit_line("};");
                                           Option(String).Some(String.from("0"))
                                         }
                                       )
@@ -10596,12 +10597,12 @@ handle_assignment :: (
                             named_tuple_opt,
                             .Some(_) => named_tuple_opt,
                             .None => {
-                              ctx.*.emitter.emit_string(indent);
-                              ctx.*.emitter.emit("__auto_type ");
-                              ctx.*.emitter.emit_string(sanitize_c_ident(var_name.as_str()));
-                              ctx.*.emitter.emit(" = ");
-                              ctx.*.emitter.emit_string(rhs_code);
-                              ctx.*.emitter.emit_line(";");
+                              ctx.emitter.emit_string(indent);
+                              ctx.emitter.emit("__auto_type ");
+                              ctx.emitter.emit_string(sanitize_c_ident(var_name.as_str()));
+                              ctx.emitter.emit(" = ");
+                              ctx.emitter.emit_string(rhs_code);
+                              ctx.emitter.emit_line(";");
                               Option(String).Some(String.from("0"))
                             }
                           )
@@ -10615,12 +10616,12 @@ handle_assignment :: (
                           // Emit: indent + "c_ty name" + " = " + rhs + ";"
                           san_cty_name := sanitize_c_ident(var_name.as_str());
                           decl_cty := build_typed_decl(c_ty.as_str(), san_cty_name.as_str());
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit_string(decl_cty);
-                          ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(rhs_code);
-                          ctx.*.emitter.emit_line(";");
-                          ctx.*.register_var_type(var_name.as_str(), c_ty.as_str());
+                          ctx.emitter.emit_string(indent);
+                          ctx.emitter.emit_string(decl_cty);
+                          ctx.emitter.emit(" = ");
+                          ctx.emitter.emit_string(rhs_code);
+                          ctx.emitter.emit_line(";");
+                          ctx.register_var_type(var_name.as_str(), c_ty.as_str());
                           // If the type annotation is Option(T) or Result(T, E) with a numeric inner T,
                           // register the variable as T instead of void* so .map() closure params
                           // can infer the correct numeric type for to_string() and arithmetic.
@@ -10637,14 +10638,14 @@ handle_assignment :: (
                                 generic_type_app_field_c_type(inner_type_e),
                                 .None => (),
                                 .Some(inner_c_ty) => if(is_numeric_c_type(inner_c_ty.as_str()), {
-                                  ctx.*.register_var_type(var_name.as_str(), inner_c_ty.as_str());
+                                  ctx.register_var_type(var_name.as_str(), inner_c_ty.as_str());
                                 })
                               ),
                               type_app_receiver_is(inner_type_e, "Result") => match(
                                 generic_type_app_field_c_type(inner_type_e),
                                 .None => (),
                                 .Some(inner_c_ty) => if(is_numeric_c_type(inner_c_ty.as_str()), {
-                                  ctx.*.register_var_type(var_name.as_str(), inner_c_ty.as_str());
+                                  ctx.register_var_type(var_name.as_str(), inner_c_ty.as_str());
                                 })
                               ),
                               true => ()
@@ -10699,7 +10700,7 @@ handle_assignment :: (
 handle_assert :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -10710,10 +10711,10 @@ handle_assert :: (
       call_gen_expr(cond_expr, ctx, indent),
       .None => Option(String).None,
       .Some(cond_code) => {
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit("if (!(");
-        ctx.*.emitter.emit_string(cond_code);
-        ctx.*.emitter.emit_line(")) { exit(1); }");
+        ctx.emitter.emit_string(indent);
+        ctx.emitter.emit("if (!(");
+        ctx.emitter.emit_string(cond_code);
+        ctx.emitter.emit_line(")) { exit(1); }");
         .Some(String.from("0"))
       }
     )
@@ -10723,7 +10724,7 @@ handle_assert :: (
 handle_println :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -10736,7 +10737,7 @@ handle_println :: (
       .Some(value_code) => {
         // Wrap non-string values with a to-string helper so printf("%s\n", ...) is safe.
         print_arg := cond(
-          (value_code.starts_with(String.from("\"")) || (value_code.contains(String.from("__yo_")) || match(ctx.*.get_var_type(value_code.as_str()),.None => false,.Some(pln_vty) => (pln_vty.as_str() == "const char*")))) =>
+          (value_code.starts_with(String.from("\"")) || (value_code.contains(String.from("__yo_")) || match(ctx.get_var_type(value_code.as_str()),.None => false,.Some(pln_vty) => (pln_vty.as_str() == "const char*")))) =>
             value_code,
           true => match(
             value_expr,
@@ -10760,7 +10761,7 @@ handle_println :: (
                 pln_wb
               },
               true => match(
-                ctx.*.get_var_type(value_code.as_str()),
+                ctx.get_var_type(value_code.as_str()),
                 .None => value_code,
                 .Some(pln_ty) => cond(
                   ((pln_ty.as_str() == "int64_t") || ((pln_ty.as_str() == "int32_t") || ((pln_ty.as_str() == "int16_t") || ((pln_ty.as_str() == "int8_t") || (pln_ty.as_str() == "isize"))))) => {
@@ -10821,10 +10822,10 @@ handle_println :: (
             )
           )
         );
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit("printf(\"%s\\n\", ");
-        ctx.*.emitter.emit_string(print_arg);
-        ctx.*.emitter.emit_line(");");
+        ctx.emitter.emit_string(indent);
+        ctx.emitter.emit("printf(\"%s\\n\", ");
+        ctx.emitter.emit_string(print_arg);
+        ctx.emitter.emit_line(");");
         .Some(String.from("0"))
       }
     )
@@ -10899,7 +10900,7 @@ handle_struct_constructor :: (
   fn(
     type_name : String,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -10969,10 +10970,10 @@ handle_struct_constructor :: (
     (!(all_ok)) => Option(String).None,
     true => {
       match(
-        ctx.*.get_struct_defaults(type_name.as_str()),
+        ctx.get_struct_defaults(type_name.as_str()),
         .None => (),
         .Some(defaults_csv) => match(
-          ctx.*.get_struct_fields(type_name.as_str()),
+          ctx.get_struct_fields(type_name.as_str()),
           .None => (),
           .Some(fields_csv) => {
             default_values := _split_csv(defaults_csv.as_str());
@@ -11034,16 +11035,16 @@ handle_struct_constructor :: (
 /// May emit C statements into `ctx.emitter` as side effects (for begin blocks,
 /// while loops, etc.).  Returns the C expression that represents the value of
 /// `expr`, or `None` for unsupported constructs.
-generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))(
+generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String))(
   match(
     expr,
     // --- Atom expressions ---
     .Atom(_, tok) => cond(
       ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "continue")) => Option(String).Some(
         cond(
-          (ctx.*.current_continue_label.len() > usize(0)) => {
+          (ctx.current_continue_label.len() > usize(0)) => {
             continue_code := String.from("goto ");
-            continue_code.push_string(ctx.*.current_continue_label);
+            continue_code.push_string(ctx.current_continue_label);
             continue_code
           },
           true => String.from("continue")
@@ -11133,8 +11134,8 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ) => {
           // Use current function return type if it's a known named struct;
           // otherwise build an anonymous C struct type inline.
-          anon_ret_ty := ctx.*.current_fn_return_type.as_str();
-          use_named_ty_anon := ((anon_ret_ty.len() > usize(0)) && ctx.*.is_struct_name(anon_ret_ty));
+          anon_ret_ty := ctx.current_fn_return_type.as_str();
+          use_named_ty_anon := ((anon_ret_ty.len() > usize(0)) && ctx.is_struct_name(anon_ret_ty));
           result_anon := cond(
             use_named_ty_anon => {
               r := String.from("(");
@@ -11285,8 +11286,8 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 })
         ) => {
           // Use current function return type if it's a known named struct.
-          sh_ret_ty := ctx.*.current_fn_return_type.as_str();
-          use_named_ty_sh := ((sh_ret_ty.len() > usize(0)) && ctx.*.is_struct_name(sh_ret_ty));
+          sh_ret_ty := ctx.current_fn_return_type.as_str();
+          use_named_ty_sh := ((sh_ret_ty.len() > usize(0)) && ctx.is_struct_name(sh_ret_ty));
           result_sh := cond(
             use_named_ty_sh => {
               r := String.from("(");
@@ -11383,9 +11384,9 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(open_recv) => {
               // First look for direct anon-var tracking, then registered struct fields
               fields_opt := match(
-                ctx.*.get_open_var_fields(open_recv.as_str()),
+                ctx.get_open_var_fields(open_recv.as_str()),
                 .Some(f) => Option(String).Some(f),
-                .None => ctx.*.get_struct_fields(open_recv.as_str())
+                .None => ctx.get_struct_fields(open_recv.as_str())
               );
               match(
                 fields_opt,
@@ -11401,14 +11402,14 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                       field_list.get(fi_open - usize(1)),
                       .None => (),
                       .Some(fname_open) => {
-                        ctx.*.emitter.emit_string(indent);
-                        ctx.*.emitter.emit("__auto_type ");
-                        ctx.*.emitter.emit_string(fname_open);
-                        ctx.*.emitter.emit(" = ");
-                        ctx.*.emitter.emit_string(open_recv);
-                        ctx.*.emitter.emit(".");
-                        ctx.*.emitter.emit_string(fname_open);
-                        ctx.*.emitter.emit_line(";");
+                        ctx.emitter.emit_string(indent);
+                        ctx.emitter.emit("__auto_type ");
+                        ctx.emitter.emit_string(fname_open);
+                        ctx.emitter.emit(" = ");
+                        ctx.emitter.emit_string(open_recv);
+                        ctx.emitter.emit(".");
+                        ctx.emitter.emit_string(fname_open);
+                        ctx.emitter.emit_line(";");
                       }
                     );
                   });
@@ -11484,8 +11485,8 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ) => match(
           args.get(usize(0)),
           .None => {
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_line("return;");
+            ctx.emitter.emit_string(indent);
+            ctx.emitter.emit_line("return;");
             .Some(String.from("0"))
           },
           .Some(ret_expr) => {
@@ -11499,7 +11500,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   ret_fn_box.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, ret_begin_tok) => cond(
-                    ((ret_begin_tok.value.as_str() == BK_BEGIN) && (ctx.*.current_fn_return_type.len() > usize(0))) => match(
+                    ((ret_begin_tok.value.as_str() == BK_BEGIN) && (ctx.current_fn_return_type.len() > usize(0))) => match(
                       ret_args.get(usize(0)),
                       .None => Option(String).None,
                       .Some(ret_field_expr) => match(
@@ -11507,7 +11508,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                         .FnCall(_, _, _, _, _) => Option(String).None,
                         .Atom(_, ret_field_tok) => {
                           c := String.from("(");
-                          c.push_string(ctx.*.current_fn_return_type);
+                          c.push_string(ctx.current_fn_return_type);
                           c.push_str("){ .");
                           c.push_string(ret_field_tok.value);
                           c.push_str(" = ");
@@ -11531,10 +11532,10 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               ret_code_opt,
               .None => Option(String).None,
               .Some(ret_code) => {
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit("return ");
-                ctx.*.emitter.emit_string(ret_code);
-                ctx.*.emitter.emit_line(";");
+                ctx.emitter.emit_string(indent);
+                ctx.emitter.emit("return ");
+                ctx.emitter.emit_string(ret_code);
+                ctx.emitter.emit_line(";");
                 .Some(String.from("0"))
               }
             )
@@ -11554,23 +11555,23 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ) => match(
           args.get(usize(0)),
           .None => {
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_line("return;");
+            ctx.emitter.emit_string(indent);
+            ctx.emitter.emit_line("return;");
             .Some(String.from("0"))
           },
           .Some(esc_expr) => match(
             call_gen_expr(esc_expr, ctx, indent),
             // Unit unwind (tuple() → None): emit bare return
             .None => {
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit_line("return;");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit_line("return;");
               .Some(String.from("0"))
             },
             .Some(esc_code) => {
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit("return ");
-              ctx.*.emitter.emit_string(esc_code);
-              ctx.*.emitter.emit_line(";");
+              ctx.emitter.emit_string(indent);
+              ctx.emitter.emit("return ");
+              ctx.emitter.emit_string(esc_code);
+              ctx.emitter.emit_line(";");
               .Some(String.from("0"))
             }
           )
@@ -11583,8 +11584,8 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "break")
           )
         ) => {
-          ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit_line("break;");
+          ctx.emitter.emit_string(indent);
+          ctx.emitter.emit_line("break;");
           .Some(String.from("0"))
         },
         // continue — emit C `continue;`
@@ -11595,13 +11596,13 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "continue")
           )
         ) => {
-          ctx.*.emitter.emit_string(indent);
-          if(ctx.*.current_continue_label.len() > usize(0), {
-            ctx.*.emitter.emit("goto ");
-            ctx.*.emitter.emit_string(ctx.*.current_continue_label);
-            ctx.*.emitter.emit_line(";");
+          ctx.emitter.emit_string(indent);
+          if(ctx.current_continue_label.len() > usize(0), {
+            ctx.emitter.emit("goto ");
+            ctx.emitter.emit_string(ctx.current_continue_label);
+            ctx.emitter.emit_line(";");
           }, {
-            ctx.*.emitter.emit_line("continue;");
+            ctx.emitter.emit_line("continue;");
           });
           .Some(String.from("0"))
         },
@@ -11780,7 +11781,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             inner,
             .FnCall(_, _, _, _, _) => call_gen_expr(inner, ctx, indent),
             .Atom(_, inner_tok) => cond(
-              ((inner_tok.value.as_str() == "io") && ctx.*.get_var_type("io").is_none()) =>
+              ((inner_tok.value.as_str() == "io") && ctx.get_var_type("io").is_none()) =>
                 Option(String).Some(String.from("NULL")),
               true => call_gen_expr(inner, ctx, indent)
             )
@@ -11808,7 +11809,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(id) => {
             resolved_id := cond(
               (id.as_str() == "Self") => {
-                st := ctx.*.get_self_type();
+                st := ctx.get_self_type();
                 cond(
                   (st.len() > usize(0)) => String.from(st),
                   true => id
@@ -11829,7 +11830,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => {
               effective_id := cond(
                 (id.as_str() == "Self") => {
-                  st := ctx.*.get_self_type();
+                  st := ctx.get_self_type();
                   cond(
                     (st.len() > usize(0)) => String.from(st),
                     true => id
@@ -11837,7 +11838,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 },
                 true => id
               );
-              is_uppercase_start(effective_id) && ctx.*.is_struct_name(effective_id.as_str())
+              is_uppercase_start(effective_id) && ctx.is_struct_name(effective_id.as_str())
             }
           )
         ) => match(
@@ -11846,7 +11847,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(id) => {
             effective_id2 := cond(
               (id.as_str() == "Self") => {
-                st := ctx.*.get_self_type();
+                st := ctx.get_self_type();
                 cond(
                   (st.len() > usize(0)) => String.from(st),
                   true => id
@@ -11882,7 +11883,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               ai = (ai + usize(1));
             });
             match(
-              ctx.*.get_struct_defaults(effective_id2.as_str()),
+              ctx.get_struct_defaults(effective_id2.as_str()),
               .None => (),
               .Some(defaults_csv2) => {
                 default_values2 := _split_csv(defaults_csv2.as_str());
@@ -12047,7 +12048,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .None => Option(String).None,
             .Some(arg_s) => {
               result := String.new();
-              result.push_string(ctx.*.current_fn_name);
+              result.push_string(ctx.current_fn_name);
               result.push_str("(");
               result.push_string(arg_s);
               result.push_str(")");
@@ -12139,7 +12140,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               .FnCall(_, _, _, _, _) => match(
                 generic_type_app_base_name(func_box.*),
                 .None => false,
-                .Some(generic_base) => ctx.*.get_generic_struct_template_fields(generic_base.as_str()).is_some()
+                .Some(generic_base) => ctx.get_generic_struct_template_fields(generic_base.as_str()).is_some()
               )
             )
         ) => match(
@@ -12278,7 +12279,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 (rtok.kind == TokenKind.Bool) => true,
                 (rtok.kind == TokenKind.StringLit) => true,
                 // Identifier atoms: allow only known-defined names (variables)
-                (rtok.kind == TokenKind.Identifier) => ctx.*.is_defined_fn(rtok.value.as_str()),
+                (rtok.kind == TokenKind.Identifier) => ctx.is_defined_fn(rtok.value.as_str()),
                 true => false
               ),
               .FnCall(_, rhs_func, rhs_fargs, rhs_infix, _) => cond(
@@ -12347,7 +12348,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                                         (sa_tok.kind == TokenKind.StringLit) => {
                                           has_sl = true;
                                         },
-                                        ((sa_tok.kind == TokenKind.Identifier) && ctx.*.is_string_const(sa_tok.value.as_str())) => {
+                                        ((sa_tok.kind == TokenKind.Identifier) && ctx.is_string_const(sa_tok.value.as_str())) => {
                                           has_sl = true;
                                         },
                                         true => ()
@@ -12402,7 +12403,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                             .Some(ect_recv) => match(
                               ect_recv,
                               .Atom(_, ect_recv_tok) => (
-                                ctx.*.is_enum_name(ect_recv_tok.value.as_str()) &&
+                                ctx.is_enum_name(ect_recv_tok.value.as_str()) &&
                                   // Variant must have registered non-empty C fields; if fields are
                                   // comptime-only (e.g. comptime_int), get_variant_fields returns None
                                   // and we fall through to the no-op path.
@@ -12411,7 +12412,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                                     .None => false,
                                     .Some(ect_var) => match(
                                       ect_var,
-                                      .Atom(_, ect_var_tok) => ctx.*.get_variant_fields(
+                                      .Atom(_, ect_var_tok) => ctx.get_variant_fields(
                                         ect_recv_tok.value.as_str(),
                                         ect_var_tok.value.as_str()
                                       ).is_some(),
@@ -12459,9 +12460,9 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                       .Some(rhs_unary_chk) => expr_all_ids_known(rhs_unary_chk, ctx)
                     ),
                     // Registered function call: callee is a known Yo function
-                    (ctx.*.is_defined_fn(rftok.value.as_str())) => true,
+                    (ctx.is_defined_fn(rftok.value.as_str())) => true,
                     // Registered struct constructor: callee starts uppercase and is a known struct
-                    (ctx.*.is_struct_name(rftok.value.as_str())) => true,
+                    (ctx.is_struct_name(rftok.value.as_str())) => true,
                     // Primitive type cast: i32(0), u8(5), etc.
                     (is_primitive_type_cast(rftok.value.as_str())) => true,
                     true => false
@@ -12482,7 +12483,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   closure_param_name_from_impl_fn(rhs_e2),
                   .None => false,
                   .Some(closure_param_name) => {
-                    ctx.*.register_closure_alias(c_name.as_str(), closure_param_name.as_str());
+                    ctx.register_closure_alias(c_name.as_str(), closure_param_name.as_str());
                     true
                   }
                 );
@@ -12492,24 +12493,24 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   .Atom(_, alias_atom_tok) => cond(
                     (alias_atom_tok.kind != TokenKind.Identifier) => false,
                     !(
-                      ctx.*.is_struct_name(alias_atom_tok.value.as_str()) ||
-                        ctx.*.is_enum_name(alias_atom_tok.value.as_str())
+                      ctx.is_struct_name(alias_atom_tok.value.as_str()) ||
+                        ctx.is_enum_name(alias_atom_tok.value.as_str())
                     ) => false,
                     true => {
                       san_type_name := sanitize_c_ident(c_name.as_str());
-                      ctx.*.emitter.emit_string(indent);
-                      ctx.*.emitter.emit("typedef ");
-                      ctx.*.emitter.emit_string(sanitize_c_ident(alias_atom_tok.value.as_str()));
-                      ctx.*.emitter.emit(" ");
-                      ctx.*.emitter.emit_string(san_type_name);
-                      ctx.*.emitter.emit_line(";");
+                      ctx.emitter.emit_string(indent);
+                      ctx.emitter.emit("typedef ");
+                      ctx.emitter.emit_string(sanitize_c_ident(alias_atom_tok.value.as_str()));
+                      ctx.emitter.emit(" ");
+                      ctx.emitter.emit_string(san_type_name);
+                      ctx.emitter.emit_line(";");
                       cond(
-                        ctx.*.is_struct_name(alias_atom_tok.value.as_str()) => {
-                          ctx.*.register_struct(String.from(c_name.as_str()));
+                        ctx.is_struct_name(alias_atom_tok.value.as_str()) => {
+                          ctx.register_struct(String.from(c_name.as_str()));
                           true
                         },
                         true => {
-                          ctx.*.register_enum(String.from(c_name.as_str()));
+                          ctx.register_enum(String.from(c_name.as_str()));
                           true
                         }
                       )
@@ -12550,20 +12551,20 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                                 (
                                   (type_alias_tok.value.as_str() == "Tuple") ||
                                     has_defaults_for_alias ||
-                                      (!(ctx.*.is_struct_name(c_name.as_str())))
+                                      (!(ctx.is_struct_name(c_name.as_str())))
                                 )
                             );
                             if(should_emit_alias, {
-                              ctx.*.emitter.emit_string(indent);
-                              ctx.*.emitter.emit("typedef ");
-                              ctx.*.emitter.emit_string(type_alias_c);
-                              ctx.*.emitter.emit(" ");
-                              ctx.*.emitter.emit_string(san_type_name);
-                              ctx.*.emitter.emit_line(";");
-                              ctx.*.register_struct(String.from(c_name.as_str()));
+                              ctx.emitter.emit_string(indent);
+                              ctx.emitter.emit("typedef ");
+                              ctx.emitter.emit_string(type_alias_c);
+                              ctx.emitter.emit(" ");
+                              ctx.emitter.emit_string(san_type_name);
+                              ctx.emitter.emit_line(";");
+                              ctx.register_struct(String.from(c_name.as_str()));
                             });
                             if(has_defaults_for_alias, {
-                              ctx.*.register_struct_defaults(c_name.as_str(), defaults_csv_for_alias.as_str());
+                              ctx.register_struct_defaults(c_name.as_str(), defaults_csv_for_alias.as_str());
                             });
                             should_emit_alias || has_defaults_for_alias
                           }
@@ -12635,17 +12636,17 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                             .None =>.Some(String.from("0")),
                             .Some(first2) => {
                               san_il := sanitize_c_ident(c_name.as_str());
-                              ctx.*.emitter.emit_string(indent);
-                              ctx.*.emitter.emit("__typeof__(");
-                              ctx.*.emitter.emit_string(first2);
-                              ctx.*.emitter.emit(") ");
-                              ctx.*.emitter.emit_string(san_il);
-                              ctx.*.emitter.emit("[");
-                              ctx.*.emitter.emit_string(n_il2.to_string());
-                              ctx.*.emitter.emit("] = ");
-                              ctx.*.emitter.emit_string(init_il2);
-                              ctx.*.emitter.emit_line(";");
-                              ctx.*.register_array_var_with_size(c_name.as_str(), n_il2.to_string().as_str());
+                              ctx.emitter.emit_string(indent);
+                              ctx.emitter.emit("__typeof__(");
+                              ctx.emitter.emit_string(first2);
+                              ctx.emitter.emit(") ");
+                              ctx.emitter.emit_string(san_il);
+                              ctx.emitter.emit("[");
+                              ctx.emitter.emit_string(n_il2.to_string());
+                              ctx.emitter.emit("] = ");
+                              ctx.emitter.emit_string(init_il2);
+                              ctx.emitter.emit_line(";");
+                              ctx.register_array_var_with_size(c_name.as_str(), n_il2.to_string().as_str());
                               .Some(String.from("0"))
                             }
                           )
@@ -12659,13 +12660,13 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                     call_gen_expr(rhs_e2, ctx, indent),
                     .None =>.Some(String.from("0")),
                     .Some(rhs_code) => {
-                      ctx.*.emitter.emit_string(indent);
-                      ctx.*.emitter.emit("__auto_type ");
-                      ctx.*.emitter.emit_string(c_name);
-                      ctx.*.emitter.emit(" = ");
-                      ctx.*.emitter.emit_string(rhs_code);
-                      ctx.*.emitter.emit_line(";");
-                      ctx.*.register_const_var(c_name.as_str());
+                      ctx.emitter.emit_string(indent);
+                      ctx.emitter.emit("__auto_type ");
+                      ctx.emitter.emit_string(c_name);
+                      ctx.emitter.emit(" = ");
+                      ctx.emitter.emit_string(rhs_code);
+                      ctx.emitter.emit_line(";");
+                      ctx.register_const_var(c_name.as_str());
                       // Track string constants so we can reject string `+` in dependent bindings
                       is_str_rhs := match(
                         rhs_e2,
@@ -12673,7 +12674,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                         .FnCall(_, _, _, _, _) => false
                       );
                       if(is_str_rhs, {
-                        ctx.*.register_string_const(c_name.as_str());
+                        ctx.register_string_const(c_name.as_str());
                       });
                       .Some(String.from("0"))
                     }

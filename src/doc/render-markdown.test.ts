@@ -133,7 +133,7 @@ describe("renderFunctionMd", () => {
         },
         {
           name: "io",
-          type: "IO",
+          type: "Io",
           isComptime: false,
         },
       ],

@@ -9,13 +9,14 @@ import {
 } from "../env";
 import type { Expr } from "../expr";
 import Parser from "../parser";
-import { TokenType, type Token } from "../token";
+import type { Token } from "../token";
 import { isSourceNamespaceType } from "../types/guards";
 import type { StructValue } from "../value";
 import { extractDocComments, getDocCommentLookupKey } from "../doc/extractor";
 
 // Import extracted evaluator functions
 import { YoError, YoLexerError } from "../error";
+import { preScanForSkipPrelude } from "./builtins/pragma";
 import type { LoadModuleFn } from "./context";
 import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous-module";
 import {
@@ -33,23 +34,6 @@ export {
 
 const SKIP_PRELUDE =
   process.env.YO_SKIP_PRELUDE === "1" || process.env.YO_SKIP_PRELUDE === "true";
-
-/**
- * Check if any plain single-line (`//`) or multi-line block comment in the
- * tokens contains a specific attribute. Doc comment tokens (`///`, `//!`,
- * `/**`, `/*!`) are deliberately excluded so that documentation that merely
- * mentions an attribute (e.g. to describe what `@skip_prelude` does) does
- * not trigger it. Useful for checking attributes like @skip_prelude,
- * @no-implicit-prelude, etc.
- */
-function hasCommentAttribute(tokens: Token[], attribute: string): boolean {
-  return tokens.some(
-    (token) =>
-      (token.type === TokenType.SingleLineComment ||
-        token.type === TokenType.MultiLineComment) &&
-      token.value.includes(attribute)
-  );
-}
 
 /**
  * This class is responsible for:
@@ -135,8 +119,13 @@ export default class Evaluator {
       inputString: this.inputString,
     });
 
-    // Auto-import prelude unless the file has @skip_prelude comment
-    const skipPrelude = hasCommentAttribute(this.tokens, "@skip_prelude");
+    // Auto-import prelude unless the file declared
+    // `pragma(Pragma.SkipPrelude);` at the top level. This pre-scan
+    // runs before the prelude is loaded — by definition, the file
+    // doesn't have `Pragma` in scope yet — so we match the call by
+    // AST shape. Other pragma variants are validated by full
+    // evaluation in `evaluatePragma`. See plans/MEMORY_SAFETY.md.
+    const skipPrelude = preScanForSkipPrelude(this.program, this.modulePath);
 
     if (!skipPrelude && !SKIP_PRELUDE) {
       const preludePath = "file://" + path.join(stdPath, "prelude.yo");

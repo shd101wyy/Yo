@@ -51,8 +51,8 @@ Before listing gaps, here is what **already exists** and is usable:
 Implemented in `std/process/command.yo`:
 
 - `Command :: object(_program, _args, _stdin_fd, _stdout_fd, _stderr_fd)` with builder methods `Command.new(prog)`, `arg(s)`, `args(list)`.
-- `status(using(io)) -> Future(ExitStatus, IO, Exception)` — inherits stdio, waits for child.
-- `output(using(io)) -> Future(Output, IO, Exception)` — captures stdout/stderr through pipes.
+- `status(using(io)) -> Future(ExitStatus, Io, Exception)` — inherits stdio, waits for child.
+- `output(using(io)) -> Future(Output, Io, Exception)` — captures stdout/stderr through pipes.
 - `ExitStatus :: struct(raw)` with `success()`, `code()`, `signal()` helpers.
 - `Output :: object(status, stdout, stderr)`.
 

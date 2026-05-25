@@ -4,9 +4,10 @@
 //! and managing the global dependency cache (~/.cache/yo/deps/).
 //!
 //! This mirrors `src/fetch.ts`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { Command } :: import("std/process/command");
-{ AnyError, Exception, IOErr } :: import("std/error");
+{ AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { read_file, write_file, write_bytes, exists } :: import("std/fs/file");
@@ -71,7 +72,7 @@ SIDECAR_FILENAME :: ".yo-content-hash";
 // ---------------------------------------------------------------------------
 /// Recursive directory removal.
 /// Walks the tree (parents first), then deletes in reverse order.
-remove_dir_all :: (fn(path : Path, io : IO, exn : Exception) -> Impl(Future(unit, IOErr)))(
+remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
   io.async((io, exn) => {
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
     entries := io.await(walk_with(path, opts, io), io);
@@ -189,19 +190,19 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   })
 });
 /// Push a str literal as bytes into an ArrayList(u8).
-_push_str_bytes :: (fn(buf : *(ArrayList(u8)), s : str) -> unit)({
+_push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
   while(runtime(k < n), {
     {
-      buf.*.push((p &+ k).*);
+      buf.push((p &+ k).*);
     };
     k = (k + usize(1));
   });
 });
 /// Push a String's bytes into an ArrayList(u8).
-_push_string_bytes :: (fn(buf : *(ArrayList(u8)), s : String) -> unit)({
+_push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
@@ -210,7 +211,7 @@ _push_string_bytes :: (fn(buf : *(ArrayList(u8)), s : String) -> unit)({
       bytes.get(k),
       .None => (),
       .Some(b) => {
-        buf.*.push(b);
+        buf.push(b);
       }
     );
     k = (k + usize(1));
@@ -227,9 +228,9 @@ _HashWorkItem :: object(
 compute_content_hash :: (
   fn(
     dir_path : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     hasher := Sha256.new();
@@ -286,8 +287,8 @@ compute_content_hash :: (
         if(!(is_hidden), {
           // Hash "dir:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes(&(prefix_bytes), "dir:");
-          _push_string_bytes(&(prefix_bytes), item.rel_path);
+          _push_str_bytes(prefix_bytes, "dir:");
+          _push_string_bytes(prefix_bytes, item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
           // Read and sort subdir entries, push in reversed order
@@ -326,8 +327,8 @@ compute_content_hash :: (
         if(!(is_sidecar), {
           // Hash "file:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes(&(prefix_bytes), "file:");
-          _push_string_bytes(&(prefix_bytes), item.rel_path);
+          _push_str_bytes(prefix_bytes, "file:");
+          _push_string_bytes(prefix_bytes, item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
           // Read file content, normalize line endings, then hash
@@ -359,9 +360,9 @@ write_sidecar_hash :: (
   fn(
     cached_path : String,
     content_hash : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
@@ -374,9 +375,9 @@ write_sidecar_hash :: (
 read_sidecar_hash :: (
   fn(
     cached_path : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Option(String), IOErr))
+  ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((io, exn) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
@@ -405,9 +406,9 @@ inspect_cached_dep :: (
     dep_name : String,
     commit : String,
     hash : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(CachedDepState, IOErr))
+  ) -> Impl(Future(CachedDepState, IoExn))
 )(
   io.async((io, exn) => {
     cached_path := get_cached_dep_dir(cache_dir, dep_name, commit);
@@ -461,9 +462,9 @@ resolve_git_ref :: (
   fn(
     url : String,
     ref : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     cmd := Command.new(String.from("git"));
@@ -507,9 +508,9 @@ clone_repo :: (
     url : String,
     commit : String,
     dep_name : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     target_dir := get_cached_dep_dir(cache_dir, dep_name, commit);
@@ -596,9 +597,9 @@ fetch_dep :: (
     lock_file : LockFile,
     verbose : bool,
     update : bool,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(FetchDepResult, IOErr))
+  ) -> Impl(Future(FetchDepResult, IoExn))
 )(
   io.async((io, exn) => {
     existing_entry := find_lock_entry(lock_file, dep.name);
@@ -723,9 +724,9 @@ fetch_all_deps :: (
     deps : ArrayList(BuildGitDependency),
     verbose : bool,
     update : bool,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(FetchResult, IOErr))
+  ) -> Impl(Future(FetchResult, IoExn))
 )(
   io.async((io, exn) => {
     cache_dir := io.await(ensure_global_deps_cache_dir(), io);
@@ -804,9 +805,9 @@ are_deps_cached :: (
   fn(
     project_dir : String,
     deps : ArrayList(BuildGitDependency),
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(bool, IOErr))
+  ) -> Impl(Future(bool, IoExn))
 )(
   io.async((io, exn) => {
     if(deps.len() == usize(0), {
@@ -848,9 +849,9 @@ resolve_dep_path :: (
     project_dir : String,
     dep_name : String,
     dep_sub : Option(String),
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Option(String), IOErr))
+  ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((io, exn) => {
     lock_file := io.await(read_lock_file(Path.new(project_dir)), io);

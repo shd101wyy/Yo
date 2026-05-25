@@ -10,6 +10,7 @@
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
 //! Phase 3w: effect-row forall `E : Type.Struct` and effect-row spread `E : Type.Struct` in  are now fully implemented.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -90,14 +91,14 @@ open(import("std/fmt"));
 register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
   cond(
     (indices.len() > usize(0)) => {
-      ___ := g_macro_quoted_param_indices.set((&(func_id)).clone(), indices);
+      ___ := g_macro_quoted_param_indices.set(func_id.clone(), indices);
     },
     true => ()
   );
 });
 /// Mark a function as having an `unquote(...)` return type. Idempotent.
 register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
-  ___ := g_macro_return_is_unquote.set((&(func_id)).clone(), true);
+  ___ := g_macro_return_is_unquote.set(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
 get_macro_quoted_param_indices :: (fn(func_id : str) -> ArrayList(usize))(
@@ -203,7 +204,7 @@ _get_expr_type :: (
   fn(
     expr : AstExpr,
     env_mut : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> TypeValue
 )({
@@ -249,17 +250,17 @@ _get_expr_type :: (
 _eval_and_update_env :: (
   fn(
     expr : AstExpr,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )({
-  evaluated := evaluate_expression_raw(expr, env_mut.*, ctx, exn);
+  evaluated := evaluate_expression_raw(expr, env_mut, ctx, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     info_opt,
     .Some(info) => {
-      env_mut.* = info.env;
+      env_mut = info.env;
       if(
         is_type_value(info.value),
         .Some(
@@ -284,8 +285,8 @@ _eval_and_update_env :: (
 _try_eval_comptime_type :: (
   fn(
     type_expr : AstExpr,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )(
@@ -418,8 +419,8 @@ extract_comptime_parameter_info :: (
 evaluate_function_parameter :: (
   fn(
     expr : AstExpr,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     is_parameter_comptime_by_default : bool,
     allow_shadowing : bool,
     exn : Exception
@@ -710,12 +711,12 @@ evaluate_function_parameter :: (
       // Use raw evaluator path so throws (e.g. propagated from
       // nested type evaluations) reach the caller's exn cleanly
       // instead of via the panic wrapper.
-      evaluated_dve := evaluate_expression_raw(dve, env_mut.*, ctx, exn);
+      evaluated_dve := evaluate_expression_raw(dve, env_mut, ctx, exn);
       info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dve));
       match(
         info_opt,
         .Some(info) => {
-          env_mut.* = info.env;
+          env_mut = info.env;
           dv_val_opt := info.value;
           // Coerce comptime types (e.g. comptime_string) to their runtime
           // equivalents when the param has an explicit annotation. Mirrors
@@ -726,7 +727,7 @@ evaluate_function_parameter :: (
           dv_ty := convert_comptime_type_to_runtime_type_with_expected(
             info.ty,
             param_type,
-            env_mut.*
+            env_mut
           );
           match(
             dv_val_opt,
@@ -900,7 +901,7 @@ use_id :: (fn(forall(T : Type),
   label_str := match(label,.Some(l) => l,.None => String.from("?"));
   lbl_tok := match(label_expr,.Some(e) => ast_expr_token(e),.None => ast_expr_token(expr));
   // Check if variable already exists from where clause or pre-add pass
-  existing_vars := get_variables_from_env(env_mut.*, label_str);
+  existing_vars := get_variables_from_env(env_mut, label_str);
   n_existing := existing_vars.len();
   // Find where-clause pre-created SomeT variable (last binding that is a SomeT)
   (existing_where_var : Option(Variable)) = Option(Variable).None;
@@ -1017,7 +1018,7 @@ use_id :: (fn(forall(T : Type),
       match(
         label_expr,
         .Some(le) => {
-          le_info := new_expr_info(env_mut.*, actual_param_type);
+          le_info := new_expr_info(env_mut, actual_param_type);
           le_info.value =.Some(match(wv.value,.Some(v) => v,.None => EvalValue.UnitVal));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
         },
@@ -1033,7 +1034,7 @@ use_id :: (fn(forall(T : Type),
           match(
             label_expr,
             .Some(le) => {
-              le_info := new_expr_info(env_mut.*, actual_param_type);
+              le_info := new_expr_info(env_mut, actual_param_type);
               le_info.value = pv.value;
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
             },
@@ -1087,7 +1088,7 @@ use_id :: (fn(forall(T : Type),
           match(
             label_expr,
             .Some(le) => {
-              le_info := new_expr_info(env_mut.*, actual_param_type);
+              le_info := new_expr_info(env_mut, actual_param_type);
               le_info.value = param_val;
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
             },
@@ -1102,7 +1103,7 @@ use_id :: (fn(forall(T : Type),
     label_expr,
     .Some(le) => {
       if(ast_expr_id(le) != ast_expr_id(expr), {
-        outer_info := new_expr_info(env_mut.*, TypeValue.Unit);
+        outer_info := new_expr_info(env_mut, TypeValue.Unit);
         outer_info.value =.Some(EvalValue.UnitVal);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), outer_info);
       });
@@ -1129,8 +1130,8 @@ validate_concrete_type_constraints :: (
     concrete_type : TypeValue,
     rhs_expr : AstExpr,
     constraint_expr : AstExpr,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -1182,7 +1183,7 @@ validate_concrete_type_constraints :: (
       }
     );
     (negated : bool) = match(trait_negated.get(j),.Some(b) => b,.None => false);
-    evaled_t := evaluate_expression_raw(t_expr, env_mut.*, ctx, exn);
+    evaled_t := evaluate_expression_raw(t_expr, env_mut, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_t));
     _ := evaled_t;
     info := match(
@@ -1199,10 +1200,10 @@ validate_concrete_type_constraints :: (
             )
           )
         );
-        new_expr_info(env_mut.*, t_unit())
+        new_expr_info(env_mut, t_unit())
       }
     );
-    env_mut.* = info.env;
+    env_mut = info.env;
     if(is_type_value(info.value), {
       tv := match(
         info.value,
@@ -1249,7 +1250,7 @@ validate_concrete_type_constraints :: (
           )
         );
       });
-      implemented := type_implements_trait_bool(concrete_type, tv, env_mut.*);
+      implemented := type_implements_trait_bool(concrete_type, tv, env_mut);
       if(negated, {
         if(implemented, {
           exn.throw(
@@ -1304,8 +1305,8 @@ apply_single_trait_constraint :: (
     lhs_expr : AstExpr,
     trait_expr : AstExpr,
     original_constraint_expr : AstExpr,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> bool
 )({
@@ -1324,7 +1325,7 @@ apply_single_trait_constraint :: (
   (some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
   if(ast_expr_is_atom(lhs_expr), {
     var_name := ast_expr_token(lhs_expr).value;
-    existing_vars := get_variables_from_env(env_mut.*, var_name);
+    existing_vars := get_variables_from_env(env_mut, var_name);
     if(existing_vars.len() == usize(0), {
       return(false);
     });
@@ -1357,7 +1358,7 @@ apply_single_trait_constraint :: (
   }, {
     // Evaluate LHS expression
     (lhs_ty : TypeValue) = TypeValue.Unit;
-    evaluated := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, exn);
+    evaluated := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
     info := match(
       info_opt,
@@ -1369,7 +1370,7 @@ apply_single_trait_constraint :: (
     if(!(is_type_value(info.value)), {
       return(false);
     });
-    env_mut.* = info.env;
+    env_mut = info.env;
     lhs_ty = match(info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
     if(is_some_type(lhs_ty), {
       some_ty_opt =.Some(lhs_ty);
@@ -1388,7 +1389,7 @@ apply_single_trait_constraint :: (
   );
   // Evaluate trait expression (unwrapped)
   (trait_ty : TypeValue) = TypeValue.Unit;
-  evaluated_rhs := evaluate_expression_raw(unwrapped_trait_expr, env_mut.*, ctx, exn);
+  evaluated_rhs := evaluate_expression_raw(unwrapped_trait_expr, env_mut, ctx, exn);
   info_rhs_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
   info_rhs := match(
     info_rhs_opt,
@@ -1400,7 +1401,7 @@ apply_single_trait_constraint :: (
   if(!(is_type_value(info_rhs.value)), {
     return(false);
   });
-  env_mut.* = info_rhs.env;
+  env_mut = info_rhs.env;
   trait_ty = match(info_rhs.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
   if(!(is_trait_type(trait_ty)), {
     exn.throw(
@@ -1441,8 +1442,8 @@ apply_single_trait_constraint :: (
 parse_where_clause_constraints :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     collect_pending : bool,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
@@ -1480,7 +1481,7 @@ parse_where_clause_constraints :: (
     (skip_constraint : bool) = false;
     if(ast_expr_is_atom(lhs_expr), {
       var_name := ast_expr_token(lhs_expr).value;
-      existing_vars := get_variables_from_env(env_mut.*, var_name);
+      existing_vars := get_variables_from_env(env_mut, var_name);
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.get(existing_vars.len() - usize(1)),.Some(v) => v,.None => return(pending_traits));
         match(
@@ -1551,7 +1552,7 @@ parse_where_clause_constraints :: (
           ast_expr_token(lhs_expr)
         );
         // Set expr info on lhs
-        lhs_info := new_expr_info(env_mut.*, type_of_type(new_some_ty));
+        lhs_info := new_expr_info(env_mut, type_of_type(new_some_ty));
         lhs_info.value =.Some(tv);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_expr), lhs_info);
         some_ty_opt =.Some(new_some_ty);
@@ -1559,7 +1560,7 @@ parse_where_clause_constraints :: (
     }, {
       // Evaluate LHS expression
       // Note: errors propagate via outer exn (simplified from TS try/catch pattern)
-      evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, exn);
+      evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
       lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
       lhs_info := match(
         lhs_info_opt,
@@ -1575,7 +1576,7 @@ parse_where_clause_constraints :: (
               )
             )
           );
-          new_expr_info(env_mut.*, TypeValue.Unit)
+          new_expr_info(env_mut, TypeValue.Unit)
         }
       );
       if(!(is_type_value(lhs_info.value)), {
@@ -1590,7 +1591,7 @@ parse_where_clause_constraints :: (
           )
         );
       });
-      env_mut.* = lhs_info.env;
+      env_mut = lhs_info.env;
       lhs_tv := match(lhs_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
       // HKT TypeApplication case (stub — not yet implemented)
       if(is_type_application_type(lhs_tv), {
@@ -1656,7 +1657,7 @@ parse_where_clause_constraints :: (
       // Try to evaluate trait expression
       // Note: errors propagate via outer exn (collect_pending fallback simplified)
       (trait_ty2 : TypeValue) = TypeValue.Unit;
-      evaluated_trait := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, exn);
+      evaluated_trait := evaluate_expression_raw(unwrapped_te, env_mut, ctx, exn);
       trait_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_trait));
       (skip_iter : bool) = false;
       trait_info := match(
@@ -1677,7 +1678,7 @@ parse_where_clause_constraints :: (
           });
           _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
           skip_iter = true;
-          new_expr_info(env_mut.*, TypeValue.Unit)
+          new_expr_info(env_mut, TypeValue.Unit)
         }
       );
       if(skip_iter, {
@@ -1702,7 +1703,7 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
-      env_mut.* = trait_info.env;
+      env_mut = trait_info.env;
       trait_ty2 = match(trait_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
       if(!(is_trait_type(trait_ty2)), {
         exn.throw(
@@ -1744,8 +1745,8 @@ parse_where_clause_constraints :: (
 apply_where_clause_constraints :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )(
@@ -1764,8 +1765,8 @@ apply_where_clause_constraints :: (
 prepare_where_clause_variables :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
@@ -1789,7 +1790,7 @@ prepare_where_clause_variables :: (
     // Ensure LHS variable exists — create SomeType if needed
     if(ast_expr_is_atom(lhs_expr), {
       var_name := ast_expr_token(lhs_expr).value;
-      existing_vars := get_variables_from_env(env_mut.*, var_name);
+      existing_vars := get_variables_from_env(env_mut, var_name);
       if(existing_vars.len() == usize(0), {
         // Create new SomeType for this variable
         top_frame := env_mut.frames.len();
@@ -1814,7 +1815,7 @@ prepare_where_clause_variables :: (
           ast_expr_token(lhs_expr)
         );
         // Set expr info on lhs
-        lhs_info := new_expr_info(env_mut.*, type_of_type(new_some_ty));
+        lhs_info := new_expr_info(env_mut, type_of_type(new_some_ty));
         lhs_info.value =.Some(tv);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_expr), lhs_info);
       });
@@ -1848,8 +1849,8 @@ prepare_where_clause_variables :: (
 retry_pending_constraints :: (
   fn(
     pending : ArrayList(PendingConstraint),
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
@@ -1891,8 +1892,8 @@ retry_pending_constraints :: (
 evaluate_function_parameters :: (
   fn(
     param_exprs : ArrayList(AstExpr),
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> FuncParamsResult
 )({
@@ -1928,7 +1929,7 @@ evaluate_function_parameters :: (
         if(ast_expr_is_fn_call_of(tp_expr, "...",.Some(usize(1))) &&
           ast_expr_is_atom(match(_fn_call_args(tp_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
           inner_arg := match(_fn_call_args(tp_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
-          row_var_name := (&(ast_expr_token(inner_arg).value)).clone();
+          row_var_name := ast_expr_token(inner_arg).value.clone();
           // Duplicate check
           (erd_found : bool) = false;
           (erdi : usize) = usize(0);
@@ -1966,7 +1967,7 @@ evaluate_function_parameters :: (
           );
           eff_row_some_type := TypeValue.SomeT(
             generate_some_type_id(),
-            (&(row_var_name)).clone(),
+            row_var_name.clone(),
             er_frame_level,
             Box(TypeValue)(TypeValue.TypeUni(usize(1))),
             ArrayList(TypeValue).new(),
@@ -1979,9 +1980,9 @@ evaluate_function_parameters :: (
           row_kind_type := TypeValue.TypeUni(usize(1));
           _ := add_variable_to_env(
             env_mut,
-            (&(row_var_name)).clone(),
-            (&(row_kind_type)).clone(),
-            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)((&(eff_row_some_type)).clone()))),
+            row_var_name.clone(),
+            row_kind_type.clone(),
+            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)(eff_row_some_type.clone()))),
             true,
             false,
             false,
@@ -1990,8 +1991,8 @@ evaluate_function_parameters :: (
           );
           forall_params.push(
             FuncParam(
-              (&(row_var_name)).clone(),
-              (&(row_kind_type)).clone(),
+              row_var_name.clone(),
+              row_kind_type.clone(),
               true,
               false,
               false,
@@ -2073,9 +2074,9 @@ evaluate_function_parameters :: (
       if(ast_expr_is_fn_call_of(impl_expr, "...",.Some(usize(1))) &&
         ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
         inner_arg2 := match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
-        row_var_name2 := (&(ast_expr_token(inner_arg2).value)).clone();
+        row_var_name2 := ast_expr_token(inner_arg2).value.clone();
         // Look up E (must have been declared in forall)
-        row_vars := get_variables_from_env(env_mut.*, (&(row_var_name2)).clone());
+        row_vars := get_variables_from_env(env_mut, row_var_name2.clone());
         if(row_vars.len() == usize(0), {
           exn.throw(
             dyn(
@@ -2111,10 +2112,10 @@ evaluate_function_parameters :: (
               .Some(ev) => {
                 if(is_type_val(ev) && !(eff_row_handled), {
                   inner_ty := match(ev,.TypeVal(b) => b.*, _ => TypeValue.Unit);
-                  if(is_effects_row_type((&(inner_ty)).clone()), {
+                  if(is_effects_row_type(inner_ty.clone()), {
                     // Expand concrete EffectsRowT into individual params
                     match(
-                      (&(inner_ty)).clone(),
+                      inner_ty.clone(),
                       .EffectsRowT(row_ls, row_ts) => {
                         (ki : usize) = usize(0);
                         while(runtime(ki < row_ls.len()), {
@@ -2122,8 +2123,8 @@ evaluate_function_parameters :: (
                           ty := match(row_ts.get(ki),.Some(t) => t,.None => TypeValue.Unit);
                           implicit_params.push(
                             FuncParam(
-                              (&(lbl)).clone(),
-                              (&(ty)).clone(),
+                              lbl.clone(),
+                              ty.clone(),
                               true,
                               false,
                               false,
@@ -2140,7 +2141,7 @@ evaluate_function_parameters :: (
                   }, {
                     // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
                     is_er_some := match(
-                      (&(inner_ty)).clone(),
+                      inner_ty.clone(),
                       .SomeT(_, _, _, _, _, _, _, _, is_er, _) => is_er,
                       _ => false
                     );
@@ -2159,8 +2160,8 @@ evaluate_function_parameters :: (
                     // Push spread marker
                     implicit_params.push(
                       FuncParam(
-                        (&(row_var_name2)).clone(),
-                        (&(inner_ty)).clone(),
+                        row_var_name2.clone(),
+                        inner_ty.clone(),
                         true,
                         false,
                         false,
@@ -2173,10 +2174,10 @@ evaluate_function_parameters :: (
                 });
                 if(is_unknown_val(ev) && !(eff_row_handled), {
                   inner_ty2 := match(ev,.UnknownVal(b) => b.*, _ => TypeValue.Unit);
-                  if(is_effects_row_type((&(inner_ty2)).clone()), {
+                  if(is_effects_row_type(inner_ty2.clone()), {
                     // Expand EffectsRowT
                     match(
-                      (&(inner_ty2)).clone(),
+                      inner_ty2.clone(),
                       .EffectsRowT(row_ls2, row_ts2) => {
                         (ki2 : usize) = usize(0);
                         while(runtime(ki2 < row_ls2.len()), {
@@ -2184,8 +2185,8 @@ evaluate_function_parameters :: (
                           ty2 := match(row_ts2.get(ki2),.Some(t) => t,.None => TypeValue.Unit);
                           implicit_params.push(
                             FuncParam(
-                              (&(lbl2)).clone(),
-                              (&(ty2)).clone(),
+                              lbl2.clone(),
+                              ty2.clone(),
                               true,
                               false,
                               false,
@@ -2207,7 +2208,7 @@ evaluate_function_parameters :: (
                     );
                     fresh_some_t := TypeValue.SomeT(
                       generate_some_type_id(),
-                      (&(row_var_name2)).clone(),
+                      row_var_name2.clone(),
                       er_fl,
                       Box(TypeValue)(TypeValue.TypeUni(usize(1))),
                       ArrayList(TypeValue).new(),
@@ -2219,8 +2220,8 @@ evaluate_function_parameters :: (
                     );
                     implicit_params.push(
                       FuncParam(
-                        (&(row_var_name2)).clone(),
-                        (&(fresh_some_t)).clone(),
+                        row_var_name2.clone(),
+                        fresh_some_t.clone(),
                         true,
                         false,
                         false,
@@ -2809,7 +2810,7 @@ evaluate_function_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -2855,7 +2856,7 @@ evaluate_function_type :: (
   ctx.is_evaluating_function_type = true;
   // Evaluate parameters (pushes a new env frame, doesn't pop it)
   (env_mut : Environment) = env;
-  params_result := evaluate_function_parameters(arg_list, &(env_mut), ctx, exn);
+  params_result := evaluate_function_parameters(arg_list, env_mut, ctx, exn);
   // Restore context flag
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;
   // Parse return type
@@ -3017,7 +3018,7 @@ evaluate_function_type :: (
   // Evaluate return type expression
   prev_eval_fn := ctx.is_evaluating_function_type;
   ctx.is_evaluating_function_type = true;
-  ret_type_opt := _eval_and_update_env(return_type_expr, &(env_mut), ctx, exn);
+  ret_type_opt := _eval_and_update_env(return_type_expr, env_mut, ctx, exn);
   ctx.is_evaluating_function_type = prev_eval_fn;
   ret_type_val := match(
     ret_type_opt,
@@ -3239,7 +3240,7 @@ evaluate_function_parameter_type_again :: (
   fn(
     param_type : TypeValue,
     callee_env : Environment,
-    _ctx : *(EvalContext)
+    _ctx : EvalContext
   ) -> TypeValue
 )(
   get_value_of_some_type_from_env(callee_env, param_type)
@@ -3263,7 +3264,7 @@ evaluate_function_return_type_again :: (
   fn(
     return_type : TypeValue,
     callee_env : Environment,
-    _ctx : *(EvalContext)
+    _ctx : EvalContext
   ) -> TypeValue
 )(
   get_value_of_some_type_from_env(callee_env, return_type)

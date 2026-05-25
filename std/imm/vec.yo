@@ -13,9 +13,10 @@
 //!
 //! v := Vec(i32).new();
 //! v = v.push(i32(1)).push(i32(2)).push(i32(3));
-//! assert((v.get(usize(0)).unwrap() == i32(1)), "first element");
+//! assert((v(usize(0)) == i32(1)), "first element");
 //! assert((v.len() == usize(3)), "length is 3");
 //! ```
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
 /// Persistent immutable vector.
@@ -406,7 +407,7 @@ impl(
     new_ptr := Vec(V)._raw_alloc(min_len);
     i := usize(0);
     while(i < min_len, i = (i + usize(1)), {
-      (new_ptr &+ i).* = f((self._ptr &+ i).*, other.get(i).unwrap());
+      (new_ptr &+ i).* = f((self._ptr &+ i).*, other(i));
     });
     Vec(V)(_ptr : new_ptr, _len : min_len, _cap : min_len)
   }),
@@ -442,6 +443,21 @@ impl(
         });
       });
       equal
+    })
+  )
+);
+/// Index trait — `vec(idx)` returns the element at `idx`, panicking if
+/// out of bounds. Body takes `&(self)` so the dispatcher's inlined call
+/// passes the right C-ABI shape. See plans/ITERATOR_REDESIGN.md.
+impl(
+  forall(T : Type),
+  where(T <: Send),
+  Vec(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+      assert(idx < self._len, "imm.Vec: index out of bounds");
+      self._ptr &+ idx
     })
   )
 );

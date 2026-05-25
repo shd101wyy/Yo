@@ -2,6 +2,7 @@
 ///
 /// Exercises `yo-self/codegen/exprs/and_or.yo`, the 1-to-1 port of
 /// `src/codegen/exprs/and-or.ts`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind } :: import("../token.yo");
@@ -53,7 +54,7 @@ mk_infix :: (fn(id : usize, op : str, args : ArrayList(AstExpr)) -> AstExpr)(
 );
 
 stub_generate_expr :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -62,43 +63,43 @@ stub_generate_expr :: (
   )
 );
 
-set_bool_info :: (fn(ctx : *(CodegenContext), id : usize, value : bool) -> unit)({
+set_bool_info :: (fn(ctx : CodegenContext, id : usize, value : bool) -> unit)({
   table := match(
-    ctx.*.expr_info_table,
+    ctx.expr_info_table,
     .Some(t) => t,
     .None => expr_info_table_new()
   );
   info := new_expr_info(Environment.new(String.from("test")), t_bool());
   info.value = Option(EvalValue).Some(EvalValue.BoolVal(value));
   expr_info_table_set(table, id, info);
-  ctx.*.expr_info_table = Option(typeof(table)).Some(table);
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
 });
 
-set_variable_info :: (fn(ctx : *(CodegenContext), id : usize, name : str) -> unit)({
+set_variable_info :: (fn(ctx : CodegenContext, id : usize, name : str) -> unit)({
   table := match(
-    ctx.*.expr_info_table,
+    ctx.expr_info_table,
     .Some(t) => t,
     .None => expr_info_table_new()
   );
   info := new_expr_info(Environment.new(String.from("test")), t_bool());
   info.variable_name = Option(String).Some(String.from(name));
   expr_info_table_set(table, id, info);
-  ctx.*.expr_info_table = Option(typeof(table)).Some(table);
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
 });
 
 test("expr_bool_value: reads boolean metadata", {
   ctx := CodegenContext.new();
   expr := mk_ident(usize(10), "ignored");
-  set_bool_info(&(ctx), usize(10), true);
-  result := expr_bool_value(expr, &(ctx));
+  set_bool_info(ctx, usize(10), true);
+  result := expr_bool_value(expr, ctx);
   assert(match(result,.Some(v) => v,.None => false), "bool metadata");
 });
 
 test("expr_may_have_side_effects: variable_name marks side effect", {
   ctx := CodegenContext.new();
   expr := mk_ident(usize(20), "tmp");
-  set_variable_info(&(ctx), usize(20), "tmp");
-  assert(expr_may_have_side_effects(expr, &(ctx)), "variable temp is side effect");
+  set_variable_info(ctx, usize(20), "tmp");
+  assert(expr_may_have_side_effects(expr, ctx), "variable temp is side effect");
 });
 
 test("generate_op_and: compile-time false short-circuits", {
@@ -107,8 +108,8 @@ test("generate_op_and: compile-time false short-circuits", {
   args := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(30), "a"));
   args.push(mk_ident(usize(31), "b"));
-  set_bool_info(&(ctx), usize(30), false);
-  result := generate_op_and(args, String.from(""), &(ctx));
+  set_bool_info(ctx, usize(30), false);
+  result := generate_op_and(args, String.from(""), ctx);
   assert(match(result,.Some(s) => (s == String.from("false")),.None => false), "false short circuit");
 });
 
@@ -118,8 +119,8 @@ test("generate_op_or: compile-time true short-circuits", {
   args := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(40), "a"));
   args.push(mk_ident(usize(41), "b"));
-  set_bool_info(&(ctx), usize(41), true);
-  result := generate_op_or(args, String.from(""), &(ctx));
+  set_bool_info(ctx, usize(41), true);
+  result := generate_op_or(args, String.from(""), ctx);
   assert(match(result,.Some(s) => (s == String.from("true")),.None => false), "true short circuit");
 });
 
@@ -129,7 +130,7 @@ test("generate_op_and: simple args use C operator", {
   args := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(50), "a"));
   args.push(mk_ident(usize(51), "b"));
-  result := generate_op_and(args, String.from(""), &(ctx));
+  result := generate_op_and(args, String.from(""), ctx);
   assert(match(result,.Some(s) => (s == String.from("(a && b)")),.None => false), "simple and");
 });
 
@@ -139,8 +140,8 @@ test("generate_op_or: side-effect arg emits if-chain", {
   args := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(60), "a"));
   args.push(mk_ident(usize(61), "b"));
-  set_variable_info(&(ctx), usize(61), "b_temp");
-  result := generate_op_or(args, String.from(""), &(ctx));
+  set_variable_info(ctx, usize(61), "b_temp");
+  result := generate_op_or(args, String.from(""), ctx);
   output := ctx.emitter.print();
   assert(match(result,.Some(s) => (s == String.from("_yo_t0")),.None => false), "short circuit temp");
   assert(output.contains(String.from("bool _yo_t0 = true;")), "or temp initialized");
@@ -155,7 +156,7 @@ test("generate_expr: infix && dispatches through split handler", {
   args.push(mk_ident(usize(70), "a"));
   args.push(mk_ident(usize(71), "b"));
   expr := mk_infix(usize(72), "&&", args);
-  result := generate_expr(expr, &(ctx), String.from(""));
+  result := generate_expr(expr, ctx, String.from(""));
   assert(match(result,.Some(s) => (s == String.from("(a && b)")),.None => false), "central dispatch");
 });
 // ─── pure string formatters ─────────────────────────────────────────────────

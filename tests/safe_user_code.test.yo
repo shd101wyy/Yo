@@ -1,0 +1,68 @@
+/// Positive coverage that *safe* code — code that never touches a
+/// raw pointer — compiles and runs WITHOUT declaring
+/// `pragma(Pragma.AllowUnsafe);` (Phase C of plans/MEMORY_SAFETY.md).
+///
+/// The negative direction (raw pointer ops in an un-pragma'd file
+/// produce a compile error) is covered by
+/// `src/tests/unsafe-gate.test.ts`. This file is the dual: every
+/// idiom a user of Yo can reasonably reach for that does NOT involve
+/// raw pointers must keep working at zero ceremony.
+///
+/// NOTE: deliberately no `pragma(Pragma.AllowUnsafe);` at the top.
+/// If a regression ever requires the pragma here, the gate has
+/// gained a false positive on safe code — fix the gate, not this
+/// file.
+open(import("std/string"));
+test("primitive arithmetic + binding without pragma", {
+  x := (i32(2) + i32(3));
+  y := (x * i32(4));
+  assert((y - i32(20)) == i32(0), "ints compose without ceremony");
+});
+test("if / cond / match without pragma", {
+  classify :: (
+    fn(n : i32) -> i32
+  )(
+    cond(
+      (n < i32(0)) => i32(-(1)),
+      (n == i32(0)) => i32(0),
+      true => i32(1)
+    )
+  );
+  assert(classify(i32(-(7))) == i32(-(1)), "negative branch");
+  assert(classify(i32(0)) == i32(0), "zero branch");
+  assert(classify(i32(42)) == i32(1), "positive branch");
+});
+test("Option and Result combinators without pragma", {
+  parse :: (
+    fn(ok : bool) -> Option(i32)
+  )(cond(ok =>.Some(i32(7)), true =>.None));
+  match(parse(true),.Some(v) => assert(v == i32(7), "Some payload"),.None => assert(false, "expected Some"));
+  match(parse(false),.Some(_) => assert(false, "expected None"),.None => ());
+});
+test("String / collection idioms without pragma", {
+  s := String.from("hello");
+  assert(s.len() == usize(5), "String.len works");
+  doubled := (s.clone() + s);
+  assert(doubled.len() == usize(10), "owned-clone + own concatenation works");
+});
+test("inout parameter (Phase B) without pragma", {
+  swap :: (
+    fn(ref(a) : i32, ref(b) : i32) -> unit
+  )({
+    tmp := a;
+    a = b;
+    b = tmp;
+  });
+  x := i32(10);
+  y := i32(20);
+  swap(x, y);
+  assert(x == i32(20), "x swapped");
+  assert(y == i32(10), "y swapped");
+});
+test("higher-order functions without pragma", {
+  apply :: (
+    fn(f : (fn(x : i32) -> i32), v : i32) -> i32
+  )(f(v));
+  square :: (fn(x : i32) -> i32)(x * x);
+  assert(apply(square, i32(6)) == i32(36), "fn-typed parameter works in safe code");
+});

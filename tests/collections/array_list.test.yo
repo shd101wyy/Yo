@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 open(import("std/string"));
 // ===== Construction Tests =====
@@ -32,9 +33,9 @@ test("ArrayList.push adds multiple elements", {
   list.push(i32(20));
   list.push(i32(30));
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == i32(10));
-  assert(list.get(usize(1)).unwrap() == i32(20));
-  assert(list.get(usize(2)).unwrap() == i32(30));
+  assert(list(usize(0)) == i32(10));
+  assert(list(usize(1)) == i32(20));
+  assert(list(usize(2)) == i32(30));
 });
 test("ArrayList.push triggers capacity growth", {
   list := ArrayList(i32).new();
@@ -124,9 +125,9 @@ test("ArrayList index set preserves other elements", {
   list.push(i32(2));
   list.push(i32(3));
   &(list(usize(1))).* = i32(200);
-  assert(list.get(usize(0)).unwrap() == i32(1));
-  assert(list.get(usize(1)).unwrap() == i32(200));
-  assert(list.get(usize(2)).unwrap() == i32(3));
+  assert(list(usize(0)) == i32(1));
+  assert(list(usize(1)) == i32(200));
+  assert(list(usize(2)) == i32(3));
 });
 // ===== Clear Tests =====
 test("ArrayList.clear removes all elements", {
@@ -150,7 +151,7 @@ test("ArrayList can be reused after clear", {
   list.clear();
   list.push(i32(10));
   assert(list.len() == usize(1));
-  assert(list.get(usize(0)).unwrap() == i32(10));
+  assert(list(usize(0)) == i32(10));
 });
 // ===== Shrink to Fit Tests =====
 test("ArrayList.shrink_to_fit reduces capacity to match length", {
@@ -169,8 +170,8 @@ test("ArrayList.shrink_to_fit preserves elements", {
   list.push(i32(100));
   list.push(i32(200));
   list.shrink_to_fit();
-  assert(list.get(usize(0)).unwrap() == i32(100));
-  assert(list.get(usize(1)).unwrap() == i32(200));
+  assert(list(usize(0)) == i32(100));
+  assert(list(usize(1)) == i32(200));
 });
 test("ArrayList.shrink_to_fit on full capacity does nothing", {
   list := ArrayList(i32).with_capacity(usize(5));
@@ -200,9 +201,9 @@ test("ArrayList.remove removes single element from middle", {
   assert(result.is_ok());
   assert(result.unwrap() == usize(1));
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == i32(10));
-  assert(list.get(usize(1)).unwrap() == i32(30));
-  assert(list.get(usize(2)).unwrap() == i32(40));
+  assert(list(usize(0)) == i32(10));
+  assert(list(usize(1)) == i32(30));
+  assert(list(usize(2)) == i32(40));
 });
 test("ArrayList.remove removes multiple elements", {
   list := ArrayList(i32).new();
@@ -215,9 +216,9 @@ test("ArrayList.remove removes multiple elements", {
   assert(result.is_ok());
   assert(result.unwrap() == usize(2));
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == i32(10));
-  assert(list.get(usize(1)).unwrap() == i32(40));
-  assert(list.get(usize(2)).unwrap() == i32(50));
+  assert(list(usize(0)) == i32(10));
+  assert(list(usize(1)) == i32(40));
+  assert(list(usize(2)) == i32(50));
 });
 test("ArrayList.remove from beginning", {
   list := ArrayList(i32).new();
@@ -228,8 +229,8 @@ test("ArrayList.remove from beginning", {
   result := list.remove(usize(0), usize(2));
   assert(result.is_ok());
   assert(list.len() == usize(2));
-  assert(list.get(usize(0)).unwrap() == i32(300));
-  assert(list.get(usize(1)).unwrap() == i32(400));
+  assert(list(usize(0)) == i32(300));
+  assert(list(usize(1)) == i32(400));
 });
 test("ArrayList.remove from end", {
   list := ArrayList(i32).new();
@@ -242,7 +243,7 @@ test("ArrayList.remove from end", {
   assert(result.is_ok());
   assert(result.unwrap() == usize(2));
   assert(list.len() == usize(3));
-  assert(list.get(usize(2)).unwrap() == i32(3));
+  assert(list(usize(2)) == i32(3));
 });
 test("ArrayList.remove with count exceeding available elements", {
   list := ArrayList(i32).new();
@@ -281,9 +282,9 @@ test("ArrayList.slice creates new list with subset of elements", {
   assert(slice_result.is_ok());
   sliced := slice_result.unwrap();
   assert(sliced.len() == usize(3));
-  assert(sliced.get(usize(0)).unwrap() == i32(20));
-  assert(sliced.get(usize(1)).unwrap() == i32(30));
-  assert(sliced.get(usize(2)).unwrap() == i32(40));
+  assert(sliced(usize(0)) == i32(20));
+  assert(sliced(usize(1)) == i32(30));
+  assert(sliced(usize(2)) == i32(40));
 });
 test("ArrayList.slice doesn't modify original list", {
   list := ArrayList(i32).new();
@@ -293,9 +294,9 @@ test("ArrayList.slice doesn't modify original list", {
   slice_result := list.slice(usize(0), usize(2));
   assert(slice_result.is_ok());
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == i32(1));
-  assert(list.get(usize(1)).unwrap() == i32(2));
-  assert(list.get(usize(2)).unwrap() == i32(3));
+  assert(list(usize(0)) == i32(1));
+  assert(list(usize(1)) == i32(2));
+  assert(list(usize(2)) == i32(3));
 });
 test("ArrayList.slice from beginning", {
   list := ArrayList(i32).new();
@@ -306,8 +307,8 @@ test("ArrayList.slice from beginning", {
   assert(slice_result.is_ok());
   sliced := slice_result.unwrap();
   assert(sliced.len() == usize(2));
-  assert(sliced.get(usize(0)).unwrap() == i32(10));
-  assert(sliced.get(usize(1)).unwrap() == i32(20));
+  assert(sliced(usize(0)) == i32(10));
+  assert(sliced(usize(1)) == i32(20));
 });
 test("ArrayList.slice to end", {
   list := ArrayList(i32).new();
@@ -319,8 +320,8 @@ test("ArrayList.slice to end", {
   assert(slice_result.is_ok());
   sliced := slice_result.unwrap();
   assert(sliced.len() == usize(2));
-  assert(sliced.get(usize(0)).unwrap() == i32(30));
-  assert(sliced.get(usize(1)).unwrap() == i32(40));
+  assert(sliced(usize(0)) == i32(30));
+  assert(sliced(usize(1)) == i32(40));
 });
 test("ArrayList.slice empty range creates empty list", {
   list := ArrayList(i32).new();
@@ -360,8 +361,8 @@ test("ArrayList push after pop maintains correctness", {
   list.pop();
   list.push(i32(3));
   assert(list.len() == usize(2));
-  assert(list.get(usize(0)).unwrap() == i32(1));
-  assert(list.get(usize(1)).unwrap() == i32(3));
+  assert(list(usize(0)) == i32(1));
+  assert(list(usize(1)) == i32(3));
 });
 test("ArrayList slice and modify slice doesn't affect original", {
   list := ArrayList(i32).new();
@@ -386,8 +387,8 @@ test("ArrayList remove then slice", {
   sliced := slice_result.unwrap();
   sliced.remove(usize(1), usize(2));
   assert(sliced.len() == usize(2));
-  assert(sliced.get(usize(0)).unwrap() == i32(10));
-  assert(sliced.get(usize(1)).unwrap() == i32(25));
+  assert(sliced(usize(0)) == i32(10));
+  assert(sliced(usize(1)) == i32(25));
 });
 test("ArrayList clear and reuse with capacity", {
   list := ArrayList(i32).with_capacity(usize(10));
@@ -399,8 +400,8 @@ test("ArrayList clear and reuse with capacity", {
   list.push(i32(200));
   assert(list.len() == usize(2));
   assert(list.capacity() == capacity_before);
-  assert(list.get(usize(0)).unwrap() == i32(100));
-  assert(list.get(usize(1)).unwrap() == i32(200));
+  assert(list(usize(0)) == i32(100));
+  assert(list(usize(1)) == i32(200));
 });
 test("ArrayList multiple remove operations", {
   list := ArrayList(i32).new();
@@ -412,8 +413,8 @@ test("ArrayList multiple remove operations", {
   assert(list.len() == usize(8));
   list.remove(usize(0), usize(1));
   assert(list.len() == usize(7));
-  assert(list.get(usize(0)).unwrap() == i32(1));
-  assert(list.get(usize(1)).unwrap() == i32(4));
+  assert(list(usize(0)) == i32(1));
+  assert(list(usize(1)) == i32(4));
 });
 // ===== Edge Cases =====
 test("ArrayList with capacity 1 grows correctly", {
@@ -427,9 +428,9 @@ test("ArrayList with capacity 1 grows correctly", {
 test("ArrayList operations on list with single element", {
   list := ArrayList(i32).new();
   list.push(i32(42));
-  assert(list.get(usize(0)).unwrap() == i32(42));
+  assert(list(usize(0)) == i32(42));
   &(list(usize(0))).* = i32(99);
-  assert(list.get(usize(0)).unwrap() == i32(99));
+  assert(list(usize(0)) == i32(99));
   popped := list.pop();
   assert(popped.unwrap() == i32(99));
   assert(list.len() == usize(0));
@@ -444,7 +445,7 @@ test("ArrayList large number of elements", {
   assert(list.len() == count);
   i2 := usize(0);
   while(i2 < count, i2 = (i2 + usize(1)), {
-    assert(list.get(i2).unwrap() == i32(i2));
+    assert(list(i2) == i32(i2));
   });
 });
 // ===== Reference-Counted Type Tests =====
@@ -503,7 +504,7 @@ test("ArrayList.set with Box replaces and cleans up old value", {
   old_box := Box(i32)(99);
   &(list(usize(1))).* = old_box;
   // Old value (20) should be dropped, new value (99) should be in place
-  assert(list.get(usize(1)).unwrap().* == i32(99));
+  assert(list(usize(1)).* == i32(99));
 });
 test("ArrayList mixed operations with Box elements", {
   list := ArrayList(Box(i32)).new();
@@ -518,8 +519,8 @@ test("ArrayList mixed operations with Box elements", {
   list.remove(usize(1), usize(1));
   // Should have 2 elements left: 1 and 3
   assert(list.len() == usize(2));
-  assert(list.get(usize(0)).unwrap().* == i32(1));
-  assert(list.get(usize(1)).unwrap().* == i32(3));
+  assert(list(usize(0)).* == i32(1));
+  assert(list(usize(1)).* == i32(3));
   // All operations should properly manage reference counts
 });
 test("ArrayList stress test with Box - push 100 and remove from front", {
@@ -553,10 +554,10 @@ test("ArrayList stress test with Box - remove multiple elements at once", {
   list.remove(usize(5), usize(10));
   assert(list.len() == usize(10));
   // Remaining elements should be 0-4 and 15-19
-  assert(list.get(usize(0)).unwrap().* == i32(0));
-  assert(list.get(usize(4)).unwrap().* == i32(4));
-  assert(list.get(usize(5)).unwrap().* == i32(15));
-  assert(list.get(usize(9)).unwrap().* == i32(19));
+  assert(list(usize(0)).* == i32(0));
+  assert(list(usize(4)).* == i32(4));
+  assert(list(usize(5)).* == i32(15));
+  assert(list(usize(9)).* == i32(19));
 });
 test("Test ArrayList.as_slice", {
   list := ArrayList(i32).new();
@@ -632,9 +633,9 @@ test("ArrayList of String - remove from middle drops removed and keeps rest", {
   assert(result.is_ok());
   assert(result.unwrap() == usize(2));
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == String.from("a"));
-  assert(list.get(usize(1)).unwrap() == String.from("d"));
-  assert(list.get(usize(2)).unwrap() == String.from("e"));
+  assert(list(usize(0)) == String.from("a"));
+  assert(list(usize(1)) == String.from("d"));
+  assert(list(usize(2)) == String.from("e"));
   // "b" and "c" should be properly dropped
 });
 test("ArrayList of String - remove from end drops removed elements", {
@@ -646,7 +647,7 @@ test("ArrayList of String - remove from end drops removed elements", {
   assert(result.is_ok());
   assert(result.unwrap() == usize(2));
   assert(list.len() == usize(1));
-  assert(list.get(usize(0)).unwrap() == String.from("x"));
+  assert(list(usize(0)) == String.from("x"));
   // "y" and "z" should be properly dropped
 });
 test("ArrayList of String - remove single element from front", {
@@ -656,16 +657,16 @@ test("ArrayList of String - remove single element from front", {
   list.push(String.from("third"));
   list.remove(usize(0), usize(1));
   assert(list.len() == usize(2));
-  assert(list.get(usize(0)).unwrap() == String.from("second"));
-  assert(list.get(usize(1)).unwrap() == String.from("third"));
+  assert(list(usize(0)) == String.from("second"));
+  assert(list(usize(1)) == String.from("third"));
 });
 test("ArrayList of String - set replaces and drops old value", {
   list := ArrayList(String).new();
   list.push(String.from("old_value"));
   list.push(String.from("keep_me"));
   &(list(usize(0))).* = String.from("new_value");
-  assert(list.get(usize(0)).unwrap() == String.from("new_value"));
-  assert(list.get(usize(1)).unwrap() == String.from("keep_me"));
+  assert(list(usize(0)) == String.from("new_value"));
+  assert(list(usize(1)) == String.from("keep_me"));
   // "old_value" should be properly dropped
 });
 test("ArrayList of String - push pop push cycle", {
@@ -677,8 +678,8 @@ test("ArrayList of String - push pop push cycle", {
   list.pop();
   list.push(String.from("round3"));
   assert(list.len() == usize(2));
-  assert(list.get(usize(0)).unwrap() == String.from("round2_a"));
-  assert(list.get(usize(1)).unwrap() == String.from("round3"));
+  assert(list(usize(0)) == String.from("round2_a"));
+  assert(list(usize(1)) == String.from("round3"));
 });
 test("ArrayList of String - stress push and remove from front", {
   list := ArrayList(String).new();
@@ -702,8 +703,8 @@ test("ArrayList of String - slice creates independent copy", {
   list.push(String.from("s3"));
   sliced := list.slice(usize(0), usize(2)).unwrap();
   assert(sliced.len() == usize(2));
-  assert(sliced.get(usize(0)).unwrap() == String.from("s1"));
-  assert(sliced.get(usize(1)).unwrap() == String.from("s2"));
+  assert(sliced(usize(0)) == String.from("s1"));
+  assert(sliced(usize(1)) == String.from("s2"));
   // Both lists go out of scope - no double-free
 });
 test("ArrayList of String - remove all elements one by one", {
@@ -728,8 +729,8 @@ test("ArrayList of String - shrink_to_fit preserves String elements", {
   result := list.shrink_to_fit();
   assert(result.is_ok());
   assert(list.capacity() == usize(2));
-  assert(list.get(usize(0)).unwrap() == String.from("keep1"));
-  assert(list.get(usize(1)).unwrap() == String.from("keep2"));
+  assert(list(usize(0)) == String.from("keep1"));
+  assert(list(usize(1)) == String.from("keep2"));
 });
 // ===== Iterator Tests =====
 test("ArrayList into_iter - empty list", {
@@ -770,38 +771,37 @@ test("ArrayList into_iter - multiple elements in order", {
 test("ArrayList iter - empty list", {
   list := ArrayList(i32).new();
   count := usize(0);
-  for((&(list)).iter(), (ptr) => {
-    consume(ptr);
+  for(list, ref(x) => {
+    consume(x);
     count = (count + usize(1));
   });
   assert(count == usize(0), "empty list should yield no elements");
 });
-test("ArrayList iter - yields pointers to elements", {
+test("ArrayList iter - reads elements through ref-binding", {
   list := ArrayList(i32).new();
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
   sum := i32(0);
   count := usize(0);
-  for((&(list)).iter(), (ptr) => {
-    sum = (sum + ptr.*);
+  for(list, ref(x) => {
+    sum = (sum + x);
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield all elements");
   assert(sum == i32(600), "sum should be correct");
 });
-test("ArrayList iter - mutate through pointer", {
+test("ArrayList iter - mutate through ref-binding", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  // Double each element through pointer
-  for((&(list)).iter(), (ptr) => {
-    ptr.* = (ptr.* * i32(2));
+  for(list, ref(x) => {
+    x = (x * i32(2));
   });
-  assert(list.get(usize(0)).unwrap() == i32(2), "first element should be doubled");
-  assert(list.get(usize(1)).unwrap() == i32(4), "second element should be doubled");
-  assert(list.get(usize(2)).unwrap() == i32(6), "third element should be doubled");
+  assert(list(usize(0)) == i32(2), "first element should be doubled");
+  assert(list(usize(1)) == i32(4), "second element should be doubled");
+  assert(list(usize(2)) == i32(6), "third element should be doubled");
 });
 test("Test ArrayList.with_capacity", {
   list := ArrayList(i32).with_capacity(usize(100));

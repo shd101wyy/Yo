@@ -182,7 +182,7 @@ test("function declarations: generate_function_declaration emits declaration lin
   param_types.push(t_i32());
   fn_type := t_func_simple(param_labels, param_types, t_i32());
   ctx := CodegenContext.new();
-  generate_function_declaration(fn_type, String.from("fn_inc"), false, &(ctx),.None,.None, false);
+  generate_function_declaration(fn_type, String.from("fn_inc"), false, ctx,.None,.None, false);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static inline int32_t fn_inc(int32_t x);")), "declaration prototype");
   assert(output.contains(String.from("// fn(x : i32) -> i32")), "type comment");
@@ -191,7 +191,7 @@ test("function declarations: generate_function_declaration emits declaration lin
 test("function declarations: generate_function_declaration supports override return type", {
   fn_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32());
   ctx := CodegenContext.new();
-  generate_function_declaration(fn_type, String.from("fn_override"), false, &(ctx),.Some(String.from("void*")),.None, false);
+  generate_function_declaration(fn_type, String.from("fn_override"), false, ctx,.Some(String.from("void*")),.None, false);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static inline void* fn_override();")), "override return type");
 });
@@ -220,7 +220,7 @@ test("function declarations: object constructor declarations include runtime hel
       c_name : String.from("__yo_struct_test_id_1")
     )
   );
-  generate_object_constructor_declarations(&(ctx));
+  generate_object_constructor_declarations(ctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static inline void __yo_decr_rc(void* ptr); // Decrement reference count")), "rc declaration");
   assert(output.contains(String.from("static void __yo_gc_collect(); // Trigger garbage collection")), "gc declaration");
@@ -249,7 +249,7 @@ test("function declarations: object constructor declarations skip value structs"
       c_name : String.from("__yo_struct_test_id_2")
     )
   );
-  generate_object_constructor_declarations(&(ctx));
+  generate_object_constructor_declarations(ctx);
   output := ctx.emitter.print();
   assert(!(output.contains(String.from("__yo_new___yo_struct_test_id_2"))), "value struct constructor skipped");
 });
@@ -276,7 +276,7 @@ test("function declarations: object constructor declarations skip nested generic
       c_name : String.from("__yo_struct_test_id_3")
     )
   );
-  generate_object_constructor_declarations(&(ctx));
+  generate_object_constructor_declarations(ctx);
   output := ctx.emitter.print();
   assert(!(output.contains(String.from("__yo_new___yo_struct_test_id_3"))), "nested generic field constructor skipped");
 });
@@ -293,15 +293,15 @@ test("function declarations: capture dispose declarations follow closure capture
       capture_c_name : String.from("__yo_capture_1")
     )
   );
-  generate_capture_dispose_function_declarations(&(ctx));
+  generate_capture_dispose_function_declarations(ctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static void __yo_dispose_closure_closure_1(void* closure_ptr);")), "capture dispose declaration");
 });
 
 test("function declarations: closure constructor and vtable declaration helpers are no-ops", {
   ctx := CodegenContext.new();
-  generate_closure_constructor_declarations(&(ctx));
-  generate_closure_vtable_declarations(&(ctx));
+  generate_closure_constructor_declarations(ctx);
+  generate_closure_vtable_declarations(ctx);
   output := ctx.emitter.print();
   assert(output == String.from("\n\n"), "closure declaration no-ops");
 });

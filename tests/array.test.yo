@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 test("Test Array declaration with inferred length", {
   {
     arr1 := Array(i32, _)(1, 2, 3);
@@ -157,53 +158,58 @@ test("Test array slice", {
   assert(slice_of_slice.len() == 2);
 });
 // ===== Array Iterator Tests =====
+// Phase D of plans/ITERATOR_REDESIGN.md — `for(arr, ref(x) => body)`
+// is the borrow form: `arr.iter()` yields `usize` positions and the
+// for-macro pairs each with `arr.project(pos)` (Indexable) to bind
+// `x` as a `ref`-binding into element storage. Reads of `x` auto-
+// deref-copy; writes propagate back to the array.
 test("Array iter - empty array yields nothing", {
   arr := Array(i32, 0)();
   count := usize(0);
-  for((&(arr)).iter(), (ptr) => {
-    consume(ptr);
+  for(arr, ref(x) => {
+    consume(x);
     count = (count + usize(1));
   });
   assert(count == usize(0), "empty array should yield no elements");
 });
-test("Array iter - yields pointers to elements", {
+test("Array iter - reads elements through ref-binding", {
   arr := [i32(10), i32(20), i32(30)];
   sum := i32(0);
   count := usize(0);
-  for((&(arr)).iter(), (ptr) => {
-    sum = (sum + ptr.*);
+  for(arr, ref(x) => {
+    sum = (sum + x);
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield 3 elements");
   assert(sum == i32(60), "sum should be correct");
 });
-test("Array iter - mutate through pointer", {
+test("Array iter - mutate through ref-binding", {
   arr := [i32(1), i32(2), i32(3)];
-  for((&(arr)).iter(), (ptr) => {
-    ptr.* = (ptr.* * i32(10));
+  for(arr, ref(x) => {
+    x = (x * i32(10));
   });
   assert(arr(0) == i32(10), "first element should be 10");
   assert(arr(1) == i32(20), "second element should be 20");
   assert(arr(2) == i32(30), "third element should be 30");
 });
 // ===== Slice Iterator Tests =====
-test("Slice iter - yields pointers to elements", {
+test("Slice iter - reads elements through ref-binding", {
   arr := [i32(100), i32(200), i32(300)];
   slice := arr(usize(0) .. usize(3));
   sum := i32(0);
   count := usize(0);
-  for((&(slice)).iter(), (ptr) => {
-    sum = (sum + ptr.*);
+  for(slice, ref(x) => {
+    sum = (sum + x);
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield 3 elements");
   assert(sum == i32(600), "sum should be correct");
 });
-test("Slice iter - mutate through pointer", {
+test("Slice iter - mutate through ref-binding", {
   arr := [i32(1), i32(2), i32(3)];
   slice := arr(usize(0) .. usize(3));
-  for((&(slice)).iter(), (ptr) => {
-    ptr.* = (ptr.* + i32(5));
+  for(slice, ref(x) => {
+    x = (x + i32(5));
   });
   assert(arr(0) == i32(6), "first element should be 6");
   assert(arr(1) == i32(7), "second element should be 7");
@@ -214,8 +220,8 @@ test("Slice iter - partial slice", {
   slice := arr(usize(1) .. usize(3));
   sum := i32(0);
   count := usize(0);
-  for((&(slice)).iter(), (ptr) => {
-    sum = (sum + ptr.*);
+  for(slice, ref(x) => {
+    sum = (sum + x);
     count = (count + usize(1));
   });
   assert(count == usize(2), "should yield 2 elements");

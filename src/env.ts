@@ -125,6 +125,30 @@ export interface Variable {
   isReassignable?: boolean;
 
   /**
+   * Whether this variable is an `inout(name) : T` parameter — a
+   * second-class reference to the caller's storage. At codegen time
+   * the parameter is lowered to `T*`; reads of the identifier in the
+   * callee body become `(*name)` and writes become `(*name) = v`.
+   *
+   * See plans/MEMORY_SAFETY.md Phase B.
+   */
+  isRef?: boolean;
+
+  /**
+   * Whether this variable was introduced as a function parameter (any
+   * kind: regular, comptime, variadic, forall, where-clause SomeType,
+   * effect parameter). Distinguishes parameters from locals introduced
+   * by `:=`, `::`, destructuring, match arms, or for-loop iteration.
+   *
+   * Used by the slice-flowability check
+   * (`src/evaluator/types/flowability.ts`) to admit non-`ref`
+   * parameters as a valid source when returning a `Slice(T)`-bearing
+   * value — the caller's parameter storage is alive across the call.
+   * See plans/SLICE_FLOWABILITY.md Phase B.
+   */
+  isParameter?: boolean;
+
+  /**
    * Then token at which the variable is initialized.
    * If such token exists, then it means the variable is initialized at that point.
    */
@@ -637,10 +661,6 @@ export function addVariableToEnv({
 
   const frame = env.frames[frameLevel];
   if (!frame) {
-    // print traceback
-    console.trace(
-      `Frame at level ${frameLevel} does not exist in the environment.`
-    );
     throw new Error(
       `Frame at level ${frameLevel} does not exist in the environment.`
     );

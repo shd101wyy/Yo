@@ -40,19 +40,19 @@ impl(
   /**
   * Returns the current number of bytes in the buffer.
   */
-  len : (fn(self : *(Self)) -> usize)(
+  len : (fn(self : Self) -> usize)(
     self._buf.len()
   ),
   /**
   * Returns true if the buffer is empty.
   */
-  is_empty : (fn(self : *(Self)) -> bool)(
+  is_empty : (fn(self : Self) -> bool)(
     self._buf.len() == usize(0)
   ),
   /**
   * Append a `str` (raw byte slice) to the buffer.
   */
-  write_str : (fn(self : *(Self), s : str) -> unit)({
+  write_str : (fn(self : Self, s : str) -> unit)({
     byte_len := s.len();
     if(byte_len > usize(0), {
       self._buf.extend_from_ptr(s.ptr(), byte_len);
@@ -61,7 +61,7 @@ impl(
   /**
   * Append a `String` to the buffer.
   */
-  write_string : (fn(self : *(Self), s : String) -> unit)(
+  write_string : (fn(self : Self, s : String) -> unit)(
     match(
       s._bytes,
       .None => (),
@@ -84,7 +84,7 @@ impl(
   /**
   * Append a single byte to the buffer.
   */
-  write_byte : (fn(self : *(Self), b : u8) -> unit)({
+  write_byte : (fn(self : Self, b : u8) -> unit)({
     self._buf.push(b);
   }),
   /**
@@ -97,7 +97,7 @@ impl(
   * sb.write_rune(rune(0x41));     // 'A'
   * ```
   */
-  write_rune : (fn(self : *(Self), r : rune) -> unit)({
+  write_rune : (fn(self : Self, r : rune) -> unit)({
     cp := r.char;
     cond(
       (cp < u32(0x80)) => {
@@ -123,7 +123,7 @@ impl(
   /**
   * Append a `String` followed by a newline byte (`\n`).
   */
-  write_line : (fn(self : *(Self), s : String) -> unit)({
+  write_line : (fn(self : Self, s : String) -> unit)({
     self.write_string(s);
     self._buf.push(u8(10));
   }),
@@ -131,7 +131,7 @@ impl(
   * Consume the builder and return the accumulated `String`.
   * The builder is left empty after this call.
   */
-  to_string : (fn(self : *(Self)) -> String)({
+  to_string : (fn(self : Self) -> String)({
     n := self._buf.len();
     cond(
       (n == usize(0)) => String(_bytes :.None),
@@ -156,7 +156,7 @@ impl(
   /**
   * Clear the buffer without freeing memory.
   */
-  clear : (fn(self : *(Self)) -> unit)({
+  clear : (fn(self : Self) -> unit)({
     self._buf = ArrayList(u8).new();
   })
 );

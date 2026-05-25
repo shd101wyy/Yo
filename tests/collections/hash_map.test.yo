@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 open(import("std/collections/hash_map"));
 // ===== Construction Tests =====
 test("HashMap.new creates empty map", {
@@ -81,9 +82,9 @@ test("HashMap.get retrieves correct values for multiple keys", {
   map.set(i32(1), i32(100));
   map.set(i32(2), i32(200));
   map.set(i32(3), i32(300));
-  assert(map.get(i32(1)).unwrap() == i32(100));
-  assert(map.get(i32(2)).unwrap() == i32(200));
-  assert(map.get(i32(3)).unwrap() == i32(300));
+  assert(map(i32(1)) == i32(100));
+  assert(map(i32(2)) == i32(200));
+  assert(map(i32(3)) == i32(300));
 });
 test("HashMap.get after update returns new value", {
   map := HashMap(i32, i32).new();
@@ -157,8 +158,8 @@ test("HashMap.remove preserves other entries", {
   assert(map.contains_key(i32(1)));
   assert(!(map.contains_key(i32(2))));
   assert(map.contains_key(i32(3)));
-  assert(map.get(i32(1)).unwrap() == i32(100));
-  assert(map.get(i32(3)).unwrap() == i32(300));
+  assert(map(i32(1)) == i32(100));
+  assert(map(i32(3)) == i32(300));
 });
 test("HashMap.remove multiple keys", {
   map := HashMap(i32, i32).new();
@@ -194,7 +195,7 @@ test("HashMap can be reused after clear", {
   map.clear();
   map.set(i32(2), i32(20));
   assert(map.len() == usize(1));
-  assert(map.get(i32(2)).unwrap() == i32(20));
+  assert(map(i32(2)) == i32(20));
 });
 test("HashMap.clear removes all keys", {
   map := HashMap(i32, i32).new();
@@ -257,7 +258,7 @@ test("HashMap.set replaces old value", {
   map.set(i32(5), i32(50));
   map.set(i32(5), i32(500));
   assert(map.len() == usize(1));
-  assert(map.get(i32(5)).unwrap() == i32(500));
+  assert(map(i32(5)) == i32(500));
 });
 test("HashMap multiple updates to same key", {
   map := HashMap(i32, i32).new();
@@ -265,7 +266,7 @@ test("HashMap multiple updates to same key", {
   map.set(i32(1), i32(20));
   map.set(i32(1), i32(30));
   assert(map.len() == usize(1));
-  assert(map.get(i32(1)).unwrap() == i32(30));
+  assert(map(i32(1)) == i32(30));
 });
 // ===== Stress Tests =====
 test("HashMap handles large number of insertions", {
@@ -280,7 +281,7 @@ test("HashMap handles large number of insertions", {
   i = usize(0);
   while(i < usize(50), i = (i + usize(1)), {
     assert(map.contains_key(i32(i)));
-    assert(map.get(i32(i)).unwrap() == i32(i * usize(2)));
+    assert(map(i32(i)) == i32(i * usize(2)));
   });
 });
 test("HashMap alternating insert and remove", {
@@ -303,26 +304,26 @@ test("HashMap remove and reinsert same key", {
   map.remove(i32(42));
   map.set(i32(42), i32(200));
   assert(map.len() == usize(1));
-  assert(map.get(i32(42)).unwrap() == i32(200));
+  assert(map(i32(42)) == i32(200));
 });
 // ===== Edge Cases =====
 test("HashMap with zero key", {
   map := HashMap(i32, i32).new();
   map.set(i32(0), i32(100));
   assert(map.contains_key(i32(0)));
-  assert(map.get(i32(0)).unwrap() == i32(100));
+  assert(map(i32(0)) == i32(100));
 });
 test("HashMap with negative keys", {
   map := HashMap(i32, i32).new();
   map.set(i32(-(1)), i32(10));
   map.set(i32(-(2)), i32(20));
-  assert(map.get(i32(-(1))).unwrap() == i32(10));
-  assert(map.get(i32(-(2))).unwrap() == i32(20));
+  assert(map(i32(-(1))) == i32(10));
+  assert(map(i32(-(2))) == i32(20));
 });
 test("HashMap with negative values", {
   map := HashMap(i32, i32).new();
   map.set(i32(1), i32(-(100)));
-  assert(map.get(i32(1)).unwrap() == i32(-(100)));
+  assert(map(i32(1)) == i32(-(100)));
 });
 // ===== Different Key-Value Types =====
 test("HashMap with u64 keys and values", {
@@ -330,16 +331,16 @@ test("HashMap with u64 keys and values", {
   map.set(u64(100), u64(200));
   map.set(u64(300), u64(400));
   assert(map.len() == usize(2));
-  assert(map.get(u64(100)).unwrap() == u64(200));
-  assert(map.get(u64(300)).unwrap() == u64(400));
+  assert(map(u64(100)) == u64(200));
+  assert(map(u64(300)) == u64(400));
 });
 test("HashMap with bool keys", {
   map := HashMap(bool, i32).new();
   map.set(true, i32(1));
   map.set(false, i32(0));
   assert(map.len() == usize(2));
-  assert(map.get(true).unwrap() == i32(1));
-  assert(map.get(false).unwrap() == i32(0));
+  assert(map(true) == i32(1));
+  assert(map(false) == i32(0));
 });
 // ===== Reference-Counted Type Tests =====
 test("HashMap with Box key and value - basic set and get", {
@@ -348,9 +349,9 @@ test("HashMap with Box key and value - basic set and get", {
   map.set(Box(i32)(2), Box(i32)(20));
   map.set(Box(i32)(3), Box(i32)(30));
   assert(map.len() == usize(3));
-  assert(map.get(Box(i32)(1)).unwrap().* == i32(10));
-  assert(map.get(Box(i32)(2)).unwrap().* == i32(20));
-  assert(map.get(Box(i32)(3)).unwrap().* == i32(30));
+  assert(map(Box(i32)(1)).* == i32(10));
+  assert(map(Box(i32)(2)).* == i32(20));
+  assert(map(Box(i32)(3)).* == i32(30));
 });
 test("HashMap with Box values - update existing key cleans up old value", {
   map := HashMap(Box(i32), Box(i32)).new();
@@ -360,7 +361,7 @@ test("HashMap with Box values - update existing key cleans up old value", {
   assert(result.is_ok());
   assert(result.unwrap().is_some());
   assert(map.len() == usize(1));
-  assert(map.get(Box(i32)(1)).unwrap().* == i32(200));
+  assert(map(Box(i32)(1)).* == i32(200));
   // The old Box(100) value should be properly dropped
 });
 test("HashMap with Box key and value - remove cleans up both", {
@@ -415,7 +416,7 @@ test("HashMap with Box values only", {
   map.set(i32(2), Box(i32)(200));
   // Update value
   map.set(i32(1), Box(i32)(150));
-  assert(map.get(i32(1)).unwrap().* == i32(150));
+  assert(map(i32(1)).* == i32(150));
   assert(map.len() == usize(2));
   // Old Box(100) should be dropped when updated
 });
@@ -423,8 +424,8 @@ test("HashMap with Box keys only", {
   map := HashMap(Box(i32), i32).new();
   map.set(Box(i32)(1), i32(100));
   map.set(Box(i32)(2), i32(200));
-  assert(map.get(Box(i32)(1)).unwrap() == i32(100));
-  assert(map.get(Box(i32)(2)).unwrap() == i32(200));
+  assert(map(Box(i32)(1)) == i32(100));
+  assert(map(Box(i32)(2)) == i32(200));
   // Remove
   map.remove(Box(i32)(1));
   assert(map.len() == usize(1));
@@ -468,25 +469,45 @@ test("HashMap into_iter - multiple entries all visited", {
   assert(val_sum == i32(60));
   assert(count == i32(3));
 });
-test("HashMap iter - yields pointers to buckets", {
+test("HashMap iter_ptr - yields pointers to buckets", {
   map := HashMap(i32, i32).new();
   map.set(i32(1), i32(10));
   map.set(i32(2), i32(20));
   val_sum := i32(0);
-  for(map.iter(), (ptr) => {
+  for(map.iter_ptr(), (ptr) => {
     val_sum = (val_sum + ptr.*.value);
   });
   assert(val_sum == i32(30));
 });
-test("HashMap iter - mutate values through pointer", {
+test("HashMap iter_ptr - mutate values through pointer", {
   map := HashMap(i32, i32).new();
   map.set(i32(1), i32(10));
   map.set(i32(2), i32(20));
-  for(map.iter(), (ptr) => {
+  for(map.iter_ptr(), (ptr) => {
     ptr.*.value = (ptr.*.value * i32(10));
   });
-  assert(map.get(i32(1)).unwrap() == i32(100));
-  assert(map.get(i32(2)).unwrap() == i32(200));
+  assert(map(i32(1)) == i32(100));
+  assert(map(i32(2)) == i32(200));
+});
+test("HashMap for ref(b) => body iterates occupied buckets", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  val_sum := i32(0);
+  for(map, ref(b) => {
+    val_sum = (val_sum + b.value);
+  });
+  assert(val_sum == i32(30));
+});
+test("HashMap for ref(b) => body mutates through borrowed bucket", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  for(map, ref(b) => {
+    b.value = (b.value * i32(10));
+  });
+  assert(map(i32(1)) == i32(100));
+  assert(map(i32(2)) == i32(200));
 });
 test("HashMap keys - yields all keys", {
   map := HashMap(i32, i32).new();

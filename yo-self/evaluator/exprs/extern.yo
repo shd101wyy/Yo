@@ -7,6 +7,7 @@
 //! mutations from TypeScript are intentionally skipped: yo-self's `TypeValue`
 //! enum has no such fields, and that metadata is only needed by codegen (which
 //! yo-self does not perform).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 {
   AstExpr,
@@ -33,7 +34,7 @@ evaluate_extern :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -172,7 +173,7 @@ evaluate_extern :: (
     // plus ioBuiltin for __yo_io_async etc.  yo-self skips these — codegen-only.
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
-      &(env),
+      env,
       String.from(result.label.as_str()),
       result.field_type,
       Option(EvalValue).Some(create_unknown_val_with_name(result.field_type, String.from(result.label.as_str()))),

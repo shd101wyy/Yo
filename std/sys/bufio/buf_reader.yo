@@ -17,9 +17,10 @@
 //!   .Err(e) => println(e.to_string())
 //! );
 //! ```
+pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../../collections/array_list");
 open(import("../../string"));
-{ IOError } :: import("../errors");
+{ IoError } :: import("../errors");
 IO_file :: import("../file");
 { GlobalAllocator } :: import("../../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -68,19 +69,19 @@ impl(
   // Read a line from the reader (up to and including '\n').
   // Returns .None on EOF when no data is available.
   // Returns .Some(line) with the line content (without the trailing '\n').
-  read_line : (fn(self : Self, io : IO) -> Impl(Future(Result(Option(String), IOError), IO)))({
+  read_line : (fn(self : Self, io : Io) -> Impl(Future(Result(Option(String), IoError), Io)))({
     the_fd := self._fd;
     io.async((io) => {
       line_bytes := ArrayList(u8).new();
       found_newline := false;
       hit_eof := false;
-      (read_err : Option(IOError)) =.None;
+      (read_err : Option(IoError)) =.None;
       while(runtime(((!(found_newline)) && (!(hit_eof))) && read_err.is_none()), {
         cond(
           (self._pos < self._filled) => {
             scan := self._pos;
             while(runtime((scan < self._filled) && (!(found_newline))), {
-              b := self._buf.get(scan).unwrap();
+              b := self._buf(scan);
               cond(
                 (b == _NEWLINE) => {
                   found_newline = true;
@@ -99,7 +100,7 @@ impl(
             cond(
               (n < i32(0)) => {
                 free(.Some(*(void)(raw_buf)));
-                read_err =.Some(IOError.from_errno(i32(0) - n));
+                read_err =.Some(IoError.from_errno(i32(0) - n));
               },
               (n == i32(0)) => {
                 free(.Some(*(void)(raw_buf)));
@@ -134,11 +135,11 @@ impl(
   }),
   // Read up to `size` bytes into a provided buffer.
   // Returns the number of bytes actually read.
-  read : (fn(self : Self, buf : *(u8), size : u32, io : IO) -> Impl(Future(Result(i32, IOError), IO)))({
+  read : (fn(self : Self, buf : *(u8), size : u32, io : Io) -> Impl(Future(Result(i32, IoError), Io)))({
     the_fd := self._fd;
     io.async((io) => {
       available := (self._filled - self._pos);
-      (read_err : Option(IOError)) =.None;
+      (read_err : Option(IoError)) =.None;
       (read_n : i32) = i32(0);
       done := false;
       // If there's data already buffered, serve from buffer
@@ -150,7 +151,7 @@ impl(
           );
           i := usize(0);
           while(runtime(i < to_copy), {
-            b := self._buf.get(self._pos + i).unwrap();
+            b := self._buf(self._pos + i);
             (buf &+ i).* = b;
             i = (i + usize(1));
           });
@@ -166,7 +167,7 @@ impl(
           n := io.await(IO_file.read(the_fd, buf, size, self._offset), io);
           cond(
             (n < i32(0)) => {
-              read_err =.Some(IOError.from_errno(i32(0) - n));
+              read_err =.Some(IoError.from_errno(i32(0) - n));
             },
             true => {
               self._offset = (self._offset + u64(n));
@@ -185,7 +186,7 @@ impl(
           cond(
             (n < i32(0)) => {
               free(.Some(*(void)(raw_buf)));
-              read_err =.Some(IOError.from_errno(i32(0) - n));
+              read_err =.Some(IoError.from_errno(i32(0) - n));
             },
             (n == i32(0)) => {
               free(.Some(*(void)(raw_buf)));
@@ -208,7 +209,7 @@ impl(
               );
               j := usize(0);
               while(runtime(j < to_copy), {
-                b := self._buf.get(j).unwrap();
+                b := self._buf(j);
                 (buf &+ j).* = b;
                 j = (j + usize(1));
               });
@@ -227,7 +228,7 @@ impl(
     })
   }),
   // Read all remaining data into an ArrayList of bytes.
-  read_bytes : (fn(self : Self, io : IO) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))({
+  read_bytes : (fn(self : Self, io : Io) -> Impl(Future(Result(ArrayList(u8), IoError), Io)))({
     the_fd := self._fd;
     io.async((io) => {
       result := ArrayList(u8).new();
@@ -236,7 +237,7 @@ impl(
         (self._pos < self._filled) => {
           i := self._pos;
           while(runtime(i < self._filled), {
-            result.push(self._buf.get(i).unwrap());
+            result.push(self._buf(i));
             i = (i + usize(1));
           });
           self._pos = self._filled;
@@ -245,12 +246,12 @@ impl(
       );
       // Then read the rest from fd
       raw_buf := *(u8)(malloc(self._capacity).unwrap());
-      (read_err : Option(IOError)) =.None;
+      (read_err : Option(IoError)) =.None;
       while(runtime(true), {
         n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset), io);
         cond(
           (n < i32(0)) => {
-            read_err =.Some(IOError.from_errno(i32(0) - n));
+            read_err =.Some(IoError.from_errno(i32(0) - n));
             break;
           },
           (n == i32(0)) => break,
@@ -273,7 +274,7 @@ impl(
     })
   }),
   // Read all remaining data as a String.
-  read_to_string : (fn(self : Self, io : IO) -> Impl(Future(Result(String, IOError), IO)))(
+  read_to_string : (fn(self : Self, io : Io) -> Impl(Future(Result(String, IoError), Io)))(
     io.async((io) => {
       bytes_result := io.await(self.read_bytes(io), io);
       match(

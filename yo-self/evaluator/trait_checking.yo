@@ -21,6 +21,7 @@
 //!   * `mark/unmark_concrete_impl_being_registered` and
 //!     `_is_concrete_impl_being_registered` now use a real HashMap-backed
 //!     registry instead of returning false. Mirrors TS `currentlyRegisteringConcreteImpls`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -902,7 +903,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 /// Mirrors `extractFutureTraitFromType` in `src/evaluator/trait-checking.ts`.
 extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
-    (&(ty)).clone(),
+    ty.clone(),
     .FutureTraitT(base_name : _) => Option(TypeValue).Some(ty),
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
@@ -917,7 +918,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
           }
         );
         match(
-          (&(t)).clone(),
+          t.clone(),
           .FutureTraitT(base_name : _) => {
             return(Option(TypeValue).Some(t));
           },
@@ -940,7 +941,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
           }
         );
         match(
-          (&(t)).clone(),
+          t.clone(),
           .FutureTraitT(base_name : _) => {
             return(Option(TypeValue).Some(t));
           },

@@ -7,19 +7,30 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   cloneExpr,
   type Expr,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  exprToString,
   type FnCallExpr,
   hasControlFlow,
 } from "../../expr";
+import { isFlowableExpr } from "../types/flowability";
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { createUnitType } from "../../types/creators";
+import { createPtrType, createUnitType } from "../../types/creators";
 import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import {
+  typeContainsSomeType,
+  typeContainsSomeTypeForCodegenParam,
+  typeRepresentationContainsRawPtr,
+  typeToString,
+} from "../../types/utils";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { randomId } from "../../utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -102,6 +113,38 @@ export function checkDeferredGenericReturnType({
     return;
   }
 
+  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // functions, the user-visible return is `T` but the body
+  // produces `*(T)`. Compare against `*(T)` in that case.
+  const expectedReturnForCompare: Type = functionType.return.isRef
+    ? createPtrType(functionType.return.type)
+    : functionType.return.type;
+  // When the expected return type IS a bare SomeType (e.g. T from an
+  // outer forall like `io.async`'s `Impl(Fn(e : E) -> T)`), the
+  // closure body returning a concrete type is the CORRECT shape —
+  // synthesis at the outer call site binds the forall var from the
+  // concrete body type. Skip the strict trial check here; the
+  // anonymous-function evaluator runs synthesizeTypes against the
+  // SomeType separately to attach resolvedConcreteType for codegen.
+  // Without this carve-out, every `io.async((e) => concrete_value)`
+  // form is rejected at definition time with "Expected: T / Given:
+  // <concrete>" before the call-site forall binding has a chance.
+  //
+  // BUT — when the function declares its OWN `forall(T)` and the
+  // return type is exactly that T, the body MUST produce a T-shaped
+  // value (or escape). A concrete-typed body would only type-check
+  // for one monomorphization; we reject it at definition time. This
+  // is the "generic function with concrete return" case caught by
+  // `tests/fn.test.yo::Test generic functions`.
+  if (trialBodyReturnType && isSomeType(expectedReturnForCompare)) {
+    const returnedSomeName = expectedReturnForCompare.name;
+    const isOwnForall = functionType.forallParameters.some(
+      (p) => p.label === returnedSomeName
+    );
+    if (!isOwnForall) {
+      return;
+    }
+  }
   if (
     trialBodyReturnType &&
     !(
@@ -110,7 +153,7 @@ export function checkDeferredGenericReturnType({
       isSomeType(trialBodyReturnType)
     ) &&
     !areTypesCompatible(
-      { type: functionType.return.type, env },
+      { type: expectedReturnForCompare, env },
       { type: trialBodyReturnType, env },
       true // requireExactMatch: concrete types must not match unconstrained SomeType
     )
@@ -118,7 +161,7 @@ export function checkDeferredGenericReturnType({
     throw formatErrorMessage({
       token: functionType.return.typeExpr.token,
       errorMessage: `Incompatible function return type for:
-- Expected: ${typeToString(functionType.return.type)}
+- Expected: ${typeToString(expectedReturnForCompare)}
 - Given  : ${typeToString(trialBodyReturnType)}`,
     });
   }
@@ -161,6 +204,19 @@ export function createFunctionBodyEvaluationContext(
     }
   }
 
+  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // functions, the body produces a place expression (`*(T)` at the
+  // C ABI). Setting the body's expected type to `*(T)` lets
+  // internal type unification — especially across `match` and
+  // `cond` arms — agree on a single pointer-typed shape, so
+  // bodies like `match(opt, .Some(b) => &(b(i)), .None => panic(...))`
+  // type-check correctly. The user-visible call-site type stays
+  // `T`; the flowability rule on the return expression owns the
+  // soundness check.
+  const bodyExpectedType: Type = functionType.return.isRef
+    ? createPtrType(functionType.return.type)
+    : functionType.return.type;
+
   const evaluationContext: EvaluatorContext = {
     ...context,
     isExecuting: false, // We're analyzing, not executing
@@ -171,7 +227,7 @@ export function createFunctionBodyEvaluationContext(
     capturedVariables, // Set the captured variables map here
     ownConsumedCaptures: new Set(), // Track captures consumed via own(self)
     expectedType: {
-      type: functionType.return.type,
+      type: bodyExpectedType,
       env: env,
     },
     functionReturnImplConcreteType: [], // Empty array for each function
@@ -299,6 +355,16 @@ export function tryToImplementFunctionByFunctionType({
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
           isOwningTheRcValue: anonymousParam.isOwningTheRcValue,
+          // Propagate `ref(name) : T` and `inout(name) : T` parameter
+          // markings into the env variable so the body's codegen knows the
+          // C-level representation is a pointer and reads of the identifier
+          // become `(*name)`. Without this, `match(self, ...)` for a
+          // `ref(self) : Self`-typed parameter would compile to
+          // `switch ((self).tag) { ... self.data.Variant.field ... }`,
+          // tripping the C "is not a pointer" error because `self` is
+          // `Self*` at the C level (see std/encoding/json.yo Index impl).
+          isRef: anonymousParam.isRef || undefined,
+          isParameter: true,
           // Set up parameter alias if names differ
           parameterAlias:
             anonymousParamName !== expectedParamName
@@ -361,10 +427,13 @@ export function tryToImplementFunctionByFunctionType({
   // If the function depends on generic type variables, we should NOT evaluate the body
   // at definition time. The body will be evaluated when the function is specialized
   // with concrete type arguments.
+  // See note in src/evaluator/values/anonymous-function.ts:
+  // an `exn : Exception` / `io : Io` parameter must NOT defer body evaluation —
+  // their forall content is only inside type-erased fn-pointer fields.
   const shouldDeferBodyEvaluation =
     newFunctionType.forallParameters.length > 0 ||
     newFunctionType.parameters.some((param) =>
-      typeContainsSomeType(param.type)
+      typeContainsSomeTypeForCodegenParam(param.type)
     ) ||
     (newFunctionType.SelfType &&
       typeContainsSomeType(newFunctionType.SelfType));
@@ -434,6 +503,63 @@ export function tryToImplementFunctionByFunctionType({
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
 
+  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // the return expression of a `-> ref(T)` function. Mirrors the
+  // identical check in `evaluateAnonymousFunctionImplementation`;
+  // this path covers top-level `name :: (fn(...) -> ref(T))(body)`
+  // definitions where the body is evaluated here rather than in
+  // the inline-lambda evaluator.
+  if (newFunctionType.return.isRef) {
+    let returnExpr: Expr = evaluatedFunctionBody;
+    if (
+      exprIsFunctionCall(evaluatedFunctionBody) &&
+      exprIsFunctionCallOf(evaluatedFunctionBody, BuiltinKeywords.begin)
+    ) {
+      const beginCall = evaluatedFunctionBody as FnCallExpr;
+      if (beginCall.args.length > 0) {
+        returnExpr = beginCall.args[beginCall.args.length - 1]!;
+      }
+    }
+    if (!isFlowableExpr(returnExpr)) {
+      throw formatErrorMessage({
+        token: returnExpr.token,
+        errorMessage: `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
+      });
+    }
+  } else if (
+    typeRepresentationContainsRawPtr(newFunctionType.return.type) &&
+    !newFunctionType.return.isCompileTimeOnly &&
+    !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)
+  ) {
+    // plans/SLICE_FLOWABILITY.md Phase C — a function whose return
+    // type is value-typed but transitively carries a raw pointer in
+    // its representation (e.g. `Slice(T)`, `str`, or any struct that
+    // wraps one) must root the returned value in caller-owned storage.
+    // Otherwise the returned fat pointer would point into the dying
+    // call frame.
+    let returnExpr: Expr = evaluatedFunctionBody;
+    if (
+      exprIsFunctionCall(evaluatedFunctionBody) &&
+      exprIsFunctionCallOf(evaluatedFunctionBody, BuiltinKeywords.begin)
+    ) {
+      const beginCall = evaluatedFunctionBody as FnCallExpr;
+      if (beginCall.args.length > 0) {
+        returnExpr = beginCall.args[beginCall.args.length - 1]!;
+      }
+    }
+    if (
+      !isFlowableExpr(returnExpr, {
+        allowParameterSource: true,
+        allowComptimeSource: true,
+      })
+    ) {
+      throw formatErrorMessage({
+        token: returnExpr.token,
+        errorMessage: `Function returning '${typeToString(newFunctionType.return.type)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter (caller's value is alive across the call); a 'comptime' constant or string literal; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.\n\nFixes:\n  - Take the source as a 'ref(name) : T' parameter and project a slice from it.\n  - Return an owned type ('ArrayList', 'String') instead — heap-allocated, no lifetime concern.\n  - Wrap unsafe construction in 'pragma(Pragma.AllowUnsafe);' at the file top if you genuinely need the raw form.`,
+      });
+    }
+  }
+
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
 
@@ -459,11 +585,27 @@ export function tryToImplementFunctionByFunctionType({
   // contains SomeType (e.g. `using(exn : Exception)`). In that case the body's
   // SomeType result is a forall param of an implicit-parameter method; it will be
   // resolved when the function is specialized at a concrete call site.
+  //
+  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // functions, the body produces `*(T)`; compare against that.
+  const finalExpectedReturnForBody: Type = newFunctionType.return.isRef
+    ? createPtrType(newFunctionType.return.type)
+    : newFunctionType.return.type;
+  // For `-> ref(T)` returns, the flowability check above already verified
+  // that the body roots back to a ref-bound parameter (R1–R4). At that
+  // point the body's `.$.type` is the underlying `T` (auto-deref'd
+  // through the ref binding), but codegen will emit the address-taking
+  // wrapper at the return site. Skip the strict compatibility check
+  // here — comparing `*(T)` vs `T` would spuriously reject every
+  // valid `ref_identity :: (fn(ref(p) : i32) -> ref(i32))(p)` shape.
+  const skipReturnTypeCheckForRefReturn = newFunctionType.return.isRef;
   if (
+    !shouldDeferBodyEvaluation &&
     !functionValue.isControlFunction &&
+    !skipReturnTypeCheckForRefReturn &&
     functionBodyReturnType &&
     !areTypesCompatible(
-      { type: newFunctionType.return.type, env },
+      { type: finalExpectedReturnForBody, env },
       { type: functionBodyReturnType, env }
     )
   ) {
@@ -471,7 +613,7 @@ export function tryToImplementFunctionByFunctionType({
     throw formatErrorMessage({
       token: newFunctionType.return.typeExpr.token,
       errorMessage: `Incompatible function return type for:
-- Expected: ${typeToString(newFunctionType.return.type)}
+- Expected: ${typeToString(finalExpectedReturnForBody)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
     });
   }

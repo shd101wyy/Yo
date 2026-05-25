@@ -759,7 +759,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(self: *(Self), dx : i32, dy : i32) -> unit)({
+  move_by : (fn(ref(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -769,24 +769,24 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // Type method call - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // Automatically takes pointer for `*(Self)` parameter
+p2.move_by(5, 10);  // `ref(self)` lowers to `Self*` — &(p2) is taken automatically
 // p2 is now Point(5, 10)
 ```
 
-**Automatic pointer conversion:**
+**Automatic pointer conversion for `ref`:**
 
-When a method expects `*(Self)` but you have `Self`, Yo automatically takes the pointer for you (Rust-style):
+`ref(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
 
 ```rust
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : ((self: *(Self), new_x: i32) -> unit)({
+  set_x : (fn(ref(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
 
 p := Point(3, 4);
-p.set_x(10);  // Automatically converts to &(p).set_x(10)
+p.set_x(10);  // No `&(p)` required — the compiler inserts it
 ```
 
 ### recur
@@ -864,22 +864,24 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 
 ## Pointers
 
-Yo uses pointers (`*(T)`) for direct memory access, similar to C:
+Yo uses pointers (`*(T)`) for direct memory access, similar to C. Operations that dereference or do arithmetic on raw pointers require an explicit `unsafe(...)` wrap — see [Memory Safety](#memory-safety) below.
 
 ```rust
 // Pointer type: *(T)
 x := 1;
 y := 2;
 
-swap :: (fn(a : *(i32), b : *(i32)) -> unit)({
+swap :: (fn(a : *(i32), b : *(i32)) -> unit)(unsafe({
   tmp := a.*;  // Dereference pointer
   a.* = b.*;
   b.* = tmp;
-});
+}));
 
 swap(&(x), &(y));  // Pass pointers to x and y
 // Now x == 2, y == 1
 ```
+
+For day-to-day in-place mutation, prefer the `ref(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
 
 ### Pointer Operations
 
@@ -888,36 +890,37 @@ swap(&(x), &(y));  // Pass pointers to x and y
 x := 42;
 ptr := &(x);  // ptr: *(i32)
 
-// Dereference with .*
-value := ptr.*;  // value == 42
+// Dereference with .* (requires unsafe — may read invalid memory)
+value := unsafe(ptr.*);  // value == 42
 
-// Modify through pointer
-ptr.* = 100;  // x is now 100
+// Modify through pointer (requires unsafe — could write to invalid memory)
+unsafe(ptr.* = 100);  // x is now 100
 
-// Pointer arithmetic (unsafe)
+// Pointer arithmetic (requires unsafe — could produce OOB address)
 arr := [1, 2, 3, 4, 5];
 ptr := &(arr(0));  // Pointer to first element
-ptr2 := (ptr &+ 2);  // Point to third element
-value := ptr2.*;  // value == 3
+ptr2 := unsafe(ptr &+ 2);  // Point to third element
+value := unsafe(ptr2.*);  // value == 3
 
-// Pointer casting
+// Pointer casting (safe — just changes type label on the address)
 float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 ```
 
 ### Pointer Arithmetic Operations
 
-Yo provides a complete set of pointer arithmetic operators:
+Yo provides a complete set of pointer arithmetic operators. The arithmetic operators (`&+`, `&-`, `&/`) require `unsafe(...)`; the comparison operators (`&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`) stay safe — comparing addresses can't violate memory safety.
 
 ```rust
 test("Pointer arithmetic", {
   x := 12;
   p := &(x);
 
-  // Addition and subtraction
-  q := (p &+ 2);   // Advance pointer by 2 elements
-  z := (q &- 2);   // Go back 2 elements
+  // Addition and subtraction (require unsafe — could produce
+  // out-of-bounds addresses):
+  q := unsafe(p &+ 2);   // Advance pointer by 2 elements
+  z := unsafe(q &- 2);   // Go back 2 elements
 
-  // Comparison operators
+  // Comparison operators (safe — addresses are just data):
   assert(q &> p);  // q is after p
   assert(p &< q);  // p is before q
   assert(q &>= p); // Greater or equal
@@ -925,8 +928,9 @@ test("Pointer arithmetic", {
   assert(z &== p); // Equal (same address)
   assert(p &!= q); // Not equal
 
-  // Pointer difference (distance between pointers)
-  diff := (q &/ p);  // Distance: 2 elements
+  // Pointer difference also requires unsafe (assumes both point
+  // into the same object):
+  diff := unsafe(q &/ p);  // Distance: 2 elements
   assert(diff == 2);
 });
 ```
@@ -975,6 +979,105 @@ match(some_ptr,
 ```
 
 **Note**: Raw pointers are unsafe. Use object types for safe memory management whenever possible.
+
+### Memory Safety
+
+For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `ref(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, and `-fwrapv` for signed-integer overflow.
+
+Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
+
+- **`object` types** are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
+- **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
+- **`*(T)` raw pointers** require an explicit `unsafe(...)` wrap around operations that dereference, do arithmetic on, or consume-through a pointer. Without the wrap, those operations are compile errors.
+
+`unsafe(...)` is a regular builtin call that takes exactly one expression. It is purely a compile-time marker — at codegen time it lowers to its inner expression, no runtime cost.
+
+```rust
+// Pointer deref requires unsafe:
+read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
+
+// Pointer arithmetic likewise:
+advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p &+ n));
+
+// Multi-statement unsafe with begin-block (semicolons required —
+// `{ ... }` without semicolons is a struct literal, not a block):
+write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
+  p.* = v;
+  p.*
+}));
+
+// Pointer comparison (&==, &<, etc.) and *(T) casts (e.g., *(u8)(p))
+// stay safe — they don't dereference, so they're not gated.
+```
+
+**What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)`.
+
+**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`&<`, `&==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
+
+The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. A file must declare `pragma(Pragma.AllowUnsafe);` at the top before it can use `unsafe(...)` or perform raw pointer operations. `std/`, `yo-self/`, and `tests/` files declare this pragma explicitly; user code (`main.yo`, the rest of your project) defaults to safe mode and gets a compile error if it tries to use `unsafe(...)`.
+
+For an at-a-glance audit, run `yo unsafe-report` (or `yo unsafe-report ./std` for stdlib alone). It lists every `unsafe(...)` site, `asm(...)` block, `extern(...)` declaration, and pragma-declaring file, with `file:line:col` jumps for editors. The `--json` flag emits machine-readable output for CI integrations.
+
+```rust
+// File without pragma — `unsafe(...)` is rejected:
+main :: (fn() -> unit)({
+  x := i32(42);
+  v := unsafe(x);   // error: 'unsafe(...)' is not available in safe code.
+                    //        To use raw pointer operations, declare at the top:
+                    //            pragma(Pragma.AllowUnsafe);
+});
+
+// Opt in by adding the pragma at the top of the file:
+pragma(Pragma.AllowUnsafe);
+
+main :: (fn() -> unit)({
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);  // OK
+});
+```
+
+### `ref` Parameters
+
+For in-place mutation without raw pointers, use the `ref(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `ref(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+
+```rust
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
+
+increment :: (fn(ref(n) : i32) -> unit)({
+  n = (n + i32(1));
+});
+
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  swap(x, y);              // no `&()` syntax at the call site
+  assert((x == i32(2)), "swapped");
+  assert((y == i32(1)), "swapped");
+
+  counter := i32(0);
+  increment(counter);
+  increment(counter);
+  assert((counter == i32(2)), "incremented");
+});
+```
+
+`ref(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (`ref` is runtime-only). For chained calls, passing a `ref`-param through to another function's `ref`-param works as expected:
+
+```rust
+double :: (fn(ref(n) : i32) -> unit)({
+  n = (n + n);
+});
+
+double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
+  double(x);  // passes &x through to double's ref-param
+  double(y);
+});
+```
 
 ### RAII (Resource Acquisition Is Initialization)
 
@@ -1230,7 +1333,7 @@ The `Iterator` trait defines a sequence of values. It has an associated type `It
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1272,53 +1375,51 @@ for(iter_expr, (variable) => {
 });
 ```
 
-Each collection provides two iteration modes:
+The `for` macro distinguishes borrow iteration from value iteration by the **lambda's binding shape** — `ref(x) => body` borrows, `(x) => body` consumes:
 
-| Method        | Yields | Semantics                                           |
-| ------------- | ------ | --------------------------------------------------- |
-| `iter()`      | `*(T)` | Borrows the collection via pointer; yields pointers |
-| `into_iter()` | `T`    | Takes ownership of the RC handle; yields values     |
+| Form                        | Calls              | What `x` is                                                                                                      |
+| --------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `for(coll, ref(x) => body)` | `coll.iter()`      | `ref`-bound to each element; reads auto-deref, writes propagate back to the collection; `coll` survives the loop |
+| `for(coll, (x) => body)`    | `coll.into_iter()` | Owned value; collection is moved into the iterator and consumed                                                  |
 
 ```rust
+arr := Array(i32, 3)(1, 2, 3);
+
+// Borrow form — `x` is bound by reference; writes propagate.
+for(arr, ref(x) => {
+  x = (x * i32(10));
+});
+// arr is now [10, 20, 30].
+
+// Value form — `coll.into_iter()` is invoked; each `x` is owned.
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-
-// iter() — yields pointers to elements
-for(list.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// into_iter() — yields values (takes ownership of the RC handle)
 for(list.into_iter(), (value) => {
   println(value);
 });
-
-// Arrays use iter() — yields pointers to elements
-arr := Array(i32, 3)(1, 2, 3);
-for(arr.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// Strings use chars() and bytes()
-s := String.from("Hello");
-for(s.chars(), (ch) => {
-  println(ch);
-});
 ```
 
-The `for` macro expands to:
+Under the hood, `for(coll, ref(x) => body)` lowers to a `while` that pairs each yielded position with a `coll.project(pos)` borrow:
 
 ```rust
-iter := iter_expr;
+__iter := coll.iter();
 while(runtime(true), {
-  temp := &(iter).next();
-  match(temp,
-    .Some(variable) => body,
+  match(__iter.next(),
+    .Some(__pos) => {
+      ref(x) := coll.project(__pos);
+      body
+    },
     .None => { break; }
   )
 });
 ```
+
+`coll.iter()` returns an `Iterator(Item := Position)` (typically `usize` for indexed collections). The collection's `Indexable(Position)` impl provides `project(pos) -> ref(Element)`, which the for-macro pairs with each position to hand the body a `ref`-binding into element storage. See `plans/ITERATOR_REDESIGN.md`.
+
+For value iteration, `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. Combinator chains (`coll.iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape — they don't have a `Collection` to project from, so they only support the value form. A blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
+
+Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration); the byte-level borrow form `for(s, ref(b) => body)` is available too.
 
 ## Algebraic Data Types (ADT)
 
@@ -1658,11 +1759,11 @@ A trait is defined as a function that returns a `Trait` type containing field de
 ```rust
 // Define a trait (like a trait in Rust)
 Summary :: trait(
-  summarize : (fn(self: *(Self)) -> String)
+  summarize : (fn(ref(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(self: *(Self)) -> String),
+  display : (fn(ref(self) : Self) -> String),
   where(Self <: Summary) // Constraint
 );
 
@@ -1688,12 +1789,12 @@ impl(NewsArticle, Display(
 ));
 
 // Pass in function
-notify :: (fn(item: *(NewsArticle)) -> unit)({
+notify :: (fn(ref(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // Generic function with trait constraint
-notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit)({
+notify2 :: (fn(forall(T : Type), ref(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2270,7 +2371,7 @@ result := use_id(42);  // Prints "i32: 42", returns 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(self : *(Self)) -> i32)
+  return_i32 : (fn(ref(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -2543,12 +2644,12 @@ Yo uses **async/await with state machine transformation** for efficient **single
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(io : IO) -> unit)({
-  task1 := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task1 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(1));
   });
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(2));
   });
@@ -2716,7 +2817,7 @@ test("Test description", {
   assert(x == 2);
 });
 
-// IO is implicitly available via `io` in all test bodies
+// Io is implicitly available via `io` in all test bodies
 test("With effects", {
   io.await(sleep(u64(1000)));
 });
@@ -3214,7 +3315,7 @@ For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMB
 
 ## Index Trait
 
-Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via `&(value(index)).* = new_value`.
+Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via the call-syntax assignment `value(index) = new_value`.
 
 The standard library implements `Index` for `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, and `String`. Arrays and slices use built-in indexing with the same syntax, plus range slicing with `..` and `..=`.
 

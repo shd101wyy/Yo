@@ -12,6 +12,7 @@
 //!   uses its default/assigned value, `runtimeArgExprsInOrder[i]` is set to the
 //!   function callee expr as a placeholder (acceptable since codegen is not yet done).
 //! - `isComptimeOnlyType` is approximated via `_is_comptime_only_type_approx`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -68,7 +69,7 @@ try_to_call_type_with_arguments :: (
     function_callee_expr : AstExpr,
     arg_exprs : ArrayList(AstExpr),
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     is_union_type : bool,
     exn : Exception
   ) -> TypeCallResult
@@ -281,8 +282,8 @@ try_to_call_type_with_arguments :: (
       );
     });
     // Store the result.
-    (&(values)).index(member_element_position_index).* = arg_info.value;
-    (&(runtime_arg_exprs_in_order)).index(member_element_position_index).* = evaluated_arg;
+    values(member_element_position_index) = arg_info.value;
+    runtime_arg_exprs_in_order(member_element_position_index) = evaluated_arg;
     ___ := checked_indices.set(member_element_position_index, true);
     i = (i + usize(1));
   });
@@ -316,7 +317,7 @@ try_to_call_type_with_arguments :: (
                 has_assigned => field.assigned_value,
                 true => Option(EvalValue).None
               );
-              (&(values)).index(ci).* = default_val;
+              values(ci) = default_val;
               // Note: we can't set the real expr here (TypeField doesn't store exprs),
               // so runtime_arg_exprs_in_order[ci] remains the function_callee_expr placeholder.
             });

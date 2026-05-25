@@ -5,19 +5,20 @@
 //! ```rust
 //! { TempDir } :: import "std/fs/temp";
 //!
-//! main :: (fn(io : IO, exn : Exception) -> unit)({
+//! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   dir := io.await(TempDir.new(io), { io, exn });
 //!   println(dir.path());
 //!   io.await(dir.remove(io), { io, exn });
 //! });
 //! ```
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 open(import("../string"));
 open(import("../fmt"));
 { Path } :: import("../path");
-{ IOError } :: import("../sys/errors");
-{ Error, AnyError, Exception, IOErr } :: import("../error");
+{ IoError } :: import("../sys/errors");
+{ Error, AnyError, Exception, IoExn } :: import("../error");
 _file_mod :: import("./file");
 _dir_mod :: import("./dir");
 IO_temp :: import("../sys/temp");
@@ -53,7 +54,7 @@ TempDir :: object(
 impl(
   TempDir,
   // Create a temporary directory in the given parent directory.
-  new_in : (fn(parent : Path, io : IO) -> Impl(Future(TempDir, IOErr)))(
+  new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempDir, IoExn)))(
     io.async((e) => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
@@ -62,13 +63,19 @@ impl(
       template_bytes := template_str.as_bytes();
       buf_len := (template_bytes.len() + usize(1));
       buf := *(u8)(malloc(buf_len).unwrap());
-      memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len());
+      // SAFETY: `buf` is a fresh malloc'd `buf_len = template_bytes.len() + 1`
+      // byte buffer; we copy exactly `template_bytes.len()` bytes from
+      // `template_bytes`'s underlying storage (alive for the duration of this
+      // statement — it's the bytes of `template_str` which we own) and write
+      // the trailing NUL at `buf[template_bytes.len()]`. `buf` is freed in
+      // both the error branch and after `IO_temp.mkdtemp` returns.
+      unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
       (buf &+ template_bytes.len()).* = u8(0);
       result := IO_temp.mkdtemp(buf);
       cond(
         (result < i32(0)) => {
           free(.Some(*(void)(buf)));
-          e.exn.throw(dyn(IOError.from_errno(i32(0) - result)));
+          e.exn.throw(dyn(IoError.from_errno(i32(0) - result)));
         },
         true => ()
       );
@@ -78,7 +85,7 @@ impl(
     })
   ),
   // Create a temporary directory in the system temp dir.
-  new : (fn(io : IO) -> Impl(Future(TempDir, IOErr)))(
+  new : (fn(io : Io) -> Impl(Future(TempDir, IoExn)))(
     TempDir.new_in(Path.new(_default_tmp_dir()), io)
   ),
   // Get the path of the temporary directory.
@@ -86,7 +93,7 @@ impl(
     self._path
   ),
   // Remove the temporary directory.
-  remove : (fn(self : Self, io : IO) -> Impl(Future(unit, IOErr)))({
+  remove : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     self_path := self._path;
     io.async(
       (e) =>
@@ -110,7 +117,7 @@ TempFile :: object(
 impl(
   TempFile,
   // Create a temporary file in the given parent directory.
-  new_in : (fn(parent : Path, io : IO) -> Impl(Future(TempFile, IOErr)))(
+  new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempFile, IoExn)))(
     io.async((e) => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
@@ -118,13 +125,17 @@ impl(
       template_bytes := template_str.as_bytes();
       buf_len := (template_bytes.len() + usize(1));
       buf := *(u8)(malloc(buf_len).unwrap());
-      memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len());
+      // SAFETY: as in `TempDir.new_in` above — `buf` is a fresh malloc'd
+      // `template_bytes.len() + 1` byte buffer, we copy exactly the template
+      // bytes plus a trailing NUL. `buf` is freed in the error branch and
+      // released to mkstemp's owned-fd lifecycle on success.
+      unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
       (buf &+ template_bytes.len()).* = u8(0);
       fd := IO_temp.mkstemp(buf);
       cond(
         (fd < i32(0)) => {
           free(.Some(*(void)(buf)));
-          e.exn.throw(dyn(IOError.from_errno(i32(0) - fd)));
+          e.exn.throw(dyn(IoError.from_errno(i32(0) - fd)));
         },
         true => ()
       );
@@ -136,7 +147,7 @@ impl(
     })
   ),
   // Create a temporary file in the system temp dir.
-  new : (fn(io : IO) -> Impl(Future(TempFile, IOErr)))(
+  new : (fn(io : Io) -> Impl(Future(TempFile, IoExn)))(
     TempFile.new_in(Path.new(_default_tmp_dir()), io)
   ),
   // Get the underlying File object.
@@ -148,7 +159,7 @@ impl(
     self._path
   ),
   // Remove the temporary file.
-  remove : (fn(self : Self, io : IO) -> Impl(Future(unit, IOErr)))({
+  remove : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     self_file := self._file;
     self_path := self._path;
     io.async(

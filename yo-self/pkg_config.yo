@@ -7,7 +7,7 @@
 /// Mirrors: src/pkg-config.ts
 open(import("std/string"));
 { Command, ExitStatus, Output } :: import("std/process/command");
-{ Exception, IOErr } :: import("std/error");
+{ Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 /// Resolved compiler and linker flags for a system library.
 PkgConfigResult :: object(
@@ -216,9 +216,9 @@ _merge_into :: (fn(dst : PkgConfigResult, src : PkgConfigResult) -> unit)({
 /// Check if `pkg-config` is available on this system.
 is_pkg_config_available :: (
   fn(
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(bool, IOErr))
+  ) -> Impl(Future(bool, IoExn))
 )(
   io.async((io, exn) => {
     cmd := Command.new(String.from("pkg-config"));
@@ -232,9 +232,9 @@ is_pkg_config_available :: (
 query_pkg_config :: (
   fn(
     pkg_name : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Option(PkgConfigResult), IOErr))
+  ) -> Impl(Future(Option(PkgConfigResult), IoExn))
 )(
   io.async((io, exn) => {
     // Run pkg-config --cflags
@@ -266,9 +266,9 @@ resolve_system_library :: (
   fn(
     lib : BuildSystemLibrary,
     verbose : bool,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(PkgConfigResult, IOErr))
+  ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
   io.async((io, exn) => {
     pkg_available := io.await(is_pkg_config_available(), io);
@@ -291,9 +291,9 @@ resolve_all_system_libraries :: (
   fn(
     libs : ArrayList(BuildSystemLibrary),
     verbose : bool,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(PkgConfigResult, IOErr))
+  ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
   io.async((io, exn) => {
     merged := _empty_result();

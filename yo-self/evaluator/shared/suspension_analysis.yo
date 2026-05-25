@@ -35,6 +35,7 @@
 //! * `capturedVariables` is a `HashMap(String, SuspensionCapturedVariable)` for O(1) dedup;
 //!   `captured_variable_ids_in_order` is a parallel `ArrayList(String)` that preserves
 //!   first-seen insertion order (TypeScript `Map` is insertion-ordered, Yo `HashMap` is not).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -99,12 +100,12 @@ extract_target_variable_id :: (
     },
     .Some(x) => x
   );
-  if(!(ast_expr_is_fn_call_of((&(pe)).clone(), ":=", Option(usize).None)), {
+  if(!(ast_expr_is_fn_call_of(pe.clone(), ":=", Option(usize).None)), {
     return(Option(String).None);
   });
   // Extract args[0] from the FnCall
   var_expr := match(
-    (&(pe)).clone(),
+    pe.clone(),
     .Atom(_, _) => {
       return(Option(String).None);
     },
@@ -118,7 +119,7 @@ extract_target_variable_id :: (
   );
   // Must be an Identifier atom
   tok := match(
-    (&(var_expr)).clone(),
+    var_expr.clone(),
     .Atom(_, t) => t,
     .FnCall(_, _, _, _, _) => {
       return(Option(String).None);
@@ -129,10 +130,10 @@ extract_target_variable_id :: (
   });
   var_name := tok.value;
   match(
-    get_info((&(var_expr)).clone()),
+    get_info(var_expr.clone()),
     .None => Option(String).None,
     .Some(info) => {
-      variables := get_variables_from_env(info.env, (&(var_name)).clone());
+      variables := get_variables_from_env(info.env, var_name.clone());
       n := variables.len();
       if(n == usize(0), {
         return(Option(String).None);
@@ -144,7 +145,7 @@ extract_target_variable_id :: (
         },
         .Some(v) => v
       );
-      Option(String).Some((&(last_var.id)).clone())
+      Option(String).Some(last_var.id.clone())
     }
   )
 });
@@ -172,7 +173,7 @@ walk_expr_ :: (
   ) -> unit
 )({
   // Clone expr before match because match consumes the value.
-  expr_cloned := (&(expr)).clone();
+  expr_cloned := expr.clone();
   match(
     expr,
     // -----------------------------------------------------------------------
@@ -182,10 +183,10 @@ walk_expr_ :: (
       if(tok.kind == TokenKind.Identifier, {
         var_name := tok.value;
         match(
-          get_info((&(expr_cloned)).clone()),
+          get_info(expr_cloned.clone()),
           .None => (),
           .Some(info) => {
-            variables := get_variables_from_env(info.env, (&(var_name)).clone());
+            variables := get_variables_from_env(info.env, var_name.clone());
             n_vars := variables.len();
             if(n_vars > usize(0), {
               variable := match(
@@ -195,11 +196,11 @@ walk_expr_ :: (
                 },
                 .Some(v) => v
               );
-              if(!(variable.is_compile_time_only) && !(captured_variables.contains_key((&(variable.id)).clone())), {
+              if(!(variable.is_compile_time_only) && !(captured_variables.contains_key(variable.id.clone())), {
                 name_frame_key := `${variable.name}:${variable.frame_level}`;
                 // Check if there is a different existing original ID for this name:frame key
                 has_different_orig := match(
-                  name_frame_to_original_id.get((&(name_frame_key)).clone()),
+                  name_frame_to_original_id.get(name_frame_key.clone()),
                   .None => false,
                   .Some(eid) => (eid.as_str() != variable.id.as_str())
                 );
@@ -207,11 +208,11 @@ walk_expr_ :: (
                   // Case 1: SSA renaming — remap this ID to the original
                   has_different_orig => {
                     orig_id := match(
-                      name_frame_to_original_id.get((&(name_frame_key)).clone()),
+                      name_frame_to_original_id.get(name_frame_key.clone()),
                       .None => String.from(""),
                       .Some(id) => id
                     );
-                    variable_id_remapping.set((&(variable.id)).clone(), orig_id);
+                    variable_id_remapping.set(variable.id.clone(), orig_id);
                   },
                   // Case 2/3: owner capture or normal capture
                   // Single match to avoid double field access (move safety).
@@ -221,33 +222,33 @@ walk_expr_ :: (
                       // Case 2: variable shares RC with an owner — capture the owner
                       .Some(owner_box) => {
                         owner_var := owner_box.*;
-                        if(!(captured_variables.contains_key((&(owner_var.id)).clone())), {
+                        if(!(captured_variables.contains_key(owner_var.id.clone())), {
                           owner_captured := SuspensionCapturedVariable(
-                            id : (&(owner_var.id)).clone(),
-                            name : (&(owner_var.name)).clone(),
-                            ty : (&(owner_var.ty)).clone(),
+                            id : owner_var.id.clone(),
+                            name : owner_var.name.clone(),
+                            ty : owner_var.ty.clone(),
                             is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None
                           );
-                          captured_variables.set((&(owner_var.id)).clone(), owner_captured);
-                          captured_variable_ids_in_order.push((&(owner_var.id)).clone());
+                          captured_variables.set(owner_var.id.clone(), owner_captured);
+                          captured_variable_ids_in_order.push(owner_var.id.clone());
                           owner_nfk := `${owner_var.name}:${owner_var.frame_level}`;
-                          if(!(name_frame_to_original_id.contains_key((&(owner_nfk)).clone())), {
-                            name_frame_to_original_id.set(owner_nfk, (&(owner_var.id)).clone());
+                          if(!(name_frame_to_original_id.contains_key(owner_nfk.clone())), {
+                            name_frame_to_original_id.set(owner_nfk, owner_var.id.clone());
                           });
                         });
                       },
                       // Case 3: normal capture
                       .None => {
                         sc := SuspensionCapturedVariable(
-                          id : (&(variable.id)).clone(),
-                          name : (&(var_name)).clone(),
-                          ty : (&(info.ty)).clone(),
+                          id : variable.id.clone(),
+                          name : var_name.clone(),
+                          ty : info.ty.clone(),
                           is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None
                         );
-                        captured_variables.set((&(variable.id)).clone(), sc);
-                        captured_variable_ids_in_order.push((&(variable.id)).clone());
-                        if(!(name_frame_to_original_id.contains_key((&(name_frame_key)).clone())), {
-                          name_frame_to_original_id.set(name_frame_key, (&(variable.id)).clone());
+                        captured_variables.set(variable.id.clone(), sc);
+                        captured_variable_ids_in_order.push(variable.id.clone());
+                        if(!(name_frame_to_original_id.contains_key(name_frame_key.clone())), {
+                          name_frame_to_original_id.set(name_frame_key, variable.id.clone());
                         });
                       }
                     );
@@ -263,10 +264,10 @@ walk_expr_ :: (
     // FnCall — while, cond/match, or a potential suspension point
     // -----------------------------------------------------------------------
     .FnCall(_, func_box, args, _, _) => {
-      is_while := ast_expr_is_fn_call_of((&(expr_cloned)).clone(), "while", Option(usize).None);
+      is_while := ast_expr_is_fn_call_of(expr_cloned.clone(), "while", Option(usize).None);
       is_cond_or_match := (
-        ast_expr_is_fn_call_of((&(expr_cloned)).clone(), "cond", Option(usize).None) ||
-          ast_expr_is_fn_call_of((&(expr_cloned)).clone(), "match", Option(usize).None)
+        ast_expr_is_fn_call_of(expr_cloned.clone(), "cond", Option(usize).None) ||
+          ast_expr_is_fn_call_of(expr_cloned.clone(), "match", Option(usize).None)
       );
       cond(
         // -------------------------------------------------------------------
@@ -274,7 +275,7 @@ walk_expr_ :: (
         // -------------------------------------------------------------------
         is_while => {
           initial_count := points.len();
-          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (ai : usize) = usize(0);
           n_args := args.len();
           while(runtime(ai < n_args), {
@@ -286,7 +287,7 @@ walk_expr_ :: (
               },
               .Some(a) => a
             );
-            recur(arg, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+            recur(arg, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             ai = (ai + usize(1));
           });
           new_count := points.len();
@@ -305,7 +306,7 @@ walk_expr_ :: (
               current_depth := match(sp.while_nesting_depth,.None => usize(0),.Some(d) => d);
               sp.while_nesting_depth = Option(usize).Some(current_depth + usize(1));
               if(sp.enclosing_while_expr.is_none(), {
-                sp.enclosing_while_expr = Option(AstExpr).Some((&(expr_cloned)).clone());
+                sp.enclosing_while_expr = Option(AstExpr).Some(expr_cloned.clone());
               });
               wi = (wi + usize(1));
             });
@@ -318,14 +319,14 @@ walk_expr_ :: (
         is_cond_or_match => {
           initial_count_b := points.len();
           // Walk the func expression (keyword + condition/matched value)
-          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           // Save nameFrameToOriginalId snapshot before walking branches so that
           // variables declared inside one branch don't leak into subsequent branches.
           saved_keys := ArrayList(String).new();
           saved_vals := ArrayList(String).new();
-          for((&(name_frame_to_original_id)).iter(), (entry_ptr) => {
-            k := (&(entry_ptr.*.key)).clone();
-            v := (&(entry_ptr.*.value)).clone();
+          for(name_frame_to_original_id.iter(), (entry_ptr) => {
+            k := entry_ptr.*.key.clone();
+            v := entry_ptr.*.value.clone();
             saved_keys.push(k);
             saved_vals.push(v);
           });
@@ -343,7 +344,7 @@ walk_expr_ :: (
               },
               .Some(a) => a
             );
-            recur(arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+            recur(arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             // Copy per-branch SuspensionPoint handles (same RC objects as in points)
             branch_pts := ArrayList(SuspensionPoint).new();
             (bi : usize) = branch_start;
@@ -466,11 +467,11 @@ walk_expr_ :: (
         // Default — detect suspension, then recurse into children
         // -------------------------------------------------------------------
         true => {
-          detector.detect((&(expr_cloned)).clone(), parent_expr, points);
-          if(detector.should_skip_body((&(expr_cloned)).clone()), {
+          detector.detect(expr_cloned.clone(), parent_expr, points);
+          if(detector.should_skip_body(expr_cloned.clone()), {
             // For skipped bodies, still walk deferred dup expressions
             match(
-              get_info((&(expr_cloned)).clone()),
+              get_info(expr_cloned.clone()),
               .None => (),
               .Some(info2) => {
                 match(
@@ -488,7 +489,7 @@ walk_expr_ :: (
                         },
                         .Some(e) => e
                       );
-                      recur(dup_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+                      recur(dup_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
                       di = (di + usize(1));
                     });
                   }
@@ -498,7 +499,7 @@ walk_expr_ :: (
             return(());
           });
           // Recurse into function and arguments
-          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (ai3 : usize) = usize(0);
           n_args3 := args.len();
           while(runtime(ai3 < n_args3), {
@@ -510,12 +511,12 @@ walk_expr_ :: (
               },
               .Some(a) => a
             );
-            recur(arg3, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+            recur(arg3, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             ai3 = (ai3 + usize(1));
           });
           // Walk deferred drop expressions
           match(
-            get_info((&(expr_cloned)).clone()),
+            get_info(expr_cloned.clone()),
             .None => (),
             .Some(info3) => {
               match(
@@ -533,7 +534,7 @@ walk_expr_ :: (
                       },
                       .Some(e) => e
                     );
-                    recur(drop_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some((&(expr_cloned)).clone()));
+                    recur(drop_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
                     di2 = (di2 + usize(1));
                   });
                 }
@@ -568,7 +569,7 @@ analyze_suspension_points :: (
   name_frame_to_orig_id := HashMap(String, String).new();
   variable_id_remapping := HashMap(String, String).new();
   walk_expr_(
-    (&(body)).clone(),
+    body.clone(),
     get_info,
     suspension_points,
     captured_variables,
@@ -580,7 +581,7 @@ analyze_suspension_points :: (
   );
   // Also walk deferred drop expressions from body
   match(
-    get_info((&(body)).clone()),
+    get_info(body.clone()),
     .None => (),
     .Some(body_info) => {
       match(
@@ -632,7 +633,7 @@ analyze_suspension_points :: (
       .Some(i) => i
     );
     cv := match(
-      captured_variables.get((&(id)).clone()),
+      captured_variables.get(id.clone()),
       .None => {
         break;
       },

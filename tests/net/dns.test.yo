@@ -1,5 +1,6 @@
-// @skip_wasm32-emscripten — no network stack in WASM (DNS resolution unavailable)
-// @skip_wasm32-wasi — no network stack in WASM (DNS resolution unavailable)
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM (DNS resolution unavailable)
+pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM (DNS resolution unavailable)
 open(import("std/libc/stdio"));
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
@@ -9,7 +10,7 @@ open(import("std/fmt"));
 { lookup_host, resolve } :: import("std/net/dns");
 { IpAddr, SocketAddr } :: import("std/net/addr");
 { NetError } :: import("std/net/errors");
-{ Error, AnyError, Exception } :: import("std/error");
+{ Error, AnyError, Exception, IoExn } :: import("std/error");
 // ============================================================================
 // DNS tests
 // ============================================================================
@@ -22,15 +23,15 @@ test("lookup_host localhost returns loopback", {
       }
     )
   );
-  addrs := io.await(lookup_host(`localhost`, io), io);
-  printf("  addrs.len = %zu\n", addrs.len());
+  addrs := io.await(lookup_host(`localhost`, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  addrs.len = %zu\n", addrs.len()));
   assert(addrs.len() > usize(0), "should resolve at least one address");
   // Check that at least one address is loopback
   found_loopback := false;
   i := usize(0);
   while(runtime(i < addrs.len()), {
-    addr := addrs.get(i).unwrap();
-    printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap());
+    addr := addrs(i);
+    unsafe(printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap()));
     cond(
       addr.is_loopback() => {
         found_loopback = true;
@@ -45,14 +46,14 @@ test("lookup_host invalid host fails", {
   exn := Exception(
     throw : (
       (err) -> {
-        printf("  expected error from invalid host\n");
+        unsafe(printf("  expected error from invalid host\n"));
         unwind(());
       }
     )
   );
-  addrs := io.await(lookup_host(`this.host.does.not.exist.invalid`, io), io);
+  addrs := io.await(lookup_host(`this.host.does.not.exist.invalid`, io), IoExn(io : io, exn : exn));
   // Some systems may resolve any domain; if so, skip assertion
-  printf("  unexpectedly resolved %zu addresses\n", addrs.len());
+  unsafe(printf("  unexpectedly resolved %zu addresses\n", addrs.len()));
 });
 test("resolve localhost returns socket addresses", {
   exn := Exception(
@@ -63,13 +64,13 @@ test("resolve localhost returns socket addresses", {
       }
     )
   );
-  addrs := io.await(resolve(`localhost`, u16(8080), io), io);
-  printf("  addrs.len = %zu\n", addrs.len());
+  addrs := io.await(resolve(`localhost`, u16(8080), io), IoExn(io : io, exn : exn));
+  unsafe(printf("  addrs.len = %zu\n", addrs.len()));
   assert(addrs.len() > usize(0), "should resolve at least one address");
   i := usize(0);
   while(runtime(i < addrs.len()), {
-    addr := addrs.get(i).unwrap();
-    printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap());
+    addr := addrs(i);
+    unsafe(printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap()));
     // Verify port is 8080
     assert(addr.port == u16(8080), "port should be 8080");
     // Verify IP is loopback

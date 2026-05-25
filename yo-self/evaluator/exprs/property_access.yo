@@ -13,6 +13,7 @@
 //! - `isRuntimeOnly` propagation on UnknownVal — skipped (no flag in Phase 2).
 //! - `comptimeRef` setting for pointer-through-struct access — skipped (Phase 3).
 //! - `ModuleVal.isLoading` check — skipped (no such flag in yo-self).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -156,7 +157,7 @@ evaluate_property_access :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -814,7 +815,7 @@ evaluate_property_access :: (
                 // property-access.ts:445-456.
                 placeholder_ty := if(
                   is_type_0(st_ft),
-                  t_some_t((&(st_prop_name)).clone(), env.frames.len()),
+                  t_some_t(st_prop_name.clone(), env.frames.len()),
                   st_ft
                 );
                 ev_st := if(

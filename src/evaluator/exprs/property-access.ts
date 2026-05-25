@@ -24,6 +24,7 @@ import {
   isUnionType,
 } from "../../types/guards";
 import { typeToString } from "../../types/utils";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import {
   createEnumValue,
   createTypeValue,
@@ -216,6 +217,23 @@ export function evaluatePropertyAccess({
   // Check if it's .* for dereference
   if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {
     if (isPtrType(objectExpr.$?.type)) {
+      // Memory safety gate: pointer dereference requires `unsafe(...)`.
+      // See plans/MEMORY_SAFETY.md. Files under std/ and yo-self/ are
+      // implicitly unsafe-capable (Phase C will replace this with the
+      // explicit pragma mechanism).
+      if (
+        !context.unsafeContext &&
+        !isImplicitlyUnsafeCapableFile(propertyExpr.token.modulePath)
+      ) {
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage: `Pointer dereference requires 'unsafe(...)'.
+
+Wrap as: unsafe(${exprToString(objectExpr)}.*)
+
+Raw pointer operations may dereference invalid memory.`,
+        });
+      }
       const pointerType = objectExpr.$.type;
       let baseType = pointerType.childType;
 

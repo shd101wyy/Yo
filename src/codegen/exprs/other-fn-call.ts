@@ -206,7 +206,27 @@ export function generateOtherFunctionCall(
     return generateComptimeValue(expr.$.value, context, expr);
   }
 
-  const functionValue = expr.func.$?.value;
+  // Mutual-recursion bridge: when a `comptime(name) : (fn ...)` variable's
+  // body was evaluated before the matching `name = ...` assignment, the
+  // body's call to `name(...)` captured an UnknownValue. The assignment
+  // later back-patches that UnknownValue with the funcId; resolve it
+  // here so codegen emits a direct call instead of routing through the
+  // fn-pointer-cast fallback (which would print a raw `name` identifier
+  // with no C declaration). See UnknownValue.resolvedFuncValueId.
+  let functionValue = expr.func.$?.value;
+  const rawFnValue = Array.isArray(functionValue)
+    ? functionValue[0]
+    : functionValue;
+  if (
+    rawFnValue &&
+    isUnknownValue(rawFnValue) &&
+    rawFnValue.resolvedFuncValueId
+  ) {
+    const resolved = context.functions[rawFnValue.resolvedFuncValueId]?.value;
+    if (resolved && isFunctionValue(resolved)) {
+      functionValue = resolved;
+    }
+  }
   const functionType =
     expr.func.$?.type ??
     (isFunctionValue(functionValue)
@@ -230,8 +250,23 @@ export function generateOtherFunctionCall(
         }
       }
 
+      // Pre-compute which runtime parameter positions are `ref`-bound so
+      // the arg-materializer below can skip the temp-var copy for them.
+      // Materializing `(*self).field` into a local temp and then taking
+      // `&(temp)` breaks mutation propagation through the field — the
+      // local temp's mutations don't reach the original field. This was
+      // the iterator-combinator chain bug: `IterMap.next`'s body called
+      // `self._inner.next()`, but the codegen copied `(*self)._inner`
+      // into a local, called next on `&(local)`, and discarded the
+      // local — leaving the inner iterator's index unchanged across
+      // calls and causing the chain to infinite-loop yielding the same
+      // first element.
+      const _runtimeParamsForRefCheck = functionType.parameters.filter(
+        (p) => !p.isCompileTimeOnly && !p.isQuote
+      );
       // Generate arg list with special handling for dyn method calls
       const args = runtimeArgExprs.map((arg, index) => {
+        const paramIsRef = _runtimeParamsForRefCheck[index]?.isRef === true;
         // First, check if this argument needs a temporary variable
         if (arg.$?.variableName && arg.$?.type) {
           const functionContext = context as FunctionGenerationContext;
@@ -281,6 +316,12 @@ export function generateOtherFunctionCall(
           // so we must NOT create a temp variable with the original name because
           // it could conflict with C preprocessor macros (e.g., AF_INET from <sys/socket.h>).
           let isComptimeOnlyArg = false;
+          // Check if this is an ref parameter (e.g., `inout(self) : T`).
+          // For inout, atom.ts already emitted `(*name)` — creating a temp
+          // local with the same name would shadow the pointer parameter
+          // (`T name = (*name);` is a C redefinition error). See
+          // plans/MEMORY_SAFETY.md and issues/inout-multi-stmt-body-shadow.md.
+          let isInoutArg = false;
           if (exprIsAtom(arg) && arg.$.env && arg.$.variableName) {
             const variables = getVariablesFromEnv(
               arg.$.env,
@@ -291,6 +332,12 @@ export function generateOtherFunctionCall(
               variables[variables.length - 1]!.isCompileTimeOnly
             ) {
               isComptimeOnlyArg = true;
+            }
+            if (
+              variables.length > 0 &&
+              variables[variables.length - 1]!.isRef
+            ) {
+              isInoutArg = true;
             }
           }
 
@@ -308,7 +355,9 @@ export function generateOtherFunctionCall(
             argCode !== arg.$.variableName &&
             !isClosureCapturedVariable &&
             !isStateMachineCapturedVariable &&
-            !isComptimeOnlyArg
+            !isComptimeOnlyArg &&
+            !isInoutArg &&
+            !paramIsRef
           ) {
             // Only emit declaration if:
             // 1. The expression doesn't already handle it
@@ -437,10 +486,20 @@ export function generateOtherFunctionCall(
             // If this is a closure-captured variable, use the generated code (inline access)
             // If this is a state machine variable, use the generated code (sm->var_xxx access)
             // If this is a compile-time-only constant, use the generated code (inlined literal)
+            // If this is an ref parameter, use the generated code — it's
+            // already `(*name)` and we skipped the temp-var materialization
+            // above (the shadow would have been a C redefinition error).
+            // If the target param is `ref` (paramIsRef), we also skipped
+            // the temp materialization above — return the place expression
+            // (e.g. `(*self)._inner`) directly so the isRef-wrapper at line
+            // ~518 can take its address without copying. See the iterator
+            // combinator chain fix.
             // Otherwise use the sanitized variable name (potentially duped)
             return isClosureCapturedVariable ||
               isStateMachineCapturedVariable ||
-              isComptimeOnlyArg
+              isComptimeOnlyArg ||
+              isInoutArg ||
+              paramIsRef
               ? argCode
               : sanitizeForCIdentifier(
                   finalArgVarName,
@@ -487,6 +546,70 @@ export function generateOtherFunctionCall(
           }
         }
       });
+
+      // inout(name) : T parameter — caller passes &(arg) automatically.
+      // Match each runtime arg index to the runtime parameter at the
+      // same index (filter out comptime params first). See
+      // plans/MEMORY_SAFETY.md Phase B.
+      //
+      // Skip the auto-`&` for the receiver slot of a Dyn method call:
+      // the dyn-method branch above already transformed the receiver
+      // from the Dyn value to its `.data` pointer (the box address),
+      // which IS the pointer that the vtable wrapper expects as a bare
+      // `void*` self_ptr. Wrapping `(err).data` in `(&(...))` would
+      // pass `&err.data` (address of the Dyn's data field) instead of
+      // `err.data` (the box pointer value), so the vtable wrapper would
+      // dereference a slot offset inside the Dyn struct instead of the
+      // heap-boxed value — a stack-buffer-overflow at runtime.
+      {
+        const runtimeParams = functionType.parameters.filter(
+          (p) => !p.isCompileTimeOnly && !p.isQuote
+        );
+        for (let i = 0; i < args.length; i++) {
+          const param = runtimeParams[i];
+          if (param?.isRef && !(isDynMethodCall && i === 0)) {
+            const c = args[i]!;
+            // If c is already an l-value-looking expression like
+            // `(*expr)`, fold to just `expr` rather than `&(*expr)`.
+            const inoutLvalue = c.match(/^\(\*(.+)\)$/);
+            if (inoutLvalue) {
+              args[i] = inoutLvalue[1]!;
+              continue;
+            }
+            // If the generated arg code is a literal / rvalue (e.g.
+            // `123.to_string()` where the receiver is `123`, or
+            // `(1 + 2).to_string()` where the evaluator constant-folded
+            // the receiver to `3`), then `&(3)` is invalid C — you
+            // can't take the address of an rvalue. Wrap the literal in
+            // a C99 compound literal of the arg's runtime type so the
+            // address-of operates on the unnamed compound-literal
+            // object instead.
+            //
+            // We inspect the GENERATED code string `c` because the
+            // evaluator may have produced a temp `variableName` (which
+            // would normally let us use the variable as an lvalue), but
+            // the codegen ultimately emits the constant value rather
+            // than declaring the temp — so the c-string is just a bare
+            // literal in those cases.
+            const argRuntimeType = runtimeArgExprs[i]!.$?.type;
+            const cIsBareLiteral =
+              // signed/unsigned integer literal, possibly with L/LL/U
+              // suffixes, possibly negated
+              /^-?[0-9]+(?:[uU]?[lL]{0,2}[uU]?)?$/.test(c) ||
+              // floating-point literal with f/F suffix
+              /^-?[0-9]+\.[0-9]+(?:[fFlL]?)$/.test(c) ||
+              c === "true" ||
+              c === "false";
+            if (argRuntimeType && cIsBareLiteral) {
+              const cType = getTypeString(argRuntimeType, context);
+              args[i] = `(&((${cType}){${c}}))`;
+              continue;
+            }
+            args[i] = `(&(${c}))`;
+          }
+        }
+      }
+
       const argsList = args.join(", ");
 
       // Check if this is an extern "yo" function - handle these first before regular function values
@@ -720,9 +843,12 @@ export function generateOtherFunctionCall(
           // rather than crashing — the original argsList is already valid C.
           let namedParamTypeStrs: string[] | undefined;
           try {
-            namedParamTypeStrs = namedRuntimeParams.map((p) =>
-              getTypeString(p.type, context)
-            );
+            namedParamTypeStrs = namedRuntimeParams.map((p) => {
+              const baseStr = getTypeString(p.type, context);
+              // inout(name) : T lowers to T* in C. See
+              // plans/MEMORY_SAFETY.md Phase B.
+              return p.isRef ? `${baseStr}*` : baseStr;
+            });
           } catch {
             namedParamTypeStrs = undefined;
           }
@@ -787,6 +913,16 @@ export function generateOtherFunctionCall(
           // Control functions / effect record members set __yo_effect_escaped.
           // Specialized effectful functions transitively call handlers.
           // Functions whose body has effects may also trigger escape transitively.
+          const paramHasCtlField =
+            functionType &&
+            functionType.parameters.some((p) => {
+              if (isStructType(p.type)) {
+                return p.type.fields.some(
+                  (f) => isFunctionType(f.type) && f.type.isControl
+                );
+              }
+              return false;
+            });
           const callMayUnwind =
             (isFunctionValue(functionValue) &&
               functionValue.isControlFunction) ||
@@ -794,6 +930,23 @@ export function generateOtherFunctionCall(
               functionValue.isEffectRecordMember) ||
             (isFunctionValue(functionValue) &&
               functionValue.body?.$?.effectAnalysis?.hasEffects) ||
+            // Effect-record-field call shape: `exn.throw(...)` where the
+            // callee is a property access on an effect-record value and the
+            // resolved function type is a `ctl(...) -> R`. The handler is
+            // free to call `unwind(...)` which sets __yo_effect_escaped, so
+            // we must propagate after the call.
+            (functionType &&
+              isFunctionType(functionType) &&
+              functionType.isControl) ||
+            // Callee takes an effect-record parameter whose struct has at
+            // least one `ctl(...)` field (e.g. `exn : Exception` whose
+            // `throw` is `ctl(...) -> R`). The callee may call into that
+            // handler and transitively unwind. Without this, code like
+            // `fn(s : str, exn : Exception) -> T` calling exn.throw deep
+            // inside its body wouldn't trigger an unwind check at the call
+            // site — "should fail" assertions fire after the unwind handler
+            // ran but before the caller observes __yo_effect_escaped.
+            paramHasCtlField ||
             // Fallback: function has function-typed params that may be handlers
             (functionType &&
               functionType.parameters.some((p) => isFunctionType(p.type))) ||
@@ -980,6 +1133,20 @@ export function generateOtherFunctionCall(
                 // Use returnType (from function signature) instead of exprType (from expression metadata)
                 // because exprType might have unresolved type parameters from nested generic calls
                 cTypeString = getTypeString(returnType ?? exprType, context);
+              }
+
+              // Phase B of plans/ITERATOR_REDESIGN.md — for a function
+              // whose return slot is `-> ref(T)`, the C signature returns
+              // `T*`. The temp variable that holds the result must
+              // therefore be declared `T*` too. The evaluator marks
+              // such temp variables with `isRef: true` (in
+              // `attachTempVariableToExpr`); the existing ref-aware
+              // atom emitter handles `(*temp)` auto-deref on read.
+              if (
+                functionValueType.return.isRef &&
+                !cTypeString.endsWith("*")
+              ) {
+                cTypeString = `${cTypeString}*`;
               }
 
               // Guard against duplicate temp variable declarations.
@@ -1191,6 +1358,22 @@ export function generateOtherFunctionCall(
                 isHandlerAtomBoundLocally(expr.func, expr),
                 expr
               );
+            } else if (
+              // Effect-record-field call shape: `exn.throw(...)` where the
+              // callee is a property access on an effect-record value (and
+              // the resolved function type is `ctl(...)`). The handler may
+              // call `unwind(...)`, which sets __yo_effect_escaped — we
+              // must propagate after the call.
+              isFunctionType(functionType) &&
+              functionType.isControl &&
+              !exprIsAtom(expr.func)
+            ) {
+              emitEffectUnwindCheck(
+                indent,
+                context as FunctionGenerationContext,
+                false, // propagation, not install
+                expr
+              );
             }
 
             if (isEffectRecordCapture) {
@@ -1272,6 +1455,19 @@ export function generateOtherFunctionCall(
                   indent,
                   context as FunctionGenerationContext,
                   isHandlerAtomBoundLocally(expr.func, expr),
+                  expr
+                );
+              } else if (
+                // Effect-record-field call shape: `exn.throw(...)` —
+                // see counterpart in the unit-return branch above.
+                isFunctionType(functionType) &&
+                functionType.isControl &&
+                !exprIsAtom(expr.func)
+              ) {
+                emitEffectUnwindCheck(
+                  indent,
+                  context as FunctionGenerationContext,
+                  false,
                   expr
                 );
               }
@@ -2305,6 +2501,45 @@ function emitEffectUnwindCheck(
     generateConsumedVarDropsForEscape(indent + "  ", context, expr);
   }
   if (context.inAsyncStateMachine) {
+    // Drop RC-typed arg temporaries that are segment-local C locals.
+    // Cross-boundary struct fields are cleaned up later by _state_dispose,
+    // but segment-local C locals go out of scope and would leak without an
+    // explicit drop here. Zero the variable afterwards to prevent double-drop
+    // if the variable happens to also be a cross-boundary struct field.
+    const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+    if (runtimeArgExprs) {
+      const declaredTempVars = context.declaredTempVars;
+      for (const arg of runtimeArgExprs) {
+        if (
+          arg.$?.variableName &&
+          arg.$?.type &&
+          typeContainsRcType(arg.$.type)
+        ) {
+          const argVarName = resolveVarNameInContext(
+            sanitizeForCIdentifier(arg.$.variableName),
+            context
+          );
+          // Only drop if we can confirm the variable exists:
+          // - sm-> prefix → SM struct field, always exists
+          // - declaredTempVars → was emitted as a C local declaration
+          const isSMField = argVarName.startsWith("sm->");
+          const isDeclared =
+            isSMField || (declaredTempVars && declaredTempVars.has(argVarName));
+          if (!isDeclared) continue;
+          const dropCode = generateDropCodeForValue(
+            argVarName,
+            arg.$.type,
+            context
+          );
+          if (dropCode) {
+            emitter.emitLine(`${indent}  ${dropCode};`);
+            emitter.emitLine(
+              `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+            );
+          }
+        }
+      }
+    }
     if (isHandlerInstallation) {
       emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
     }
@@ -2318,7 +2553,17 @@ function emitEffectUnwindCheck(
     emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      const callerCType = getTypeString(callerReturnType, context);
+      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+      // ill-typed. Wrap with `*` when the function declares a ref return.
+      let callerCType = getTypeString(callerReturnType, context);
+      if (
+        context.currentFunctionType?.return.isRef &&
+        callerCType !== "void" &&
+        !callerCType.endsWith("*")
+      ) {
+        callerCType = `${callerCType}*`;
+      }
       if (callerCType !== "void") {
         emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
         emitter.emitLine(
@@ -2334,7 +2579,17 @@ function emitEffectUnwindCheck(
   } else {
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      const callerCType = getTypeString(callerReturnType, context);
+      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+      // ill-typed. Wrap with `*` when the function declares a ref return.
+      let callerCType = getTypeString(callerReturnType, context);
+      if (
+        context.currentFunctionType?.return.isRef &&
+        callerCType !== "void" &&
+        !callerCType.endsWith("*")
+      ) {
+        callerCType = `${callerCType}*`;
+      }
       if (callerCType !== "void") {
         emitter.emitLine(`${indent}  return (${callerCType}){0};`);
       } else {
@@ -2457,7 +2712,17 @@ function generateEvidenceFnPtrCall(
     } else {
       const callerReturnType = context.currentFunctionType?.return.type;
       if (callerReturnType && !isUnitType(callerReturnType)) {
-        const callerCType = getTypeString(callerReturnType, context);
+        // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+        // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+        // ill-typed. Wrap with `*` when the function declares a ref return.
+        let callerCType = getTypeString(callerReturnType, context);
+        if (
+          context.currentFunctionType?.return.isRef &&
+          callerCType !== "void" &&
+          !callerCType.endsWith("*")
+        ) {
+          callerCType = `${callerCType}*`;
+        }
         if (callerCType !== "void") {
           emitter.emitLine(`${indent}  return (${callerCType}){0};`);
         } else {
@@ -2516,7 +2781,17 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            const callerCType = getTypeString(callerReturnType, context);
+            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+            // ill-typed. Wrap with `*` when the function declares a ref return.
+            let callerCType = getTypeString(callerReturnType, context);
+            if (
+              context.currentFunctionType?.return.isRef &&
+              callerCType !== "void" &&
+              !callerCType.endsWith("*")
+            ) {
+              callerCType = `${callerCType}*`;
+            }
             if (callerCType !== "void") {
               emitter.emitLine(`${indent}  return (${callerCType}){0};`);
             } else {
@@ -2570,7 +2845,17 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            const callerCType = getTypeString(callerReturnType, context);
+            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+            // ill-typed. Wrap with `*` when the function declares a ref return.
+            let callerCType = getTypeString(callerReturnType, context);
+            if (
+              context.currentFunctionType?.return.isRef &&
+              callerCType !== "void" &&
+              !callerCType.endsWith("*")
+            ) {
+              callerCType = `${callerCType}*`;
+            }
             if (callerCType !== "void") {
               emitter.emitLine(`${indent}  return (${callerCType}){0};`);
             } else {
@@ -2620,7 +2905,17 @@ function generateEvidenceFnPtrCall(
         // Return type for unwind propagation must match the CALLER's return type, not the callee's
         const callerReturnType = context.currentFunctionType?.return.type;
         if (callerReturnType && !isUnitType(callerReturnType)) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  return (${callerCType}){0};`);
           } else {
@@ -2975,7 +3270,17 @@ function generateEvidenceCallSite(
       }
       if (callerReturnType && !isUnitType(callerReturnType)) {
         if (isHandlerInstallation) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
             emitter.emitLine(
@@ -2986,7 +3291,17 @@ function generateEvidenceCallSite(
             emitter.emitLine(`${indent}  return;`);
           }
         } else {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  return (${callerCType}){0};`);
           } else {
@@ -3041,7 +3356,17 @@ function generateEvidenceCallSite(
           callerReturnType &&
           !isUnitType(callerReturnType)
         ) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
           emitter.emitLine(
             `${indent}  memcpy(&_unw_result, __yo_unwind_value, sizeof(${callerCType}));`
@@ -3049,7 +3374,17 @@ function generateEvidenceCallSite(
           emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
           emitter.emitLine(`${indent}  return _unw_result;`);
         } else if (callerReturnType && !isUnitType(callerReturnType)) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  return (${callerCType}){0};`);
           } else {

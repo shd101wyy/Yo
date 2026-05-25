@@ -1,7 +1,7 @@
-// @skip_wasm32-emscripten — no process model in WASM
-// @skip_wasm32-wasi — no process model in WASM
+pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
+pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { Command, ExitStatus, Output } :: import("std/process/command");
-{ Exception, AnyError } :: import("std/error");
+{ Exception, AnyError, IoExn } :: import("std/error");
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { platform, Platform } :: import("std/process");
@@ -27,7 +27,7 @@ test("Command.new + status (echo exits 0)", {
       c
     }
   );
-  st := io.await(cmd.status(io), io);
+  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   assert(st.success(), "echo should succeed");
   assert(st.code() == i32(0), "echo exit code 0");
 });
@@ -53,13 +53,13 @@ test("Command.output captures stdout", {
       c
     }
   );
-  out := io.await(cmd.output(io), io);
+  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
   assert(out.status.success(), "status success");
   assert(out.stdout.len() >= usize(11), "stdout has at least 11 bytes");
-  assert(out.stdout.get(usize(0)).unwrap() == u8(121), "y");
-  assert(out.stdout.get(usize(1)).unwrap() == u8(111), "o");
-  assert(out.stdout.get(usize(2)).unwrap() == u8(95), "_");
-  assert(out.stdout.get(usize(10)).unwrap() == u8(116), "t");
+  assert(out.stdout(usize(0)) == u8(121), "y");
+  assert(out.stdout(usize(1)) == u8(111), "o");
+  assert(out.stdout(usize(2)) == u8(95), "_");
+  assert(out.stdout(usize(10)) == u8(116), "t");
 });
 test("Command.status non-zero exit", {
   exn := Exception(
@@ -79,7 +79,7 @@ test("Command.status non-zero exit", {
     },
     true => Command.new(`false`)
   );
-  st := io.await(cmd.status(io), io);
+  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   assert(!(st.success()), "should not be success");
   assert(st.code() == i32(1), "exit code 1");
 });

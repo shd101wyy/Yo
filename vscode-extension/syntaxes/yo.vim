@@ -31,11 +31,11 @@ syn keyword yoKeyword let var while for select forall mut const in out inout ref
 syn keyword yoKeyword open import export from as extern trait c_include exists where
 syn keyword yoKeyword type fn ctl macro enum struct newtype union object actor impl dyn box chan static
 syn keyword yoKeyword if cond then else switch case default match try with
-syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup quote unquote unquote_splicing comptime_expect_error comptime_assert downcast array tuple comptime_list begin and or not the macro_expand runtime asm global_asm
+syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup quote unquote unquote_splicing comptime_expect_error comptime_assert downcast array tuple comptime_list begin and or not the macro_expand runtime asm global_asm pragma
 syn keyword yoKeyword async await spawn infix infixl infixr
 
 " Type declarations and kinds  
-syn keyword yoTypeName Type Trait Self SelfTrait This Dyn Impl Future Concrete Fn FnOnce IO Send Acyclic Comptime Runtime Copy Box Promise Array Slice Tuple Expr ComptimeList ExprList Iso Arc Result Impt unit
+syn keyword yoTypeName Type Trait Self SelfTrait This Dyn Impl Future Concrete Fn FnOnce Io Send Acyclic Comptime Runtime Copy Box Promise Array Slice Tuple Expr ComptimeList ExprList Iso Arc Result Impt unit
 
 " Permissions and self-reference
 syn keyword yoPermission read write own move copy control

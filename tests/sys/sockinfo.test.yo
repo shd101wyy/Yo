@@ -1,5 +1,6 @@
-// @skip_wasm32-emscripten — no network stack in WASM (socket info requires real sockets)
-// @skip_wasm32-wasi — no network stack in WASM (socket info requires real sockets)
+pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM (socket info requires real sockets)
+pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM (socket info requires real sockets)
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
@@ -19,12 +20,12 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   local_addr_len := *(u32)(malloc(usize(4)).unwrap());
   local_addr_len.* = u32(storage_size);
   getsockname_result := sockinfo.getsockname(server_fd, local_addr_buf, local_addr_len);
-  printf("  getsockname(server) = %d, len = %u\n", getsockname_result, local_addr_len.*);
+  unsafe(printf("  getsockname(server) = %d, len = %u\n", getsockname_result, local_addr_len.*));
   assert(getsockname_result == i32(0), "getsockname on listening socket should succeed");
   family := tcp.get_family(local_addr_buf);
   assert(family == u16(AF_INET), "getsockname family should be AF_INET");
   server_port := tcp.get_port_in(local_addr_buf);
-  printf("  server ephemeral port = %u\n", server_port);
+  unsafe(printf("  server ephemeral port = %u\n", server_port));
   assert(server_port != u16(0), "ephemeral port should be non-zero after bind");
   client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
   assert(client_fd >= i32(0), "client socket should be created");
@@ -40,12 +41,12 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   peer_addr_len := *(u32)(malloc(usize(4)).unwrap());
   peer_addr_len.* = u32(storage_size);
   getpeername_result := sockinfo.getpeername(client_fd, peer_addr_buf, peer_addr_len);
-  printf("  getpeername(client) = %d, len = %u\n", getpeername_result, peer_addr_len.*);
+  unsafe(printf("  getpeername(client) = %d, len = %u\n", getpeername_result, peer_addr_len.*));
   assert(getpeername_result == i32(0), "getpeername on connected client should succeed");
   peer_family := tcp.get_family(peer_addr_buf);
   assert(peer_family == u16(AF_INET), "peer family should be AF_INET");
   peer_port := tcp.get_port_in(peer_addr_buf);
-  printf("  peer port on client = %u\n", peer_port);
+  unsafe(printf("  peer port on client = %u\n", peer_port));
   assert(peer_port == server_port, "client peer port should equal server listen port");
   accepted_peer_buf := *(u8)(malloc(storage_size).unwrap());
   accepted_peer_len := *(u32)(malloc(usize(4)).unwrap());
@@ -55,7 +56,7 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   accepted_peer_family := tcp.get_family(accepted_peer_buf);
   assert(accepted_peer_family == u16(AF_INET), "accepted peer family should be AF_INET");
   accepted_peer_port := tcp.get_port_in(accepted_peer_buf);
-  printf("  client source port = %u\n", accepted_peer_port);
+  unsafe(printf("  client source port = %u\n", accepted_peer_port));
   assert(accepted_peer_port != u16(0), "accepted peer port should be non-zero");
   close_client := io.await(tcp.close(client_fd), io);
   close_accepted := io.await(tcp.close(accepted_fd), io);
@@ -80,14 +81,14 @@ test("sockinfo getsockopt and setsockopt", {
   set_optval := *(i32)(malloc(usize(4)).unwrap());
   set_optval.* = i32(1);
   setsockopt_result := sockinfo.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, *(u8)(set_optval), u32(4));
-  printf("  setsockopt(SO_REUSEADDR) = %d\n", setsockopt_result);
+  unsafe(printf("  setsockopt(SO_REUSEADDR) = %d\n", setsockopt_result));
   assert(setsockopt_result == i32(0), "setsockopt SO_REUSEADDR should succeed");
   get_optval := *(i32)(malloc(usize(4)).unwrap());
   get_optval.* = i32(0);
   get_optlen := *(u32)(malloc(usize(4)).unwrap());
   get_optlen.* = u32(4);
   getsockopt_result := sockinfo.getsockopt(fd, SOL_SOCKET, SO_REUSEADDR, *(u8)(get_optval), get_optlen);
-  printf("  getsockopt(SO_REUSEADDR) = %d, optlen = %u, value = %d\n", getsockopt_result, get_optlen.*, get_optval.*);
+  unsafe(printf("  getsockopt(SO_REUSEADDR) = %d, optlen = %u, value = %d\n", getsockopt_result, get_optlen.*, get_optval.*));
   assert(getsockopt_result == i32(0), "getsockopt SO_REUSEADDR should succeed");
   assert(get_optlen.* >= u32(4), "getsockopt SO_REUSEADDR should return at least 4 bytes");
   assert(get_optval.* != i32(0), "SO_REUSEADDR should be enabled after setsockopt");
@@ -96,7 +97,7 @@ test("sockinfo getsockopt and setsockopt", {
   sock_type_len := *(u32)(malloc(usize(4)).unwrap());
   sock_type_len.* = u32(4);
   getsockopt_type_result := sockinfo.getsockopt(fd, SOL_SOCKET, SO_TYPE, *(u8)(sock_type), sock_type_len);
-  printf("  getsockopt(SO_TYPE) = %d, value = %d\n", getsockopt_type_result, sock_type.*);
+  unsafe(printf("  getsockopt(SO_TYPE) = %d, value = %d\n", getsockopt_type_result, sock_type.*));
   assert(getsockopt_type_result == i32(0), "getsockopt SO_TYPE should succeed");
   assert(sock_type.* == SOCK_STREAM, "SO_TYPE should report SOCK_STREAM");
   close_result := io.await(tcp.close(fd), io);

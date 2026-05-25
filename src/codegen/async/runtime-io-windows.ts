@@ -5,7 +5,7 @@
  *
  * 1. generatePlatformSysRuntimeWindows — synchronous helpers (pipe, dup,
  *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
- *    that do NOT depend on IOFuture or the async event loop.
+ *    that do NOT depend on IoFuture or the async event loop.
  *
  * 2. generateAsyncRuntimeIOWindows — async I/O via IOCP (I/O Completion Ports).
  *    Provides async read, write, openat, close, statx, mkdir, unlink, rename,
@@ -15,12 +15,12 @@
 import { Emitter } from "../../emitter";
 
 // ---------------------------------------------------------------------------
-// 1. Synchronous platform helpers (Windows) — no IOFuture / event-loop dependency
+// 1. Synchronous platform helpers (Windows) — no IoFuture / event-loop dependency
 // ---------------------------------------------------------------------------
 
 /**
  * Emits synchronous Windows-specific helpers.  These do NOT depend on the
- * async runtime (no IOFuture, no event-loop types).  All functions are `static`
+ * async runtime (no IoFuture, no event-loop types).  All functions are `static`
  * so unused ones are dead-code-eliminated by the C compiler.
  *
  * Sections: includes & defines, utility functions (error conversion, string
@@ -303,7 +303,7 @@ static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* n
 }
 
 // ============================================================================
-// Synchronous FD Operations (Windows) - no IOFuture overhead
+// Synchronous FD Operations (Windows) - no IoFuture overhead
 // ============================================================================
 
 static int32_t __yo_sync_pipe(int32_t* pipefd) {
@@ -1486,7 +1486,7 @@ static int32_t __yo_win_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, in
 
 
 // ============================================================================
-// Synchronous Operations (Windows) - no IOFuture overhead
+// Synchronous Operations (Windows) - no IoFuture overhead
 // ============================================================================
 
 static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
@@ -1913,7 +1913,7 @@ static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
 
 /**
  * Emits Windows async I/O helpers using IOCP (I/O Completion Ports).
- * These functions create / consume IOFuture or participate in the event loop.
+ * These functions create / consume IoFuture or participate in the event loop.
  * Only emitted when `usesAsync` is true.
  *
  * Sections: IOCP globals & types, init/cleanup, timer management, IOCP
@@ -1961,17 +1961,17 @@ static void __yo_io_init(void) {
   InitializeCriticalSection(&__yo_dir_state_mutex);
   __yo_io_iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
   if (!__yo_io_iocp) {
-    ASYNC_DEBUG("[IO] CreateIoCompletionPort failed: %lu\\n", GetLastError());
+    ASYNC_DEBUG("[Io] CreateIoCompletionPort failed: %lu\\n", GetLastError());
   }
 
   WSADATA wsa;
   int wsa_result = WSAStartup(MAKEWORD(2, 2), &wsa);
   if (wsa_result != 0) {
-    ASYNC_DEBUG("[IO] WSAStartup failed: %d\\n", wsa_result);
+    ASYNC_DEBUG("[Io] WSAStartup failed: %d\\n", wsa_result);
   }
 
   __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] Windows async runtime initialized\\n");
+  ASYNC_DEBUG("[Io] Windows async runtime initialized\\n");
 }
 
 static void __yo_io_cleanup(void) {

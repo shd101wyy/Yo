@@ -1,0 +1,66 @@
+/// Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;` local
+/// binding form.
+///
+/// Parser-side coverage (this commit):
+/// - `ref(name) := expr;` is recognized as a binding form.
+/// - The bound variable carries `isRef: true` (same flag as
+///   `ref(name) : T` parameter bindings), so the existing Phase B
+///   closure-capture gate rejects captures of the binding too.
+/// - `ref(name) := ...` is rejected with `::` or in a comptime-only
+///   context (borrows are runtime constructs).
+///
+/// Deferred to Phase B.5 (codegen):
+/// - Type-checking the RHS as a flowable / ref-yielding expression.
+/// - The C-codegen plumbing so the binding's `T*` storage receives
+///   the call's `T*` return value without an intermediate
+///   type-mismatched temp. Today, end-to-end compile of a
+///   `ref(name) := call(...)` to executable C still fails — only
+///   the parser-side guarantees below are covered.
+pragma(Pragma.AllowUnsafe);
+// `ref(name) := expr;` with `::` is rejected — borrows are runtime.
+comptime_expect_error(
+  ref(r) :: i32(42)
+);
+// The closure-capture gate fires on a `ref`-bound local just as it
+// does on a `ref`-bound parameter. The capture site here is the
+// closure inside the `make_reader` function — `r` is declared as a
+// ref-local via the binding form, then captured by the closure.
+// Today this is rejected because the underlying gate triggers on
+// `isRef: true`, which the binding form sets.
+//
+// NOTE: this test compiles the surface AST but the produced C will
+// not link until the Phase B codegen story is fully wired (see
+// plans/ITERATOR_REDESIGN.md). We rely on `comptime_expect_error`
+// catching the closure-capture rejection during evaluation, which
+// happens BEFORE codegen runs.
+identity :: (fn(ref(p) : i32) -> ref(i32))(p);
+comptime_expect_error(
+  make_capturing_closure :: (fn(ref(p) : i32) -> Impl(Fn() -> i32))({
+    ref(r) := identity(p);
+    () => r
+  })
+);
+// Smoke test: a function that does NOT bind via `ref(name) :=` still
+// compiles cleanly. Confirms the binding-form changes don't false-
+// positive on regular `:=` bindings.
+test("regular := bindings still compile", {
+  x := i32(5);
+  y := x;
+  assert(y == i32(5), "regular binding works");
+});
+// End-to-end positive: `ref(name) := call(...)` binds the local
+// to the storage yielded by a `-> ref(T)` function call. Reading
+// and writing through the binding reach the caller's storage.
+test("ref(name) := call(...) — read through the binding", {
+  x := i32(42);
+  ref(r) := identity(x);
+  // Reading r auto-derefs to the underlying i32 value.
+  assert(r == i32(42), "reads through the ref-binding");
+});
+test("ref(name) := call(...) — write through the binding propagates to caller", {
+  x := i32(5);
+  ref(r) := identity(x);
+  // Writing through r writes through the projection to x.
+  r = i32(99);
+  assert(x == i32(99), "writes through the ref-binding propagate");
+});

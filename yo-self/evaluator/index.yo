@@ -3,10 +3,17 @@
 //! Mirrors `src/evaluator/index.ts` — the `Evaluator` class wraps
 //! the proto-evaluator and handles:
 //!   - Parsing the input source
-//!   - Checking for `@skip_prelude` in the token stream
+//!   - Pre-scanning the program for `pragma(Pragma.SkipPrelude);`
 //!   - Injecting prelude exports into a dedicated env frame
 //!   - Wiring up the module loader via `set_module_loader`
 //!   - Calling `evaluate_module_body`
+//!
+//! Phase G (plans/MEMORY_SAFETY.md): `SkipPrelude` detection runs as
+//! an AST-level pre-scan of `pragma(Pragma.SkipPrelude);` calls via
+//! `pre_scan_for_skip_prelude` in `./builtins/pragma.yo`. The legacy
+//! `has_comment_attribute` helper below is kept exported for any
+//! external caller that hasn't yet migrated, but the constructor no
+//! longer consults it.
 //!
 //! Phase 2i: Structural port using the proto-evaluator (`eval.yo`) as the
 //! evaluation backend.  Stubs for: impl registry cleanup, doc-comment
@@ -38,6 +45,7 @@ open(import("std/error"));
 { EvalValue } :: import("../value.yo");
 { evaluate_module_body, set_module_loader } :: import("./eval.yo");
 { register_evaluate_expression } :: import("./exprs/_expr.yo");
+{ pre_scan_for_skip_prelude } :: import("./builtins/pragma.yo");
 // ---------------------------------------------------------------------------
 // Comment-attribute check
 // ---------------------------------------------------------------------------
@@ -102,7 +110,7 @@ impl(
   /// Create an `Evaluator` from pre-loaded source text.
   ///
   /// Phase 2i: file reading is the caller's responsibility.
-  /// A `new_from_file` helper with `io : IO` will be added later.
+  /// A `new_from_file` helper with `io : Io` will be added later.
   ///
   /// `load_module_fn` is called for every `import("...")` encountered during
   /// evaluation, AND for loading the prelude (unless the `@skip_prelude` directive
@@ -126,8 +134,13 @@ impl(
     // Wire the module loader so `import("...")` resolves during evaluation.
     set_module_loader(load_module_fn);
     // --- Prelude injection ---
-    // Pass a clone of toks so toks remains available for storage below.
-    skip_prelude := has_comment_attribute(toks.clone(), `@skip_prelude`);
+    // Phase G: scan top-level `pragma(Pragma.SkipPrelude);` calls
+    // before the prelude loads. This replaces the legacy
+    // `// @skip_prelude` comment scan; the AST-level pre-scan stays
+    // in sync with the TS evaluator (`preScanForSkipPrelude` in
+    // src/evaluator/builtins/pragma.ts) and validates the pragma
+    // argument shape semantically rather than as text.
+    skip_prelude := pre_scan_for_skip_prelude(program.clone());
     (module_error : Option(String)) =.None;
     if(!(skip_prelude), {
       prelude_path := `file://${std_path}/prelude.yo`;
@@ -175,7 +188,7 @@ impl(
     // Clone program so the stored `program` field remains valid after
     // `evaluate_module_body` consumes its copy.
     program_for_eval := program.clone();
-    module_value := evaluate_module_body(program_for_eval, &(env));
+    module_value := evaluate_module_body(program_for_eval, env);
     Evaluator(
       input_string : input_string,
       module_path : module_path,

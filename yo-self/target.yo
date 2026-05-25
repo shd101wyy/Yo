@@ -8,7 +8,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ Exception, IOErr } :: import("std/error");
+{ Exception, IoExn } :: import("std/error");
 { DirEntry, read_dir } :: import("std/fs/dir");
 { platform, Platform, arch, Arch : ProcessArch } :: import("std/process");
 // ── Supported architectures ───────────────────────────────────────────
@@ -155,9 +155,9 @@ _build_target_info :: (fn(a : Arch, o : Os, abi : Option(Abi)) -> TargetInfo)(
 /// On non-Linux or if /lib is unreadable, returns Abi.Gnu.
 detect_linux_abi :: (
   fn(
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Abi, IOErr))
+  ) -> Impl(Future(Abi, IoExn))
 )(
   io.async(
     (io, exn) =>
@@ -219,9 +219,9 @@ detect_host :: (fn() -> HostInfo)({
 /// Async because Linux ABI detection reads the filesystem.
 host_target :: (
   fn(
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(TargetInfo, IOErr))
+  ) -> Impl(Future(TargetInfo, IoExn))
 )(
   io.async((io, exn) => {
     host := detect_host();

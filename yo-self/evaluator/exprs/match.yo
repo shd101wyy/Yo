@@ -2,6 +2,7 @@
 //! 1:1 port of `src/evaluator/exprs/match.ts` (Phase 2ae-main).
 //!
 //! Exported symbols: evaluate_match
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -170,7 +171,7 @@ evaluate_primitive_match :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     scrutinee_expr : AstExpr,
     scrutinee_type : TypeValue,
     scrutinee_val_opt : Option(EvalValue),
@@ -964,7 +965,7 @@ evaluate_match :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1742,7 +1743,7 @@ evaluate_match :: (
                 );
                 if(!(var_name_lbl == "_"), {
                   _added_lbl := add_variable_to_env(
-                    &(env),
+                    env,
                     String.from(var_name_lbl),
                     field_type_lbl,
                     field_val_lbl,
@@ -1780,7 +1781,7 @@ evaluate_match :: (
                   );
                   if(!(param_name == "_"), {
                     _added_pos := add_variable_to_env(
-                      &(env),
+                      env,
                       String.from(param_name),
                       field_type_pos,
                       field_val_pos,

@@ -127,6 +127,16 @@ masked := ((A | B) | C);
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
+- **Pointer deref (`p.*`), arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)` require `unsafe(...)`, AND the file must declare `pragma(Pragma.AllowUnsafe);` at the top before `unsafe(...)` is usable.** Pointer comparison (`&==`, `&<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p &+ usize(1))`. Every file in `std/`, `yo-self/`, and `tests/` declares the pragma explicitly. User code (default) does not, so attempts to use `unsafe(...)` are rejected with a hint to add the pragma. See `plans/MEMORY_SAFETY.md`.
+- **In-place mutation without raw pointers:** use the `ref(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `ref(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `forall`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(ref(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
+- **Object-type params:** use plain `name : Type`, NOT `*(Type)` or `ref(name) : Type`. Object types (`Environment`, `EvalContext`, `CodegenContext`, `Emitter`, `HashMap`, `ArrayList`, …) carry reference semantics — passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `ref(name) : Type` is redundant since object semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap object arguments with `&(obj)`; just pass `obj`. For receivers on object methods, plain `self : Self` is the idiom (`yo-self/env.yo`, `yo-self/codegen/context.yo`, `yo-self/emitter.yo` all follow this). `ref(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
+- **Byte-buffer params:** prefer `Slice(u8)` over `*(u8) + usize` for public signatures (e.g. `random_bytes`, `fnv1a_hash_bytes`). `Slice` carries the length, eliminating the (`ptr`, `wrong-size`) footgun. Convert at the FFI seam with `slice.ptr()` and `slice.len()`; construct from existing storage with `Slice(u8).from_raw_parts(&(buf(0)), len)`. The `_cstr` family is the explicit raw-pointer variant — those names signal raw-pointer use by contract.
+- **Audit public stdlib safety with `./yo-cli public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./yo-self`; keep it that way when adding new APIs.
+- **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/EXTERN_UNSAFE_WRAP.md`.
+- **Slice-flowability rule:** a function returning a slice-bearing type (`Slice(T)`, `str`, a struct wrapping a Slice, ...) must root the returned value in caller-owned storage (a `ref`-bound parameter, any non-`ref` parameter, a `comptime`/literal source, or a flowable projection chain). `(fn() -> Option(Slice(i32)))({ arr := ArrayList(i32).new(); arr.as_slice() })` is rejected; `(fn(ref(arr) : ArrayList(i32)) -> Option(Slice(i32)))(arr.as_slice())` is accepted. See `plans/SLICE_FLOWABILITY.md`.
+- **Signed-integer overflow is defined (wrap-around).** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on `i32(MAX)` wraps to `i32(MIN)` instead of UB. Opt-out: `--cflags='-fno-wrapv'`.
+- **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
+- **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
 - **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
@@ -216,8 +226,8 @@ caller :: (fn() -> i32)({
 result := closure(i32(5));
 
 transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for(list.iter(), (ptr) => {
-    ptr.* = f(ptr.*);
+  for(list, ref(x) => {
+    x = f(x);
   });
 });
 ```
@@ -371,25 +381,29 @@ while(comptime((i < 10)), {
   // body evaluated/unrolled at compile time
 });
 
-// for loop — 2-arg prelude macro; first arg MUST be an iterator (has .next()):
-for(list.iter(), x => {    // ArrayList, array → call .iter() first
+// for loop — 2-arg prelude macro. First arg is the collection
+// directly; the macro dispatches on the body's binding shape to
+// pick value-form vs borrow-form iteration:
+for(list, (x) => {            // value form: implicit .into_iter()
   process(x);
 });
 
-for(map.into_iter(), bucket => {
-  println(bucket.key);
+for(list, ref(x) => {         // borrow form: iter() + project(pos)
+  x = transform(x);           // writes propagate back into list
 });
 
-for(list.iter(), (ptr) => { // ptr is a mutable reference to each element
-  ptr.* = transform(ptr.*);
-});
+// Combinator chains (.map / .filter / .into_iter / etc.) yield
+// computed values; pass them as the first arg in the value form:
+for(list.iter().map((x) => (x + i32(1))), (y) => println(y));
 ```
 
 - Use `recur(...)` for self-recursion
 - `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
-- **`for(arr, item => { body })`** — correct 2-arg prelude macro form. The `item => { body }` is an anonymous closure.
+- **`for(coll, (x) => body)`** — value form; macro expands to `coll.into_iter()` then iterates by value (`x : T`).
+- **`for(coll, ref(x) => body)`** — borrow form; macro expands to `coll.iter()` (position iterator) + `coll.project(pos)` (`Indexable.project` impl) so `x` is a writable binding. Writes propagate back into the collection.
+- **Do NOT write `for(coll.iter(), (x) => …)` for the value form** — `.iter()` yields positions (usize), not the collection's elements. Use the bare collection or `.into_iter()`.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
 
 ## Return and branch safety
@@ -452,18 +466,22 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
-for(list.iter(), (ptr) => {
-  println(ptr.*);
+// Value form — implicit .into_iter().
+for(list, (value) => {
+  println(value);
 });
 
-for(list.into_iter(), (value) => {
-  println(value);
+// Borrow form — implicit .iter() + .project(pos). `x` is a writable
+// binding into the collection; assignments propagate back.
+for(list, ref(x) => {
+  x = (x + i32(1));
 });
 ```
 
-- `for(collection, (variable) => { body })` iterates via the `Iterator` trait
-- `.iter()` borrows the collection and yields pointers
-- `.into_iter()` takes ownership and yields values
+- `for(coll, (x) => body)` — value form. Macro expands to `coll.into_iter()` and yields elements by value.
+- `for(coll, ref(x) => body)` — borrow form. Macro expands to `coll.iter()` (a position iterator yielding `usize`) + `coll.project(pos)` (from the `Indexable` trait) so the body sees a writable binding.
+- Combinator chains (`coll.iter().map(f).filter(g)`) only support the value form — pass the chain as the first arg with `(x) => body`.
+- The for macro accepts the collection directly; do NOT call `.iter()` for the value form, that yields positions (usize), not elements.
 
 ## Testing
 
@@ -482,7 +500,7 @@ test("Async test", {
 });
 ```
 
-- `test("description", { body })` defines a test — `io : IO` is automatically available
+- `test("description", { body })` defines a test — `io : Io` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — runtime assertion (always include a message)
 - `comptime_assert(condition)` — compile-time assertion
@@ -604,11 +622,11 @@ list := ArrayList(i32).new();
 list.push(i32(42));
 
 val := list(usize(0));         // → i32  (value copy via Index trait)
-list(usize(0)) = i32(99);     // mutate in place directly
+list(usize(0)) = i32(99);      // mutate in place directly
 
 // When you need the pointer explicitly:
-ptr := &(list(usize(0)));     // → *(i32)
-ptr.* = i32(99);              // also works
+ptr := &(list(usize(0)));      // → *(i32)
+ptr.* = i32(99);               // also works
 
 // Safe access (returns Option(T)):
 match(list.get(usize(0)),
@@ -621,6 +639,26 @@ match(list.get(usize(0)),
 - `list(i) = val` mutates in place directly (preferred)
 - `&(list(i))` returns `*(T)` if you need the pointer explicitly
 - `list.get(i)` returns `Option(T)` for safe bounds-checked access
+
+**Don't write `(&(X)).index(i).*` or `X.get(i).unwrap()` when you mean
+`X(i)`.** Use the call-syntax form everywhere it works:
+
+```rust
+// ✗ Verbose, scans like raw-pointer code (and requires the file's
+//   pragma(Pragma.AllowUnsafe); because `.*` is gated):
+(&(self.field)).index(i).* = value;
+elem := (&(self.field)).index(i).*;
+v := list.get(usize(0)).unwrap();
+
+// ✓ Same semantics, no `.*`, no pragma needed:
+self.field(i) = value;
+elem := self.field(i);
+v := list(usize(0));
+```
+
+Both forms call the same `Index` trait method. The call-syntax form
+is shorter, doesn't need raw-pointer plumbing in user code, and
+panics on out-of-bounds identically to `.unwrap()` on `.get(...)`.
 
 ### Named fields required for `struct`/`object` constructors
 

@@ -10,7 +10,8 @@
 //!
 //! test: Parses a `.test.yo` file, extracts `test("name", { body })` declarations,
 //!   compiles each test body to a standalone C program, and reports pass/fail.
-//!   Only supports pure tests (no IO effects, no struct methods) in Phase 5b.
+//!   Only supports pure tests (no Io effects, no struct methods) in Phase 5b.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
@@ -53,7 +54,7 @@ module_id_from_path :: (fn(path : String) -> String)(
 ///   2. `./std` relative to the current working directory.
 resolve_std_path :: (fn() -> String)({
   name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
-  val_ptr := getenv(*(char)(name_cstr));
+  val_ptr := unsafe(getenv(*(char)(name_cstr)));
   match(
     val_ptr,
     .None => String.from("./std"),
@@ -99,7 +100,7 @@ try_populate_expr_info_table :: (
   _r := evaluate_anonymous_module_begin_exprs(
     exprs,
     env,
-    &(ctx),
+    ctx,
     false,
     local_exn
   );
@@ -182,9 +183,9 @@ collect_module_deps :: (
     path_str : str,
     base_dir : str,
     std_base : str,
-    visited : *(ArrayList(String)),
-    all_exprs : *(ArrayList(AstExpr)),
-    io : IO,
+    visited : ArrayList(String),
+    all_exprs : ArrayList(AstExpr),
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -234,13 +235,13 @@ collect_module_deps :: (
     );
   });
   // Deduplication: skip if already visited (also handles import cycles)
-  nv := visited.*.len();
+  nv := visited.len();
   (iv : usize) = usize(0);
   (already_visited : bool) = false;
   while(runtime((iv < nv) && (!(already_visited))), {
     iv = (iv + usize(1));
     match(
-      visited.*.get(iv - usize(1)),
+      visited.get(iv - usize(1)),
       .None => (),
       .Some(v) => {
         if(v.as_str() == abs_path.as_str(), {
@@ -253,7 +254,7 @@ collect_module_deps :: (
     return(());
   });
   // Mark as visited before recursing (prevents infinite loops on cycles)
-  visited.*.push(String.from(abs_path.as_str()));
+  visited.push(String.from(abs_path.as_str()));
   // Compute the base directory of the imported module for recursive resolution
   mod_base_dir := match(
     Path.new(String.from(abs_path.as_str())).parent(),
@@ -297,7 +298,7 @@ collect_module_deps :: (
       mod_exprs.get(im - usize(1)),
       .None => (),
       .Some(e) => {
-        all_exprs.*.push(e);
+        all_exprs.push(e);
       }
     );
   });
@@ -307,12 +308,12 @@ collect_module_deps :: (
 _walk_check_dir :: (
   fn(
     dir : String,
-    out : *(ArrayList(String)),
-    io : IO,
+    out : ArrayList(String),
+    io : Io,
     exn : Exception
   ) -> unit
 )({
-  entries := io.await(read_dir(Path.new((&(dir)).clone())), io);
+  entries := io.await(read_dir(Path.new(dir.clone())), io);
   (n : usize) = entries.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
@@ -321,7 +322,7 @@ _walk_check_dir :: (
       entries.get(i - usize(1)),
       .None => (),
       .Some(entry) => {
-        full := Path.new((&(dir)).clone()).join(Path.new((&(entry.name)).clone())).to_string();
+        full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
         match(
           entry.file_type,
           .Directory => {
@@ -340,7 +341,7 @@ _walk_check_dir :: (
           },
           .File => {
             if(entry.name.ends_with(String.from(".yo")), {
-              out.*.push(full);
+              out.push(full);
             });
           },
           .Symlink => (),
@@ -360,19 +361,19 @@ _walk_check_dir :: (
 collect_check_files :: (
   fn(
     path_str : String,
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
-  meta := io.await(metadata(Path.new((&(path_str)).clone()), io), io);
+  meta := io.await(metadata(Path.new(path_str.clone()), io), io);
   cond(
     meta.is_file() => {
       if(path_str.ends_with(String.from(".yo")), {
-        out.push((&(path_str)).clone());
+        out.push(path_str.clone());
       });
     },
-    meta.is_dir() => _walk_check_dir(path_str, &(out), io, exn),
+    meta.is_dir() => _walk_check_dir(path_str, out, io, exn),
     true => ()
   );
   out
@@ -387,7 +388,7 @@ check_single_file :: (
   fn(
     input_path : String,
     std_path : String,
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> bool
 )({
@@ -399,9 +400,9 @@ check_single_file :: (
     throw : ((_err) -> unwind(false))
   );
   println(`check: parsing ${input_path}`);
-  src_bytes := io.await(read_file(Path.new((&(input_path)).clone())), io);
+  src_bytes := io.await(read_file(Path.new(input_path.clone())), io);
   src := String.from_bytes(src_bytes);
-  exprs := parse(src, (&(input_path)).clone(), local_exn);
+  exprs := parse(src, input_path.clone(), local_exn);
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
@@ -410,8 +411,8 @@ check_single_file :: (
     prelude_literal.as_str(),
     std_path.as_str(),
     std_path.as_str(),
-    &(visited),
-    &(dep_exprs),
+    visited,
+    dep_exprs,
     io,
     local_exn
   );
@@ -436,8 +437,8 @@ check_single_file :: (
             imp_path.as_str(),
             input_base_dir.as_str(),
             std_path.as_str(),
-            &(visited),
-            &(dep_exprs),
+            visited,
+            dep_exprs,
             io,
             local_exn
           );
@@ -473,14 +474,14 @@ check_single_file :: (
     );
   });
   println(`check: collected ${all_exprs.len().to_string()} exprs total (deps + body); registering evaluator`);
-  env := Environment.new((&(input_path)).clone());
-  ctx := eval_context_new((&(std_path)).clone(), (&(input_path)).clone());
+  env := Environment.new(input_path.clone());
+  ctx := eval_context_new(std_path.clone(), input_path.clone());
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   _r := evaluate_anonymous_module_begin_exprs(
     all_exprs,
     env,
-    &(ctx),
+    ctx,
     false,
     local_exn
   );
@@ -500,15 +501,15 @@ check_single_file :: (
 run_check :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
     exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
   });
-  target_path := argv.get(usize(2)).unwrap();
-  files := collect_check_files((&(target_path)).clone(), io, exn);
+  target_path := argv(usize(2));
+  files := collect_check_files(target_path.clone(), io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
@@ -521,7 +522,7 @@ run_check :: (
       files.get(fi),
       .None => (),
       .Some(file_path) => {
-        if(!(check_single_file(file_path, (&(std_path)).clone(), io, exn)), {
+        if(!(check_single_file(file_path, std_path.clone(), io, exn)), {
           failed = (failed + usize(1));
         });
       }
@@ -540,20 +541,20 @@ run_check :: (
 run_compile :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
     exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o output]`));
   });
-  input_path := argv.get(usize(2)).unwrap();
+  input_path := argv(usize(2));
   // Determine output path (default: "a.out")
   (output_path : String) = `a.out`;
   if(argv.len() >= usize(5), {
-    flag := argv.get(usize(3)).unwrap();
+    flag := argv(usize(3));
     if(flag.as_str() == "-o", {
-      output_path = argv.get(usize(4)).unwrap();
+      output_path = argv(usize(4));
     });
   });
   // Derive module id from input filename
@@ -594,20 +595,20 @@ run_compile :: (
 run_test :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
     exn.throw(dyn(`test: missing test file. Usage: yo-self test <file.test.yo>`));
   });
-  input_path := argv.get(usize(2)).unwrap();
+  input_path := argv(usize(2));
   // Optional name filter: --test-name-pattern <pattern>
   (name_filter : String) = String.new();
   if(argv.len() >= usize(5), {
-    flag := argv.get(usize(3)).unwrap();
+    flag := argv(usize(3));
     if(flag.as_str() == "--test-name-pattern", {
-      name_filter = argv.get(usize(4)).unwrap();
+      name_filter = argv(usize(4));
     });
   });
   // Read and parse the test file
@@ -639,8 +640,8 @@ run_test :: (
             imp_path.as_str(),
             input_base_dir.as_str(),
             "",
-            &(visited),
-            &(dep_exprs),
+            visited,
+            dep_exprs,
             io,
             exn
           );
@@ -771,7 +772,7 @@ run_test :: (
 run_fmt :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -780,7 +781,7 @@ run_fmt :: (
   (check_mode : bool) = false;
   (ai : usize) = usize(2); // skip program name + "fmt"
   while(runtime(ai < argv.len()), {
-    arg := argv.get(ai).unwrap();
+    arg := argv(ai);
     cond(
       (arg.as_str() == "--check") => {
         check_mode = true;
@@ -823,7 +824,7 @@ run_fmt :: (
     }
   );
 });
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
       (err) -> {
@@ -837,7 +838,7 @@ main :: (fn(io : IO) -> unit)({
   if(argv.len() < usize(2), {
     exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test> ...`));
   });
-  subcmd := argv.get(usize(1)).unwrap();
+  subcmd := argv(usize(1));
   cond(
     (subcmd.as_str() == "compile") => run_compile(argv, io, exn),
     (subcmd.as_str() == "test") => run_test(argv, io, exn),

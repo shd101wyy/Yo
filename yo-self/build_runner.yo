@@ -6,11 +6,12 @@
 //! compilation for each artifact.
 //!
 //! Mirrors `src/build-runner.ts`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ Exception, IOErr } :: import("std/error");
+{ Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { cwd } :: import("std/env");
 { exists } :: import("std/fs/file");
@@ -138,7 +139,7 @@ _get_target_output_dir :: (
 // ---------------------------------------------------------------------------
 _walk_dag :: (
   fn(
-    registry : *(BuildRegistry),
+    registry : BuildRegistry,
     nodes : HashMap(String, DAGNode),
     visited : HashMap(String, bool),
     name : String
@@ -147,7 +148,7 @@ _walk_dag :: (
   if(visited.contains_key(name), return(()));
   visited.set(name, true);
   match(
-    registry.*.resolve_dependency(name.as_str()),
+    registry.resolve_dependency(name.as_str()),
     .None => {
       return(());
     },
@@ -195,7 +196,7 @@ _walk_dag :: (
 /// Build a DAG by walking the step's dependency tree.
 build_dag :: (
   fn(
-    registry : *(BuildRegistry),
+    registry : BuildRegistry,
     root_step_name : str
   ) -> ArrayList(DAGNode)
 )({
@@ -303,14 +304,14 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
 compile_artifact :: (
   fn(
     artifact : BuildArtifact,
-    ctx : *(ExecutionContext),
-    io : IO,
+    ctx : ExecutionContext,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(unit, String), IOErr))
+  ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((io, exn) => {
     effective_target := match(
-      ctx.*.target_triple,
+      ctx.target_triple,
       .Some(t) => t,
       .None => artifact.target
     );
@@ -321,17 +322,17 @@ compile_artifact :: (
       .Executable => false
     );
     kind_dir := if(is_lib, "lib", "bin");
-    output_dir := _get_target_output_dir(ctx.*.project_dir.as_str(), effective_target.as_str(), kind_dir);
+    output_dir := _get_target_output_dir(ctx.project_dir.as_str(), effective_target.as_str(), kind_dir);
     output_name := get_artifact_output_file_name(
       artifact.kind,
       artifact.name.as_str(),
       artifact.target.as_str(),
       artifact.c_flags,
-      ctx.*.target_triple
+      ctx.target_triple
     );
     output_path := Path.new(output_dir).join(Path.new(output_name));
-    source_path := Path.new(ctx.*.project_dir).join(Path.new(artifact.root));
-    if(ctx.*.verbose, println(`Building ${artifact.name} -> ${output_path}`));
+    source_path := Path.new(ctx.project_dir).join(Path.new(artifact.root));
+    if(ctx.verbose, println(`Building ${artifact.name} -> ${output_path}`));
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("compile"));
     cmd.arg(source_path.to_string());
@@ -341,12 +342,12 @@ compile_artifact :: (
       cmd.arg(String.from("--target"));
       cmd.arg(effective_target);
     });
-    if(ctx.*.c_compiler != String.from("clang"), {
+    if(ctx.c_compiler != String.from("clang"), {
       cmd.arg(String.from("--cc"));
-      cmd.arg(ctx.*.c_compiler);
+      cmd.arg(ctx.c_compiler);
     });
     match(
-      ctx.*.sysroot,
+      ctx.sysroot,
       .Some(s) => {
         cmd.arg(String.from("--sysroot"));
         cmd.arg(s);
@@ -388,24 +389,24 @@ run_executable :: (
   fn(
     artifact : BuildArtifact,
     args : ArrayList(String),
-    ctx : *(ExecutionContext),
-    io : IO,
+    ctx : ExecutionContext,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(unit, String), IOErr))
+  ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((io, exn) => {
     effective_target := match(
-      ctx.*.target_triple,
+      ctx.target_triple,
       .Some(t) => t,
       .None => artifact.target
     );
-    output_dir := _get_target_output_dir(ctx.*.project_dir.as_str(), effective_target.as_str(), "bin");
+    output_dir := _get_target_output_dir(ctx.project_dir.as_str(), effective_target.as_str(), "bin");
     exe_name := get_artifact_output_file_name(
       artifact.kind,
       artifact.name.as_str(),
       artifact.target.as_str(),
       artifact.c_flags,
-      ctx.*.target_triple
+      ctx.target_triple
     );
     exe_path := Path.new(output_dir).join(Path.new(exe_name));
     cmd := Command.new(exe_path.to_string());
@@ -435,13 +436,13 @@ run_executable :: (
 run_test_suite :: (
   fn(
     suite : BuildTestSuite,
-    ctx : *(ExecutionContext),
-    io : IO,
+    ctx : ExecutionContext,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(unit, String), IOErr))
+  ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((io, exn) => {
-    test_path := Path.new(ctx.*.project_dir).join(Path.new(suite.root));
+    test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("test"));
     cmd.arg(test_path.to_string());
@@ -451,7 +452,7 @@ run_test_suite :: (
       cmd.arg(String.from("--parallel"));
       cmd.arg(suite.parallel.to_string());
     });
-    if(ctx.*.verbose, cmd.arg(String.from("--verbose")));
+    if(ctx.verbose, cmd.arg(String.from("--verbose")));
     test_exn := Exception(
       throw : (
         (err) -> {
@@ -473,10 +474,10 @@ run_test_suite :: (
 execute_node :: (
   fn(
     node : DAGNode,
-    ctx : *(ExecutionContext),
-    io : IO,
+    ctx : ExecutionContext,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(StepResult, IOErr))
+  ) -> Impl(Future(StepResult, IoExn))
 )(
   io.async((io, exn) => {
     description := String.from(node.name.as_str());
@@ -485,7 +486,7 @@ execute_node :: (
       node.kind,
       .Artifact => {
         match(
-          ctx.*.registry.find_artifact(node.name.as_str()),
+          ctx.registry.find_artifact(node.name.as_str()),
           .None => (),
           .Some(artifact) => {
             kind_label := match(
@@ -509,7 +510,7 @@ execute_node :: (
       },
       .Test => {
         match(
-          ctx.*.registry.find_test(node.name.as_str()),
+          ctx.registry.find_test(node.name.as_str()),
           .None => (),
           .Some(suite) => {
             description = `test ${suite.name}`;
@@ -526,12 +527,12 @@ execute_node :: (
       },
       .Run => {
         match(
-          ctx.*.registry.find_run_step(node.name.as_str()),
+          ctx.registry.find_run_step(node.name.as_str()),
           .None => (),
           .Some(run_step) => {
             description = `run ${run_step.artifact_name}`;
             match(
-              ctx.*.registry.find_artifact(run_step.artifact_name.as_str()),
+              ctx.registry.find_artifact(run_step.artifact_name.as_str()),
               .None => (),
               .Some(artifact) => {
                 result := io.await(run_executable(artifact, run_step.args, ctx), io);
@@ -550,7 +551,7 @@ execute_node :: (
       .Step => (),
       .Doc => {
         match(
-          ctx.*.registry.find_documentation(node.name.as_str()),
+          ctx.registry.find_documentation(node.name.as_str()),
           .None => (),
           .Some(doc_cfg) => {
             description = `doc ${doc_cfg.name}`;
@@ -574,10 +575,10 @@ execute_node :: (
 execute_dag :: (
   fn(
     dag : ArrayList(DAGNode),
-    ctx : *(ExecutionContext),
-    io : IO,
+    ctx : ExecutionContext,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(HashMap(String, StepResult), IOErr))
+  ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )(
   io.async((io, exn) => {
     results := HashMap(String, StepResult).new();
@@ -764,16 +765,16 @@ print_build_summary :: (
 execute_step :: (
   fn(
     step_name : str,
-    ctx : *(ExecutionContext),
-    io : IO,
+    ctx : ExecutionContext,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     match(
-      ctx.*.registry.find_step(step_name),
+      ctx.registry.find_step(step_name),
       .None => {
-        available := ctx.*.registry.get_step_names();
+        available := ctx.registry.get_step_names();
         names_str := String.new();
         i := usize(0);
         n := available.len();
@@ -787,7 +788,7 @@ execute_step :: (
       },
       .Some(_) => ()
     );
-    dag := build_dag(&(ctx.*.registry), step_name);
+    dag := build_dag(&(ctx.registry), step_name);
     match(
       detect_cycle(dag),
       .Some(cycle_node) => {
@@ -796,12 +797,12 @@ execute_step :: (
       .None => ()
     );
     results := io.await(execute_dag(dag, ctx), io);
-    if(ctx.*.summary, print_build_summary(results, dag, step_name));
+    if(ctx.summary, print_build_summary(results, dag, step_name));
   })
 );
 // ---------------------------------------------------------------------------
-print_steps :: (fn(registry : *(BuildRegistry)) -> unit)({
-  steps := registry.*.steps;
+print_steps :: (fn(registry : BuildRegistry) -> unit)({
+  steps := registry.steps;
   println("Available build steps:");
   println("");
   i := usize(0);
@@ -835,9 +836,9 @@ evaluate_build_file :: (
   fn(
     build_file : String,
     defines : HashMap(String, String),
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(BuildRegistry, IOErr))
+  ) -> Impl(Future(BuildRegistry, IoExn))
 )(
   io.async((io, exn) => {
     cmd := Command.new(String.from("yo-cli"));
@@ -881,9 +882,9 @@ evaluate_build_file :: (
 run_build :: (
   fn(
     options : BuildOptions,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     build_file_path := Path.new(options.build_file);
@@ -936,7 +937,7 @@ run_build :: (
     i := usize(0);
     n := requested.len();
     while(runtime(i < n), {
-      io.await(execute_step(requested(i).as_str(), &(ctx)), io);
+      io.await(execute_step(requested(i).as_str(), ctx), io);
       i = (i + usize(1));
     });
   })

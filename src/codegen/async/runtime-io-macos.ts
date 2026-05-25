@@ -5,7 +5,7 @@
  *
  * 1. generatePlatformSysRuntimeMacOS — synchronous POSIX helpers (pipe, dup,
  *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
- *    that do NOT depend on IOFuture or the async event loop.
+ *    that do NOT depend on IoFuture or the async event loop.
  *
  * 2. generateAsyncRuntimeIOMacOS — async I/O via kqueue.
  *    Single-threaded event loop using kevent() for socket I/O readiness
@@ -18,12 +18,12 @@
 import { Emitter } from "../../emitter";
 
 // ---------------------------------------------------------------------------
-// 1. Synchronous platform helpers (macOS) — no IOFuture / event-loop dependency
+// 1. Synchronous platform helpers (macOS) — no IoFuture / event-loop dependency
 // ---------------------------------------------------------------------------
 
 /**
  * Emits synchronous macOS-specific POSIX helpers.  These do NOT depend on the
- * async runtime (no IOFuture, no event-loop types).  All functions are `static`
+ * async runtime (no IoFuture, no event-loop types).  All functions are `static`
  * so unused ones are dead-code-eliminated by the C compiler.
  *
  * Sections: sync FD ops (pipe, dup, lseek, fallocate, fcntl, flock, readv/writev,
@@ -53,7 +53,7 @@ export function generatePlatformSysRuntimeMacOS(emitter: Emitter): void {
 #include <sys/un.h>
 
 // ============================================================================
-// Synchronous FD Operations (macOS) - no IOFuture overhead
+// Synchronous FD Operations (macOS) - no IoFuture overhead
 // ============================================================================
 
 static int32_t __yo_sync_pipe(int32_t* pipefd) {
@@ -485,12 +485,12 @@ static uint32_t __yo_ntohl(uint32_t netlong) {
 static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
   int fd = open(path, flags, mode);
   int result = fd >= 0 ? fd : -errno;
-  ASYNC_DEBUG("[IO] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
+  ASYNC_DEBUG("[Io] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
   return result;
 }
 
 static void __yo_file_close(int32_t fd) {
-  ASYNC_DEBUG("[IO] close(%d)\\n", fd);
+  ASYNC_DEBUG("[Io] close(%d)\\n", fd);
   close(fd);
 }
 
@@ -498,10 +498,10 @@ static int64_t __yo_file_size(int32_t fd) {
   struct stat st;
   if (fstat(fd, &st) < 0) {
     int result = -errno;
-    ASYNC_DEBUG("[IO] fstat(%d) failed: %d\\n", fd, result);
+    ASYNC_DEBUG("[Io] fstat(%d) failed: %d\\n", fd, result);
     return result;
   }
-  ASYNC_DEBUG("[IO] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
+  ASYNC_DEBUG("[Io] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
   return st.st_size;
 }
 
@@ -594,7 +594,7 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
  * Emits the macOS async I/O runtime using kqueue.
  * Provides async read, write, openat, close, statx, mkdir, unlink, rename,
  * symlink, link, fsync, fdatasync, ftruncate, chmod, chown, readlink, dup,
- * pipe, and socket operations.  Requires the IOFuture type and event loop.
+ * pipe, and socket operations.  Requires the IoFuture type and event loop.
  *
  * Single-threaded event loop: all I/O completions are processed inline on
  * the event loop thread via kevent(), matching the Linux io_uring and
@@ -708,7 +708,7 @@ static void __yo_io_init(void) {
     abort();
   }
   __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] kqueue initialized: kq=%d\\n", __yo_io_kq);
+  ASYNC_DEBUG("[Io] kqueue initialized: kq=%d\\n", __yo_io_kq);
 }
 
 // Cleanup kqueue
@@ -726,7 +726,7 @@ static void __yo_io_cleanup(void) {
     __yo_io_kq = -1;
   }
   __yo_io_initialized = false;
-  ASYNC_DEBUG("[IO] kqueue cleaned up\\n");
+  ASYNC_DEBUG("[Io] kqueue cleaned up\\n");
 }
 
 // Check if there are pending I/O operations
@@ -746,7 +746,7 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
   void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
   
-  ASYNC_DEBUG("[IO] Waking continuation: cont_fn=%p, cont_sm=%p, result=%d\\n",
+  ASYNC_DEBUG("[Io] Waking continuation: cont_fn=%p, cont_sm=%p, result=%d\\n",
               (void*)cont_fn, cont_sm, future->result);
   
   if (cont_fn && cont_sm) {
@@ -900,7 +900,7 @@ static int __yo_io_poll(void) {
   }
 
   if (processed > 0) {
-    ASYNC_DEBUG("[IO] Polled %d kqueue completions\\n", processed);
+    ASYNC_DEBUG("[Io] Polled %d kqueue completions\\n", processed);
   }
 
   // Also tick poll/fs_event handles
@@ -999,7 +999,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     ssize_t result = pread(fd, buffer, size, (off_t)offset);
     future->result = (result < 0) ? -errno : (int32_t)result;
     atomic_store(&future->state, -1);
-    ASYNC_DEBUG("[IO] Sync file read completed: fd=%d result=%d\\n", fd, future->result);
+    ASYNC_DEBUG("[Io] Sync file read completed: fd=%d result=%d\\n", fd, future->result);
     return future;
   }
   
@@ -1008,7 +1008,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     future->result = (result < 0) ? -errno : (int32_t)result;
     atomic_store(&future->state, -1);
-    ASYNC_DEBUG("[IO] Non-blocking read completed: fd=%d result=%d\\n", fd, future->result);
+    ASYNC_DEBUG("[Io] Non-blocking read completed: fd=%d result=%d\\n", fd, future->result);
     return future;
   }
   
@@ -1022,7 +1022,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   
   __yo_io_register_kevent(pending, fd, EVFILT_READ);
   
-  ASYNC_DEBUG("[IO] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
   
   return future;
@@ -1060,7 +1060,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     }
     future->result = (written < 0) ? -errno : (int32_t)written;
     atomic_store(&future->state, -1);
-    ASYNC_DEBUG("[IO] Sync file write completed: fd=%d result=%d\\n", fd, future->result);
+    ASYNC_DEBUG("[Io] Sync file write completed: fd=%d result=%d\\n", fd, future->result);
     return future;
   }
   
@@ -1069,7 +1069,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     future->result = (result < 0) ? -errno : (int32_t)result;
     atomic_store(&future->state, -1);
-    ASYNC_DEBUG("[IO] Non-blocking write completed: fd=%d result=%d\\n", fd, future->result);
+    ASYNC_DEBUG("[Io] Non-blocking write completed: fd=%d result=%d\\n", fd, future->result);
     return future;
   }
   
@@ -1083,7 +1083,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   
   __yo_io_register_kevent(pending, fd, EVFILT_WRITE);
   
-  ASYNC_DEBUG("[IO] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+  ASYNC_DEBUG("[Io] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
   
   return future;
@@ -1117,7 +1117,7 @@ static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path
   // Mark as immediately completed
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] openat completed: path=%s result=%d\\n", path, future->result);
+  ASYNC_DEBUG("[Io] openat completed: path=%s result=%d\\n", path, future->result);
   
   return future;
 }
@@ -1137,7 +1137,7 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] close completed: fd=%d result=%d\\n", fd, future->result);
+  ASYNC_DEBUG("[Io] close completed: fd=%d result=%d\\n", fd, future->result);
   
   return future;
 }
@@ -1175,7 +1175,7 @@ static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path,
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] stat completed: path=%s result=%d\\n", path, future->result);
+  ASYNC_DEBUG("[Io] stat completed: path=%s result=%d\\n", path, future->result);
   
   return future;
 }
@@ -1201,7 +1201,7 @@ static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* pat
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] mkdirat completed: path=%s result=%d\\n", path, future->result);
+  ASYNC_DEBUG("[Io] mkdirat completed: path=%s result=%d\\n", path, future->result);
   
   return future;
 }
@@ -1231,7 +1231,7 @@ static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* pa
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] unlinkat completed: path=%s result=%d\\n", path, future->result);
+  ASYNC_DEBUG("[Io] unlinkat completed: path=%s result=%d\\n", path, future->result);
   
   return future;
 }
@@ -1257,7 +1257,7 @@ static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char*
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] renameat completed: %s -> %s result=%d\\n", oldpath, newpath, future->result);
+  ASYNC_DEBUG("[Io] renameat completed: %s -> %s result=%d\\n", oldpath, newpath, future->result);
   
   return future;
 }
@@ -1283,7 +1283,7 @@ static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t 
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] symlinkat completed: %s -> %s result=%d\\n", target, linkpath, future->result);
+  ASYNC_DEBUG("[Io] symlinkat completed: %s -> %s result=%d\\n", target, linkpath, future->result);
   
   return future;
 }
@@ -1309,7 +1309,7 @@ static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* o
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] linkat completed: %s -> %s result=%d\\n", oldpath, newpath, future->result);
+  ASYNC_DEBUG("[Io] linkat completed: %s -> %s result=%d\\n", oldpath, newpath, future->result);
   
   return future;
 }
@@ -1329,7 +1329,7 @@ static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] fsync completed: fd=%d result=%d\\n", fd, future->result);
+  ASYNC_DEBUG("[Io] fsync completed: fd=%d result=%d\\n", fd, future->result);
   
   return future;
 }
@@ -1356,7 +1356,7 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] ftruncate completed: fd=%d length=%lld result=%d\\n",
+  ASYNC_DEBUG("[Io] ftruncate completed: fd=%d length=%lld result=%d\\n",
               fd, (long long)length, future->result);
   
   return future;
@@ -1390,7 +1390,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
   future->result = (result < 0) ? -errno : result;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
+  ASYNC_DEBUG("[Io] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
               domain, type, protocol, future->result);
   
   return future;
@@ -1411,7 +1411,7 @@ static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr,
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
+  ASYNC_DEBUG("[Io] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
   
   return future;
 }
@@ -1431,7 +1431,7 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
+  ASYNC_DEBUG("[Io] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
   
   return future;
 }
@@ -1455,14 +1455,14 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
     if (fl >= 0) fcntl(result, F_SETFL, fl | O_NONBLOCK);
     future->result = result;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] accept completed immediately: sockfd=%d result=%d\\n", sockfd, result);
+    ASYNC_DEBUG("[Io] accept completed immediately: sockfd=%d result=%d\\n", sockfd, result);
     return future;
   }
   
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
     future->result = -errno;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] accept failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    ASYNC_DEBUG("[Io] accept failed: sockfd=%d errno=%d\\n", sockfd, errno);
     return future;
   }
   
@@ -1479,7 +1479,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   
   __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
   
-  ASYNC_DEBUG("[IO] accept waiting via kqueue: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[Io] accept waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
@@ -1499,14 +1499,14 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   if (result == 0) {
     future->result = 0;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] connect completed immediately: sockfd=%d\\n", sockfd);
+    ASYNC_DEBUG("[Io] connect completed immediately: sockfd=%d\\n", sockfd);
     return future;
   }
   
   if (errno != EINPROGRESS) {
     future->result = -errno;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] connect failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    ASYNC_DEBUG("[Io] connect failed: sockfd=%d errno=%d\\n", sockfd, errno);
     return future;
   }
   
@@ -1521,7 +1521,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   
   __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
   
-  ASYNC_DEBUG("[IO] connect waiting via kqueue: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[Io] connect waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
@@ -1541,14 +1541,14 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] send completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    ASYNC_DEBUG("[Io] send completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
     return future;
   }
   
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
     future->result = -errno;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] send failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    ASYNC_DEBUG("[Io] send failed: sockfd=%d errno=%d\\n", sockfd, errno);
     return future;
   }
   
@@ -1566,7 +1566,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   
   __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
   
-  ASYNC_DEBUG("[IO] send waiting via kqueue: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[Io] send waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
@@ -1586,14 +1586,14 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] recv completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    ASYNC_DEBUG("[Io] recv completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
     return future;
   }
   
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
     future->result = -errno;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] recv failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    ASYNC_DEBUG("[Io] recv failed: sockfd=%d errno=%d\\n", sockfd, errno);
     return future;
   }
   
@@ -1611,7 +1611,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   
   __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
   
-  ASYNC_DEBUG("[IO] recv waiting via kqueue: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[Io] recv waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
@@ -1632,14 +1632,14 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] sendto completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    ASYNC_DEBUG("[Io] sendto completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
     return future;
   }
   
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
     future->result = -errno;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] sendto failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    ASYNC_DEBUG("[Io] sendto failed: sockfd=%d errno=%d\\n", sockfd, errno);
     return future;
   }
   
@@ -1659,7 +1659,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   
   __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
   
-  ASYNC_DEBUG("[IO] sendto waiting via kqueue: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[Io] sendto waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
@@ -1680,14 +1680,14 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] recvfrom completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    ASYNC_DEBUG("[Io] recvfrom completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
     return future;
   }
   
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
     future->result = -errno;
     atomic_init(&future->state, -1);
-    ASYNC_DEBUG("[IO] recvfrom failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    ASYNC_DEBUG("[Io] recvfrom failed: sockfd=%d errno=%d\\n", sockfd, errno);
     return future;
   }
   
@@ -1707,7 +1707,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   
   __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
   
-  ASYNC_DEBUG("[IO] recvfrom waiting via kqueue: sockfd=%d\\n", sockfd);
+  ASYNC_DEBUG("[Io] recvfrom waiting via kqueue: sockfd=%d\\n", sockfd);
   return future;
 }
 
@@ -1726,7 +1726,7 @@ static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) 
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
+  ASYNC_DEBUG("[Io] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
   
   return future;
 }
@@ -1747,7 +1747,7 @@ static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t lev
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+  ASYNC_DEBUG("[Io] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);
   
   return future;
@@ -1769,7 +1769,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
   
-  ASYNC_DEBUG("[IO] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+  ASYNC_DEBUG("[Io] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);
   
   return future;

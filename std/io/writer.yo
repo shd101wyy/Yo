@@ -1,12 +1,13 @@
 //! Writer trait for byte-level output.
+pragma(Pragma.AllowUnsafe);
 { Exception } :: import("../error");
 /// Common interface for writing bytes to a destination.
 Writer :: trait(
   /// Write bytes from buffer. Returns number of bytes written.
   write :
-    fn(self : *(Self), buf : *(u8), size : usize, exn : Exception) -> usize,
+    fn(ref(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize,
   /// Flush any buffered data to the underlying destination.
   flush :
-    fn(self : *(Self), exn : Exception) -> unit
+    fn(ref(self) : Self, exn : Exception) -> unit
 );
 export(Writer);

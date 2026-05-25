@@ -105,6 +105,12 @@ match(numbers.get(usize(0)),
   .None => ()
 );
 
+// Do NOT write the verbose forms when X(i) works:
+//   ✗ (&(numbers)).index(usize(0)).* = i32(99);   // needs pragma, scans as raw-ptr code
+//   ✗ v := numbers.get(usize(0)).unwrap();        // panic-on-OOB anyway — just use call syntax
+// ✓ numbers(usize(0)) = i32(99);
+// ✓ v := numbers(usize(0));
+
 counts := HashMap(String, i32).new();
 counts.set(`yo`, i32(1));
 ```
@@ -123,7 +129,7 @@ counts.set(`yo`, i32(1));
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -193,6 +199,15 @@ TcpStream :: object(fd : i32, buffer : ArrayList(u8));
 
 - Use `newtype(...)` when the type has exactly one field
 - Use `object(...)` for types that need shared ownership
+- **Parameter form by type kind:**
+  - `object(...)`: plain `name : Type` (reference semantics — no pointer or ref needed).
+    `foo :: (fn(ctx : EvalContext) -> unit)(ctx.do_stuff());`
+  - `struct(...)` / `enum(...)` / primitive, read-only: plain `name : Type`.
+  - `struct(...)` / `enum(...)` / primitive, need mutation: `ref(name) : Type`.
+    `swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)(...);`
+  - Method receiver on `object`: plain `self : Self`.
+  - Method receiver on value type (traits + inherent mutators): `ref(self) : Self`.
+  - Raw FFI pointer: `name : *(T)` (requires `pragma(Pragma.AllowUnsafe);`).
 - Source-file imports are namespace structs. The old `module(...)`, `Module`,
   and `SelfModule` syntax is gone; use `struct(...)`, `Type`, and normal `Self`.
 - Fields written as `name :: value` or `comptime(name) : Type` are compile-time-only static fields/methods and have no runtime layout
@@ -361,8 +376,8 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 result := inc(i32(5));
 
 transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for(values.iter(), (ptr) => {
-    ptr.* = f(ptr.*);
+  for(values, ref(x) => {
+    x = f(x);
   });
 });
 ```
@@ -381,22 +396,27 @@ list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 
-for(list.iter(), (ptr) => {
-  println(ptr.*);
+// Value form — implicit .into_iter().
+for(list, (value) => {
+  println(value);
 });
 
-for(list.into_iter(), (value) => {
-  println(value);
+// Borrow form — implicit .iter() + .project(pos). `x` is a writable
+// binding into the collection; assignments propagate back.
+for(list, ref(x) => {
+  x = (x + i32(10));
 });
 ```
 
-| Method         | Yields | Semantics                           |
-| -------------- | ------ | ----------------------------------- |
-| `.iter()`      | `*(T)` | Borrow via pointer; yields pointers |
-| `.into_iter()` | `T`    | Takes ownership; yields values      |
+| Form                          | Expansion                                  | When to use                                   |
+| ----------------------------- | ------------------------------------------ | --------------------------------------------- |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value    | Read-only iteration; combinator chains        |
+| `for(coll, ref(x) => …)`      | `coll.iter()` + `coll.project(pos)` borrow | Mutation in place; writes propagate to `coll` |
+| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form)  | Computed values; chains support only value    |
 
-- Implement `Iterator` trait to make custom types iterable
-- Implement `IntoIterator` trait for collection-style iteration
+- `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.
+- `IntoIterator` trait — defines `into_iter() -> IntoIter`. Collections impl this so `for(coll, ...)` works.
+- `Indexable(Position)` trait — defines `project(pos) -> ref(Element)`. Collections impl this to support the borrow form.
 
 ## Module-level mutable variables
 

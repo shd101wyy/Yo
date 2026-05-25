@@ -6,18 +6,19 @@
 //! ```rust
 //! { metadata } :: import "std/fs/metadata";
 //!
-//! main :: (fn(io : IO, exn : Exception) -> unit)({
+//! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   m := io.await(metadata(Path.new(`/tmp/test.txt`), io), { io, exn });
 //!   printf("size: %lld\n", m.size());
 //!   printf("is file: %d\n", i32(m.is_file()));
 //! });
 //! ```
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 open(import("../string"));
 { Path } :: import("../path");
-{ IOError } :: import("../sys/errors");
-{ Error, AnyError, Exception, IOErr } :: import("../error");
+{ IoError } :: import("../sys/errors");
+{ Error, AnyError, Exception, IoExn } :: import("../error");
 { Statx } :: import("../sys/statx");
 IO_file :: import("../sys/file");
 { AT_FDCWD, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IWUSR, S_IWGRP, S_IWOTH } :: import("../sys/constants");
@@ -101,7 +102,7 @@ extern(
 // ============================================================================
 // Internal helper to stat a path
 // ============================================================================
-_stat_path :: (fn(path : Path, flags : i32, io : IO) -> Impl(Future(Metadata, IOErr)))(
+_stat_path :: (fn(path : Path, flags : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
   io.async((e) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -111,7 +112,7 @@ _stat_path :: (fn(path : Path, flags : i32, io : IO) -> Impl(Future(Metadata, IO
     cond(
       (result < i32(0)) => {
         free(.Some(*(void)(buf)));
-        e.exn.throw(dyn(IOError.from_errno(i32(0) - result)))
+        e.exn.throw(dyn(IoError.from_errno(i32(0) - result)))
       },
       true => {
         sx := Statx(_buf_ptr : buf, _buf_size : buf_size);
@@ -121,11 +122,11 @@ _stat_path :: (fn(path : Path, flags : i32, io : IO) -> Impl(Future(Metadata, IO
   })
 );
 /// Get metadata for a path (follows symlinks).
-metadata :: (fn(path : Path, io : IO) -> Impl(Future(Metadata, IOErr)))(_stat_path(path, AT_STATX_SYNC_AS_STAT, io));
+metadata :: (fn(path : Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_STATX_SYNC_AS_STAT, io));
 /// Get metadata for a path given as a raw string (follows symlinks).
-metadata_str :: (fn(path : str, io : IO) -> Impl(Future(Metadata, IOErr)))(metadata(Path.new(String.from(path)), io));
+metadata_str :: (fn(path : str, io : Io) -> Impl(Future(Metadata, IoExn)))(metadata(Path.new(String.from(path)), io));
 /// Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path : Path, io : IO) -> Impl(Future(Metadata, IOErr)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, io));
+symlink_metadata :: (fn(path : Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, io));
 /// Get metadata for a path given as a raw string (does NOT follow symlinks).
-symlink_metadata_str :: (fn(path : str, io : IO) -> Impl(Future(Metadata, IOErr)))(symlink_metadata(Path.new(String.from(path)), io));
+symlink_metadata_str :: (fn(path : str, io : Io) -> Impl(Future(Metadata, IoExn)))(symlink_metadata(Path.new(String.from(path)), io));
 export(metadata, metadata_str, symlink_metadata, symlink_metadata_str);

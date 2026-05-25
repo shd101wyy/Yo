@@ -174,7 +174,7 @@ Got:   ${typeToString(argType)}`,
     const argValue = evaluatedArgExpr.$?.value;
 
     // Propagate ioBuiltin from extern function types to struct field types.
-    // This ensures io.async/io.await/io.spawn/etc. are detected as IO builtins
+    // This ensures io.async/io.await/io.spawn/etc. are detected as Io builtins
     // even when accessed through a struct field (mirrors the behavior in
     // record-type.ts for record constructors).
     if (argType.ioBuiltin && isFunctionType(memberElement.type)) {

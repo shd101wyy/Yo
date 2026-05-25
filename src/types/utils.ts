@@ -283,6 +283,201 @@ export function typeIsControlBound(
 }
 
 /**
+ * Check if a type's runtime representation transitively carries a raw
+ * pointer (`*(T)`), where "transitively" walks through aggregate fields
+ * but **stops at heap-owning `object` types** — those manage their own
+ * pointer's lifetime via Rc and cannot dangle through a return slot.
+ *
+ * Used by the Slice-flowability rule from `plans/SLICE_FLOWABILITY.md`:
+ * a function returning a type for which this predicate is true (and
+ * whose return is NOT already `-> ref(T)`) must have a flowable
+ * return expression, because the return slot would otherwise smuggle
+ * a pointer into the caller that aliases dead storage.
+ *
+ * Rules:
+ * - `Ptr` → true (a raw pointer is the base case).
+ * - `Slice` → true (a slice IS a fat pointer; its user-visible type
+ *   elides the inner `*(T)`, but the representation has one).
+ * - `Struct` with `isReferenceSemantics` (i.e. `object` / `atomic(object(...))`)
+ *   → **false**. Heap-owning types manage their own pointer; passing
+ *   them around at the value layer does not give the receiver an
+ *   alias to dying storage.
+ * - `Struct` without reference semantics (plain struct, newtype) →
+ *   recurse into each field's type. This catches `str` (newtype over
+ *   `Slice(u8)`) and any user wrapper that stores a `Slice` field.
+ * - `Tuple` / `Union` → recurse into each field.
+ * - `Enum` → recurse into each variant's fields. Catches
+ *   `Option(Slice(T))`, `Result(Slice(T), E)`, etc.
+ * - `Array(T, N)` → recurse into `T`. (Arrays inline their elements
+ *   contiguously, so if `T` carries a raw pointer the array does too.)
+ * - `Function` → false. A function pointer is itself a pointer at the
+ *   C ABI, but it points at code (static), not at data — it cannot
+ *   dangle through a stack-local source the way a `Slice` can. The
+ *   closure-capture story is handled by the separate
+ *   `cannot-capture-ref` gate.
+ * - `SomeType` → follow `resolvedConcreteType` if resolved; otherwise
+ *   false. An unresolved generic type variable doesn't tell us anything
+ *   yet — the check will re-run after specialization.
+ * - Primitive types, comptime types, etc. → false.
+ */
+export function typeRepresentationContainsRawPtr(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  if (checkedTypes.includes(type)) {
+    return false;
+  }
+  checkedTypes.push(type);
+
+  // Heap-owning `object` types (and atomic-rc variants) manage their
+  // pointer lifetime via Rc. They are safe to return at the value layer.
+  // Check this BEFORE the generic Struct fall-through so a struct's
+  // `isReferenceSemantics` short-circuits the field walk.
+  if (isObjectType(type)) {
+    return false;
+  }
+  // `Dyn(Trait)` is a fat pointer (data + vtable) into RC-managed
+  // object storage. Same reasoning as `isObjectType`: returning a
+  // `Dyn` transfers (or shares) the Rc, so the data pointer stays
+  // alive. Skip the field walk.
+  if (isDynType(type)) {
+    return false;
+  }
+
+  switch (type.tag) {
+    case TypeTag.Ptr:
+      return true;
+    case TypeTag.Slice:
+      return true;
+    case TypeTag.Struct:
+      // Plain struct or newtype — walk fields. `str` is
+      // `newtype(bytes : Slice(u8))`; this catches it via the Slice field.
+      return (type as StructType).fields.some((field) =>
+        typeRepresentationContainsRawPtr(field.type, checkedTypes)
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeRepresentationContainsRawPtr(field.type, checkedTypes)
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeRepresentationContainsRawPtr(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeRepresentationContainsRawPtr(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Array:
+      return typeRepresentationContainsRawPtr(
+        (type as ArrayType).childType,
+        checkedTypes
+      );
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      if (someType.resolvedConcreteType) {
+        return typeRepresentationContainsRawPtr(
+          someType.resolvedConcreteType,
+          checkedTypes
+        );
+      }
+      return false;
+    }
+    default:
+      // Function, primitives, trait, dyn, type, etc. — no pointer-escape
+      // surface at the representation level for our purposes.
+      return false;
+  }
+}
+
+/**
+ * Sibling to `typeRepresentationContainsRawPtr` that ALSO treats
+ * `object`/`atomic(object(...))` types as a "yes" leaf. Used by the
+ * slice-flowability R3 check to decide which call arguments could
+ * have provided the source pointer for the callee's returned slice.
+ *
+ * The distinction matters because:
+ *
+ * - At the return-site question ("does this function's return type
+ *   transitively carry a raw pointer that could dangle?") an `object`
+ *   return is SAFE: ownership transfers to the caller and the Rc
+ *   keeps the buffer alive. So `typeRepresentationContainsRawPtr`
+ *   says NO for objects.
+ *
+ * - At the argument-source question ("could this arg be the storage
+ *   the callee's returned slice points into?") an `object` arg
+ *   absolutely qualifies — `arr.as_slice()` returns a `Slice` into
+ *   `arr`'s heap buffer, which dies when `arr`'s Rc count drops to
+ *   zero. If `arr` is a non-flowable local, the slice dangles.
+ *
+ * Returns true iff the type, walked through structs/tuples/unions/
+ * enums/arrays, has a leaf that is `Ptr`, `Slice`, or an `object`
+ * type. Function types are NOT recursed into (function pointers are
+ * static), and `SomeType` follows `resolvedConcreteType` if resolved.
+ */
+export function typeMayProvideSliceSource(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) return false;
+  if (checkedTypes.includes(type)) return false;
+  checkedTypes.push(type);
+
+  if (isObjectType(type)) return true;
+  // `Dyn(Trait)` carries an RC-managed object behind a fat pointer.
+  // A callee can project a slice into that object's heap data, so a
+  // `Dyn` arg is just as much a source candidate as an `object` arg.
+  if (isDynType(type)) return true;
+
+  switch (type.tag) {
+    case TypeTag.Ptr:
+      return true;
+    case TypeTag.Slice:
+      return true;
+    case TypeTag.Struct:
+      return (type as StructType).fields.some((field) =>
+        typeMayProvideSliceSource(field.type, checkedTypes)
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeMayProvideSliceSource(field.type, checkedTypes)
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeMayProvideSliceSource(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeMayProvideSliceSource(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Array:
+      return typeMayProvideSliceSource(
+        (type as ArrayType).childType,
+        checkedTypes
+      );
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      if (someType.resolvedConcreteType) {
+        return typeMayProvideSliceSource(
+          someType.resolvedConcreteType,
+          checkedTypes
+        );
+      }
+      return false;
+    }
+    default:
+      return false;
+  }
+}
+
+/**
  * Check if a type contains SomeType.
  */
 export function typeContainsSomeType(
@@ -377,6 +572,214 @@ export function typeContainsSomeType(
 
     default:
       return false; // For other types, no SomeType is present
+  }
+}
+
+/**
+ * Like `typeContainsSomeType` but distinguishes "free" SomeTypes from those
+ * locally bound by a nested function's `forall(...)`. A function type's
+ * `forallParameters` introduce SomeType bindings whose scope is just that
+ * function's signature; references to those names inside the parameters or
+ * return type are NOT free in the outer position.
+ *
+ * Without this distinction, `typeContainsSomeType(Io)` returns true via the
+ * recursion into Io's fn-typed fields (`async : fn(forall(T, E), ...) -> ...`),
+ * which causes `shouldDeferBodyEvaluation` in anonymous-function.ts to defer
+ * any function body that takes `io : Io` as a parameter. The test runner's
+ * batched-main function hit exactly this trap and silently dropped every test
+ * body until commit `7b3b788b` worked around it by removing the parameter.
+ *
+ * This function tracks the set of forall-bound SomeType names per scope
+ * (innermost wins, supporting shadowing). When recursing into a FunctionType,
+ * the function's own forall labels are added to the bound set for the inner
+ * walk. SomeTypes whose `name` matches a bound entry are skipped.
+ *
+ * NOTE: name-based tracking is sufficient because forall parameter names are
+ * unique within a single function signature and Yo's evaluator generates a
+ * fresh SomeType per forall declaration. A SomeType encountered inside the
+ * function whose name matches a forall label IS that forall's variable.
+ */
+export function typeContainsUnboundSomeType(
+  type?: Type,
+  boundNames: Set<string> = new Set(),
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) return false;
+  if (checkedTypes.includes(type)) return false;
+  checkedTypes.push(type);
+
+  if (isSomeType(type)) {
+    if (type.isExtern) return false;
+    if (type.resolvedConcreteType) {
+      return typeContainsUnboundSomeType(
+        type.resolvedConcreteType,
+        boundNames,
+        checkedTypes
+      );
+    }
+    if (typeImplementsFn(type)) return false;
+    if (typeImplementsFuture(type)) return false;
+    if (boundNames.has(type.name)) return false;
+    return true;
+  }
+
+  switch (type.tag) {
+    case TypeTag.Array:
+      return typeContainsUnboundSomeType(
+        (type as ArrayType).childType,
+        boundNames,
+        checkedTypes
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeContainsUnboundSomeType(field.type, boundNames, checkedTypes)
+      );
+    case TypeTag.Struct:
+      return (type as StructType).fields.some(
+        (field) =>
+          !field.isEffectParam &&
+          typeContainsUnboundSomeType(field.type, boundNames, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeContainsUnboundSomeType(param.type, boundNames, checkedTypes)
+        )
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeContainsUnboundSomeType(field.type, boundNames, checkedTypes)
+      );
+    case TypeTag.Function: {
+      const fnType = type as FunctionType;
+      // Extend bound set with this function's forall labels for the inner walk.
+      // Use a per-recursion copy so siblings don't see each other's bindings.
+      const innerBound = new Set(boundNames);
+      for (const fp of fnType.forallParameters) {
+        innerBound.add(fp.label);
+      }
+      return (
+        fnType.parameters.some((p) =>
+          typeContainsUnboundSomeType(p.type, innerBound, checkedTypes)
+        ) ||
+        typeContainsUnboundSomeType(
+          fnType.return.type,
+          innerBound,
+          checkedTypes
+        )
+      );
+    }
+    case TypeTag.Ptr:
+      return typeContainsUnboundSomeType(
+        (type as PtrType).childType,
+        boundNames,
+        checkedTypes
+      );
+    case TypeTag.Slice:
+      return typeContainsUnboundSomeType(
+        (type as SliceType).childType,
+        boundNames,
+        checkedTypes
+      );
+    case TypeTag.TypeApplication:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Variant of `typeContainsSomeType` used by codegen's "is this function
+ * parameter truly generic?" filter. Behaves identically to
+ * `typeContainsSomeType` except that when recursing into struct fields, it
+ * does NOT recurse into FunctionType-valued fields.
+ *
+ * Rationale: effect-record types like `Exception` are concrete C structs
+ * whose only "generic" content lives inside function-typed fields (e.g.
+ * `throw : ctl(forall(R), error : AnyError) -> R`). At C codegen time those
+ * fields are type-erased function pointers — concrete bytes — so a regular
+ * function taking `exn : Exception` is NOT itself generic and must still be
+ * emitted with a forward declaration and body. The plain
+ * `typeContainsSomeType` returns true for `Exception` (because the field
+ * walk hits the forall inside `throw`), which causes declarations.ts and
+ * generation.ts to incorrectly skip the function — leaving call sites with
+ * an undeclared `fn_*_parse` and similar.
+ */
+export function typeContainsSomeTypeForCodegenParam(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) return false;
+  if (checkedTypes.includes(type)) return false;
+  checkedTypes.push(type);
+
+  if (isSomeType(type)) {
+    if (type.isExtern) return false;
+    if (type.resolvedConcreteType) {
+      return typeContainsSomeTypeForCodegenParam(
+        type.resolvedConcreteType,
+        checkedTypes
+      );
+    }
+    if (typeImplementsFn(type)) return false;
+    if (typeImplementsFuture(type)) return false;
+    return true;
+  }
+
+  switch (type.tag) {
+    case TypeTag.Array:
+      return typeContainsSomeTypeForCodegenParam(
+        (type as ArrayType).childType,
+        checkedTypes
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeContainsSomeTypeForCodegenParam(field.type, checkedTypes)
+      );
+    case TypeTag.Struct:
+      return (type as StructType).fields.some(
+        (field) =>
+          !field.isEffectParam &&
+          field.type.tag !== TypeTag.Function &&
+          typeContainsSomeTypeForCodegenParam(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeContainsSomeTypeForCodegenParam(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeContainsSomeTypeForCodegenParam(field.type, checkedTypes)
+      );
+    case TypeTag.Function: {
+      const functionType = type as FunctionType;
+      return (
+        functionType.forallParameters.length > 0 ||
+        functionType.parameters.some((parameter) =>
+          typeContainsSomeTypeForCodegenParam(parameter.type, checkedTypes)
+        ) ||
+        typeContainsSomeTypeForCodegenParam(
+          functionType.return.type,
+          checkedTypes
+        )
+      );
+    }
+    case TypeTag.Ptr:
+      return typeContainsSomeTypeForCodegenParam(
+        (type as PtrType).childType,
+        checkedTypes
+      );
+    case TypeTag.Slice:
+      return typeContainsSomeTypeForCodegenParam(
+        (type as SliceType).childType,
+        checkedTypes
+      );
+    case TypeTag.TypeApplication:
+      return true;
+    default:
+      return false;
   }
 }
 

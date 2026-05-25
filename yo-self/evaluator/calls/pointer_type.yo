@@ -4,6 +4,7 @@
 //!
 //! `*(T)(val)` pointer cast: handles comptime_string → *(u8) / *(char)
 //! and runtime pointer → pointer via `__yo_as`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -46,7 +47,7 @@ try_to_convert_to_pointer_type :: (
     arg_expr : AstExpr,
     expr : AstExpr,
     caller_env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> Option(AstExpr)
 )({

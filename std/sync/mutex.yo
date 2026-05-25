@@ -1,4 +1,5 @@
 //! Mutual exclusion lock primitives.
+pragma(Pragma.AllowUnsafe);
 extern(
   "Yo",
   __YO_THREAD_SYNC_TYPE : Type,
@@ -18,13 +19,13 @@ impl(
   new : (fn() -> Self)({
     return(Self(__yo_mutex_create()));
   }),
-  lock : (fn(self : *(Self)) -> unit)({
+  lock : (fn(ref(self) : Self) -> unit)({
     return(__yo_mutex_lock(&(self.mutex)));
   }),
-  unlock : (fn(self : *(Self)) -> unit)({
+  unlock : (fn(ref(self) : Self) -> unit)({
     return(__yo_mutex_unlock(&(self.mutex)));
   }),
-  destroy : (fn(self : *(Self)) -> unit)({
+  destroy : (fn(ref(self) : Self) -> unit)({
     return(__yo_mutex_destroy(&(self.mutex)));
   })
 );

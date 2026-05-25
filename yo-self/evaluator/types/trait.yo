@@ -14,6 +14,7 @@
 //!   - `attachTraitToReceiverType` for Runtime trait skipped
 //!   - `findSomeTypeMissingComptimeConstraint` check skipped (same as function.yo)
 //!   - Function parameter annotation validation skipped (no exprs stored in TraitT fields)
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -99,8 +100,8 @@ _get_or_create_some_ty_for_trait :: (
   fn(
     lhs_expr : AstExpr,
     self_type : TypeValue,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> _SomeTyResolvedResult
 )({
@@ -111,7 +112,7 @@ _get_or_create_some_ty_for_trait :: (
       return(_SomeTyResolvedResult(self_type, true));
     });
     // Look up existing var in env
-    existing_vars := get_variables_from_env(env_mut.*, var_name);
+    existing_vars := get_variables_from_env(env_mut, var_name);
     if(existing_vars.len() > usize(0), {
       last_v := match(
         existing_vars.get(existing_vars.len() - usize(1)),
@@ -178,7 +179,7 @@ _get_or_create_some_ty_for_trait :: (
       // is_implicit
       ast_expr_token(lhs_expr)
     );
-    lhs_info := new_expr_info(env_mut.*, type_of_type(new_some_ty));
+    lhs_info := new_expr_info(env_mut, type_of_type(new_some_ty));
     lhs_info.value =.Some(tv);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_expr), lhs_info);
     return(_SomeTyResolvedResult(new_some_ty, false));
@@ -190,7 +191,7 @@ _get_or_create_some_ty_for_trait :: (
   // try/catch around `getOrCreateSomeTypeForTraitWhereClause`).
   old_self_type := ctx.self_type;
   ctx.self_type =.Some(self_type);
-  evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, exn);
+  evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
   ctx.self_type = old_self_type;
   lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
   lhs_info := match(
@@ -207,7 +208,7 @@ _get_or_create_some_ty_for_trait :: (
           )
         )
       );
-      new_expr_info(env_mut.*, TypeValue.Unit)
+      new_expr_info(env_mut, TypeValue.Unit)
     }
   );
   if(!(is_type_value(lhs_info.value)), {
@@ -222,7 +223,7 @@ _get_or_create_some_ty_for_trait :: (
       )
     );
   });
-  env_mut.* = lhs_info.env;
+  env_mut = lhs_info.env;
   lhs_tv := match(
     lhs_info.value,
     .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
@@ -273,8 +274,8 @@ _apply_single_constraint_for_trait :: (
     trait_expr : AstExpr,
     self_type : TypeValue,
     trait_ty : TypeValue,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> bool
 )({
@@ -305,7 +306,7 @@ _apply_single_constraint_for_trait :: (
   (trait_ty2 : TypeValue) = TypeValue.Unit;
   old_self_type := ctx.self_type;
   ctx.self_type =.Some(self_type);
-  evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, exn);
+  evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut, ctx, exn);
   ctx.self_type = old_self_type;
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
   te_info := match(
@@ -318,7 +319,7 @@ _apply_single_constraint_for_trait :: (
   if(!(is_type_value(te_info.value)), {
     return(false);
   });
-  env_mut.* = te_info.env;
+  env_mut = te_info.env;
   trait_ty2 = match(
     te_info.value,
     .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
@@ -362,8 +363,8 @@ _parse_trait_where_clauses :: (
     self_type : TypeValue,
     trait_ty : TypeValue,
     collect_pending : bool,
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     exn : Exception
   ) -> ArrayList(_PendingTraitConstraint)
 )({
@@ -447,7 +448,7 @@ _parse_trait_where_clauses :: (
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type =.Some(self_type);
       ctx.self_trait_type =.Some(trait_ty);
-      evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, exn);
+      evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut, ctx, exn);
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
@@ -470,7 +471,7 @@ _parse_trait_where_clauses :: (
               )
             );
           });
-          new_expr_info(env_mut.*, TypeValue.Unit)
+          new_expr_info(env_mut, TypeValue.Unit)
         }
       );
       if(!(is_type_value(te_info.value)), {
@@ -490,7 +491,7 @@ _parse_trait_where_clauses :: (
           );
         });
       });
-      env_mut.* = te_info.env;
+      env_mut = te_info.env;
       trait_ty2 = match(
         te_info.value,
         .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
@@ -556,8 +557,8 @@ _drop_where_constraint_failures :: (
     retry_list : ArrayList(AstExpr),
     self_type : TypeValue,
     trait_ty : TypeValue,
-    env_mut : *(Environment),
-    ctx : *(EvalContext)
+    env_mut : Environment,
+    ctx : EvalContext
   ) -> unit
 )({
   retry_exn := Exception(
@@ -588,8 +589,8 @@ _evaluate_trait_field :: (
     self_type : TypeValue,
     trait_ty : TypeValue,
     expected_trait_type_opt : Option(TypeValue),
-    env_mut : *(Environment),
-    ctx : *(EvalContext),
+    env_mut : Environment,
+    ctx : EvalContext,
     is_for_evaluating_trait_ty : bool,
     exn : Exception
   ) -> _TraitFieldResult
@@ -747,7 +748,7 @@ _evaluate_trait_field :: (
       match(
         expected_field_ty_opt,
         .Some(eft) => {
-          ctx.expected_type =.Some(ExpectedTypeCtx(eft, env_mut.*));
+          ctx.expected_type =.Some(ExpectedTypeCtx(eft, env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -757,13 +758,13 @@ _evaluate_trait_field :: (
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type =.Some(self_type);
       ctx.self_trait_type =.Some(trait_ty);
-      evaluated_te := evaluate_expression(type_expr, env_mut.*, ctx);
+      evaluated_te := evaluate_expression(type_expr, env_mut, ctx);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
-      te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut.*, TypeValue.Unit));
-      env_mut.* = te_info.env;
+      te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut, TypeValue.Unit));
+      env_mut = te_info.env;
       if(!(is_type_value(te_info.value)), {
         exn.throw(
           dyn(
@@ -799,7 +800,7 @@ _evaluate_trait_field :: (
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type =.Some(ExpectedTypeCtx(fet, env_mut.*));
+          ctx.expected_type =.Some(ExpectedTypeCtx(fet, env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -809,7 +810,7 @@ _evaluate_trait_field :: (
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type =.Some(self_type);
       ctx.self_trait_type =.Some(trait_ty);
-      evaluated_av := evaluate_expression(av_expr, env_mut.*, ctx);
+      evaluated_av := evaluate_expression(av_expr, env_mut, ctx);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
@@ -828,10 +829,10 @@ _evaluate_trait_field :: (
               )
             )
           );
-          new_expr_info(env_mut.*, TypeValue.Unit)
+          new_expr_info(env_mut, TypeValue.Unit)
         }
       );
-      env_mut.* = av_info.env;
+      env_mut = av_info.env;
       av := match(
         av_info.value,
         .Some(v) => v,
@@ -890,7 +891,7 @@ _evaluate_trait_field :: (
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type =.Some(ExpectedTypeCtx(fet, env_mut.*));
+          ctx.expected_type =.Some(ExpectedTypeCtx(fet, env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -900,7 +901,7 @@ _evaluate_trait_field :: (
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type =.Some(self_type);
       ctx.self_trait_type =.Some(trait_ty);
-      evaluated_dv := evaluate_expression(dv_expr, env_mut.*, ctx);
+      evaluated_dv := evaluate_expression(dv_expr, env_mut, ctx);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
@@ -919,10 +920,10 @@ _evaluate_trait_field :: (
               )
             )
           );
-          new_expr_info(env_mut.*, TypeValue.Unit)
+          new_expr_info(env_mut, TypeValue.Unit)
         }
       );
-      env_mut.* = dv_info.env;
+      env_mut = dv_info.env;
       dv := match(
         dv_info.value,
         .Some(v) => v,
@@ -990,14 +991,14 @@ _evaluate_trait_field :: (
     label_expr_opt,
     .Some(le) => {
       label_val := match(assigned_val_opt,.Some(av) => av,.None => create_unknown_val(field_ty));
-      le_info := new_expr_info(env_mut.*, field_ty);
+      le_info := new_expr_info(env_mut, field_ty);
       le_info.value =.Some(label_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
     },
     .None => ()
   );
   // Set expr info on the field expr itself (unit value)
-  unit_info := new_expr_info(env_mut.*, TypeValue.Unit);
+  unit_info := new_expr_info(env_mut, TypeValue.Unit);
   unit_info.value =.Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
@@ -1005,7 +1006,7 @@ _evaluate_trait_field :: (
   is_type_uni_0 := match(field_ty,.TypeUni(lvl) => (lvl == usize(0)), _ => false);
   if((is_for_evaluating_trait_ty && assigned_val_opt.is_none()) && is_type_uni_0, {
     // Check if a SomeType for this label already exists in env
-    existing_vars := get_variables_from_env(env_mut.*, label_str);
+    existing_vars := get_variables_from_env(env_mut, label_str);
     (found_existing : bool) = false;
     if(existing_vars.len() > usize(0), {
       match(
@@ -1056,7 +1057,7 @@ evaluate_trait_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1139,7 +1140,7 @@ evaluate_trait_type :: (
           self_type,
           trait_ty,
           true,
-          &(env_mut),
+          env_mut,
           ctx,
           exn
         );
@@ -1186,7 +1187,7 @@ evaluate_trait_type :: (
       self_type,
       trait_ty,
       expected_trait_type_opt,
-      &(env_mut),
+      env_mut,
       ctx,
       true,
       exn
@@ -1251,7 +1252,7 @@ evaluate_trait_type :: (
         if(!(already_bound), {
           tv := create_type_value(some_ty);
           _ := add_variable_to_env(
-            &(env_mut),
+            env_mut,
             field_result.label,
             type_of_type(some_ty),
             .Some(tv),
@@ -1300,7 +1301,7 @@ evaluate_trait_type :: (
       retry_list,
       self_type,
       trait_ty,
-      &(env_mut),
+      env_mut,
       ctx
     );
     ctx.self_type = old_self_type;

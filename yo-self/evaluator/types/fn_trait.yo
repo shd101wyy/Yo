@@ -6,6 +6,7 @@
 //! (similar to Rust's Fn trait). Used with:
 //!   - Impl(Fn(...) -> ...) for static dispatch with closures
 //!   - Dyn(Fn(...) -> ...) for dynamic dispatch
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -52,7 +53,7 @@ evaluate_fn_trait_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -92,7 +93,7 @@ evaluate_fn_trait_type :: (
   prev_is_eval_fn_type := ctx.is_evaluating_function_type;
   ctx.is_evaluating_function_type = true;
   (env_mut : Environment) = env;
-  params_result := evaluate_function_parameters(param_exprs, &(env_mut), ctx, exn);
+  params_result := evaluate_function_parameters(param_exprs, env_mut, ctx, exn);
   // Evaluate the return type via the raw evaluator path so any
   // throw propagates cleanly to the caller's `exn` (the non-raw
   // wrapper's panic would otherwise swallow surfacing errors).

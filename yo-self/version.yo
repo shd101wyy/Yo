@@ -10,7 +10,7 @@
 open(import("std/string"));
 { Path } :: import("std/path");
 { exists, read_string } :: import("std/fs/file");
-{ AnyError, Exception } :: import("std/error");
+{ AnyError, Exception, IoExn } :: import("std/error");
 /// The name of the version pin file.
 YO_VERSION_FILE :: ".yo-version";
 /// The current Yo compiler version (must match `package.json`).
@@ -122,10 +122,10 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
 find_yo_version_file :: (
   fn(
     start_dir : Path,
-    io : IO
-  ) -> Impl(Future(Option(Path), IO))
+    io : Io
+  ) -> Impl(Future(Option(Path), Io))
 )(
-  io.async((io : IO) => {
+  io.async((io : Io) => {
     result := Option(Path).None;
     keep_going := true;
     current := start_dir;
@@ -160,9 +160,9 @@ find_yo_version_file :: (
 read_yo_version :: (
   fn(
     start_dir : Path,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Option(String), IOErr))
+  ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((io, exn) => {
     path_opt := io.await(find_yo_version_file(start_dir, io), io);

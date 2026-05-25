@@ -731,7 +731,7 @@ describe("renderDocSite", () => {
               name: "async_read",
               doc: "Read a file asynchronously.",
               signature:
-                "fn(forall(T), path: str, using(io: IO)) -> Impl(Future(Result(T, Error), IO))",
+                "fn(forall(T), path: str, using(io: Io)) -> Impl(Future(Result(T, Error), Io))",
               parameters: [
                 {
                   name: "path",
@@ -739,7 +739,7 @@ describe("renderDocSite", () => {
                   isComptime: false,
                 },
               ],
-              returnType: "Impl(Future(Result(T, Error), IO))",
+              returnType: "Impl(Future(Result(T, Error), Io))",
               typeParams: [
                 {
                   name: "T",
@@ -750,7 +750,7 @@ describe("renderDocSite", () => {
               effects: [
                 {
                   name: "io",
-                  type: "IO",
+                  type: "Io",
                   isComptime: true,
                 },
               ],
@@ -771,7 +771,7 @@ describe("renderDocSite", () => {
     expect(html).toContain("async_read");
     expect(html).toContain("Type Parameters");
     expect(html).toContain("Effects");
-    expect(html).toContain("IO");
+    expect(html).toContain("Io");
   });
 
   test("renders deprecated banner on functions", async () => {

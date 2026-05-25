@@ -7,7 +7,7 @@
 **重要说明**：`Dyn` 是一个**值类型**（包含数据指针和虚表的结构体）。其 `data` 字段**必须**指向一个 `object` 类型（引用计数类型）。
 
 ```typescript
-Id :: trait(id : (fn(self : *(Self)) -> i32));
+Id :: trait(id : (fn(ref(self) : Self) -> i32));
 
 impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self.*); return self.*; })));
 impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
@@ -98,7 +98,7 @@ typedef struct {
 
 **约束**：与 `Dyn()` 一起使用的 trait **不能**有以下类型的方法：
 
-1. 按值接收 `Self` — 必须使用 `self : *(Self)` 替代
+1. 按值接收 `Self` — 必须使用 `ref(self) : Self` 替代
 2. 返回 `Self`
 3. 返回包含 `Self` 的类型（如 `Option(Self)`、`Result(Self, E)` 等）
 
@@ -111,8 +111,8 @@ typedef struct {
 
 ```typescript
 TestDyn :: trait(
-  return_i32 : fn(self : *(Self)) -> i32,  // 接收 *(Self)，返回具体类型 — OK！
-  print : fn(self : *(Self)) -> unit        // 接收 *(Self)，返回 unit — OK！
+  return_i32 : fn(ref(self) : Self) -> i32,  // 接收 ref(Self)，返回具体类型 — OK！
+  print : fn(ref(self) : Self) -> unit        // 接收 ref(Self)，返回 unit — OK！
 );
 ```
 
@@ -120,8 +120,8 @@ TestDyn :: trait(
 
 ```typescript
 TestDyn :: trait(
-  by_value : fn(self : Self) -> unit,      // 按值接收 Self — 不满足对象安全！
-  id : fn(self : *(Self)) -> Self           // 返回 Self — 不满足对象安全！
+  by_value : fn(self : Self) -> unit,        // 按值接收 Self — 不满足对象安全！
+  id : fn(ref(self) : Self) -> Self           // 返回 Self — 不满足对象安全！
 );
 ```
 

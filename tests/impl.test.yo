@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio.yo"));
 Id :: trait(
   id : (fn(self : Self) -> Self)
@@ -20,7 +21,7 @@ impl(
   Id(
     id : (
       (self) -> {
-        printf("i32 value: %d\n", self);
+        unsafe(printf("i32 value: %d\n", self));
         return(self);
       }
     )
@@ -42,8 +43,8 @@ impl(
     id : (
       (self) -> {
         cond(
-          self => printf("bool value: true\n"),
-          true => printf("bool value: false\n")
+          self => unsafe(printf("bool value: true\n")),
+          true => unsafe(printf("bool value: false\n"))
         );
         return(self);
       }
@@ -67,7 +68,7 @@ impl(
   Id(
     id : (
       (self) -> {
-        printf("Boxed i32 value: %d\n", self.*);
+        unsafe(printf("Boxed i32 value: %d\n", self.*));
         return(self);
       }
     )

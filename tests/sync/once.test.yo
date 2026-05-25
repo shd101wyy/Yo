@@ -1,4 +1,4 @@
-// @skip_wasm32-wasi — no pthread support in standalone WASI
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
 { Once } :: import("std/sync/once");
@@ -53,7 +53,7 @@ test("Once second call is no-op even with different function", {
     log.push(i32(99));
   });
   assert(log.len() == usize(1), "only first function should have run");
-  v := log.get(usize(0)).unwrap();
+  v := log(usize(0));
   assert(v == i32(42), "value should be 42 from first call");
 });
 test("Once many calls still executes once", {
@@ -79,7 +79,7 @@ test("Once call with side effects", {
     values.push(i32(99));
   });
   assert(values.len() == usize(1), "should have exactly one value");
-  v := values.get(usize(0)).unwrap();
+  v := values(usize(0));
   assert(v == i32(42), "value should be 42 from first call");
 });
 // ============================================================================

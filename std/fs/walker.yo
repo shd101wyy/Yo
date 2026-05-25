@@ -5,21 +5,22 @@
 //! ```rust
 //! { walk, WalkEntry } :: import "std/fs/walker";
 //!
-//! main :: (fn(io : IO, exn : Exception) -> unit)({
+//! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   entries := io.await(walk(Path.new(`/tmp`), io), { io, exn });
 //!   i := usize(0);
 //!   while runtime((i < entries.len())), {
-//!     e := entries.get(i).unwrap();
+//!     e := entries(i);
 //!     println(e.path);
 //!     i = (i + usize(1));
 //!   };
 //! });
 //! ```
+pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 open(import("../string"));
 { Path } :: import("../path");
-{ IOError } :: import("../sys/errors");
-{ Error, AnyError, Exception, IOErr } :: import("../error");
+{ IoError } :: import("../sys/errors");
+{ Error, AnyError, Exception, IoExn } :: import("../error");
 { FileType } :: import("./dir");
 { DirEntry } :: import("./dir");
 _dir :: import("./dir");
@@ -61,7 +62,7 @@ _join_path :: (fn(base : String, name : String) -> String)(
 // Walk functions
 // ============================================================================
 // Walk a directory tree with custom options.
-walk_with :: (fn(root : Path, options : WalkOptions, io : IO) -> Impl(Future(ArrayList(WalkEntry), IOErr)))({
+walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
   io.async((e) => {
     results := ArrayList(WalkEntry).new();
@@ -83,7 +84,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : IO) -> Impl(Future(Arr
           entries := e.io.await(_dir.read_dir(Path.new(cur_path), e.io), e);
           i := usize(0);
           while(runtime(i < entries.len()), {
-            entry := entries.get(i).unwrap();
+            entry := entries(i);
             entry_path := _join_path(cur_path, entry.name);
             match(
               entry.file_type,
@@ -124,10 +125,10 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : IO) -> Impl(Future(Arr
     results
   })
 });
-walk_with_cstr :: (fn(root : *(u8), options : WalkOptions, io : IO) -> Impl(Future(ArrayList(WalkEntry), IOErr)))(
+walk_with_cstr :: (fn(root : *(u8), options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
   walk_with(Path.from_cstr(root), options, io)
 );
 /// Walk a directory tree with default options.
-walk :: (fn(root : Path, io : IO) -> Impl(Future(ArrayList(WalkEntry), IOErr)))(walk_with(root, WalkOptions.defaults(), io));
-walk_cstr :: (fn(root : *(u8), io : IO) -> Impl(Future(ArrayList(WalkEntry), IOErr)))(walk(Path.from_cstr(root), io));
+walk :: (fn(root : Path, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk_with(root, WalkOptions.defaults(), io));
+walk_cstr :: (fn(root : *(u8), io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
 export(walk, walk_cstr, walk_with, walk_with_cstr);

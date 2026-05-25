@@ -1,14 +1,16 @@
-// @skip_prelude
 //! Prelude — automatically imported into every Yo source file.
 //!
 //! Provides core language primitives: traits (`Comptime`, `Runtime`, `Clone`,
 //! `Eq`, `Ord`, `Hash`, …), fundamental types (`Option`, `Result`, `Box`,
 //! `Slice`, `Range`, `String`, …), operator traits (`Add`, `Sub`, …), type
 //! reflection (`TypeInfo`), conversion (`Into`, `From`), the async runtime
-//! (`IO`, `Future`, `JoinHandle`), and derive rules.
+//! (`Io`, `Future`, `JoinHandle`), and derive rules.
 //!
 //! **Do NOT import `std/prelude`** — it is loaded automatically and an
 //! explicit import will produce a compile error.
+// === Foundational traits ===
+// `Comptime` and `Runtime` are defined first because every other
+// type (including `Pragma` below) is type-checked against them.
 /// Comptime trait — indicates a type that can be used at compile-time.
 /// Examples: `i32`, `bool`, `Type`, `comptime_int`, `comptime_float`, `comptime_string`.
 /// Non-examples: `int`, `ushort` (runtime-only types).
@@ -23,6 +25,49 @@ Runtime :: trait(
   id := "Runtime"
 );
 export(Runtime);
+
+// === Pragma — file-level privilege flags ===
+//
+// `Pragma` is defined here (right after the foundational traits and
+// BEFORE any extern/asm/pointer-op site) so the prelude can declare
+// its own `pragma(Pragma.AllowUnsafe);` via ordinary evaluation. The
+// prelude is the foundation of Yo's unsafe-capable machinery
+// (raw-pointer impls, FFI declarations, the async runtime, …); the
+// pragma must be registered before the first extern/asm/pointer-op
+// declaration fires the Phase C gates.
+//
+// `SkipPrelude` is recognized via a separate AST-level pre-scan that
+// runs before the prelude loads (chicken-and-egg: a file with
+// `pragma(Pragma.SkipPrelude);` doesn't have the prelude in scope).
+// All other pragma variants are validated by ordinary evaluation
+// against this enum. See plans/MEMORY_SAFETY.md.
+/// File-level privilege flag for the `pragma(...)` builtin. Declared
+/// at the top of a Yo file (e.g. `pragma(Pragma.AllowUnsafe);`) to
+/// opt the file into compiler-recognized behaviors. See
+/// plans/MEMORY_SAFETY.md.
+Pragma :: enum(
+  /// File is permitted to use raw pointer ops, `unsafe(...)`,
+  /// `asm(...)`, and `extern(...)`. Without this, those constructs
+  /// produce compile errors.
+  AllowUnsafe,
+  /// Disable the auto-import of `std/prelude`. Used by the prelude
+  /// itself, and by any tool/test that wants to bootstrap manually.
+  /// Recognized at the AST level before the prelude loads.
+  SkipPrelude,
+  /// Test-runner directive: skip this test file on ALL WASM targets.
+  SkipWasm,
+  /// Test-runner directive: skip when target is wasm32-emscripten.
+  SkipWasm32Emscripten,
+  /// Test-runner directive: skip when target is wasm32-wasi.
+  SkipWasm32Wasi
+);
+export(Pragma);
+
+// Prelude opts itself out of the implicit self-prelude import and
+// into unsafe-capable mode. Both calls evaluate normally against the
+// `Pragma` enum defined just above.
+pragma(Pragma.SkipPrelude);
+pragma(Pragma.AllowUnsafe);
 // === Builtin Yo functions ===
 extern(
   "Yo",
@@ -180,15 +225,30 @@ export(Dispose);
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self : *(Self), idx : Idx) -> *(Self.Output))
+    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 export(Index);
+/// Indexable trait — projection-style indexing yielding a borrow.
+/// Companion to `Index`, but instead of returning a raw `*(T)` the
+/// `project` method returns a `ref(Element)` — a second-class
+/// reference that flows through Yo's flowability rule (R1–R4) and
+/// can be received by a `ref(name) := coll.project(pos);` local
+/// binding. The for-loop macro lowers iteration through this trait
+/// so user code never sees a raw pointer. See
+/// plans/ITERATOR_REDESIGN.md.
+Indexable :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Element : Type,
+    project : (fn(ref(self) : Self, pos : Idx) -> ref(Self.Element))
+  )
+);
+export(Indexable);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Idx) -> comptime(*(Self.Output))),
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -652,14 +712,14 @@ Hash :: trait(
   * Compute the hash of a value
   * Returns a u64 hash value
   */
-  (hash) : (fn(self : *(Self)) -> u64)
+  (hash) : (fn(ref(self) : Self) -> u64)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
 Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
-    fn(self : *(Self)) -> Self
+    fn(ref(self) : Self) -> Self
 );
 export(Clone);
 /// Isolation trait — runtime check whether a value can be safely transferred.
@@ -985,7 +1045,7 @@ impl(
   Clone(
     clone : (
       (self) ->
-        __yo_return_self(self.*)
+        __yo_return_self(self)
     )
   )
 );
@@ -995,7 +1055,7 @@ impl(
     (hash) : (
       (self) ->
         cond(
-          self.* => u64(1),
+          self => u64(1),
           true => u64(0)
         )
     )
@@ -1141,13 +1201,13 @@ impl(
 impl(
   i8,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   i8,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -1431,13 +1491,13 @@ impl(
 impl(
   i16,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   i16,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -1783,7 +1843,7 @@ impl(
   Hash(
     (hash) : (
       (self) -> {
-        u32_value := u32(self.*);
+        u32_value := u32(self);
         u64(u32_value)
       }
     )
@@ -1794,7 +1854,7 @@ impl(
   Clone(
     clone : (
       (self) ->
-        __yo_return_self(self.*)
+        __yo_return_self(self)
     )
   )
 );
@@ -2019,13 +2079,13 @@ impl(
 impl(
   i64,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   i64,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -2309,13 +2369,13 @@ impl(
 impl(
   u8,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   u8,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -2589,13 +2649,13 @@ impl(
 impl(
   u16,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   u16,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -2869,13 +2929,13 @@ impl(
 impl(
   u32,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   u32,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3149,13 +3209,13 @@ impl(
 impl(
   u64,
   Hash(
-    (hash) : ((self) -> self.*)
+    (hash) : ((self) -> self)
   )
 );
 impl(
   u64,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3409,13 +3469,13 @@ impl(
 impl(
   f32,
   Hash(
-    (hash) : ((self) -> u64(i32(self.*)))
+    (hash) : ((self) -> u64(i32(self)))
   )
 );
 impl(
   f32,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3610,13 +3670,13 @@ impl(
 impl(
   f64,
   Hash(
-    (hash) : ((self) -> u64(i64(self.*)))
+    (hash) : ((self) -> u64(i64(self)))
   )
 );
 impl(
   f64,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3836,13 +3896,13 @@ impl(
 impl(
   isize,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   isize,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -4129,13 +4189,13 @@ impl(
 impl(
   usize,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   usize,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -4413,13 +4473,13 @@ impl(
 impl(
   char,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   char,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _char :: char;
@@ -4523,13 +4583,13 @@ impl(
 impl(
   int,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   int,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _int :: int;
@@ -4633,13 +4693,13 @@ impl(
 impl(
   uint,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   uint,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _uint :: uint;
@@ -4743,13 +4803,13 @@ impl(
 impl(
   short,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   short,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _short :: short;
@@ -4853,13 +4913,13 @@ impl(
 impl(
   ushort,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   ushort,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _ushort :: ushort;
@@ -4963,13 +5023,13 @@ impl(
 impl(
   long,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   long,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _long :: long;
@@ -5073,13 +5133,13 @@ impl(
 impl(
   ulong,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   ulong,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _ulong :: ulong;
@@ -5183,13 +5243,13 @@ impl(
 impl(
   longlong,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   longlong,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _longlong :: longlong;
@@ -5293,13 +5353,13 @@ impl(
 impl(
   ulonglong,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
   ulonglong,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _ulonglong :: ulonglong;
@@ -5403,13 +5463,13 @@ impl(
 impl(
   longdouble,
   Hash(
-    (hash) : ((self) -> u64(i64(self.*)))
+    (hash) : ((self) -> u64(i64(self)))
   )
 );
 impl(
   longdouble,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _longdouble :: longdouble;
@@ -5483,7 +5543,7 @@ impl(forall(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
 impl(
   forall(T : Type, U : usize),
   Array(T, U),
-  len : (fn(self : *(Self)) -> usize)({
+  len : (fn(ref(self) : Self) -> usize)({
     return(U);
   })
   /*
@@ -5505,13 +5565,17 @@ impl(
   })
 );
 /// Array Index impls
+/// Bodies take `&(self)` so the `*(Array(T, N))`-expecting builtin
+/// receives the right C-ABI shape — `ref(self) : Self` gives the body
+/// a value-typed view of `self` even though the runtime passes a
+/// pointer. See plans/ITERATOR_REDESIGN.md.
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
-      __yo_array_index(self, idx)
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+      __yo_array_index(&(self), idx)
     )
   )
 );
@@ -5520,8 +5584,8 @@ impl(
   Array(T, N),
   Index(Range(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : Range(usize)) -> *(Self.Output))(
-      __yo_array_index_range(self, idx)
+    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
+      __yo_array_index_range(&(self), idx)
     )
   )
 );
@@ -5530,8 +5594,27 @@ impl(
   Array(T, N),
   Index(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_array_index_range_inclusive(self, idx)
+    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
+      __yo_array_index_range_inclusive(&(self), idx)
+    )
+  )
+);
+/// Array Indexable impl — projection-style indexing yielding `ref(T)`.
+/// Body takes `&(self)` so `__yo_array_index`'s `self : *(Array(T, N))`
+/// parameter is satisfied — the `ref(self) : Self` binding gives the
+/// body a value-typed view of `self` even though the C ABI passes a
+/// pointer. The `unsafe` wrap is the trusted escape from the
+/// flowability rule (privileged code only). See plans/ITERATOR_REDESIGN.md.
+impl(
+  forall(T : Type, N : usize),
+  Array(T, N),
+  Indexable(usize)(
+    Element : T,
+    project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
+      cond(
+        (pos >= N) => panic("Array: project out of bounds"),
+        true => unsafe(__yo_array_index(&(self), pos))
+      )
     )
   )
 );
@@ -5558,14 +5641,14 @@ impl(
     __yo_slice_ptr(self)
   )
 );
-/// Slice Index impls
+/// Slice Index impls (same `&(self)` rationale as Array above).
 impl(
   forall(T : Type),
   Slice(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
-      __yo_slice_index(self, idx)
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+      __yo_slice_index(&(self), idx)
     )
   )
 );
@@ -5574,8 +5657,8 @@ impl(
   Slice(T),
   Index(Range(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : Range(usize)) -> *(Self.Output))(
-      __yo_slice_index_range(self, idx)
+    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
+      __yo_slice_index_range(&(self), idx)
     )
   )
 );
@@ -5584,8 +5667,22 @@ impl(
   Slice(T),
   Index(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_slice_index_range_inclusive(self, idx)
+    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
+      __yo_slice_index_range_inclusive(&(self), idx)
+    )
+  )
+);
+/// Slice Indexable impl — see Array Indexable above.
+impl(
+  forall(T : Type),
+  Slice(T),
+  Indexable(usize)(
+    Element : T,
+    project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
+      cond(
+        (pos >= self.len()) => panic("Slice: project out of bounds"),
+        true => unsafe(__yo_slice_index(&(self), pos))
+      )
     )
   )
 );
@@ -5596,7 +5693,7 @@ impl(
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -5607,7 +5704,7 @@ impl(
   Array(T, N),
   ComptimeIndex(Range(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index_range(self, idx)
     )
   )
@@ -5618,7 +5715,7 @@ impl(
   Array(T, N),
   ComptimeIndex(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index_range_inclusive(self, idx)
     )
   )
@@ -5630,7 +5727,7 @@ impl(
   Slice(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index(self, idx)
     )
   )
@@ -5641,7 +5738,7 @@ impl(
   Slice(T),
   ComptimeIndex(Range(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index_range(self, idx)
     )
   )
@@ -5652,7 +5749,7 @@ impl(
   Slice(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index_range_inclusive(self, idx)
     )
   )
@@ -5808,7 +5905,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index(self, idx)
     )
   )
@@ -5819,7 +5916,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
@@ -5830,7 +5927,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
@@ -6697,7 +6794,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         "",
         (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
           fname :: fields.get(fi).name;
-          part :: __s3("(&(self.*.", fname, ")).clone()");
+          part :: __s3("self.", fname, ".clone()");
           cond(
             (a == "") => part,
             true => __s3(a, ", ", part)
@@ -6741,8 +6838,8 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
                   fname :: v.fields.get(fi).name;
                   cond(
-                    (a == "") => __s3("(&(__v_", fname, ")).clone()"),
-                    true => __s4(a, ", (&(__v_", fname, ")).clone()")
+                    (a == "") => __s3("__v_", fname, ".clone()"),
+                    true => __s4(a, ", __v_", fname, ".clone()")
                   )
                 })
               );
@@ -6761,7 +6858,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           )
         })
       );
-      match_body :: __s3("match(self.*,\n    ", clone_branches, "\n  )");
+      match_body :: __s3("match(self,\n    ", clone_branches, "\n  )");
       ctx.make_impl(
         quote(
           Clone(
@@ -6774,7 +6871,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       ctx.make_impl(
         quote(
           Clone(
-            clone : ((self) -> self.*)
+            clone : ((self) -> self)
           )
         )
       )
@@ -6804,8 +6901,8 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
             (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
               fname :: fields.get(fi).name;
               cond(
-                (fi == 0) => __s3("(h : u64) = (&(self.*.", fname, ")).hash()"),
-                true => __s4(a, ";\n    h = ((h * u64(31)) + (&(self.*.", fname, ")).hash())")
+                (fi == 0) => __s3("(h : u64) = self.", fname, ".hash()"),
+                true => __s4(a, ";\n    h = ((h * u64(31)) + self.", fname, ".hash())")
               )
             })
           );
@@ -6848,7 +6945,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
                 __s3("(h : u64) = u64(", vi_str, ")"),
                 (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
                   fname :: v.fields.get(fi).name;
-                  __s4(a, "; h = ((h * u64(31)) + (&(__v_", fname, ")).hash())")
+                  __s4(a, "; h = ((h * u64(31)) + __v_", fname, ".hash())")
                 })
               );
               __s5(
@@ -6866,7 +6963,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           )
         })
       );
-      match_body :: __s3("match(self.*,\n    ", hash_branches, "\n  )");
+      match_body :: __s3("match(self,\n    ", hash_branches, "\n  )");
       ctx.make_impl(
         quote(
           Hash(
@@ -7279,9 +7376,9 @@ impl(
     clone : (
       (self) ->
         match(
-          self.*,
+          self,
           .None => Option(T).None,
-          .Some(v) => Option(T).Some((&(v)).clone())
+          .Some(v) => Option(T).Some(v.clone())
         )
     )
   )
@@ -7315,9 +7412,9 @@ impl(
     clone : (
       (self) ->
         match(
-          self.*,
-          .Ok(v) => Result(T, E).Ok((&(v)).clone()),
-          .Err(e) => Result(T, E).Err((&(e)).clone())
+          self,
+          .Ok(v) => Result(T, E).Ok(v.clone()),
+          .Err(e) => Result(T, E).Err(e.clone())
         )
     )
   )
@@ -7375,7 +7472,7 @@ impl(
   where(T <: Hash),
   Box(T),
   Hash(
-    (hash) : ((self) -> (self.*).*.hash())
+    (hash) : ((self) -> self.*.hash())
   )
 );
 impl(
@@ -7383,7 +7480,10 @@ impl(
   where(T <: Eq(T)),
   Box(T),
   Eq(Box(T))(
-    (==) : ((lhs, rhs) -> (lhs.* == rhs.*))
+    // SAFETY: Box always holds a non-null pointer to Rc-managed
+    // storage; the deref is sound for as long as either operand
+    // is alive, which covers the duration of this comparison.
+    (==) : ((lhs, rhs) -> unsafe(lhs.* == rhs.*))
   )
 );
 impl(
@@ -7391,7 +7491,7 @@ impl(
   where(T <: Clone),
   Box(T),
   Clone(
-    clone : ((self) -> box((&(self.*.*)).clone()))
+    clone : ((self) -> box(self.*.clone()))
   )
 );
 export(
@@ -7521,8 +7621,8 @@ impl(
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
-  as_ptr : (fn(self : *(Self)) -> *(BaseType))(
-    __yo_maybe_uninit_as_ptr(Self, BaseType, self)
+  as_ptr : (fn(ref(self) : Self) -> *(BaseType))(
+    __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if not initialized.**
   assume_init : (fn(own(self) : Self) -> BaseType)(
@@ -7536,7 +7636,7 @@ Iterator :: trait(
   Item : Type,
   /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
-    fn(self : *(Self)) -> Option(Self.Item)
+    fn(ref(self) : Self) -> Option(Self.Item)
 );
 export(Iterator);
 /// IntoIterator trait — convert a collection into an iterator.
@@ -7549,29 +7649,25 @@ IntoIterator :: trait(
 );
 export(IntoIterator);
 /// === Array Iterator ===
-/**
-* Pointer iterator for Array(T, N) - yields *(T) pointers to each element
-* Used by Array.iter()
-*/
-ArrayIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _ptr : *(T),
-    _index : usize,
-    _len : usize
-  )
+/// Position iterator for Array(T, N) — yields `usize` indices.
+/// Used by `Array.iter()`; the for-macro pairs each yielded position
+/// with `Array.project(pos)` (Indexable trait) to hand the body a
+/// `ref(T)`-binding into the element. See plans/ITERATOR_REDESIGN.md.
+_ArrayPosIter :: struct(
+  _index : usize,
+  _len : usize
 );
 impl(
-  forall(T : Type),
-  ArrayIterPtr(T),
+  _ArrayPosIter,
   Iterator(
-    Item : *(T),
-    next : (fn(self : *(Self)) -> Option(*(T)))(
+    Item : usize,
+    next : (fn(ref(self) : Self) -> Option(usize))(
       cond(
         (self._index >= self._len) =>.None,
         true => {
-          element_ptr := (self._ptr &+ self._index);
+          out := self._index;
           self._index = (self._index + usize(1));
-          .Some(element_ptr)
+          .Some(out)
         }
       )
     )
@@ -7580,34 +7676,30 @@ impl(
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
-  iter : (fn(self : *(Self)) -> ArrayIterPtr(T))(
-    ArrayIterPtr(T)(_ptr : &((self.*)(usize(0))), _index : usize(0), _len : N)
+  iter : (fn(ref(self) : Self) -> _ArrayPosIter)(
+    _ArrayPosIter(_index : usize(0), _len : N)
   )
 );
-export(ArrayIterPtr);
 /// === Slice Iterator ===
-/**
-* Pointer iterator for Slice(T) - yields *(T) pointers to each element
-* Used by Slice.iter()
-*/
-SliceIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _slice : Slice(T),
-    _index : usize
-  )
+/// Position iterator for Slice(T) — yields `usize` indices into the
+/// slice. Used by `Slice.iter()`; the for-macro pairs each yielded
+/// position with `Slice.project(pos)` (Indexable) to bind the body's
+/// `ref`-name. See plans/ITERATOR_REDESIGN.md.
+_SlicePosIter :: struct(
+  _index : usize,
+  _len : usize
 );
 impl(
-  forall(T : Type),
-  SliceIterPtr(T),
+  _SlicePosIter,
   Iterator(
-    Item : *(T),
-    next : (fn(self : *(Self)) -> Option(*(T)))(
+    Item : usize,
+    next : (fn(ref(self) : Self) -> Option(usize))(
       cond(
-        (self._index >= self._slice.len()) =>.None,
+        (self._index >= self._len) =>.None,
         true => {
-          ptr := &((self._slice)(self._index));
+          out := self._index;
           self._index = (self._index + usize(1));
-          .Some(ptr)
+          .Some(out)
         }
       )
     )
@@ -7616,11 +7708,10 @@ impl(
 impl(
   forall(T : Type),
   Slice(T),
-  iter : (fn(self : *(Self)) -> SliceIterPtr(T))(
-    SliceIterPtr(T)(_slice : self.*, _index : usize(0))
+  iter : (fn(ref(self) : Self) -> _SlicePosIter)(
+    _SlicePosIter(_index : usize(0), _len : self.len())
   )
 );
-export(SliceIterPtr);
 /// TryFrom trait — fallible conversion from one type to another.
 TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
   trait(
@@ -7684,17 +7775,38 @@ try :: (fn(quote(expr_to_try) : Expr) -> unquote(Expr))({
   })
 });
 export(try);
-/// `for` macro — iterate over a collection using the `Iterator` trait.
+/// `for` macro — iterate over a collection. The lambda's binding shape
+/// dictates whether the iteration borrows or consumes:
 ///
-/// # Example
+///   `for(coll, ref(x) => body)` — borrow form. Calls `coll.iter()`
+///     (must yield positions) + `coll.project(pos)` for each. `x` is
+///     `ref`-bound to the element; reads auto-deref, writes propagate
+///     back to the collection; `coll` survives the loop.
+///
+///   `for(coll, (x) => body)` — value form. Calls `coll.into_iter()`
+///     and binds `x` to each yielded value. The collection is moved
+///     into the iterator and consumed.
+///
+/// Combinator chains (`coll.iter().map(f)`, etc.) only support the
+/// value form — they yield computed values, not borrows. A blanket
+/// `into_iter` impl on `Iterator` (below) makes the value form work
+/// transparently on iterator chains.
+///
+/// See plans/ITERATOR_REDESIGN.md.
+///
+/// # Examples
 /// ```rust
-/// for arr.iter(), (value) => {
-///   printf("value %d\n", value.*);
-/// };
+/// // Borrow form — mutate elements in place.
+/// for(arr, ref(x) => {
+///   x = (x + i32(1));
+/// });
+///
+/// // Value form — consume the collection.
+/// for(list.into_iter(), (x) => print(x));
 /// ```
 for :: (
   fn(
-    quote(iter) : Expr,
+    quote(coll) : Expr,
     quote(handle) : Expr
   ) -> unquote(Expr)
 )({
@@ -7709,21 +7821,68 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            iter_var :: gensym("for_iter_var");
-            temp_var :: gensym("for_temp_var");
-            quote({
-              unquote(iter_var) := unquote(iter);
-              while(runtime(true), {
-                unquote(temp_var) := &(unquote(iter_var)).next();
-                match(
-                  unquote(temp_var),
-                  .Some(unquote(variable)) => unquote(body),
-                  .None => {
-                    break;
-                  }
-                )
-              });
-            })
+            // Detect `ref(name) => body` — borrow form. Otherwise
+            // it's the value form `(name) => body`.
+            is_ref_form :: cond(
+              variable.is_fn_call() => {
+                v_callee :: variable.get_callee();
+                v_callee.is_atom() && (v_callee == quote(ref))
+              },
+              true => false
+            );
+            cond(
+              is_ref_form => {
+                v_args :: variable.get_args();
+                comptime_assert(v_args.len() == 1, "'for' macro: ref(name) requires exactly one name");
+                name :: v_args.car();
+                iter_var :: gensym("for_iter_var");
+                pos_var :: gensym("for_pos_var");
+                // Note: the borrow form does NOT materialize a local
+                // copy of `coll`. Writes through `ref(x) := …
+                // coll.project(pos)` need to propagate to the caller's
+                // storage; a value-typed local copy would receive the
+                // writes silently. The for-macro consumes `coll` as an
+                // expression directly so the `&coll` pointer it
+                // implicitly forms reaches the caller's collection.
+                // (This is correct for `coll : Array(T, N)` /
+                // `Slice(T)` / `String` value-typed collections and
+                // for `ref(coll)`-bound parameter inputs; for owning
+                // collections like `ArrayList` whose internal storage
+                // is heap, the receiver-by-ref semantics already work.)
+                quote({
+                  unquote(iter_var) := unquote(coll).iter();
+                  while(runtime(true), {
+                    match(
+                      unquote(iter_var).next(),
+                      .Some(unquote(pos_var)) => {
+                        ref(unquote(name)) := unquote(coll).project(unquote(pos_var));
+                        unquote(body);
+                      },
+                      .None => {
+                        break;
+                      }
+                    );
+                  });
+                })
+              },
+              true => {
+                iter_var :: gensym("for_iter_var");
+                temp_var :: gensym("for_temp_var");
+                quote({
+                  unquote(iter_var) := unquote(coll).into_iter();
+                  while(runtime(true), {
+                    unquote(temp_var) := unquote(iter_var).next();
+                    match(
+                      unquote(temp_var),
+                      .Some(unquote(variable)) => unquote(body),
+                      .None => {
+                        break;
+                      }
+                    )
+                  });
+                })
+              }
+            )
           },
           true => {
             comptime_assert(false, "for macro requires a function handle with `=>`");
@@ -7764,9 +7923,9 @@ impl(
   IterMap(I, B, F),
   Iterator(
     Item : B,
-    next : (fn(self : *(Self)) -> Option(B))(
+    next : (fn(ref(self) : Self) -> Option(B))(
       match(
-        &(self._inner).next(),
+        self._inner.next(),
         .None =>.None,
         .Some(item) =>.Some((self._f)(item))
       )
@@ -7791,10 +7950,10 @@ impl(
   IterFilter(I, F),
   Iterator(
     Item : A,
-    next : (fn(self : *(Self)) -> Option(A))({
+    next : (fn(ref(self) : Self) -> Option(A))({
       (loop_result : Option(A)) =.None;
       while(runtime(true), {
-        candidate := &(self._inner).next();
+        candidate := self._inner.next();
         match(
           candidate,
           .None => {
@@ -7831,12 +7990,12 @@ impl(
   IterTake(I),
   Iterator(
     Item : A,
-    next : (fn(self : *(Self)) -> Option(A))(
+    next : (fn(ref(self) : Self) -> Option(A))(
       cond(
         (self._remaining == usize(0)) =>.None,
         true => {
           self._remaining = (self._remaining - usize(1));
-          &(self._inner).next()
+          self._inner.next()
         }
       )
     )
@@ -7859,9 +8018,9 @@ impl(
   IterSkip(I),
   Iterator(
     Item : A,
-    next : (fn(self : *(Self)) -> Option(A))({
+    next : (fn(ref(self) : Self) -> Option(A))({
       while(self._to_skip > usize(0), {
-        result := &(self._inner).next();
+        result := self._inner.next();
         match(
           result,
           .None => {
@@ -7873,7 +8032,7 @@ impl(
           }
         );
       });
-      &(self._inner).next()
+      self._inner.next()
     })
   )
 );
@@ -7895,9 +8054,9 @@ impl(
   IterEnumerate(I),
   Iterator(
     Item : IterPair(usize, A),
-    next : (fn(self : *(Self)) -> Option(IterPair(usize, A)))(
+    next : (fn(ref(self) : Self) -> Option(IterPair(usize, A)))(
       match(
-        &(self._inner).next(),
+        self._inner.next(),
         .None =>.None,
         .Some(item) => {
           idx := self._index;
@@ -7926,12 +8085,12 @@ impl(
   IterZip(I, J),
   Iterator(
     Item : IterPair(A, B),
-    next : (fn(self : *(Self)) -> Option(IterPair(A, B)))(
+    next : (fn(ref(self) : Self) -> Option(IterPair(A, B)))(
       match(
-        &(self._left).next(),
+        self._left.next(),
         .None =>.None,
         .Some(a) => match(
-          &(self._right).next(),
+          self._right.next(),
           .None =>.None,
           .Some(b) =>.Some(IterPair(A, B)(_0 : a, _1 : b))
         )
@@ -7943,6 +8102,18 @@ export(IterZip);
 // ---------------------------------------------------------------------------
 // Blanket methods — added to all types implementing Iterator
 // ---------------------------------------------------------------------------
+/// Blanket `into_iter` — every `Iterator` is its own `IntoIterator`,
+/// returning `self`. This lets `for(combinator_chain, (x) => body)`
+/// expand to `combinator_chain.into_iter().next()` uniformly with
+/// `for(coll, (x) => body)` — the macro always calls `.into_iter()`
+/// for the value-iteration form, and for an iterator we hand back
+/// self. See plans/ITERATOR_REDESIGN.md.
+impl(
+  forall(I : Type),
+  where(I <: Iterator),
+  I,
+  into_iter : (fn(self : Self) -> Self)(self)
+);
 impl(
   forall(I : Type),
   where(I <: Iterator),
@@ -8026,7 +8197,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8049,7 +8220,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8071,7 +8242,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8095,7 +8266,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8125,7 +8296,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8175,11 +8346,11 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 export(JoinHandle);
-/// IO module — the async runtime effect.
+/// Io module — the async runtime effect.
 ///
 /// Provides `io.async`, `io.await`, `io.spawn`, and `io.state` operations.
-/// Automatically injected into `main` when declared with `io : IO`.
-IO :: struct(
+/// Automatically injected into `main` when declared with `io : Io`.
+Io :: struct(
   /// Create a new `Future` from an async closure.
   async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
@@ -8189,7 +8360,7 @@ IO :: struct(
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
-export(IO);
+export(Io);
 extern(
   "Yo",
   __yo_io_async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
@@ -8197,19 +8368,19 @@ extern(
   __yo_io_state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
   __yo_io_spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
-/// Built-in IO module instance. Automatically injected for `main` functions
-/// with `io : IO`.
-__yo_builtin_io :: IO(
+/// Built-in Io module instance. Automatically injected for `main` functions
+/// with `io : Io`.
+__yo_builtin_io :: Io(
   async : __yo_io_async,
   await : __yo_io_await,
   state : __yo_io_state,
   spawn : __yo_io_spawn
 );
 export(__yo_builtin_io);
-/// JoinHandle methods — defined after IO so `io : IO` resolves.
+/// JoinHandle methods — defined after Io so `io : Io` resolves.
 extern(
   "Yo",
-  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), io : IO) -> Option(T))
+  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), io : Io) -> Option(T))
 );
 impl(
   forall(T : Type),

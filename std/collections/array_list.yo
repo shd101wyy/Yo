@@ -1,4 +1,5 @@
 //! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
+pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
@@ -303,7 +304,12 @@ impl(
                         bytes_to_move := (elements_after * element_size);
                         dst_void := *(void)(dst_ptr);
                         src_void := *(void)(src_ptr);
-                        memmove(dst_void, src_void, bytes_to_move);
+                        // SAFETY: dst_ptr and src_ptr both point into self._ptr's
+                        // contiguous element buffer. `elements_after = self._length - (start + actual_count)`
+                        // counts elements still in-bounds after the remove range,
+                        // so `bytes_to_move = elements_after * sizeof(T)` stays within
+                        // the allocated buffer. memmove handles overlap.
+                        unsafe(memmove(dst_void, src_void, bytes_to_move));
                       }
                     );
                   },
@@ -429,7 +435,7 @@ impl(
           self._ptr,
           .Some(dst_base) => {
             dst := (*(void))(dst_base &+ self._length);
-            _ := memcpy(dst, (*(void))(src), count * sizeof(T));
+            _ := unsafe(memcpy(dst, (*(void))(src), count * sizeof(T)));
             self._length = (self._length + count);
           },
           .None => panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
@@ -454,7 +460,7 @@ impl(
       self._ptr,
       .None => (),
       .Some(_ptr) => {
-        _ := memset((*(void))(_ptr), byte_val, self._length * sizeof(T));
+        _ := unsafe(memset((*(void))(_ptr), byte_val, self._length * sizeof(T)));
       }
     )
   ),
@@ -475,7 +481,7 @@ impl(
           .Some(_ptr) => {
             start := (*(void))(_ptr &+ self._length);
             fill_count := ((new_len - self._length) * sizeof(T));
-            _ := memset(start, byte_val, fill_count);
+            _ := unsafe(memset(start, byte_val, fill_count));
             self._length = new_len;
           },
           .None => panic("ArrayList.resize_with_byte: no ptr after ensure")
@@ -491,12 +497,34 @@ impl(
     /// The output type is the element type `T`.
     Output : T,
     /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))({
-      assert(idx < self.*._length, "ArrayList: index out of bounds");
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+      assert(idx < self._length, "ArrayList: index out of bounds");
       match(
-        self.*._ptr,
+        self._ptr,
         .Some(_ptr) => (_ptr &+ idx),
         .None => panic("ArrayList: index on empty list")
+      )
+    })
+  )
+);
+/// Indexable impl — projection-style indexing yielding `ref(T)`.
+/// See plans/ITERATOR_REDESIGN.md. Body wraps the pointer arithmetic
+/// in `unsafe(...)` to pass the flowability check.
+impl(
+  forall(T : Type),
+  ArrayList(T),
+  Indexable(usize)(
+    Element : T,
+    project : (fn(ref(self) : Self, pos : usize) -> ref(T))({
+      assert(pos < self._length, "ArrayList: project out of bounds");
+      match(
+        self._ptr,
+        // SAFETY: assert above bounds `pos < self._length` and the
+        // length invariant guarantees `pos < self._capacity`, so
+        // `_ptr &+ pos` stays inside the Rc-managed heap buffer
+        // for the duration of the borrow.
+        .Some(_ptr) => unsafe(_ptr &+ pos),
+        .None => panic("ArrayList: project on empty list")
       )
     })
   )
@@ -539,7 +567,7 @@ impl(
   ArrayListIter(T),
   Iterator(
     Item : T,
-    next : (fn(self : *(Self)) -> Option(T))(
+    next : (fn(ref(self) : Self) -> Option(T))(
       cond(
         (self._index >= self._list._length) =>.None,
         true => {
@@ -558,34 +586,26 @@ impl(
     ArrayListIter(T)(_list : self, _index : usize(0))
   )
 );
-/**
-* Pointer iterator for ArrayList - yields pointers to elements (*(T))
-* Used by iter() method
-*/
-ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _list : ArrayList(T),
-    _index : usize
-  )
+/// Position iterator for ArrayList — yields `usize` indices into the
+/// list. Used by `ArrayList.iter()`; the for-macro pairs each yielded
+/// position with `ArrayList.project(pos)` (Indexable from Phase C) to
+/// bind the body's `ref`-name. See plans/ITERATOR_REDESIGN.md.
+_ArrayListPosIter :: struct(
+  _index : usize,
+  _len : usize
 );
 impl(
-  forall(T : Type),
-  ArrayListIterPtr(T),
+  _ArrayListPosIter,
   Iterator(
-    Item : *(T),
-    next : (fn(self : *(Self)) -> Option(*(T)))(
+    Item : usize,
+    next : (fn(ref(self) : Self) -> Option(usize))(
       cond(
-        (self._index >= self._list._length) =>.None,
-        true =>
-          match(
-            self._list._ptr,
-            .Some(ptr) => {
-              element_ptr := (ptr &+ self._index);
-              self._index = (self._index + usize(1));
-              .Some(element_ptr)
-            },
-            .None =>.None
-          )
+        (self._index >= self._len) =>.None,
+        true => {
+          out := self._index;
+          self._index = (self._index + usize(1));
+          .Some(out)
+        }
       )
     )
   )
@@ -593,8 +613,8 @@ impl(
 impl(
   forall(T : Type),
   ArrayList(T),
-  iter : (fn(self : *(Self)) -> ArrayListIterPtr(T))(
-    ArrayListIterPtr(T)(_list : self.*, _index : usize(0))
+  iter : (fn(ref(self) : Self) -> _ArrayListPosIter)(
+    _ArrayListPosIter(_index : usize(0), _len : self._length)
   )
 );
 impl(
@@ -760,16 +780,16 @@ impl(
   where(T <: Clone),
   ArrayList(T),
   Clone(
-    clone : (fn(self : *(Self)) -> Self)({
-      n := self.*.len();
+    clone : (fn(ref(self) : Self) -> Self)({
+      n := self.len();
       result := Self.with_capacity(n);
       i := usize(0);
       while(i < n, {
-        item_opt := self.*.get(i);
+        item_opt := self.get(i);
         match(
           item_opt,
           .Some(item) => {
-            result.push((&(item)).clone());
+            result.push(item.clone());
           },
           .None => ()
         );
@@ -782,8 +802,7 @@ impl(
 export(
   ArrayList,
   ArrayListError,
-  ArrayListIter,
-  ArrayListIterPtr
+  ArrayListIter
 );
 // =============================================================================
 // array_list! literal macro

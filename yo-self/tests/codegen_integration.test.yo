@@ -204,14 +204,14 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -735,7 +735,7 @@ test("compile_module_to_c: program with newtype emits typedef", {
 });
 test("generate_expr: break emits break statement", {
   ctx := CodegenContext.new();
-  pctx := &(ctx);
+  pctx := ctx;
   // break() => emits "break;\n" and returns "0"
   break_args := ArrayList(AstExpr).new();
   break_expr := make_fncall_expr("break", break_args);
@@ -750,7 +750,7 @@ test("generate_expr: break emits break statement", {
 });
 test("generate_expr: continue emits continue statement", {
   ctx := CodegenContext.new();
-  pctx := &(ctx);
+  pctx := ctx;
   // continue() => emits "continue;\n" and returns "0"
   cont_args := ArrayList(AstExpr).new();
   cont_expr := make_fncall_expr("continue", cont_args);
@@ -1213,7 +1213,7 @@ test("validation: Slice(u8).from_raw_parts returns indexable slice wrapper", {
   args.push(make_fncall_expr("usize", len_args));
   raw_parts := make_method_call_expr(slice_type, "from_raw_parts", args);
   ctx := CodegenContext.new();
-  pctx := &(ctx);
+  pctx := ctx;
   ind := String.new();
   def_expr := make_infix_expr(":=", make_atom_expr(TokenKind.Identifier, "slice"), raw_parts);
   gen_result := generate_expr(def_expr, pctx, ind);
@@ -1237,7 +1237,7 @@ test("validation: println lowers to printf string output", {
   args.push(make_atom_expr(TokenKind.Identifier, "message"));
   call_expr := make_fncall_expr("println", args);
   ctx := CodegenContext.new();
-  pctx := &(ctx);
+  pctx := ctx;
   ind := String.new();
   result := generate_expr(call_expr, pctx, ind);
   match(result,.None => assert(false, "println should generate"),.Some(_) => ());
@@ -1251,7 +1251,7 @@ test("validation: Self.method static dispatch uses current impl type", {
   ctx := CodegenContext.new();
   ctx.register_fn_with_params(String.from("P_callee"), String.new());
   ctx.set_self_type("P");
-  pctx := &(ctx);
+  pctx := ctx;
   ind := String.new();
   result := generate_expr(call_expr, pctx, ind);
   match(
@@ -1268,7 +1268,7 @@ test("validation: type-name static dispatch does not require registered struct",
   call_expr := make_method_call_expr(make_atom_expr(TokenKind.Identifier, "P"), "caller", args);
   ctx := CodegenContext.new();
   ctx.register_fn_with_params(String.from("P_caller"), String.new());
-  pctx := &(ctx);
+  pctx := ctx;
   ind := String.new();
   result := generate_expr(call_expr, pctx, ind);
   match(

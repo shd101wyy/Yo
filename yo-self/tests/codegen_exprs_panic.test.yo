@@ -53,7 +53,7 @@ mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
 // expression. Mirrors what the bootstrap dispatcher would do for a bare
 // identifier — enough for the runtime-message path tests.
 stub_generate_expr :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -128,7 +128,7 @@ test("generate_panic: returns None when call expression has no metadata", {
       input : String.from("")
     )
   );
-  result := generate_panic(call, args, &(ctx), String.from(""));
+  result := generate_panic(call, args, ctx, String.from(""));
   assert(result.is_none(), "no call metadata → None");
 });
 test("generate_panic: zero-arg panic emits abort and returns dummy of return type", {
@@ -156,7 +156,7 @@ test("generate_panic: zero-arg panic emits abort and returns dummy of return typ
       input : String.from("")
     )
   );
-  result := generate_panic(call, args, &(ctx), String.from("  "));
+  result := generate_panic(call, args, ctx, String.from("  "));
   match(
     result,
     .None => assert(false, "expected Some"),
@@ -197,7 +197,7 @@ test("generate_panic: comptime string emits quoted fprintf + abort", {
       input : String.from("")
     )
   );
-  result := generate_panic(call, args, &(ctx), String.from("  "));
+  result := generate_panic(call, args, ctx, String.from("  "));
   assert(result.is_some(), "comptime string path returns Some");
   match(
     result,

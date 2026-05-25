@@ -13,11 +13,12 @@
 //
 // Imports as comptime structs are exercised implicitly by every other
 // .test.yo file via top-level `import` — no dedicated case needed here.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 test("Phase 4c: migrated struct effect record unwind", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   divide :: (fn(x : i32, y : i32, r : Raise) -> i32)(
     cond(
@@ -55,7 +56,7 @@ test("Phase 4c: migrated struct effect record resume", {
 });
 test("Baseline: struct(...) builds a usable effect record type", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   divide :: (fn(x : i32, y : i32, r : Raise) -> i32)(
     cond(

@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 open(import("std/collections/btree_map"));
 // ===== Construction Tests =====
 test("BTreeMap.new creates empty map", {
@@ -21,9 +22,9 @@ test("BTreeMap.set inserts multiple entries in order", {
   m.set(i32(2), i32(20));
   m.set(i32(3), i32(30));
   assert(m.len() == usize(3), "len should be 3");
-  assert(m.get(i32(1)).unwrap() == i32(10), "key 1 => 10");
-  assert(m.get(i32(2)).unwrap() == i32(20), "key 2 => 20");
-  assert(m.get(i32(3)).unwrap() == i32(30), "key 3 => 30");
+  assert(m(i32(1)) == i32(10), "key 1 => 10");
+  assert(m(i32(2)) == i32(20), "key 2 => 20");
+  assert(m(i32(3)) == i32(30), "key 3 => 30");
 });
 test("BTreeMap.set inserts entries in reverse order", {
   m := BTreeMap(i32, i32).new();
@@ -31,16 +32,16 @@ test("BTreeMap.set inserts entries in reverse order", {
   m.set(i32(20), i32(2));
   m.set(i32(10), i32(1));
   assert(m.len() == usize(3), "len should be 3");
-  assert(m.get(i32(10)).unwrap() == i32(1), "key 10 => 1");
-  assert(m.get(i32(20)).unwrap() == i32(2), "key 20 => 2");
-  assert(m.get(i32(30)).unwrap() == i32(3), "key 30 => 3");
+  assert(m(i32(10)) == i32(1), "key 10 => 1");
+  assert(m(i32(20)) == i32(2), "key 20 => 2");
+  assert(m(i32(30)) == i32(3), "key 30 => 3");
 });
 test("BTreeMap.set updates existing key", {
   m := BTreeMap(i32, i32).new();
   m.set(i32(5), i32(50));
   m.set(i32(5), i32(99));
   assert(m.len() == usize(1), "len should still be 1");
-  assert(m.get(i32(5)).unwrap() == i32(99), "value should be updated to 99");
+  assert(m(i32(5)) == i32(99), "value should be updated to 99");
 });
 test("BTreeMap.set handles many entries", {
   m := BTreeMap(i32, i32).new();
@@ -51,7 +52,7 @@ test("BTreeMap.set handles many entries", {
   assert(m.len() == usize(20), "len should be 20");
   j := i32(0);
   while(j < i32(20), j = (j + i32(1)), {
-    assert(m.get(j).unwrap() == (j * i32(10)), "value should match");
+    assert(m(j) == (j * i32(10)), "value should match");
   });
 });
 // ===== Get Tests =====
@@ -101,9 +102,9 @@ test("BTreeMap.remove preserves order of remaining keys", {
   m.set(i32(30), i32(3));
   m.set(i32(40), i32(4));
   m.remove(i32(20));
-  assert(m.get(i32(10)).unwrap() == i32(1), "key 10 should remain");
-  assert(m.get(i32(30)).unwrap() == i32(3), "key 30 should remain");
-  assert(m.get(i32(40)).unwrap() == i32(4), "key 40 should remain");
+  assert(m(i32(10)) == i32(1), "key 10 should remain");
+  assert(m(i32(30)) == i32(3), "key 30 should remain");
+  assert(m(i32(40)) == i32(4), "key 40 should remain");
 });
 // ===== Min / Max Tests =====
 test("BTreeMap.min returns smallest key entry", {
@@ -147,7 +148,7 @@ test("BTreeMap insert then remove then insert again", {
   m.remove(i32(5));
   assert(m.get(i32(5)).is_none(), "key should be gone");
   m.set(i32(5), i32(99));
-  assert(m.get(i32(5)).unwrap() == i32(99), "re-inserted value should be 99");
+  assert(m(i32(5)) == i32(99), "re-inserted value should be 99");
   assert(m.len() == usize(1), "len should be 1");
 });
 test("BTreeMap ordering after mixed inserts and removes", {
@@ -203,8 +204,8 @@ test("BTreeMap iter - mutate values through pointer", {
   for(m.iter(), (ptr) => {
     ptr.*.value = (ptr.*.value * i32(10));
   });
-  assert(m.get(i32(1)).unwrap() == i32(100));
-  assert(m.get(i32(2)).unwrap() == i32(200));
+  assert(m(i32(1)) == i32(100));
+  assert(m(i32(2)) == i32(200));
 });
 test("BTreeMap keys - yields keys in sorted order", {
   m := BTreeMap(i32, i32).new();

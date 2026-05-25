@@ -204,14 +204,14 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -231,7 +231,7 @@ test("Emitter: new creates empty buffers", {
 // Phase 13at — typed-AST metadata infrastructure
 test("CodegenContext: get_expr_info returns None when no evaluator pass has run", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   // expr_info_table is initialised to .None for a fresh context.
   result := pctx.get_expr_info(usize(0));
   assert(result.is_none(), "no evaluator pass means no expr info available");

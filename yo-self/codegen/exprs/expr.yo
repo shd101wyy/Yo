@@ -8,12 +8,12 @@
 open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { CodegenContext } :: import("../context.yo");
-GenerateExprFn :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String));
+GenerateExprFn :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String));
 (g_generate_expr_fn : Option(GenerateExprFn)) =.None;
 set_generate_expr_fn :: (fn(generator : GenerateExprFn) -> unit)({
   g_generate_expr_fn =.Some(generator);
 });
-call_gen_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))(
+call_gen_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String))(
   match(
     g_generate_expr_fn,
     .None => Option(String).None,

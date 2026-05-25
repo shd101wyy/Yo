@@ -18,7 +18,7 @@ import { TypeTag } from "../../types/tags";
  * Walk a SomeType's resolvedConcreteType chain until we hit a non-SomeType.
  * Returns the final Type (or the original if not a SomeType / no resolution).
  */
-function resolveSomeTypeToConcrete(t: Type): Type {
+export function resolveSomeTypeToConcrete(t: Type): Type {
   let cur: Type = t;
   while (cur.tag === TypeTag.SomeType) {
     const some = cur as SomeType;
@@ -204,6 +204,44 @@ function allocateClosureCapture(
   }
 
   return { captureTempVar, captureCName };
+}
+
+/**
+ * Pre-pass: register all Impl(Fn(...)) closure implementations into
+ * `context.implClosureCallMap` BEFORE any function bodies are codegen'd.
+ *
+ * Without this pre-pass, a function that uses a closure value (e.g. calls it
+ * via `closure()`) may be codegen'd before the function that constructs that
+ * closure — at which point the map lookup at the call site fails and the
+ * fallback path emits an incorrect fn-pointer cast. Iteration order of
+ * `context.functions` is insertion order, which doesn't match the dependency
+ * order between closure consumers and producers.
+ *
+ * The map's key is the resolved concrete capture struct's type id, matching
+ * what `generateClosureConstruction` (the per-site registration) uses.
+ */
+export function registerImplClosureCallMappings(
+  context: FunctionGenerationContext
+): void {
+  for (const funcId in context.functions) {
+    const entry = context.functions[funcId]!;
+    const closureInfo = entry.value.closureInfo;
+    if (!closureInfo) continue;
+    const captureType = closureInfo.captureType;
+    if (!captureType || !isStructType(captureType)) continue;
+    if (captureType.fields.length === 0) continue;
+    // Skip closures that are wrapped by an io.async state machine — those are
+    // emitted as resume functions, not as standalone Impl(Fn(...)) entries.
+    if (entry.value.isIoAsyncStateMachineClosure) continue;
+    const captureKey = resolveSomeTypeToConcrete(captureType).id;
+    if (context.implClosureCallMap.has(captureKey)) continue;
+    context.implClosureCallMap.set(captureKey, {
+      functionCName: entry.cName,
+      callTypeId: closureInfo.closureType.isFn.callType.id,
+      callType: closureInfo.closureType.isFn.callType,
+      consumedCaptures: closureInfo.consumedCaptures,
+    });
+  }
 }
 
 /**

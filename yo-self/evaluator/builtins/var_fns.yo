@@ -6,6 +6,7 @@
 //!   __yo_var_print_info(var)           — print debug info about a variable (no-op in self-hosted)
 //!   __yo_var_is_owning_the_rc_value(v) — returns bool: is var the RC owner?
 //!   __yo_var_has_other_aliases(v)      — returns bool: does var share an RC alias?
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
@@ -32,7 +33,7 @@ evaluate_yo_var_print_info :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -64,7 +65,7 @@ evaluate_yo_var_is_owning_the_rc_value :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -114,7 +115,7 @@ evaluate_yo_var_has_other_aliases :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

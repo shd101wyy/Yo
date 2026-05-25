@@ -28,10 +28,25 @@ import { typeContainsSomeType, typeToString } from "../../types/utils";
  * Local helper: struct whose only SomeType content lives inside function-typed
  * fields. Such structs are concrete at C level (the fn-ptr fields are
  * type-erased) and should still be emitted as typedefs.
+ *
+ * Recursive: also accepts struct-typed fields whose own SomeType content is
+ * confined to nested fn-ptr fields. This is what lets effect-bundle structs
+ * like `IoExn :: struct(io : Io, exn : Exception)` register a C typedef.
  */
-function structSomeTypeIsOnlyInFunctionFieldsLocal(type: StructType): boolean {
+function structSomeTypeIsOnlyInFunctionFieldsLocal(
+  type: StructType,
+  visited: Set<string> = new Set()
+): boolean {
+  if (visited.has(type.id)) return true;
+  visited.add(type.id);
   for (const field of type.fields) {
     if (isFunctionType(field.type)) continue;
+    if (
+      isStructType(field.type) &&
+      structSomeTypeIsOnlyInFunctionFieldsLocal(field.type, visited)
+    ) {
+      continue;
+    }
     if (typeContainsSomeType(field.type)) return false;
   }
   return true;
@@ -277,7 +292,7 @@ typedef struct __yo_io_future_t {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
       // Exception: struct whose SomeType is only inside function-typed fields
-      // (effect records like IO, Exception). These are concrete at C level.
+      // (effect records like Io, Exception). These are concrete at C level.
       if (
         !isStructType(type) ||
         !structSomeTypeIsOnlyInFunctionFieldsLocal(type)
@@ -371,7 +386,7 @@ typedef struct __yo_io_future_t {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
       // Exception: struct whose only SomeType source is its function-typed
-      // fields (e.g., IO, Exception with forall fn-ptr fields). At C level
+      // fields (e.g., Io, Exception with forall fn-ptr fields). At C level
       // these become concrete structs of fn-ptrs; emit their typedef.
       if (
         !isStructType(type) ||

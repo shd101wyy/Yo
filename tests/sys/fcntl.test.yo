@@ -1,4 +1,5 @@
-// @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 { platform, Platform, arch, Arch } :: import("std/process");
 { EBADF, ENOSYS } :: import("std/libc/errno");
@@ -10,10 +11,10 @@ test("fcntl invalid fd returns -EBADF", {
   ret_setfl := fcntl_io.setfl(i32(-(1)), i32(0));
   ret_getfd := fcntl_io.getfd(i32(-(1)));
   ret_setfd := fcntl_io.setfd(i32(-(1)), i32(0));
-  printf("  getfl(-1) = %d\n", ret_getfl);
-  printf("  setfl(-1) = %d\n", ret_setfl);
-  printf("  getfd(-1) = %d\n", ret_getfd);
-  printf("  setfd(-1) = %d\n", ret_setfd);
+  unsafe(printf("  getfl(-1) = %d\n", ret_getfl));
+  unsafe(printf("  setfl(-1) = %d\n", ret_setfl));
+  unsafe(printf("  getfd(-1) = %d\n", ret_getfd));
+  unsafe(printf("  setfd(-1) = %d\n", ret_setfd));
   assert(ret_getfl == (i32(0) - i32(EBADF)));
   assert(ret_setfl == (i32(0) - i32(EBADF)));
   assert(ret_getfd == (i32(0) - i32(EBADF)));
@@ -27,12 +28,12 @@ test("fcntl setfl toggles O_NONBLOCK on pipe", {
   read_fd := (pipefd &+ usize(0)).*;
   write_fd := (pipefd &+ usize(1)).*;
   flags_before := fcntl_io.getfl(read_fd);
-  printf("  flags_before = %d\n", flags_before);
+  unsafe(printf("  flags_before = %d\n", flags_before));
   assert(flags_before >= i32(0));
   set_nonblock := fcntl_io.setfl(read_fd, flags_before | fcntl_io.O_NONBLOCK);
-  printf("  set_nonblock = %d\n", set_nonblock);
+  unsafe(printf("  set_nonblock = %d\n", set_nonblock));
   flags_after := fcntl_io.getfl(read_fd);
-  printf("  flags_after = %d\n", flags_after);
+  unsafe(printf("  flags_after = %d\n", flags_after));
   cond(
     (platform == Platform.Windows) => {
       // Windows uses a different model; setfl is best-effort for non-socket fds.
@@ -60,7 +61,7 @@ test("fcntl setfl toggles O_NONBLOCK on pipe", {
 test("fcntl getfd/setfd toggles FD_CLOEXEC", {
   // WASM has no exec() so FD_CLOEXEC is meaningless; fcntl F_GETFD/F_SETFD not supported
   if(arch == Arch.Wasm32, {
-    printf("  skipped on wasm32\n");
+    unsafe(printf("  skipped on wasm32\n"));
     return(());
   });
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
@@ -70,13 +71,13 @@ test("fcntl getfd/setfd toggles FD_CLOEXEC", {
   read_fd := (pipefd &+ usize(0)).*;
   write_fd := (pipefd &+ usize(1)).*;
   fd_flags_before := fcntl_io.getfd(read_fd);
-  printf("  fd_flags_before = %d\n", fd_flags_before);
+  unsafe(printf("  fd_flags_before = %d\n", fd_flags_before));
   assert(fd_flags_before >= i32(0));
   set_cloexec := fcntl_io.setfd(read_fd, fd_flags_before | fcntl_io.FD_CLOEXEC);
-  printf("  set_cloexec = %d\n", set_cloexec);
+  unsafe(printf("  set_cloexec = %d\n", set_cloexec));
   assert(set_cloexec == i32(0));
   fd_flags_after := fcntl_io.getfd(read_fd);
-  printf("  fd_flags_after = %d\n", fd_flags_after);
+  unsafe(printf("  fd_flags_after = %d\n", fd_flags_after));
   assert(fd_flags_after >= i32(0));
   cond(
     (platform == Platform.Windows) => {
@@ -87,7 +88,7 @@ test("fcntl getfd/setfd toggles FD_CLOEXEC", {
     }
   );
   restore := fcntl_io.setfd(read_fd, fd_flags_before);
-  printf("  restore = %d\n", restore);
+  unsafe(printf("  restore = %d\n", restore));
   assert(restore == i32(0));
   c1 := io.await(file.close(read_fd), io);
   c2 := io.await(file.close(write_fd), io);

@@ -46,14 +46,38 @@ function generateSpawnWrapper(
       ? `, ${evidenceParams.map(() => "NULL").join(", ")}`
       : "";
 
+  // The closure may also declare runtime parameters (e.g. Thread.spawn
+  // callbacks use `Impl(Fn(io : Io, Send) -> unit)` — the `io : Io`
+  // becomes a runtime parameter of the closure body). Match how the
+  // main-wrapper injects effect-record values (see functions/generation.ts
+  // around line 590): zero-init each non-comptime runtime parameter with
+  // `(${cType}){0}`. The Io struct's fn-ptr fields are ioBuiltin markers
+  // that codegen inlines at every call site, so a NULL-filled struct is
+  // never actually dispatched through. This wrapper runs INSIDE the
+  // spawned thread, where the thread has its own runtime Io context
+  // anyway; the zero-init slot is just a typecheck/calling-convention
+  // shim.
+  const runtimeParamArgs: string[] = [];
+  if (closureInfo.callType) {
+    for (const param of closureInfo.callType.parameters) {
+      if (param.isCompileTimeOnly) continue;
+      const cType = getTypeString(param.type, context);
+      runtimeParamArgs.push(`(${cType}){0}`);
+    }
+  }
+  const runtimeArgs =
+    runtimeParamArgs.length > 0 ? `, ${runtimeParamArgs.join(", ")}` : "";
+
   const wrapperId = randomId(prefix);
   const wrapperName = `__yo_spawn_wrapper_${wrapperId}`;
 
   // Build the wrapper body
   let body = "";
 
-  // Step 1: Call the closure function
-  body += `  ${closureFunctionCName}(closure${nullArgs});\n`;
+  // Step 1: Call the closure function — pass the closure-context
+  // pointer + zero-inits for any runtime params (e.g. `io : Io`) +
+  // NULLs for evidence params.
+  body += `  ${closureFunctionCName}(closure${runtimeArgs}${nullArgs});\n`;
 
   // Step 2-4: NULL consumed fields, drop capture struct, free heap memory
   const dropFn =

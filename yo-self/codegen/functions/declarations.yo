@@ -3,6 +3,7 @@
 //! Mirrors the evidence-parameter model and extraction helpers from
 //! `src/codegen/functions/declarations.ts`. The full declarations driver is
 //! still pending and will be ported as the surrounding context catches up.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -342,7 +343,7 @@ generate_function_declaration :: (
     function_type : TypeValue,
     c_function_name : String,
     is_extern : bool,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     override_return_type : Option(String),
     original_function_type : Option(TypeValue),
     is_exported_by_name : bool
@@ -351,7 +352,7 @@ generate_function_declaration :: (
   function_prototype := generate_function_prototype(function_type, c_function_name, override_return_type, original_function_type);
   linkage_prefix := function_declaration_linkage_prefix(c_function_name, is_extern, is_exported_by_name);
   yo_type_str := type_to_string(function_type);
-  ctx.*.emitter.emit_declaration_string_line(
+  ctx.emitter.emit_declaration_string_line(
     format_fn_declaration_with_comment(linkage_prefix, function_prototype, yo_type_str)
   );
 });
@@ -602,17 +603,17 @@ field_types_contain_some_type_ :: (fn(field_types : ArrayList(TypeValue)) -> boo
   found
 });
 
-generate_object_constructor_declarations :: (fn(ctx : *(CodegenContext)) -> unit)({
-  ctx.*.emitter.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
-  ctx.*.emitter.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
-  ctx.*.emitter.emit_declaration_line("static void __yo_gc_register(void* ptr); // Register object for cycle detection");
-  ctx.*.emitter.emit_declaration_line("static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection");
-  ctx.*.emitter.emit_declaration_line("static void __yo_gc_collect(); // Trigger garbage collection");
-  ctx.*.emitter.emit_declaration_line("static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)");
-  ctx.*.emitter.emit_declaration_line("static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state");
-  ctx.*.emitter.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
+generate_object_constructor_declarations :: (fn(ctx : CodegenContext) -> unit)({
+  ctx.emitter.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
+  ctx.emitter.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
+  ctx.emitter.emit_declaration_line("static void __yo_gc_register(void* ptr); // Register object for cycle detection");
+  ctx.emitter.emit_declaration_line("static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection");
+  ctx.emitter.emit_declaration_line("static void __yo_gc_collect(); // Trigger garbage collection");
+  ctx.emitter.emit_declaration_line("static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)");
+  ctx.emitter.emit_declaration_line("static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state");
+  ctx.emitter.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
 
-  iter := ctx.*.types.values();
+  iter := ctx.types.values();
   more := true;
   while(runtime(more), {
     match(
@@ -639,7 +640,7 @@ generate_object_constructor_declarations :: (fn(ctx : *(CodegenContext)) -> unit
               );
             });
             sep := String.from(", ");
-            ctx.*.emitter.emit_declaration_string_line(
+            ctx.emitter.emit_declaration_string_line(
               format_struct_ctor_decl(entry.c_name, constructor_name, sep.join(param_strings))
             );
           },
@@ -651,10 +652,10 @@ generate_object_constructor_declarations :: (fn(ctx : *(CodegenContext)) -> unit
   });
 });
 
-generate_closure_constructor_declarations :: (fn(_ctx : *(CodegenContext)) -> unit)(());
+generate_closure_constructor_declarations :: (fn(_ctx : CodegenContext) -> unit)(());
 
-generate_capture_dispose_function_declarations :: (fn(ctx : *(CodegenContext)) -> unit)({
-  iter := ctx.*.closure_capture_map.keys();
+generate_capture_dispose_function_declarations :: (fn(ctx : CodegenContext) -> unit)({
+  iter := ctx.closure_capture_map.keys();
   more := true;
   while(runtime(more), {
     match(
@@ -664,13 +665,13 @@ generate_capture_dispose_function_declarations :: (fn(ctx : *(CodegenContext)) -
       },
       .Some(closure_instance_id) => {
         dispose_function_name := (String.from("__yo_dispose_closure_") + closure_instance_id);
-        ctx.*.emitter.emit_declaration_string_line(format_closure_dispose_decl(dispose_function_name));
+        ctx.emitter.emit_declaration_string_line(format_closure_dispose_decl(dispose_function_name));
       }
     );
   });
 });
 
-generate_closure_vtable_declarations :: (fn(_ctx : *(CodegenContext)) -> unit)(());
+generate_closure_vtable_declarations :: (fn(_ctx : CodegenContext) -> unit)(());
 
 /// Returns true when `name` is one of the threading macro wrapper functions
 /// that must not get a separate `extern` declaration.
@@ -735,12 +736,12 @@ evidence_params_have_forall_ :: (fn(function_type : TypeValue) -> bool)({
 });
 
 /// Mirrors `generateFunctionDeclarations` in `src/codegen/functions/declarations.ts`.
-generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> unit)({
-  base := &(ctx.*.base);
-  base.*.emitter.emit_declaration_line("// Function declarations");
+generate_function_declarations :: (fn(ctx : FunctionGenerationContext) -> unit)({
+  base := ctx.base;
+  base.emitter.emit_declaration_line("// Function declarations");
 
-  base.*.emitter.emit_declaration_line("/// Extern functions");
-  ext_iter := ctx.*.extern_functions.values();
+  base.emitter.emit_declaration_line("/// Extern functions");
+  ext_iter := ctx.extern_functions.values();
   ext_more := true;
   while(runtime(ext_more), {
     match(
@@ -766,31 +767,31 @@ generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> uni
       }
     );
   });
-  base.*.emitter.emit_declaration_string_line(String.from(""));
+  base.emitter.emit_declaration_string_line(String.from(""));
 
-  if(ctx.*.uses_async, {
-    base.*.emitter.emit_declaration_line("/// Async runtime functions");
-    base.*.emitter.emit_declaration_line("static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);");
-    base.*.emitter.emit_declaration_string_line(String.from(""));
+  if(ctx.uses_async, {
+    base.emitter.emit_declaration_line("/// Async runtime functions");
+    base.emitter.emit_declaration_line("static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);");
+    base.emitter.emit_declaration_string_line(String.from(""));
   });
 
-  base.*.emitter.emit_declaration_line("/// Object constructors");
+  base.emitter.emit_declaration_line("/// Object constructors");
   generate_object_constructor_declarations(base);
-  base.*.emitter.emit_declaration_string_line(String.from(""));
+  base.emitter.emit_declaration_string_line(String.from(""));
 
-  base.*.emitter.emit_declaration_line("/// Closure constructors");
+  base.emitter.emit_declaration_line("/// Closure constructors");
   generate_closure_constructor_declarations(base);
-  base.*.emitter.emit_declaration_string_line(String.from(""));
+  base.emitter.emit_declaration_string_line(String.from(""));
 
-  base.*.emitter.emit_declaration_line("/// Capture dispose functions");
+  base.emitter.emit_declaration_line("/// Capture dispose functions");
   generate_capture_dispose_function_declarations(base);
-  base.*.emitter.emit_declaration_string_line(String.from(""));
+  base.emitter.emit_declaration_string_line(String.from(""));
 
-  base.*.emitter.emit_declaration_line("/// Dyn type constructors");
-  base.*.emitter.emit_declaration_string_line(String.from(""));
+  base.emitter.emit_declaration_line("/// Dyn type constructors");
+  base.emitter.emit_declaration_string_line(String.from(""));
 
-  base.*.emitter.emit_declaration_line("/// Regular functions");
-  fn_iter := ctx.*.functions.values();
+  base.emitter.emit_declaration_line("/// Regular functions");
+  fn_iter := ctx.functions.values();
   fn_more := true;
   while(runtime(fn_more), {
     match(
@@ -898,17 +899,17 @@ generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> uni
     );
   });
 
-  base.*.emitter.emit_declaration_line("/// Closure vtable instances");
+  base.emitter.emit_declaration_line("/// Closure vtable instances");
   generate_closure_vtable_declarations(base);
-  base.*.emitter.emit_declaration_string_line(String.from(""));
+  base.emitter.emit_declaration_string_line(String.from(""));
 });
 
 /// Mirrors `generateSpecializedFunctionDeclarations` in
 /// `src/codegen/functions/declarations.ts`.
-generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> unit)({
-  base := &(ctx.*.base);
+generate_specialized_function_declarations :: (fn(ctx : FunctionGenerationContext) -> unit)({
+  base := ctx.base;
   generated := HashSet(String).new();
-  iter := ctx.*.functions.values();
+  iter := ctx.functions.values();
   more := true;
   while(runtime(more), {
     match(
@@ -999,7 +1000,7 @@ generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationCont
         );
         proto := generate_function_prototype(spec_type, entry.c_name, Option(String).None, Option(TypeValue).None);
         type_str := type_to_string(entry.type_value);
-        base.*.emitter.emit_declaration_string_line(
+        base.emitter.emit_declaration_string_line(
           ((prefix + proto) + String.from("; // specialized function: ")) + type_str
         );
       }

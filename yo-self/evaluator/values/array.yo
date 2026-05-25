@@ -9,6 +9,7 @@
 //!   - Fails with an explicit error when the empty array `[]` is written.
 //!   - Stores `ExprInfo` in the ExprInfoTable; if all elements have compile-time
 //!     values, the array value is also stored.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -39,7 +40,7 @@ evaluate_array_value :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
