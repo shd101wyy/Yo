@@ -67,6 +67,7 @@ import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
+  typeImplementsSend,
   typeImplementsTrait,
   typeImplementsTraitBool,
 } from "../trait-checking";
@@ -2810,6 +2811,46 @@ function checkManualSendAcyclicPragmaGate({
   }
 }
 
+/**
+ * Phase F (THREAD_SAFETY): When a manual impl(T, Send()) is registered for an
+ * atomic object type, re-verify that all fields are truly Send transitively.
+ * This is the safety belt that catches Phase A2's lies — even if a pragma'd
+ * file claims `impl(MyAtomic, Send())`, the field-level check asserts the
+ * claim matches reality.
+ */
+function verifyAtomicObjectSend({
+  receiverType,
+  traitTypeName,
+  env,
+  errorToken,
+}: {
+  receiverType: Type;
+  traitTypeName: string | undefined;
+  env: Environment;
+  errorToken: Token;
+}): void {
+  if (traitTypeName !== "Send") return;
+  if (!isStructType(receiverType)) return;
+  if (!receiverType.isAtomicRc) return;
+
+  const nonSendFields: string[] = [];
+  for (const field of receiverType.fields) {
+    if (!typeImplementsSend(field.type, env)) {
+      nonSendFields.push(`  - ${field.label}: ${typeToString(field.type)}`);
+    }
+  }
+
+  if (nonSendFields.length > 0) {
+    throw formatErrorMessage({
+      token: errorToken,
+      errorMessage:
+        `atomic object '${typeToString(receiverType)}' has non-Send field(s) — manual impl(..., Send()) is contradicted:\n` +
+        nonSendFields.join("\n") +
+        `\nEither wrap the non-Send fields in Arc/Mutex/Atomic, or remove the manual 'impl(${typeToString(receiverType)}, Send())'.`,
+    });
+  }
+}
+
 export function evaluateImplBlock({
   expr,
   env,
@@ -3036,6 +3077,13 @@ export function evaluateImplBlock({
       } else {
         attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
       }
+
+      verifyAtomicObjectSend({
+        receiverType,
+        traitTypeName: traitType.typeName,
+        env,
+        errorToken: expr.token,
+      });
     }
 
     const primaryTraitValue = traitEntries[0]!.traitValue;
