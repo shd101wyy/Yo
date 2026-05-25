@@ -269,6 +269,24 @@ test("Test type auto derive Send", {
   comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Send) == false);
 });
+test("Test Send on pointer-bearing types is conditional on the pointee", {
+  // Pre-condition: a non-Send carrier to use as a negative pointee.
+  NonSendCarrier :: object(v : i32);
+  comptime_assert(Type.impls(NonSendCarrier, Send) == false);
+  // *(T): Send iff T: Send.
+  comptime_assert(Type.impls(*(i32), Send) == true);
+  comptime_assert(Type.impls(*(NonSendCarrier), Send) == false);
+  // Slice(T) / [T]: Send iff T: Send (the missing impl this test pins).
+  comptime_assert(Type.impls([i32], Send) == true);
+  comptime_assert(Type.impls([NonSendCarrier], Send) == false);
+  // `str` is Slice(u8) — should be Send.
+  comptime_assert(Type.impls(str, Send) == true);
+  // Array(T, N): Send iff T: Send.
+  comptime_assert(Type.impls(Array(i32, 4), Send) == true);
+  comptime_assert(Type.impls(Array(NonSendCarrier, 4), Send) == false);
+  // Nullable pointer ?*(T): same as *(T) via Option(*(T)) desugar.
+  comptime_assert(Type.impls(?*(i32), Send) == true);
+});
 test("Test type auto derive Acyclic", {
   // Primitive types are Acyclic
   // Compile-time only types
