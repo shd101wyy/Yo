@@ -8379,6 +8379,10 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
     __future : *(T)
   )
 );
+// Phase L (THREAD_SAFETY): JoinHandle is NOT Send — the inner future state
+// machine lives on the spawner's event-loop thread. Cross-thread result
+// delivery uses Channel(T).
+impl(forall(T : Type), JoinHandle(T), !(Send()));
 export(JoinHandle);
 /// Io module — the async runtime effect.
 ///
@@ -8394,6 +8398,10 @@ Io :: struct(
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
+// Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
+// is per-thread (per AGENTS.md). Sending Io across a thread boundary would
+// reference a scheduler on the wrong thread.
+impl(Io, !(Send()));
 export(Io);
 extern(
   "Yo",
