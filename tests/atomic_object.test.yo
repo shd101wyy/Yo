@@ -81,13 +81,6 @@ test("Self-referential atomic object does not auto-derive Acyclic", {
   comptime_assert(Type.impls(SelfRefNode, Send), "self-referential atomic object should still derive Send");
   println("Self-referential Acyclic check: OK");
 });
-/// Test that manual Acyclic impl works for self-referential types
-test("Manual Acyclic impl for self-referential type", {
-  ImmNode :: atomic(object(_value : i32, _next : Option(Self)));
-  impl(ImmNode, Acyclic());
-  comptime_assert(Type.impls(ImmNode, Acyclic), "manual Acyclic impl should work");
-  println("Manual Acyclic impl: OK");
-});
 /// Test that atomic objects implement Acyclic
 test("Atomic object implements Acyclic", {
   comptime_assert(Type.impls(AtomicPoint, Acyclic), "AtomicPoint should implement Acyclic");

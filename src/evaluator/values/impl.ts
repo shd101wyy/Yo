@@ -62,6 +62,7 @@ import {
   valueToString,
 } from "../../value";
 import type { EvaluatorContext } from "../context";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
@@ -2780,6 +2781,35 @@ function attachTraitToReceiverType(
   }
 }
 
+/**
+ * Phase A (THREAD_SAFETY): Gate manual impl(T, Send()) and impl(T, Acyclic())
+ * behind pragma(Pragma.AllowUnsafe). Auto-derived Send/Acyclic (via
+ * autoDeriveSendForStructType etc.) goes through a separate code path in
+ * types/utils.ts and is NOT gated — only manual impl declarations are checked.
+ */
+function checkManualSendAcyclicPragmaGate({
+  traitEntries,
+  currentModulePath,
+  errorToken,
+}: {
+  traitEntries: ImplTraitEntry[];
+  currentModulePath: string | undefined;
+  errorToken: Token;
+}): void {
+  for (const entry of traitEntries) {
+    if (entry.isAnonymousTrait) continue;
+    const traitTypeName = entry.traitValue.type.typeName;
+    if (traitTypeName === "Send" || traitTypeName === "Acyclic") {
+      if (!isImplicitlyUnsafeCapableFile(currentModulePath)) {
+        throw formatErrorMessage({
+          token: errorToken,
+          errorMessage: `Manual 'impl(..., ${traitTypeName}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${traitTypeName === "Send" ? "send across threads" : "declare Acyclic"}.`,
+        });
+      }
+    }
+  }
+}
+
 export function evaluateImplBlock({
   expr,
   env,
@@ -2970,6 +3000,12 @@ export function evaluateImplBlock({
         errorMessage: `impl requires at least one trait or member field.`,
       });
     }
+
+    checkManualSendAcyclicPragmaGate({
+      traitEntries,
+      currentModulePath: context.currentModulePath,
+      errorToken: expr.token,
+    });
 
     for (const entry of traitEntries) {
       const traitValue = entry.traitValue;
@@ -3322,6 +3358,12 @@ export function evaluateImplBlock({
       errorMessage: `impl requires at least one trait or member field.`,
     });
   }
+
+  checkManualSendAcyclicPragmaGate({
+    traitEntries,
+    currentModulePath: context.currentModulePath,
+    errorToken: expr.token,
+  });
 
   const pendingRegistrations: Array<{
     traitType: TraitType;

@@ -732,6 +732,13 @@ ComptimeToString :: trait(
   to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_string)),
   where(Self <: Comptime)
 );
+// SAFETY: All builtin primitive types (unit, void, comptime_int,
+// comptime_float, comptime_string, bool, i8/i16/i32/i64, u8/u16/u32/u64,
+// f32/f64, isize/usize, char/int/uint/short/ushort/long/ulong/longlong/
+// ulonglong/longdouble) are plain value types with no heap allocations
+// or thread-local state. They are trivially safe to send across threads
+// and cannot form reference cycles. For these types, Send and Acyclic are
+// structural properties of the underlying C types.
 // === Builtin types ===
 /// unit
 impl(unit, Acyclic());
@@ -5475,6 +5482,11 @@ impl(
 _longdouble :: longdouble;
 export(longdouble : _longdouble);
 /// Ptr
+// SAFETY: A raw pointer *(T) is Send only when the pointee T is Send —
+// the pointer itself is a plain value (an address), and Send implies
+// that any T reachable through it is safe to access from another thread.
+// *(T) is unconditionally Acyclic because raw pointers do not participate
+// in Yo's ARC reference-counting cycle analysis.
 impl(forall(T : Type), where(T <: Send), *(T), Send());
 impl(forall(T : Type), *(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
@@ -5536,6 +5548,10 @@ impl(
   )
 );
 /// Array
+// SAFETY: Array(T, U) is a fixed-size array value type. It is Send when T
+// is Send because an array value is copied across threads (each thread
+// gets an independent copy). It is unconditionally Acyclic because arrays
+// are value-typed — they do not participate in ARC reference counting.
 impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
 impl(forall(T : Type, U : usize), Array(T, U), Acyclic());
 impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
@@ -5619,6 +5635,11 @@ impl(
   )
 );
 /// Slice
+// SAFETY: Slice(T) is a value-typed view (pointer + length) over a backing
+// array. Sending a slice across threads copies the header; both threads
+// can independently read the backing array. The backing array's lifetime
+// is managed by its owning collection (which must itself be Send to cross
+// threads). Slice is always Acyclic — it is a value type with no ARC.
 impl(forall(T : Type), where(T <: Send), Slice(T), Send());
 impl(forall(T : Type), Slice(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
@@ -7500,6 +7521,13 @@ export(
   box
 );
 /// Iso — an isolated reference-counted value that can be sent across threads.
+// SAFETY: Iso(T) is unconditionally Send (no `T <: Send` bound) because
+// Iso's public API exposes no operation on the inner T except extract(),
+// which atomically verifies rc == 1 before returning. If you add any new
+// method to Iso(T) that touches the inner T (map, peek, read, &self
+// borrow, etc.), this Send claim becomes unsound and must be revoked.
+// See plans/THREAD_SAFETY.md "Iso(T) design notes — precedent and known
+// risks" for the full argument.
 impl(forall(T : Type), Iso(T), Send());
 impl(forall(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
 impl(
@@ -7582,6 +7610,9 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
 );
 /// Allocate a value inside an Arc, returning an `Arc(V)`.
 arc :: (fn(forall(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(Arc(V)(value));
+// SAFETY: Arc(T) is an atomic reference-counted wrapper. It is Send when
+// the inner T is Send (all fields of the atomic-object must be Send per
+// auto-derive) and Acyclic (prevents permanent leaks from Arc cycles).
 impl(forall(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
 export(Arc, arc);
 /// === MaybeUninit ===
@@ -8326,6 +8357,8 @@ FutureState :: enum(
   /// The future was aborted (e.g., via `unwind`).
   Aborted = -(2)
 );
+// SAFETY: FutureState is a plain enum of integer values (Pending, Done,
+// Aborted) with no heap allocations. It is trivially Send and Acyclic.
 impl(FutureState, Acyclic());
 impl(FutureState, Runtime());
 impl(FutureState, Send());

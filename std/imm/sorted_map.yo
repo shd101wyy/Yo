@@ -40,7 +40,7 @@ RBNode :: (
     )
   )
 );
-// Manual Acyclic impl — RBNode is self-referential, so auto-derivation skips it.
+// SAFETY: Manual Acyclic impl — RBNode is self-referential, so auto-derivation skips it.
 // This is safe because RBNode is immutable: all tree operations create new nodes
 // and never mutate existing ones, making it impossible to form cycles at runtime.
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), RBNode(K, V), Acyclic());

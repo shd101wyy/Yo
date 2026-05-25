@@ -1,4 +1,5 @@
 //! Unicode code point type (`rune`) for representing individual characters.
+pragma(Pragma.AllowUnsafe);
 /// Unicode code point (U+0000 to U+10FFFF, excluding surrogates).
 /// Similar to Go's `rune` or Rust's `char`.
 rune :: newtype(
@@ -93,5 +94,8 @@ impl(
     (>=) : ((a, b) -> (a.char >= b.char))
   )
 );
+// SAFETY: rune is a newtype over u32. u32 is a plain value type with no
+// internal heap allocations or thread-local state — it is trivially safe
+// to send across threads.
 impl(rune, Send());
 export(rune);

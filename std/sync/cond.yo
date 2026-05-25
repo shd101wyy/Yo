@@ -10,6 +10,10 @@ extern(
   __yo_cond_broadcast : (fn(cv : *(__YO_COND_TYPE)) -> unit),
   __yo_cond_destroy : (fn(cv : *(__YO_COND_TYPE)) -> unit)
 );
+// SAFETY: __YO_COND_TYPE is an opaque C-level condition variable
+// (pthread_cond_t or equivalent). It carries its own internal
+// synchronization and is designed to be shared across threads. It is
+// trivially Acyclic — opaque C types don't participate in ARC.
 impl(__YO_COND_TYPE, Send());
 impl(__YO_COND_TYPE, Acyclic());
 /// Low-level condition variable (manual lifetime via `destroy`).

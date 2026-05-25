@@ -1,6 +1,6 @@
 # Thread Safety by Default
 
-**Status:** Draft — for discussion. Not yet implemented.
+**Status:** Phase A implemented. Phase F next.
 **Companion to:** `plans/MEMORY_SAFETY.md`.
 **Decided so far:**
 
