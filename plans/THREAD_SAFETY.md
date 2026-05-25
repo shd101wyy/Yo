@@ -62,7 +62,7 @@ Soundness collapses to three trusted bases:
 
 **Caveat on `Iso(T)`.** The runtime `rc == 1` check at `extract()` is the actual enforcement. If the sender forgets to drop its `Iso` reference before the receiver extracts, `extract()` fails — that's safety-preserving (no race), but it's runtime-late, not compile-time-early. The compile-time Rc analysis _can_ often prove uniqueness statically at the construction site, but the cross-thread move boundary is checked dynamically. Plan Phase H tightens the failure mode (panic vs `.None`) and considers whether a stronger compile-time check is feasible.
 
-**Why `Iso(T)` is unconditionally `Send` (no `T <: Send` bound).** Every other shareable type in std/ that crosses a thread (`Arc(T)`, `Channel(T)`, `Mutex(T)`, `RwLock(T)`) carries a `where(T <: Send)` clause. `Iso(T)` does not — the impl at `std/prelude.yo:7502` is `impl(forall(T : Type), Iso(T), Send())` with no `where` clause. This is intentional and safe for the following reason:
+**Why `Iso(T)` is unconditionally `Send` (no `T <: Send` bound).** Every other shareable type in std/ that crosses a thread (`Arc(T)`, `Channel(T)`, `Mutex(T)`, `RwLock(T)`) carries a `where(T <: Send)` clause. `Iso(T)` does not — the impl at `std/prelude.yo:7503` is `impl(forall(T : Type), Iso(T), Send())` with no `where` clause. This is intentional and safe for the following reason:
 
 > A type is required to be `Send` so that any thread that gets a hold of a value of that type can use it without racing against another thread also using that same value. The whole point of `Iso(T)` is that **at the moment of use (i.e. `extract()`), at most one thread holds a live reference to the inner T.** The runtime `rc == 1` atomic-load check at `extract()` is the gate: if the sending thread still has its `Iso(T)` reference, the receiver's `extract()` panics (post-Phase H) rather than handing out a second pointer to the same T. So the inner T is only ever observed by one thread at a time — non-Send-ness of T cannot cause a race, because the precondition for a race (two threads observing the same T concurrently) is exactly what `Iso` excludes by construction.
 
@@ -97,9 +97,9 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 | 3   | Hand-written `impl(T, Send())` lies about T being Send                                                                  | **Phase A2:** manual Send impls require `pragma(Pragma.AllowUnsafe)`. **Phase F:** post-impl re-verification on `atomic object` rejects the lie at struct-def time.                                                                                                                                                                                                                                                                                                                                                                       |
 | 4   | `atomic object` with a non-atomic `object` field                                                                        | Auto-derive rejects (today). Manual Send impl could lie ⇒ closed by F.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 5   | Cross-thread shared `Arc(T)` where T has a non-atomic mutable interior                                                  | `Arc(V)` requires `V <: Send` (today). Send is structural ⇒ T's mutable interior must itself be Send (i.e., `atomic_*` or wrapped in Mutex/RwLock).                                                                                                                                                                                                                                                                                                                                                                                       |
-| 6   | `Iso(T).extract()` after the Iso has been aliased                                                                       | Compile-time RC check at construction + runtime `can_isolate` (`rc == 1`). **Phase H** tightens the runtime path to panic instead of returning `.None` when invoked from the wrong thread.                                                                                                                                                                                                                                                                                                                                                |
+| 6   | `Iso(T).extract()` after the Iso has been aliased                                                                       | Compile-time RC check at construction + runtime `can_isolate` (`rc == 1`). **Phase H** tightens the runtime path to panic instead of returning `.None` whenever `rc != 1` at the extract site (i.e., the sender's reference has not yet been dropped).                                                                                                                                                                                                                                                                                    |
 | 7   | Capture a `ref(T)` borrow inside a `Thread.spawn` closure                                                               | Already blocked: closures cannot capture ctl-typed _or_ ref-bound values (Phase B of MEMORY_SAFETY). Re-affirmed in **Phase E** with a Send-specific diagnostic.                                                                                                                                                                                                                                                                                                                                                                          |
-| 8   | Capture a non-Send local in a `Thread.spawn` closure (aggregate check passes due to bug)                                | **Phase E:** per-variable Send check at the capture site, with the diagnostic pointing at the offending capture name.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 8   | Capture a non-Send local in a `Thread.spawn` closure (current aggregate check is too coarse to identify the offender)   | **Phase E:** per-variable Send check at the capture site, with the diagnostic pointing at the offending capture name.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 9   | Pass a raw `*(T)` whose pointee is non-Send across a thread                                                             | `*(T) <: Send` already requires `T <: Send` (`std/prelude.yo:5478`). Audit confirmed.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 10  | Construct a `*(T)` in safe code that escapes via Send                                                                   | Safe code cannot construct or deref `*(T)` (memory-safety pass). Pragma'd module exporting a `*(T)` field: the field's _type_ leaks into safe scope (Issue 26/27 deferred), but the deref still requires `unsafe(...)`. ⇒ no race-capable use.                                                                                                                                                                                                                                                                                            |
 | 11  | `Dyn(Trait)` cross-thread with a non-Send concrete type                                                                 | **Phase I:** use the existing `Dyn(Trait, Send)` multi-trait form. The evaluator already rejects `dyn(value)` when the concrete type doesn't impl every listed trait. Sending a bare `Dyn(Trait)` (no Send in the list) to `Thread.spawn` is rejected by the spawn-API bound.                                                                                                                                                                                                                                                             |
@@ -126,7 +126,7 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 
 - `Send` marker trait, transitively enforced on `atomic object` fields at struct-def time (`src/evaluator/types/struct.ts:128–145`).
 - `object` types non-Send by construction (`src/evaluator/trait-checking.ts:61–62, 91–93`).
-- `Arc(V)` requires `V <: (Send, Acyclic)` (`std/prelude.yo:7575`).
+- `Arc(V)` requires `V <: (Send, Acyclic)` (`std/prelude.yo:7576`).
 - `Iso(T)` uniqueness via compile-time RC introspection (`Var.is_owning_the_rc_value`, `Var.has_other_aliases`) + runtime `can_isolate`.
 - Atomic RC ops: `__yo_incr_rc_atomic` (relaxed), `__yo_decr_rc_atomic` (acq_rel).
 - `Thread.spawn` / `Worker.spawn` / `Channel(T)` all carry `Send` bounds.
@@ -135,21 +135,24 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 - `static mut` doesn't exist for user code.
 - Per-thread runtime state is `_Thread_local`.
 
-⚠️ **Partial:**
+⚠️ **Partial** (each entry lists the phase that closes it):
 
-- Manual `impl(T, Send())` in any file passes today with no gate — load-bearing hole.
-- Mutex/RwLock/Once expose manual `unlock()` — no RAII guard.
-- Closure-capture Send check is aggregate-only, not per-variable.
-- `Once` has an acknowledged non-atomic fast-path read.
+- Manual `impl(T, Send())` in any file passes today with no gate — load-bearing hole. → **Phase A**.
+- Mutex/RwLock/Once expose manual `unlock()` — no RAII guard. → **Phase D**.
+- Closure-capture Send check is aggregate-only, not per-variable. → **Phase E**.
+- `Once` has an acknowledged non-atomic fast-path read. → **Phase D** (`_done` becomes `atomic_bool`).
+- `Arc(T)` / `MyArc(T)` allow `arc.* = value` and `arc.field = value` writes from safe code — empirically verified race vector. → **Phase O**.
+- Synchronized-interior fields (`mutex._value`, `arraylist._capacity`, etc.) are accessible from any file by convention only. → **Phase P**.
+- `JoinHandle(T)` and `Io` auto-derive `Send` structurally — load-bearing for soundness. → **Phase N** (`!(Send)` syntax) + **Phase L** (apply to both types).
 
-❌ **Gaps:**
+❌ **Gaps** (each entry lists the phase that closes it):
 
-- No high-level `Atomic*` wrappers (raw C11 types only).
-- `Iso(Arc(T))` / `Arc(Iso(T))` semantics undefined (`plans/ARC_TYPE.md:272`).
-- No `Dyn(Trait + Send)` syntax — Dyn dispatch across threads is unprotected.
-- `Impl(Future(T, E))` Send status undefined.
-- Self-referential `atomic object` immutability is documented, not enforced.
-- No formal data-race-freedom statement in user-facing docs.
+- No high-level `Atomic*` wrappers (raw C11 types only). → **Phase C**.
+- `Iso(Arc(T))` / `Arc(Iso(T))` semantics undefined (`plans/ARC_TYPE.md:272`). → **Phase H** (ban both direct compositions).
+- `Dyn(Trait)` crossing a thread boundary is unprotected — there's no requirement that the concrete type be Send. → **Phase I** (use existing `Dyn(Trait, Send)` multi-trait form on every cross-thread API surface).
+- `Impl(Future(T, E))` Send status undefined; current structural derive would say Send when T, E are. → **Phase L** (`Impl(Trait)` is non-Send unless `, Send` is listed in the bound; document this).
+- Self-referential `atomic object` immutability is documented, not enforced. → **Phase A2** audit boundary (manual `impl(T, Acyclic())` requires pragma + `// SAFETY:` comment).
+- No formal data-race-freedom statement in user-facing docs. → **Phase M** (`docs/{en-US,zh-CN}/THREAD_SAFETY.md`).
 
 ## Phases
 
@@ -396,6 +399,12 @@ impl(
 
 **Breaking change** — every existing `mutex.lock(); ...; mutex.unlock()` site rewrites to `mutex.with_lock((v) => { ... })`. Acceptable per your direction.
 
+**Migration sites (audited):**
+
+- **`std/sync/waitgroup.yo`** uses `self._mutex.lock(); ...; self._mutex.unlock()` at lines 45/54 (`add`) and 62/66 (`wait`). Rewrite both to `self._mutex.with_lock((v) => { ... })`. This is the only internal `std/sync/` site that uses the bare lock/unlock pair today.
+- **`std/sync/cond.yo`** uses raw `__YO_COND_TYPE` operations without a Mutex `_value` field — unaffected by the rewrite shape change. `Cond` keeps its existing API.
+- User tests / examples calling `mutex.lock()` / `mutex.unlock()` directly: deprecated, rewrite at the same time.
+
 **Why not a Rust-style `MutexGuard`?** Rust needs an explicit guard type because Rust _has_ `&'a T` lifetimes the borrow checker tracks. Yo's `ref(T)` is already scope-bound by being second-class — it can't appear in a struct field, return type slot (other than the labeled-return shape), or be captured by a Send closure. The closure boundary in `with_lock` gives the user exactly what Rust's `MutexGuard` gives Rust users, minus the type and minus an allocation. The earlier draft tried to write `object(_owner : ref(Mutex(T)))` — that's not even valid Yo syntax; `ref(T)` isn't a type.
 
 ### Phase E — Per-variable closure-capture Send check
@@ -610,7 +619,9 @@ Yo's async runtime is per-thread (per AGENTS.md). A `Future(T, E)` value carries
 
 **Why this matters even though no user is currently sending `JoinHandle` cross-thread:** the Send claim is load-bearing in the soundness theorem. Every cross-thread API takes `Impl(... , Send)` bounds, and the type system uses transitive Send-ness to decide what's safe to capture. A bogus structural Send on `JoinHandle` means a user closure that captures a JoinHandle is reported Send when it isn't — and the closure can then be passed to `Thread.spawn`. Closing the hole costs nothing now and removes a class of future "how did this ever compile" surprises.
 
-**Migration audit:** grep std/ and tests/ for any code that captures `JoinHandle(T)` or `Io` in a `Thread.spawn` / `Channel.send` closure. Expected count: zero. If any exist, they were already unsound and need rewriting.
+**Migration audit (performed during plan finalization):** grepping std/ and tests/ for `JoinHandle` and `io.spawn` confirms expected count: zero cross-thread JoinHandle usage. All current `io.spawn` sites are inside a single async runtime (single-threaded by construction). `tests/async_await.test.yo:1363-1364` and others spawn-and-await within the same thread, which Phase L preserves. No rewrites needed; only the two `impl(..., !(Send));` lines in `std/prelude.yo`.
+
+**Worker.spawn note:** `std/worker.yo:14` defines `spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)` — returns `unit`, not a handle. Workers are fire-and-forget; no `JoinHandle` for the OS-thread side. Phase L only affects the async `JoinHandle` returned by `io.spawn`, not anything in `std/worker.yo` or `std/thread.yo`. `Thread.spawn` returns `Thread` (an `object` per `std/thread.yo:23` — already non-Send by construction). No further changes for those.
 
 ### Phase O — Forbid mutation of `atomic object` fields in safe code
 
