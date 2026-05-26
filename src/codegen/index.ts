@@ -145,8 +145,9 @@ export class CodeGenerator {
        * Enable sanitizer for memory error detection.
        * 'address' - Full AddressSanitizer (memory errors + leaks)
        * 'leak' - Leak detection only
+       * 'thread' - ThreadSanitizer for data-race detection in multi-threaded code
        */
-      sanitize?: "address" | "leak";
+      sanitize?: "address" | "leak" | "thread";
       /**
        * Include debug symbols in the binary (like gcc -g).
        */

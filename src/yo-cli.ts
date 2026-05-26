@@ -385,10 +385,10 @@ yo --version                     Show version number
           })
           .option("sanitize", {
             describe:
-              "Enable AddressSanitizer for memory leak and error detection. Use 'address' for full sanitizer or 'leak' for leak detection only.",
+              "Enable a sanitizer. 'address' (full AddressSanitizer), 'leak' (LeakSanitizer only), or 'thread' (ThreadSanitizer for data-race detection in cross-thread code).",
             type: "string",
             demandOption: false,
-            choices: ["address", "leak"],
+            choices: ["address", "leak", "thread"],
           })
           .option("g", {
             alias: "debug-symbols",
@@ -496,7 +496,7 @@ yo --version                     Show version number
           release: argv.release as boolean,
           optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
           allocator: argv.allocator as "mimalloc" | "libc",
-          sanitize: argv.sanitize as "address" | "leak" | undefined,
+          sanitize: argv.sanitize as "address" | "leak" | "thread" | undefined,
           debugSymbols: argv.g as boolean,
           strip: argv.s as boolean,
           static: argv.static as boolean,
@@ -702,7 +702,7 @@ yo --version                     Show version number
           })
           .option("disable-sanitize", {
             describe:
-              "Disable AddressSanitizer for test binaries (workaround for macOS 26 AMFI blocking the Nix-store ASAN dylib)",
+              "Disable AddressSanitizer for test binaries (workaround for macOS 26 AMFI blocking the Nix-store ASAN dylib). Note: to switch the sanitizer for test binaries (e.g., to ThreadSanitizer), set the YO_TEST_SANITIZE=thread environment variable.",
             type: "boolean",
             default: false,
           })

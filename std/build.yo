@@ -47,7 +47,9 @@ Sanitize :: enum(
   /// AddressSanitizer — detects memory errors and leaks.
   Address,
   /// LeakSanitizer — detects memory leaks only.
-  Leak
+  Leak,
+  /// ThreadSanitizer — detects data races in multi-threaded code.
+  Thread
 );
 export(Sanitize);
 // ── Step kinds ───────────────────────────────────────────────────────
@@ -281,7 +283,8 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     config.sanitize,
     .None => "none",
     .Address => "address",
-    .Leak => "leak"
+    .Leak => "leak",
+    .Thread => "thread"
   );
   __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str);
   Step(name : config.name, kind : StepKind.Executable)

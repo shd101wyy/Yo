@@ -986,7 +986,7 @@ async function compileArtifact(
     allocator: artifact.allocator as "mimalloc" | "libc",
     sanitize:
       artifact.sanitize !== "none"
-        ? (artifact.sanitize as "address" | "leak")
+        ? (artifact.sanitize as "address" | "leak" | "thread")
         : undefined,
     strip: artifact.strip,
     static: artifact.staticLink,
@@ -1856,7 +1856,7 @@ async function compileDependencyArtifact(
     allocator: artifact.allocator as "mimalloc" | "libc",
     sanitize:
       artifact.sanitize !== "none"
-        ? (artifact.sanitize as "address" | "leak")
+        ? (artifact.sanitize as "address" | "leak" | "thread")
         : undefined,
     strip: artifact.strip,
     static: artifact.staticLink,

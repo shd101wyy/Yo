@@ -514,10 +514,18 @@ __attribute__((constructor)) static void _yo_increase_stack_limit(void) {
       fs.unlinkSync(testFilePath);
     }
 
-    // Build C compile args
+    // Build C compile args. Default sanitizer is "address"; set
+    // YO_TEST_SANITIZE=thread to run test binaries under ThreadSanitizer
+    // (e.g. in a Linux/Clang CI matrix that validates sync primitives).
+    const sanitizerChoice =
+      (process.env.YO_TEST_SANITIZE as
+        | "address"
+        | "leak"
+        | "thread"
+        | undefined) ?? "address";
     const asanFlags =
       !isMSVC && !isEmcc && !noSanitize
-        ? getSanitizerFlags({ sanitize: "address", compilerInfo })
+        ? getSanitizerFlags({ sanitize: sanitizerChoice, compilerInfo })
         : { flags: [] };
 
     const compileArgs = isMSVC
