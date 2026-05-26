@@ -1012,7 +1012,7 @@ the verifier, this is how" rather than "we are building the verifier."
 - [ ] Reserve `result` keyword; restrict scope to `ensures(...)` bodies. Blocked on codegen lowering (#6) — the magic identifier only needs to exist when contracts are actually evaluated at function entry/return.
 - [x] Extract `requires` / `ensures` from function-type signatures into `FunctionType.requiresExprs` and `FunctionType.ensuresExprs`. Single-call rule enforced (duplicate `requires(...)` / `ensures(...)` clauses are a syntax error). Zero-argument forms rejected.
 - [x] Enforce loop `invariant(...)` first-statement rule (rejection works across nested cond/match branches; nested while loops are checked separately when their own evaluator fires).
-- [ ] Lower contracts to runtime `assert(...)` in default mode.
+- [ ] Lower contracts to runtime `assert(...)` in default mode. Design surveyed (see task #6 description): preferred approach is to splice synthetic `assert(P, msg)` FnCallExpr nodes into the function body before body evaluation; reuses existing assert lowering. Follow-up PR.
 - [ ] Add `Refine` / `NonZero` / `Bounded` as comptime type constructors.
 - [ ] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons.
 - [ ] Tests under `tests/spec/` (parse / runtime / reject) — initial `contracts_phase0.test.yo` landed alongside the builtin registration.
