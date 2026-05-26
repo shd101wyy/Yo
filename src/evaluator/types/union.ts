@@ -39,10 +39,13 @@ export function evaluateUnionType({
   // Create unionType with empty fields
   const unionType = createUnionType(env);
 
-  // Set the definedInModulePath for orphan rule checks
-  if (context.currentModulePath) {
-    unionType.definedInModulePath = context.currentModulePath;
-    unionType.trait.definedInModulePath = context.currentModulePath;
+  // Set the definedInModulePath for orphan rule checks.
+  // Prefer the lexical token's modulePath — see struct.ts for the
+  // rationale on generic-type instantiation.
+  const lexicalModulePath = expr.token.modulePath || context.currentModulePath;
+  if (lexicalModulePath) {
+    unionType.definedInModulePath = lexicalModulePath;
+    unionType.trait.definedInModulePath = lexicalModulePath;
   }
 
   const fields: TypeField[] = [];

@@ -42,10 +42,14 @@ export function evaluateEnumType({
   const enumType = createEnumType(env);
   addRcFunctionSignaturesToEnumType({ enumType, env, context });
 
-  // Set the definedInModulePath for orphan rule checks
-  if (context.currentModulePath) {
-    enumType.definedInModulePath = context.currentModulePath;
-    enumType.trait.definedInModulePath = context.currentModulePath;
+  // Set the definedInModulePath for orphan rule checks.
+  // Prefer the lexical token's modulePath — see struct.ts for the
+  // rationale on generic-type instantiation (e.g., `Option(i32)` should
+  // record `definedInModulePath = std/prelude.yo`, not the caller's file).
+  const lexicalModulePath = expr.token.modulePath || context.currentModulePath;
+  if (lexicalModulePath) {
+    enumType.definedInModulePath = lexicalModulePath;
+    enumType.trait.definedInModulePath = lexicalModulePath;
   }
 
   // Evaluate the variants
