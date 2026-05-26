@@ -1009,9 +1009,9 @@ the verifier, this is how" rather than "we are building the verifier."
 
 - [x] Register contract builtins (`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`, `old`) as no-op markers; signature-level `requires`/`ensures` are skipped during function-type parameter processing; codegen lowers them to empty C output.
 - [x] Add `Pragma.Verify` / `Pragma.NoContracts` / `Pragma.VerifyOrAssert` (Verify and VerifyOrAssert emit a one-time per-file "verify mode not implemented" warning; NoContracts is silent and codegen-erase is a later sub-task).
-- [ ] Reserve `result` keyword; restrict scope to `ensures(...)` bodies.
+- [ ] Reserve `result` keyword; restrict scope to `ensures(...)` bodies. (Blocked on contract extraction — `result` is widely used as a local name; cannot be a global reserved word.)
 - [ ] Extract `requires` / `ensures` from function-type signatures (currently just skipped).
-- [ ] Enforce loop `invariant(...)` first-statement rule.
+- [x] Enforce loop `invariant(...)` first-statement rule (rejection works across nested cond/match branches; nested while loops are checked separately when their own evaluator fires).
 - [ ] Lower contracts to runtime `assert(...)` in default mode.
 - [ ] Add `Refine` / `NonZero` / `Bounded` as comptime type constructors.
 - [ ] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons.

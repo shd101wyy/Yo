@@ -71,3 +71,26 @@ test("old() is a transparent pass-through in Phase 0", {
   snapshot :: (fn(x : i32) -> i32)(old(x));
   assert(snapshot(i32(42)) == i32(42), "old(x) == x in Phase 0");
 });
+
+test("invariant(...) misplaced as non-first loop statement is rejected", {
+  comptime_expect_error({
+    i := i32(0);
+    while(runtime(i < i32(3)), {
+      i = (i + i32(1));
+      invariant(i >= i32(0));
+    });
+  }, "invariant");
+});
+
+test("invariant(...) inside cond branch is rejected", {
+  comptime_expect_error({
+    i := i32(0);
+    while(runtime(i < i32(3)), {
+      cond(
+        (i > i32(0)) => invariant(i >= i32(0)),
+        true => ()
+      );
+      i = (i + i32(1));
+    });
+  }, "invariant");
+});
