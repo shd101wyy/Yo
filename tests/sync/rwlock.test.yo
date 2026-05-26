@@ -1,13 +1,12 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
-pragma(Pragma.AllowUnsafe); // Phase O: writes to atomic object fields need pragma
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
 { RwLock } :: import("std/sync/rwlock");
 { Thread } :: import("std/thread");
 { sleep } :: import("std/time/sleep");
 { WaitGroup } :: import("std/sync/waitgroup");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 Worker :: import("std/worker");
-SharedCounter :: atomic(object(value : i32));
 // ============================================================================
 // Basic operations
 // ============================================================================
@@ -132,26 +131,26 @@ test("RwLock concurrent readers across threads", {
 test("RwLock writer thread modifies shared data", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
-  data := SharedCounter(i32(0));
+  data := AtomicI32(i32(0));
   t := Thread.spawn((io) => {
     lock.write_lock();
-    data.value = i32(42);
+    data.store(i32(42), MemoryOrder.Relaxed);
     lock.write_unlock();
   });
   t.join();
   lock.read_lock();
-  assert(data.value == i32(42), "should see writer's value");
+  assert(data.load(MemoryOrder.Relaxed) == i32(42), "should see writer's value");
   lock.read_unlock();
 });
 test("RwLock two writer threads increment counter", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
-  data := SharedCounter(i32(0));
+  data := AtomicI32(i32(0));
   t1 := Thread.spawn((io) => {
     i := i32(0);
     while(runtime(i < i32(100)), {
       lock.write_lock();
-      data.value = (data.value + i32(1));
+      data.fetch_add(i32(1), MemoryOrder.Relaxed);
       lock.write_unlock();
       i = (i + i32(1));
     });
@@ -160,7 +159,7 @@ test("RwLock two writer threads increment counter", {
     i := i32(0);
     while(runtime(i < i32(100)), {
       lock.write_lock();
-      data.value = (data.value + i32(1));
+      data.fetch_add(i32(1), MemoryOrder.Relaxed);
       lock.write_unlock();
       i = (i + i32(1));
     });
@@ -168,18 +167,18 @@ test("RwLock two writer threads increment counter", {
   t1.join();
   t2.join();
   lock.read_lock();
-  assert(data.value == i32(200), "counter should be 200 after 2 threads x 100 increments");
+  assert(data.load(MemoryOrder.Relaxed) == i32(200), "counter should be 200 after 2 threads x 100 increments");
   lock.read_unlock();
 });
 test("RwLock readers wait for writer across threads", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
-  data := SharedCounter(i32(0));
+  data := AtomicI32(i32(0));
   // Writer runs first, holds lock while sleeping
   writer := Thread.spawn((io) => {
     lock.write_lock();
     sleep(usize(50));
-    data.value = i32(99);
+    data.store(i32(99), MemoryOrder.Relaxed);
     lock.write_unlock();
   });
   // Give writer time to acquire lock
@@ -187,13 +186,13 @@ test("RwLock readers wait for writer across threads", {
   // Readers will block until writer releases
   t1 := Thread.spawn((io) => {
     lock.read_lock();
-    val := data.value;
+    val := data.load(MemoryOrder.Relaxed);
     assert(val == i32(99), "reader 1 should see 99");
     lock.read_unlock();
   });
   t2 := Thread.spawn((io) => {
     lock.read_lock();
-    val := data.value;
+    val := data.load(MemoryOrder.Relaxed);
     assert(val == i32(99), "reader 2 should see 99");
     lock.read_unlock();
   });
@@ -230,20 +229,20 @@ test("RwLock with Workers concurrent reads", {
 test("RwLock with Workers write then read", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
-  data := SharedCounter(i32(0));
+  data := AtomicI32(i32(0));
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
   // Writer worker
   wg.add(i32(1));
   Worker.spawn((io) => {
     lock.write_lock();
-    data.value = i32(77);
+    data.store(i32(77), MemoryOrder.Relaxed);
     lock.write_unlock();
     wg.done();
   });
   wg.wait();
   // Verify from main thread
   lock.read_lock();
-  assert(data.value == i32(77), "should see worker's write");
+  assert(data.load(MemoryOrder.Relaxed) == i32(77), "should see worker's write");
   lock.read_unlock();
 });

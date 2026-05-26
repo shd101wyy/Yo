@@ -1,13 +1,12 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
-pragma(Pragma.AllowUnsafe); // Phase O: writes to atomic object fields need pragma
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
 { Once } :: import("std/sync/once");
 { ArrayList } :: import("std/collections/array_list");
 { Thread } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 Worker :: import("std/worker");
-SharedCounter :: atomic(object(value : i32));
 // ============================================================================
 // Basic operations
 // ============================================================================
@@ -89,78 +88,78 @@ test("Once call with side effects", {
 test("Once call from multiple threads executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := SharedCounter(i32(0));
+  counter := AtomicI32(i32(0));
   t1 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t2 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t3 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   // Main thread also tries
   o.call(() => {
-    counter.value = (counter.value + i32(1));
+    counter.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
   t1.join();
   t2.join();
   t3.join();
-  assert(counter.value == i32(1), "function should have executed exactly once");
+  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "function should have executed exactly once");
   assert(o.is_done(), "should be done");
 });
 test("Once is_done visible across threads after call", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := SharedCounter(i32(0));
+  counter := AtomicI32(i32(0));
   // Main thread calls first
   o.call(() => {
-    counter.value = (counter.value + i32(1));
+    counter.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
   t := Thread.spawn((io) => {
     assert(o.is_done(), "should see done from other thread");
     // Second call should be no-op
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t.join();
-  assert(counter.value == i32(1), "function should have executed only once");
+  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once");
 });
 test("Once multiple threads race to call", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := SharedCounter(i32(0));
+  counter := AtomicI32(i32(0));
   // All threads start at the same time (no sleep)
   t1 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t2 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t3 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t4 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t5 := Thread.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
   t1.join();
@@ -168,7 +167,7 @@ test("Once multiple threads race to call", {
   t3.join();
   t4.join();
   t5.join();
-  assert(counter.value == i32(1), "should have executed exactly once despite 5 threads racing");
+  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "should have executed exactly once despite 5 threads racing");
   assert(o.is_done(), "should be done");
 });
 // ============================================================================
@@ -177,29 +176,29 @@ test("Once multiple threads race to call", {
 test("Once with Workers executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
-  counter := SharedCounter(i32(0));
+  counter := AtomicI32(i32(0));
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
   wg.add(i32(3));
   Worker.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
   Worker.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
   Worker.spawn((io) => {
     o.call(() => {
-      counter.value = (counter.value + i32(1));
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
   wg.wait();
-  assert(counter.value == i32(1), "function should have executed only once across workers");
+  assert(counter.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once across workers");
   assert(o.is_done(), "should be done");
 });
