@@ -1,0 +1,89 @@
+//! High-level `Atomic*` wrappers for thread-safe shared mutable values.
+//!
+//! Each wrapper is an `atomic object` containing a C11 atomic type from
+//! `<stdatomic.h>`. The atomic-object layer provides shared addressing via
+//! atomic reference counting; the inner `_Atomic T` field provides the
+//! value-level atomicity (load / store / CAS / fetch-add).
+pragma(Pragma.AllowUnsafe);
+
+{
+  atomic_bool,
+  atomic_load_explicit,
+  atomic_store_explicit,
+  atomic_exchange_explicit,
+  atomic_compare_exchange_strong_explicit,
+  memory_order,
+  memory_order_relaxed,
+  memory_order_consume,
+  memory_order_acquire,
+  memory_order_release,
+  memory_order_acq_rel,
+  memory_order_seq_cst
+} :: import("std/libc/stdatomic");
+
+// ============================================================================
+// MemoryOrder enum
+// ============================================================================
+MemoryOrder :: enum(Relaxed, Consume, Acquire, Release, AcqRel, SeqCst);
+
+impl(
+  MemoryOrder,
+  to_c_order : (fn(self : Self) -> memory_order)(
+    match(
+      self,
+      (.Relaxed) => memory_order_relaxed,
+      (.Consume) => memory_order_consume,
+      (.Acquire) => memory_order_acquire,
+      (.Release) => memory_order_release,
+      (.AcqRel) => memory_order_acq_rel,
+      (.SeqCst) => memory_order_seq_cst
+    )
+  )
+);
+
+// ============================================================================
+// AtomicBool — shareable atomic boolean
+// ============================================================================
+AtomicBool :: atomic(object((*) : atomic_bool));
+
+impl(
+  AtomicBool,
+  new : (fn(value : bool) -> Self)({
+    v := Self(false);
+    cond(
+      value => unsafe(atomic_store_explicit(&(v.*), true, memory_order_release)),
+      true => ()
+    );
+    v
+  }),
+  load : (fn(ref(self) : Self, order : MemoryOrder) -> bool)(
+    unsafe(atomic_load_explicit(&(self.*), order.to_c_order())) == true
+  ),
+  store : (fn(ref(self) : Self, value : bool, order : MemoryOrder) -> unit)(
+    unsafe(atomic_store_explicit(&(self.*), value, order.to_c_order()))
+  ),
+  swap : (fn(ref(self) : Self, value : bool, order : MemoryOrder) -> bool)(
+    unsafe(atomic_exchange_explicit(&(self.*), value, order.to_c_order())) == true
+  ),
+  compare_exchange : (
+    fn(
+      ref(self) : Self,
+      ref(expected) : bool,
+      new_value : bool,
+      success : MemoryOrder,
+      failure : MemoryOrder
+    ) -> bool
+  )(
+    unsafe(
+      atomic_compare_exchange_strong_explicit(
+        &(self.*),
+        &(expected),
+        new_value,
+        success.to_c_order(),
+        failure.to_c_order()
+      )
+    )
+  )
+);
+
+export(AtomicBool, MemoryOrder);

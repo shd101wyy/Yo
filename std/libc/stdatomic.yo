@@ -138,6 +138,85 @@ c_include(
   ATOMIC_LLONG_LOCK_FREE : i32,
   ATOMIC_POINTER_LOCK_FREE : i32
 );
+// SAFETY: C11 atomic typedefs (atomic_bool, atomic_int, etc.) are opaque C
+// types backed by _Atomic-qualified primitives. They contain no heap
+// allocations or thread-local state — they are trivially safe to send
+// across threads. They are Acyclic because they don't participate in Yo's
+// ARC reference-counting cycle analysis.
+impl(atomic_bool, Send());
+impl(atomic_bool, Acyclic());
+impl(atomic_char, Send());
+impl(atomic_char, Acyclic());
+impl(atomic_schar, Send());
+impl(atomic_schar, Acyclic());
+impl(atomic_uchar, Send());
+impl(atomic_uchar, Acyclic());
+impl(atomic_short, Send());
+impl(atomic_short, Acyclic());
+impl(atomic_ushort, Send());
+impl(atomic_ushort, Acyclic());
+impl(atomic_int, Send());
+impl(atomic_int, Acyclic());
+impl(atomic_uint, Send());
+impl(atomic_uint, Acyclic());
+impl(atomic_long, Send());
+impl(atomic_long, Acyclic());
+impl(atomic_ulong, Send());
+impl(atomic_ulong, Acyclic());
+impl(atomic_llong, Send());
+impl(atomic_llong, Acyclic());
+impl(atomic_ullong, Send());
+impl(atomic_ullong, Acyclic());
+impl(atomic_char16_t, Send());
+impl(atomic_char16_t, Acyclic());
+impl(atomic_char32_t, Send());
+impl(atomic_char32_t, Acyclic());
+impl(atomic_wchar_t, Send());
+impl(atomic_wchar_t, Acyclic());
+impl(atomic_int_least8_t, Send());
+impl(atomic_int_least8_t, Acyclic());
+impl(atomic_uint_least8_t, Send());
+impl(atomic_uint_least8_t, Acyclic());
+impl(atomic_int_least16_t, Send());
+impl(atomic_int_least16_t, Acyclic());
+impl(atomic_uint_least16_t, Send());
+impl(atomic_uint_least16_t, Acyclic());
+impl(atomic_int_least32_t, Send());
+impl(atomic_int_least32_t, Acyclic());
+impl(atomic_uint_least32_t, Send());
+impl(atomic_uint_least32_t, Acyclic());
+impl(atomic_int_least64_t, Send());
+impl(atomic_int_least64_t, Acyclic());
+impl(atomic_uint_least64_t, Send());
+impl(atomic_uint_least64_t, Acyclic());
+impl(atomic_int_fast8_t, Send());
+impl(atomic_int_fast8_t, Acyclic());
+impl(atomic_uint_fast8_t, Send());
+impl(atomic_uint_fast8_t, Acyclic());
+impl(atomic_int_fast16_t, Send());
+impl(atomic_int_fast16_t, Acyclic());
+impl(atomic_uint_fast16_t, Send());
+impl(atomic_uint_fast16_t, Acyclic());
+impl(atomic_int_fast32_t, Send());
+impl(atomic_int_fast32_t, Acyclic());
+impl(atomic_uint_fast32_t, Send());
+impl(atomic_uint_fast32_t, Acyclic());
+impl(atomic_int_fast64_t, Send());
+impl(atomic_int_fast64_t, Acyclic());
+impl(atomic_uint_fast64_t, Send());
+impl(atomic_uint_fast64_t, Acyclic());
+impl(atomic_intptr_t, Send());
+impl(atomic_intptr_t, Acyclic());
+impl(atomic_uintptr_t, Send());
+impl(atomic_uintptr_t, Acyclic());
+impl(atomic_size_t, Send());
+impl(atomic_size_t, Acyclic());
+impl(atomic_ptrdiff_t, Send());
+impl(atomic_ptrdiff_t, Acyclic());
+impl(atomic_intmax_t, Send());
+impl(atomic_intmax_t, Acyclic());
+impl(atomic_uintmax_t, Send());
+impl(atomic_uintmax_t, Acyclic());
 export(
   // Atomic types
   atomic_bool,
