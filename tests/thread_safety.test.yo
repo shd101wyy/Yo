@@ -63,3 +63,10 @@ test("private _-field accessible in same file", {
   v._secret = i32(99);
   assert(v._secret == i32(99), "should write _-prefixed field in same file");
 });
+
+// ============================================================================
+// Phase H (THREAD_SAFETY): Iso(Arc(T)) composition is banned
+// ============================================================================
+comptime_expect_error({
+  Iso(Arc(i32));
+});

@@ -67,8 +67,11 @@ impl(
     self._mutex._raw_unlock();
   }),
   // Get the current count (for debugging).
-  count : (fn(self : Self) -> i32)(
-    self._count
-  )
+  count : (fn(self : Self) -> i32)({
+    self._mutex._raw_lock();
+    result := self._count;
+    self._mutex._raw_unlock();
+    result
+  })
 );
 export(WaitGroup);
