@@ -59,7 +59,17 @@ Pragma :: enum(
   /// Test-runner directive: skip when target is wasm32-emscripten.
   SkipWasm32Emscripten,
   /// Test-runner directive: skip when target is wasm32-wasi.
-  SkipWasm32Wasi
+  SkipWasm32Wasi,
+  /// Formal verification: contracts in this file are proof obligations.
+  /// Phase 0 only registers the pragma; later phases will hook in
+  /// verification. See plans/FORMAL_VERIFICATION.md.
+  Verify,
+  /// Formal verification: try to prove, fall back to runtime assert
+  /// when proof times out. The production mode for verified code.
+  VerifyOrAssert,
+  /// Formal verification: erase contract clauses entirely (no proof,
+  /// no runtime assert). For release/benchmark builds.
+  NoContracts
 );
 export(Pragma);
 

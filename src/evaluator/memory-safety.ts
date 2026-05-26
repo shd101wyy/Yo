@@ -21,7 +21,12 @@ export type PragmaKind =
   | "SkipPrelude"
   | "SkipWasm"
   | "SkipWasm32Emscripten"
-  | "SkipWasm32Wasi";
+  | "SkipWasm32Wasi"
+  // Formal verification pragmas — Phase 0 just registers them.
+  // See plans/FORMAL_VERIFICATION.md.
+  | "Verify"
+  | "VerifyOrAssert"
+  | "NoContracts";
 
 /**
  * Per-file pragma registry. Keyed by canonical module URI (the

@@ -1,0 +1,13 @@
+// Phase 0 of plans/FORMAL_VERIFICATION.md
+//
+// `pragma(Pragma.NoContracts);` registers cleanly and contract-bearing
+// code still compiles and runs (contracts are no-ops in Phase 0
+// regardless of pragma — later phases will use this to erase asserts).
+pragma(Pragma.NoContracts);
+
+test("contracts still parse under Pragma.NoContracts", {
+  divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+    x / y
+  );
+  assert(divide(i32(10), i32(2)) == i32(5), "divide(10,2) == 5");
+});

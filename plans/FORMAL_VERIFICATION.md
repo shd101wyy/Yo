@@ -1008,7 +1008,7 @@ the verifier, this is how" rather than "we are building the verifier."
 **Progress (updated as sub-tasks land):**
 
 - [x] Register contract builtins (`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`, `old`) as no-op markers; signature-level `requires`/`ensures` are skipped during function-type parameter processing; codegen lowers them to empty C output.
-- [ ] Add `Pragma.Verify` / `Pragma.NoContracts` / `Pragma.VerifyOrAssert`.
+- [x] Add `Pragma.Verify` / `Pragma.NoContracts` / `Pragma.VerifyOrAssert` (Verify and VerifyOrAssert emit a one-time per-file "verify mode not implemented" warning; NoContracts is silent and codegen-erase is a later sub-task).
 - [ ] Reserve `result` keyword; restrict scope to `ensures(...)` bodies.
 - [ ] Extract `requires` / `ensures` from function-type signatures (currently just skipped).
 - [ ] Enforce loop `invariant(...)` first-statement rule.

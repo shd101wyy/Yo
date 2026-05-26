@@ -115,6 +115,14 @@ export function evaluatePragma({
     registerFilePragma(modulePath, kind);
   }
 
+  // Phase 0 of plans/FORMAL_VERIFICATION.md: Verify and VerifyOrAssert
+  // are parsed and registered but the verifier itself isn't wired up
+  // yet. Emit a one-time warning per file so users know their pragma
+  // is essentially a no-op until later phases land.
+  if (kind === "Verify" || kind === "VerifyOrAssert") {
+    warnVerifyModeNotImplemented(modulePath ?? "<unknown>", kind);
+  }
+
   // pragma(...) is a compile-time-only declaration; returns unit.
   expr.$ = {
     env,
@@ -123,6 +131,24 @@ export function evaluatePragma({
     pathCollection: [],
   };
   return expr;
+}
+
+/**
+ * One-time per-file warning for verify-mode pragmas that the verifier
+ * doesn't yet honor. Phase 0 only — these warnings disappear when the
+ * verifier lands in Phase 1.
+ */
+const warnedVerifyFiles = new Set<string>();
+function warnVerifyModeNotImplemented(
+  modulePath: string,
+  kind: "Verify" | "VerifyOrAssert"
+): void {
+  const key = `${modulePath}|${kind}`;
+  if (warnedVerifyFiles.has(key)) return;
+  warnedVerifyFiles.add(key);
+  console.warn(
+    `[warning] pragma(Pragma.${kind}) in ${modulePath}: verify mode is not implemented yet (Phase 0 of plans/FORMAL_VERIFICATION.md). Contracts in this file will behave as if no pragma were set — they parse and (in later phases) lower to runtime asserts, but no proof obligations are generated.`
+  );
 }
 
 /**
@@ -145,6 +171,16 @@ function pragmaKindFromVariantName(variantName: string): PragmaKind | null {
       return "SkipWasm32Emscripten";
     case "SkipWasm32Wasi":
       return "SkipWasm32Wasi";
+    // Formal verification pragmas — Phase 0 registers them. Verify
+    // and VerifyOrAssert emit a "verify mode not implemented" warning
+    // (the warning lives at the call site, not here). NoContracts is
+    // honored fully: codegen erases contract clauses.
+    case "Verify":
+      return "Verify";
+    case "VerifyOrAssert":
+      return "VerifyOrAssert";
+    case "NoContracts":
+      return "NoContracts";
     default:
       return null;
   }
