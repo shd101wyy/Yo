@@ -256,6 +256,107 @@ static inline bool __yo_atomic_compare_exchange_llong(
   return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
 }
 
+// Phase C: signed narrow atomic wrappers
+static inline int8_t __yo_atomic_load_schar(_Atomic signed char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int8_t __yo_atomic_exchange_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_schar(
+  _Atomic signed char* obj, int8_t* expected, int8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline int16_t __yo_atomic_load_short(_Atomic short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int16_t __yo_atomic_exchange_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_short(
+  _Atomic short* obj, int16_t* expected, int16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+// Phase C: unsigned atomic wrappers
+static inline uint8_t __yo_atomic_load_uchar(_Atomic unsigned char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint8_t __yo_atomic_exchange_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uchar(
+  _Atomic unsigned char* obj, uint8_t* expected, uint8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint16_t __yo_atomic_load_ushort(_Atomic unsigned short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint16_t __yo_atomic_exchange_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ushort(
+  _Atomic unsigned short* obj, uint16_t* expected, uint16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint32_t __yo_atomic_load_uint(_Atomic unsigned int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint32_t __yo_atomic_exchange_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uint(
+  _Atomic unsigned int* obj, uint32_t* expected, uint32_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint64_t __yo_atomic_load_ullong(_Atomic unsigned long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint64_t __yo_atomic_exchange_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ullong(
+  _Atomic unsigned long long* obj, uint64_t* expected, uint64_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+// Phase C: isize wrapper
+static inline ptrdiff_t __yo_atomic_load_ptrdiff(_Atomic ptrdiff_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline ptrdiff_t __yo_atomic_exchange_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ptrdiff(
+  _Atomic ptrdiff_t* obj, ptrdiff_t* expected, ptrdiff_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
 /**
  * Create and initialize a mutex (stack-allocated value)
  * Returns an initialized mutex that can be used with __yo_mutex_lock/unlock
