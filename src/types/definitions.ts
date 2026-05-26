@@ -837,6 +837,30 @@ export interface FunctionType extends Type {
   whereClauseExprs?: Expr[];
 
   /**
+   * `requires(...)` precondition expressions extracted from the
+   * function signature. Phase 0 of plans/FORMAL_VERIFICATION.md: each
+   * predicate becomes a runtime `assert(predicate, "...")` at function
+   * entry in default mode. Later phases lift these to SMT verification
+   * conditions.
+   *
+   * Each entry is a single predicate expression (not the wrapping
+   * `requires(...)` call). The single-call rule (one `requires(...)`
+   * clause per signature, with multiple comma-separated predicates) is
+   * enforced when the FunctionType is built.
+   */
+  requiresExprs?: Expr[];
+
+  /**
+   * `ensures(...)` postcondition expressions extracted from the
+   * function signature. Phase 0: each predicate becomes a runtime
+   * `assert(predicate, "...")` at function return in default mode.
+   * Inside an ensures predicate, the magic identifier `result` refers
+   * to the function's return value (scope handling is added when the
+   * ensures clauses are lowered at codegen).
+   */
+  ensuresExprs?: Expr[];
+
+  /**
    * The return information of the function.
    */
   return: FunctionReturn;

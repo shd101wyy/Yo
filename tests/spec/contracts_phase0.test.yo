@@ -94,3 +94,24 @@ test("invariant(...) inside cond branch is rejected", {
     });
   }, "invariant");
 });
+
+test("duplicate requires(...) clauses in a signature are rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, requires(x > i32(0)), requires(x < i32(100))) -> i32)(x);
+    f(i32(0));
+  }, "Multiple 'requires(...)'");
+});
+
+test("duplicate ensures(...) clauses in a signature are rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, ensures(result > i32(0)), ensures(result < i32(100))) -> i32)(x);
+    f(i32(0));
+  }, "Multiple 'ensures(...)'");
+});
+
+test("requires() with zero arguments in a signature is rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, requires()) -> i32)(x);
+    f(i32(0));
+  }, "zero arguments");
+});

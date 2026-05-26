@@ -1614,6 +1614,8 @@ export function evaluateFunctionParameters({
   forallParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
   whereClauseExprs?: Expr[];
+  requiresExprs?: Expr[];
+  ensuresExprs?: Expr[];
   env: Environment;
 } {
   env = pushEnvFrame(env);
@@ -1665,6 +1667,48 @@ export function evaluateFunctionParameters({
         forallParameters.push(parameter);
         env = nextEnv;
       }
+    }
+  }
+
+  // Phase 0 of plans/FORMAL_VERIFICATION.md: extract `requires(...)`
+  // and `ensures(...)` contract clauses from the parameter list. Each
+  // builtin may appear at most once in a signature (single-call rule:
+  // `requires(P1, P2, ...)` and `ensures(Q1, Q2, ...)`). Zero-argument
+  // forms are rejected. The extracted predicates are stored on the
+  // FunctionType and later (in Phase 0 task #6) lowered to runtime
+  // `assert(...)` calls in default mode.
+  let requiresExprs: Expr[] | undefined = undefined;
+  let ensuresExprs: Expr[] | undefined = undefined;
+  for (const paramExpr of parameterExprs) {
+    if (!exprIsFunctionCall(paramExpr)) continue;
+    if (exprIsFunctionCallOf(paramExpr, "requires")) {
+      if (paramExpr.args.length === 0) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition.`,
+        });
+      }
+      if (requiresExprs !== undefined) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'.`,
+        });
+      }
+      requiresExprs = paramExpr.args;
+    } else if (exprIsFunctionCallOf(paramExpr, "ensures")) {
+      if (paramExpr.args.length === 0) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition.`,
+        });
+      }
+      if (ensuresExprs !== undefined) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'.`,
+        });
+      }
+      ensuresExprs = paramExpr.args;
     }
   }
 
@@ -2173,6 +2217,8 @@ export function evaluateFunctionParameters({
     forallParameters,
     variadicParameter,
     whereClauseExprs,
+    requiresExprs,
+    ensuresExprs,
     env,
   };
 }
@@ -2231,6 +2277,8 @@ export function evaluateFunctionType({
     forallParameters,
     variadicParameter,
     whereClauseExprs,
+    requiresExprs,
+    ensuresExprs,
     env: nextEnv,
   } = evaluateFunctionParameters({
     parameterExprs: argList,
@@ -2561,6 +2609,8 @@ ${typeToString(returnType)}`,
     forallParameters: forallParameters as FunctionForallParameter[],
     variadicParameter,
     whereClauseExprs,
+    requiresExprs,
+    ensuresExprs,
     return_: {
       type: returnType,
       typeExpr: returnTypeExpr,
