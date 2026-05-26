@@ -77,18 +77,31 @@ mostly about exposing it.
 | **No operator precedence**                                    | Source AST is already a tree of explicit calls; no precedence parsing inside the verifier.                                                        |
 | **Slice flowability R1–R4 analysis** (`SLICE_FLOWABILITY.md`) | Proof that the evaluator already does non-trivial static reasoning per-call. The verifier extends, not replaces, this pass.                       |
 
-The shortest framing: **Yo's compile-time evaluator is already 60% of a
-verification condition generator.** This plan describes the other 40%.
+**Accurate framing:** Yo's compile-time evaluator provides the AST
+traversal, type-environment, and CTFE infrastructure a VC generator
+would hook into. It does NOT provide path-condition tracking, symbolic
+state, loop-invariant reasoning, contract substitution at call sites,
+or SMT encoding. So the evaluator serves as the verifier's _front-end_;
+the verification _back-end_ is a substantial new component built on top
+of (not derived from) the existing pass. (An earlier draft claimed "60%
+of a VC generator" — that was rhetorical and misleading; see audit §B1
+and §C2 below.)
 
 ---
 
 ## The surface — six primitives
 
-The verification surface consists of four new builtin calls
-(`requires`, `ensures`, `invariant`, `ghost`), one new type constructor
-(`Refine`), and one new pragma value (`Pragma.Verify` and its variants).
-Three ghost-context builtins (`forall_val`, `exists_val`, `==>`) appear
-later, in the spec-module section. Everything else is reused.
+The verification surface consists of five new builtin calls
+(`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`), one new type
+constructor (`Refine`), and one new pragma value (`Pragma.Verify` and
+its variants). Three ghost-context builtins (`forall_val`, `exists_val`,
+`==>`) appear later, in the spec-module section. Everything else is
+reused.
+
+`ghost` and `ghost_fn` are split rather than overloaded: `ghost(name := expr)`
+introduces a ghost binding, while `ghost_fn(fn_value)` marks a function
+as ghost-only. See [Standard library spec module](#standard-library-spec-module--stdspec)
+for why the split matters (resolves audit §A3 ambiguity).
 
 ### 1. `requires(...)` — pre-condition
 
@@ -214,6 +227,15 @@ sum_to :: (fn(
 
 `invariant(...)` follows the same single-call rule: one call per loop
 (or one per type body), with all predicates as comma-separated arguments.
+
+**Placement rule:** inside a `while(...)` body, `invariant(...)` must be
+the **first non-comment statement**. Placing it later, in a `cond` /
+`match` branch, or after any other statement is a syntax error. This
+prevents semantic ambiguity about where in the loop the invariant must
+hold (audit §A2): it always means "holds at the loop head, every
+iteration." The evaluator enforces this position check at
+function-body evaluation time, parallel to how `pragma(...)` is
+restricted to the file top.
 
 For struct/object types, `invariant(...)` appears as a top-level field-like
 declaration. The invariant must hold after every constructor call and after
@@ -526,22 +548,25 @@ sorted :: (fn(s : Slice(i32)) -> bool)({
 });
 ```
 
-**Ghost specs** wrap their `fn` value in `ghost(...)` — the same builtin
-as the binding form `ghost(name := expr)`, extended to function values.
-A ghost function is erased at codegen and callable only from contract
-context (`requires`, `ensures`, `invariant`, `ghost(...)` bindings, or
-the body of another ghost function). It returns ordinary `bool`, so the
-typing rule about `comptime` return / `comptime` params is satisfied:
+**Ghost specs** wrap their `fn` value in `ghost_fn(...)` — a distinct
+builtin from the binding form `ghost(name := expr)`. The two are split
+to avoid the parsing ambiguity flagged in audit §A3 (`ghost(f)` where
+`f` is a function value would otherwise be indistinguishable from a
+ghost binding). A ghost function is erased at codegen and callable only
+from contract context (`requires`, `ensures`, `invariant`, `ghost(...)`
+bindings, the body of another `ghost_fn`, or another ghost-context
+expression). It returns ordinary `bool`, so the typing rule about
+`comptime` return / `comptime` params is satisfied:
 
 ```rust
-permutation :: ghost((fn(
+permutation :: ghost_fn((fn(
   a : Slice(i32),
   b : Slice(i32),
 ) -> bool)(
   (Multiset.from_slice(a) == Multiset.from_slice(b))
 ));
 
-sorted_quantified :: ghost((fn(s : Slice(i32)) -> bool)(
+sorted_quantified :: ghost_fn((fn(s : Slice(i32)) -> bool)(
   forall_val((i : usize), (j : usize),
     (((i < j) && (j < s.len())) ==> (s(i) <= s(j)))
   )
@@ -672,7 +697,7 @@ result on the resuming path; the unwinding path is free.
 ### Async
 
 `Future(T, E)` with `pragma(Pragma.Verify)` is verified per-state in the
-async state machine the codegen already generates (`src/codegen/effects/`).
+async state machine the codegen already generates (`src/codegen/async/`).
 Each await point is a yield in VC generation, with the state-machine
 variables forming the verifier's "frame". This reuses
 `ASYNC_SM_VARIABLE_OPTIMIZATION.md`'s machinery directly.
@@ -785,8 +810,8 @@ the LLM to context-switch dialects mid-function. The plan deliberately
 keeps spec syntax identical to runtime Yo: `requires(...)` is a normal
 builtin call, predicates are normal `bool`-returning functions,
 quantifiers are calls. The only new vocabulary is the `forall_val` /
-`exists_val` / `==>` / `ghost(...)` set, and those are gated to ghost
-context so they don't add ambient noise.
+`exists_val` / `==>` / `ghost(...)` / `ghost_fn(...)` set, and those are
+gated to ghost context so they don't add ambient noise.
 
 ### Token efficiency is a real concern
 
@@ -876,16 +901,16 @@ gate:
 
 ### P0 — Required before Phase 1 (pure-function verification)
 
-| Prerequisite                                 | Why                                                                                                                                                                                                                       | Approximate scope                                                                                                                                                              |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Path-condition tracking in the evaluator** | `UnknownValue` is flat today; verification needs a `Φ` that accumulates across `cond`/`match` branches                                                                                                                    | Largest single piece. Natural extension of CTFE machinery                                                                                                                      |
-| **Purity gate for contract bodies**          | Contracts must not perform I/O, allocate, or `unwind`                                                                                                                                                                     | Reuses effect signature — contract is well-formed iff its effect bundle is empty                                                                                               |
-| **Quantifier/implication builtins**          | `forall_val((bind), ..., P)`, `exists_val(...)`, `==>`                                                                                                                                                                    | Parsing is just builtin calls; evaluator must treat them as logical, not computational. Well-formed only inside ghost context (parallels `unwind(...)` inside `ctl(...) -> R`) |
-| **`ghost(...)` extended to fn values**       | Marks a function as ghost-only: erased at codegen, callable only from contract context. Lets ghost-only specs return ordinary `bool` (not `comptime(bool)`), satisfying the comptime-return-requires-comptime-params rule | Small extension of the existing `ghost(name := expr)` binding form                                                                                                             |
-| **`result` magic identifier**                | Refers to the function's return value inside `ensures(...)`                                                                                                                                                               | Scope-restricted to `ensures(...)` bodies                                                                                                                                      |
-| **`old(...)` snapshot**                      | Refers to a parameter's entry value inside `ensures(...)`                                                                                                                                                                 | Evaluator + codegen support for ghost copies                                                                                                                                   |
-| **Equality semantics for `object` types**    | Pin down identity vs structural `==`                                                                                                                                                                                      | Mostly a decision, not code. But blocks reasoning about `object`-valued contracts                                                                                              |
-| **Subtyping rule `Refine(T, p) <: T`**       | Refinement erasure direction; the reverse is what costs proof obligations                                                                                                                                                 | Single rule in `src/types/compatibility.ts`                                                                                                                                    |
+| Prerequisite                                 | Why                                                                                                                                                                                                                                                                       | Approximate scope                                                                                                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Path-condition tracking in the evaluator** | `UnknownValue` is flat today; verification needs a `Φ` that accumulates across `cond`/`match` branches                                                                                                                                                                    | Largest single piece. Natural extension of CTFE machinery                                                                                                                      |
+| **Purity gate for contract bodies**          | Contracts must not perform I/O, allocate, or `unwind`                                                                                                                                                                                                                     | Reuses effect signature — contract is well-formed iff its effect bundle is empty                                                                                               |
+| **Quantifier/implication builtins**          | `forall_val((bind), ..., P)`, `exists_val(...)`, `==>`                                                                                                                                                                                                                    | Parsing is just builtin calls; evaluator must treat them as logical, not computational. Well-formed only inside ghost context (parallels `unwind(...)` inside `ctl(...) -> R`) |
+| **`ghost_fn(...)` as a distinct builtin**    | Marks a function as ghost-only: erased at codegen, callable only from contract context. Lets ghost-only specs return ordinary `bool` (not `comptime(bool)`), satisfying the comptime-return-requires-comptime-params rule. Split from `ghost(name := expr)` per audit §A3 | New builtin paralleling `ghost(...)` — minimal evaluator wiring                                                                                                                |
+| **`result` magic identifier**                | Refers to the function's return value inside `ensures(...)`                                                                                                                                                                                                               | Scope-restricted to `ensures(...)` bodies                                                                                                                                      |
+| **`old(...)` snapshot**                      | Refers to a parameter's entry value inside `ensures(...)`                                                                                                                                                                                                                 | Evaluator + codegen support for ghost copies                                                                                                                                   |
+| **Equality semantics for `object` types**    | Pin down identity vs structural `==`                                                                                                                                                                                                                                      | Mostly a decision, not code. But blocks reasoning about `object`-valued contracts                                                                                              |
+| **Subtyping rule `Refine(T, p) <: T`**       | Refinement erasure direction; the reverse is what costs proof obligations                                                                                                                                                                                                 | Single rule in `src/types/compatibility.ts`                                                                                                                                    |
 
 ### P3 — Required before Phase 3 (loops, mutable state)
 
@@ -952,11 +977,14 @@ The rationale:
   no-op (warns "verify mode not implemented"). This gives LLM authors
   the spec vocabulary, gives runtime assertion checking for free, and
   creates **no commitment** to building the verifier itself.
-- Phase 1+ requires 6–12 person-months of focused work (VIR, Z3
-  subprocess, path-condition tracking, refinement subtyping, all P0
-  prerequisites). At Yo 0.1.x — with bootstrap, build system,
-  parallelism, WASM, and stdlib expansion all competing for the same
-  budget — this is a poor allocation.
+- Phase 1+ requires 13–19 person-months of focused work — revised
+  upward from the original "6–12" estimate per audit §C1. Breakdown:
+  path-condition tracking (4–6 mo), VIR design+construction (2–3 mo),
+  Z3 SMT-LIB 2 encoder (2–3 mo), `result`/`old(...)` evaluator support
+  (1–2 mo), `Refine` subtyping (1–2 mo), contract gathering (1 mo),
+  integration+testing (2 mo). At Yo 0.1.x — with bootstrap, build
+  system, parallelism, WASM, and stdlib expansion all competing for the
+  same budget — this is a poor allocation.
 - Whether to proceed to Phase 1 should be a separate decision made
   after observing: (a) does the Phase 0 surface get organic adoption?
   (b) has Yo's overall shape stabilised enough that a verifier built on
@@ -977,23 +1005,59 @@ the verifier, this is how" rather than "we are building the verifier."
 
 ### Phase 0 — Surface lock-in (no verification yet)
 
-- Parse `requires(...)`, `ensures(...)`, `invariant(...)`, `ghost(...)`.
+- Register `requires`, `ensures`, `invariant`, `ghost`, `ghost_fn` in
+  `BuiltinFunctions` (`src/expr.ts:742`). Parser changes are minimal —
+  these all parse as normal `FnCallExpr` nodes today.
+- **Function-type signature extraction**: extend the four-pass parameter
+  processing in `src/evaluator/types/function.ts` to recognize
+  `requires(...)` and `ensures(...)` as contract clauses (not regular
+  parameters). Canonical order: `forall(...), ...params..., where(...),
+requires(...), ensures(...)`. Multiple `requires(...)` or `ensures(...)`
+  clauses in the same signature is a syntax error (single-call rule).
+- **Trait-level contract syntax**: ensure trait declarations can carry
+  `requires`/`ensures` clauses in their method signatures (the same
+  signature-extraction pass works for trait fields, since trait fields
+  are function types). Phase 0 only parses these; trait-level contract
+  _semantics_ (how impls inherit/override them) is deferred to Phase 4.
+  This addresses audit §B3 as a syntax commitment without committing to
+  verification semantics.
+- **Loop invariant placement enforcement**: at function-body evaluation,
+  if `invariant(...)` appears in a `while` body, require it to be the
+  first non-comment statement; flag any other placement as a syntax
+  error.
 - Lower contracts to `assert(...)` in default mode (so contract-bearing
-  code still runs).
+  code still runs). Codegen modification in
+  `src/codegen/functions/generation.ts`: emit `assert` calls at function
+  entry for `requires`, at each `return` for `ensures` (with `result`
+  bound to the return value).
 - Add `pragma(Pragma.Verify);`, `pragma(Pragma.NoContracts);`,
-  `pragma(Pragma.VerifyOrAssert);` — initially the latter two warn
-  "verify mode not implemented" but parse cleanly.
-- Add `result` and `old(...)` keywords; restrict their scope to
-  `ensures(...)` bodies.
+  `pragma(Pragma.VerifyOrAssert);` to `PragmaKind` in
+  `src/evaluator/memory-safety.ts`. Phase 0 emits a warning "verify mode
+  not implemented" for the latter two; `Pragma.NoContracts` works fully
+  (erases contracts at codegen).
+- Reserve `result` as a keyword (currently a valid identifier — audit a
+  search of the repo for existing uses and rename if needed). Restrict
+  its scope to `ensures(...)` clause bodies. `old(...)` is added as a
+  new builtin call, scope-restricted similarly.
 - Add `Refine`, `NonZero`, `Bounded` as comptime type constructors.
-  Construction in `verify`-less files just acts as a newtype.
-- Ship `std/spec/` skeleton.
-- New tests under `tests/spec/` — assert that contract syntax parses,
-  contracts run at runtime in default mode.
+  Construction in `verify`-less files just acts as a newtype (predicate
+  ignored).
+- Ship `std/spec/` skeleton — `refine.yo`, `numeric.yo` only. The full
+  layout described in [Standard library spec module](#standard-library-spec-module--stdspec)
+  lands incrementally as later phases need it.
+- New tests under `tests/spec/`:
+  - `contracts_parse.test.yo` — every contract example in this doc parses.
+  - `contracts_runtime.test.yo` — contracts become asserts in default mode.
+  - `contracts_reject.test.yo` — `comptime_expect_error` tests for:
+    duplicate `requires(...)` clauses, `invariant(...)` not first in loop
+    body, `ghost(f)` where `f` is a function value (must use `ghost_fn`),
+    `forall_val(...)` outside ghost context.
 
 **Exit criteria**: every example in this document parses. Existing tests
 all pass. New `tests/spec/contracts_runtime.test.yo` confirms
-`requires/ensures` become asserts in default mode.
+`requires/ensures` become asserts in default mode. `Pragma.Verify` parses
+and warns. Negative tests in `contracts_reject.test.yo` all reject as
+expected.
 
 ### Phase 1 — VIR + Z3, pure functions only
 
@@ -1073,6 +1137,439 @@ variant finds the bug.
 
 ---
 
+## Audit Notes & Open Concerns
+
+> **Added 2026-05-26.** This section captures concerns raised during
+> audit of the plan against the current codebase (`src/evaluator/`,
+> `src/codegen/`, `src/types/`, `src/parser.ts`, `src/expr.ts`).
+
+### Resolutions
+
+Audit findings folded into the rest of the document on 2026-05-26:
+
+| Finding | Status   | Where in doc                                                                                         |
+| ------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| §A2     | Resolved | Loop `invariant(...)` must be first non-comment statement of loop body; evaluator enforces.          |
+| §A3     | Resolved | Split `ghost(name := expr)` (binding) from `ghost_fn(fn_value)` (ghost function).                    |
+| §B3     | Resolved | Phase 0 lands trait-level contract _syntax_ (parsing only); semantics deferred to Phase 4.           |
+| §C2     | Resolved | "60% of a VC generator" reframed accurately at end of "Why Yo is unusually well-positioned" section. |
+| §D1-D5  | Resolved | Implementation pointers folded into the Phase 0 description (file locations, registration steps).    |
+| §F1     | Resolved | Worked-example explanation corrected: CTFE provides the length, not slice-flowability.               |
+| §F2     | Resolved | `src/codegen/effects/` → `src/codegen/async/` corrected.                                             |
+
+Findings still treated as open (tracked in Phase 1+ scoping):
+
+| Finding | Status   | Reasoning                                                                                                |
+| ------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| §A1     | Open     | Implementation-detail concerns about parameter-processing order; resolved during Phase 1 implementation. |
+| §A4     | Open     | `result` scope/forward-ref questions — resolved when `ensures(...)` evaluation lands in Phase 1.         |
+| §A5     | Open     | Ghost-context flag design — Phase 1 implementation detail.                                               |
+| §B1     | Open     | Path-condition tracking — the core Phase 1 work; estimate revised below.                                 |
+| §B2     | Open     | VIR underspecified — to be split out into `plans/FORMAL_VERIFICATION_VIR.md` before Phase 1 begins.      |
+| §B4     | Open     | Refine subtyping requires SMT for non-literal cases — Phase 1/2 design.                                  |
+| §B5     | Open     | Capability lattice is new infrastructure — Phase 4 scope.                                                |
+| §B6     | Open     | CBMC/KLEE annotation mapping — Phase 5 scope.                                                            |
+| §C1     | Accepted | Phase 1 estimate revised: 13-19 person-months (was "6-12"). Reflected in Recommended Near-Term Scope.    |
+| §E1-E5  | Open     | Design questions to revisit per phase.                                                                   |
+
+The Phase 1 estimate has been adjusted upward to reflect §C1; the
+recommended near-term commitment remains Phase 0 only.
+
+### A. Syntactic & Semantic Concerns
+
+#### A1. `requires`/`ensures` placement in function signatures
+
+The plan puts `requires((y != i32(0)))` and `ensures((result >= i32(0)))`
+inside the function type signature as if they are regular parameters. This
+is consistent with `where(T <: Copy)` already living in the signature, but
+creates implementation challenges:
+
+- **Parsing**: In Yo, `requires(expr)` is indistinguishable from any other
+  builtin call at parse time. The parser produces a `FnCallExpr` with
+  `func` being the identifier `requires`. The evaluator must later
+  recognize this as a contract rather than a regular parameter. The same
+  parser-level ambiguity affects `ensures` and `invariant`.
+- **Ordering within the signature**: The current function parameter
+  processing pipeline in `src/evaluator/types/function.ts` has four passes:
+  (1) forall, (2) pre-scan comptime, (3) where clause, (4) regular
+  parameters. `requires`/`ensures` would need to be recognized in one of
+  these passes and extracted before the regular parameter processing
+  tries to treat them as runtime parameters.
+- **Syntactic position**: Should `requires` come before or after
+  `where(...)`? Before or after runtime parameters? The existing examples
+  in the plan are inconsistent about this.
+- **Duplicate detection**: The plan says "multiple `requires(...)` clauses
+  are a syntax error" — this is an evaluator-level check that must be
+  added to `evaluateFunctionType`.
+
+**Recommendation**: Define a canonical order: `forall(...), ...params...,
+where(...), requires(...), ensures(...)`. The evaluator should extract
+`requires` and `ensures` by name (checking if the parameter label matches
+the builtin name) before processing parameters.
+
+#### A2. `invariant(...)` placement in loop bodies
+
+The plan shows `invariant(...)` as a statement inside the loop body:
+
+```rust
+while(runtime((i < n)), {
+  invariant((i >= i32(0)) && (i <= n), ...);
+  i = (i + i32(1));
+  acc = (acc + i);
+});
+```
+
+Concerns:
+
+- Syntactically, this is a regular function call that evaluates to `()`,
+  so it's a legal Yo expression. But semantically, `invariant` could appear
+  **anywhere** in the body (including after the first statement), which
+  is wrong — loop invariants must hold at the loop head.
+- Dafny, F\*, and Why3 all place invariants **at the loop keyword** (before
+  the body), not inside it. The plan's approach conflates the invariant
+  with the body statements.
+- If `invariant(...)` appears inside a `cond` branch within the loop, what
+  does it mean? The plan doesn't address this.
+
+**Recommendation**: Consider moving `invariant(...)` to a clause on
+`while(...)` itself: `while(runtime(cond), body, invariant(P1, P2))`.
+This is syntactically cleaner and prevents misplacement. Alternatively,
+require that `invariant(...)` be the **first** expression in the loop
+body and enforce this at evaluation time.
+
+#### A3. `ghost(...)` ambiguity — binding vs function wrapping
+
+The plan uses `ghost(...)` for two distinct purposes:
+
+1. Ghost bindings: `ghost(orig_sum := ((a + b) + c));`
+2. Ghost functions: `permutation :: ghost((fn(...) -> bool)(...));`
+
+The evaluator would need to distinguish these forms:
+
+- The binding form looks like an assignment `name := value` inside a
+  function call.
+- The function-wrapping form wraps a `FunctionValue`.
+- If a user writes `ghost(f)` where `f` is a runtime function, is that a
+  ghost binding of `f` or a ghost-wrapping of `f`? Ambiguous.
+
+**Recommendation**: Use distinct syntax. Keep `ghost(name := expr)` for
+bindings. Use a separate marker for ghost functions — e.g.,
+`ghost_fn((fn(...) -> bool)(...))` or a pragma-like annotation.
+
+#### A4. `result` magic identifier scope
+
+The plan introduces `result` as a magic identifier visible only inside
+`ensures(...)` bodies. This requires:
+
+- Modifying variable resolution in the evaluator (`src/evaluator/calls/helper.ts`
+  and `src/env.ts`) to recognize `result` as a synthetic binding in a
+  restricted scope.
+- The evaluator must know the function's return type inside `ensures(...)`
+  before the body is evaluated. Since the return type is parsed as part of
+  the function type (`-> T`), this is available, but the `ensures(...)`
+  bodies are parsed before the return type — creating a forward-reference
+  problem at the expression level.
+
+**Question**: Can `result` appear inside a `Refine` predicate's lambda?
+E.g., `fn(x : i32, ensures(SomeRefine(result).property)) -> i32`. This
+seems reasonable but adds scope complexity.
+
+#### A5. Quantifier builtins and ghost context enforcement
+
+The plan introduces `forall_val`, `exists_val`, and `==>` as builtin calls
+that are well-formed only inside ghost context (contract bodies, ghost
+function bodies, `ghost(...)` bindings). This requires:
+
+- A new evaluator context flag (`isGhostContext`) parallel to the existing
+  `isCompileTimeOnly` flag.
+- Detection: Is `ensures(...)` evaluation ghost context? Is a `cond` inside
+  an `ensures(...)` ghost context?
+- **Interaction with `comptime`**: `forall_val` / `exists_val` are not
+  `comptime` functions (they reason about runtime values). But they are
+  also not runtime functions (they have no C representation). This creates
+  a new category: "ghost-only but not comptime-only."
+
+### B. Architectural Concerns
+
+#### B1. Path-condition tracking is a fundamentally new evaluator capability
+
+The plan (line 68) says "Yo's compile-time evaluator is already 60% of a
+verification condition generator." This overstates the evaluator's current
+capabilities. **The evaluator has zero path-condition infrastructure.**
+
+- `UnknownValue` is a placeholder meaning "compile-time type is known but
+  value is not." It carries zero symbolic information — no constraints,
+  no SSA variable, no relationship to other unknowns.
+- The `isExecuting` flag toggles between "evaluate concretely" and
+  "analyze types only." In analysis mode, branches are merged via
+  `mergeAndCheckEnvs` for type compatibility only — there is no "in this
+  branch, we know condition X is true" propagation.
+- There is no SSA construction, no term rewriting for `old(...)`, no
+  symbolic heap model.
+
+Building path-condition tracking requires:
+
+1. Extended `UnknownValue` with constraint sets.
+2. The evaluator threading constraints through `cond`/`match` branches.
+3. A fresh representation for symbolic heap state.
+4. SSA conversion (or working in a form the SMT backend accepts).
+
+This is not "the other 40%" — it is closer to building a symbolic executor
+from scratch on top of the evaluator. The existing flowability pass and
+CTFE analysis are entirely concrete-value analyses; they do not generalize
+to symbolic reasoning.
+
+**Revised estimate**: Path-condition tracking alone is 4–6 person-months
+of focused work. Combined with VIR construction, VC generation, and Z3
+encoding, Phase 1 is more plausibly 9–15 person-months total.
+
+#### B2. VIR (Verification IR) is critically underspecified
+
+The plan dedicates 20 lines to VIR (lines 342–361) but this is the
+architectural centerpiece. Critical open design questions:
+
+- **SSA vs direct AST lowering**: Does the evaluator produce VIR directly
+  (as it evaluates), or is there a post-processing pass that lowers the
+  evaluated AST to VIR? The plan says "Walk the function body in SSA
+  order, building a path condition Φ" — but the evaluator doesn't produce
+  SSA.
+- **Side-effect modeling**: How are RC operations, `consume(...)`, and
+  `ref` parameter writes modeled in VIR? These are implicit in today's
+  evaluator.
+- **Heap model**: The plan says objects are "opaque references with a heap
+  model." What heap model? Separation logic? Burstall-Bornat? A flat array
+  model?
+- **Function calls**: Are callee functions inlined into the VIR, or modeled
+  via their contracts (modular verification)?
+- **Emergency conditions**: How are `panic(...)`, `unwind(...)`, and
+  assertion failures modeled? As VCs or as proof obligations?
+
+**Recommendation**: The VIR design should be written up as a separate
+document (`plans/FORMAL_VERIFICATION_VIR.md`) before Phase 1 begins.
+
+#### B3. Trait-level contracts — a fundamental open problem
+
+The plan correctly identifies this as "syntax is undecided" (Open Question
+2), but the problem is deeper than syntax.
+
+Yo's traits currently define only **method signatures** (function types
+without bodies). For a verifier to use trait-level contracts, every trait
+field would need `requires`/`ensures` clauses embedded in its function
+type:
+
+```rust
+Iterator :: trait(
+  Item : Type,
+  next : (fn(ref(self) : Self, requires(self.has_next()),
+              ensures(match(result, .Some(v) => ..., .None => ...)))
+          -> Option(Self.Item))
+);
+```
+
+But trait fields with generic `forall` parameters make this recursive:
+`map` takes `forall(B)` and `f : Impl(Fn(A) -> B)`. The trait-level
+contract for `map` must quantify over `B` and `f`, which means the
+contract itself is generic.
+
+Furthermore, Yo's generic impl matching (`src/evaluator/values/impl.ts`)
+specializes trait methods per concrete type. If the verifier uses the
+generic trait contract at call sites, it must reason about the trait
+contract without knowing which impl will execute. If it inlines and
+verifies against each concrete impl, the work is multiplied by the number
+of impls (potentially thousands for a common trait like `Index`).
+
+**Recommendation**: This should be P0, not deferred. Until trait-level
+contract syntax and verification semantics are designed, the plan cannot
+meaningfully verify any generic function that calls trait methods —
+which is most useful functions in `std/`.
+
+#### B4. Refinement type (`Refine(T, p)`) implementation complexity
+
+The plan's `Refine` design implies changes across multiple subsystems:
+
+- **Type synthesis** (`src/evaluator/types/`): `Refine(T, p)` must be
+  recognized as a type constructor that wraps `T`. The type synthesis
+  pass must unwrap `Refine(T, p)` to `T` for codegen while preserving the
+  predicate for verification.
+- **Subtyping** (`src/types/compatibility.ts`): `Refine(T, p) <: T` is
+  one-way. But what about `Refine(T, p) <: Refine(T, q)`? This requires
+  proving `p ⇒ q`, which is a VC — not a simple compatibility check.
+- **Predicate composition**: `Refine(Refine(i32, p), q) ≡ Refine(i32, λx. p(x) ∧ q(x))`.
+  This requires synthesizing a new lambda at compile time, which is not
+  a trivial operation.
+- **Predicate evaluation**: The plan says "predicate evaluated at comptime
+  by the existing CTFE engine." But most refinement predicates involve
+  runtime values (e.g., `(x >= lo) && (x <= hi)`). CTFE can only check
+  compile-time-known values. For runtime values, the predicate must go
+  to the SMT solver — meaning the evaluator's `UnknownValue` must carry
+  enough symbolic information to encode the predicate.
+
+**Question**: Can `Refine` predicates reference mutable state? If `s` is
+a `ref(s) : Slice(i32)` and the predicate is `(s(0) > i32(0))`, the
+verifier must know that `s(0)` is unchanged between calls.
+
+#### B5. Effect capabilities — verification vs current implementation
+
+The plan describes a capability lattice with ranks and taint levels. The
+current algebraic effects implementation has none of this infrastructure:
+
+- Effect parameters are just regular function parameters typed as
+  `ctl(...) -> R`. There is no "effect rank" metadata.
+- The evaluator doesn't have a notion of `Io` being "more powerful" than
+  `Allocator` — these are just nominal types.
+- Taint tracking (`Untrusted` → `Trusted`) requires information flow
+  analysis, which is orthogonal to value-level VC generation.
+
+The capability enforcement described in the plan would require building a
+separate analysis pass (information flow / taint) on top of the verifier.
+This is substantial new infrastructure and should be called out as such
+in the Phase 4 estimate.
+
+#### B6. CBMC/KLEE/SeaHorn annotation mapping is non-trivial
+
+The plan says "Yo's codegen emits annotations the chosen backend
+understands" but the mapping is not 1:1:
+
+- `requires(P)` at caller side → `__CPROVER_assume(P)` before the call
+- `requires(P)` at callee entry → `__CPROVER_assume(P)`
+- `ensures(P)` at callee return → `__CPROVER_assert(P)`
+- `invariant(P)` → `__CPROVER_assert(P)` at loop head AND loop exit
+- `assert(P)` → `__CPROVER_assert(P)`
+
+Each of these annotations must be placed at a specific point in the
+generated C code, which requires the codegen to be aware of contract
+sites. Today, the codegen has no contract concept — this would need
+codegen modifications.
+
+### C. Scope & Estimation Concerns
+
+#### C1. Phase 1 scope is substantially underestimated
+
+The plan estimates Phase 1 as "6-12 person-months" but this appears to
+account for path-condition tracking, VIR, Z3 integration, and all P0
+prerequisites together. Given the complexity analysis above:
+
+- Path-condition tracking: 4–6 months
+- VIR design + construction: 2–3 months
+- Z3 SMT-LIB 2 encoder: 2–3 months
+- `result`/`old(...)` evaluator support: 1–2 months
+- `Refine` subtyping: 1–2 months
+- Contract gathering from signatures: 1 month
+- Integration + testing: 2 months
+
+Total: 13–19 person-months for Phase 1 alone. The upper end of the
+original estimate (12 months) is plausible as a minimum, but 18–24 months
+is more realistic for a production-quality implementation.
+
+#### C2. The "60% of a VC generator" framing is misleading
+
+The claim that the evaluator is "already 60% of a verification condition
+generator" conflates type-checking with verification. The evaluator can:
+
+- Dispatch function calls by name
+- Handle `cond`/`match` branching with environment merging
+- Track `UnknownValue` for type-level reasoning
+- Handle control flow (return, unwind, break, continue)
+
+These are standard compiler infrastructure that every typed language has.
+A VC generator additionally needs: symbolic state, path conditions, loop
+invariant reasoning, contract substitution at call sites, and SMT encoding.
+The evaluator provides none of these. A more accurate framing: the
+evaluator provides the **AST traversal and type environment infrastructure**
+that a VC generator hooks into, but not the VC generation logic itself.
+
+### D. Phase 0 Implementation Notes
+
+Phase 0 is the only near-term commitment and is well-scoped. Specific
+things to watch:
+
+1. **Builtin function detection**: When the parser encounters `requires(x)`,
+   `ensures(x)`, `invariant(x)`, or `ghost(x)`, it produces normal
+   `FnCallExpr` nodes. These must be registered in `BuiltinFunctions` in
+   `src/expr.ts` so the evaluator can dispatch them.
+
+2. **Assert lowering in codegen**: In `runtime` mode, `requires(P)` at
+   function entry lowers to `assert(P, "requires failed: ...")`. The
+   codegen in `src/codegen/functions/generation.ts` needs to emit these
+   assertions at the start of each function body.
+
+3. **`pragma(Pragma.Verify)`**: Add new `PragmaKind` entries (`Verify`,
+   `VerifyOrAssert`, `NoContracts`) to `src/evaluator/memory-safety.ts`
+   alongside the existing AllowUnsafe. Phase 0 registers them but does
+   nothing — emits a warning.
+
+4. **`result` and `old(...)` keywords**: These need to be reserved in the
+   parser to prevent their use as variable names. `result` is particularly
+   important — it's currently a valid identifier and may appear in existing
+   code.
+
+5. **`ghost(...)` as a new builtin**: The evaluator must handle both the
+   binding form and the function-wrapping form. For Phase 0 (no verification),
+   `ghost(...)` can be a no-op that evaluates its body, identical to
+   `begin(...)`.
+
+### E. Design-Specific Questions
+
+#### E1. What are the semantics of unit-returning contracts?
+
+If a function returns `unit`, `result` inside `ensures(...)` is `()`.
+What is an `ensures(...)` on a unit-returning function useful for?
+The plan's examples all use non-unit return types.
+
+#### E2. How do contracts interact with `forall` parameters?
+
+Consider:
+
+```rust
+f :: (fn(forall(T : Type), x : T, requires(/* can we constrain T? */)) -> T)(body);
+```
+
+Can `requires(...)` reference `forall`-quantified type variables? The plan
+doesn't address this. `T` is a `Type` value, so `requires((T == i32))` is
+a type-equality check that the compiler can statically discharge.
+
+#### E3. Can contracts reference `comptime` parameters?
+
+A `comptime(N : usize)` parameter is compile-time only. Can `requires(...)`
+reference it? Yes — it's compile-time evaluable. But `ensures(...)`
+referencing a comptime parameter is also fine because `ensures(...)` runs
+at verification time, which is compile time.
+
+#### E4. How does `Refine(T, p).check(x)` handle predicates with non-trivial runtime cost?
+
+The `.check(...)` method returns `Option(Refine(T, p))`. For expensive
+predicates (e.g., `sorted(arr)` on a million-element array), this incurs
+real runtime cost in `verify+` mode. Should `.check(...)` be a noexcept
+operation, or can it panic on OOM?
+
+#### E5. What happens to contracts in generic function specialization?
+
+When `head :: (fn(forall(T : Type), s : NonEmpty(Slice(T))) -> T)` is
+specialized to `head :: (fn(s : NonEmpty(Slice(i32))) -> i32)`, the
+contracts must be carried through specialization. The plan doesn't
+discuss how contracts survive monomorphization in `src/evaluator/calls/helper.ts`.
+
+### F. Stale Claims in the Plan
+
+#### F1. Slice-flowability doesn't track `len()` values
+
+Lines 1170–1172 claim "the existing slice-flowability machinery already
+knows `arr.as_slice().len() == arr.len() == 3`." This is incorrect.
+Slice flowability (`src/evaluator/types/flowability.ts`) tracks **pointer
+provenance** — whether a slice's data pointer outlives the current frame.
+It does NOT track or reason about the numerical length of a slice.
+Proving `slice.len() > 0` from a length-3 array literal would require
+the CTFE engine (which knows `arr.len() == 3`) combined with a new form
+of value-level reasoning that doesn't exist today.
+
+#### F2. `src/codegen/effects/` does not exist
+
+Line 676 references `src/codegen/effects/` as the location of async state
+machine codegen. The actual directory is `src/codegen/async/` — there is
+no `effects/` subdirectory.
+
+---
+
 ## Open questions
 
 1. **`old(...)` in `ensures` for object types.** Object types have
@@ -1084,11 +1581,16 @@ variant finds the bug.
    deferred to Phase 3.
 
 2. **Trait dispatch and verification.** When `f(self : T, where(T <: Foo))`
-   calls `self.method()`, the verifier currently has to verify against
-   the trait's specification, not any particular impl. This requires
-   `Foo` declarations to carry contracts at the trait level. The
-   alternative is to verify against every impl, exploding work. The plan
-   leans toward trait-level contracts but the syntax is undecided.
+   calls `self.method()`, the verifier must verify against the trait's
+   specification, not any particular impl. Trait fields therefore need
+   to carry `requires`/`ensures` clauses at the trait declaration site
+   (the alternative — verifying against every impl — multiplies work by
+   impl count). **Syntax decided** (Phase 0 lands trait-level contract
+   parsing; same signature-extraction pass as free functions). **Semantics
+   open** for Phase 4: how impls inherit or override trait-level
+   contracts, how generic `forall` quantification in trait method types
+   composes with contracts, how the verifier picks trait contract vs
+   impl-specific contract at call sites. See audit §B3.
 
 3. **Recursion termination.** `recur(...)` is the only way to write
    recursion in Yo. The verifier needs decreasing-measure annotations
@@ -1120,6 +1622,21 @@ variant finds the bug.
    responsibility of `src/version-cache.ts` analogues — initial plan is
    to bundle Z3 as a downloadable dependency in `~/.cache/yo/solvers/`
    the same way Yo versions are cached today.
+
+8. **Interaction with `consume(...)` and ownership.** `consume(p.* = v)`
+   performs destructive moves on unsafe pointers. How does the verifier
+   reason about moved-from values in verified functions? The plan does
+   not address ownership semantics in the verification context.
+
+9. **`break`/`continue` in verified loops.** A `break` inside a loop with
+   `invariant(...)` is well-defined (invariant holds at break point), but
+   `continue` requires the invariant to hold after the jump to the loop
+   head — the verifier must check this.
+
+10. **`asm(...)` blocks in verified functions.** Can a function with
+    contracts contain inline assembly? If so, the verifier cannot reason
+    about the assembler's effects and must either forbid `asm(...)` in
+    verified functions or treat it as an opaque assumption.
 
 ---
 
@@ -1165,11 +1682,14 @@ main :: (fn() -> i32)({
 
 What the verifier does in this example:
 
-- The `NonEmpty(Slice(i32))(slice)` construction triggers a VC:
-  prove `(slice.len() > usize(0))` from the context that `slice` was
-  derived from a length-3 array literal. The existing slice-flowability
-  machinery already knows `arr.as_slice().len() == arr.len() == 3` — the
-  VC discharges by partial evaluation, no SMT call needed.
+- The `NonEmpty(Slice(i32))(slice)` construction triggers a VC: prove
+  `(slice.len() > usize(0))`. Because `slice` was derived from a literal
+  array of compile-time-known length 3, CTFE evaluates `arr.len()` and
+  `arr.as_slice().len()` to the constant `usize(3)`; the VC `3 > 0`
+  discharges by literal evaluation, no SMT call needed. (Note: this
+  relies on CTFE-level slice-length propagation through `as_slice()`,
+  which would need to be added — slice-flowability tracks pointer
+  _provenance_, not length. See audit §F1.)
 - `head(ne)` has no proof obligation at the call site — `ne`'s type
   already carries `s.len() > 0`, which discharges the implicit `requires`.
 - `s(usize(0))` inside `head` would normally generate a bounds VC
