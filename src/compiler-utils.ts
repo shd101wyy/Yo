@@ -46,7 +46,7 @@ export function getCompilerInfo(compiler: string): CompilerInfo {
  */
 export interface SanitizerOptions {
   /** The type of sanitizer to enable */
-  sanitize: "address" | "leak";
+  sanitize: "address" | "leak" | "thread";
   /** Compiler information */
   compilerInfo: CompilerInfo;
 }
@@ -203,6 +203,25 @@ export function getSanitizerFlags(options: SanitizerOptions): SanitizerFlags {
       return {
         flags: ["-fsanitize=leak"],
         info: "LeakSanitizer enabled (leak detection only)",
+      };
+    }
+  } else if (sanitize === "thread") {
+    if (isMSVC) {
+      return {
+        flags: [],
+        warning:
+          "ThreadSanitizer is not supported by MSVC. Use Linux/macOS with Clang for TSan support.",
+      };
+    } else if (isGccOnWindows || isClangOnWindows) {
+      return {
+        flags: [],
+        warning:
+          "ThreadSanitizer is not supported on Windows. Use Linux/macOS with Clang for TSan support.",
+      };
+    } else {
+      return {
+        flags: ["-fsanitize=thread", "-fno-omit-frame-pointer"],
+        info: "ThreadSanitizer enabled (data-race detection)",
       };
     }
   }

@@ -9,6 +9,7 @@ import {
 } from "../../expr";
 import { createStructType } from "../../types/creators";
 import { typeToString } from "../../types/utils";
+import { isIsoType } from "../../types/guards";
 import { createTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -58,10 +59,17 @@ export function evaluateStructType({
   );
   addRcFunctionSignaturesToStructType({ structType, env, context });
 
-  // Set the definedInModulePath for orphan rule checks
-  if (context.currentModulePath) {
-    structType.definedInModulePath = context.currentModulePath;
-    structType.trait.definedInModulePath = context.currentModulePath;
+  // Set the definedInModulePath for orphan rule checks.
+  // Prefer the lexical token's modulePath (where the `struct(...)` expression
+  // appears in source) over context.currentModulePath (which is the caller of
+  // a generic-type constructor like `ArrayList(i32)`). Otherwise instantiating
+  // a generic in a user file would record the *user* file as the defining
+  // module, breaking Phase P field-visibility checks that fire inside the
+  // generic's own methods (e.g., array_list.yo's `len()` reading `self._length`).
+  const lexicalModulePath = expr.token.modulePath || context.currentModulePath;
+  if (lexicalModulePath) {
+    structType.definedInModulePath = lexicalModulePath;
+    structType.trait.definedInModulePath = lexicalModulePath;
   }
 
   // For atomic objects, register Send derivation in-progress BEFORE evaluating fields.
@@ -100,6 +108,19 @@ export function evaluateStructType({
 
       fields.push(field);
       env = nextEnv;
+    }
+  }
+
+  // Phase H: Ban Arc(Iso(T)) — the `*` field of an atomic object
+  // wrapping Iso directly. Arc(Iso) is contradictory: Arc shares, Iso is
+  // unique. Transitive nesting (Arc(MyStruct(_inner: Iso(T)))) stays legal.
+  if (isAtomicRc) {
+    const derefField = fields.find((f) => f.label === "*");
+    if (derefField && isIsoType(derefField.type)) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`,
+      });
     }
   }
 

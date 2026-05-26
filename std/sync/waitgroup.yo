@@ -1,4 +1,5 @@
 //! Wait for a group of tasks to complete, similar to Go's `sync.WaitGroup`.
+pragma(Pragma.AllowUnsafe);
 //!
 //! # Example
 //!
@@ -20,12 +21,18 @@
 //! ```
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
+{ AtomicI32, MemoryOrder } :: import("./atomic");
 /// Synchronization primitive that blocks until a counter reaches zero.
 /// Uses atomic reference counting for safe cross-thread sharing.
+///
+/// The internal counter is an atomic so `count()` can read without
+/// acquiring the mutex (matches Rust's mpsc query-method idiom). Writes
+/// to the counter still happen under the mutex so the `_count == 0`
+/// observation that triggers `broadcast()` is serialized with `wait()`.
 WaitGroup :: atomic(
   object(
-    _count : i32,
-    _mutex : Mutex,
+    _count : AtomicI32,
+    _mutex : Mutex(bool),
     _cv : Cond
   )
 );
@@ -34,24 +41,26 @@ impl(
   // Create a new WaitGroup with count 0.
   new : (fn() -> Self)(
     Self(
-      _count : i32(0),
-      _mutex : Mutex.new(),
+      _count : AtomicI32(i32(0)),
+      _mutex : Mutex(bool).new(false),
       _cv : Cond.new()
     )
   ),
   // Add delta to the counter (can be negative).
   // If the counter becomes zero, all waiters are woken.
   add : (fn(self : Self, delta : i32) -> unit)({
-    self._mutex.lock();
-    self._count = (self._count + delta);
+    self._mutex._raw_lock();
+    new_count := (self._count.load(MemoryOrder.Relaxed) + delta);
     cond(
-      (self._count <= i32(0)) => {
-        self._count = i32(0);
+      (new_count <= i32(0)) => {
+        self._count.store(i32(0), MemoryOrder.Release);
         self._cv.broadcast();
       },
-      true => ()
+      true => {
+        self._count.store(new_count, MemoryOrder.Release);
+      }
     );
-    self._mutex.unlock();
+    self._mutex._raw_unlock();
   }),
   // Decrement the counter by one (equivalent to add(-1)).
   done : (fn(self : Self) -> unit)(
@@ -59,15 +68,15 @@ impl(
   ),
   // Block until the counter reaches zero.
   wait : (fn(self : Self) -> unit)({
-    self._mutex.lock();
-    while(runtime(self._count > i32(0)), {
-      self._cv.wait(self._mutex);
+    self._mutex._raw_lock();
+    while(runtime(self._count.load(MemoryOrder.Acquire) > i32(0)), {
+      self._cv.wait(self._mutex._raw_handle_ptr());
     });
-    self._mutex.unlock();
+    self._mutex._raw_unlock();
   }),
-  // Get the current count (for debugging).
+  // Get the current count (lock-free atomic load).
   count : (fn(self : Self) -> i32)(
-    self._count
+    self._count.load(MemoryOrder.Acquire)
   )
 );
 export(WaitGroup);

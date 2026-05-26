@@ -138,6 +138,209 @@ c_include(
   ATOMIC_LLONG_LOCK_FREE : i32,
   ATOMIC_POINTER_LOCK_FREE : i32
 );
+// SAFETY: C11 atomic typedefs (atomic_bool, atomic_int, etc.) are opaque C
+// types backed by _Atomic-qualified primitives. They contain no heap
+// allocations or thread-local state — they are trivially safe to send
+// across threads. They are Acyclic because they don't participate in Yo's
+// ARC reference-counting cycle analysis.
+impl(atomic_bool, Send());
+impl(atomic_bool, Acyclic());
+impl(atomic_char, Send());
+impl(atomic_char, Acyclic());
+impl(atomic_schar, Send());
+impl(atomic_schar, Acyclic());
+impl(atomic_uchar, Send());
+impl(atomic_uchar, Acyclic());
+impl(atomic_short, Send());
+impl(atomic_short, Acyclic());
+impl(atomic_ushort, Send());
+impl(atomic_ushort, Acyclic());
+impl(atomic_int, Send());
+impl(atomic_int, Acyclic());
+impl(atomic_uint, Send());
+impl(atomic_uint, Acyclic());
+impl(atomic_long, Send());
+impl(atomic_long, Acyclic());
+impl(atomic_ulong, Send());
+impl(atomic_ulong, Acyclic());
+impl(atomic_llong, Send());
+impl(atomic_llong, Acyclic());
+impl(atomic_ullong, Send());
+impl(atomic_ullong, Acyclic());
+impl(atomic_char16_t, Send());
+impl(atomic_char16_t, Acyclic());
+impl(atomic_char32_t, Send());
+impl(atomic_char32_t, Acyclic());
+impl(atomic_wchar_t, Send());
+impl(atomic_wchar_t, Acyclic());
+impl(atomic_int_least8_t, Send());
+impl(atomic_int_least8_t, Acyclic());
+impl(atomic_uint_least8_t, Send());
+impl(atomic_uint_least8_t, Acyclic());
+impl(atomic_int_least16_t, Send());
+impl(atomic_int_least16_t, Acyclic());
+impl(atomic_uint_least16_t, Send());
+impl(atomic_uint_least16_t, Acyclic());
+impl(atomic_int_least32_t, Send());
+impl(atomic_int_least32_t, Acyclic());
+impl(atomic_uint_least32_t, Send());
+impl(atomic_uint_least32_t, Acyclic());
+impl(atomic_int_least64_t, Send());
+impl(atomic_int_least64_t, Acyclic());
+impl(atomic_uint_least64_t, Send());
+impl(atomic_uint_least64_t, Acyclic());
+impl(atomic_int_fast8_t, Send());
+impl(atomic_int_fast8_t, Acyclic());
+impl(atomic_uint_fast8_t, Send());
+impl(atomic_uint_fast8_t, Acyclic());
+impl(atomic_int_fast16_t, Send());
+impl(atomic_int_fast16_t, Acyclic());
+impl(atomic_uint_fast16_t, Send());
+impl(atomic_uint_fast16_t, Acyclic());
+impl(atomic_int_fast32_t, Send());
+impl(atomic_int_fast32_t, Acyclic());
+impl(atomic_uint_fast32_t, Send());
+impl(atomic_uint_fast32_t, Acyclic());
+impl(atomic_int_fast64_t, Send());
+impl(atomic_int_fast64_t, Acyclic());
+impl(atomic_uint_fast64_t, Send());
+impl(atomic_uint_fast64_t, Acyclic());
+impl(atomic_intptr_t, Send());
+impl(atomic_intptr_t, Acyclic());
+impl(atomic_uintptr_t, Send());
+impl(atomic_uintptr_t, Acyclic());
+impl(atomic_size_t, Send());
+impl(atomic_size_t, Acyclic());
+impl(atomic_ptrdiff_t, Send());
+impl(atomic_ptrdiff_t, Acyclic());
+impl(atomic_intmax_t, Send());
+impl(atomic_intmax_t, Acyclic());
+impl(atomic_uintmax_t, Send());
+impl(atomic_uintmax_t, Acyclic());
+// Phase C (THREAD_SAFETY): int-specific atomic operations. The c_include
+// block only declares load/store/exchange for atomic_bool. These Yo-runtime
+// wrappers forward to the C11 _Generic macros in <stdatomic.h> so AtomicI32
+// can use the full atomic API.
+extern(
+  "Yo",
+  __yo_atomic_load_int :
+    fn(obj : *(atomic_int), order : memory_order) -> i32,
+  __yo_atomic_store_int :
+    fn(obj : *(atomic_int), desired : i32, order : memory_order) -> unit,
+  __yo_atomic_exchange_int :
+    fn(obj : *(atomic_int), desired : i32, order : memory_order) -> i32,
+  __yo_atomic_compare_exchange_int :
+    fn(
+      obj : *(atomic_int),
+      expected : *(i32),
+      desired : i32,
+      success : memory_order,
+      failure : memory_order
+    ) -> bool
+);
+// Phase C: size_t-specific atomic operations (for AtomicUsize)
+extern(
+  "Yo",
+  __yo_atomic_load_size_t :
+    fn(obj : *(atomic_size_t), order : memory_order) -> usize,
+  __yo_atomic_store_size_t :
+    fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> unit,
+  __yo_atomic_exchange_size_t :
+    fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> usize,
+  __yo_atomic_compare_exchange_size_t :
+    fn(
+      obj : *(atomic_size_t),
+      expected : *(usize),
+      desired : usize,
+      success : memory_order,
+      failure : memory_order
+    ) -> bool
+);
+// Phase C: long-long-specific atomic operations (for AtomicI64)
+extern(
+  "Yo",
+  __yo_atomic_load_llong :
+    fn(obj : *(atomic_llong), order : memory_order) -> i64,
+  __yo_atomic_store_llong :
+    fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> unit,
+  __yo_atomic_exchange_llong :
+    fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> i64,
+  __yo_atomic_compare_exchange_llong :
+    fn(
+      obj : *(atomic_llong),
+      expected : *(i64),
+      desired : i64,
+      success : memory_order,
+      failure : memory_order
+    ) -> bool
+);
+// Phase C: remaining atomic type wrappers
+extern(
+  "Yo",
+  __yo_atomic_load_schar :
+    fn(obj : *(atomic_schar), order : memory_order) -> i8,
+  __yo_atomic_store_schar :
+    fn(obj : *(atomic_schar), desired : i8, order : memory_order) -> unit,
+  __yo_atomic_exchange_schar :
+    fn(obj : *(atomic_schar), desired : i8, order : memory_order) -> i8,
+  __yo_atomic_compare_exchange_schar :
+    fn(obj : *(atomic_schar), expected : *(i8), desired : i8,
+       success : memory_order, failure : memory_order) -> bool,
+  __yo_atomic_load_short :
+    fn(obj : *(atomic_short), order : memory_order) -> i16,
+  __yo_atomic_store_short :
+    fn(obj : *(atomic_short), desired : i16, order : memory_order) -> unit,
+  __yo_atomic_exchange_short :
+    fn(obj : *(atomic_short), desired : i16, order : memory_order) -> i16,
+  __yo_atomic_compare_exchange_short :
+    fn(obj : *(atomic_short), expected : *(i16), desired : i16,
+       success : memory_order, failure : memory_order) -> bool,
+  __yo_atomic_load_uchar :
+    fn(obj : *(atomic_uchar), order : memory_order) -> u8,
+  __yo_atomic_store_uchar :
+    fn(obj : *(atomic_uchar), desired : u8, order : memory_order) -> unit,
+  __yo_atomic_exchange_uchar :
+    fn(obj : *(atomic_uchar), desired : u8, order : memory_order) -> u8,
+  __yo_atomic_compare_exchange_uchar :
+    fn(obj : *(atomic_uchar), expected : *(u8), desired : u8,
+       success : memory_order, failure : memory_order) -> bool,
+  __yo_atomic_load_ushort :
+    fn(obj : *(atomic_ushort), order : memory_order) -> u16,
+  __yo_atomic_store_ushort :
+    fn(obj : *(atomic_ushort), desired : u16, order : memory_order) -> unit,
+  __yo_atomic_exchange_ushort :
+    fn(obj : *(atomic_ushort), desired : u16, order : memory_order) -> u16,
+  __yo_atomic_compare_exchange_ushort :
+    fn(obj : *(atomic_ushort), expected : *(u16), desired : u16,
+       success : memory_order, failure : memory_order) -> bool,
+  __yo_atomic_load_uint :
+    fn(obj : *(atomic_uint), order : memory_order) -> u32,
+  __yo_atomic_store_uint :
+    fn(obj : *(atomic_uint), desired : u32, order : memory_order) -> unit,
+  __yo_atomic_exchange_uint :
+    fn(obj : *(atomic_uint), desired : u32, order : memory_order) -> u32,
+  __yo_atomic_compare_exchange_uint :
+    fn(obj : *(atomic_uint), expected : *(u32), desired : u32,
+       success : memory_order, failure : memory_order) -> bool,
+  __yo_atomic_load_ullong :
+    fn(obj : *(atomic_ullong), order : memory_order) -> u64,
+  __yo_atomic_store_ullong :
+    fn(obj : *(atomic_ullong), desired : u64, order : memory_order) -> unit,
+  __yo_atomic_exchange_ullong :
+    fn(obj : *(atomic_ullong), desired : u64, order : memory_order) -> u64,
+  __yo_atomic_compare_exchange_ullong :
+    fn(obj : *(atomic_ullong), expected : *(u64), desired : u64,
+       success : memory_order, failure : memory_order) -> bool,
+  __yo_atomic_load_ptrdiff :
+    fn(obj : *(atomic_ptrdiff_t), order : memory_order) -> isize,
+  __yo_atomic_store_ptrdiff :
+    fn(obj : *(atomic_ptrdiff_t), desired : isize, order : memory_order) -> unit,
+  __yo_atomic_exchange_ptrdiff :
+    fn(obj : *(atomic_ptrdiff_t), desired : isize, order : memory_order) -> isize,
+  __yo_atomic_compare_exchange_ptrdiff :
+    fn(obj : *(atomic_ptrdiff_t), expected : *(isize), desired : isize,
+       success : memory_order, failure : memory_order) -> bool
+);
 export(
   // Atomic types
   atomic_bool,
@@ -238,5 +441,51 @@ export(
   ATOMIC_LLONG_LOCK_FREE,
   ATOMIC_POINTER_LOCK_FREE,
   // Kill dependency
-  kill_dependency
+  kill_dependency,
+  // Phase C (THREAD_SAFETY): int-specific atomic wrappers
+  __yo_atomic_load_int,
+  __yo_atomic_store_int,
+  __yo_atomic_exchange_int,
+  __yo_atomic_compare_exchange_int,
+  // Phase C: size_t atomic wrappers
+  __yo_atomic_load_size_t,
+  __yo_atomic_store_size_t,
+  __yo_atomic_exchange_size_t,
+  __yo_atomic_compare_exchange_size_t,
+  // Phase C: llong atomic wrappers
+  __yo_atomic_load_llong,
+  __yo_atomic_store_llong,
+  __yo_atomic_exchange_llong,
+  __yo_atomic_compare_exchange_llong,
+  // Phase C: signed narrow atomics
+  __yo_atomic_load_schar,
+  __yo_atomic_store_schar,
+  __yo_atomic_exchange_schar,
+  __yo_atomic_compare_exchange_schar,
+  __yo_atomic_load_short,
+  __yo_atomic_store_short,
+  __yo_atomic_exchange_short,
+  __yo_atomic_compare_exchange_short,
+  // Phase C: unsigned atomics
+  __yo_atomic_load_uchar,
+  __yo_atomic_store_uchar,
+  __yo_atomic_exchange_uchar,
+  __yo_atomic_compare_exchange_uchar,
+  __yo_atomic_load_ushort,
+  __yo_atomic_store_ushort,
+  __yo_atomic_exchange_ushort,
+  __yo_atomic_compare_exchange_ushort,
+  __yo_atomic_load_uint,
+  __yo_atomic_store_uint,
+  __yo_atomic_exchange_uint,
+  __yo_atomic_compare_exchange_uint,
+  __yo_atomic_load_ullong,
+  __yo_atomic_store_ullong,
+  __yo_atomic_exchange_ullong,
+  __yo_atomic_compare_exchange_ullong,
+  // Phase C: isize
+  __yo_atomic_load_ptrdiff,
+  __yo_atomic_store_ptrdiff,
+  __yo_atomic_exchange_ptrdiff,
+  __yo_atomic_compare_exchange_ptrdiff
 );

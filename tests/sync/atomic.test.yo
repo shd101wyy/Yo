@@ -1,0 +1,138 @@
+/// Phase C (THREAD_SAFETY): Atomic* wrappers runtime tests.
+{ AtomicBool, AtomicI32, AtomicI64, AtomicUsize, AtomicIsize, MemoryOrder } :: import("std/sync/atomic");
+{ Thread } :: import("std/thread");
+{ arch, Arch } :: import("std/process");
+
+// ============================================================================
+// AtomicBool
+// ============================================================================
+test("AtomicBool new and load", {
+  a := AtomicBool(false);
+  assert(a.load(MemoryOrder.Relaxed) == false, "initial value should be false");
+  b := AtomicBool(true);
+  assert(b.load(MemoryOrder.Relaxed) == true, "initial value should be true");
+});
+test("AtomicBool store and load", {
+  a := AtomicBool(false);
+  a.store(true, MemoryOrder.Release);
+  assert(a.load(MemoryOrder.Acquire) == true, "should see stored value");
+  a.store(false, MemoryOrder.Release);
+  assert(a.load(MemoryOrder.Acquire) == false, "should see stored false");
+});
+test("AtomicBool swap", {
+  a := AtomicBool(false);
+  prev := a.swap(true, MemoryOrder.AcqRel);
+  assert(prev == false, "swap should return previous value");
+  assert(a.load(MemoryOrder.Relaxed) == true, "should have new value");
+});
+test("AtomicBool compare_exchange", {
+  a := AtomicBool(false);
+  expected := false;
+  ok := a.compare_exchange(expected, true, MemoryOrder.Release, MemoryOrder.Relaxed);
+  assert(ok, "CAS should succeed with matching expected");
+  assert(a.load(MemoryOrder.Relaxed) == true, "should have new value");
+  expected = false;
+  ok = a.compare_exchange(expected, true, MemoryOrder.Release, MemoryOrder.Relaxed);
+  assert(!(ok), "CAS should fail with mismatched expected");
+  assert(expected == true, "expected should be updated to current value");
+});
+
+// ============================================================================
+// AtomicI32
+// ============================================================================
+test("AtomicI32 new and load", {
+  a := AtomicI32(i32(0));
+  assert(a.load(MemoryOrder.Relaxed) == i32(0), "initial value should be 0");
+  b := AtomicI32(i32(42));
+  assert(b.load(MemoryOrder.Relaxed) == i32(42), "initial value should be 42");
+});
+test("AtomicI32 store and load", {
+  a := AtomicI32(i32(0));
+  a.store(i32(99), MemoryOrder.Release);
+  assert(a.load(MemoryOrder.Acquire) == i32(99), "should see stored value");
+});
+test("AtomicI32 fetch_add", {
+  a := AtomicI32(i32(10));
+  prev := a.fetch_add(i32(5), MemoryOrder.Relaxed);
+  assert(prev == i32(10), "fetch_add should return previous value");
+  assert(a.load(MemoryOrder.Relaxed) == i32(15), "should have new value");
+});
+test("AtomicI32 fetch_sub", {
+  a := AtomicI32(i32(20));
+  prev := a.fetch_sub(i32(7), MemoryOrder.Relaxed);
+  assert(prev == i32(20), "fetch_sub should return previous value");
+  assert(a.load(MemoryOrder.Relaxed) == i32(13), "should have new value");
+});
+test("AtomicI32 swap", {
+  a := AtomicI32(i32(1));
+  prev := a.swap(i32(100), MemoryOrder.AcqRel);
+  assert(prev == i32(1), "swap should return previous value");
+  assert(a.load(MemoryOrder.Relaxed) == i32(100), "should have new value");
+});
+test("AtomicI32 compare_exchange success", {
+  a := AtomicI32(i32(0));
+  expected := i32(0);
+  ok := a.compare_exchange(expected, i32(1), MemoryOrder.Release, MemoryOrder.Relaxed);
+  assert(ok, "CAS should succeed");
+  assert(a.load(MemoryOrder.Relaxed) == i32(1), "should have new value");
+});
+test("AtomicI32 compare_exchange failure", {
+  a := AtomicI32(i32(5));
+  expected := i32(0);
+  ok := a.compare_exchange(expected, i32(1), MemoryOrder.Release, MemoryOrder.Relaxed);
+  assert(!(ok), "CAS should fail");
+  assert(expected == i32(5), "expected should be updated");
+  assert(a.load(MemoryOrder.Relaxed) == i32(5), "value unchanged");
+});
+
+// ============================================================================
+// AtomicI32 cross-thread counter
+// ============================================================================
+test("AtomicI32 cross-thread counter", {
+  if(arch == Arch.Wasm32, return(()));
+  counter := AtomicI32(i32(0));
+  iterations := i32(1000);
+  t := Thread.spawn((io) => {
+    (i : i32) = i32(0);
+    while(runtime(i < iterations), {
+      counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+      i = (i + i32(1));
+    });
+  });
+  (j : i32) = i32(0);
+  while(runtime(j < iterations), {
+    counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+    j = (j + i32(1));
+  });
+  t.join();
+  expected := (iterations * i32(2));
+  result := counter.load(MemoryOrder.Relaxed);
+  assert(result == expected, "counter should reflect both threads");
+});
+
+// ============================================================================
+// AtomicI64
+// ============================================================================
+test("AtomicI64 store and load", {
+  a := AtomicI64(i64(0));
+  a.store(i64(123456789), MemoryOrder.Release);
+  assert(a.load(MemoryOrder.Acquire) == i64(123456789), "should read back i64");
+});
+
+// ============================================================================
+// AtomicUsize
+// ============================================================================
+test("AtomicUsize store and load", {
+  a := AtomicUsize(usize(0));
+  a.store(usize(999), MemoryOrder.Release);
+  assert(a.load(MemoryOrder.Acquire) == usize(999), "should read back usize");
+});
+
+// ============================================================================
+// AtomicIsize
+// ============================================================================
+test("AtomicIsize store and load", {
+  a := AtomicIsize(isize(0));
+  a.store(isize(-(42)), MemoryOrder.Release);
+  assert(a.load(MemoryOrder.Acquire) == isize(-(42)), "should read back isize");
+});

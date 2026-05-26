@@ -96,6 +96,51 @@ jobs:
       # - name: Run yo-self bootstrapping tests
       #   run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./yo-self/tests --parallel 2 --bail --verbose --c-compiler clang --profile
 
+  test-tsan:
+    name: ThreadSanitizer (sync primitives — Linux/Clang, informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Informational job: TSan + Yo runtime is not yet validated end-to-end
+    # on Linux clang. Local macOS arm64 testing showed Yo Thread.spawn
+    # programs crash on TSan startup with SIGSEGV even at minimal scope,
+    # likely a runtime-init / TSan-init ordering issue. Allow this to fail
+    # (continue-on-error) until we have a green Linux signal. Once stable
+    # the continue-on-error flag should be removed so the job gates PRs.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: Run sync tests under ThreadSanitizer
+        env:
+          YO_TEST_SANITIZE: thread
+          TSAN_OPTIONS: halt_on_error=1
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
+
   test-wasm32_emscripten:
     runs-on: ubuntu-latest
     timeout-minutes: 360

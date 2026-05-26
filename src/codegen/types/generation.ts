@@ -201,6 +201,162 @@ typedef void (*__yo_thread_fn)(void* closure);
 
 static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void);
 static __YO_COND_TYPE __yo_cond_create(void);
+
+// Phase C (THREAD_SAFETY): Thin wrappers that forward to the C11 _Generic
+// macros in <stdatomic.h> for atomic_int load/store/exchange. Declared via
+// extern("Yo", ...) in std/libc/stdatomic.yo.
+#include <stdatomic.h>
+static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_int(_Atomic int* obj, int desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int __yo_atomic_exchange_int(_Atomic int* obj, int desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_int(
+  _Atomic int* obj, int* expected, int desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+// Phase C: size_t atomic wrappers (for AtomicUsize)
+static inline size_t __yo_atomic_load_size_t(_Atomic size_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline size_t __yo_atomic_exchange_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_size_t(
+  _Atomic size_t* obj, size_t* expected, size_t desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+// Phase C: long-long atomic wrappers (for AtomicI64)
+static inline long long __yo_atomic_load_llong(_Atomic long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline long long __yo_atomic_exchange_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_llong(
+  _Atomic long long* obj, long long* expected, long long desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+// Phase C: signed narrow atomic wrappers
+static inline int8_t __yo_atomic_load_schar(_Atomic signed char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int8_t __yo_atomic_exchange_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_schar(
+  _Atomic signed char* obj, int8_t* expected, int8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline int16_t __yo_atomic_load_short(_Atomic short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int16_t __yo_atomic_exchange_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_short(
+  _Atomic short* obj, int16_t* expected, int16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+// Phase C: unsigned atomic wrappers
+static inline uint8_t __yo_atomic_load_uchar(_Atomic unsigned char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint8_t __yo_atomic_exchange_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uchar(
+  _Atomic unsigned char* obj, uint8_t* expected, uint8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint16_t __yo_atomic_load_ushort(_Atomic unsigned short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint16_t __yo_atomic_exchange_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ushort(
+  _Atomic unsigned short* obj, uint16_t* expected, uint16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint32_t __yo_atomic_load_uint(_Atomic unsigned int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint32_t __yo_atomic_exchange_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uint(
+  _Atomic unsigned int* obj, uint32_t* expected, uint32_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint64_t __yo_atomic_load_ullong(_Atomic unsigned long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint64_t __yo_atomic_exchange_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ullong(
+  _Atomic unsigned long long* obj, uint64_t* expected, uint64_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+// Phase C: isize wrapper
+static inline ptrdiff_t __yo_atomic_load_ptrdiff(_Atomic ptrdiff_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline ptrdiff_t __yo_atomic_exchange_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ptrdiff(
+  _Atomic ptrdiff_t* obj, ptrdiff_t* expected, ptrdiff_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
 /**
  * Create and initialize a mutex (stack-allocated value)
  * Returns an initialized mutex that can be used with __yo_mutex_lock/unlock
@@ -873,16 +1029,16 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     isoInfo.structGenerated = true;
   }
 
-  // Generate extract function declarations (if Option type is known and not already generated)
+  // Generate extract function declarations and implementations
   for (const [isoTypeName, isoInfo] of context.isoTypes) {
-    const { optionTypeCName, extractGenerated } = isoInfo;
+    const { childTypeCName, extractGenerated } = isoInfo;
 
-    // Skip if already generated or no option type
-    if (extractGenerated || !optionTypeCName) continue;
+    // Skip if already generated
+    if (extractGenerated) continue;
 
     // Generate extract function declaration
     emitter.emitDeclarationLine(
-      `${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso);`
+      `${childTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso);`
     );
   }
 
@@ -992,48 +1148,26 @@ static void __yo_dispose_iso_${isoTypeName}(void* ptr) {
     isoInfo.disposeGenerated = true;
   }
 
-  // Generate extract function implementations (if Option type is known)
+  // Generate extract function implementations
   for (const [isoTypeName, isoInfo] of context.isoTypes) {
-    const { optionTypeCName, isoType, extractGenerated } = isoInfo;
+    const { childTypeCName, isoType, extractGenerated } = isoInfo;
 
-    // Skip if already generated or no option type
-    if (extractGenerated || !optionTypeCName || !isoType) continue;
+    // Skip if already generated
+    if (extractGenerated || !isoType) continue;
 
-    // Get the Option type's variant names from context.types
-    // We need to find the Option enum and get its Some/None variant tag names
-    const optionTypeEntry = Object.values(context.types).find(
-      (entry) => entry.cName === optionTypeCName
-    );
-
-    if (optionTypeEntry && isEnumType(optionTypeEntry.type)) {
-      const optionEnum = optionTypeEntry.type;
-      const someVariant = optionEnum.variants.find((v) => v.name === "Some");
-      const noneVariant = optionEnum.variants.find((v) => v.name === "None");
-
-      if (someVariant && noneVariant) {
-        const someTagName = `${optionTypeCName.toUpperCase()}_SOME`;
-        const noneTagName = `${optionTypeCName.toUpperCase()}_NONE`;
-
-        emitter.emitLine(`
-${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso) {
+    emitter.emitLine(`
+${childTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso) {
   // Atomically check and set extracted flag
   bool was_extracted = atomic_exchange(&iso->extracted, true);
-  ${optionTypeCName} result;
   if (was_extracted) {
-    // Already extracted, return None
-    result.tag = ${noneTagName};
-  } else {
-    // First extraction, return Some(value)
-    result.tag = ${someTagName};
-    result.data.Some.value = iso->value;
+    fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");
+    abort();
   }
-  return result;
+    return iso->value;
 }`);
-      }
 
-      // Mark extract as generated
-      isoInfo.extractGenerated = true;
-    }
+    // Mark extract as generated
+    isoInfo.extractGenerated = true;
   }
 }
 

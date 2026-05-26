@@ -54,3 +54,41 @@ test("AllowUnsafe + unsafe(...) is transparent inside a begin-block", {
   });
   assert(doubled == i32(6), "block expression returns the inner value");
 });
+// ============================================================================
+// Phase A (THREAD_SAFETY): Manual impl(T, Send/Acyclic()) under pragma.
+// Auto-derived Acyclic is withheld from self-referential atomic objects
+// (correctly — the compiler can't prove no cycles form). Pragma'd code
+// can manually declare Acyclic when it audit-establishes immutability.
+// ============================================================================
+test("AllowUnsafe + manual impl(T, Acyclic()) for self-referential atomic object", {
+  ImmNode :: atomic(object(_value : i32, _next : Option(Self)));
+  // SAFETY: ImmNode is immutable — its fields are never mutated after
+  // construction, so no cycles can form at runtime.
+  impl(ImmNode, Acyclic());
+  comptime_assert(Type.impls(ImmNode, Acyclic), "manual Acyclic impl should work");
+});
+test("AllowUnsafe + manual impl(T, Send()) for a wrapper type", {
+  Wrapper :: newtype(inner : i32);
+  // SAFETY: Wrapper is a newtype over i32 with no heap allocations.
+  impl(Wrapper, Send());
+  comptime_assert(Type.impls(Wrapper, Send), "manual Send impl should work");
+});
+// ============================================================================
+// Phase F (THREAD_SAFETY): Atomic object field re-verification.
+// When a manual impl(T, Send()) is registered against an atomic object type,
+// Phase F re-verifies that all fields are truly Send transitively. This is
+// the safety belt: even though Phase A allows the impl (pragma is present),
+// the actual field contents must match the Send claim.
+// ============================================================================
+test("Phase F: manual Send impl on valid atomic object passes re-verification", {
+  // i32 and u32 are both Send, so this atomic object is valid
+  Pair :: atomic(object(a : i32, b : u32));
+  // SAFETY: Pair's fields (i32, u32) are trivially Send value types.
+  impl(Pair, Send());
+  comptime_assert(Type.impls(Pair, Send), "Pair should impl Send");
+});
+// Phase F catches a manual Send impl on an atomic object whose fields
+// were Send at definition time but whose impl is a lie. This is tested
+// via comptime_expect_error in the structural gates test file.
+// The struct-definition-time check (struct.ts) catches the common case
+// of a non-Send field at type creation time.

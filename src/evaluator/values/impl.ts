@@ -61,11 +61,14 @@ import {
   type Value,
   valueToString,
 } from "../../value";
+import { VUnit } from "../../unit-value";
 import type { EvaluatorContext } from "../context";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
+  typeImplementsSend,
   typeImplementsTrait,
   typeImplementsTraitBool,
 } from "../trait-checking";
@@ -261,6 +264,66 @@ function reEvaluateFunctionType({
  * This allows cleanup when a module is re-evaluated or deleted.
  */
 const implRegistry: Map<string, Set<TraitType>> = new Map();
+
+// ============================================================================
+// Phase N (THREAD_SAFETY): Negative-impl registry.
+// A negative impl `impl(T, !(Send))` declares that T does NOT implement Send,
+// overriding any auto-derive. Keyed by "typeId:traitTypeId".
+// ============================================================================
+const negativeImplRegistry: Set<string> = new Set();
+
+interface NegativeGenericImpl {
+  forallParameters: ForallParameter[];
+  whereConstraints: {
+    someType: SomeType;
+    traitType: TraitType;
+    traitExpr?: Expr;
+  }[];
+  receiverTypePattern: Type;
+  traitType: TraitType;
+  sourceModulePath?: string;
+}
+const negativeGenericImplRegistry: NegativeGenericImpl[] = [];
+
+function registerNegativeImpl(typeId: string, traitTypeId: string): void {
+  negativeImplRegistry.add(`${typeId}:${traitTypeId}`);
+}
+
+export function hasNegativeImpl(typeId: string, traitTypeId: string): boolean {
+  return negativeImplRegistry.has(`${typeId}:${traitTypeId}`);
+}
+
+export function findMatchingNegativeGenericImpl(
+  concreteType: Type,
+  traitType: TraitType,
+  env: Environment
+): NegativeGenericImpl | undefined {
+  for (const negImpl of negativeGenericImplRegistry) {
+    if (negImpl.traitType.id !== traitType.id) continue;
+    const match = tryMatchGenericImpl({
+      concreteType,
+      impl: {
+        forallParameters: negImpl.forallParameters,
+        whereConstraints: negImpl.whereConstraints,
+        receiverTypePattern: negImpl.receiverTypePattern,
+        traitType: negImpl.traitType,
+        traitValue: undefined as unknown as TraitValue,
+        expr: undefined as unknown as Expr,
+        sourceModulePath: negImpl.sourceModulePath,
+        definitionEnv: env,
+      },
+      env,
+    });
+    if (match.matched) return negImpl;
+  }
+  return undefined;
+}
+
+/** Negative trait entry from an impl block (before registration). */
+type NegativeImplEntry = {
+  traitType: TraitType;
+  sourceExpr: Expr;
+};
 
 /**
  * Generic impl that uses forall type parameters.
@@ -535,8 +598,13 @@ function evaluateImplFieldList({
   env: Environment;
   context: EvaluatorContext;
   receiverType: Type;
-}): { env: Environment; traitEntries: ImplTraitEntry[] } {
+}): {
+  env: Environment;
+  traitEntries: ImplTraitEntry[];
+  negativeTraitEntries: NegativeImplEntry[];
+} {
   const traitEntries: ImplTraitEntry[] = [];
+  const negativeTraitEntries: NegativeImplEntry[] = [];
 
   const traitType = createTraitType(env);
   const traitElementValues: (Value | undefined)[] = [];
@@ -756,6 +824,48 @@ function evaluateImplFieldList({
       continue;
     }
 
+    // Phase N: Negative trait impl — !(Trait)
+    if (
+      exprIsFunctionCall(expr) &&
+      exprIsFunctionCallOf(expr, "!") &&
+      expr.args.length === 1
+    ) {
+      const negatedTraitExpr = expr.args[0]!;
+      const evaluatedNegatedTrait = evaluateExpression({
+        expr: negatedTraitExpr,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+          ReceiverType: receiverType,
+        },
+      });
+      let negatedTraitType: TraitType | undefined;
+      if (
+        evaluatedNegatedTrait.$ &&
+        isTraitValue(evaluatedNegatedTrait.$.value)
+      ) {
+        negatedTraitType = evaluatedNegatedTrait.$.value.type;
+      } else if (
+        evaluatedNegatedTrait.$ &&
+        isTypeValue(evaluatedNegatedTrait.$.value) &&
+        isTraitType(evaluatedNegatedTrait.$.value.value)
+      ) {
+        negatedTraitType = evaluatedNegatedTrait.$.value.value;
+      }
+      if (!negatedTraitType) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Expected trait type after '!', got:\n${exprToString(negatedTraitExpr)}`,
+        });
+      }
+      negativeTraitEntries.push({
+        traitType: negatedTraitType,
+        sourceExpr: expr,
+      });
+      continue;
+    }
+
     // Trait value implementation
     const evaluatedTraitExpr = evaluateExpression({
       expr,
@@ -802,7 +912,7 @@ function evaluateImplFieldList({
     });
   }
 
-  return { env, traitEntries };
+  return { env, traitEntries, negativeTraitEntries };
 }
 
 /**
@@ -2713,6 +2823,14 @@ function attachTraitToReceiverType(
       expr,
     });
 
+    // Phase N: Check contradiction with existing negative impl
+    if (hasNegativeImpl(receiverType.id, traitValue.type.id)) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Conflicting impls for ${typeToString(receiverType)}: impl(${typeToString(receiverType)}, ${traitValue.type.typeName || typeToString(traitValue.type)}()) conflicts with an existing negative impl 'impl(${typeToString(receiverType)}, !(${traitValue.type.typeName || typeToString(traitValue.type)}))'. Positive and negative impls cannot coexist for the same type and trait.`,
+      });
+    }
+
     // Register this impl for duplicate detection
     registerImplForType({
       receiverType,
@@ -2777,6 +2895,136 @@ function attachTraitToReceiverType(
 
     // Add the field to the receiver type's trait
     receiverType.trait.fields.push(field);
+  }
+}
+
+/**
+ * Phase A (THREAD_SAFETY): Gate manual impl(T, Send()) and impl(T, Acyclic())
+ * behind pragma(Pragma.AllowUnsafe). Auto-derived Send/Acyclic (via
+ * autoDeriveSendForStructType etc.) goes through a separate code path in
+ * types/utils.ts and is NOT gated — only manual impl declarations are checked.
+ */
+function checkManualSendAcyclicPragmaGate({
+  traitEntries,
+  currentModulePath,
+  errorToken,
+}: {
+  traitEntries: ImplTraitEntry[];
+  currentModulePath: string | undefined;
+  errorToken: Token;
+}): void {
+  for (const entry of traitEntries) {
+    if (entry.isAnonymousTrait) continue;
+    const traitTypeName = entry.traitValue.type.typeName;
+    if (traitTypeName === "Send" || traitTypeName === "Acyclic") {
+      if (!isImplicitlyUnsafeCapableFile(currentModulePath)) {
+        throw formatErrorMessage({
+          token: errorToken,
+          errorMessage: `Manual 'impl(..., ${traitTypeName}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${traitTypeName === "Send" ? "send across threads" : "declare Acyclic"}.`,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Phase F (THREAD_SAFETY): When a manual impl(T, Send()) is registered for an
+ * atomic object type, re-verify that all fields are truly Send transitively.
+ * This is the safety belt that catches Phase A2's lies — even if a pragma'd
+ * file claims `impl(MyAtomic, Send())`, the field-level check asserts the
+ * claim matches reality.
+ */
+function verifyAtomicObjectSend({
+  receiverType,
+  traitTypeName,
+  env,
+  errorToken,
+}: {
+  receiverType: Type;
+  traitTypeName: string | undefined;
+  env: Environment;
+  errorToken: Token;
+}): void {
+  if (traitTypeName !== "Send") return;
+  if (!isStructType(receiverType)) return;
+  if (!receiverType.isAtomicRc) return;
+
+  const nonSendFields: string[] = [];
+  for (const field of receiverType.fields) {
+    if (!typeImplementsSend(field.type, env)) {
+      nonSendFields.push(`  - ${field.label}: ${typeToString(field.type)}`);
+    }
+  }
+
+  if (nonSendFields.length > 0) {
+    throw formatErrorMessage({
+      token: errorToken,
+      errorMessage:
+        `atomic object '${typeToString(receiverType)}' has non-Send field(s) — manual impl(..., Send()) is contradicted:\n` +
+        nonSendFields.join("\n") +
+        `\nEither wrap the non-Send fields in Arc/Mutex/Atomic, or remove the manual 'impl(${typeToString(receiverType)}, Send())'.`,
+    });
+  }
+}
+
+/**
+ * Phase N (THREAD_SAFETY): Register negative trait impls.
+ * For each `!(Trait)` entry, validate it's a marker trait, check for
+ * contradictions with existing positive impls, and register in the
+ * negative-impl registry (concrete) or negative-generic-impl registry.
+ */
+function processNegativeTraitEntries({
+  negativeTraitEntries,
+  receiverType,
+  forallParameters,
+  whereConstraints,
+  currentModulePath,
+  isGeneric,
+  errorToken,
+}: {
+  negativeTraitEntries: NegativeImplEntry[];
+  receiverType: Type;
+  forallParameters: ForallParameter[];
+  whereConstraints: {
+    someType: SomeType;
+    traitType: TraitType;
+    traitExpr?: Expr;
+  }[];
+  currentModulePath: string | undefined;
+  isGeneric: boolean;
+  errorToken: Token;
+}): void {
+  for (const entry of negativeTraitEntries) {
+    const traitType = entry.traitType;
+
+    // Reject negative impls for traits that have named methods (non-marker traits)
+    if (
+      traitType.fields.some(
+        (f) => isFunctionType(f.type) && f.label !== "" && f.label !== "id"
+      ) ||
+      traitType.fields.some(
+        (f) =>
+          isSomeType(f.type) &&
+          f.type.requiredTraits.some((rt) => isFnTraitType(rt.traitType))
+      )
+    ) {
+      throw formatErrorMessage({
+        token: errorToken,
+        errorMessage: `Cannot use '!(${traitType.typeName || typeToString(traitType)})' — negative impls are only allowed for marker traits (traits without methods).`,
+      });
+    }
+
+    if (isGeneric) {
+      negativeGenericImplRegistry.push({
+        forallParameters,
+        whereConstraints,
+        receiverTypePattern: receiverType,
+        traitType,
+        sourceModulePath: currentModulePath,
+      });
+    } else {
+      registerNegativeImpl(receiverType.id, traitType.id);
+    }
   }
 }
 
@@ -2948,6 +3196,7 @@ export function evaluateImplBlock({
 
     let nextEnv: Environment;
     let traitEntries: ImplTraitEntry[];
+    let negativeTraitEntries: NegativeImplEntry[];
     try {
       const result = evaluateImplFieldList({
         fieldExprs,
@@ -2957,6 +3206,7 @@ export function evaluateImplBlock({
       });
       nextEnv = result.env;
       traitEntries = result.traitEntries;
+      negativeTraitEntries = result.negativeTraitEntries;
     } finally {
       for (const key of preRegisteredKeys) {
         currentlyRegisteringConcreteImpls.delete(key);
@@ -2964,10 +3214,28 @@ export function evaluateImplBlock({
     }
     env = nextEnv;
 
-    if (traitEntries.length === 0) {
+    if (traitEntries.length === 0 && negativeTraitEntries.length === 0) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `impl requires at least one trait or member field.`,
+      });
+    }
+
+    checkManualSendAcyclicPragmaGate({
+      traitEntries,
+      currentModulePath: context.currentModulePath,
+      errorToken: expr.token,
+    });
+
+    if (negativeTraitEntries.length > 0) {
+      processNegativeTraitEntries({
+        negativeTraitEntries,
+        receiverType,
+        forallParameters: [],
+        whereConstraints: [],
+        currentModulePath: context.currentModulePath,
+        isGeneric: false,
+        errorToken: expr.token,
       });
     }
 
@@ -3000,13 +3268,20 @@ export function evaluateImplBlock({
       } else {
         attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
       }
+
+      verifyAtomicObjectSend({
+        receiverType,
+        traitTypeName: traitType.typeName,
+        env,
+        errorToken: expr.token,
+      });
     }
 
-    const primaryTraitValue = traitEntries[0]!.traitValue;
+    const primaryTraitValue = traitEntries[0]?.traitValue;
     expr.$ = {
       env,
-      type: primaryTraitValue.type,
-      value: primaryTraitValue,
+      type: primaryTraitValue ? primaryTraitValue.type : VUnit.type,
+      value: primaryTraitValue || VUnit,
       pathCollection: [],
     };
 
@@ -3308,7 +3583,11 @@ export function evaluateImplBlock({
   env = evaluatedReceiverTypeArg.$.env;
   const receiverTypePattern = evaluatedReceiverTypeArg.$.value.value;
 
-  const { env: nextEnv, traitEntries } = evaluateImplFieldList({
+  const {
+    env: nextEnv,
+    traitEntries,
+    negativeTraitEntries,
+  } = evaluateImplFieldList({
     fieldExprs,
     env,
     context: { ...context },
@@ -3316,10 +3595,28 @@ export function evaluateImplBlock({
   });
   env = nextEnv;
 
-  if (traitEntries.length === 0) {
+  if (traitEntries.length === 0 && negativeTraitEntries.length === 0) {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `impl requires at least one trait or member field.`,
+    });
+  }
+
+  checkManualSendAcyclicPragmaGate({
+    traitEntries,
+    currentModulePath: context.currentModulePath,
+    errorToken: expr.token,
+  });
+
+  if (negativeTraitEntries.length > 0) {
+    processNegativeTraitEntries({
+      negativeTraitEntries,
+      receiverType: receiverTypePattern,
+      forallParameters,
+      whereConstraints,
+      currentModulePath: context.currentModulePath,
+      isGeneric: true,
+      errorToken: expr.token,
     });
   }
 
@@ -3380,13 +3677,12 @@ export function evaluateImplBlock({
     registerGenericImpl(traitTypeKey, genericImpl);
   }
 
-  const primaryTraitValue = pendingRegistrations[0]!.traitValue;
+  const primaryTraitValue = pendingRegistrations[0]?.traitValue;
   expr.$ = {
     env,
-    type: primaryTraitValue.type,
-    value: primaryTraitValue,
+    type: primaryTraitValue ? primaryTraitValue.type : VUnit.type,
+    value: primaryTraitValue || VUnit,
     pathCollection: [],
   };
-
   return expr;
 }

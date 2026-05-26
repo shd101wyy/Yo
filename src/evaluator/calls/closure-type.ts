@@ -271,6 +271,7 @@ Pass \`${varName}\` as a regular function parameter instead of capturing it in a
       captureType: inferredCaptureType,
       env: finalCallerEnv,
       errorToken: expr.token,
+      capturedVariablesWithValues,
     });
   }
 

@@ -1,5 +1,12 @@
 //! Mutual exclusion lock primitives.
+//!
+//! Phase D (THREAD_SAFETY): Mutex parameterized over the protected data.
+//! Access is granted via `with_lock(closure)` — the closure receives a
+//! `ref(v): T` that is second-class (cannot escape the closure scope).
+//! The private `__MutexUnlocker` handles unlock on both normal return
+//! and unwind via its `Drop`.
 pragma(Pragma.AllowUnsafe);
+
 extern(
   "Yo",
   __YO_THREAD_SYNC_TYPE : Type,
@@ -8,8 +15,13 @@ extern(
   __yo_mutex_unlock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
   __yo_mutex_destroy : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit)
 );
+// SAFETY: __YO_THREAD_SYNC_TYPE is an opaque C-level synchronization
+// primitive (pthread_mutex_t or equivalent). It carries its own internal
+// synchronization and is designed to be shared across threads. It is
+// trivially Acyclic — opaque C types don't participate in ARC.
 impl(__YO_THREAD_SYNC_TYPE, Send());
 impl(__YO_THREAD_SYNC_TYPE, Acyclic());
+
 /// Low-level mutex (manual lifetime via `destroy`).
 mutex_t :: newtype(
   mutex : __YO_THREAD_SYNC_TYPE
@@ -29,35 +41,83 @@ impl(
     return(__yo_mutex_destroy(&(self.mutex)));
   })
 );
-/// Reference-counted mutex with automatic cleanup via `Dispose`.
-/// Uses atomic reference counting for safe cross-thread sharing.
-Mutex :: atomic(
+
+// ============================================================================
+// Mutex(T) — atomic-object mutex wrapper with closure-scoped lock API
+// ============================================================================
+Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  atomic(
+    object(
+      _handle : __YO_THREAD_SYNC_TYPE,
+      _value : T
+    )
+  )
+);
+
+// __MutexUnlocker — private object that calls _raw_unlock on Drop.
+// Allocated locally inside with_lock; Yo's drop-on-scope-exit and
+// drop-on-unwind machinery guarantees unlock under both normal return
+// and unwind(...).
+__MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   object(
-    mutex : __YO_THREAD_SYNC_TYPE
+    _mutex : Mutex(T)
   )
 );
 impl(
-  Mutex,
-  new : (fn() -> Self)({
-    return(Self(__yo_mutex_create()));
-  }),
-  lock : (fn(self : Self) -> unit)({
-    return(__yo_mutex_lock(&(self.mutex)));
-  }),
-  unlock : (fn(self : Self) -> unit)({
-    return(__yo_mutex_unlock(&(self.mutex)));
-  })
-);
-impl(
-  Mutex,
+  forall(T : Type),
+  where(T <: Send),
+  __MutexUnlocker(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      return(__yo_mutex_destroy(&(self.mutex)));
+      self._mutex._raw_unlock();
     })
   )
 );
+
+impl(
+  forall(T : Type),
+  where(T <: Send),
+  Mutex(T),
+  new : (fn(value : T) -> Self)({
+    return(Self(__yo_mutex_create(), value));
+  }),
+  with_lock : (
+    fn(
+      forall(R : Type),
+      self : Self,
+      body : Impl(Fn(ref(v) : T) -> R)
+    ) -> R
+  )({
+    self._raw_lock();
+    _guard := __MutexUnlocker(T)(self);
+    body(self._value)
+  }),
+  // Internal methods — pragma-only. These are public to the module system
+  // but the _-prefixed naming convention signals "internal API".
+  _raw_lock : (fn(self : Self) -> unit)(
+    __yo_mutex_lock(&(self._handle))
+  ),
+  _raw_unlock : (fn(self : Self) -> unit)(
+    __yo_mutex_unlock(&(self._handle))
+  ),
+  _raw_handle_ptr : (fn(ref(self) : Self) -> *(__YO_THREAD_SYNC_TYPE))(
+    &(self._handle)
+  )
+);
+impl(
+  forall(T : Type),
+  where(T <: Send),
+  Mutex(T),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      return(__yo_mutex_destroy(&(self._handle)));
+    })
+  )
+);
+
 export(
   __YO_THREAD_SYNC_TYPE,
   mutex_t,
-  Mutex
+  Mutex,
+  __MutexUnlocker
 );

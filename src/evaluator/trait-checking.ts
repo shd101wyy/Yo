@@ -44,6 +44,8 @@ import type { EvaluatorContext } from "./context";
 import {
   findAssociatedTypeFromGenericImpls,
   findMatchingGenericImpl,
+  findMatchingNegativeGenericImpl,
+  hasNegativeImpl,
   isConcreteImplBeingRegistered,
 } from "./values/impl";
 
@@ -339,6 +341,19 @@ export function typeImplementsTrait({
   traitType: TraitType;
   env: Environment;
 }): { implemented: boolean; env: Environment } {
+  // 0. Phase N: Negative-impl check — runs first, authoritative.
+  // If the type has a registered negative impl for this trait (concrete or
+  // generic), it does NOT implement the trait regardless of auto-derive.
+  if (hasNegativeImpl(targetType.id, traitType.id)) {
+    return { implemented: false, env };
+  }
+  if (
+    isStructType(targetType) &&
+    findMatchingNegativeGenericImpl(targetType, traitType, env)
+  ) {
+    return { implemented: false, env };
+  }
+
   // 1. Comptime builtin check
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
   if (comptimeTraitType && traitType.id === comptimeTraitType.id) {

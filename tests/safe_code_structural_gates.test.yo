@@ -86,3 +86,25 @@ test("safe code uses inout, no raw pointers needed", {
   assert(x == i32(2), "swapped: x");
   assert(y == i32(1), "swapped: y");
 });
+// ============================================================================
+// Phase A (THREAD_SAFETY): Manual impl(T, Send()) / impl(T, Acyclic())
+// requires pragma(Pragma.AllowUnsafe). Auto-derived Send/Acyclic (from
+// struct/enum definitions) are not gated — only explicit impl declarations.
+// ============================================================================
+// Manual impl(T, Send()) without pragma is rejected.
+comptime_expect_error({
+  PlainStruct :: struct(value : i32);
+  impl(PlainStruct, Send());
+});
+// Manual impl(T, Acyclic()) without pragma is rejected.
+comptime_expect_error({
+  PlainStruct2 :: struct(value : i32);
+  impl(PlainStruct2, Acyclic());
+});
+// Manual impl(T, Send()) and impl(T, Acyclic()) together without pragma
+// are rejected (both gates fire).
+comptime_expect_error({
+  PlainStruct3 :: struct(value : i32);
+  impl(PlainStruct3, Send());
+  impl(PlainStruct3, Acyclic());
+});

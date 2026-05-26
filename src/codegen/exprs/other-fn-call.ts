@@ -1668,6 +1668,23 @@ export function generateOtherFunctionCall(
           }
         });
 
+        // Phase D (THREAD_SAFETY): Wrap ref(v):T arguments with &() to match
+        // the callee's T* parameter declaration. This mirrors the regular call
+        // path at lines 568-611.
+        const callSigRuntimeParams = callSig.parameters.filter(
+          (p) => !p.isCompileTimeOnly
+        );
+        for (let i = 0; i < callSigRuntimeParams.length; i++) {
+          const param = callSigRuntimeParams[i];
+          if (param && param.isRef && i < args.length) {
+            const arg = args[i]!;
+            // Only wrap if it's a clean variable name (not a complex expression)
+            if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(arg)) {
+              args[i] = `(&(${arg}))`;
+            }
+          }
+        }
+
         // Dispatch:
         // - Dyn(Fn(...)) uses vtable: closure.vtable->call(closure.data, args...)
         // - Impl(Fn(...)) uses static dispatch: closure_impl(&closure, args...)

@@ -1,0 +1,27 @@
+/// Phase H.2 (THREAD_SAFETY): Iso(T) API-surface pin test.
+///
+/// Iso(T) is unconditionally Send because its public API exposes
+/// no operation on the inner T except extract(). This test locks
+/// key safety properties:
+/// - Iso(i32) implements Send
+/// - Iso(NonSendObj) implements Send (the unconditionally-Send claim)
+/// - extract() returns T directly (Phase H.1)
+///
+/// If any future PR adds a method to Iso(T) that touches the inner T
+/// (map, peek, read, &self borrow, etc.), the unconditionally-Send
+/// claim becomes unsound and must be revoked.
+test("Iso API surface — unconditionally Send even for non-Send T", {
+  // Object types are NOT Send by construction
+  NonSendObj :: object(x : i32);
+  // But Iso(NonSendObj) IS Send — that's the unconditional claim
+  comptime_assert(
+    Type.impls(Iso(NonSendObj), Send),
+    "Iso must be unconditionally Send"
+  );
+});
+test("Iso extract returns T directly (no Option)", {
+  x := Box(i32)(42);
+  iso := Iso(Box(i32))(x);
+  e := iso.extract();
+  assert(e.* == 42, "extract returns T directly");
+});

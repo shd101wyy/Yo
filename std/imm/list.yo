@@ -28,7 +28,7 @@ ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     )
   )
 );
-// Manual Acyclic impl — ListNode is self-referential, so auto-derivation skips it.
+// SAFETY: Manual Acyclic impl — ListNode is self-referential, so auto-derivation skips it.
 // This is safe because ListNode is immutable: all operations create new nodes and never
 // mutate existing ones, making it impossible to form cycles at runtime.
 impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());

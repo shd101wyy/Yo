@@ -107,15 +107,39 @@ export function validateCaptureTraitRequirements({
   captureType,
   env,
   errorToken,
+  capturedVariablesWithValues,
 }: {
   wrapperType: SomeType;
   captureType: StructType;
   env: Environment;
   errorToken: Token;
+  capturedVariablesWithValues?: Map<string, FunctionCapturedVariableInfo>;
 }): void {
   for (const { traitType } of wrapperType.requiredTraits) {
     if (isFnTraitType(traitType)) {
       continue;
+    }
+
+    // Phase E (THREAD_SAFETY): Per-variable capture Send check.
+    // Walk each captured variable and check Send individually BEFORE the
+    // aggregate check, so each offending capture gets its own error
+    // pointing at the capture site (not the closure site).
+    if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
+      const traitName = typeToString(traitType);
+      for (const [varName, captureInfo] of capturedVariablesWithValues) {
+        if (
+          !typeImplementsTraitBool({
+            targetType: captureInfo.type,
+            traitType,
+            env,
+          })
+        ) {
+          throw formatErrorMessage({
+            token: captureInfo.token,
+            errorMessage: `Captured variable '${varName}' (type \`${typeToString(captureInfo.type)}\`) does not implement \`${traitName}\`. To move it across threads, wrap in Arc/Iso, or extract a Send projection.`,
+          });
+        }
+      }
     }
 
     if (
