@@ -1,6 +1,6 @@
 # Thread Safety by Default
 
-**Status:** Phase A, F, N, L implemented. Phase P next.
+**Status:** Phase A, F, N, L, P, O implemented. Phases E, I, C, H, D next.
 **Companion to:** `plans/MEMORY_SAFETY.md`.
 **Decided so far:**
 

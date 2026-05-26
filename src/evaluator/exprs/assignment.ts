@@ -71,7 +71,12 @@ import {
 import { type EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import { findRcValueOwnerRelationship } from "../utils";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
+import {
+  findRcValueOwnerRelationship,
+  getAtomicObjectRootType,
+  getRootExprOfFieldAccess,
+} from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
@@ -747,6 +752,18 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
   // - x.a = 12;
   // - arr(0) = 12;
   else {
+    // Phase O: Forbid writing through atomic-object fields in safe code
+    if (!isImplicitlyUnsafeCapableFile(lhs.token.modulePath)) {
+      const rootExpr = getRootExprOfFieldAccess(lhs);
+      const atomicObjType = getAtomicObjectRootType(rootExpr, env);
+      if (atomicObjType) {
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Cannot write to field of atomic object '${exprToString(rootExpr)}' (type ${typeToString(atomicObjType)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`,
+        });
+      }
+    }
+
     // Evaluate the lhs
     const evaluatedLhs = evaluateExpression({
       expr: lhs,
