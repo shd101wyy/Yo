@@ -66,22 +66,32 @@ This prevents the most common data-race vector — two threads writing to the sa
 
 Pragma'd code (files with `pragma(Pragma.AllowUnsafe)`) bypasses this rule — that's how `std/sync/` primitives mutate their internal state after acquiring locks.
 
-## AtomicBool and MemoryOrder
+## Atomic Wrappers and MemoryOrder
 
 `std/sync/atomic.yo` provides high-level atomic wrappers built on C11 `<stdatomic.h>`:
 
+| Type                                                 | C backing                                                          | Use case                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------- |
+| `AtomicBool`                                         | `atomic_bool`                                                      | Boolean flags (closed, done, ready) |
+| `AtomicI8` / `AtomicI16` / `AtomicI32` / `AtomicI64` | `atomic_schar` / `atomic_short` / `atomic_int` / `atomic_llong`    | Signed integer counters             |
+| `AtomicU8` / `AtomicU16` / `AtomicU32` / `AtomicU64` | `atomic_uchar` / `atomic_ushort` / `atomic_uint` / `atomic_ullong` | Unsigned integer counters           |
+| `AtomicUsize`                                        | `atomic_size_t`                                                    | Collection sizes, indices           |
+| `AtomicIsize`                                        | `atomic_ptrdiff_t`                                                 | Signed indices, offsets             |
+
+Each wrapper exposes `load`, `store`, `swap`, `compare_exchange`, plus `fetch_add`/`fetch_sub` on integer types. Every operation takes an explicit `MemoryOrder`:
+
 ```rust
-{ AtomicBool, MemoryOrder } :: import("std/sync/atomic");
+{ AtomicBool, AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 
 flag := AtomicBool(false);
-
-// Store with release ordering (publishes all prior writes)
 flag.store(true, MemoryOrder.Release);
-
-// Load with acquire ordering (observes all published writes)
 if(flag.load(MemoryOrder.Acquire), {
   println("flag is set!");
 });
+
+counter := AtomicI32(i32(0));
+counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+println(`count = ${counter.load(MemoryOrder.Acquire)}`);
 ```
 
 `MemoryOrder` enum: `Relaxed`, `Consume`, `Acquire`, `Release`, `AcqRel`, `SeqCst`.
@@ -183,7 +193,9 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 
 - **Deadlock prevention** — same as Rust. Lock ordering is the user's responsibility.
 - **`Sync` trait** — cross-thread shared references. Deferred; cross-thread sharing always goes through `Arc + Mutex / Atomic / Channel`.
-- **`AtomicI32` / `AtomicI64` / etc.** — the C11 `<stdatomic.h>` bridge currently only has full declarations for `atomic_bool`. Additional types will be added when the `c_include` bridge is extended.
+- **`AtomicPtr(T)`** — generic atomic pointer for lock-free data structures. Deferred since safe code cannot construct or deref raw pointers, so the primitive would only be usable from pragma'd code. Will be added when a concrete `std/` consumer surfaces.
+- **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
+- **TSan empirical validation on CI** — `--sanitize thread` is plumbed and the Linux/Clang CI job runs `./yo-cli test ./tests/sync`. The job is informational (`continue-on-error: true`) until we have a first green Linux run; the codegen pin tests in `src/tests/thread-safety-codegen.test.ts` are the primary regression guard today.
 
 ## See Also
 

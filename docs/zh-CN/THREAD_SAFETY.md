@@ -55,19 +55,35 @@ a.* = i32(5);  // 错误：不能写入原子对象字段
 
 Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则——这就是 `std/sync/` 原语在获取锁后修改其内部状态的方式。
 
-## AtomicBool 和 MemoryOrder
+## 原子包装器和 MemoryOrder
 
 `std/sync/atomic.yo` 提供基于 C11 `<stdatomic.h>` 的高级原子包装器：
 
+| 类型                                                 | C 底层类型                                                         | 用途                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------- |
+| `AtomicBool`                                         | `atomic_bool`                                                      | 布尔标志（closed、done、ready） |
+| `AtomicI8` / `AtomicI16` / `AtomicI32` / `AtomicI64` | `atomic_schar` / `atomic_short` / `atomic_int` / `atomic_llong`    | 有符号整数计数器                |
+| `AtomicU8` / `AtomicU16` / `AtomicU32` / `AtomicU64` | `atomic_uchar` / `atomic_ushort` / `atomic_uint` / `atomic_ullong` | 无符号整数计数器                |
+| `AtomicUsize`                                        | `atomic_size_t`                                                    | 集合大小、索引                  |
+| `AtomicIsize`                                        | `atomic_ptrdiff_t`                                                 | 有符号索引、偏移量              |
+
+每个包装器提供 `load`、`store`、`swap`、`compare_exchange`，整数类型还提供 `fetch_add`/`fetch_sub`。每个操作都需要显式的 `MemoryOrder`：
+
 ```rust
-{ AtomicBool, MemoryOrder } :: import("std/sync/atomic");
+{ AtomicBool, AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 
 flag := AtomicBool(false);
 flag.store(true, MemoryOrder.Release);
 if(flag.load(MemoryOrder.Acquire), {
   println("flag is set!");
 });
+
+counter := AtomicI32(i32(0));
+counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+println(`count = ${counter.load(MemoryOrder.Acquire)}`);
 ```
+
+`MemoryOrder` 枚举值：`Relaxed`、`Consume`、`Acquire`、`Release`、`AcqRel`、`SeqCst`。
 
 每个操作需要**显式**内存顺序——没有默认的 `SeqCst` 以避免意外的性能成本。
 
