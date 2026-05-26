@@ -23,6 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc, free } :: GlobalAllocator;
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
+{ AtomicBool, AtomicUsize, MemoryOrder } :: import("./atomic");
 /// Thread-safe bounded channel for passing values between threads.
 /// Uses atomic reference counting — implements `Send` and can be
 /// safely shared across threads without `Arc` wrapping.
@@ -32,12 +33,12 @@ Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     object(
       _data : *(T),
       _head : usize,
-      _len : usize,
+      _len : AtomicUsize,
       _capacity : usize,
       _mutex : Mutex(bool),
       _not_empty : Cond,
       _not_full : Cond,
-      _closed : bool
+      _closed : AtomicBool
     )
   )
 );
@@ -54,12 +55,12 @@ impl(
       Self(
         _data : ptr,
         _head : usize(0),
-        _len : usize(0),
+        _len : AtomicUsize(usize(0)),
         _capacity : capacity,
         _mutex : Mutex(bool).new(false),
         _not_empty : Cond.new(),
         _not_full : Cond.new(),
-        _closed : false
+        _closed : AtomicBool(false)
       )
     );
   }),
@@ -69,20 +70,24 @@ impl(
   send : (fn(self : Self, value : T) -> Result(unit, unit))({
     self._mutex._raw_lock();
     // Wait while buffer is full and channel is not closed
-    while(runtime((self._len >= self._capacity) && (!(self._closed))), {
+    while(runtime(
+      (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
+      && (!(self._closed.load(MemoryOrder.Relaxed)))
+    ), {
       self._not_full.wait(self._mutex._raw_handle_ptr());
     });
     cond(
-      self._closed => {
+      self._closed.load(MemoryOrder.Relaxed) => {
         self._mutex._raw_unlock();
         return(.Err(()));
       },
       true => ()
     );
     // Write value at tail position
-    (tail : usize) = ((self._head + self._len) % self._capacity);
+    (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
+    (tail : usize) = ((self._head + current_len) % self._capacity);
     consume((self._data &+ tail).* = value);
-    self._len = (self._len + usize(1));
+    self._len.store(current_len + usize(1), MemoryOrder.Release);
     self._not_empty.signal();
     self._mutex._raw_unlock();
     return(.Ok(()));
@@ -93,11 +98,14 @@ impl(
   recv : (fn(self : Self) -> ?(T))({
     self._mutex._raw_lock();
     // Wait while buffer is empty and channel is not closed
-    while(runtime((self._len == usize(0)) && (!(self._closed))), {
+    while(runtime(
+      (self._len.load(MemoryOrder.Relaxed) == usize(0))
+      && (!(self._closed.load(MemoryOrder.Relaxed)))
+    ), {
       self._not_empty.wait(self._mutex._raw_handle_ptr());
     });
     cond(
-      (self._len == usize(0)) => {
+      (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {
         self._mutex._raw_unlock();
         return(.None);
       },
@@ -108,7 +116,7 @@ impl(
     (val : T) = element_ptr.*;
     unsafe.drop(element_ptr.*);
     self._head = ((self._head + usize(1)) % self._capacity);
-    self._len = (self._len - usize(1));
+    self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._not_full.signal();
     self._mutex._raw_unlock();
     return(.Some(val));
@@ -118,15 +126,19 @@ impl(
   try_send : (fn(self : Self, value : T) -> Result(unit, unit))({
     self._mutex._raw_lock();
     cond(
-      (self._closed || (self._len >= self._capacity)) => {
+      (
+        self._closed.load(MemoryOrder.Relaxed)
+        || (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
+      ) => {
         self._mutex._raw_unlock();
         return(.Err(()));
       },
       true => ()
     );
-    (tail : usize) = ((self._head + self._len) % self._capacity);
+    (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
+    (tail : usize) = ((self._head + current_len) % self._capacity);
     consume((self._data &+ tail).* = value);
-    self._len = (self._len + usize(1));
+    self._len.store(current_len + usize(1), MemoryOrder.Release);
     self._not_empty.signal();
     self._mutex._raw_unlock();
     return(.Ok(()));
@@ -136,7 +148,7 @@ impl(
   try_recv : (fn(self : Self) -> ?(T))({
     self._mutex._raw_lock();
     cond(
-      (self._len == usize(0)) => {
+      (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {
         self._mutex._raw_unlock();
         return(.None);
       },
@@ -146,7 +158,7 @@ impl(
     (val : T) = element_ptr.*;
     unsafe.drop(element_ptr.*);
     self._head = ((self._head + usize(1)) % self._capacity);
-    self._len = (self._len - usize(1));
+    self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._not_full.signal();
     self._mutex._raw_unlock();
     return(.Some(val));
@@ -156,32 +168,25 @@ impl(
   /// Pending send() calls will return .Err(()).
   close : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
-    self._closed = true;
+    self._closed.store(true, MemoryOrder.Release);
     self._not_empty.broadcast();
     self._not_full.broadcast();
     self._mutex._raw_unlock();
   }),
-  /// Check if the channel is closed.
-  is_closed : (fn(self : Self) -> bool)({
-    self._mutex._raw_lock();
-    result := self._closed;
-    self._mutex._raw_unlock();
-    result
-  }),
-  /// Return the number of values currently buffered.
-  len : (fn(self : Self) -> usize)({
-    self._mutex._raw_lock();
-    result := self._len;
-    self._mutex._raw_unlock();
-    result
-  }),
-  /// Check if the channel buffer is empty.
-  is_empty : (fn(self : Self) -> bool)({
-    self._mutex._raw_lock();
-    result := (self._len == usize(0));
-    self._mutex._raw_unlock();
-    result
-  })
+  /// Check if the channel is closed (lock-free atomic load).
+  is_closed : (fn(self : Self) -> bool)(
+    self._closed.load(MemoryOrder.Acquire)
+  ),
+  /// Return the number of values currently buffered (lock-free atomic load).
+  /// Snapshot semantics: the value may be stale by the time the caller acts on it,
+  /// matching Rust's `mpsc::channel` idiom.
+  len : (fn(self : Self) -> usize)(
+    self._len.load(MemoryOrder.Acquire)
+  ),
+  /// Check if the channel buffer is empty (lock-free atomic load).
+  is_empty : (fn(self : Self) -> bool)(
+    self._len.load(MemoryOrder.Acquire) == usize(0)
+  )
 );
 // Dispose: drop remaining elements and free the buffer
 impl(
@@ -190,8 +195,9 @@ impl(
   where(T <: Send),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
+      (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
       (i : usize) = usize(0);
-      while(runtime(i < self._len), {
+      while(runtime(i < current_len), {
         (idx : usize) = ((self._head + i) % self._capacity);
         unsafe.drop((self._data &+ idx).*);
         i = (i + usize(1));
