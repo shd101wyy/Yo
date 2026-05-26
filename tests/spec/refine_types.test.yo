@@ -1,0 +1,48 @@
+// Phase 0 of plans/FORMAL_VERIFICATION.md task #7/#8.
+//
+// Smoke tests for the Refine / NonZero / Bounded / Positive
+// comptime type constructors from std/spec/. Phase 0 implementations
+// are type aliases (predicate ignored); the verifier (Phase 2+) will
+// attach concrete predicates and enforce them.
+{ Refine, NonZero, Bounded, NonEmpty } :: import("std/spec/refine");
+{ Positive, Negative, NonNegative, Even, Odd } :: import("std/spec/numeric");
+
+test("NonZero(T) is a usable parameter type for runtime functions", {
+  safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
+  assert(safe_div(i32(10), i32(2)) == i32(5), "10/2 == 5");
+});
+
+test("Bounded(T, lo, hi) accepts compile-time bounds", {
+  in_range :: (fn(x : Bounded(i32, i32(0), i32(100))) -> i32)(x);
+  assert(in_range(i32(50)) == i32(50), "50 in [0,100]");
+});
+
+test("Positive / Negative aliases compile and pass values through", {
+  pos :: (fn(x : Positive(i32)) -> i32)(x);
+  neg :: (fn(x : Negative(i32)) -> i32)(x);
+  assert(pos(i32(7)) == i32(7), "Positive(i32) passthrough");
+  assert(neg(i32(-(3))) == i32(-(3)), "Negative(i32) passthrough");
+});
+
+test("Even / Odd / NonNegative aliases compile", {
+  e :: (fn(x : Even(i32)) -> i32)(x);
+  o :: (fn(x : Odd(i32)) -> i32)(x);
+  nn :: (fn(x : NonNegative(i32)) -> i32)(x);
+  assert(e(i32(4)) == i32(4), "Even(i32) passthrough");
+  assert(o(i32(3)) == i32(3), "Odd(i32) passthrough");
+  assert(nn(i32(0)) == i32(0), "NonNegative(i32) passthrough");
+});
+
+test("NonEmpty(T) compiles for any T (Phase 0: alias for T)", {
+  // Phase 0: NonEmpty(T) = T. We just check the alias is usable
+  // in a parameter position.
+  echo :: (fn(x : NonEmpty(i32)) -> i32)(x);
+  assert(echo(i32(42)) == i32(42), "NonEmpty(i32) passthrough");
+});
+
+test("Refine(T) is composable with itself", {
+  // Refine(Refine(T)) should still be T in Phase 0
+  Doubly :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(Refine(T)));
+  f :: (fn(x : Doubly(i32)) -> i32)(x);
+  assert(f(i32(42)) == i32(42), "doubly-refined i32 is still i32");
+});

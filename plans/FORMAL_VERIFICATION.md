@@ -1041,9 +1041,9 @@ the verifier, this is how" rather than "we are building the verifier."
 - [x] Enforce loop `invariant(...)` first-statement rule (rejection works across nested cond/match branches; nested while loops are checked separately when their own evaluator fires).
 - [x] Lower `requires(...)` to `assert(P, "requires failed: ...")` (runtime functions) or `comptime_assert(P, "requires failed: ...")` (comptime functions). Dispatch via `functionType.return.isCompileTimeOnly`. Splices synthetic FnCallExpr nodes into the body before evaluation in both function paths (`evaluateAnonymousFunctionImplementation` and `function-type.ts`). Honors `pragma(Pragma.NoContracts);` — contracts erased entirely.
 - [ ] Lower `ensures(...)` to assert at function return. Blocked on adding the `result` magic-identifier scope (sub-task #3); follow-up PR.
-- [ ] Add `Refine` / `NonZero` / `Bounded` as comptime type constructors.
-- [ ] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons.
-- [ ] Tests under `tests/spec/` (parse / runtime / reject) — initial `contracts_phase0.test.yo` landed alongside the builtin registration.
+- [x] Add `Refine` / `NonZero` / `Bounded` / `NonEmpty` as comptime type constructors. Phase 0 implementations are type aliases (predicate parameter not yet wired up — added when verifier lands in Phase 2).
+- [x] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons. Numeric module also has `Positive`, `Negative`, `NonNegative`, `NonPositive`, `Even`, `Odd` aliases.
+- [x] Tests under `tests/spec/` (parse / runtime / reject) — 22 tests across `contracts_phase0.test.yo`, `pragma_no_contracts.test.yo`, `refine_types.test.yo`.
 
 **Implementation plan:**
 
