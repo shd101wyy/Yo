@@ -975,6 +975,19 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)) {
     return generateExpr(expr.args[0]!, indent, context);
   }
+  // old(expr) — Phase 0 transparent pass-through. Later phases will
+  // snapshot the value at function entry; for now it lowers to the
+  // inner expression. See plans/FORMAL_VERIFICATION.md.
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.old)) {
+    return generateExpr(expr.args[0]!, indent, context);
+  }
+  // ghost_fn(fn_value) — Phase 0 transparent pass-through. Later
+  // phases erase ghost functions entirely; this site is reachable in
+  // Phase 0 only if the ghost function is called from non-ghost code,
+  // which the verifier will eventually forbid.
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.ghost_fn)) {
+    return generateExpr(expr.args[0]!, indent, context);
+  }
   // functions that should be skipped
   // comptime_expect_error
   else if (
@@ -985,7 +998,16 @@ function generateFuncCall(
       expr,
       BuiltinFunctions.__yo_var_is_owning_the_rc_value
     ) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases)
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases) ||
+    // Phase 0 contract markers — no C output. requires/ensures inside
+    // function signatures are skipped during signature processing;
+    // these branches catch contract markers appearing in other
+    // positions (e.g. invariant in a loop body) so they don't leak to
+    // codegen. See plans/FORMAL_VERIFICATION.md.
+    exprIsFunctionCallOf(expr, BuiltinFunctions.requires) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.ensures) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.invariant) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.ghost)
   ) {
     // no-op in C, just return empty string
     return "";

@@ -1314,6 +1314,16 @@ export const BuiltinFunctions = {
   // Inline assembly
   asm: ["asm"],
   global_asm: ["global_asm"],
+
+  // Formal verification surface (plans/FORMAL_VERIFICATION.md, Phase 0).
+  // Phase 0 evaluates these as no-op markers — they parse, type-check,
+  // and (in later phases) lower to runtime asserts or proof obligations.
+  requires: ["requires"],
+  ensures: ["ensures"],
+  invariant: ["invariant"],
+  ghost: ["ghost"],
+  ghost_fn: ["ghost_fn"],
+  old: ["old"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

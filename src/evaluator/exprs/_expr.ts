@@ -33,6 +33,14 @@ import { evaluateComptimePrint } from "../builtins/comptime-print";
 import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-fns";
 import { evaluateYoComptimeIndexFunctions } from "../builtins/comptime-index-fns";
 import { evaluateConsume } from "../builtins/consume";
+import {
+  evaluateEnsures,
+  evaluateGhost,
+  evaluateGhostFn,
+  evaluateInvariant,
+  evaluateOld,
+  evaluateRequires,
+} from "../builtins/contracts";
 import { evaluatePragma } from "../builtins/pragma";
 import { evaluateUnsafe } from "../builtins/unsafe";
 import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
@@ -665,6 +673,24 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.requires)) {
+      // requires — Phase 0 no-op contract marker
+      return evaluateRequires({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.ensures)) {
+      // ensures — Phase 0 no-op contract marker
+      return evaluateEnsures({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.invariant)) {
+      // invariant — Phase 0 no-op contract marker
+      return evaluateInvariant({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.ghost)) {
+      // ghost — Phase 0 no-op contract marker (binding form)
+      return evaluateGhost({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.ghost_fn)) {
+      // ghost_fn — Phase 0 transparent pass-through for ghost functions
+      return evaluateGhostFn({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.old)) {
+      // old — Phase 0 transparent pass-through; scope restriction TBD
+      return evaluateOld({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
       // ___drop
       return evaluateDrop({ expr, env, context: { ...context } });

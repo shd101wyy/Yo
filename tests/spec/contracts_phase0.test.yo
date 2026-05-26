@@ -1,0 +1,73 @@
+// Phase 0 of plans/FORMAL_VERIFICATION.md
+//
+// Verifies that contract builtins parse and behave as no-ops:
+//   requires(...), ensures(...), invariant(...), ghost(...),
+//   ghost_fn(...), old(...).
+//
+// Phase 0 does NOT verify or lower these to runtime asserts yet. The
+// test only checks that contract syntax is accepted and that
+// contract-bearing code produces the same runtime behavior as
+// contract-free code.
+test("requires/ensures in function-type signature are no-ops", {
+  divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+    x / y
+  );
+  assert(divide(i32(10), i32(2)) == i32(5), "divide(10,2) == 5");
+  assert(divide(i32(7), i32(2)) == i32(3), "divide(7,2) == 3 (integer)");
+});
+
+test("multiple predicates inside a single requires/ensures", {
+  clamped :: (fn(x : i32, lo : i32, hi : i32, requires(lo <= hi, x >= i32(-(1000))), ensures(result >= lo, result <= hi)) -> i32)(
+    cond(
+      (x < lo) => lo,
+      (x > hi) => hi,
+      true => x
+    )
+  );
+  assert(clamped(i32(5), i32(0), i32(10)) == i32(5), "clamp 5 in [0,10]");
+  assert(clamped(i32(-(5)), i32(0), i32(10)) == i32(0), "clamp -5 in [0,10]");
+  assert(clamped(i32(15), i32(0), i32(10)) == i32(10), "clamp 15 in [0,10]");
+});
+
+test("where clause may precede requires/ensures in a signature", {
+  // Use a simple forall + where(Runtime) — focus on the contract
+  // syntax, not the trait machinery.
+  echo :: (fn(forall(T : Type), x : T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
+    x
+  );
+  assert(echo(forall(i32), i32(7)) == i32(7), "echo returns its arg");
+});
+
+test("invariant inside a loop body is a no-op", {
+  i := i32(0);
+  acc := i32(0);
+  n := i32(5);
+  while(runtime(i < n), {
+    invariant((i >= i32(0)) && (i <= n), acc >= i32(0));
+    i = (i + i32(1));
+    acc = (acc + i);
+  });
+  // 1+2+3+4+5 = 15
+  assert(acc == i32(15), "sum 1..5 == 15");
+});
+
+test("ghost binding evaluates as a no-op", {
+  a := i32(2);
+  b := i32(3);
+  ghost(orig_sum := (a + b));
+  // The ghost binding does not affect runtime values.
+  assert((a + b) == i32(5), "a + b == 5 regardless of ghost");
+});
+
+test("ghost_fn declaration is parseable and callable in Phase 0", {
+  is_positive :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
+  // Phase 0 is transparent — the ghost function is still callable.
+  // Later phases will forbid calls from non-ghost code.
+  assert(is_positive(i32(5)), "5 is positive");
+  assert(!(is_positive(i32(-(5)))), "-5 is not positive");
+});
+
+test("old() is a transparent pass-through in Phase 0", {
+  snapshot :: (fn(x : i32) -> i32)(old(x));
+  assert(snapshot(i32(42)) == i32(42), "old(x) == x in Phase 0");
+});

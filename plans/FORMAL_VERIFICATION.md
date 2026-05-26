@@ -1005,6 +1005,20 @@ the verifier, this is how" rather than "we are building the verifier."
 
 ### Phase 0 — Surface lock-in (no verification yet)
 
+**Progress (updated as sub-tasks land):**
+
+- [x] Register contract builtins (`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`, `old`) as no-op markers; signature-level `requires`/`ensures` are skipped during function-type parameter processing; codegen lowers them to empty C output.
+- [ ] Add `Pragma.Verify` / `Pragma.NoContracts` / `Pragma.VerifyOrAssert`.
+- [ ] Reserve `result` keyword; restrict scope to `ensures(...)` bodies.
+- [ ] Extract `requires` / `ensures` from function-type signatures (currently just skipped).
+- [ ] Enforce loop `invariant(...)` first-statement rule.
+- [ ] Lower contracts to runtime `assert(...)` in default mode.
+- [ ] Add `Refine` / `NonZero` / `Bounded` as comptime type constructors.
+- [ ] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons.
+- [ ] Tests under `tests/spec/` (parse / runtime / reject) — initial `contracts_phase0.test.yo` landed alongside the builtin registration.
+
+**Implementation plan:**
+
 - Register `requires`, `ensures`, `invariant`, `ghost`, `ghost_fn` in
   `BuiltinFunctions` (`src/expr.ts:742`). Parser changes are minimal —
   these all parse as normal `FnCallExpr` nodes today.

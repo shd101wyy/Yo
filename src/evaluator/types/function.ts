@@ -1677,12 +1677,17 @@ export function evaluateFunctionParameters({
   const preAddedComptimeParams = new Set<number>();
   for (let i = 0; i < parameterExprs.length; i++) {
     const paramExpr = parameterExprs[i]!;
-    // Skip forall and where
+    // Skip forall, where, ..., and Phase-0 contract clauses
+    // (requires/ensures). The contract clauses are recognized here so
+    // they don't get treated as runtime parameters. Their bodies are
+    // evaluated later — see plans/FORMAL_VERIFICATION.md task #4.
     if (
       exprIsFunctionCall(paramExpr) &&
       (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall) ||
         exprIsFunctionCallOf(paramExpr, BuiltinKeywords.where) ||
-        exprIsFunctionCallOf(paramExpr, "..."))
+        exprIsFunctionCallOf(paramExpr, "...") ||
+        exprIsFunctionCallOf(paramExpr, "requires") ||
+        exprIsFunctionCallOf(paramExpr, "ensures"))
     ) {
       continue;
     }
@@ -1738,11 +1743,27 @@ export function evaluateFunctionParameters({
   }
 
   // Third pass: scan where clause, create SomeTypes for LHS vars, and try to evaluate constraints
-  // where must be the last parameter if present
+  // where must come at the end of the signature, but Phase-0 contract
+  // clauses (requires/ensures) may follow it. Scan from the end past
+  // any trailing contract clauses to find the where clause.
   let pendingConstraints: PendingTraitConstraint[] = [];
   if (parameterExprs.length > 0) {
-    const lastParam = parameterExprs[parameterExprs.length - 1]!;
+    let whereIdx = parameterExprs.length - 1;
+    while (whereIdx >= 0) {
+      const candidate = parameterExprs[whereIdx]!;
+      if (
+        exprIsFunctionCall(candidate) &&
+        (exprIsFunctionCallOf(candidate, "requires") ||
+          exprIsFunctionCallOf(candidate, "ensures"))
+      ) {
+        whereIdx--;
+        continue;
+      }
+      break;
+    }
+    const lastParam = whereIdx >= 0 ? parameterExprs[whereIdx]! : undefined;
     if (
+      lastParam &&
       exprIsFunctionCall(lastParam) &&
       exprIsFunctionCallOf(lastParam, BuiltinKeywords.where)
     ) {
@@ -1790,13 +1811,37 @@ export function evaluateFunctionParameters({
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
     ) {
-      // where clause must be the last parameter
-      if (i !== parameterExprs.length - 1) {
+      // where clause must come at the end of the signature, but
+      // requires/ensures contract clauses may follow it.
+      // Canonical order: forall, params, where, requires, ensures.
+      let trailingOk = true;
+      for (let j = i + 1; j < parameterExprs.length; j++) {
+        const tail = parameterExprs[j]!;
+        if (
+          !exprIsFunctionCall(tail) ||
+          (!exprIsFunctionCallOf(tail, "requires") &&
+            !exprIsFunctionCallOf(tail, "ensures"))
+        ) {
+          trailingOk = false;
+          break;
+        }
+      }
+      if (!trailingOk) {
         throw formatErrorMessage({
           token: parameterExpr.token,
-          errorMessage: `The where clause must be the last parameter in the function signature.`,
+          errorMessage: `The where clause must come after regular parameters; only 'requires(...)' / 'ensures(...)' contract clauses may follow it.`,
         });
       }
+      continue;
+    }
+    // Skip Phase-0 contract clauses (requires/ensures). They were
+    // recognized in the second pass; their bodies are not yet
+    // extracted — see plans/FORMAL_VERIFICATION.md task #4.
+    else if (
+      exprIsFunctionCall(parameterExpr) &&
+      (exprIsFunctionCallOf(parameterExpr, "requires") ||
+        exprIsFunctionCallOf(parameterExpr, "ensures"))
+    ) {
       continue;
     }
     // Check if it's the variadic parameter
