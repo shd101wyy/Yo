@@ -6,13 +6,9 @@ test("Test basic Iso related functions", {
     i2 := i1;
     i3 := i1;
     comptime_expect_error(y := x, "use of moved value: x");
-    // f :: Type.impls(typeof(i1), Send);
-    e1 := __yo_iso_extract(i2).unwrap();
+    // Phase H: extract() now returns T directly, panics on failure
+    e1 := i2.extract();
     assert(e1.* == 42);
-    e2 := i2.extract();
-    assert(e2.is_none());
-    e3 := Iso(Box(i32)).extract(i3);
-    assert(e3.is_none());
   };
   {
     x := Box(i32)(99);
@@ -50,7 +46,8 @@ test("Test ^ operator for constructing Iso value", {
   match(
     isolated,
     .Some(iso_val) => {
-      e := iso_val.extract().unwrap();
+      // Phase H: extract() returns T directly, panics on failure
+      e := iso_val.extract();
       assert(e.* == 99);
     },
     .None => {

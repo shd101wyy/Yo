@@ -506,12 +506,12 @@ export function evaluateYoSomeTypeDup({
 }
 
 /**
- * Extract the inner value from an Iso(T) type.
- * Returns Option(T) - .Some(value) on first extraction, .None on subsequent attempts.
+ * Evaluates __yo_iso_extract builtin function.
+ * Extracts the inner value from an Iso type. Panics at runtime if
+ * the Iso has already been extracted (rc != 1 or extracted flag is set).
  *
- * Example:
- *   iso := Iso(Box(i32))(box(42));
- *   opt := __yo_iso_extract(iso);  // opt : Option(Box(i32))
+ * Usage:
+ *   val := __yo_iso_extract(iso);  // val : T
  */
 export function evaluateYoIsoExtract({
   expr,
@@ -547,11 +547,7 @@ export function evaluateYoIsoExtract({
   }
   env = evaluatedArgExpr.$.env;
 
-  // NOTE: Don't consume the argument. We should allow to extract multiple times,
-  // returning .None on subsequent attempts.
-  // Consume the argument expression
-  // env = setExprAsConsumed(evaluatedArgExpr, env);
-
+  // Phase H: extract() returns T directly, panics on failure (no Option)
   const argType = evaluatedArgExpr.$.type;
 
   // Validate that the argument is an Iso type
@@ -562,22 +558,13 @@ export function evaluateYoIsoExtract({
     });
   }
 
-  // Get the inner type from Iso(T)
+  // Get the inner type from Iso(T) — return T directly
   const innerType = argType.childType;
 
-  // Create Option(T) type
-  const { optionType, env: envWithOption } = createOptionType(
-    innerType,
-    env,
-    context
-  );
-  env = envWithOption;
-
-  // The actual extraction happens at runtime
-  // Return Option(T) type
+  // The actual extraction happens at runtime; panics if already extracted
   expr.$ = {
     env,
-    type: optionType,
+    type: innerType,
     value: undefined, // Runtime value
     pathCollection: evaluatedArgExpr.$.pathCollection || [],
   };

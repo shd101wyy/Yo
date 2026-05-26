@@ -27,13 +27,11 @@ export function generateYoIsoExtract(
 
   const isoTypeCName = getTypeString(selfType, context);
 
-  // Register the Option type C name for the extract function
-  // The return type of __yo_iso_extract is Option(ChildType)
-  const returnType = expr.$?.type;
-  if (returnType && context.isoTypes?.has(isoTypeCName)) {
+  // Register the Iso type's child C name for the extract function
+  if (context.isoTypes?.has(isoTypeCName)) {
     const isoInfo = context.isoTypes.get(isoTypeCName)!;
-    if (!isoInfo.optionTypeCName) {
-      isoInfo.optionTypeCName = getTypeString(returnType, context);
+    if (!isoInfo.childTypeCName) {
+      isoInfo.childTypeCName = getTypeString(selfType.childType, context);
     }
   }
 
@@ -41,6 +39,7 @@ export function generateYoIsoExtract(
 
   // If this expression has a temp variable (for cleanup), emit declaration + assignment
   const tempVar = expr.$?.variableName;
+  const returnType = expr.$?.type;
   if (tempVar && returnType) {
     context.emitter.emitLine(
       `${indent}${getTypeString(returnType, context)} ${tempVar} = ${extractCall};`

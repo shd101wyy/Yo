@@ -873,16 +873,16 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     isoInfo.structGenerated = true;
   }
 
-  // Generate extract function declarations (if Option type is known and not already generated)
+  // Generate extract function declarations and implementations
   for (const [isoTypeName, isoInfo] of context.isoTypes) {
-    const { optionTypeCName, extractGenerated } = isoInfo;
+    const { childTypeCName, extractGenerated } = isoInfo;
 
-    // Skip if already generated or no option type
-    if (extractGenerated || !optionTypeCName) continue;
+    // Skip if already generated
+    if (extractGenerated) continue;
 
     // Generate extract function declaration
     emitter.emitDeclarationLine(
-      `${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso);`
+      `${childTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso);`
     );
   }
 
@@ -992,48 +992,26 @@ static void __yo_dispose_iso_${isoTypeName}(void* ptr) {
     isoInfo.disposeGenerated = true;
   }
 
-  // Generate extract function implementations (if Option type is known)
+  // Generate extract function implementations
   for (const [isoTypeName, isoInfo] of context.isoTypes) {
-    const { optionTypeCName, isoType, extractGenerated } = isoInfo;
+    const { childTypeCName, isoType, extractGenerated } = isoInfo;
 
-    // Skip if already generated or no option type
-    if (extractGenerated || !optionTypeCName || !isoType) continue;
+    // Skip if already generated
+    if (extractGenerated || !isoType) continue;
 
-    // Get the Option type's variant names from context.types
-    // We need to find the Option enum and get its Some/None variant tag names
-    const optionTypeEntry = Object.values(context.types).find(
-      (entry) => entry.cName === optionTypeCName
-    );
-
-    if (optionTypeEntry && isEnumType(optionTypeEntry.type)) {
-      const optionEnum = optionTypeEntry.type;
-      const someVariant = optionEnum.variants.find((v) => v.name === "Some");
-      const noneVariant = optionEnum.variants.find((v) => v.name === "None");
-
-      if (someVariant && noneVariant) {
-        const someTagName = `${optionTypeCName.toUpperCase()}_SOME`;
-        const noneTagName = `${optionTypeCName.toUpperCase()}_NONE`;
-
-        emitter.emitLine(`
-${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso) {
+    emitter.emitLine(`
+${childTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso) {
   // Atomically check and set extracted flag
   bool was_extracted = atomic_exchange(&iso->extracted, true);
-  ${optionTypeCName} result;
   if (was_extracted) {
-    // Already extracted, return None
-    result.tag = ${noneTagName};
-  } else {
-    // First extraction, return Some(value)
-    result.tag = ${someTagName};
-    result.data.Some.value = iso->value;
+    fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");
+    abort();
   }
-  return result;
+    return iso->value;
 }`);
-      }
 
-      // Mark extract as generated
-      isoInfo.extractGenerated = true;
-    }
+    // Mark extract as generated
+    isoInfo.extractGenerated = true;
   }
 }
 

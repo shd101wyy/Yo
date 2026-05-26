@@ -9,6 +9,7 @@ import {
 import { createIsoType } from "../../types/creators";
 import type { IsoType } from "../../types/definitions";
 import { canTypeFormRcCycle } from "../../types/utils";
+import { isAtomicObjectType } from "../../types/guards";
 import { createTypeValue, isTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -57,6 +58,19 @@ export function evaluateIsoTypeCall({
 
   const typeValue = evaluatedArgExpr.$.value;
   const childType = typeValue.value;
+
+  // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
+  // rc, not the inner Arc cell. After extract() you get the Arc back;
+  // Iso adds nothing over naked Arc + move-on-spawn.
+  if (isAtomicObjectType(childType)) {
+    const derefField = childType.fields.find((f) => f.label === "*");
+    if (derefField) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Iso(Arc(T)) is not allowed.\n  - To send an Arc handle across a thread, send the Arc directly — the spawn closure already consumes it. Iso adds nothing.\n  - If you want unique-owned heap data, use Iso(Box(T)) or Iso(...your struct...).`,
+      });
+    }
+  }
 
   // Create the Iso type
   const isoType = createIsoType(childType, env);

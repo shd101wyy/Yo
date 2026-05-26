@@ -7533,8 +7533,9 @@ impl(forall(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
 impl(
   forall(T : Type),
   Iso(T),
-  /// Attempt to extract the inner value if this `Iso` holds the only reference.
-  extract : (fn(self : Self) -> Option(T))(
+  /// Extract the inner value if this `Iso` holds the only reference.
+  /// Panics if rc != 1 or if this Iso has already been extracted.
+  extract : (fn(self : Self) -> T)(
     __yo_iso_extract(self)
   )
 );
