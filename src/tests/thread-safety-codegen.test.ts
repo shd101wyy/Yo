@@ -68,8 +68,22 @@ describe("Phase G — atomic RC codegen pin tests", () => {
     expect(decrFn).toContain("__yo_dispose_dispatch");
   });
 
-  // Worker-pool idempotency pin test deferred — __yo_worker_pool_init is
-  // only emitted when the program uses parallelism (Thread/Worker), which
-  // requires import("std/thread") paths that aren't available from temp
-  // files. Verified via manual code review in runtime.ts lines 294-332.
+  test("__yo_worker_pool_init is guarded (idempotent)", () => {
+    const c = compileAndGetC(`
+      Worker :: import("std/worker");
+      main :: (fn() -> unit)({
+        Worker.spawn((io) => {});
+      });
+      export(main);
+    `);
+    // The init function should check a flag before proceeding
+    expect(c).toContain("__yo_worker_pool_initialized");
+    expect(c).toContain("static void __yo_worker_pool_init");
+    // Verify the guard pattern: check flag, return if already set
+    const initIdx = c.indexOf("static void __yo_worker_pool_init");
+    expect(initIdx).toBeGreaterThan(0);
+    const initBody = c.slice(initIdx, c.indexOf("}", initIdx) + 500);
+    expect(initBody).toMatch(/__yo_worker_pool_initialized\s*\)/);
+    expect(initBody).toContain("return");
+  });
 });
