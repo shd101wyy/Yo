@@ -16,43 +16,48 @@ pragma(Pragma.AllowUnsafe);
 //! });
 //! ```
 { Mutex } :: import("./mutex");
+{ AtomicBool, MemoryOrder } :: import("./atomic");
+{
+  atomic_bool,
+  atomic_load_explicit,
+  atomic_store_explicit,
+  memory_order_relaxed,
+  memory_order_acquire,
+  memory_order_release
+} :: import("std/libc/stdatomic");
 /// Execute a function exactly once, thread-safely.
 /// Uses atomic reference counting for safe cross-thread sharing.
 Once :: atomic(
   object(
-    _done : bool,
-    _mutex : Mutex
+    _done : atomic_bool,
+    _mutex : Mutex(bool)
   )
 );
 impl(
   Once,
   // Create a new Once.
-  new : (fn() -> Self)(
-    Self(
-      _done : false,
-      _mutex : Mutex.new()
-    )
-  ),
+  new : (fn() -> Self)({
+    v := Self(false, Mutex(bool).new(false));
+    unsafe(atomic_store_explicit(&(v._done), false, memory_order_release));
+    v
+  }),
   // Execute the function exactly once.
   // Subsequent calls are no-ops.
-  // Note: The fast-path read of _done is not strictly atomic, but since _done
-  // is only ever set from false to true and the double-check inside the lock
-  // prevents the function from running twice, this is safe in practice.
   call : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)({
-    // Fast path: already done
+    // Fast path: already done (atomic_bool with Acquire load)
     cond(
-      self._done => (),
+      (unsafe(atomic_load_explicit(&(self._done), memory_order_acquire)) == true) => (),
       true => {
-        self._mutex.lock();
+        self._mutex._raw_lock();
         // Double-check after acquiring lock
         cond(
-          self._done => {
-            self._mutex.unlock();
+          (unsafe(atomic_load_explicit(&(self._done), memory_order_relaxed)) == true) => {
+            self._mutex._raw_unlock();
           },
           true => {
             f();
-            self._done = true;
-            self._mutex.unlock();
+            unsafe(atomic_store_explicit(&(self._done), true, memory_order_release));
+            self._mutex._raw_unlock();
           }
         );
       }
@@ -60,7 +65,7 @@ impl(
   }),
   // Check if the function has been called.
   is_done : (fn(self : Self) -> bool)(
-    self._done
+    unsafe(atomic_load_explicit(&(self._done), memory_order_acquire)) == true
   )
 );
 export(Once);

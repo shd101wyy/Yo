@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 WaitGroup :: atomic(
   object(
     _count : i32,
-    _mutex : Mutex,
+    _mutex : Mutex(bool),
     _cv : Cond
   )
 );
@@ -36,14 +36,14 @@ impl(
   new : (fn() -> Self)(
     Self(
       _count : i32(0),
-      _mutex : Mutex.new(),
+      _mutex : Mutex(bool).new(false),
       _cv : Cond.new()
     )
   ),
   // Add delta to the counter (can be negative).
   // If the counter becomes zero, all waiters are woken.
   add : (fn(self : Self, delta : i32) -> unit)({
-    self._mutex.lock();
+    self._mutex._raw_lock();
     self._count = (self._count + delta);
     cond(
       (self._count <= i32(0)) => {
@@ -52,7 +52,7 @@ impl(
       },
       true => ()
     );
-    self._mutex.unlock();
+    self._mutex._raw_unlock();
   }),
   // Decrement the counter by one (equivalent to add(-1)).
   done : (fn(self : Self) -> unit)(
@@ -60,11 +60,11 @@ impl(
   ),
   // Block until the counter reaches zero.
   wait : (fn(self : Self) -> unit)({
-    self._mutex.lock();
+    self._mutex._raw_lock();
     while(runtime(self._count > i32(0)), {
-      self._cv.wait(self._mutex);
+      self._cv.wait(self._mutex._raw_handle_ptr());
     });
-    self._mutex.unlock();
+    self._mutex._raw_unlock();
   }),
   // Get the current count (for debugging).
   count : (fn(self : Self) -> i32)(

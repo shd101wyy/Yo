@@ -1,6 +1,6 @@
 //! Condition variable for thread synchronization.
 pragma(Pragma.AllowUnsafe);
-{ __YO_THREAD_SYNC_TYPE, mutex_t, Mutex } :: import("./mutex");
+{ __YO_THREAD_SYNC_TYPE, mutex_t } :: import("./mutex");
 extern(
   "Yo",
   __YO_COND_TYPE : Type,
@@ -50,8 +50,8 @@ impl(
   new : (fn() -> Self)({
     return(Self(__yo_cond_create()));
   }),
-  wait : (fn(self : Self, mutex : Mutex) -> unit)({
-    return(__yo_cond_wait(&(self.cv), &(mutex.mutex)));
+  wait : (fn(self : Self, handle : *(__YO_THREAD_SYNC_TYPE)) -> unit)({
+    return(__yo_cond_wait(&(self.cv), handle));
   }),
   signal : (fn(self : Self) -> unit)({
     return(__yo_cond_signal(&(self.cv)));

@@ -25,7 +25,7 @@ RwLock :: atomic(
   object(
     _readers : i32,
     _writer : bool,
-    _mutex : Mutex,
+    _mutex : Mutex(bool),
     _read_cv : Cond,
     _write_cv : Cond
   )
@@ -37,7 +37,7 @@ impl(
     Self(
       _readers : i32(0),
       _writer : false,
-      _mutex : Mutex.new(),
+      _mutex : Mutex(bool).new(false),
       _read_cv : Cond.new(),
       _write_cv : Cond.new()
     )
@@ -45,39 +45,41 @@ impl(
   // Acquire a read lock. Blocks if a writer holds the lock.
   // Multiple readers can hold the lock simultaneously.
   read_lock : (fn(self : Self) -> unit)({
-    self._mutex.lock();
+    self._mutex._raw_lock();
     while(runtime(self._writer), {
-      self._read_cv.wait(self._mutex);
+      self._read_cv.wait(self._mutex._raw_handle_ptr());
     });
     self._readers = (self._readers + i32(1));
-    self._mutex.unlock();
+    self._mutex._raw_unlock();
   }),
   // Release a read lock.
   read_unlock : (fn(self : Self) -> unit)({
-    self._mutex.lock();
+    self._mutex._raw_lock();
     self._readers = (self._readers - i32(1));
     cond(
       (self._readers == i32(0)) => self._write_cv.signal(),
       true => ()
     );
-    self._mutex.unlock();
+    self._mutex._raw_unlock();
   }),
-  // Acquire a write lock. Blocks until all readers and writers release.
+  // Acquire a write lock. Blocks if readers or a writer hold the lock.
   write_lock : (fn(self : Self) -> unit)({
-    self._mutex.lock();
+    self._mutex._raw_lock();
     while(runtime(self._writer || (self._readers > i32(0))), {
-      self._write_cv.wait(self._mutex);
+      self._write_cv.wait(self._mutex._raw_handle_ptr());
     });
     self._writer = true;
-    self._mutex.unlock();
+    self._mutex._raw_unlock();
   }),
   // Release a write lock.
   write_unlock : (fn(self : Self) -> unit)({
-    self._mutex.lock();
+    self._mutex._raw_lock();
     self._writer = false;
-    self._read_cv.broadcast();
-    self._write_cv.signal();
-    self._mutex.unlock();
+    cond(
+      (self._readers > i32(0)) => self._read_cv.broadcast(),
+      true => self._write_cv.signal()
+    );
+    self._mutex._raw_unlock();
   })
 );
 export(RwLock);
