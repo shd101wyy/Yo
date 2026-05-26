@@ -1196,6 +1196,7 @@ Pass \`${varName}\` as a regular function parameter instead of capturing it in a
         captureType,
         env,
         errorToken: expr.token,
+        capturedVariablesWithValues,
       });
     }
 
