@@ -16,6 +16,7 @@ import {
   type FnCallExpr,
   hasControlFlow,
 } from "../../expr";
+import { wrapFunctionBodyWithContracts } from "../builtins/contracts";
 import { isFlowableExpr } from "../types/flowability";
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
@@ -392,11 +393,22 @@ export function tryToImplementFunctionByFunctionType({
     env: functionType.env,
   };
 
+  // Phase 0 of plans/FORMAL_VERIFICATION.md task #6: splice
+  // `assert(P, msg)` / `comptime_assert(P, msg)` calls at the start
+  // of the body for each `requires(...)` predicate. Mirrors the
+  // wrap call in `evaluateAnonymousFunctionImplementation` —
+  // the `name :: (fn(...) -> T)(body)` form lands here, the
+  // inline `(x) -> ...` / `(x) => ...` forms land there.
+  const effectiveBodyExpr = wrapFunctionBodyWithContracts(
+    functionBodyExpr,
+    newFunctionType
+  );
+
   // Create the function value
   const functionValue: FunctionValue = {
     tag: ValueTag.Function,
     type: newFunctionType,
-    body: functionBodyExpr, // Use transformed body
+    body: effectiveBodyExpr, // Use transformed body
     frameLevel: env.frames.length - 1,
     funcName: undefined,
     funcId: `fn_${randomId(env.modulePath)}`,
@@ -485,7 +497,7 @@ export function tryToImplementFunctionByFunctionType({
     evaluationContext = ctx.evaluationContext;
 
     evaluatedFunctionBody = evaluateBeginExpression({
-      expr: functionBodyExpr, // Use transformed body
+      expr: effectiveBodyExpr, // Use transformed body
       env,
       context: evaluationContext,
       variablesToAdd: [],

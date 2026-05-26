@@ -2,12 +2,21 @@ import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
+  BuiltinKeywords,
+  type Expr,
+  ExprTag,
   expectExprToBeFunctionCallOf,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  exprToString,
   type FnCallExpr,
 } from "../../expr";
+import { TokenType } from "../../token";
+import type { FunctionType } from "../../types/definitions";
 import { VUnit } from "../../unit-value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { fileHasPragma } from "../memory-safety";
 
 /**
  * Phase 0 of plans/FORMAL_VERIFICATION.md.
@@ -195,4 +204,117 @@ export function evaluateOld({
 
   expr.$ = evaluatedInner.$;
   return expr;
+}
+
+/**
+ * Phase 0 of plans/FORMAL_VERIFICATION.md task #6: lower the
+ * `requires(...)` clauses extracted from a function signature into
+ * runtime `assert(P, msg)` / `comptime_assert(P, msg)` calls prepended
+ * to the function body.
+ *
+ * The choice between runtime `assert` and `comptime_assert` is
+ * mechanical: comptime functions (return type `comptime(...)`) use
+ * `comptime_assert`; runtime functions use `assert`. See the
+ * "Runtime vs comptime contracts" section in the plan.
+ *
+ * `ensures(...)` lowering is deferred until task #6 phase B because
+ * it requires binding the `result` magic identifier to the function's
+ * return value — separate concern, separate sub-PR.
+ *
+ * Returns the original body unchanged if there are no `requires`
+ * clauses. Otherwise returns a synthetic begin-block AST node:
+ *   `{ assert(P1, "..."); assert(P2, "..."); ...; <original body> }`
+ *
+ * The synthetic nodes borrow tokens from the predicate exprs so
+ * error messages point at the user's `requires(...)` source
+ * location, not at a synthetic site.
+ *
+ * The body is NOT cloned — the original body expression is reused as
+ * the last statement of the synthetic begin block. Callers that hold
+ * other references to the body should be aware that the returned
+ * expression now contains it.
+ */
+export function wrapFunctionBodyWithContracts(
+  body: Expr,
+  fnType: FunctionType
+): Expr {
+  const requiresExprs = fnType.requiresExprs;
+  if (!requiresExprs || requiresExprs.length === 0) {
+    return body;
+  }
+
+  // Honor `pragma(Pragma.NoContracts);` — erase contract clauses
+  // entirely. The wrap is skipped; the body runs without any
+  // assert(...) call. Use the function body's modulePath since that
+  // is where the function's source lives.
+  if (fileHasPragma(body.token.modulePath, "NoContracts")) {
+    return body;
+  }
+
+  const isComptimeFunction = fnType.return.isCompileTimeOnly;
+  const assertFnName = isComptimeFunction ? "comptime_assert" : "assert";
+
+  const assertCalls: FnCallExpr[] = requiresExprs.map((pred) => {
+    const predToken = pred.token;
+    const msg = `requires failed: ${exprToString(pred)}`;
+
+    // String-literal tokens store the JSON-encoded form of their
+    // value (`evaluateStringLiteral` runs `JSON.parse(token.value)`).
+    // So our synthetic message must round-trip through JSON.stringify.
+    const msgExpr: Expr = {
+      tag: ExprTag.Atom,
+      token: {
+        type: TokenType.String,
+        value: JSON.stringify(msg),
+        position: predToken.position,
+        modulePath: predToken.modulePath,
+        inputString: predToken.inputString,
+      },
+    };
+
+    return {
+      tag: ExprTag.FnCall,
+      func: {
+        tag: ExprTag.Atom,
+        token: {
+          type: TokenType.Identifier,
+          value: assertFnName,
+          position: predToken.position,
+          modulePath: predToken.modulePath,
+          inputString: predToken.inputString,
+        },
+      },
+      args: [pred, msgExpr],
+      token: predToken,
+    };
+  });
+
+  // If the body is already a begin block, prepend the asserts to its
+  // statement list. Otherwise wrap into a new begin block.
+  if (
+    exprIsFunctionCall(body) &&
+    exprIsFunctionCallOf(body, BuiltinKeywords.begin)
+  ) {
+    return {
+      ...body,
+      args: [...assertCalls, ...body.args],
+      $: undefined, // re-evaluate
+    };
+  }
+
+  return {
+    tag: ExprTag.FnCall,
+    func: {
+      tag: ExprTag.Atom,
+      token: {
+        type: TokenType.Identifier,
+        value: BuiltinKeywords.begin[0]!,
+        position: body.token.position,
+        modulePath: body.token.modulePath,
+        inputString: body.token.inputString,
+      },
+    },
+    args: [...assertCalls, body],
+    token: body.token,
+  };
 }

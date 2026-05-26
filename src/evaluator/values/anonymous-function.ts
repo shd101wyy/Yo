@@ -45,6 +45,7 @@ import {
 } from "../../types/utils";
 import { isFlowableExpr } from "../types/flowability";
 import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
+import { wrapFunctionBodyWithContracts } from "../builtins/contracts";
 import {
   createPtrType,
   createSliceType,
@@ -660,11 +661,22 @@ Got:      "${paramName}"`,
     env = result.env;
   }
 
+  // Phase 0 of plans/FORMAL_VERIFICATION.md task #6: if the function
+  // type has `requires(...)` clauses, splice synthetic `assert(P, msg)`
+  // (runtime function) or `comptime_assert(P, msg)` (comptime function)
+  // calls at the start of the body. The choice is driven by
+  // `newFunctionType.return.isCompileTimeOnly`. `ensures(...)` lowering
+  // is a separate sub-PR — it needs the `result` magic identifier scope.
+  const effectiveBodyExpr = wrapFunctionBodyWithContracts(
+    functionBodyExpr,
+    newFunctionType
+  );
+
   // Create the function value BEFORE evaluating the function body (fixing FIXME)
   const functionValue: FunctionValue = {
     tag: ValueTag.Function,
     type: newFunctionType,
-    body: functionBodyExpr,
+    body: effectiveBodyExpr,
     frameLevel: env.frames.length - 1,
     funcId: `fn_${randomId(env.modulePath)}`,
     definitionSiteEnclosingFunctionType:
@@ -823,7 +835,7 @@ Add an explicit annotation to the closure parameter, e.g.:
     }
 
     evaluatedBody = evaluateBeginExpression({
-      expr: functionBodyExpr,
+      expr: effectiveBodyExpr,
       env,
       context: evaluationContext,
       variablesToAdd: [],

@@ -115,3 +115,23 @@ test("requires() with zero arguments in a signature is rejected", {
     f(i32(0));
   }, "zero arguments");
 });
+
+test("runtime requires(...) is lowered to a runtime assert and PASSES on valid input", {
+  divide :: (fn(x : i32, y : i32, requires(y != i32(0))) -> i32)(x / y);
+  // 10 / 2 = 5; assertion (y != 0) holds.
+  assert(divide(i32(10), i32(2)) == i32(5), "valid args bypass the assert");
+});
+
+test("comptime requires(...) PASSES at compile time for valid input", {
+  abs :: (fn(comptime(x) : i32, requires(x >= i32(-(100)))) -> comptime(i32))(
+    cond((x >= i32(0)) => x, true => -(x))
+  );
+  GOOD :: abs(i32(-(50)));
+  assert(GOOD == i32(50), "abs(-50) == 50");
+});
+
+// The comptime-violating case is verified at module scope by
+// tests/spec/contracts_comptime_violation.test.yo (a separate file
+// because compile errors that happen during the test body's CTFE
+// don't propagate through comptime_expect_error cleanly when the
+// failure path crosses the test-runner's batched compile).
