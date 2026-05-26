@@ -179,6 +179,33 @@ increment :: (fn(
 });
 ```
 
+### Runtime vs comptime contracts
+
+A contract clause inherits the comptime-ness of its host function from
+Yo's existing typing rule: a function whose return is wrapped in
+`comptime(...)` is comptime-only, with all parameters comptime. The
+contract behaves accordingly:
+
+| Function shape                                  | `requires(P)` / `ensures(P)` lowers to | Failure timing                           |
+| ----------------------------------------------- | -------------------------------------- | ---------------------------------------- |
+| `(fn(...) -> T)` (runtime)                      | `assert(P, "...")`                     | Runtime panic on each violating call     |
+| `(fn(comptime(...)) -> comptime(T))` (comptime) | `comptime_assert(P, "...")`            | Compile error at the violating call site |
+
+The predicate `P` itself follows the same rule: a comptime function's
+contract may only reference comptime-evaluable values, and the
+predicate is fully evaluated at call-site specialization time. A
+runtime function's contract may reference runtime parameters, and the
+predicate is evaluated each time the function is called.
+
+The dispatch is mechanical: at lowering time (Phase 0 task #6), look
+at `functionType.return.isCompileTimeOnly`; emit `comptime_assert`
+if set, `assert` otherwise. No new syntax is needed — the user
+writes `requires(P)` either way, and the typing context picks the
+right enforcement mechanism. This also means a contract migrated from
+a runtime function to a comptime function (by adding `comptime(...)`
+to the return) automatically tightens from "runtime check" to
+"compile error" without any change to the predicate.
+
 ### Why signatures, not bodies
 
 Function contracts (`requires`, `ensures`) live in the signature for
@@ -1012,7 +1039,7 @@ the verifier, this is how" rather than "we are building the verifier."
 - [ ] Reserve `result` keyword; restrict scope to `ensures(...)` bodies. Blocked on codegen lowering (#6) — the magic identifier only needs to exist when contracts are actually evaluated at function entry/return.
 - [x] Extract `requires` / `ensures` from function-type signatures into `FunctionType.requiresExprs` and `FunctionType.ensuresExprs`. Single-call rule enforced (duplicate `requires(...)` / `ensures(...)` clauses are a syntax error). Zero-argument forms rejected.
 - [x] Enforce loop `invariant(...)` first-statement rule (rejection works across nested cond/match branches; nested while loops are checked separately when their own evaluator fires).
-- [ ] Lower contracts to runtime `assert(...)` in default mode. Design surveyed (see task #6 description): preferred approach is to splice synthetic `assert(P, msg)` FnCallExpr nodes into the function body before body evaluation; reuses existing assert lowering. Follow-up PR.
+- [ ] Lower contracts to `assert(...)` (runtime functions) or `comptime_assert(...)` (comptime functions) in default mode. The dispatch is by the function's return-type shape: `-> comptime(T)` selects `comptime_assert`, anything else selects `assert`. Design surveyed (see task #6 description): preferred approach is to splice synthetic `assert(P, msg)` / `comptime_assert(P, msg)` FnCallExpr nodes into the function body before body evaluation. Follow-up PR.
 - [ ] Add `Refine` / `NonZero` / `Bounded` as comptime type constructors.
 - [ ] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons.
 - [ ] Tests under `tests/spec/` (parse / runtime / reject) — initial `contracts_phase0.test.yo` landed alongside the builtin registration.
