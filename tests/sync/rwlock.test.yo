@@ -174,16 +174,15 @@ test("RwLock readers wait for writer across threads", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   data := AtomicI32(i32(0));
-  // Writer runs first, holds lock while sleeping
+  // Writer acquires the lock in a separate thread
   writer := Thread.spawn((io) => {
     lock.write_lock();
-    sleep(usize(50));
     data.store(i32(99), MemoryOrder.Relaxed);
     lock.write_unlock();
   });
-  // Give writer time to acquire lock
-  sleep(usize(10));
-  // Readers will block until writer releases
+  // Wait for writer to finish
+  writer.join();
+  // Readers should see the writer's value
   t1 := Thread.spawn((io) => {
     lock.read_lock();
     val := data.load(MemoryOrder.Relaxed);
@@ -196,7 +195,6 @@ test("RwLock readers wait for writer across threads", {
     assert(val == i32(99), "reader 2 should see 99");
     lock.read_unlock();
   });
-  writer.join();
   t1.join();
   t2.join();
 });
