@@ -1,0 +1,131 @@
+# 线程安全
+
+Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证。所有跨线程的可变共享操作都通过 `std/sync/` 中经过审计的同步原语进行。在无同步的情况下跨线程共享状态是编译错误。
+
+## 保证
+
+> 对于任何不使用 `pragma(Pragma.AllowUnsafe)` 编译且仅使用 `std/` 中原语的程序，所有跨线程的可变共享访问都由同步原语中介。该程序在 C11 内存模型下是无数据竞争的。
+
+## Send 特质
+
+`Send` 是一个标记特质，表示"可以安全地在线程间传输"。如果一个类型可以将其值移动到另一个线程，则该类型实现了 `Send`。
+
+### 自动派生
+
+`Send` 为结构体、枚举、联合体和元组自动派生：如果**所有**字段都是 `Send`，则复合类型也是 `Send`。
+
+```rust
+// 所有字段都是 Send → Point 是 Send
+Point :: struct(x : i32, y : i32);
+
+// 普通 object 不是 Send — 它使用非原子引用计数
+MyObj :: object(data : Vec(i32));
+```
+
+### 手动 Send 实现需要 Pragma
+
+编写 `impl(MyType, Send())` 需要 `pragma(Pragma.AllowUnsafe)` 和解释该类型为何可以安全跨线程发送的 `// SAFETY:` 注释。这确保每个手动 Send 声明都是可审计的。
+
+## 原子对象 vs 普通对象
+
+|                | `object(...)`          | `atomic object(...)`                |
+| -------------- | ---------------------- | ----------------------------------- |
+| **引用计数**   | 非原子 RC（线程本地）  | 原子 RC（线程安全）                 |
+| **跨线程共享** | 不允许（非 Send）      | 允许（所有字段都是 Send 时为 Send） |
+| **循环回收**   | 是（STW GC）           | 否（纯原子 RC）                     |
+| **示例**       | `ArrayList`, `HashMap` | `Arc(T)`, `Mutex(T)`, `Channel(T)`  |
+
+## 安全代码中禁止原子字段修改
+
+在安全代码中直接写入 `atomic object` 的字段是**编译时错误**：
+
+```rust
+a := arc(i32(0));
+a.* = i32(5);  // 错误：不能写入原子对象字段
+```
+
+要修改共享状态，请组合正确的原语：
+
+| 想要...           | 使用                                                  |
+| ----------------- | ----------------------------------------------------- |
+| 共享原子计数器    | `Arc(AtomicI32)` → `counter.fetch_add(i32(1), ...)`   |
+| 共享锁定可变数据  | `Arc(Mutex(T))` → `arc.with_lock((v) => { ... })`     |
+| 共享多读/单写数据 | `Arc(RwLock(T))` → `arc.with_read` / `arc.with_write` |
+| 共享不可变配置    | `Arc(T)`（构造后只读）                                |
+
+Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则——这就是 `std/sync/` 原语在获取锁后修改其内部状态的方式。
+
+## AtomicBool 和 MemoryOrder
+
+`std/sync/atomic.yo` 提供基于 C11 `<stdatomic.h>` 的高级原子包装器：
+
+```rust
+{ AtomicBool, MemoryOrder } :: import("std/sync/atomic");
+
+flag := AtomicBool(false);
+flag.store(true, MemoryOrder.Release);
+if(flag.load(MemoryOrder.Acquire), {
+  println("flag is set!");
+});
+```
+
+每个操作需要**显式**内存顺序——没有默认的 `SeqCst` 以避免意外的性能成本。
+
+## Mutex(T) — 闭包作用域锁定
+
+`Mutex(T)` 将受保护的数据包装在锁内部。通过闭包进行访问：
+
+```rust
+{ Mutex } :: import("std/sync/mutex");
+
+counter := Mutex(i32).new(i32(0));
+counter.with_lock((v) => { v = (v + i32(1)); });
+new_value := counter.with_lock((v) => (v + i32(1)));
+```
+
+闭包接收 `ref(v) : T` — 一个**二级引用**，不能逃逸闭包作用域。
+
+解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都调用 `_raw_unlock()`，保证结构化解锁配对。**可重入锁定会导致死锁。**
+
+## 负向实现 — 选择退出 Send
+
+可以通过 `!(Send)` 明确退出自动派生的 `Send`：
+
+```rust
+impl(MyHandle, !(Send()));   // MyHandle 不是 Send
+```
+
+标准库中用于：**`JoinHandle(T)`**（异步任务句柄）和 **`Io`**（异步运行时）。负向实现不需要 `pragma`。
+
+## Iso(T) — 唯一所有权转移
+
+`Iso(T)` 包装一个值用于跨线程的唯一、一次性转移。`extract()` 通过运行时 `rc == 1` 检查保证最多只有一个线程观察内部值。
+
+```rust
+data := Box(MyData).new(...);
+iso := ^(data);
+Thread.spawn((io) => {
+  inner := iso.extract();  // rc != 1 或已提取时 panic
+});
+```
+
+`Iso(T)` 无条件实现 Send — 不要求 `T <: Send`。`Iso(Arc(T))` 和 `Arc(Iso(T))` 在编译时被拒绝。
+
+## 字段可见性 — `_` 前缀约定
+
+名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有。用户代码无法访问 `mutex._value` 或 `mutex._handle`。同一目录内的访问是被允许的。
+
+## 信任边界
+
+| 层次                         | 信任内容                       | 强制执行                            |
+| ---------------------------- | ------------------------------ | ----------------------------------- |
+| **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语 |
+| **`std/sync/`**（有 pragma） | 原语正确实现合约               | 手动 Send 需要 `// SAFETY:` 注释    |
+| **代码生成运行时**           | 原子 RC 操作使用正确的内存顺序 | C11 原子操作                        |
+| **`extern("c", ...)`**       | C 函数可重入安全               | 不在范围内                          |
+
+## 参见
+
+- `plans/THREAD_SAFETY.md` — 完整设计文档
+- `docs/en-US/PARALLELISM.md` — Thread / Worker / Channel API
+- `docs/en-US/ISOLATED.md` — Iso(T) 设计细节
