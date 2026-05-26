@@ -238,6 +238,42 @@ extern(
       failure : memory_order
     ) -> bool
 );
+// Phase C: size_t-specific atomic operations (for AtomicUsize)
+extern(
+  "Yo",
+  __yo_atomic_load_size_t :
+    fn(obj : *(atomic_size_t), order : memory_order) -> usize,
+  __yo_atomic_store_size_t :
+    fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> unit,
+  __yo_atomic_exchange_size_t :
+    fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> usize,
+  __yo_atomic_compare_exchange_size_t :
+    fn(
+      obj : *(atomic_size_t),
+      expected : *(usize),
+      desired : usize,
+      success : memory_order,
+      failure : memory_order
+    ) -> bool
+);
+// Phase C: long-long-specific atomic operations (for AtomicI64)
+extern(
+  "Yo",
+  __yo_atomic_load_llong :
+    fn(obj : *(atomic_llong), order : memory_order) -> i64,
+  __yo_atomic_store_llong :
+    fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> unit,
+  __yo_atomic_exchange_llong :
+    fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> i64,
+  __yo_atomic_compare_exchange_llong :
+    fn(
+      obj : *(atomic_llong),
+      expected : *(i64),
+      desired : i64,
+      success : memory_order,
+      failure : memory_order
+    ) -> bool
+);
 export(
   // Atomic types
   atomic_bool,
@@ -343,5 +379,15 @@ export(
   __yo_atomic_load_int,
   __yo_atomic_store_int,
   __yo_atomic_exchange_int,
-  __yo_atomic_compare_exchange_int
+  __yo_atomic_compare_exchange_int,
+  // Phase C: size_t atomic wrappers
+  __yo_atomic_load_size_t,
+  __yo_atomic_store_size_t,
+  __yo_atomic_exchange_size_t,
+  __yo_atomic_compare_exchange_size_t,
+  // Phase C: llong atomic wrappers
+  __yo_atomic_load_llong,
+  __yo_atomic_store_llong,
+  __yo_atomic_exchange_llong,
+  __yo_atomic_compare_exchange_llong
 );

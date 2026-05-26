@@ -16,9 +16,19 @@ pragma(Pragma.AllowUnsafe);
   __yo_atomic_store_int,
   __yo_atomic_exchange_int,
   __yo_atomic_compare_exchange_int,
+  __yo_atomic_load_size_t,
+  __yo_atomic_store_size_t,
+  __yo_atomic_exchange_size_t,
+  __yo_atomic_compare_exchange_size_t,
+  __yo_atomic_load_llong,
+  __yo_atomic_store_llong,
+  __yo_atomic_exchange_llong,
+  __yo_atomic_compare_exchange_llong,
   atomic_fetch_add_explicit,
   atomic_fetch_sub_explicit,
   atomic_int,
+  atomic_size_t,
+  atomic_llong,
   memory_order,
   memory_order_relaxed,
   memory_order_consume,
@@ -141,4 +151,88 @@ impl(
   )
 );
 
-export(AtomicBool, AtomicI32, MemoryOrder);
+// ============================================================================
+// AtomicUsize — shareable atomic usize
+// ============================================================================
+AtomicUsize :: atomic(object((*) : atomic_size_t));
+
+impl(
+  AtomicUsize,
+  new : (fn(value : usize) -> Self)({
+    v := Self(usize(0));
+    unsafe(__yo_atomic_store_size_t(&(v.*), value, memory_order_release));
+    v
+  }),
+  load : (fn(ref(self) : Self, order : MemoryOrder) -> usize)(
+    unsafe(usize(__yo_atomic_load_size_t(&(self.*), order.to_c_order())))
+  ),
+  store : (fn(ref(self) : Self, value : usize, order : MemoryOrder) -> unit)(
+    unsafe(__yo_atomic_store_size_t(&(self.*), value, order.to_c_order()))
+  ),
+  swap : (fn(ref(self) : Self, value : usize, order : MemoryOrder) -> usize)(
+    unsafe(usize(__yo_atomic_exchange_size_t(&(self.*), value, order.to_c_order())))
+  ),
+  compare_exchange : (
+    fn(
+      ref(self) : Self,
+      ref(expected) : usize,
+      new_value : usize,
+      success : MemoryOrder,
+      failure : MemoryOrder
+    ) -> bool
+  )(
+    unsafe(
+      __yo_atomic_compare_exchange_size_t(
+        &(self.*),
+        &(expected),
+        new_value,
+        success.to_c_order(),
+        failure.to_c_order()
+      )
+    )
+  )
+);
+
+// ============================================================================
+// AtomicI64 — shareable atomic i64
+// ============================================================================
+AtomicI64 :: atomic(object((*) : atomic_llong));
+
+impl(
+  AtomicI64,
+  new : (fn(value : i64) -> Self)({
+    v := Self(i64(0));
+    unsafe(__yo_atomic_store_llong(&(v.*), value, memory_order_release));
+    v
+  }),
+  load : (fn(ref(self) : Self, order : MemoryOrder) -> i64)(
+    unsafe(i64(__yo_atomic_load_llong(&(self.*), order.to_c_order())))
+  ),
+  store : (fn(ref(self) : Self, value : i64, order : MemoryOrder) -> unit)(
+    unsafe(__yo_atomic_store_llong(&(self.*), value, order.to_c_order()))
+  ),
+  swap : (fn(ref(self) : Self, value : i64, order : MemoryOrder) -> i64)(
+    unsafe(i64(__yo_atomic_exchange_llong(&(self.*), value, order.to_c_order())))
+  ),
+  compare_exchange : (
+    fn(
+      ref(self) : Self,
+      ref(expected) : i64,
+      new_value : i64,
+      success : MemoryOrder,
+      failure : MemoryOrder
+    ) -> bool
+  )(
+    unsafe(
+      __yo_atomic_compare_exchange_llong(
+        &(self.*),
+        &(expected),
+        new_value,
+        success.to_c_order(),
+        failure.to_c_order()
+      )
+    )
+  )
+);
+
+export(AtomicBool, AtomicI32, AtomicI64, AtomicUsize, MemoryOrder);

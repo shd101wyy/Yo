@@ -1,10 +1,5 @@
 /**
  * Phase G (THREAD_SAFETY): Codegen pin tests for atomic RC operations.
- *
- * Verifies that the generated C code uses correct C11 memory ordering:
- * - __yo_incr_rc_atomic: atomic_fetch_add_explicit(..., relaxed)
- * - __yo_decr_rc_atomic: atomic_fetch_sub_explicit(..., acq_rel)
- * - Drop runs after acq_rel decrement (happens-before edge)
  */
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "child_process";
@@ -40,7 +35,6 @@ describe("Phase G — atomic RC codegen pin tests", () => {
       });
       export(main);
     `);
-    // Verify the increment function uses relaxed ordering
     expect(c).toContain("atomic_fetch_add_explicit");
     expect(c).toMatch(/atomic_fetch_add_explicit.*memory_order_relaxed/);
   });
@@ -56,7 +50,7 @@ describe("Phase G — atomic RC codegen pin tests", () => {
     expect(c).toMatch(/atomic_fetch_sub_explicit.*memory_order_acq_rel/);
   });
 
-  test("drop on last-release runs after acq_rel decrement", () => {
+  test("drop dispatch runs within the decrement function", () => {
     const c = compileAndGetC(`
       main :: (fn() -> unit)({
         a := arc(i32(42));
@@ -64,10 +58,7 @@ describe("Phase G — atomic RC codegen pin tests", () => {
       });
       export(main);
     `);
-    // Verify the decrement function checks old_count == 1 and calls dispose
     expect(c).toMatch(/atomic_fetch_sub_explicit.*memory_order_acq_rel/);
-    // The __yo_decr_rc_atomic function should contain both the acq_rel decrement
-    // and the dispose dispatch call
     const decrFn = c.slice(
       c.indexOf("static void __yo_decr_rc_atomic"),
       c.indexOf("}", c.indexOf("static void __yo_decr_rc_atomic")) + 500
@@ -76,4 +67,9 @@ describe("Phase G — atomic RC codegen pin tests", () => {
     expect(decrFn).toContain("memory_order_acq_rel");
     expect(decrFn).toContain("__yo_dispose_dispatch");
   });
+
+  // Worker-pool idempotency pin test deferred — __yo_worker_pool_init is
+  // only emitted when the program uses parallelism (Thread/Worker), which
+  // requires import("std/thread") paths that aren't available from temp
+  // files. Verified via manual code review in runtime.ts lines 294-332.
 });

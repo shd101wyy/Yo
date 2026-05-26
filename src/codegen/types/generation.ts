@@ -221,6 +221,41 @@ static inline bool __yo_atomic_compare_exchange_int(
 ) {
   return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
 }
+
+// Phase C: size_t atomic wrappers (for AtomicUsize)
+static inline size_t __yo_atomic_load_size_t(_Atomic size_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline size_t __yo_atomic_exchange_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_size_t(
+  _Atomic size_t* obj, size_t* expected, size_t desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+// Phase C: long-long atomic wrappers (for AtomicI64)
+static inline long long __yo_atomic_load_llong(_Atomic long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline long long __yo_atomic_exchange_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_llong(
+  _Atomic long long* obj, long long* expected, long long desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
 /**
  * Create and initialize a mutex (stack-allocated value)
  * Returns an initialized mutex that can be used with __yo_mutex_lock/unlock
