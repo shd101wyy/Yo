@@ -9,6 +9,7 @@ import {
 } from "../../expr";
 import { createStructType } from "../../types/creators";
 import { typeToString } from "../../types/utils";
+import { isIsoType } from "../../types/guards";
 import { createTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -100,6 +101,19 @@ export function evaluateStructType({
 
       fields.push(field);
       env = nextEnv;
+    }
+  }
+
+  // Phase H: Ban Arc(Iso(T)) — the `*` field of an atomic object
+  // wrapping Iso directly. Arc(Iso) is contradictory: Arc shares, Iso is
+  // unique. Transitive nesting (Arc(MyStruct(_inner: Iso(T)))) stays legal.
+  if (isAtomicRc) {
+    const derefField = fields.find((f) => f.label === "*");
+    if (derefField && isIsoType(derefField.type)) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`,
+      });
     }
   }
 

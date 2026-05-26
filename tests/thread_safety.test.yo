@@ -65,8 +65,11 @@ test("private _-field accessible in same file", {
 });
 
 // ============================================================================
-// Phase H (THREAD_SAFETY): Iso(Arc(T)) composition is banned
+// Phase H (THREAD_SAFETY): Iso(Arc(T)) and Arc(Iso(T)) are banned
 // ============================================================================
 comptime_expect_error({
   Iso(Arc(i32));
+});
+comptime_expect_error({
+  Arc(Iso(i32));
 });
