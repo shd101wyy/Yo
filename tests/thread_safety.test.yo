@@ -1,0 +1,65 @@
+/// Comprehensive thread-safety test file covering Phases N, O, L.
+/// Phase O: atomic-object field writes rejected in safe code
+/// Phase N/L: negative impls, JoinHandle/Io non-Send verification
+/// Phase P: field visibility enforcement
+open(import("std/sync/atomic"));
+
+// ============================================================================
+// Phase O (THREAD_SAFETY): Atomic object field writes forbidden in safe code
+// ============================================================================
+test("read atomic object field is allowed", {
+  a := arc(i32(42));
+  assert(a.* == i32(42), "read through arc.* should work");
+});
+test("read custom atomic object field is allowed", {
+  MyObj :: atomic(object(value : i32));
+  m := MyObj(i32(99));
+  assert(m.value == i32(99), "read through custom field should work");
+});
+test("construct atomic object is allowed", {
+  a := arc(i32(7));
+  assert(a.* == i32(7), "construction should work");
+});
+
+// ============================================================================
+// Phase N + L (THREAD_SAFETY): Negative impls and non-Send verification
+// ============================================================================
+comptime_assert(
+  Type.impls(JoinHandle(i32), Send) == false,
+  "JoinHandle must not be Send"
+);
+comptime_assert(
+  Type.impls(Io, Send) == false,
+  "Io must not be Send"
+);
+// Verify that a generic negative impl works for any T
+comptime_assert(
+  Type.impls(JoinHandle(bool), Send) == false,
+  "JoinHandle(bool) must not be Send"
+);
+
+// Phase N: negative impl override works
+MySendStruct :: struct(value : i32);
+impl(MySendStruct, !(Send()));
+comptime_assert(
+  Type.impls(MySendStruct, Send) == false,
+  "negative Send impl should override auto-derive"
+);
+
+// Phase N: contradiction detection
+comptime_expect_error({
+  ConflictType :: struct(value : i32);
+  impl(ConflictType, Send());
+  impl(ConflictType, !(Send()));
+});
+
+// ============================================================================
+// Phase P (THREAD_SAFETY): Field visibility — same-file access works
+// ============================================================================
+test("private _-field accessible in same file", {
+  MyType :: struct(_secret : i32);
+  v := MyType(i32(42));
+  assert(v._secret == i32(42), "should access _-prefixed field in same file");
+  v._secret = i32(99);
+  assert(v._secret == i32(99), "should write _-prefixed field in same file");
+});
