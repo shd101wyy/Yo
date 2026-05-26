@@ -217,6 +217,27 @@ impl(atomic_intmax_t, Send());
 impl(atomic_intmax_t, Acyclic());
 impl(atomic_uintmax_t, Send());
 impl(atomic_uintmax_t, Acyclic());
+// Phase C (THREAD_SAFETY): int-specific atomic operations. The c_include
+// block only declares load/store/exchange for atomic_bool. These Yo-runtime
+// wrappers forward to the C11 _Generic macros in <stdatomic.h> so AtomicI32
+// can use the full atomic API.
+extern(
+  "Yo",
+  __yo_atomic_load_int :
+    fn(obj : *(atomic_int), order : memory_order) -> i32,
+  __yo_atomic_store_int :
+    fn(obj : *(atomic_int), desired : i32, order : memory_order) -> unit,
+  __yo_atomic_exchange_int :
+    fn(obj : *(atomic_int), desired : i32, order : memory_order) -> i32,
+  __yo_atomic_compare_exchange_int :
+    fn(
+      obj : *(atomic_int),
+      expected : *(i32),
+      desired : i32,
+      success : memory_order,
+      failure : memory_order
+    ) -> bool
+);
 export(
   // Atomic types
   atomic_bool,
@@ -317,5 +338,10 @@ export(
   ATOMIC_LLONG_LOCK_FREE,
   ATOMIC_POINTER_LOCK_FREE,
   // Kill dependency
-  kill_dependency
+  kill_dependency,
+  // Phase C (THREAD_SAFETY): int-specific atomic wrappers
+  __yo_atomic_load_int,
+  __yo_atomic_store_int,
+  __yo_atomic_exchange_int,
+  __yo_atomic_compare_exchange_int
 );

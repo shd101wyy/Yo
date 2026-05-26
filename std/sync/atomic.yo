@@ -12,6 +12,13 @@ pragma(Pragma.AllowUnsafe);
   atomic_store_explicit,
   atomic_exchange_explicit,
   atomic_compare_exchange_strong_explicit,
+  __yo_atomic_load_int,
+  __yo_atomic_store_int,
+  __yo_atomic_exchange_int,
+  __yo_atomic_compare_exchange_int,
+  atomic_fetch_add_explicit,
+  atomic_fetch_sub_explicit,
+  atomic_int,
   memory_order,
   memory_order_relaxed,
   memory_order_consume,
@@ -86,4 +93,52 @@ impl(
   )
 );
 
-export(AtomicBool, MemoryOrder);
+// ============================================================================
+// AtomicI32 — shareable atomic i32
+// ============================================================================
+AtomicI32 :: atomic(object((*) : atomic_int));
+
+impl(
+  AtomicI32,
+  new : (fn(value : i32) -> Self)({
+    v := Self(i32(0));
+    unsafe(__yo_atomic_store_int(&(v.*), value, memory_order_release));
+    v
+  }),
+  load : (fn(ref(self) : Self, order : MemoryOrder) -> i32)(
+    unsafe(i32(__yo_atomic_load_int(&(self.*), order.to_c_order())))
+  ),
+  store : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> unit)(
+    unsafe(__yo_atomic_store_int(&(self.*), value, order.to_c_order()))
+  ),
+  fetch_add : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(atomic_fetch_add_explicit(&(self.*), int(value), order.to_c_order())))
+  ),
+  fetch_sub : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(atomic_fetch_sub_explicit(&(self.*), int(value), order.to_c_order())))
+  ),
+  swap : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(__yo_atomic_exchange_int(&(self.*), value, order.to_c_order())))
+  ),
+  compare_exchange : (
+    fn(
+      ref(self) : Self,
+      ref(expected) : i32,
+      new_value : i32,
+      success : MemoryOrder,
+      failure : MemoryOrder
+    ) -> bool
+  )(
+    unsafe(
+      __yo_atomic_compare_exchange_int(
+        &(self.*),
+        &(expected),
+        new_value,
+        success.to_c_order(),
+        failure.to_c_order()
+      )
+    )
+  )
+);
+
+export(AtomicBool, AtomicI32, MemoryOrder);

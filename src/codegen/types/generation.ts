@@ -201,6 +201,26 @@ typedef void (*__yo_thread_fn)(void* closure);
 
 static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void);
 static __YO_COND_TYPE __yo_cond_create(void);
+
+// Phase C (THREAD_SAFETY): Thin wrappers that forward to the C11 _Generic
+// macros in <stdatomic.h> for atomic_int load/store/exchange. Declared via
+// extern("Yo", ...) in std/libc/stdatomic.yo.
+#include <stdatomic.h>
+static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_int(_Atomic int* obj, int desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int __yo_atomic_exchange_int(_Atomic int* obj, int desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_int(
+  _Atomic int* obj, int* expected, int desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
 /**
  * Create and initialize a mutex (stack-allocated value)
  * Returns an initialized mutex that can be used with __yo_mutex_lock/unlock
