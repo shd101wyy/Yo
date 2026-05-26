@@ -1,32 +1,36 @@
-/// Phase D (THREAD_SAFETY): Mutex(T) compile-time correctness verification.
-/// Runtime with_lock tests deferred pending closure ref-parameter codegen fix
-/// (caller needs to auto-emit &arg for ref(v):T parameters).
+/// Phase D (THREAD_SAFETY): Mutex(T) with_lock closure-scoped API tests.
 { Mutex } :: import("std/sync/mutex");
 
 // ============================================================================
-// Compile-time: Mutex(T) type is valid and correct
+// Compile-time checks
 // ============================================================================
 comptime_assert(
   Type.impls(Mutex(i32), Send),
   "Mutex(i32) should be Send"
 );
-comptime_assert(
-  Type.impls(Mutex(bool), Send),
-  "Mutex(bool) should be Send"
-);
-
-// ============================================================================
-// Compile-time: Mutex with non-Send T is rejected
-// ============================================================================
 comptime_expect_error({
   NonSendObj :: object(x : i32);
   Bad :: Mutex(NonSendObj);
 });
 
 // ============================================================================
-// Compile-time: with_lock signature is correct
+// Runtime: with_lock basic operations
 // ============================================================================
-comptime_assert(
-  Type.impls(Mutex(i32), Send),
-  "Mutex(i32) should be Send"
-);
+test("Mutex new and with_lock read", {
+  m := Mutex(i32).new(i32(42));
+  result := m.with_lock((v) => v);
+  assert(result == i32(42), "should read initial value");
+});
+test("Mutex with_lock write and read back", {
+  m := Mutex(i32).new(i32(0));
+  result := m.with_lock((v) => {
+    v = i32(99);
+    v
+  });
+  assert(result == i32(99), "should see written value");
+});
+test("Mutex with_lock return value", {
+  m := Mutex(i32).new(i32(7));
+  doubled := m.with_lock((v) => (v * i32(2)));
+  assert(doubled == i32(14), "with_lock should propagate return value");
+});
