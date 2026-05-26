@@ -106,9 +106,8 @@ function checkPrivateFieldAccess({
   );
   if (currentDir === typeDefinedDir) return;
 
-  // Same project root — allowed for in-project access across directories.
-  // Covers both std/ files accessing each other's internals and test files
-  // accessing std/ internals from the same project.
+  // Same project root — allowed for in-project access across directories
+  // (e.g., std/crypto/random.yo accessing String._bytes from std/string/).
   const projectDirs = ["/std/", "/tests/"];
   for (const marker of projectDirs) {
     const currentIdx = currentModulePath.indexOf(marker);
@@ -123,23 +122,14 @@ function checkPrivateFieldAccess({
     }
   }
 
-  // Same workspace — allow tests/ to access std/ _-prefixed fields.
-  // The test framework creates batch files under tests/ that import and
-  // re-evaluate std/ types, causing module path mismatches.
-  const workspaceDirs = ["/std/", "/tests/"];
-  for (const currentMarker of workspaceDirs) {
-    const currentIdx = currentModulePath.indexOf(currentMarker);
-    if (currentIdx < 0) continue;
-    for (const typeMarker of workspaceDirs) {
-      const typeIdx = typeDefinedInModulePath.indexOf(typeMarker);
-      if (typeIdx < 0) continue;
-      if (
-        currentModulePath.substring(0, currentIdx) ===
-        typeDefinedInModulePath.substring(0, typeIdx)
-      ) {
-        return;
-      }
-    }
+  // Test batch files — the test framework creates synthetic batch files
+  // that import and re-evaluate std/ types, causing module path mismatches
+  // on both the accessing code side and the type's definedInModulePath side.
+  if (
+    currentModulePath.includes(".yo_test_batch_") ||
+    typeDefinedInModulePath.includes(".yo_test_batch_")
+  ) {
+    return;
   }
 
   throw formatErrorMessage({
