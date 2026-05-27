@@ -22,16 +22,23 @@ import { fileHasPragma } from "../memory-safety";
 /**
  * Phase 0 of plans/FORMAL_VERIFICATION.md.
  *
- * The contract builtins (`requires`, `ensures`, `invariant`, `ghost`,
- * `ghost_fn`, `old`) are no-op markers in Phase 0: they parse, type-
- * check, and evaluate without effect. Later phases (signature
- * extraction, codegen lowering to `assert(...)`, SMT discharge) attach
- * meaning to them.
+ * Contract builtins and their Phase 0 behavior:
+ *  - `requires` / `ensures` — extracted from function signatures by
+ *    `src/evaluator/types/function.ts` and lowered to runtime
+ *    `assert(...)` (or `comptime_assert(...)` for comptime functions)
+ *    by `wrapFunctionBodyWithContracts` below. The handler functions
+ *    here (`evaluateRequires` / `evaluateEnsures`) only fire when the
+ *    builtins appear in EXPRESSION position rather than a signature;
+ *    there they act as no-op markers that evaluate their args.
+ *  - `invariant` — no-op marker (loop placement is checked in
+ *    `while.ts`); SMT discharge of loop invariants is a later phase.
+ *  - `ghost` / `ghost_fn` — ghost binding / ghost function marker,
+ *    transparent pass-through in Phase 0.
+ *  - `old` — entry-snapshot inside `ensures` (handled by
+ *    `wrapFunctionBodyWithContracts`); transparent pass-through if it
+ *    appears elsewhere.
  *
- * Contract clauses inside function-type signatures are SKIPPED by the
- * parameter-processing pipeline in `src/evaluator/types/function.ts`
- * — these handlers only fire when the builtins appear in expression
- * position (e.g., a loop body, a free statement).
+ * The SMT verifier (Phase 1+) is a separate, larger component.
  */
 
 /**
@@ -172,12 +179,14 @@ export function evaluateGhostFn({
 }
 
 /**
- * `old(expr)` — references a parameter's value at function entry.
- * Only meaningful inside `ensures(...)` clauses; for Phase 0 it is a
- * transparent pass-through that returns the inner expression's value.
- *
- * Scope restriction (only valid in ensures) is enforced in a later
- * phase along with the `result` magic identifier.
+ * `old(expr)` — references a value at function entry. Inside an
+ * `ensures(...)` clause, `wrapFunctionBodyWithContracts` hoists each
+ * `old(expr)` into an entry-time snapshot binding so it captures the
+ * pre-body value (correct for mutated `ref(name) : T` params). This
+ * handler only fires for stray `old(...)` calls outside that rewrite
+ * path, where it is a transparent pass-through returning the inner
+ * value. Scope-restriction (rejecting `old(...)` outside `ensures`)
+ * is deferred to a later phase.
  */
 export function evaluateOld({
   expr,
