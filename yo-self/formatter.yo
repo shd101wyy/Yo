@@ -2327,7 +2327,7 @@ collect_yo_files :: (
     exn : Exception
   ) -> unit
 )({
-  is_file_p := io.await(is_file(target_path), io);
+  is_file_p := io.await(is_file(target_path, io), io);
   cond(
     is_file_p => {
       path_str := target_path.to_string();
@@ -2336,9 +2336,9 @@ collect_yo_files :: (
       });
     },
     true => {
-      is_dir_p := io.await(is_dir(target_path), io);
+      is_dir_p := io.await(is_dir(target_path, io), io);
       if(is_dir_p, {
-        entries := io.await(read_dir(target_path), io);
+        entries := io.await(read_dir(target_path, io), IoExn(io : io, exn : exn));
         en := entries.len();
         (ei : usize) = usize(0);
         while(runtime(ei < en), {
@@ -2391,7 +2391,7 @@ find_yo_format_files :: (
       .None => (),
       .Some(p) => {
         path_obj := Path.new(p);
-        path_exists := io.await(exists(path_obj), io);
+        path_exists := io.await(exists(path_obj, io), io);
         if(!(path_exists), {
           exn.throw(dyn(`Path does not exist: ${p}`));
         });
@@ -2422,13 +2422,13 @@ format_yo_files :: (
       files.get(fi),
       .None => (),
       .Some(file) => {
-        bytes := io.await(read_file(Path.new(file)), io);
+        bytes := io.await(read_file(Path.new(file), io), IoExn(io : io, exn : exn));
         original := String.from_bytes(bytes);
         formatted := format_yo_source(original, file, exn);
         if(formatted.as_str() != original.as_str(), {
           _r := changed.push(file);
           if(!(options.check), {
-            io.await(write_file(Path.new(file), formatted), io);
+            io.await(write_file(Path.new(file), formatted, io), IoExn(io : io, exn : exn));
           });
         });
       }

@@ -84,8 +84,9 @@ All individual evaluator files pass `check`:
 - **`&(env)/&(ctx)` type mismatches**: removed `&()` from object params
   (object references already share state) in synthesizer.yo, closure_type.yo,
   helper.yo
-- **`io.async((io, exn) => ...)` closure params**: changed to `(io) =>` in
-  11 files (Exn handler auto-captured)
+- **`io.async((io, exn) => ...)` closure params**: changed to `(e : IoExn) =>`
+  in 10 files — closure gets the effects struct, uses `e.io`/`e.exn`
+  (CTL values cannot be captured by closures)
 - **`_extract_type_val`, `eval_*_arg`, `ci_eval_*` calls**: added missing
   `exn` arg across all builtins files
 - **`target.yo`**: simplified `detect_linux_abi` and `host_target` to

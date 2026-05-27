@@ -637,26 +637,45 @@ env_mut.function_declaration_frame_level = result.env.function_declaration_frame
 env_mut.input_string = result.env.input_string;
 ```
 
-### `io.async` closures: one parameter only
+### `io.async` closures: one parameter, effects struct
 
-`io.async((io) => ...)` takes exactly one parameter (the `Io` handler).
-The `Exn` handler is automatically captured from the enclosing scope:
+`io.async`'s signature is `Impl(Fn(e : E) -> T)`. The closure takes exactly
+one parameter — the **effects struct** `e : E`. When the future needs
+`IoExn` effects, the parameter type is `IoExn`, and all effect operations
+go through `e.io` and `e.exn`. The closure body must NOT capture `io` or
+`exn` from the enclosing scope (CTL values cannot be captured).
 
 ```rust
-// WRONG — too many regular params:
+// WRONG — two parameters:
 io.async((io, exn) => { ... });
 
-// CORRECT — Exn is auto-captured:
-io.async((io) => { ... });
+// WRONG — captures enclosing io (CTL capture error):
+io.async((e : IoExn) => {
+  io.await(future, io);  // captured io!
+});
+
+// CORRECT — all effects through e:
+io.async((e : IoExn) => {
+  e.io.await(create_dir_all(path, e.io), e);
+  e.exn.throw(dyn("error"));
+});
 ```
 
-### `io.await` effect records: `{ io, exn }` for `IoExn` futures
+For `Io`-only futures, use `(io : Io) =>` — just the `Io` handler:
 
-Futures have effects types. `io.await(future, handler)` needs a handler
-matching the future's effects:
+```rust
+// Io-only future: closure parameter is just Io
+io.async((io : Io) => {
+  io.await(some_io_future(io), io);
+});
+```
+
+### `io.await` effect records: match the future's effects type
+
+`io.await(future, e)` takes `e : E` where `E` matches the future's effects:
 
 - `Future(T, Io)` → `io.await(future, io)`
-- `Future(T, IoExn)` → `io.await(future, { io, exn })`
+- `Future(T, IoExn)` → `e.io.await(future, e)` (using `e : IoExn`)
 - Low-level IO futures (`IO_*`) → `io.await(future, io)` only
 
 ### Exception threading: always add `exn` to calls

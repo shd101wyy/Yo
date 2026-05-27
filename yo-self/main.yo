@@ -218,13 +218,13 @@ collect_module_deps :: (
   });
   // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
   (abs_path : String) = String.from(abs_path_raw.as_str());
-  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str()))), io);
+  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str())), io), io);
   if(!(file_found), {
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
     base_no_ext := abs_path_raw.substring(usize(0), base_len - usize(3));
     index_path := `${base_no_ext.as_str()}/index.yo`;
-    index_found := io.await(exists(Path.new(index_path)), io);
+    index_found := io.await(exists(Path.new(index_path), io), io);
     cond(
       index_found => {
         abs_path = index_path;
@@ -262,7 +262,7 @@ collect_module_deps :: (
     .Some(p) => p.to_string()
   );
   // Read and parse the imported module
-  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str()))), io);
+  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str())), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, String.from(mod_base_dir.as_str()), exn);
   // Recursively collect dependencies of this module first (post-order DFS)
@@ -313,7 +313,7 @@ _walk_check_dir :: (
     exn : Exception
   ) -> unit
 )({
-  entries := io.await(read_dir(Path.new(dir.clone())), io);
+  entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
   (n : usize) = entries.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
@@ -366,7 +366,7 @@ collect_check_files :: (
   ) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
-  meta := io.await(metadata(Path.new(path_str.clone()), io), io);
+  meta := io.await(metadata(Path.new(path_str.clone()), io), IoExn(io : io, exn : exn));
   cond(
     meta.is_file() => {
       if(path_str.ends_with(String.from(".yo")), {
@@ -400,7 +400,7 @@ check_single_file :: (
     throw : ((_err) -> unwind(false))
   );
   println(`check: parsing ${input_path}`);
-  src_bytes := io.await(read_file(Path.new(input_path.clone())), io);
+  src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
@@ -560,7 +560,7 @@ run_compile :: (
   // Derive module id from input filename
   mod_id := module_id_from_path(input_path);
   // Read the input .yo file
-  src_bytes := io.await(read_file(Path.new(input_path)), io);
+  src_bytes := io.await(read_file(Path.new(input_path), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   // Parse with the self-hosted parser
   exprs := parse(src, input_path, exn);
@@ -576,14 +576,14 @@ run_compile :: (
     .Some(c) => c
   );
   // Write C to temp file
-  io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
+  io.await(write_file(Path.new(String.from(C_TMP)), c_src, io), IoExn(io : io, exn : exn));
   // Compile C with system C compiler
   cc := Command.new(`cc`);
   cc.arg(String.from(C_TMP));
   cc.arg(`-w`);
   cc.arg(`-o`);
   cc.arg(output_path);
-  st := io.await(cc.status(), io);
+  st := io.await(cc.status(io), IoExn(io : io, exn : exn));
   if(!(st.success()), {
     exn.throw(dyn(`compile: C compilation failed`));
   });
@@ -612,7 +612,7 @@ run_test :: (
     });
   });
   // Read and parse the test file
-  src_bytes := io.await(read_file(Path.new(input_path)), io);
+  src_bytes := io.await(read_file(Path.new(input_path), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path, exn);
   // Phase 5g: resolve transitive imports and collect all module declarations.
@@ -710,20 +710,20 @@ run_test :: (
                 // Generate C for this test body (includes all imported declarations)
                 c_src := compile_test_body_to_c(body, "test_module", all_module_exprs);
                 // Write to temp C file
-                io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
+                io.await(write_file(Path.new(String.from(C_TMP)), c_src, io), IoExn(io : io, exn : exn));
                 // Compile with cc
                 cc := Command.new(`cc`);
                 cc.arg(String.from(C_TMP));
                 cc.arg(`-w`);
                 cc.arg(`-o`);
                 cc.arg(String.from(TEST_BIN_TMP));
-                compile_st := io.await(cc.status(), io);
+                compile_st := io.await(cc.status(io), IoExn(io : io, exn : exn));
                 if(compile_st.success(), {
                   // Run the test binary (with a timeout to avoid hangs)
                   run := Command.new(`timeout`);
                   run.arg(String.from("3"));
                   run.arg(String.from(TEST_BIN_TMP));
-                  run_st := io.await(run.status(), io);
+                  run_st := io.await(run.status(io), IoExn(io : io, exn : exn));
                   cond(
                     run_st.success() => {
                       println(`  ✓ ${test_name}`);
@@ -808,7 +808,7 @@ run_fmt :: (
         cidx = (cidx + usize(1));
       });
       if(cn > usize(0), {
-        exit(int(1));
+        unsafe(exit(int(1)));
       });
     },
     true => {
@@ -829,7 +829,7 @@ main :: (fn(io : Io) -> unit)({
     throw : (
       (err) -> {
         eprintln(`yo-self: error: ${err.to_string()}`);
-        exit(int(1));
+        unsafe(exit(int(1)));
         unwind();
       }
     )
@@ -839,12 +839,16 @@ main :: (fn(io : Io) -> unit)({
     exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test> ...`));
   });
   subcmd := argv(usize(1));
-  cond(
-    (subcmd.as_str() == "compile") => run_compile(argv, io, exn),
-    (subcmd.as_str() == "test") => run_test(argv, io, exn),
-    (subcmd.as_str() == "fmt") => run_fmt(argv, io, exn),
-    (subcmd.as_str() == "check") => run_check(argv, io, exn),
-    true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`))
-  );
+  if(subcmd.as_str() == "compile", {
+    run_compile(argv, io, exn);
+  }, if(subcmd.as_str() == "test", {
+    run_test(argv, io, exn);
+  }, if(subcmd.as_str() == "fmt", {
+    run_fmt(argv, io, exn);
+  }, if(subcmd.as_str() == "check", {
+    run_check(argv, io, exn);
+  }, {
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`));
+  }))));
 });
 export(main);
