@@ -234,3 +234,19 @@ TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
 - **yargs `.scriptName("yo")`** is set in `yo-cli.ts` so help text shows `yo` instead of `bun`. Don't remove it.
 - **`yo fetch` auto-prunes stale lock entries.** When a dep is removed from `build.yo`, running `yo fetch` removes it from `yo.lock`. Global cache is not auto-cleaned.
 - **`GIT_TERMINAL_PROMPT=0`** must be set when running `git ls-remote` on potentially non-existent repos to prevent interactive credential prompts.
+
+## Debugging codegen / C compilation issues
+
+When you encounter a C compilation error from `./yo-cli compile`, follow this
+workflow:
+
+1. **Document the issue** in `issues/<name>.md` with:
+   - The error message (verbatim)
+   - A **minimal `.yo` reproducer** (use `src/tests/fixme.yo`)
+   - The root cause analysis
+2. **Create the minimal repro** — a tiny `.yo` file that triggers the same
+   error. This isolates the bug from the noise of a full build.
+3. **Fix the codegen** in `src/codegen/`.
+4. **Verify** by compiling the repro (should succeed) and the full project
+   (error count should decrease).
+5. **Move the doc** to `issues/fixed/` and commit.

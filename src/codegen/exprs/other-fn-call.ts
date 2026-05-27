@@ -84,6 +84,8 @@ import {
   generateConsumedVarDropsForEscape,
 } from "./return";
 
+let refSpillCounter = 0;
+
 /**
  * Resolves a variable name to its state machine field reference if inside an
  * async or effect state machine context. Returns `sm->__capture.X` for outer
@@ -321,7 +323,7 @@ export function generateOtherFunctionCall(
           // local with the same name would shadow the pointer parameter
           // (`T name = (*name);` is a C redefinition error). See
           // plans/MEMORY_SAFETY.md and issues/inout-multi-stmt-body-shadow.md.
-          let isInoutArg = false;
+          let isRefArg = false;
           if (exprIsAtom(arg) && arg.$.env && arg.$.variableName) {
             const variables = getVariablesFromEnv(
               arg.$.env,
@@ -337,7 +339,7 @@ export function generateOtherFunctionCall(
               variables.length > 0 &&
               variables[variables.length - 1]!.isRef
             ) {
-              isInoutArg = true;
+              isRefArg = true;
             }
           }
 
@@ -356,7 +358,7 @@ export function generateOtherFunctionCall(
             !isClosureCapturedVariable &&
             !isStateMachineCapturedVariable &&
             !isComptimeOnlyArg &&
-            !isInoutArg &&
+            !isRefArg &&
             !paramIsRef
           ) {
             // Only emit declaration if:
@@ -498,7 +500,7 @@ export function generateOtherFunctionCall(
             return isClosureCapturedVariable ||
               isStateMachineCapturedVariable ||
               isComptimeOnlyArg ||
-              isInoutArg ||
+              isRefArg ||
               paramIsRef
               ? argCode
               : sanitizeForCIdentifier(
@@ -605,7 +607,19 @@ export function generateOtherFunctionCall(
               args[i] = `(&((${cType}){${c}}))`;
               continue;
             }
-            args[i] = `(&(${c}))`;
+            // Spill complex expressions to a temp so `&()` operates on an lvalue.
+            if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c)) {
+              args[i] = `(&(${c}))`;
+            } else {
+              const spillType = argRuntimeType
+                ? getTypeString(argRuntimeType, context)
+                : "size_t";
+              const spillName = `__yo_ref_spill_${refSpillCounter++}`;
+              context.emitter.emitLine(
+                `${indent}${spillType} ${spillName} = ${c};`
+              );
+              args[i] = `(&(${spillName}))`;
+            }
           }
         }
       }
