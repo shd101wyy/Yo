@@ -59,6 +59,32 @@ structure).
 
 ## Current state (measured 2026-05-27)
 
+### Phase 0 progress (2026-05-27 session)
+
+**Fixed (4 commits, ~45 files):**
+
+- "Cannot reassign env/env_mut" errors: replaced param reassignments with
+  field-level copies across 26 evaluator files
+- "Too few arguments" missing `exn`: fixed ~40+ call sites across
+  evaluator/exprs, evaluator/types, evaluator/calls, evaluator/builtins,
+  and evaluator/values
+- `&(env)/&(ctx)` type mismatches: removed `&()` from Environment/EvalContext
+  object params (object references already share state)
+- `io.async((io, exn) => ...)` closure params: changed to `(io) =>` (Exn
+  handler auto-captured from scope) — fixed in 11 files
+
+**Blocked:**
+
+- Async support files (`target.yo`, `fetch.yo`, `version_cache.yo`, etc.)
+  have `io.await()` design issues (parameter-passing patterns for async
+  effects that need deeper review). These are runtime files, not evaluator
+  files, but block `check` because they're imported by `process.yo` via
+  `_expr.yo`.
+- ~50 `io.async` sites across 11 non-evaluator files; param count fixed
+  but inner `io.await`/effect-handling call patterns need work.
+- Evaluator files that don't transitively import async support files
+  likely pass `check` now; blocked at first async dependency.
+
 ### The port exists and is actively maintained
 
 - `yo-self/evaluator/` mirrors `src/evaluator/` 1-to-1 (same subdirs:
