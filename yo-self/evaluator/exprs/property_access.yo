@@ -177,6 +177,29 @@ evaluate_property_access :: (
     return(expr);
   });
   // -------------------------------------------------------------------------
+  // Short-circuit: Type.<KindName> — kind-constraint syntactic sugar.
+  // -------------------------------------------------------------------------
+  dot_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  if((dot_args.len() == usize(2)), {
+    obj_expr := match(dot_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    prop_expr := match(dot_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+    if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value.as_str() == "Type")) && ast_expr_is_atom(prop_expr), {
+      kind_name := ast_expr_token(prop_expr).value.as_str();
+      (is_kind : bool) = cond(
+        (kind_name == "Struct") => true,
+        (kind_name == "Enum") => true,
+        (kind_name == "Union") => true,
+        (kind_name == "Trait") => true,
+        (kind_name == "Function") => true,
+        true => false
+      );
+      if(is_kind, {
+        evaluated := evaluate_expression(obj_expr, env, ctx);
+        return(evaluated);
+      });
+    });
+  });
+  // -------------------------------------------------------------------------
   // 1-arg shorthand: `.Red` — infer enum type from context.
   // -------------------------------------------------------------------------
   if(ast_expr_is_fn_call_of(expr, BF_DOT,.Some(usize(1))), {
