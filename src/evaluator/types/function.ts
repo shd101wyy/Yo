@@ -1670,6 +1670,51 @@ export function evaluateFunctionParameters({
     }
   }
 
+  // Phase 0 of plans/FORMAL_VERIFICATION.md: enforce the canonical
+  // signature clause order. Each parameter belongs to an ordered
+  // "zone"; zones must appear non-decreasing left-to-right:
+  //   forall(0) → regular params (1) → where(2) → requires(3) → ensures(4)
+  // A clause appearing before an earlier-zone clause is a syntax
+  // error (e.g. `ensures(...)` before `requires(...)`, or `where(...)`
+  // after `requires(...)`). This gives one canonical signature shape.
+  {
+    const zoneOf = (e: Expr): { zone: number; name: string } => {
+      if (exprIsFunctionCall(e)) {
+        if (exprIsFunctionCallOf(e, BuiltinKeywords.forall))
+          return { zone: 0, name: "forall(...)" };
+        if (exprIsFunctionCallOf(e, BuiltinKeywords.where))
+          return { zone: 2, name: "where(...)" };
+        if (exprIsFunctionCallOf(e, "requires"))
+          return { zone: 3, name: "requires(...)" };
+        if (exprIsFunctionCallOf(e, "ensures"))
+          return { zone: 4, name: "ensures(...)" };
+      }
+      return { zone: 1, name: "parameter" };
+    };
+    const zoneLabels = [
+      "forall(...)",
+      "regular parameters",
+      "where(...)",
+      "requires(...)",
+      "ensures(...)",
+    ];
+    let maxZone = 0;
+    let maxName = "forall(...)";
+    for (const paramExpr of parameterExprs) {
+      const { zone, name } = zoneOf(paramExpr);
+      if (zone < maxZone) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `${name} appears after ${maxName} in the function signature. The canonical clause order is: forall(...), parameters, where(...), requires(...), ensures(...). Move ${name} before ${zoneLabels[maxZone]!}.`,
+        });
+      }
+      if (zone > maxZone) {
+        maxZone = zone;
+        maxName = name;
+      }
+    }
+  }
+
   // Phase 0 of plans/FORMAL_VERIFICATION.md: extract `requires(...)`
   // and `ensures(...)` contract clauses from the parameter list. Each
   // builtin may appear at most once in a signature (single-call rule:
@@ -1850,32 +1895,14 @@ export function evaluateFunctionParameters({
       }
       continue;
     }
-    // Skip where clause (already processed)
+    // Skip where clause (already processed). Clause ordering —
+    // including "where may only be followed by requires/ensures" — is
+    // validated up front by the zone check at the top of this
+    // function, so no positional check is needed here.
     else if (
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
     ) {
-      // where clause must come at the end of the signature, but
-      // requires/ensures contract clauses may follow it.
-      // Canonical order: forall, params, where, requires, ensures.
-      let trailingOk = true;
-      for (let j = i + 1; j < parameterExprs.length; j++) {
-        const tail = parameterExprs[j]!;
-        if (
-          !exprIsFunctionCall(tail) ||
-          (!exprIsFunctionCallOf(tail, "requires") &&
-            !exprIsFunctionCallOf(tail, "ensures"))
-        ) {
-          trailingOk = false;
-          break;
-        }
-      }
-      if (!trailingOk) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `The where clause must come after regular parameters; only 'requires(...)' / 'ensures(...)' contract clauses may follow it.`,
-        });
-      }
       continue;
     }
     // Skip Phase-0 contract clauses (requires/ensures). They were

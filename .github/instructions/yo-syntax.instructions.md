@@ -1010,8 +1010,11 @@ functions, i.e. those returning `comptime(T)`).
 ### `requires` / `ensures` go in the function signature
 
 They are clauses in the parameter list, after regular params and
-`where(...)`. Canonical order: `forall(...), ...params..., where(...),
-requires(...), ensures(...)`.
+`where(...)`. The clause order is **enforced** (not just conventional):
+`forall(...), ...params..., where(...), requires(...), ensures(...)`.
+A clause out of order — `ensures` before `requires`, `where` after
+`requires`, a regular param after `where`/`requires` — is a syntax
+error ("X appears after Y in the function signature").
 
 ```rust
 // requires = precondition, ensures = postcondition.

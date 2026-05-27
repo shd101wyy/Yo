@@ -514,7 +514,8 @@ lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
 
 ```rust
 // requires/ensures are SIGNATURE clauses, after params and where(...).
-// Canonical order: forall, params, where, requires, ensures.
+// ENFORCED order: forall, params, where, requires, ensures — a clause
+// out of order is a syntax error ("X appears after Y").
 divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
   x / y
 );

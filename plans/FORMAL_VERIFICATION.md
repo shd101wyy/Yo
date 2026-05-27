@@ -1037,7 +1037,7 @@ the verifier, this is how" rather than "we are building the verifier."
 - [x] Register contract builtins (`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`, `old`) as no-op markers; signature-level `requires`/`ensures` are skipped during function-type parameter processing; codegen lowers them to empty C output.
 - [x] Add `Pragma.Verify` / `Pragma.NoContracts` / `Pragma.VerifyOrAssert` (Verify and VerifyOrAssert emit a one-time per-file "verify mode not implemented" warning; NoContracts is silent and codegen-erase is a later sub-task).
 - [x] `result` magic identifier + `old(...)`: `result` resolves to the function's return value inside `ensures(...)` (bound by the ensures wrapper — no global keyword reservation needed, so `std/imm`'s local `result` bindings keep working). `old(expr)` snapshots the entry-time value of `expr` (hoisted into a binding before the body runs), giving correct semantics for mutated `ref(name) : T` parameters.
-- [x] Extract `requires` / `ensures` from function-type signatures into `FunctionType.requiresExprs` and `FunctionType.ensuresExprs`. Single-call rule enforced (duplicate `requires(...)` / `ensures(...)` clauses are a syntax error). Zero-argument forms rejected.
+- [x] Extract `requires` / `ensures` from function-type signatures into `FunctionType.requiresExprs` and `FunctionType.ensuresExprs`. Single-call rule enforced (duplicate `requires(...)` / `ensures(...)` clauses are a syntax error). Zero-argument forms rejected. **Strict clause order enforced** via a zone check: `forall(0) → params(1) → where(2) → requires(3) → ensures(4)` must be non-decreasing left-to-right; an out-of-order clause errors with "X appears after Y".
 - [x] Enforce loop `invariant(...)` first-statement rule (rejection works across nested cond/match branches; nested while loops are checked separately when their own evaluator fires).
 - [x] Lower `requires(...)` to `assert(P, "requires failed: ...")` (runtime functions) or `comptime_assert(P, "requires failed: ...")` (comptime functions). Dispatch via `functionType.return.isCompileTimeOnly`. Splices synthetic FnCallExpr nodes into the body before evaluation in both function paths (`evaluateAnonymousFunctionImplementation` and `function-type.ts`). Honors `pragma(Pragma.NoContracts);` — contracts erased entirely.
 - [x] Lower `ensures(...)` to assert at function return. Wraps the body as `{ <old snapshots>; <requires>; result := (<body>); <ensures>; result }` (non-unit return) or `{ <old snapshots>; <requires>; <body>; <ensures> }` (unit return — avoids `void result`). Comptime functions use `::` bindings and `comptime_assert`.
@@ -1253,6 +1253,14 @@ creates implementation challenges:
 where(...), requires(...), ensures(...)`. The evaluator should extract
 `requires` and `ensures` by name (checking if the parameter label matches
 the builtin name) before processing parameters.
+
+> **Resolution: DONE — strict order enforced.** A zone check at the top
+> of `evaluateFunctionParameters` assigns each clause a zone
+> (`forall=0, params=1, where=2, requires=3, ensures=4`) and rejects any
+> clause whose zone is less than the running max ("X appears after Y in
+> the function signature"). Extraction is by builtin name as
+> recommended. Covered by `clause order: …` tests in
+> `contracts_phase0.test.yo`.
 
 #### A2. `invariant(...)` placement in loop bodies
 

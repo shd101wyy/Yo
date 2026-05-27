@@ -144,6 +144,49 @@ test("ghost_fn(...) with the wrong arity is rejected", {
   }, "ghost_fn");
 });
 
+test("clause order: ensures before requires is rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, ensures(result > i32(0)), requires(x > i32(0))) -> i32)(x);
+    f(i32(1));
+  }, "appears after");
+});
+
+test("clause order: where after requires is rejected", {
+  comptime_expect_error({
+    f :: (fn(forall(T : Type), x : T, requires(i32(1) == i32(1)), where(T <: Runtime)) -> T)(x);
+    f(forall(i32), i32(1));
+  }, "appears after");
+});
+
+test("clause order: a regular parameter after requires is rejected", {
+  comptime_expect_error({
+    f :: (fn(requires(i32(1) == i32(1)), x : i32) -> i32)(x);
+    f(i32(1));
+  }, "appears after");
+});
+
+test("canonical clause order forall/params/where/requires/ensures is accepted", {
+  full :: (
+    fn(
+      forall(T : Type),
+      x : T,
+      where(T <: Runtime),
+      requires(i32(1) == i32(1)),
+      ensures(i32(1) == i32(1))
+    ) -> T
+  )(x);
+  assert(full(forall(i32), i32(9)) == i32(9), "canonical order passes");
+});
+
+test("nested old(old(...)) in ensures resolves to the entry value", {
+  bump :: (fn(ref(n) : i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
+    n = (n + i32(1));
+  });
+  x := i32(7);
+  bump(x);
+  assert(x == i32(8), "nested old(old(n)) captured entry value");
+});
+
 test("runtime requires(...) is lowered to a runtime assert and PASSES on valid input", {
   divide :: (fn(x : i32, y : i32, requires(y != i32(0))) -> i32)(x / y);
   // 10 / 2 = 5; assertion (y != 0) holds.
