@@ -73,7 +73,7 @@ SIDECAR_FILENAME :: ".yo-content-hash";
 /// Recursive directory removal.
 /// Walks the tree (parents first), then deletes in reverse order.
 remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
-  io.async((io, exn) => {
+  io.async((io) => {
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
     entries := io.await(walk_with(path, opts, io), io);
     n := entries.len();
@@ -232,7 +232,7 @@ compute_content_hash :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     hasher := Sha256.new();
     // Bootstrap: push root entries in reversed sorted order so LIFO pop gives forward order
     root_entries := io.await(read_dir(Path.new(dir_path)), io);
@@ -364,7 +364,7 @@ write_sidecar_hash :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_content := String.from(content_hash.as_str());
     sidecar_content.push_str("\n");
@@ -379,7 +379,7 @@ read_sidecar_hash :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_exists := io.await(exists(sidecar), io);
     if(!(sidecar_exists), Option(String).None, {
@@ -410,7 +410,7 @@ inspect_cached_dep :: (
     exn : Exception
   ) -> Impl(Future(CachedDepState, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cached_path := get_cached_dep_dir(cache_dir, dep_name, commit);
     path_exists := io.await(exists(Path.new(cached_path)), io);
     if(
@@ -466,7 +466,7 @@ resolve_git_ref :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--"));
@@ -512,7 +512,7 @@ clone_repo :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     target_dir := get_cached_dep_dir(cache_dir, dep_name, commit);
     // Return early if already cloned
     already_exists := io.await(exists(Path.new(target_dir)), io);
@@ -601,7 +601,7 @@ fetch_dep :: (
     exn : Exception
   ) -> Impl(Future(FetchDepResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     existing_entry := find_lock_entry(lock_file, dep.name);
     ref_changed := match(
       existing_entry,
@@ -728,7 +728,7 @@ fetch_all_deps :: (
     exn : Exception
   ) -> Impl(Future(FetchResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cache_dir := io.await(ensure_global_deps_cache_dir(), io);
     resolved_paths := ArrayList(String).new();
     resolved_names := ArrayList(String).new();
@@ -809,7 +809,7 @@ are_deps_cached :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     if(deps.len() == usize(0), {
       return(true);
     });
@@ -853,7 +853,7 @@ resolve_dep_path :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     lock_file := io.await(read_lock_file(Path.new(project_dir)), io);
     entry_opt := find_lock_entry(lock_file, dep_name);
     match(

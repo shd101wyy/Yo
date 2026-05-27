@@ -160,7 +160,7 @@ detect_linux_abi :: (
   ) -> Impl(Future(Abi, IoExn))
 )(
   io.async(
-    (io, exn) =>
+    (io) =>
       if(platform != Platform.Linux, Abi.Gnu, {
         try_exn := Exception(
           throw : (
@@ -223,9 +223,9 @@ host_target :: (
     exn : Exception
   ) -> Impl(Future(TargetInfo, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     host := detect_host();
-    linux_abi := io.await(detect_linux_abi(), io);
+    linux_abi := io.await(detect_linux_abi(io, exn));
     abi := cond(
       (host.platform == Os.Linux) => Option(Abi).Some(linux_abi),
       (host.platform == Os.Windows) => Option(Abi).Some(Abi.Msvc),

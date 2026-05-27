@@ -450,7 +450,7 @@ append_dep_to_deps_file :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // Create deps.yo from template if it does not exist yet
     file_exists := io.await(exists(deps_path), io);
     if(!(file_exists), {
@@ -479,7 +479,7 @@ resolve_default_branch :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--symref"));
@@ -539,7 +539,7 @@ resolve_latest_ref :: (
     exn : Exception
   ) -> Impl(Future(Result(String, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // Disable interactive credential prompts
     env.set(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
     cmd := Command.new(String.from("git"));
@@ -617,7 +617,7 @@ run_install :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // 1. Parse package specifier
     parsed_result := parse_package_specifier(options.package_spec);
     parsed := match(

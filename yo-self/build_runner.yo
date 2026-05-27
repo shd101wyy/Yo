@@ -309,7 +309,7 @@ compile_artifact :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     effective_target := match(
       ctx.target_triple,
       .Some(t) => t,
@@ -394,7 +394,7 @@ run_executable :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     effective_target := match(
       ctx.target_triple,
       .Some(t) => t,
@@ -441,7 +441,7 @@ run_test_suite :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("test"));
@@ -479,7 +479,7 @@ execute_node :: (
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     description := String.from(node.name.as_str());
     success := true;
     match(
@@ -580,7 +580,7 @@ execute_dag :: (
     exn : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     results := HashMap(String, StepResult).new();
     n := dag.len();
     if(n == usize(0), return(results));
@@ -770,7 +770,7 @@ execute_step :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     match(
       ctx.registry.find_step(step_name),
       .None => {
@@ -840,7 +840,7 @@ evaluate_build_file :: (
     exn : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("build"));
     cmd.arg(String.from("--build-file"));
@@ -886,7 +886,7 @@ run_build :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     build_file_path := Path.new(options.build_file);
     build_file_exists := io.await(exists(build_file_path), io);
     if(!(build_file_exists), {
