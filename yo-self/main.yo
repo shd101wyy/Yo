@@ -406,16 +406,20 @@ check_single_file :: (
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
-  prelude_literal := String.from("prelude.yo");
-  collect_module_deps(
-    prelude_literal.as_str(),
-    std_path.as_str(),
-    std_path.as_str(),
-    visited,
-    dep_exprs,
-    io,
-    local_exn
-  );
+  // Only load prelude dependencies for non-prelude files
+  (is_prelude : bool) = input_path.ends_with(String.from("prelude.yo"));
+  if(!(is_prelude), {
+    prelude_literal := String.from("prelude.yo");
+    collect_module_deps(
+      prelude_literal.as_str(),
+      std_path.as_str(),
+      std_path.as_str(),
+      visited,
+      dep_exprs,
+      io,
+      local_exn
+    );
+  });
   println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
   input_base_dir := match(
     Path.new(String.from(input_path.as_str())).parent(),

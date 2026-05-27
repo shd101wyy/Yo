@@ -29,6 +29,7 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { Path } :: import("std/path");
+{ cwd } :: import("std/env");
 { access, F_OK } :: import("std/libc/unistd");
 { evaluate_expression } :: import("./expr.yo");
 // ---------------------------------------------------------------------------
@@ -310,20 +311,14 @@ evaluate_import :: (
     resolved := Path.new(String.from(current_dir.as_str())).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
     module_path_to_import = resolved;
   });
-  // 4. Non-relative, non-absolute paths: dependency name resolution.
-  //    Phase 2 stub — dependency resolution via build registry is not yet ported.
-  //    If the path is still not absolute here, throw a helpful error.
+  // 4. Non-relative, non-absolute paths: resolve relative to CWD.
   if(!(Path.new(String.from(module_path_to_import.as_str())).is_absolute()), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(module_arg),
-          `Module "${module_path_to_import}" not found. If this is a dependency, add it to build.yo and run 'yo fetch'. (Dependency name resolution is not yet implemented in the self-hosted compiler.)`,
-          false,
-          .None
-        )
-      )
+    cwd_result := match(
+      cwd(),
+      .Ok(p) => p.to_string(),
+      .Err(_) => String.from(".")
     );
+    module_path_to_import = Path.new(cwd_result).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
   });
   // ---------------------------------------------------------------------------
   // Extension resolution

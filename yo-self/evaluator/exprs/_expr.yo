@@ -834,7 +834,10 @@ _evaluate_expression_wrapper :: (
     throw : (
       (err) -> {
         eprintln(`evaluate_expression: ${err.to_string()}`);
-        panic("evaluate_expression: aborting after error")
+        // During check, don't abort — let the caller handle the error.
+        // Abort only in non-check contexts (the raw evaluator path
+        // provides its own exn handler).
+        unwind(make_err_expr())
       }
     )
   );
