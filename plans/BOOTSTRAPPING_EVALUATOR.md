@@ -59,60 +59,27 @@ structure).
 
 ## Current state (updated 2026-05-27)
 
-### Phase 0: **achieved** — evaluator drift fully repaired
-
-`./yo-cli check yo-self/evaluator/index.yo` — **evaluator OK**.
-
-All individual evaluator files pass `check`:
+### Phase 0: **complete** — all drift repaired, main.yo passes
 
 ```bash
-./yo-cli check yo-self/evaluator/exprs/_expr.yo     # OK
-./yo-cli check yo-self/evaluator/types/synthesizer.yo # OK
-./yo-cli check yo-self/evaluator/calls/function.yo  # OK
-./yo-cli check yo-self/evaluator/exprs/match.yo     # OK
-./yo-cli check yo-self/evaluator/exprs/begin.yo     # OK
+./yo-cli check yo-self/evaluator/index.yo → evaluator OK
+./yo-cli check yo-self/main.yo              → evaluator OK
 ```
 
-**Fixes applied (6 commits, ~50 files):**
+**Fixes applied (7 commits, ~55 files):**
 
-- **"Cannot reassign env/env_mut"**: replaced param reassignments with
-  field-level copies (frames, module_path, function_declaration_level,
-  input_string) across 26 evaluator files
-- **"Too few arguments" missing `exn`**: added `exn` to ~50+ call sites
-  across evaluator/exprs, evaluator/types, evaluator/calls,
-  evaluator/builtins, and evaluator/values
+- **"Cannot reassign env/env_mut"**: field-level copies across 26 evaluator files
+- **"Too few arguments" missing `exn`**: ~50+ call sites across evaluator
 - **`&(env)/&(ctx)` type mismatches**: removed `&()` from object params
-  (object references already share state) in synthesizer.yo, closure_type.yo,
-  helper.yo
-- **`io.async((io, exn) => ...)` closure params**: changed to `(e : IoExn) =>`
-  in 10 files — closure gets the effects struct, uses `e.io`/`e.exn`
-  (CTL values cannot be captured by closures)
-- **`_extract_type_val`, `eval_*_arg`, `ci_eval_*` calls**: added missing
-  `exn` arg across all builtins files
-- **`target.yo`**: simplified `detect_linux_abi` and `host_target` to
-  synchronous (matching TS `src/target.ts`), unblocking evaluator chain
-- **`type_fns.yo`**: fixed `env_ptr.*` C pointer deref patterns and
-  `_extract_type_val` exn args
-- **`codegen/exprs.yo`**: removed extraneous `exn` from `recur()` calls
-  that don't take exception handlers
-
-### Remaining: non-evaluator tool files
-
-`./yo-cli check yo-self/main.yo` does not pass because `main.yo` imports
-non-evaluator support files (codegen, formatter) with unresolved async I/O
-patterns. These are **not evaluator files** and their async runtime design
-is out of scope for Phase 0 (`check` only exercises the evaluator).
-
-| File                | Issue                                                  | Phase |
-| ------------------- | ------------------------------------------------------ | ----- |
-| `formatter.yo`      | `is_dir`/`is_file`/`read_dir` missing `io` handlers    | 1     |
-| `main.yo`           | `io.await` effect-record patterns (`{io,exn}` vs `io`) | 1     |
-| `codegen/driver.yo` | unported/partial (codegen out of scope for `check`)    | 2+    |
-
-For Phase 0 exit: the evaluator itself is proven clean. The tool-file
-issues are mechanical I/O handler fixes that don't affect evaluator
-correctness. A `main_check.yo` entry point that only imports the evaluator
-would pass `check` trivially.
+- **`io.async((io, exn) => ...)`**: changed to `(e : IoExn) =>` with `e.io`/`e.exn`
+  (closures cannot capture CTL values: `io` and `exn` are control-bound)
+- **I/O call fixes**: added missing `io` handler to `is_file/is_dir/exists/read_file/
+write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
+  `IoExn(io : io, exn : exn)` await handler
+- **`target.yo`**: simplified to synchronous, matching TS `src/target.ts`
+- **`main.yo` dispatch**: converted `cond` to if/else chain (`exn.throw` returns
+  `ResumeType`, can't mix with `unit` in `cond` branches)
+- **`main.yo` safety**: wrapped `unsafe(exit(int(1)))`
 
 ### Strategy: strict 1-to-1 port
 

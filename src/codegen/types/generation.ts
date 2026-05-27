@@ -51,6 +51,29 @@ function structSomeTypeIsOnlyInFunctionFieldsLocal(
   }
   return true;
 }
+
+/** Enum whose only SomeType is in function-typed variant fields. */
+function enumSomeTypeIsOnlyInFunctionFieldsLocal(
+  type: EnumType,
+  visited: Set<string> = new Set()
+): boolean {
+  if (visited.has(type.id)) return true;
+  visited.add(type.id);
+  for (const variant of type.variants) {
+    if (!variant.fields) continue;
+    for (const field of variant.fields) {
+      if (isFunctionType(field.type)) continue;
+      if (
+        isStructType(field.type) &&
+        structSomeTypeIsOnlyInFunctionFieldsLocal(field.type, visited)
+      ) {
+        continue;
+      }
+      if (typeContainsSomeType(field.type)) return false;
+    }
+  }
+  return true;
+}
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -447,11 +470,13 @@ typedef struct __yo_io_future_t {
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
-      // Exception: struct whose SomeType is only inside function-typed fields
-      // (effect records like Io, Exception). These are concrete at C level.
+      // Exception: struct or enum whose SomeType is only inside function-typed
+      // fields (effect records like Io, Exception, or Option(FnType)).
       if (
-        !isStructType(type) ||
-        !structSomeTypeIsOnlyInFunctionFieldsLocal(type)
+        !(
+          isStructType(type) && structSomeTypeIsOnlyInFunctionFieldsLocal(type)
+        ) &&
+        !(isEnumType(type) && enumSomeTypeIsOnlyInFunctionFieldsLocal(type))
       ) {
         continue; // Skip types that contain `SomeType` as they are not concrete types
       }
@@ -541,12 +566,14 @@ typedef struct __yo_io_future_t {
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
-      // Exception: struct whose only SomeType source is its function-typed
-      // fields (e.g., Io, Exception with forall fn-ptr fields). At C level
-      // these become concrete structs of fn-ptrs; emit their typedef.
+      // Exception: struct or enum whose only SomeType source is its
+      // function-typed fields (e.g., Io, Exception with forall fn-ptr
+      // fields, or Option(EvaluateExprRawFn) with fn-typed variant field).
       if (
-        !isStructType(type) ||
-        !structSomeTypeIsOnlyInFunctionFieldsLocal(type)
+        !(
+          isStructType(type) && structSomeTypeIsOnlyInFunctionFieldsLocal(type)
+        ) &&
+        !(isEnumType(type) && enumSomeTypeIsOnlyInFunctionFieldsLocal(type))
       ) {
         continue;
       }
@@ -896,7 +923,14 @@ typedef struct __yo_io_future_t {
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
-      continue; // Skip types that contain `SomeType` as they are not concrete types
+      if (
+        !(
+          isStructType(type) && structSomeTypeIsOnlyInFunctionFieldsLocal(type)
+        ) &&
+        !(isEnumType(type) && enumSomeTypeIsOnlyInFunctionFieldsLocal(type))
+      ) {
+        continue;
+      }
     }
     // Skip extern C types — the C header provides their definition
     if (type.isExtern === "c" && type.externName) {
