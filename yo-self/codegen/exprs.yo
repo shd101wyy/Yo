@@ -783,10 +783,10 @@ _build_match_condition :: (
           pargs.get(usize(1)),
           .None => Option(String).None,
           .Some(right) => match(
-            recur(left, scrut_temp, ctx, indent, exn),
+            recur(left, scrut_temp, ctx, indent),
             .None => Option(String).None,
             .Some(left_cond) => match(
-              recur(right, scrut_temp, ctx, indent, exn),
+              recur(right, scrut_temp, ctx, indent),
               .None => Option(String).None,
               .Some(right_cond) => {
                 oc := String.from("(");
@@ -1473,7 +1473,7 @@ emit_simplified_some_binding_expr :: (
             match(
               binding_args.get(i),
               .None => (),
-              .Some(inner_binding_expr) => recur(inner_binding_expr, scrut_code, ctx, indent, exn)
+              .Some(inner_binding_expr) => recur(inner_binding_expr, scrut_code, ctx, indent)
             );
             i = (i + usize(1));
           });
@@ -6962,14 +6962,14 @@ first_captured_ident_name :: (
       true => Option(String).Some(tok.value)
     ),
     .FnCall(_, capture_func_box, capture_args, _, _) => {
-      found := recur(capture_func_box.*, param_name, ctx, exn);
+      found := recur(capture_func_box.*, param_name, ctx);
       (capture_i : usize) = usize(0);
       while(runtime((capture_i < capture_args.len()) && match(found,.None => true,.Some(_) => false)), {
         match(
           capture_args.get(capture_i),
           .None => (),
           .Some(capture_arg) => {
-            found = recur(capture_arg, param_name, ctx, exn);
+            found = recur(capture_arg, param_name, ctx);
           }
         );
         capture_i = (capture_i + usize(1));
@@ -12041,7 +12041,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             .Some(id) => (id.as_str() == "recur")
           )
         ) => match(
-          generate_recur(expr, args, ctx, indent, exn),
+          generate_recur(expr, args, ctx, indent),
           .Some(recur_code) => Option(String).Some(recur_code),
           .None => match(
             gen_arg_list(args, ctx, indent),

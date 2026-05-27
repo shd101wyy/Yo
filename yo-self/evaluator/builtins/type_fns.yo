@@ -249,7 +249,7 @@ evaluate_yo_are_types_compatible :: (
       )
     );
   });
-  expected_type := _extract_type_val(arg0, info_0, "__yo_are_types_compatible");
+  expected_type := _extract_type_val(arg0, info_0, "__yo_are_types_compatible", exn);
   cur_env := info_0.env;
   // Evaluate given type.
   ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -286,7 +286,7 @@ evaluate_yo_are_types_compatible :: (
       )
     );
   });
-  given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible");
+  given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible", exn);
   cur_env = info_1.env;
   // are_types_compatible(actual, expected) — yo-self param order
   compatible := are_types_compatible(given_type, expected_type);
@@ -350,7 +350,7 @@ evaluate_yo_are_types_equal :: (
       new_expr_info(env, t_unit())
     }
   );
-  type_a := _extract_type_val(arg0, info_0, "__yo_are_types_equal");
+  type_a := _extract_type_val(arg0, info_0, "__yo_are_types_equal", exn);
   cur_env := info_0.env;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
@@ -374,7 +374,7 @@ evaluate_yo_are_types_equal :: (
       new_expr_info(cur_env, t_unit())
     }
   );
-  type_b := _extract_type_val(arg1, info_1, "__yo_are_types_equal");
+  type_b := _extract_type_val(arg1, info_1, "__yo_are_types_equal", exn);
   cur_env = info_1.env;
   // Use exact match (requireExactMatch = true in TS).
   equal := are_types_compatible_exact(type_a, type_b);
@@ -438,7 +438,7 @@ evaluate_yo_type_contains_rc_type :: (
       )
     );
   });
-  type_val := _extract_type_val(arg0, arg_info, "__yo_type_contains_rc_type");
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_contains_rc_type", exn);
   flag := type_contains_rc_type(type_val);
   out_info := new_expr_info(arg_info.env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
@@ -500,7 +500,7 @@ evaluate_yo_type_can_form_rc_cycle :: (
       )
     );
   });
-  type_val := _extract_type_val(arg0, arg_info, "__yo_type_can_form_rc_cycle");
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_can_form_rc_cycle", exn);
   flag := can_type_form_rc_cycle(type_val);
   out_info := new_expr_info(arg_info.env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
@@ -716,14 +716,17 @@ _ti_eval_code :: (
   code_expr := generate_expr_from_code(code.as_str(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
-  result_ast := evaluate_expression(code_expr, env_ptr.*, ctx);
+  result_ast := evaluate_expression(code_expr, env_ptr, ctx);
   ctx.force_compile_time_bindings = old_force;
   result_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(result_ast)),
     .Some(i) => i,
-    .None => new_expr_info(env_ptr.*, t_unit())
+    .None => new_expr_info(env_ptr, t_unit())
   );
-  env_ptr.* = result_info.env;
+  env_ptr.frames = result_info.env.frames;
+  env_ptr.module_path = result_info.env.module_path;
+  env_ptr.function_declaration_frame_level = result_info.env.function_declaration_frame_level;
+  env_ptr.input_string = result_info.env.input_string;
   result_info.value
 });
 /// Build a ComptimeList from EvalValues.  If values is non-empty, the element
@@ -744,14 +747,17 @@ _ti_bind_comptime_list :: (
     type_ast := generate_expr_from_code(type_name.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
-    type_result_ast := evaluate_expression(type_ast, env_ptr.*, ctx);
+    type_result_ast := evaluate_expression(type_ast, env_ptr, ctx);
     ctx.force_compile_time_bindings = old_force;
     type_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(type_result_ast)),
       .Some(i) => i,
-      .None => new_expr_info(env_ptr.*, t_unit())
+    .None => new_expr_info(env_ptr, t_unit())
     );
-    env_ptr.* = type_info.env;
+    env_ptr.frames = type_info.env.frames;
+    env_ptr.module_path = type_info.env.module_path;
+    env_ptr.function_declaration_frame_level = type_info.env.function_declaration_frame_level;
+    env_ptr.input_string = type_info.env.input_string;
     match(
       type_info.value,
       .Some(v) => match(v,.TypeVal(tv) => tv.*, _ => t_unit()),
