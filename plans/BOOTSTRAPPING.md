@@ -1,5 +1,13 @@
 # Bootstrapping the Yo Compiler
 
+> **For the current, focused effort see
+> [`BOOTSTRAPPING_EVALUATOR.md`](BOOTSTRAPPING_EVALUATOR.md)** — it
+> narrows the near-term target to the **evaluator** and the **`check`
+> subcommand** (no codegen), with measured current state and a phased
+> path to `yo-self-bin check ./std`, `./tests`, `./yo-self`. This
+> document remains the **full** self-hosting record (incl. codegen);
+> some of its status numbers predate the evaluator doc.
+
 > **Detailed phase-by-phase history of this project lives in git** (`git log
 --oneline plans/BOOTSTRAPPING.md`). This document is a concise plan
 > and current-state record. The **Open / Closed evaluator gaps** sections
