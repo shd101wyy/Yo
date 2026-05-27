@@ -38,6 +38,18 @@ import { fileHasPragma } from "../memory-safety";
  *    `wrapFunctionBodyWithContracts`); transparent pass-through if it
  *    appears elsewhere.
  *
+ * Known Phase 0 gaps (intentional, deferred to later phases):
+ *  - `old(...)` is NOT scope-restricted to `ensures` clauses — it
+ *    works (transparently) anywhere. Rejecting it outside `ensures`
+ *    arrives with the verifier.
+ *  - Type invariants (`invariant(...)` as a field-like declaration
+ *    inside `object(...)` / `struct(...)`) are NOT implemented. Only
+ *    loop invariants are recognized in Phase 0; type invariants are a
+ *    Phase 3 item per plans/FORMAL_VERIFICATION.md.
+ *  - `ghost_fn`-declared functions are callable from non-ghost code
+ *    (no ghost-context tracking exists yet). Ghost-only enforcement
+ *    arrives with the verifier.
+ *
  * The SMT verifier (Phase 1+) is a separate, larger component.
  */
 
@@ -156,6 +168,12 @@ export function evaluateGhostFn({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
+  if (expr.args.length !== 1) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'ghost_fn(...)' takes exactly one argument: a function value to mark as ghost-only (e.g. 'ghost_fn((fn(x : i32) -> bool)(x > i32(0)))'). Got ${expr.args.length} arguments.`,
+    });
+  }
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.ghost_fn, 1);
 
   const innerExpr = expr.args[0]!;

@@ -37,7 +37,14 @@ test("where clause may precede requires/ensures in a signature", {
   assert(echo(forall(i32), i32(7)) == i32(7), "echo returns its arg");
 });
 
-test("invariant inside a loop body is a no-op", {
+test("invariant referencing loop counters does not corrupt iteration", {
+  // The invariant predicate references the loop counters (i, n, acc).
+  // evaluateContractMarker evaluates each predicate and merges envs;
+  // this test confirms that does NOT disturb the loop's iteration
+  // variables — the sum is still correct after 5 iterations. (A
+  // comptime `while(comptime(...))` variant is not expressible: a
+  // comptime loop requires a non-mutating compile-time-known
+  // condition, so it cannot mutate `i`.)
   i := i32(0);
   acc := i32(0);
   n := i32(5);
@@ -129,11 +136,12 @@ test("comptime requires(...) PASSES at compile time for valid input", {
   assert(GOOD == i32(50), "abs(-50) == 50");
 });
 
-// The comptime-violating case is verified at module scope by
-// tests/spec/contracts_comptime_violation.test.yo (a separate file
-// because compile errors that happen during the test body's CTFE
-// don't propagate through comptime_expect_error cleanly when the
-// failure path crosses the test-runner's batched compile).
+// The comptime-VIOLATING case (where the predicate fails) is verified
+// by src/tests/contracts-comptime-violation.test.ts, a shell-out gate
+// test. It can't be a comptime_expect_error test here: a comptime
+// failure escapes the test body to module-load level (it crosses the
+// test-runner's batched compile), so comptime_expect_error never sees
+// it.
 test("ensures(...) is lowered and PASSES on a valid runtime postcondition", {
   abs :: (fn(x : i32, ensures(result >= i32(0))) -> i32)(
     cond((x >= i32(0)) => x, true => -(x))
@@ -162,4 +170,16 @@ test("comptime ensures(...) PASSES at compile time for valid input", {
   sq :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> comptime(i32))(x * x);
   R :: sq(i32(4));
   assert(R == i32(16), "4^2 == 16");
+});
+
+test("ensures(...) on a unit-returning function with a side effect", {
+  // No meaningful return value; the postcondition is about the
+  // mutated ref param. Exercises the unit-return lowering path
+  // (no `result` binding — would otherwise emit invalid `void result`).
+  set :: (fn(ref(n) : i32, x : i32, ensures(n == x)) -> unit)({
+    n = x;
+  });
+  n := i32(0);
+  set(n, i32(42));
+  assert(n == i32(42), "n set to 42 (unit-return ensures path)");
 });
