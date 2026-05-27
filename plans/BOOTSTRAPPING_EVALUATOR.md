@@ -70,23 +70,45 @@ values/`).
 - Leaf modules (`token.yo`, `lexer.yo`, `expr.yo`) still `check` cleanly
   under the current TS `yo-cli`.
 
-### But it has rotted against the current TS compiler
+### But many call sites have drifted from their own definitions
 
-`./yo-cli check yo-self/main.yo` currently **FAILS**. The port drifted
-as `src/` evolved. First failure observed:
+`./yo-cli check yo-self/main.yo` currently **FAILS**, and a per-file
+`check` sweep (2026-05-27, using exit codes) shows the drift is
+**widespread but highly uniform**. The breakdown:
+
+| Error category                            | Approx. sites                                     | Meaning                                                                                                                                                                                                                              |
+| ----------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **"Too few arguments for function call"** | ~88                                               | A call passes fewer args than the yo-self function's own definition expects — almost always a **missing threaded-effect argument** (usually `exn : Exception`, yo-self's explicit form of TS's native `throw`; sometimes `io : Io`). |
+| "Expected 1 regular parameters, got 2"    | 3 (`cache.yo`, `compiler_utils.yo`, `process.yo`) | A different arity mismatch.                                                                                                                                                                                                          |
+| "Expected to be evaluated"                | 2 (`await_analysis.yo`, `suspension_analysis.yo`) | Evaluator-state expectation.                                                                                                                                                                                                         |
+| "Cannot reassign 'expected_env'"          | 1 (`synthesizer.yo`)                              | Reassignment of a non-reassignable binding.                                                                                                                                                                                          |
+| Slice-flowability (raw pointer in return) | 1 (`asm.yo`)                                      | The newer `plans/SLICE_FLOWABILITY.md` rule — a return type carries a raw pointer and must be rooted.                                                                                                                                |
+
+Concrete example (the dominant pattern): `prohibit_void_type` is
+**defined** in `yo-self/types/utils.yo:146` as
+`(fn(ty : TypeValue, token : Token, exn : Exception) -> unit)` — the
+3rd `exn` parameter is yo-self's exception-effect threading. Four call
+sites pass `exn` correctly; `evaluator/exprs/binding.yo:171` omits it:
 
 ```
-yo-self/evaluator/exprs/binding.yo:171
-  prohibit_void_type(user_defined_type, ast_expr_token(rhs));
-  Error: Too few arguments — expected 3, got 2
+prohibit_void_type(user_defined_type, ast_expr_token(rhs));   // ✗ missing exn
+prohibit_void_type(final_type, ast_expr_token(expr), exn);    // ✓ field.yo:541
 ```
 
-i.e. `prohibit_void_type` gained a parameter in `src/` and the yo-self
-call site wasn't updated. Because `check` stops at the first error,
-**the full extent of the drift is unknown** until each error is fixed
-and the next surfaces. Given yo-self was last touched 2026-05-25, the
-drift is recent and likely small — but it is a hard gate: **until
-`yo-self/main.yo` checks, `yo-self-bin` cannot be built at all.**
+**Important: this is NOT `src/` drift.** yo-self defines its own
+versions of these functions; the failures are _internal_ — a call site
+not matching its own definition, typically a leftover from an
+incomplete edit when `exn`-threading was added. So the fix is local and
+mechanical, not a re-port.
+
+**The ~88 number overstates the root cause.** `check` stops at the
+first error and reports the whole import chain, so most failing files
+fail only because they _import_ a broken leaf (e.g. `binding.yo`,
+`begin.yo`, `values/impl.yo`). Fixing the root-cause leaves bottom-up
+cascades green to all their importers. The true root-cause set is
+smaller and is discovered iteratively (fix innermost error → re-check →
+next). Until `yo-self/main.yo` checks clean, **`yo-self-bin` cannot be
+built at all** — this is the Phase 0 gate.
 
 ### The prebuilt binary is stale
 
@@ -156,16 +178,89 @@ iteration loop too slow during porting.
 
 ### Phase 0 — Un-rot: yo-self builds again
 
+This is the unblocking gate: until `yo-self/main.yo` checks clean,
+`yo-self-bin` cannot be built. Work is mechanical reconciliation of the
+call-site drift catalogued above (mostly: add a missing `exn`/effect
+argument so each call matches its own definition).
+
 **Exit criteria:**
 
 - `./yo-cli check yo-self/main.yo` passes (all drift repaired).
 - `./yo-cli compile yo-self/main.yo -o /tmp/yo-self-bin` succeeds.
 - `/tmp/yo-self-bin check <trivial.yo>` returns "evaluator OK".
 
-This is the unblocking gate. Work is mechanical reconciliation of API
-drift (changed signatures, tightened syntax such as strict-parens and
-the memory-safety pragmas, renamed builtins) between `yo-self/` and the
-current `src/`. Enumerate by iterating the drift-repair loop.
+#### Repair recipe (per failing call site)
+
+1. `ulimit -s 65520` (once per shell — see the stack-overflow blocker).
+2. `./yo-cli check yo-self/main.yo 2>&1 | head -40` — read the **innermost**
+   `Error:` and its `file://…yo:line:col` (the deepest one, not the
+   import-chain frames printed after it).
+3. Open that yo-self file at that line, and open the **definition** of
+   the called function (grep `<fn_name> ::` in `yo-self/`). Compare the
+   call's args to the definition's params.
+4. Almost always: the call is missing the trailing `exn` (or `io`)
+   handler that the definition takes. Add the in-scope handler argument
+   (the enclosing function already threads it — copy from a sibling call
+   site that passes it correctly).
+5. Re-run step 2. The same file usually reveals its next missing-arg
+   site; once a leaf file is clean, its importers stop failing on it.
+
+For the non-"Too few arguments" buckets (see the table above), fix per
+the specific error: the `Expected 1 regular parameters` arity sites, the
+`Expected to be evaluated` sites, the `synthesizer.yo` reassignment, and
+the `asm.yo` slice-flowability return (root the returned slice in a
+`ref`-bound parameter per `plans/SLICE_FLOWABILITY.md`).
+
+#### Prioritized worklist — fix bottom-up (dependency order)
+
+`check` follows imports and stops at the first error, so fix the most
+**foundational** files first; that cascades green to everything that
+imports them. Order by dependency tier (import-frequency in parens):
+
+1. **Tier 1 — Foundational** (imported by nearly everything):
+   `expr.yo` (39), `types/definitions.yo` (12), `token.yo` (7),
+   `types/creators.yo` (7), `types/guards.yo` (6), `types/tags.yo` (4),
+   `types/utils.yo`, `error.yo`, `value.yo`/`value_b.yo`,
+   `function_value.yo`, `env.yo`, `utils.yo`, `compiler_utils.yo`.
+2. **Tier 2 — Evaluator core + type synthesis:**
+   `evaluator/context.yo` (7), `evaluator/trait_checking.yo`,
+   `evaluator/type_of.yo`, and `evaluator/types/*`
+   (`function.yo`, `field.yo`, `struct.yo`, `enum.yo`, `record.yo`,
+   `trait.yo`, `synthesizer.yo`, `closure.yo`, `newtype.yo`,
+   `object.yo`, `tuple.yo`, `union.yo`, `fn_trait.yo`, `utils.yo`).
+3. **Tier 3 — Expr handlers** (`evaluator/exprs/*`):
+   `binding.yo` (6), `begin.yo` (5), `cond.yo`, `match.yo`,
+   `assignment.yo`, `initialization_assignment.yo`,
+   `destructuring_assignment.yo`, `property_access.yo`, `recur.yo`,
+   `subtype_of.yo`, `c_include.yo`, `extern.yo`, `_expr.yo` (the
+   dispatch hub — fix last in this tier).
+4. **Tier 4 — Calls + values:**
+   `evaluator/calls/*` (`function.yo`, `helper.yo`, `comptime_fn.yo`,
+   `closure_type.yo`, `index_trait.yo`, `iso.yo`, `type.yo`) and
+   `evaluator/values/*` (notably `impl.yo`, `anonymous_function.yo`,
+   `anonymous_module.yo`).
+5. **Tier 5 — Builtins / ctfe / effects / async** (`evaluator/builtins/*`,
+   `evaluator/ctfe/*`, `evaluator/effects/*`, `evaluator/async/*`,
+   `evaluator/shared/*`). These are leaves for `check` purposes.
+6. **Tier 6 — Root:** `evaluator/index.yo`, then `main.yo`. When `main.yo`
+   checks clean, build `yo-self-bin` and move to Phase 1.
+
+> The legacy `evaluator/eval.yo` proto (~8.2k lines) is on this list only
+> because a few files still import it; prefer migrating those importers
+> to the proper ported modules and deleting `eval.yo` over repairing its
+> drift (see [Cross-cutting cleanup](#cross-cutting-cleanup)).
+
+#### Re-measuring progress
+
+Re-run the per-file sweep to watch the failing-file count drop as
+foundational tiers are fixed:
+
+```bash
+ulimit -s 65520
+for f in $(find yo-self -name '*.yo' -not -path '*/tests/*' | sort); do
+  ./yo-cli check "$f" >/dev/null 2>&1 || echo "FAIL $f"
+done | tee /tmp/yoself_drift.txt | wc -l
+```
 
 ### Phase 1 — `yo-self-bin check ./std`
 
