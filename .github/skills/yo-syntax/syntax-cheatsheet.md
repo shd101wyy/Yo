@@ -506,6 +506,43 @@ test("Async test", {
 - `comptime_assert(condition)` — compile-time assertion
 - `comptime_expect_error(expr)` — verify code produces a compile error
 
+## Design-by-contract clauses
+
+`plans/FORMAL_VERIFICATION.md` Phase 0. No SMT verifier yet — these
+lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
+(comptime fns, returning `comptime(T)`).
+
+```rust
+// requires/ensures are SIGNATURE clauses, after params and where(...).
+// Canonical order: forall, params, where, requires, ensures.
+divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+  x / y
+);
+
+// Inside ensures: `result` = return value, old(expr) = entry-time value.
+increment :: (fn(ref(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
+
+// invariant(...) must be the FIRST statement of a while body.
+while(runtime(i < n), {
+  invariant(i <= n, acc >= i32(0));
+  i = (i + i32(1)); acc = (acc + i);
+});
+
+// ghost binding vs ghost function (SEPARATE builtins):
+ghost(snap := (a + b));
+is_pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
+```
+
+- One `requires(...)` and one `ensures(...)` max per signature; put
+  multiple predicates inside the single call: `requires(a, b)`. Two
+  `requires(...)` clauses, or a zero-arg `requires()`, is a syntax error.
+- `result` is a wrapper-bound local (NOT a reserved word) — it coexists
+  with `result` used as an ordinary variable name elsewhere.
+- `pragma(Pragma.NoContracts);` erases contracts; `pragma(Pragma.Verify);`
+  parses but warns "verify mode not implemented".
+- `std/spec/` exposes refinement aliases (`NonZero`, `Bounded`,
+  `Positive`, …) — Phase 0 they are plain aliases for the base type.
+
 ## Common pitfalls
 
 ### `&&` short-circuit with `match`/`cond` on RHS causes C codegen scope bug
