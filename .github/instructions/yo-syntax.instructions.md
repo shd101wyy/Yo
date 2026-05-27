@@ -999,3 +999,82 @@ p := Point(i32(1), i32(2));
 // CORRECT — enum variants use positional args:
 (v : Option(i32)) = .Some(i32(42));
 ```
+
+## Design-by-contract clauses (`requires` / `ensures` / `invariant` / `ghost`)
+
+Phase 0 of `plans/FORMAL_VERIFICATION.md` adds a contract surface. The
+SMT verifier is NOT built yet — in Phase 0 these lower to runtime
+`assert(...)` (runtime functions) or `comptime_assert(...)` (comptime
+functions, i.e. those returning `comptime(T)`).
+
+### `requires` / `ensures` go in the function signature
+
+They are clauses in the parameter list, after regular params and
+`where(...)`. The clause order is **enforced** (not just conventional):
+`forall(...), ...params..., where(...), requires(...), ensures(...)`.
+A clause out of order — `ensures` before `requires`, `where` after
+`requires`, a regular param after `where`/`requires` — is a syntax
+error ("X appears after Y in the function signature").
+
+```rust
+// requires = precondition, ensures = postcondition.
+divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+  x / y
+);
+```
+
+- **Single-call rule**: at most ONE `requires(...)` and ONE
+  `ensures(...)` per signature. Multiple predicates go inside one call:
+  `requires(a, b, c)`. Two `requires(...)` clauses is a syntax error.
+- **Zero-argument** `requires()` / `ensures()` is a syntax error — omit
+  the clause instead.
+- Inside `ensures(...)`: `result` is the return value, and `old(expr)`
+  is the value of `expr` on function entry (correct for mutated
+  `ref(name) : T` params). `result` is NOT a reserved word — it is a
+  local the ensures-wrapper binds, so it does not clash with `result`
+  used as an ordinary variable elsewhere.
+
+```rust
+increment :: (fn(ref(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
+  n = (n + i32(1));
+});
+```
+
+- `where(P)` with a `bool` predicate is treated like `requires(P)`;
+  choose `where` for type-intent, `requires` for value-intent.
+
+### `invariant(...)` is the FIRST statement of a `while` body
+
+```rust
+while(runtime(i < n), {
+  invariant((i >= i32(0)) && (i <= n), acc >= i32(0)); // must be first
+  i = (i + i32(1));
+  acc = (acc + i);
+});
+```
+
+Placing `invariant(...)` anywhere except the first non-comment statement
+of the loop body — a later statement, inside a `cond`/`match` branch, or
+a nested block — is a syntax error. (Type-body invariants inside
+`object(...)` are NOT implemented in Phase 0.)
+
+### `ghost(...)` vs `ghost_fn(...)`
+
+- `ghost(name := expr)` — a spec-only binding (Phase 0: a no-op marker).
+- `ghost_fn(fn_value)` — declares a ghost (spec-only) function. These
+  are SEPARATE builtins; do not write `ghost(some_fn_value)`.
+
+```rust
+permutation :: ghost_fn((fn(a : Slice(i32), b : Slice(i32)) -> bool)(/* ... */));
+```
+
+### Pragmas
+
+- `pragma(Pragma.NoContracts);` erases all contract clauses (no asserts
+  emitted) — for release/benchmark builds.
+- `pragma(Pragma.Verify);` / `pragma(Pragma.VerifyOrAssert);` parse but
+  warn "verify mode not implemented" — the SMT backend is a later phase.
+
+Refinement-type aliases live in `std/spec/` (`NonZero`, `Bounded`,
+`Positive`, …); in Phase 0 they are plain aliases for the underlying
+type (the predicate is enforced once the verifier lands).

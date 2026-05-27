@@ -1,0 +1,320 @@
+// Phase 0 of plans/FORMAL_VERIFICATION.md
+//
+// Covers the contract surface: requires(...), ensures(...),
+// invariant(...), ghost(...), ghost_fn(...), old(...).
+//
+// In Phase 0, requires/ensures lower to runtime assert(...) (runtime
+// functions) or comptime_assert(...) (comptime functions). invariant,
+// ghost, ghost_fn, and old are markers/transparent in Phase 0. The
+// SMT verifier (Phase 1+) is not part of this surface.
+test("requires/ensures on a satisfying call run without panicking", {
+  divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+    x / y
+  );
+  assert(divide(i32(10), i32(2)) == i32(5), "divide(10,2) == 5");
+  assert(divide(i32(7), i32(2)) == i32(3), "divide(7,2) == 3 (integer)");
+});
+
+test("multiple predicates inside a single requires/ensures", {
+  clamped :: (fn(x : i32, lo : i32, hi : i32, requires(lo <= hi, x >= i32(-(1000))), ensures(result >= lo, result <= hi)) -> i32)(
+    cond(
+      (x < lo) => lo,
+      (x > hi) => hi,
+      true => x
+    )
+  );
+  assert(clamped(i32(5), i32(0), i32(10)) == i32(5), "clamp 5 in [0,10]");
+  assert(clamped(i32(-(5)), i32(0), i32(10)) == i32(0), "clamp -5 in [0,10]");
+  assert(clamped(i32(15), i32(0), i32(10)) == i32(10), "clamp 15 in [0,10]");
+});
+
+test("where clause may precede requires/ensures in a signature", {
+  // Use a simple forall + where(Runtime) — focus on the contract
+  // syntax, not the trait machinery.
+  echo :: (fn(forall(T : Type), x : T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
+    x
+  );
+  assert(echo(forall(i32), i32(7)) == i32(7), "echo returns its arg");
+});
+
+test("invariant referencing loop counters does not corrupt iteration", {
+  // The invariant predicate references the loop counters (i, n, acc).
+  // evaluateContractMarker evaluates each predicate and merges envs;
+  // this test confirms that does NOT disturb the loop's iteration
+  // variables — the sum is still correct after 5 iterations. (A
+  // comptime `while(comptime(...))` variant is not expressible: a
+  // comptime loop requires a non-mutating compile-time-known
+  // condition, so it cannot mutate `i`.)
+  i := i32(0);
+  acc := i32(0);
+  n := i32(5);
+  while(runtime(i < n), {
+    invariant((i >= i32(0)) && (i <= n), acc >= i32(0));
+    i = (i + i32(1));
+    acc = (acc + i);
+  });
+  // 1+2+3+4+5 = 15
+  assert(acc == i32(15), "sum 1..5 == 15");
+});
+
+test("ghost binding evaluates as a no-op", {
+  a := i32(2);
+  b := i32(3);
+  ghost(orig_sum := (a + b));
+  // The ghost binding does not affect runtime values.
+  assert((a + b) == i32(5), "a + b == 5 regardless of ghost");
+});
+
+test("ghost_fn declaration is parseable and callable in Phase 0", {
+  is_positive :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
+  // Phase 0 is transparent — the ghost function is still callable.
+  // Later phases will forbid calls from non-ghost code.
+  assert(is_positive(i32(5)), "5 is positive");
+  assert(!(is_positive(i32(-(5)))), "-5 is not positive");
+});
+
+test("old() is a transparent pass-through in Phase 0", {
+  snapshot :: (fn(x : i32) -> i32)(old(x));
+  assert(snapshot(i32(42)) == i32(42), "old(x) == x in Phase 0");
+});
+
+test("invariant(...) misplaced as non-first loop statement is rejected", {
+  comptime_expect_error({
+    i := i32(0);
+    while(runtime(i < i32(3)), {
+      i = (i + i32(1));
+      invariant(i >= i32(0));
+    });
+  }, "invariant");
+});
+
+test("invariant(...) inside cond branch is rejected", {
+  comptime_expect_error({
+    i := i32(0);
+    while(runtime(i < i32(3)), {
+      cond(
+        (i > i32(0)) => invariant(i >= i32(0)),
+        true => ()
+      );
+      i = (i + i32(1));
+    });
+  }, "invariant");
+});
+
+test("duplicate requires(...) clauses in a signature are rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, requires(x > i32(0)), requires(x < i32(100))) -> i32)(x);
+    f(i32(0));
+  }, "Multiple 'requires(...)'");
+});
+
+test("duplicate ensures(...) clauses in a signature are rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, ensures(result > i32(0)), ensures(result < i32(100))) -> i32)(x);
+    f(i32(0));
+  }, "Multiple 'ensures(...)'");
+});
+
+test("requires() with zero arguments in a signature is rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, requires()) -> i32)(x);
+    f(i32(0));
+  }, "zero arguments");
+});
+
+test("ensures() with zero arguments in a signature is rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, ensures()) -> i32)(x);
+    f(i32(0));
+  }, "zero arguments");
+});
+
+test("invariant() with zero arguments is rejected", {
+  comptime_expect_error({
+    while(runtime(true), {
+      invariant();
+    });
+  }, "zero arguments");
+});
+
+test("ghost_fn(...) with the wrong arity is rejected", {
+  comptime_expect_error({
+    g :: ghost_fn();
+    g;
+  }, "ghost_fn");
+});
+
+test("clause order: ensures before requires is rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, ensures(result > i32(0)), requires(x > i32(0))) -> i32)(x);
+    f(i32(1));
+  }, "appears after");
+});
+
+test("clause order: where after requires is rejected", {
+  comptime_expect_error({
+    f :: (fn(forall(T : Type), x : T, requires(i32(1) == i32(1)), where(T <: Runtime)) -> T)(x);
+    f(forall(i32), i32(1));
+  }, "appears after");
+});
+
+test("clause order: a regular parameter after requires is rejected", {
+  comptime_expect_error({
+    f :: (fn(requires(i32(1) == i32(1)), x : i32) -> i32)(x);
+    f(i32(1));
+  }, "appears after");
+});
+
+test("canonical clause order forall/params/where/requires/ensures is accepted", {
+  full :: (
+    fn(
+      forall(T : Type),
+      x : T,
+      where(T <: Runtime),
+      requires(i32(1) == i32(1)),
+      ensures(i32(1) == i32(1))
+    ) -> T
+  )(x);
+  assert(full(forall(i32), i32(9)) == i32(9), "canonical order passes");
+});
+
+test("nested old(old(...)) in ensures resolves to the entry value", {
+  bump :: (fn(ref(n) : i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
+    n = (n + i32(1));
+  });
+  x := i32(7);
+  bump(x);
+  assert(x == i32(8), "nested old(old(n)) captured entry value");
+});
+
+test("runtime requires(...) is lowered to a runtime assert and PASSES on valid input", {
+  divide :: (fn(x : i32, y : i32, requires(y != i32(0))) -> i32)(x / y);
+  // 10 / 2 = 5; assertion (y != 0) holds.
+  assert(divide(i32(10), i32(2)) == i32(5), "valid args bypass the assert");
+});
+
+test("comptime requires(...) PASSES at compile time for valid input", {
+  abs :: (fn(comptime(x) : i32, requires(x >= i32(-(100)))) -> comptime(i32))(
+    cond((x >= i32(0)) => x, true => -(x))
+  );
+  GOOD :: abs(i32(-(50)));
+  assert(GOOD == i32(50), "abs(-50) == 50");
+});
+
+// The comptime-VIOLATING case (where the predicate fails) is verified
+// by src/tests/contracts-comptime-violation.test.ts, a shell-out gate
+// test. It can't be a comptime_expect_error test here: a comptime
+// failure escapes the test body to module-load level (it crosses the
+// test-runner's batched compile), so comptime_expect_error never sees
+// it.
+test("ensures(...) is lowered and PASSES on a valid runtime postcondition", {
+  abs :: (fn(x : i32, ensures(result >= i32(0))) -> i32)(
+    cond((x >= i32(0)) => x, true => -(x))
+  );
+  assert(abs(i32(-(5))) == i32(5), "abs(-5) == 5");
+  assert(abs(i32(7)) == i32(7), "abs(7) == 7");
+});
+
+test("ensures(...) with multiple postconditions in a single call", {
+  abs :: (fn(x : i32, ensures(result >= i32(0), (result == x) || (result == -(x)))) -> i32)(
+    cond((x >= i32(0)) => x, true => -(x))
+  );
+  assert(abs(i32(-(3))) == i32(3), "abs(-3) == 3");
+});
+
+test("ensures(...) with old(...) captures the entry value of a ref param", {
+  increment :: (fn(ref(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
+    n = (n + i32(1));
+  });
+  x := i32(5);
+  increment(x);
+  assert(x == i32(6), "x incremented to 6 (old(n) captured entry value)");
+});
+
+test("comptime ensures(...) PASSES at compile time for valid input", {
+  sq :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> comptime(i32))(x * x);
+  R :: sq(i32(4));
+  assert(R == i32(16), "4^2 == 16");
+});
+
+test("invariant(...) inside a comptime-unrolled while loop in a comptime function", {
+  // invariant is a no-op marker in Phase 0 (no comptime_assert
+  // dispatch — only requires/ensures lower); this confirms it parses
+  // and the comptime loop still computes correctly with the invariant
+  // as its first statement.
+  count_down :: (fn(comptime(n) : i32) -> comptime(i32))({
+    acc :: i32(0);
+    i :: n;
+    while(comptime(i > i32(0)), {
+      invariant(i >= i32(0), acc >= i32(0));
+      i = (i - i32(1));
+      acc = (acc + i32(1));
+    });
+    acc
+  });
+  R :: count_down(i32(4));
+  assert(R == i32(4), "4 comptime iterations");
+});
+
+test("invariant placement rule is enforced in a comptime while loop too", {
+  comptime_expect_error({
+    bad :: (fn(comptime(n) : i32) -> comptime(i32))({
+      i :: n;
+      while(comptime(i > i32(0)), {
+        i = (i - i32(1));
+        invariant(i >= i32(0));
+      });
+      i32(0)
+    });
+    bad(i32(2))
+  }, "invariant");
+});
+
+test("ensures(...) on a unit-returning function with a side effect", {
+  // No meaningful return value; the postcondition is about the
+  // mutated ref param. Exercises the unit-return lowering path
+  // (no `result` binding — would otherwise emit invalid `void result`).
+  set :: (fn(ref(n) : i32, x : i32, ensures(n == x)) -> unit)({
+    n = x;
+  });
+  n := i32(0);
+  set(n, i32(42));
+  assert(n == i32(42), "n set to 42 (unit-return ensures path)");
+});
+
+test("requires + ensures + old() together on a non-unit return", {
+  // Exercises the full wrapped-body shape:
+  //   { <old snapshot>; <requires>; result := (body); <ensures>; result }
+  // `result` references the return value AND old(n) references the
+  // entry value of the mutated ref param, in the same ensures clause.
+  bump_and_report :: (
+    fn(
+      ref(n) : i32,
+      requires(n >= i32(0)),
+      ensures(n == (old(n) + i32(1)), result == old(n))
+    ) -> i32
+  )({
+    prev := n;
+    n = (n + i32(1));
+    prev
+  });
+  x := i32(10);
+  r := bump_and_report(x);
+  assert(x == i32(11), "n bumped to 11");
+  assert(r == i32(10), "returns the previous value (old n)");
+});
+
+test("ensures(...) with multiple old(...) snapshots", {
+  // Two distinct old() expressions in one ensures clause — both must
+  // be hoisted to separate entry snapshots.
+  swap_check :: (fn(ref(a) : i32, ref(b) : i32, ensures(a == old(b), b == old(a))) -> unit)({
+    tmp := a;
+    a = b;
+    b = tmp;
+  });
+  p := i32(1);
+  q := i32(2);
+  swap_check(p, q);
+  assert(p == i32(2), "a got b's old value");
+  assert(q == i32(1), "b got a's old value");
+});

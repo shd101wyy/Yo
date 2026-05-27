@@ -1,9 +1,12 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinFunctions,
+  BuiltinKeywords,
   cloneExpr,
   type Expr,
   exprIsAtomOf,
+  exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   type FnCallExpr,
@@ -86,6 +89,84 @@ function throwMaxIterationsError(
 }
 
 /**
+ * Phase 0 of plans/FORMAL_VERIFICATION.md §A2: loop invariants must
+ * appear as the first non-comment statement of the loop body. Any
+ * other placement is a syntax error.
+ *
+ * Walks the loop body recursively; reports a `invariant(...)` call
+ * anywhere except as the first statement of the begin block that is
+ * the loop's body. Cond/match arms, nested blocks, and trailing
+ * statements all reject.
+ *
+ * If the body is a single non-begin expression, no invariant placement
+ * is valid except as that single expression — but that loop has no
+ * effect so the invariant would be useless. We still allow it for
+ * consistency.
+ */
+function enforceLoopInvariantPlacement(bodyExpr: Expr): void {
+  // Identify the body's statements.
+  const bodyStatements: Expr[] =
+    exprIsFunctionCall(bodyExpr) &&
+    exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
+      ? bodyExpr.args
+      : [bodyExpr];
+
+  // The first statement of the body is the only legal invariant slot.
+  const firstStmt = bodyStatements[0];
+  for (let i = 0; i < bodyStatements.length; i++) {
+    const stmt = bodyStatements[i]!;
+    if (i === 0) {
+      // First statement may be `invariant(...)`. Anything else is fine.
+      // Recurse into it ONLY to check for nested misplaced invariants.
+      if (
+        exprIsFunctionCall(stmt) &&
+        exprIsFunctionCallOf(stmt, BuiltinFunctions.invariant)
+      ) {
+        continue; // legal placement
+      }
+      walkForMisplacedInvariant(stmt);
+    } else {
+      // Subsequent statements may NOT be `invariant(...)`.
+      if (
+        exprIsFunctionCall(stmt) &&
+        exprIsFunctionCallOf(stmt, BuiltinFunctions.invariant)
+      ) {
+        throw formatErrorMessage({
+          token: stmt.token,
+          errorMessage: `'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements.`,
+        });
+      }
+      walkForMisplacedInvariant(stmt);
+    }
+  }
+  void firstStmt; // suppress unused-var lint when no statements present
+}
+
+/**
+ * Recursively reject any `invariant(...)` call inside an expression.
+ * Used to scan inside cond/match branches, nested begin blocks, and
+ * non-first body statements.
+ */
+function walkForMisplacedInvariant(expr: Expr): void {
+  if (!exprIsFunctionCall(expr)) return;
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.invariant)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement.`,
+    });
+  }
+  // Do not descend into nested `while(...)` bodies — those are
+  // checked by their own `enforceLoopInvariantPlacement` call when
+  // the inner while is evaluated.
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
+    return;
+  }
+  for (const sub of expr.args) {
+    walkForMisplacedInvariant(sub);
+  }
+}
+
+/**
  * While loop
  *
  * while condition, body
@@ -121,6 +202,13 @@ export function evaluateWhile({
     // 2-argument form: while condition, body
     bodyExpr = expr.args[1]!;
   }
+
+  // Phase 0 invariant-placement rule: inside a `while(...)` body,
+  // `invariant(...)` may only appear as the first statement of the
+  // loop body. Any other placement (later statement, inside a cond
+  // branch, deeper in the body) is a syntax error.
+  // See plans/FORMAL_VERIFICATION.md §A2.
+  enforceLoopInvariantPlacement(bodyExpr);
 
   // Detect comptime() modifier on the condition. Do NOT mutate expr.args[0].
   // Re-detected on each recursive call so the AST stays clean across evaluations.

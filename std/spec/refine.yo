@@ -1,0 +1,43 @@
+// Phase 0 of plans/FORMAL_VERIFICATION.md task #7.
+//
+// `Refine`, `NonZero`, `Bounded` are comptime type constructors.
+// In Phase 0 they all return their underlying type unchanged —
+// effectively `Refine(T) = T`. The refinement predicate is
+// documented as a future parameter; the verifier (Phase 2) will
+// extend the surface to `Refine(T, predicate)` and enforce the
+// predicate at construction sites.
+//
+// Even without enforcement, these aliases serve as
+// human-and-LLM-readable signatures that signal intent. A function
+// taking `denom : NonZero(i32)` documents the precondition; callers
+// that want runtime enforcement can pair the alias with a
+// `requires(denom != i32(0))` clause until the verifier lands.
+/// A value of type `T` paired with a (compile-time) refinement
+/// predicate. Phase 0 ignores the predicate; later phases will
+/// require it as a second parameter and enforce it via
+/// the SMT backend.
+Refine :: (fn(comptime(T) : Type) -> comptime(Type))(T);
+export(Refine);
+
+/// `NonZero(T)` — values of `T` that are not zero. Phase 0 is a
+/// type alias for `T`; future phases will enforce via verification.
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+export(NonZero);
+
+/// `Bounded(T, lo, hi)` — values of `T` in the closed range
+/// `[lo, hi]`. Phase 0 is a type alias for `T`. T must be `Comptime`
+/// so the bounds can be compile-time-known.
+Bounded :: (
+  fn(
+    comptime(T) : Type,
+    comptime(_lo) : T,
+    comptime(_hi) : T,
+    where(T <: Comptime)
+  ) -> comptime(Type)
+)(Refine(T));
+export(Bounded);
+
+/// `NonEmpty(T)` — collection types with at least one element.
+/// Phase 0 is a type alias for `T`.
+NonEmpty :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+export(NonEmpty);

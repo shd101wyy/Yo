@@ -1614,6 +1614,8 @@ export function evaluateFunctionParameters({
   forallParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
   whereClauseExprs?: Expr[];
+  requiresExprs?: Expr[];
+  ensuresExprs?: Expr[];
   env: Environment;
 } {
   env = pushEnvFrame(env);
@@ -1668,6 +1670,93 @@ export function evaluateFunctionParameters({
     }
   }
 
+  // Phase 0 of plans/FORMAL_VERIFICATION.md: enforce the canonical
+  // signature clause order. Each parameter belongs to an ordered
+  // "zone"; zones must appear non-decreasing left-to-right:
+  //   forall(0) → regular params (1) → where(2) → requires(3) → ensures(4)
+  // A clause appearing before an earlier-zone clause is a syntax
+  // error (e.g. `ensures(...)` before `requires(...)`, or `where(...)`
+  // after `requires(...)`). This gives one canonical signature shape.
+  {
+    const zoneOf = (e: Expr): { zone: number; name: string } => {
+      if (exprIsFunctionCall(e)) {
+        if (exprIsFunctionCallOf(e, BuiltinKeywords.forall))
+          return { zone: 0, name: "forall(...)" };
+        if (exprIsFunctionCallOf(e, BuiltinKeywords.where))
+          return { zone: 2, name: "where(...)" };
+        if (exprIsFunctionCallOf(e, "requires"))
+          return { zone: 3, name: "requires(...)" };
+        if (exprIsFunctionCallOf(e, "ensures"))
+          return { zone: 4, name: "ensures(...)" };
+      }
+      return { zone: 1, name: "parameter" };
+    };
+    const zoneLabels = [
+      "forall(...)",
+      "regular parameters",
+      "where(...)",
+      "requires(...)",
+      "ensures(...)",
+    ];
+    let maxZone = 0;
+    let maxName = "forall(...)";
+    for (const paramExpr of parameterExprs) {
+      const { zone, name } = zoneOf(paramExpr);
+      if (zone < maxZone) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `${name} appears after ${maxName} in the function signature. The canonical clause order is: forall(...), parameters, where(...), requires(...), ensures(...). Move ${name} before ${zoneLabels[maxZone]!}.`,
+        });
+      }
+      if (zone > maxZone) {
+        maxZone = zone;
+        maxName = name;
+      }
+    }
+  }
+
+  // Phase 0 of plans/FORMAL_VERIFICATION.md: extract `requires(...)`
+  // and `ensures(...)` contract clauses from the parameter list. Each
+  // builtin may appear at most once in a signature (single-call rule:
+  // `requires(P1, P2, ...)` and `ensures(Q1, Q2, ...)`). Zero-argument
+  // forms are rejected. The extracted predicates are stored on the
+  // FunctionType and later (in Phase 0 task #6) lowered to runtime
+  // `assert(...)` calls in default mode.
+  let requiresExprs: Expr[] | undefined = undefined;
+  let ensuresExprs: Expr[] | undefined = undefined;
+  for (const paramExpr of parameterExprs) {
+    if (!exprIsFunctionCall(paramExpr)) continue;
+    if (exprIsFunctionCallOf(paramExpr, "requires")) {
+      if (paramExpr.args.length === 0) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition.`,
+        });
+      }
+      if (requiresExprs !== undefined) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'.`,
+        });
+      }
+      requiresExprs = paramExpr.args;
+    } else if (exprIsFunctionCallOf(paramExpr, "ensures")) {
+      if (paramExpr.args.length === 0) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition.`,
+        });
+      }
+      if (ensuresExprs !== undefined) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'.`,
+        });
+      }
+      ensuresExprs = paramExpr.args;
+    }
+  }
+
   // Second pass: pre-add all comptime parameters to the environment
   // This is necessary because where clauses may reference comptime parameters that appear
   // later in the parameter list. For example:
@@ -1677,12 +1766,17 @@ export function evaluateFunctionParameters({
   const preAddedComptimeParams = new Set<number>();
   for (let i = 0; i < parameterExprs.length; i++) {
     const paramExpr = parameterExprs[i]!;
-    // Skip forall and where
+    // Skip forall, where, ..., and Phase-0 contract clauses
+    // (requires/ensures). The contract clauses are recognized here so
+    // they don't get treated as runtime parameters. Their bodies are
+    // evaluated later — see plans/FORMAL_VERIFICATION.md task #4.
     if (
       exprIsFunctionCall(paramExpr) &&
       (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall) ||
         exprIsFunctionCallOf(paramExpr, BuiltinKeywords.where) ||
-        exprIsFunctionCallOf(paramExpr, "..."))
+        exprIsFunctionCallOf(paramExpr, "...") ||
+        exprIsFunctionCallOf(paramExpr, "requires") ||
+        exprIsFunctionCallOf(paramExpr, "ensures"))
     ) {
       continue;
     }
@@ -1738,11 +1832,27 @@ export function evaluateFunctionParameters({
   }
 
   // Third pass: scan where clause, create SomeTypes for LHS vars, and try to evaluate constraints
-  // where must be the last parameter if present
+  // where must come at the end of the signature, but Phase-0 contract
+  // clauses (requires/ensures) may follow it. Scan from the end past
+  // any trailing contract clauses to find the where clause.
   let pendingConstraints: PendingTraitConstraint[] = [];
   if (parameterExprs.length > 0) {
-    const lastParam = parameterExprs[parameterExprs.length - 1]!;
+    let whereIdx = parameterExprs.length - 1;
+    while (whereIdx >= 0) {
+      const candidate = parameterExprs[whereIdx]!;
+      if (
+        exprIsFunctionCall(candidate) &&
+        (exprIsFunctionCallOf(candidate, "requires") ||
+          exprIsFunctionCallOf(candidate, "ensures"))
+      ) {
+        whereIdx--;
+        continue;
+      }
+      break;
+    }
+    const lastParam = whereIdx >= 0 ? parameterExprs[whereIdx]! : undefined;
     if (
+      lastParam &&
       exprIsFunctionCall(lastParam) &&
       exprIsFunctionCallOf(lastParam, BuiltinKeywords.where)
     ) {
@@ -1785,18 +1895,24 @@ export function evaluateFunctionParameters({
       }
       continue;
     }
-    // Skip where clause (already processed)
+    // Skip where clause (already processed). Clause ordering —
+    // including "where may only be followed by requires/ensures" — is
+    // validated up front by the zone check at the top of this
+    // function, so no positional check is needed here.
     else if (
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
     ) {
-      // where clause must be the last parameter
-      if (i !== parameterExprs.length - 1) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `The where clause must be the last parameter in the function signature.`,
-        });
-      }
+      continue;
+    }
+    // Skip Phase-0 contract clauses (requires/ensures). They were
+    // recognized in the second pass; their bodies are not yet
+    // extracted — see plans/FORMAL_VERIFICATION.md task #4.
+    else if (
+      exprIsFunctionCall(parameterExpr) &&
+      (exprIsFunctionCallOf(parameterExpr, "requires") ||
+        exprIsFunctionCallOf(parameterExpr, "ensures"))
+    ) {
       continue;
     }
     // Check if it's the variadic parameter
@@ -2128,6 +2244,8 @@ export function evaluateFunctionParameters({
     forallParameters,
     variadicParameter,
     whereClauseExprs,
+    requiresExprs,
+    ensuresExprs,
     env,
   };
 }
@@ -2186,6 +2304,8 @@ export function evaluateFunctionType({
     forallParameters,
     variadicParameter,
     whereClauseExprs,
+    requiresExprs,
+    ensuresExprs,
     env: nextEnv,
   } = evaluateFunctionParameters({
     parameterExprs: argList,
@@ -2516,6 +2636,8 @@ ${typeToString(returnType)}`,
     forallParameters: forallParameters as FunctionForallParameter[],
     variadicParameter,
     whereClauseExprs,
+    requiresExprs,
+    ensuresExprs,
     return_: {
       type: returnType,
       typeExpr: returnTypeExpr,
