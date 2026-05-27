@@ -1,0 +1,16 @@
+// Phase 0 of plans/FORMAL_VERIFICATION.md
+//
+// `pragma(Pragma.Verify);` parses cleanly and contract-bearing code
+// still compiles. Phase 0 does NOT implement the SMT verifier — the
+// pragma emits a one-time "verify mode not implemented" warning (to
+// stderr) and otherwise behaves like the default (contracts lower to
+// runtime/comptime asserts). This test confirms the pragma is accepted
+// and the file type-checks.
+pragma(Pragma.Verify);
+
+test("contracts compile under Pragma.Verify (warns, does not error)", {
+  divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+    x / y
+  );
+  assert(divide(i32(10), i32(2)) == i32(5), "divide(10,2) == 5 under Verify");
+});

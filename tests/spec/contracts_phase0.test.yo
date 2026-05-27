@@ -122,6 +122,28 @@ test("requires() with zero arguments in a signature is rejected", {
   }, "zero arguments");
 });
 
+test("ensures() with zero arguments in a signature is rejected", {
+  comptime_expect_error({
+    f :: (fn(x : i32, ensures()) -> i32)(x);
+    f(i32(0));
+  }, "zero arguments");
+});
+
+test("invariant() with zero arguments is rejected", {
+  comptime_expect_error({
+    while(runtime(true), {
+      invariant();
+    });
+  }, "zero arguments");
+});
+
+test("ghost_fn(...) with the wrong arity is rejected", {
+  comptime_expect_error({
+    g :: ghost_fn();
+    g;
+  }, "ghost_fn");
+});
+
 test("runtime requires(...) is lowered to a runtime assert and PASSES on valid input", {
   divide :: (fn(x : i32, y : i32, requires(y != i32(0))) -> i32)(x / y);
   // 10 / 2 = 5; assertion (y != 0) holds.
@@ -172,6 +194,39 @@ test("comptime ensures(...) PASSES at compile time for valid input", {
   assert(R == i32(16), "4^2 == 16");
 });
 
+test("invariant(...) inside a comptime-unrolled while loop in a comptime function", {
+  // invariant is a no-op marker in Phase 0 (no comptime_assert
+  // dispatch — only requires/ensures lower); this confirms it parses
+  // and the comptime loop still computes correctly with the invariant
+  // as its first statement.
+  count_down :: (fn(comptime(n) : i32) -> comptime(i32))({
+    acc :: i32(0);
+    i :: n;
+    while(comptime(i > i32(0)), {
+      invariant(i >= i32(0), acc >= i32(0));
+      i = (i - i32(1));
+      acc = (acc + i32(1));
+    });
+    acc
+  });
+  R :: count_down(i32(4));
+  assert(R == i32(4), "4 comptime iterations");
+});
+
+test("invariant placement rule is enforced in a comptime while loop too", {
+  comptime_expect_error({
+    bad :: (fn(comptime(n) : i32) -> comptime(i32))({
+      i :: n;
+      while(comptime(i > i32(0)), {
+        i = (i - i32(1));
+        invariant(i >= i32(0));
+      });
+      i32(0)
+    });
+    bad(i32(2))
+  }, "invariant");
+});
+
 test("ensures(...) on a unit-returning function with a side effect", {
   // No meaningful return value; the postcondition is about the
   // mutated ref param. Exercises the unit-return lowering path
@@ -182,4 +237,41 @@ test("ensures(...) on a unit-returning function with a side effect", {
   n := i32(0);
   set(n, i32(42));
   assert(n == i32(42), "n set to 42 (unit-return ensures path)");
+});
+
+test("requires + ensures + old() together on a non-unit return", {
+  // Exercises the full wrapped-body shape:
+  //   { <old snapshot>; <requires>; result := (body); <ensures>; result }
+  // `result` references the return value AND old(n) references the
+  // entry value of the mutated ref param, in the same ensures clause.
+  bump_and_report :: (
+    fn(
+      ref(n) : i32,
+      requires(n >= i32(0)),
+      ensures(n == (old(n) + i32(1)), result == old(n))
+    ) -> i32
+  )({
+    prev := n;
+    n = (n + i32(1));
+    prev
+  });
+  x := i32(10);
+  r := bump_and_report(x);
+  assert(x == i32(11), "n bumped to 11");
+  assert(r == i32(10), "returns the previous value (old n)");
+});
+
+test("ensures(...) with multiple old(...) snapshots", {
+  // Two distinct old() expressions in one ensures clause — both must
+  // be hoisted to separate entry snapshots.
+  swap_check :: (fn(ref(a) : i32, ref(b) : i32, ensures(a == old(b), b == old(a))) -> unit)({
+    tmp := a;
+    a = b;
+    b = tmp;
+  });
+  p := i32(1);
+  q := i32(2);
+  swap_check(p, q);
+  assert(p == i32(2), "a got b's old value");
+  assert(q == i32(1), "b got a's old value");
 });
