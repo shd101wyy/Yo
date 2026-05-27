@@ -205,9 +205,9 @@ typedef struct __yo_worker_thread_t {
   __YO_COND_TYPE cond;                    // Condition variable for task availability
   __yo_worker_task_t* queue_head;       // Head of task queue
   __yo_worker_task_t* queue_tail;       // Tail of task queue
-  volatile int shutdown;                // Shutdown flag
-  volatile int running;                 // Thread running flag
-  volatile int started;                 // Thread has started executing
+  volatile int shutdown;                // Shutdown flag (guarded by worker->mutex)
+  volatile int running;                 // Thread running flag (main-thread only)
+  atomic_int started;                   // Thread has started — cross-thread, C11 atomic (release/acquire)
 } __yo_worker_thread_t;
 
 // Global worker pool state
@@ -233,8 +233,10 @@ ${workerEntrySignature}
       : ""
   }
   
-  // Signal that this thread has started
-  worker->started = 1;
+  // Signal that this thread has started. Release so the main thread's
+  // acquire-load in __yo_worker_pool_init sees this thread's prior
+  // writes (GC/scheduler init) happen-before it proceeds.
+  atomic_store_explicit(&worker->started, 1, memory_order_release);
   
   while (1) {
     __yo_worker_task_t* task = NULL;
@@ -310,20 +312,26 @@ static void __yo_worker_pool_init(size_t num_threads) {
     worker->queue_tail = NULL;
     worker->shutdown = 0;
     worker->running = 1;
-    worker->started = 0;
-    
+    // Relaxed: set before the thread is created, so there is no
+    // concurrent access to order against yet.
+    atomic_store_explicit(&worker->started, 0, memory_order_relaxed);
+
     int ret = __yo_raw_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
     if (ret != 0) {
       PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
       worker->running = 0;
-      worker->started = 1;  // Mark as "started" to avoid waiting forever
+      // Relaxed: thread creation failed, so no worker thread exists to
+      // race with this store. Mark "started" to avoid waiting forever.
+      atomic_store_explicit(&worker->started, 1, memory_order_relaxed);
     }
   }
   
   // Wait for all worker threads to start
   for (size_t i = 0; i < num_threads; i++) {
     __yo_worker_thread_t* worker = &__yo_worker_threads[i];
-    while (!worker->started) {
+    // Acquire: pairs with the worker's release store of 'started' so
+    // the worker's initialization is visible once we observe it.
+    while (!atomic_load_explicit(&worker->started, memory_order_acquire)) {
       // Busy wait with yield to let threads start
       ${yieldCall}
     }
