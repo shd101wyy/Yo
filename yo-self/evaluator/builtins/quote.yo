@@ -160,7 +160,7 @@ process_unquotes_in_expr :: (
         return(inner_expr);
       });
       // Case 2: Process func and each arg, expanding unquote_splicing.
-      new_func := recur(func_box.*, env, ctx);
+      new_func := recur(func_box.*, env, ctx, exn);
       new_args := ArrayList(AstExpr).new();
       i := usize(0);
       n := args.len();
@@ -251,7 +251,7 @@ process_unquotes_in_expr :: (
                 }
               );
             }, {
-              new_args.push(recur(arg, env, ctx));
+              new_args.push(recur(arg, env, ctx, exn));
             });
           }
         );
@@ -284,7 +284,7 @@ evaluate_quote :: (
     }
   );
   // Process unquotes inside the quoted expression.
-  quoted := process_unquotes_in_expr(arg, env, ctx);
+  quoted := process_unquotes_in_expr(arg, env, ctx, exn);
   // Wrap result in ExprVal and register ExprInfo.
   val := EvalValue.ExprVal(box(quoted));
   out_info := new_expr_info(env, t_expr_t());
