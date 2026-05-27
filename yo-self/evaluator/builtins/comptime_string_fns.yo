@@ -177,7 +177,7 @@ evaluate_yo_comptime_string_functions :: (
         return(expr);
       }
     );
-    ai := eval_comptime_str_arg(arg0, env, ctx);
+    ai := eval_comptime_str_arg(arg0, env, ctx, exn);
     (cur_env : Environment) = ai.env;
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
@@ -261,8 +261,8 @@ evaluate_yo_comptime_string_functions :: (
         return(expr);
       }
     );
-    str_info := eval_comptime_str_arg(str_arg, env, ctx);
-    start_info := eval_comptime_int_arg(start_arg, str_info.env, ctx);
+    str_info := eval_comptime_str_arg(str_arg, env, ctx, exn);
+    start_info := eval_comptime_int_arg(start_arg, str_info.env, ctx, exn);
     (cur_env : Environment) = start_info.env;
     // Optional end argument.
     (end_info_opt : Option(ExprInfo)) = if(
@@ -270,7 +270,7 @@ evaluate_yo_comptime_string_functions :: (
       match(
         args.get(usize(2)),
         .Some(end_arg) => {
-          ei := eval_comptime_int_arg(end_arg, cur_env, ctx);
+          ei := eval_comptime_int_arg(end_arg, cur_env, ctx, exn);
           cur_env = ei.env;
           .Some(ei)
         },
@@ -342,8 +342,8 @@ evaluate_yo_comptime_string_functions :: (
         return(expr);
       }
     );
-    lhs_info := eval_comptime_str_arg(arg0, env, ctx);
-    rhs_info := eval_comptime_str_arg(arg1, lhs_info.env, ctx);
+    lhs_info := eval_comptime_str_arg(arg0, env, ctx, exn);
+    rhs_info := eval_comptime_str_arg(arg1, lhs_info.env, ctx, exn);
     (cur_env : Environment) = rhs_info.env;
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
