@@ -1036,14 +1036,19 @@ the verifier, this is how" rather than "we are building the verifier."
 
 - [x] Register contract builtins (`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`, `old`) as no-op markers; signature-level `requires`/`ensures` are skipped during function-type parameter processing; codegen lowers them to empty C output.
 - [x] Add `Pragma.Verify` / `Pragma.NoContracts` / `Pragma.VerifyOrAssert` (Verify and VerifyOrAssert emit a one-time per-file "verify mode not implemented" warning; NoContracts is silent and codegen-erase is a later sub-task).
-- [ ] Reserve `result` keyword; restrict scope to `ensures(...)` bodies. Blocked on codegen lowering (#6) — the magic identifier only needs to exist when contracts are actually evaluated at function entry/return.
+- [x] `result` magic identifier + `old(...)`: `result` resolves to the function's return value inside `ensures(...)` (bound by the ensures wrapper — no global keyword reservation needed, so `std/imm`'s local `result` bindings keep working). `old(expr)` snapshots the entry-time value of `expr` (hoisted into a binding before the body runs), giving correct semantics for mutated `ref(name) : T` parameters.
 - [x] Extract `requires` / `ensures` from function-type signatures into `FunctionType.requiresExprs` and `FunctionType.ensuresExprs`. Single-call rule enforced (duplicate `requires(...)` / `ensures(...)` clauses are a syntax error). Zero-argument forms rejected.
 - [x] Enforce loop `invariant(...)` first-statement rule (rejection works across nested cond/match branches; nested while loops are checked separately when their own evaluator fires).
 - [x] Lower `requires(...)` to `assert(P, "requires failed: ...")` (runtime functions) or `comptime_assert(P, "requires failed: ...")` (comptime functions). Dispatch via `functionType.return.isCompileTimeOnly`. Splices synthetic FnCallExpr nodes into the body before evaluation in both function paths (`evaluateAnonymousFunctionImplementation` and `function-type.ts`). Honors `pragma(Pragma.NoContracts);` — contracts erased entirely.
-- [ ] Lower `ensures(...)` to assert at function return. Blocked on adding the `result` magic-identifier scope (sub-task #3); follow-up PR.
+- [x] Lower `ensures(...)` to assert at function return. Wraps the body as `{ <old snapshots>; <requires>; result := (<body>); <ensures>; result }` (non-unit return) or `{ <old snapshots>; <requires>; <body>; <ensures> }` (unit return — avoids `void result`). Comptime functions use `::` bindings and `comptime_assert`.
 - [x] Add `Refine` / `NonZero` / `Bounded` / `NonEmpty` as comptime type constructors. Phase 0 implementations are type aliases (predicate parameter not yet wired up — added when verifier lands in Phase 2).
 - [x] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons. Numeric module also has `Positive`, `Negative`, `NonNegative`, `NonPositive`, `Even`, `Odd` aliases.
-- [x] Tests under `tests/spec/` (parse / runtime / reject) — 22 tests across `contracts_phase0.test.yo`, `pragma_no_contracts.test.yo`, `refine_types.test.yo`.
+- [x] Tests under `tests/spec/` (parse / runtime / reject) — 26 tests across `contracts_phase0.test.yo`, `pragma_no_contracts.test.yo`, `refine_types.test.yo`.
+
+**Phase 0 is complete.** All contract surface parses; `requires`/`ensures`
+enforce at runtime (or compile time for comptime functions); `old(...)`
+captures entry values; refinement-type aliases are available. The SMT
+verifier remains a separate, larger effort (Phase 1+).
 
 **Implementation plan:**
 

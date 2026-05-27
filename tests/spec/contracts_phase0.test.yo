@@ -1,14 +1,13 @@
 // Phase 0 of plans/FORMAL_VERIFICATION.md
 //
-// Verifies that contract builtins parse and behave as no-ops:
-//   requires(...), ensures(...), invariant(...), ghost(...),
-//   ghost_fn(...), old(...).
+// Covers the contract surface: requires(...), ensures(...),
+// invariant(...), ghost(...), ghost_fn(...), old(...).
 //
-// Phase 0 does NOT verify or lower these to runtime asserts yet. The
-// test only checks that contract syntax is accepted and that
-// contract-bearing code produces the same runtime behavior as
-// contract-free code.
-test("requires/ensures in function-type signature are no-ops", {
+// In Phase 0, requires/ensures lower to runtime assert(...) (runtime
+// functions) or comptime_assert(...) (comptime functions). invariant,
+// ghost, ghost_fn, and old are markers/transparent in Phase 0. The
+// SMT verifier (Phase 1+) is not part of this surface.
+test("requires/ensures on a satisfying call run without panicking", {
   divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
     x / y
   );
@@ -135,3 +134,32 @@ test("comptime requires(...) PASSES at compile time for valid input", {
 // because compile errors that happen during the test body's CTFE
 // don't propagate through comptime_expect_error cleanly when the
 // failure path crosses the test-runner's batched compile).
+test("ensures(...) is lowered and PASSES on a valid runtime postcondition", {
+  abs :: (fn(x : i32, ensures(result >= i32(0))) -> i32)(
+    cond((x >= i32(0)) => x, true => -(x))
+  );
+  assert(abs(i32(-(5))) == i32(5), "abs(-5) == 5");
+  assert(abs(i32(7)) == i32(7), "abs(7) == 7");
+});
+
+test("ensures(...) with multiple postconditions in a single call", {
+  abs :: (fn(x : i32, ensures(result >= i32(0), (result == x) || (result == -(x)))) -> i32)(
+    cond((x >= i32(0)) => x, true => -(x))
+  );
+  assert(abs(i32(-(3))) == i32(3), "abs(-3) == 3");
+});
+
+test("ensures(...) with old(...) captures the entry value of a ref param", {
+  increment :: (fn(ref(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
+    n = (n + i32(1));
+  });
+  x := i32(5);
+  increment(x);
+  assert(x == i32(6), "x incremented to 6 (old(n) captured entry value)");
+});
+
+test("comptime ensures(...) PASSES at compile time for valid input", {
+  sq :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> comptime(i32))(x * x);
+  R :: sq(i32(4));
+  assert(R == i32(16), "4^2 == 16");
+});

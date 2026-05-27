@@ -11,8 +11,9 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import { TokenType } from "../../token";
+import { type Token, TokenType } from "../../token";
 import type { FunctionType } from "../../types/definitions";
+import { isUnitType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -207,114 +208,268 @@ export function evaluateOld({
 }
 
 /**
+ * The identifier bound to a function's return value inside
+ * `ensures(...)` predicates. The user writes `ensures(result > 0)` and
+ * the lowering binds a local `result := <body>` so the predicate
+ * resolves it naturally. Documented as a magic identifier in
+ * plans/FORMAL_VERIFICATION.md; in Phase 0 it is just a conventional
+ * local name introduced by the ensures wrapper.
+ */
+const RESULT_IDENTIFIER = "result";
+
+/**
+ * Build a synthetic atom token (identifier or string) borrowing the
+ * source position of `srcToken` so diagnostics point at the user's
+ * contract clause rather than a synthetic site.
+ */
+function synthAtom(value: string, type: TokenType, srcToken: Token): Expr {
+  return {
+    tag: ExprTag.Atom,
+    token: {
+      type,
+      value,
+      position: srcToken.position,
+      modulePath: srcToken.modulePath,
+      inputString: srcToken.inputString,
+    },
+  };
+}
+
+/**
+ * Build a synthetic `assert(predicate, "<label>: <pred-src>")` (or
+ * `comptime_assert(...)`) call from a contract predicate expression.
+ * `labelPred` is used only for the human-readable message; the actual
+ * checked predicate is `pred` (which may have had `old(...)` rewritten
+ * to snapshot references).
+ */
+function buildAssertCall(
+  pred: Expr,
+  labelPred: Expr,
+  label: string,
+  assertFnName: string
+): FnCallExpr {
+  const predToken = pred.token;
+  const msg = `${label}: ${exprToString(labelPred)}`;
+
+  // String-literal tokens store the JSON-encoded form of their value
+  // (`evaluateStringLiteral` runs `JSON.parse(token.value)`), so the
+  // synthetic message must round-trip through JSON.stringify.
+  const msgExpr = synthAtom(JSON.stringify(msg), TokenType.String, predToken);
+
+  return {
+    tag: ExprTag.FnCall,
+    func: synthAtom(assertFnName, TokenType.Identifier, predToken),
+    args: [pred, msgExpr],
+    token: predToken,
+  };
+}
+
+/**
+ * Build a synthetic `name := value` (runtime) or `name :: value`
+ * (compile-time) binding. Comptime functions need `::` because a `:=`
+ * runtime binding is rejected inside a compile-time-only function body.
+ */
+function buildBinding(
+  name: string,
+  value: Expr,
+  srcToken: Token,
+  op: ":=" | "::"
+): FnCallExpr {
+  const bindToken: Token = {
+    type: TokenType.Identifier,
+    value: op,
+    position: srcToken.position,
+    modulePath: srcToken.modulePath,
+    inputString: srcToken.inputString,
+  };
+  return {
+    tag: ExprTag.FnCall,
+    isInfix: true,
+    func: { tag: ExprTag.Atom, token: bindToken },
+    args: [synthAtom(name, TokenType.Identifier, srcToken), value],
+    token: bindToken,
+  };
+}
+
+/**
+ * Rewrite `old(expr)` occurrences inside `ensures` predicates.
+ *
+ * `old(expr)` must read the value of `expr` as it was on function
+ * ENTRY, not after the body ran (relevant for mutated `ref(name) : T`
+ * parameters). We hoist each `old(expr)` into an entry-time snapshot
+ * binding `__yo_contract_old_K := expr` and replace the `old(expr)`
+ * node with a reference to that snapshot.
+ *
+ * Returns the snapshot bindings (to emit at the top of the wrapped
+ * body) and the rewritten predicates (with `old(...)` replaced).
+ */
+function hoistOldExpressions(
+  preds: Expr[],
+  bindOp: ":=" | "::"
+): {
+  snapshots: FnCallExpr[];
+  rewritten: Expr[];
+} {
+  const snapshots: FnCallExpr[] = [];
+  let counter = 0;
+
+  const rewrite = (e: Expr): Expr => {
+    if (!exprIsFunctionCall(e)) return e;
+    if (exprIsFunctionCallOf(e, BuiltinFunctions.old, 1)) {
+      // Rewrite nested old() inside the inner expression first.
+      const inner = rewrite(e.args[0]!);
+      const snapName = `__yo_contract_old_${counter}`;
+      counter += 1;
+      snapshots.push(buildBinding(snapName, inner, e.token, bindOp));
+      return synthAtom(snapName, TokenType.Identifier, e.token);
+    }
+    return {
+      ...e,
+      func: rewrite(e.func),
+      args: e.args.map(rewrite),
+      $: undefined,
+    };
+  };
+
+  const rewritten = preds.map(rewrite);
+  return { snapshots, rewritten };
+}
+
+/**
  * Phase 0 of plans/FORMAL_VERIFICATION.md task #6: lower the
- * `requires(...)` clauses extracted from a function signature into
- * runtime `assert(P, msg)` / `comptime_assert(P, msg)` calls prepended
- * to the function body.
+ * `requires(...)` / `ensures(...)` clauses extracted from a function
+ * signature into runtime `assert(P, msg)` / `comptime_assert(P, msg)`
+ * calls woven into the function body.
  *
  * The choice between runtime `assert` and `comptime_assert` is
  * mechanical: comptime functions (return type `comptime(...)`) use
  * `comptime_assert`; runtime functions use `assert`. See the
  * "Runtime vs comptime contracts" section in the plan.
  *
- * `ensures(...)` lowering is deferred until task #6 phase B because
- * it requires binding the `result` magic identifier to the function's
- * return value — separate concern, separate sub-PR.
+ * Lowering shape (all four combinations):
  *
- * Returns the original body unchanged if there are no `requires`
- * clauses. Otherwise returns a synthetic begin-block AST node:
- *   `{ assert(P1, "..."); assert(P2, "..."); ...; <original body> }`
+ *   no contracts     → <body> (unchanged)
+ *   requires only    → { assert(R1); ...; <body> }
+ *   ensures only     → { result := (<body>); assert(E1); ...; result }
+ *   both             → { assert(R1); ...; result := (<body>); assert(E1); ...; result }
  *
- * The synthetic nodes borrow tokens from the predicate exprs so
- * error messages point at the user's `requires(...)` source
- * location, not at a synthetic site.
+ * `requires` runs on entry (before the body); `ensures` runs after the
+ * body computes the return value, which is bound to the local
+ * `result` so postcondition predicates can reference it. `old(...)` is
+ * a transparent pass-through in Phase 0 (it resolves to the parameter
+ * value; entry-snapshot semantics arrive with the verifier).
  *
- * The body is NOT cloned — the original body expression is reused as
- * the last statement of the synthetic begin block. Callers that hold
- * other references to the body should be aware that the returned
- * expression now contains it.
+ * The ensures wrapper only activates for functions that declare
+ * `ensures(...)` clauses, so no existing stdlib code (none of which
+ * uses ensures yet) changes shape.
+ *
+ * The body is NOT cloned — it is reused as the `result :=` initializer
+ * (ensures present) or the trailing statement (requires only).
  */
 export function wrapFunctionBodyWithContracts(
   body: Expr,
   fnType: FunctionType
 ): Expr {
-  const requiresExprs = fnType.requiresExprs;
-  if (!requiresExprs || requiresExprs.length === 0) {
+  const requiresExprs = fnType.requiresExprs ?? [];
+  const ensuresExprs = fnType.ensuresExprs ?? [];
+  if (requiresExprs.length === 0 && ensuresExprs.length === 0) {
     return body;
   }
 
   // Honor `pragma(Pragma.NoContracts);` — erase contract clauses
-  // entirely. The wrap is skipped; the body runs without any
-  // assert(...) call. Use the function body's modulePath since that
-  // is where the function's source lives.
+  // entirely. The body runs without any assert(...) call.
   if (fileHasPragma(body.token.modulePath, "NoContracts")) {
     return body;
   }
 
   const isComptimeFunction = fnType.return.isCompileTimeOnly;
   const assertFnName = isComptimeFunction ? "comptime_assert" : "assert";
+  const bindOp: ":=" | "::" = isComptimeFunction ? "::" : ":=";
 
-  const assertCalls: FnCallExpr[] = requiresExprs.map((pred) => {
-    const predToken = pred.token;
-    const msg = `requires failed: ${exprToString(pred)}`;
+  const requiresAsserts = requiresExprs.map((pred) =>
+    buildAssertCall(pred, pred, "requires failed", assertFnName)
+  );
 
-    // String-literal tokens store the JSON-encoded form of their
-    // value (`evaluateStringLiteral` runs `JSON.parse(token.value)`).
-    // So our synthetic message must round-trip through JSON.stringify.
-    const msgExpr: Expr = {
-      tag: ExprTag.Atom,
-      token: {
-        type: TokenType.String,
-        value: JSON.stringify(msg),
-        position: predToken.position,
-        modulePath: predToken.modulePath,
-        inputString: predToken.inputString,
-      },
-    };
+  const beginAtom = (srcToken: Token): Expr =>
+    synthAtom(BuiltinKeywords.begin[0]!, TokenType.Identifier, srcToken);
 
+  // No ensures: just prepend the requires asserts to the body.
+  if (ensuresExprs.length === 0) {
+    if (
+      exprIsFunctionCall(body) &&
+      exprIsFunctionCallOf(body, BuiltinKeywords.begin)
+    ) {
+      return {
+        ...body,
+        args: [...requiresAsserts, ...body.args],
+        $: undefined, // re-evaluate
+      };
+    }
     return {
       tag: ExprTag.FnCall,
-      func: {
-        tag: ExprTag.Atom,
-        token: {
-          type: TokenType.Identifier,
-          value: assertFnName,
-          position: predToken.position,
-          modulePath: predToken.modulePath,
-          inputString: predToken.inputString,
-        },
-      },
-      args: [pred, msgExpr],
-      token: predToken,
-    };
-  });
-
-  // If the body is already a begin block, prepend the asserts to its
-  // statement list. Otherwise wrap into a new begin block.
-  if (
-    exprIsFunctionCall(body) &&
-    exprIsFunctionCallOf(body, BuiltinKeywords.begin)
-  ) {
-    return {
-      ...body,
-      args: [...assertCalls, ...body.args],
-      $: undefined, // re-evaluate
+      func: beginAtom(body.token),
+      args: [...requiresAsserts, body],
+      token: body.token,
     };
   }
 
+  // Ensures present. Hoist `old(...)` snapshots from the ensures
+  // predicates so they capture entry-time values, then build the
+  // wrapped body.
+  const { snapshots, rewritten } = hoistOldExpressions(ensuresExprs, bindOp);
+  const ensuresAsserts = rewritten.map((rewrittenPred, i) =>
+    // labelPred is the ORIGINAL predicate (still shows `old(...)` in
+    // the message); rewrittenPred is what actually gets checked.
+    buildAssertCall(
+      rewrittenPred,
+      ensuresExprs[i]!,
+      "ensures failed",
+      assertFnName
+    )
+  );
+
+  const returnsUnit = isUnitType(fnType.return.type);
+
+  if (returnsUnit) {
+    // Unit return: `result` is not useful and `void result = ...` is
+    // invalid C. Run the body as a statement, then the ensures
+    // asserts. The block's value is unit either way.
+    //
+    //   { <old snapshots>; <requires>; <body>; <ensures> }
+    return {
+      tag: ExprTag.FnCall,
+      func: beginAtom(body.token),
+      args: [...snapshots, ...requiresAsserts, body, ...ensuresAsserts],
+      token: body.token,
+    };
+  }
+
+  // Non-unit return: bind the body's value to `result`, run the
+  // ensures asserts (which may reference `result`), then return it.
+  //
+  //   { <old snapshots>; <requires>; result := (<body>); <ensures>; result }
+  const resultBinding = buildBinding(
+    RESULT_IDENTIFIER,
+    body,
+    body.token,
+    bindOp
+  );
+  const resultRef = synthAtom(
+    RESULT_IDENTIFIER,
+    TokenType.Identifier,
+    body.token
+  );
+
   return {
     tag: ExprTag.FnCall,
-    func: {
-      tag: ExprTag.Atom,
-      token: {
-        type: TokenType.Identifier,
-        value: BuiltinKeywords.begin[0]!,
-        position: body.token.position,
-        modulePath: body.token.modulePath,
-        inputString: body.token.inputString,
-      },
-    },
-    args: [...assertCalls, body],
+    func: beginAtom(body.token),
+    args: [
+      ...snapshots,
+      ...requiresAsserts,
+      resultBinding,
+      ...ensuresAsserts,
+      resultRef,
+    ],
     token: body.token,
   };
 }
