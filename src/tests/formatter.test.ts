@@ -556,5 +556,10 @@ describe("formatYoFiles", () => {
     const secondResult = formatYoFiles(["tests"], { cwd: tmpDir });
 
     expect(secondResult.changed).toEqual([]);
-  });
+  }, // Copies the whole ./tests tree and formats it twice — inherently
+  // expensive and grows with the corpus. The default 60s `bun test`
+  // timeout is too tight on slower CI runners (macOS GitHub runners
+  // took ~70s); give this one test a generous budget. It is a
+  // correctness (idempotency) check, not a performance gate.
+  300000);
 });
