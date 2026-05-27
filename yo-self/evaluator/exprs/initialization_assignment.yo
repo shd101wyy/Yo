@@ -206,7 +206,10 @@ evaluate_initialization_assignment :: (
   match(
     rhs_info_opt,
     .Some(rhs_info) => {
-      env = rhs_info.env;
+      env.frames = rhs_info.env.frames;
+      env.module_path = rhs_info.env.module_path;
+      env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+      env.input_string = rhs_info.env.input_string;
     },
     .None => ()
   );
@@ -249,7 +252,10 @@ evaluate_initialization_assignment :: (
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
       .Some(ri) => {
-        env = ri.env;
+        env.frames = ri.env.frames;
+        env.module_path = ri.env.module_path;
+        env.function_declaration_frame_level = ri.env.function_declaration_frame_level;
+        env.input_string = ri.env.input_string;
       },
       .None => ()
     );
@@ -325,7 +331,10 @@ evaluate_initialization_assignment :: (
       synth := synthesize_expr_and_type(rhs, pre_type, env, ctx);
       rhs = synth.expr;
       rhs_type_opt = Option(TypeValue).Some(synth.ty);
-      env = synth.env;
+      env.frames = synth.env.frames;
+      env.module_path = synth.env.module_path;
+      env.function_declaration_frame_level = synth.env.function_declaration_frame_level;
+      env.input_string = synth.env.input_string;
       // Re-read rhs_info for the updated rhs.
       rhs_info_opt = expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
       // Check type compatibility.
@@ -557,7 +566,10 @@ Use \`::\` for compile-time definitions inside impl.`,
       ctx,
       exn
     );
-    env = destr_result.env;
+    env.frames = destr_result.env.frames;
+    env.module_path = destr_result.env.module_path;
+    env.function_declaration_frame_level = destr_result.env.function_declaration_frame_level;
+    env.input_string = destr_result.env.input_string;
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info.runtime_destructurings = destr_result.runtime_destructurings;

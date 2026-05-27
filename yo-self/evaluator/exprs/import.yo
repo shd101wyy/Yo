@@ -224,7 +224,10 @@ evaluate_import :: (
       new_expr_info(env, t_unit())
     }
   );
-  env = arg_info.env;
+  env.frames = arg_info.env.frames;
+  env.module_path = arg_info.env.module_path;
+  env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+  env.input_string = arg_info.env.input_string;
   // Extract the comptime string value.
   // In yo-self, StrLit.raw includes the surrounding quotes (e.g., `"std/string"`).
   // Strip the leading and trailing quote character to get the raw path.

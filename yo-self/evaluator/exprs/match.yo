@@ -255,7 +255,7 @@ evaluate_primitive_match :: (
       );
       old_executing_wc := ctx.is_executing;
       ctx.is_executing = is_arm_executing_wc;
-      evaluated_body_wc := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false);
+      evaluated_body_wc := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
       ctx.is_executing = old_executing_wc;
       env.pop_frame();
       body_info_wc_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wc));
@@ -360,7 +360,7 @@ evaluate_primitive_match :: (
             );
             fwc_i = (fwc_i + usize(1));
           });
-          env = merge_and_check_envs(env, filtered_wc, ctx);
+          env = merge_and_check_envs(env, filtered_wc, ctx, exn);
           result_ty_wc3 := cond(
             match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
               match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
@@ -525,7 +525,7 @@ evaluate_primitive_match :: (
       ___ := env.push_frame(false);
       old_executing_lit := ctx.is_executing;
       ctx.is_executing = matches_at_ct;
-      evaluated_body_lit := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false);
+      evaluated_body_lit := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
       ctx.is_executing = old_executing_lit;
       env.pop_frame();
       body_info_lit_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_lit));
@@ -747,11 +747,14 @@ evaluate_primitive_match :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrpm)),
         .None => (),
         .Some(bi) => {
-          env = bi.env;
+          env.frames = bi.env.frames;
+          env.module_path = bi.env.module_path;
+          env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+          env.input_string = bi.env.input_string;
         }
       );
     }, {
-      env = merge_and_check_envs(env, non_return_pm, ctx);
+      env = merge_and_check_envs(env, non_return_pm, ctx, exn);
     });
     out_val_pm := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
@@ -1009,7 +1012,7 @@ evaluate_match :: (
     ast_expr_is_atom(scrutinee_expr) =>
       evaluate_expression(scrutinee_expr, env, ctx),
     true =>
-      evaluate_begin_expression(scrutinee_expr, env, ctx, ArrayList(Variable).new(), false)
+      evaluate_begin_expression(scrutinee_expr, env, ctx, ArrayList(Variable).new(), false, exn)
   );
   ctx.expected_type = old_expected_scr;
   // Check scrutinee ExprInfo has variable_name
@@ -1049,7 +1052,10 @@ evaluate_match :: (
       new_expr_info(env, t_unit())
     }
   );
-  env = scr_info.env;
+  env.frames = scr_info.env.frames;
+  env.module_path = scr_info.env.module_path;
+  env.function_declaration_frame_level = scr_info.env.function_declaration_frame_level;
+  env.input_string = scr_info.env.input_string;
   scrutinee_type := scr_info.ty;
   scrutinee_val_opt := scr_info.value;
   // Check pointer type — dereference one level
@@ -1061,7 +1067,7 @@ evaluate_match :: (
   });
   // Dispatch to primitive match
   if(is_matchable_primitive_type(matched_type), {
-    return(evaluate_primitive_match(expr, env, ctx, evaluated_scrutinee, matched_type, scrutinee_val_opt));
+    return(evaluate_primitive_match(expr, env, ctx, evaluated_scrutinee, matched_type, scrutinee_val_opt, exn));
   });
   // Must be enum
   if(!(is_enum_type(matched_type)), {
@@ -1279,7 +1285,7 @@ evaluate_match :: (
         );
         old_executing_fl := ctx.is_executing;
         ctx.is_executing = is_arm_executing_fl;
-        evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false);
+        evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
         ctx.is_executing = old_executing_fl;
         env.pop_frame();
         body_info_fl_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_fl));
@@ -1832,7 +1838,7 @@ evaluate_match :: (
           );
           old_executing_wf := ctx.is_executing;
           ctx.is_executing = is_arm_executing_wf;
-          evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false);
+          evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
           ctx.is_executing = old_executing_wf;
           env.pop_frame();
           body_info_wf_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wf));
@@ -2072,7 +2078,10 @@ Supported patterns:
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(mb)),
                 .None => (),
                 .Some(mbi) => {
-                  env = mbi.env;
+                  env.frames = mbi.env.frames;
+                  env.module_path = mbi.env.module_path;
+                  env.function_declaration_frame_level = mbi.env.function_declaration_frame_level;
+                  env.input_string = mbi.env.input_string;
                   matched_body_val = mbi.value;
                   did_use_matched_body = true;
                 }
@@ -2095,7 +2104,10 @@ Supported patterns:
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem)),
               .None => (),
               .Some(bi) => {
-                env = bi.env;
+                env.frames = bi.env.frames;
+                env.module_path = bi.env.module_path;
+                env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+                env.input_string = bi.env.input_string;
                 matched_body_val = bi.value;
                 did_use_single = true;
               }
@@ -2108,7 +2120,10 @@ Supported patterns:
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem2)),
               .None => (),
               .Some(bi) => {
-                env = bi.env;
+                env.frames = bi.env.frames;
+                env.module_path = bi.env.module_path;
+                env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+                env.input_string = bi.env.input_string;
                 did_use_single = true;
               }
             );
@@ -2117,7 +2132,7 @@ Supported patterns:
       );
       // Case 4: runtime or multiple bodies → merge
       if(!(did_use_single), {
-        env = merge_and_check_envs(env, non_return_em, ctx);
+        env = merge_and_check_envs(env, non_return_em, ctx, exn);
       });
     });
     // Determine output value

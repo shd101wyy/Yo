@@ -441,7 +441,10 @@ evaluate_enum_type :: (
           });
           v_field_types.push(field.ty);
           v_field_labels.push(String.from(field.label.as_str()));
-          env = result.env;
+          env.frames = result.env.frames;
+          env.module_path = result.env.module_path;
+          env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+          env.input_string = result.env.input_string;
           j = (j + usize(1));
         });
         disc := match(custom_disc,.Some(d) => d,.None => next_discriminant);

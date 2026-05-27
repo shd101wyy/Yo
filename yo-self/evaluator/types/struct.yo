@@ -132,7 +132,10 @@ evaluate_struct_type :: (
       runtime_field_types.push(field.ty);
     });
     fields.push(field);
-    env = result.env;
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
     i = (i + usize(1));
   });
   // Check newtype constraint: must have exactly one field

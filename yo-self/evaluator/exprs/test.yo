@@ -130,7 +130,10 @@ evaluate_test :: (
   });
   name_info := match(name_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
   // Update env from the name evaluation.
-  env = name_info.env;
+  env.frames = name_info.env.frames;
+  env.module_path = name_info.env.module_path;
+  env.function_declaration_frame_level = name_info.env.function_declaration_frame_level;
+  env.input_string = name_info.env.input_string;
   // Validate test name is a comptime string.
   name_is_str_lit := match(
     name_info.value,

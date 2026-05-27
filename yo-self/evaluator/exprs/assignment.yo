@@ -296,10 +296,13 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env = prop_rhs_info.env;
+    env.frames = prop_rhs_info.env.frames;
+    env.module_path = prop_rhs_info.env.module_path;
+    env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
+    env.input_string = prop_rhs_info.env.input_string;
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
-    require_expr_not_consumed(prop_rhs, env, ctx);
-    throw_expr_is_implicit_variable_error(prop_rhs, env, ctx);
+    require_expr_not_consumed(prop_rhs, env, ctx, exn);
+    throw_expr_is_implicit_variable_error(prop_rhs, env, ctx, exn);
     set_expr_as_needs_to_call_dup(prop_rhs, ctx);
     // Re-read rhs info after potential mutations by the above helpers.
     prop_rhs_info = match(
@@ -307,7 +310,10 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env = prop_rhs_info.env;
+    env.frames = prop_rhs_info.env.frames;
+    env.module_path = prop_rhs_info.env.module_path;
+    env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
+    env.input_string = prop_rhs_info.env.input_string;
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
     if(!((is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty)) || is_comptime_string_type(expected_ty)), {
@@ -587,12 +593,15 @@ evaluate_assignment :: (
     },
     true => {
       // Typed binding: (x : T) = rhs
-      binding := evaluate_binding(lhs, env, ctx);
+      binding := evaluate_binding(lhs, env, ctx, exn);
       binding_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(binding.expr));
       match(
         binding_info_opt,
         .Some(info) => {
-          env = info.env;
+          env.frames = info.env.frames;
+          env.module_path = info.env.module_path;
+          env.function_declaration_frame_level = info.env.function_declaration_frame_level;
+          env.input_string = info.env.input_string;
         },
         .None => ()
       );
@@ -667,12 +676,15 @@ evaluate_assignment :: (
     );
   });
   rhs_info := match(rhs_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
-  env = rhs_info.env;
+  env.frames = rhs_info.env.frames;
+  env.module_path = rhs_info.env.module_path;
+  env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+  env.input_string = rhs_info.env.input_string;
   // Check control flow.
   if(has_any_control_flow(rhs_info.control_flow), {
     match(
       rhs_info.control_flow,
-      .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf),
+      .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf, exn),
       .None => () // unreachable: has_any_control_flow guarantees .Some
     );
   });

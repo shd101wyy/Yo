@@ -260,7 +260,10 @@ _eval_and_update_env :: (
   match(
     info_opt,
     .Some(info) => {
-      env_mut = info.env;
+      env_mut.frames = info.env.frames;
+      env_mut.module_path = info.env.module_path;
+      env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+      env_mut.input_string = info.env.input_string;
       if(
         is_type_value(info.value),
         .Some(
@@ -290,7 +293,7 @@ _try_eval_comptime_type :: (
     exn : Exception
   ) -> Option(TypeValue)
 )(
-  _eval_and_update_env(type_expr, env_mut, ctx)
+  _eval_and_update_env(type_expr, env_mut, ctx, exn)
 );
 /// Helper: true when `expr` is the `...` atom (variadic marker).
 /// Extracted as a module-level function to avoid a double-drop codegen bug where
@@ -716,7 +719,10 @@ evaluate_function_parameter :: (
       match(
         info_opt,
         .Some(info) => {
-          env_mut = info.env;
+      env_mut.frames = info.env.frames;
+      env_mut.module_path = info.env.module_path;
+      env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+      env_mut.input_string = info.env.input_string;
           dv_val_opt := info.value;
           // Coerce comptime types (e.g. comptime_string) to their runtime
           // equivalents when the param has an explicit annotation. Mirrors
@@ -1203,7 +1209,10 @@ validate_concrete_type_constraints :: (
         new_expr_info(env_mut, t_unit())
       }
     );
-    env_mut = info.env;
+    env_mut.frames = info.env.frames;
+    env_mut.module_path = info.env.module_path;
+    env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+    env_mut.input_string = info.env.input_string;
     if(is_type_value(info.value), {
       tv := match(
         info.value,
@@ -1370,7 +1379,10 @@ apply_single_trait_constraint :: (
     if(!(is_type_value(info.value)), {
       return(false);
     });
-    env_mut = info.env;
+    env_mut.frames = info.env.frames;
+    env_mut.module_path = info.env.module_path;
+    env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+    env_mut.input_string = info.env.input_string;
     lhs_ty = match(info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
     if(is_some_type(lhs_ty), {
       some_ty_opt =.Some(lhs_ty);
@@ -1401,7 +1413,10 @@ apply_single_trait_constraint :: (
   if(!(is_type_value(info_rhs.value)), {
     return(false);
   });
-  env_mut = info_rhs.env;
+  env_mut.frames = info_rhs.env.frames;
+  env_mut.module_path = info_rhs.env.module_path;
+  env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
+  env_mut.input_string = info_rhs.env.input_string;
   trait_ty = match(info_rhs.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
   if(!(is_trait_type(trait_ty)), {
     exn.throw(
@@ -1591,7 +1606,10 @@ parse_where_clause_constraints :: (
           )
         );
       });
-      env_mut = lhs_info.env;
+      env_mut.frames = lhs_info.env.frames;
+      env_mut.module_path = lhs_info.env.module_path;
+      env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
+      env_mut.input_string = lhs_info.env.input_string;
       lhs_tv := match(lhs_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
       // HKT TypeApplication case (stub — not yet implemented)
       if(is_type_application_type(lhs_tv), {
@@ -1703,7 +1721,10 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
-      env_mut = trait_info.env;
+      env_mut.frames = trait_info.env.frames;
+      env_mut.module_path = trait_info.env.module_path;
+      env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
+      env_mut.input_string = trait_info.env.input_string;
       trait_ty2 = match(trait_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
       if(!(is_trait_type(trait_ty2)), {
         exn.throw(
@@ -2401,7 +2422,7 @@ evaluate_function_parameters :: (
       ct_info,
       .Some(info) => {
         // Try to evaluate the type expression; returns None on error (soft failure).
-        (param_type_opt : Option(TypeValue)) = _try_eval_comptime_type(info.type_expr, env_mut, ctx);
+        (param_type_opt : Option(TypeValue)) = _try_eval_comptime_type(info.type_expr, env_mut, ctx, exn);
         if(param_type_opt.is_none(), {
           continue; // Skip — will be handled in main pass
         });

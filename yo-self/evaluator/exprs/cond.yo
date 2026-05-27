@@ -183,7 +183,7 @@ evaluate_cond :: (
       ast_expr_is_atom(cond_expr) =>
         evaluate_expression(cond_expr, case_env, ctx),
       true =>
-        evaluate_begin_expression(cond_expr, case_env, ctx, ArrayList(Variable).new(), false)
+        evaluate_begin_expression(cond_expr, case_env, ctx, ArrayList(Variable).new(), false, exn)
     );
     ctx.expected_type = old_expected;
     // Require that the evaluator produced ExprInfo.
@@ -329,7 +329,7 @@ evaluate_cond :: (
         }
       );
       // Evaluate the body.
-      evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false);
+      evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
       body_cf := match(body_info_opt,.Some(bi) => bi.control_flow,.None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
@@ -373,7 +373,10 @@ evaluate_cond :: (
         );
         bodies.push(evaluated_body);
         value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_info.ty, env : body_info.env));
-        env = body_info.env;
+        env.frames = body_info.env.frames;
+        env.module_path = body_info.env.module_path;
+        env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
+        env.input_string = body_info.env.input_string;
         result_ty := cond(
           match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
             match(ctx.expected_type,.Some(et) => et.ty,.None => body_info.ty),
@@ -426,7 +429,8 @@ evaluate_cond :: (
                 ec_item.case_env,
                 ctx,
                 ArrayList(Variable).new(),
-                false
+                false,
+                exn
               );
               ctx.is_executing = old_executing;
               // Consume the case body temp var to avoid phantom drops.
@@ -567,7 +571,7 @@ evaluate_cond :: (
           );
           fb_i = (fb_i + usize(1));
         });
-        env = merge_and_check_envs(env, filtered_bodies, ctx);
+        env = merge_and_check_envs(env, filtered_bodies, ctx, exn);
         // Determine the compile-time value.
         result_val := cond(
           has_runtime_body_val => Option(EvalValue).None,

@@ -761,8 +761,14 @@ _synthesize_implicit_params :: (
         );
         if(exp_id == synthesis_type_id(giv.ty), {
           res := _synthesize_call(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
-          expected_env = res.expected_env;
-          given_env = res.given_env;
+          expected_env.frames = res.expected_env.frames;
+          expected_env.module_path = res.expected_env.module_path;
+          expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
+          expected_env.input_string = res.expected_env.input_string;
+          given_env.frames = res.given_env.frames;
+          given_env.module_path = res.given_env.module_path;
+          given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
+          given_env.input_string = res.given_env.input_string;
           matched_given(gj) = true;
           matched_expected(cei) = true;
           gj = n_giv; // break
@@ -839,8 +845,14 @@ _synthesize_implicit_params :: (
           );
           if(exp_id == synthesis_type_id(giv.ty), {
             res := _synthesize_call(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
-            expected_env = res.expected_env;
-            given_env = res.given_env;
+            expected_env.frames = res.expected_env.frames;
+            expected_env.module_path = res.expected_env.module_path;
+            expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
+            expected_env.input_string = res.expected_env.input_string;
+            given_env.frames = res.given_env.frames;
+            given_env.module_path = res.given_env.module_path;
+            given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
+            given_env.input_string = res.given_env.input_string;
             matched_given(gj) = true;
             gj = n_giv; // break
           });
@@ -1002,8 +1014,8 @@ _synthesize_future_traits :: (
     giv_el,
     giv_et,
     giv_es,
-    &(ee),
-    &(ge),
+    ee,
+    ge,
     checked,
     opts,
     exn
@@ -1042,7 +1054,7 @@ _synthesize_types_impl :: (
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   checked.push(TypePair(expected_id : exp_id, given_id : giv_id));
-  tok := opts_token(opts, &(ee));
+  tok := opts_token(opts, ee);
   // Case: both are SomeTypes
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
     expected_bound := get_value_of_some_type_from_env(ee, expected_ty);
@@ -1055,21 +1067,21 @@ _synthesize_types_impl :: (
       !(exp_bound_is_some) => {
         // Expected is bound — use its value to bind given
         val := EvalValue.TypeVal(Box(TypeValue)(expected_bound));
-        _bind_some_type(&(ge), match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, exn);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, exn);
       },
       !(giv_bound_is_some) => {
         // Given is bound — use its value to bind expected
         val := EvalValue.TypeVal(Box(TypeValue)(given_bound));
-        _bind_some_type(&(ee), match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, exn);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
         val := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-        _bind_some_type(&(ee), match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, exn);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, exn);
         val2 := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-        _bind_some_type(&(ge), match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, exn);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, exn);
       }
     );
     // After unifying, recursively synthesize required trait type parameters
@@ -1173,7 +1185,7 @@ _synthesize_types_impl :: (
         });
       };
       val := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-      _bind_some_type(&(ee), exp_name, val, given_ty, tok, exn);
+      _bind_some_type(ee, exp_name, val, given_ty, tok, exn);
       // Recursively synthesize required trait type parameters
       n_et := exp_traits.len();
       (eti : usize) = usize(0);
@@ -1240,7 +1252,7 @@ _synthesize_types_impl :: (
         });
       };
       val := EvalValue.TypeVal(Box(TypeValue)(expected_ty));
-      _bind_some_type(&(ge), giv_name, val, expected_ty, tok, exn);
+      _bind_some_type(ge, giv_name, val, expected_ty, tok, exn);
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
@@ -1591,20 +1603,20 @@ _synthesize_types_impl :: (
         ge = res.given_env;
         pi = (pi + usize(1));
       });
-      // Synthesize implicit params (effect row unification)
-      _synthesize_implicit_params(
-        exp_il,
-        exp_it,
-        exp_is,
-        giv_il,
-        giv_it,
-        giv_is,
-        &(ee),
-        &(ge),
-        checked,
-        opts,
-        exn
-      );
+       // Synthesize implicit params (effect row unification)
+       _synthesize_implicit_params(
+         exp_il,
+         exp_it,
+         exp_is,
+         giv_il,
+         giv_it,
+         giv_is,
+         ee,
+         ge,
+         checked,
+         opts,
+         exn
+       );
       // Synthesize return type
       res := _synthesize_call(exp_ret, ee, giv_ret, ge, checked, opts, exn);
       ee = res.expected_env;
@@ -1707,8 +1719,8 @@ _synthesize_types_impl :: (
       giv_el,
       giv_et,
       empty_giv_spreads,
-      &(ee),
-      &(ge),
+      ee,
+      ge,
       checked,
       opts,
       exn

@@ -63,7 +63,10 @@ evaluate_extern :: (
     evaluated_lang := evaluate_expression(lang_arg, env, ctx);
     lang_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lang));
     lang_info := match(lang_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
-    env = lang_info.env;
+    env.frames = lang_info.env.frames;
+    env.module_path = lang_info.env.module_path;
+    env.function_declaration_frame_level = lang_info.env.function_declaration_frame_level;
+    env.input_string = lang_info.env.input_string;
     raw_lang := match(
       lang_info.value,
       .Some(v) => match(
@@ -168,7 +171,10 @@ evaluate_extern :: (
     });
     field_labels.push(String.from(result.label.as_str()));
     field_types.push(result.field_type);
-    env = result.env;
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
     // NOTE: TypeScript sets is_extern/language and externName on the type here,
     // plus ioBuiltin for __yo_io_async etc.  yo-self skips these — codegen-only.
     // Add field variable to env (compile-time only, unknown value placeholder).

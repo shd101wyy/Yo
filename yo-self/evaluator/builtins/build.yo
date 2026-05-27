@@ -159,7 +159,7 @@ impl(
     )
   ),
   register_executable : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str());
+    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
@@ -185,7 +185,7 @@ impl(
     );
   }),
   register_static_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str());
+    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
@@ -211,7 +211,7 @@ impl(
     );
   }),
   register_shared_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str());
+    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,

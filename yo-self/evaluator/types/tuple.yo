@@ -94,7 +94,10 @@ evaluate_tuple_elements_type :: (
     field_labels.push(String.from(field.label.as_str()));
     field_types.push(field.ty);
     fields.push(field);
-    env = result.env;
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
     i = (i + usize(1));
   });
   EvalTupleElementsResult(
@@ -127,7 +130,10 @@ evaluate_tuple_type :: (
   });
   // Evaluate each tuple element.
   result := evaluate_tuple_elements_type(args, env, ctx, "tuple", exn);
-  env = result.env;
+  env.frames = result.env.frames;
+  env.module_path = result.env.module_path;
+  env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+  env.input_string = result.env.input_string;
   // Reject default values: tuples may not have `field : T = default`.
   (j : usize) = usize(0);
   while(runtime(j < result.fields.len()), {

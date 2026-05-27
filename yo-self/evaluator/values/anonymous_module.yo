@@ -169,7 +169,10 @@ evaluate_anonymous_module_begin_exprs :: (
                       );
                     });
                     ext_info := match(ext_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
-                    env = ext_info.env;
+                    env.frames = ext_info.env.frames;
+                    env.module_path = ext_info.env.module_path;
+                    env.function_declaration_frame_level = ext_info.env.function_declaration_frame_level;
+                    env.input_string = ext_info.env.input_string;
                     ext_mod_type := ext_info.ty;
                     if(!(is_module_type(ext_mod_type)), {
                       exn.throw(
@@ -519,7 +522,10 @@ evaluate_anonymous_module_begin_exprs :: (
           match(
             info_opt,
             .Some(info) => {
-              env = info.env;
+              env.frames = info.env.frames;
+              env.module_path = info.env.module_path;
+              env.function_declaration_frame_level = info.env.function_declaration_frame_level;
+              env.input_string = info.env.input_string;
             },
             .None => ()
           );

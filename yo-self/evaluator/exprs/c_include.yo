@@ -70,7 +70,10 @@ evaluate_c_include :: (
   evaluated_hdr := evaluate_expression(c_header_file_arg, env, ctx);
   hdr_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_hdr));
   hdr_info := match(hdr_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
-  env = hdr_info.env;
+  env.frames = hdr_info.env.frames;
+  env.module_path = hdr_info.env.module_path;
+  env.function_declaration_frame_level = hdr_info.env.function_declaration_frame_level;
+  env.input_string = hdr_info.env.input_string;
   raw_hdr := match(
     hdr_info.value,
     .Some(v) => match(
@@ -164,7 +167,10 @@ evaluate_c_include :: (
     });
     field_labels.push(String.from(result.label.as_str()));
     field_types.push(result.field_type);
-    env = result.env;
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
     // NOTE: TypeScript sets is_extern/"c" and cInclude/externName on the type here.
     // yo-self skips that mutation — TypeValue has no such fields (codegen-only metadata).
     // Add field variable to env (compile-time only, unknown value placeholder).

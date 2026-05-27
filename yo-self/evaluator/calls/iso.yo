@@ -95,7 +95,10 @@ evaluate_iso_type_call :: (
     );
   });
   arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
-  env = arg_info.env;
+  env.frames = arg_info.env.frames;
+  env.module_path = arg_info.env.module_path;
+  env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+  env.input_string = arg_info.env.input_string;
   // Check that the argument is a type value.
   if(!(is_type_value(arg_info.value)), {
     exn.throw(
@@ -252,7 +255,10 @@ evaluate_iso_value_call :: (
     );
   });
   arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
-  env = arg_info.env;
+  env.frames = arg_info.env.frames;
+  env.module_path = arg_info.env.module_path;
+  env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+  env.input_string = arg_info.env.input_string;
   // Check ownership / alias constraints using the variable name from ExprInfo.
   match(
     arg_info.variable_name,
@@ -341,7 +347,7 @@ evaluate_iso_value_call :: (
     arg_info.variable_name,
     .Some(var_name) => {
       is_type_val := is_type_value(arg_info.value);
-      set_variable_as_consumed(var_name, ast_expr_token(arg_expr), env, false, is_type_val);
+      set_variable_as_consumed(var_name, ast_expr_token(arg_expr), env, false, is_type_val, exn);
     },
     .None => ()
   );

@@ -149,7 +149,10 @@ evaluate_module_field :: (
   evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
   te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut, TypeValue.Unit));
-  env_mut = te_info.env;
+  env_mut.frames = te_info.env.frames;
+  env_mut.module_path = te_info.env.module_path;
+  env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+  env_mut.input_string = te_info.env.input_string;
   if(!(is_type_value(te_info.value)), {
     exn.throw(
       dyn(
@@ -254,7 +257,10 @@ evaluate_module_type :: (
     });
     field_labels.push(result.label);
     field_types.push(result.field_type);
-    env_mut = result.env;
+    env_mut.frames = result.env.frames;
+    env_mut.module_path = result.env.module_path;
+    env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env_mut.input_string = result.env.input_string;
     i = (i + usize(1));
   });
   // TODO (Phase 3): propagate ctx.current_module_path to module type (orphan rule checks).

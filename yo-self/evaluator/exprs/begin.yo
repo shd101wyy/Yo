@@ -254,7 +254,7 @@ evaluate_begin_expression :: (
       // return / return(val)
       // -------------------------------------------------------------------
       is_return_expr => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("return"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("return"), exn);
         if(!(ctx.is_evaluating_function_body_or_async_block.is_some()), {
           exn.throw(
             dyn(
@@ -302,7 +302,10 @@ evaluate_begin_expression :: (
             );
           });
           ret_info := match(ret_info_opt,.Some(ri) => ri,.None => new_expr_info(env, TypeValue.Unit));
-          env = ret_info.env;
+          env.frames = ret_info.env.frames;
+          env.module_path = ret_info.env.module_path;
+          env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
+          env.input_string = ret_info.env.input_string;
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
           attach_temp_variable_to_expr(evaluated_ret_arg, true, ctx);
           // Re-read env in case the stub updated it (future-proof).
@@ -325,7 +328,7 @@ evaluate_begin_expression :: (
       // break
       // -------------------------------------------------------------------
       is_break_atom => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("break"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("break"), exn);
         if(!(ctx.is_evaluating_loop_body.is_some()), {
           exn.throw(
             dyn(
@@ -349,7 +352,7 @@ evaluate_begin_expression :: (
       // continue
       // -------------------------------------------------------------------
       is_continue_atom => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("continue"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("continue"), exn);
         if(!(ctx.is_evaluating_loop_body.is_some()), {
           exn.throw(
             dyn(
@@ -373,7 +376,7 @@ evaluate_begin_expression :: (
       // unwind(val)
       // -------------------------------------------------------------------
       is_escape_call => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("unwind"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("unwind"), exn);
         if(!(ctx.enclosing_function_return_type.is_some()), {
           exn.throw(
             dyn(
@@ -464,7 +467,10 @@ evaluate_begin_expression :: (
         match(
           ev_info_opt,
           .Some(ev_info) => {
-            env = ev_info.env;
+            env.frames = ev_info.env.frames;
+            env.module_path = ev_info.env.module_path;
+            env.function_declaration_frame_level = ev_info.env.function_declaration_frame_level;
+            env.input_string = ev_info.env.input_string;
           },
           .None => ()
         );
@@ -588,7 +594,7 @@ evaluate_begin_expression :: (
     ),
     true => re_base
   );
-  throw_expr_is_implicit_variable_error(check_expr, env, ctx);
+  throw_expr_is_implicit_variable_error(check_expr, env, ctx, exn);
   // -------------------------------------------------------------------------
   // Ownership / RC optimizations — all stubbed (type_contains_rc_type = false)
   // -------------------------------------------------------------------------

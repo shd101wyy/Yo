@@ -196,7 +196,7 @@ try_to_implement_closure_by_fn_module_type :: (
   evaluated_body := evaluate_begin_expression(
     closure_body_for_eval,
     env,
-    &(eval_ctx),
+    eval_ctx,
     ArrayList(Variable).new(),
     true,
     exn
@@ -206,7 +206,10 @@ try_to_implement_closure_by_fn_module_type :: (
   match(
     body_info_opt,
     .Some(bi) => {
-      env = bi.env;
+      env.frames = bi.env.frames;
+      env.module_path = bi.env.module_path;
+      env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+      env.input_string = bi.env.input_string;
     },
     .None => ()
   );
