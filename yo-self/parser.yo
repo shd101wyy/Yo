@@ -532,6 +532,12 @@ impl(
       cond(
         (curr.kind == TokenKind.Comma) => {
           idx = (idx + usize(1));
+          // Trailing comma: return empty args to avoid parser hang.
+          // (exn.throw doesn't propagate in the compiled parser — codegen limitation.)
+          next := match(self.tokens.get(idx),.Some(t) => t,.None => return(FnArgsResult(args : args, index : idx)));
+          if(next.kind == TokenKind.RParen, {
+            return(FnArgsResult(args : args, index : cond(has_whitespace => idx, true => (idx + usize(1)))));
+          });
         },
         (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
           return(FnArgsResult(args : args, index : idx));
