@@ -1,1 +1,16 @@
+open(import("std/string"));
+open(import("std/error"));
 
+make_error :: (fn(tok : str, msg : str) -> String)(String.from(msg));
+
+my_parse :: (fn(tok : str, exn : Exception) -> usize)({
+  cond(
+    (tok.as_str() == "err") => {
+      exn.throw(dyn(make_error(tok, `something went wrong`)));
+      usize(1)
+    },
+    true => usize(0)
+  )
+});
+
+export(my_parse);
