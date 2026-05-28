@@ -108,6 +108,13 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseErro
     source_line : String.from("")
   )
 );
+// Per-process monotonic counter for AstExpr ids. Each Parser instance
+// pulls from this so ids are unique across files in multi-file `check`
+// (otherwise inner.yo's id=N and index.yo's id=N collide in the
+// expr_info_table and the second-parsed file's import value gets stamped
+// over by the first-parsed file's matching-id expression — observed as
+// `import("./rune.yo")` resolving to `i32` at export-spread time).
+(g_next_global_expr_id : usize) = usize(0);
 Parser :: struct(
   input_string : String,
   module_path : String,
@@ -137,7 +144,8 @@ impl(
   }),
   get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
   alloc_id : (fn(ref(self) : Self) -> ExprId)({
-    id := self.next_expr_id;
+    id := g_next_global_expr_id;
+    g_next_global_expr_id = (g_next_global_expr_id + usize(1));
     self.next_expr_id = (self.next_expr_id + usize(1));
     id
   }),
