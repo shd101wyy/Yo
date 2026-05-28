@@ -100,6 +100,7 @@ evaluate_anonymous_module_begin_exprs :: (
     init_env : Environment,
     ctx : EvalContext,
     allow_partial_module : bool,
+    keep_frame_at_end : bool,
     exn : Exception
   ) -> AnonModuleResult
 )({
@@ -536,7 +537,10 @@ evaluate_anonymous_module_begin_exprs :: (
   });
   // Pop the env frame (only if no partial error)
   // NOTE: pop_exn handler omitted — see allow_partial_module note above.
-  if(partial_error.is_none(), {
+  // When `keep_frame_at_end` is true the caller intends to keep the
+  // module-body bindings live in `env` (e.g. multi-file `check` that
+  // caches the prelude env across files); skip the pop.
+  if(partial_error.is_none() && !(keep_frame_at_end), {
     env.pop_frame();
   });
   module_type := TypeValue.ModuleT(String.from(""), String.from(""), field_labels, field_types);

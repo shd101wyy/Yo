@@ -104,6 +104,7 @@ try_populate_expr_info_table :: (
     env,
     ctx,
     false,
+    false,
     local_exn
   );
   Option(ExprInfoTable).Some(ctx.expr_info_table)
@@ -500,11 +501,18 @@ check_single_file :: (
   ctx := eval_context_new(std_path.clone(), input_path.clone());
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
+  // Pass `keep_frame_at_end=true` so the module-body frame stays on the
+  // stack — the prelude bindings need to survive into the cached env so
+  // later files in a multi-file `check` can find `Option`, `Result`, etc.
+  // (without this, the evaluator's pop_frame discards every prelude
+  // binding right before we cache the env). See
+  // issues/yo-self-multi-file-prelude-bindings.md.
   _r := evaluate_anonymous_module_begin_exprs(
     all_exprs,
     env,
     ctx,
     false,
+    true,
     local_exn
   );
   println(`check: ${input_path} — evaluator OK`);
