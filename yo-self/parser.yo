@@ -532,12 +532,18 @@ impl(
       cond(
         (curr.kind == TokenKind.Comma) => {
           idx = (idx + usize(1));
-          // Trailing comma: break out so the function returns FnArgsResult.
-          next := match(self.tokens.get(idx),.Some(t) => t,.None => break);
-          if(next.kind == TokenKind.RParen, {
-            idx = cond(has_whitespace => idx, true => (idx + usize(1)));
-            break;
+          // Accept trailing comma: skip whitespace, check for RParen.
+          nxt_idx := self.skip_ws_fwd(idx);
+          nxt := match(self.tokens.get(nxt_idx),.Some(t) => t,.None => {
+            return(FnArgsResult(args : args, index : nxt_idx));
           });
+          is_rp := (nxt.kind == TokenKind.RParen);
+          cond(
+            is_rp => {
+              return(FnArgsResult(args : args, index : (nxt_idx + usize(1))));
+            },
+            true => ()
+          );
         },
         (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
           return(FnArgsResult(args : args, index : idx));
