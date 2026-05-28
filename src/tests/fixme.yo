@@ -1,23 +1,41 @@
-// Minimal repro: == comparison in ref(self) method with while(runtime(true))
+// Minimal repro for issues/codegen-exn-throw-ref-self-while-hang.md:
+// When an Exception is locally bound and passed to a function that uses
+// exn.throw + handler-unwind, the install-point should clear
+// __yo_effect_escaped, but for non-evidence calls it propagates instead.
+open(import("std/string"));
+open(import("std/error"));
+open(import("std/fmt"));
 
-MyObj :: object(x : usize);
-impl(MyObj,
-  test_eq : (fn(ref(self : Self)) -> usize)({
-    i := usize(0);
-    while(runtime(true), {
-      i = (i + usize(1));
-      curr := i;
-      if((curr == usize(3)), {
-        return(usize(42));
-      });
-    });
-    usize(0)
-  }),
-);
+MyErr :: object(msg : String);
+impl(MyErr, ToString(to_string : ((self) -> `my err`)));
+impl(MyErr, Error());
+
+// Function takes Exception by value and throws inside.
+inner_throws :: (fn(exn : Exception) -> bool)({
+  exn.throw(dyn(MyErr(msg : `boom`)));
+  true
+});
+
+// Install point: this function binds `local_exn` and calls inner_throws.
+// The unwind in local_exn.throw discards continuation and returns false.
+call_with_local :: (fn() -> bool)({
+  local_exn := Exception(throw : ((_e) -> unwind(false)));
+  _r := inner_throws(local_exn);
+  true
+});
 
 main :: (fn() -> unit)({
-  o := MyObj(x : usize(0));
-  r := o.test_eq();
-  assert((r == usize(42)), "eq failed");
+  r1 := call_with_local();
+  // If exn correctly unwinds: r1 = false (the unwind value).
+  // If bug: r1 = (bool){0} = false from propagate-return, BUT __yo_effect_escaped
+  // is left set, causing the assert(...) call below to short-circuit and main
+  // to exit without reporting the assertion failure.
+  println(`r1 = ${r1.to_string()}`);
+  // This second call should run normally, but if __yo_effect_escaped is stale,
+  // the second call may misbehave.
+  r2 := call_with_local();
+  println(`r2 = ${r2.to_string()}`);
+  assert(r1 == false, "r1 should be false");
+  assert(r2 == false, "r2 should be false");
 });
 export(main);

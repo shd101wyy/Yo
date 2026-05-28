@@ -1,67 +1,85 @@
-# Codegen: `exn.throw` doesn't propagate in `ref(self)` methods with `while(runtime(true))`
+# Codegen: `exn.throw` doesn't propagate when an `exn : Exception` parameter is locally bound
 
-**Status:** Open
+**Status:** Fixed
 
 ## Symptom
 
-Any syntax error in a parsed file causes the self-hosted parser to hang
-instead of reporting the error. The parser enters `while(runtime(true))`
-loops that never exit, even though `exn.throw(dyn(err))` is called and
-the generated C code checks `__yo_effect_escaped` after the call.
+Any syntax error in a parsed file caused the self-hosted parser to silently
+exit 0 (and earlier, before the trailing-comma workaround was applied,
+hang) instead of reporting the error. Even with the parser correctly
+calling `exn.throw(dyn(err))` and the generated C code checking
+`__yo_effect_escaped` after the call, the unwind never reached the error
+handler installed in `main`.
 
 ## Reproducer
 
 ```rust
-// f(;);  — semicolon as first argument causes parse_expression to fail
-// The parser hangs at "check: parsing" and never returns
+// /tmp/bad.yo
+a :: (fn() -> i32)(f(;))
+// ./yo-self-bin check /tmp/bad.yo
+// → prints "check: parsing /tmp/bad.yo" then exits 0 with no error
+```
+
+Or, fully isolated (compile and run with `yo compile`):
+
+```rust
+inner_throws :: (fn(exn : Exception) -> bool)({
+  exn.throw(dyn(`boom`));
+  true
+});
+call_with_local :: (fn() -> bool)({
+  local_exn := Exception(throw : ((_e) -> unwind(false)));
+  _r := inner_throws(local_exn);
+  true
+});
+main :: (fn() -> unit)({
+  r1 := call_with_local();
+  println(`got r1 = ${r1.to_string()}`); // never printed without the fix
+});
 ```
 
 ## Root cause
 
-In `ref(self)` parser methods with `while(runtime(true))` loops,
-the following C-level codegen patterns produce incorrect runtime behavior:
+When a function takes an `exn : Exception` (or any struct-typed)
+parameter whose type transitively contains a `ctl(...)` field, callers
+that bind the value locally (e.g. `local_exn := Exception(throw : ...)`,
+then `inner_throws(local_exn)`) are **handler installation points** —
+the unwind raised inside the callee must land here, clear
+`__yo_effect_escaped`, and read the value from `__yo_unwind_value`
+before returning.
 
-| Pattern                                           | Result                           |
-| ------------------------------------------------- | -------------------------------- |
-| `if(condition, {...}, {...})`                     | hangs (doesn't execute branches) |
-| `return(FnArgsResult(...))` from `if` branch      | doesn't return                   |
-| `exn.throw` propagation via `__yo_effect_escaped` | flag not seen by callers         |
+`src/codegen/exprs/other-fn-call.ts` only checked this for parameters
+whose own type was a function (`isFunctionType(param.type)`). Struct
+effect-record parameters were missed, so the call site emitted the
+generic "propagate" return (`return (T){0};` without clearing the flag),
+and the unwind silently propagated past every install site all the way
+to `__yo_user_main`, which short-circuits before running the handler.
 
-These are in `parse_fn_args`, `parse_fn_call`, `parse_primary_end`, etc. —
-all `ref(self)` methods on the `Parser` object.
+## Fix
 
-## Confirmed working patterns
+In the Phase 2 install-site detection (`src/codegen/exprs/other-fn-call.ts`),
+also recognise parameters whose type is control-bound (via
+`typeIsControlBound`), and identify the install site by inspecting the
+_argument atom_ passed at the call (so renamed bindings like
+`local_exn` for an `exn` parameter resolve correctly). Matching atoms
+whose innermost binding lives in a begin-block frame of the enclosing
+function tag the call as a handler installation point — the existing
+`emitEffectUnwindCheck` emits the correct clear + `memcpy` + return.
 
-| Pattern                                  | Result                                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------------- |
-| `cond`                                   | Works (generateCondExpression has proper C codegen)                             |
-| `if`                                     | **Works** (verified in C output — generates correct if/else C code with return) |
-| `return(...)` from `cond` or `if` branch | Works                                                                           |
-| `==` comparison                          | Works                                                                           |
-| `self.skip_ws_fwd(idx)`                  | Works                                                                           |
+Regression test: `tests/error.test.yo` —
+_"Exception install-point clears \_\_yo_effect_escaped after unwind"_.
 
-## Updated root cause
+## Known follow-up
 
-Initial diagnosis pointed to `if` codegen, but C-level verification shows
-`if` IS correctly generated. The trailing comma hang was actually caused by
-not skipping whitespace between comma and RParen — not an `if` codegen bug.
-The fix uses `self.skip_ws_fwd` + `cond` which works correctly.
-
-The REAL remaining issue is: `exn.throw(dyn(make_parse_error(...)))` inside
-`cond` branches of `while(runtime(true))` loops in `ref(self)` methods.
-The `__yo_effect_escaped` flag IS set by the handler, and IS checked by
-the callers, but the propagation chain may have a gap at some level,
-or `__yo_effect_escaped` may carry a stale value from a previous operation.
-
-## Next steps
-
-1. Check if `__yo_effect_escaped` is reset to 0 before parser method calls
-2. Add verbose tracing of `__yo_effect_escaped` at each call level
-3. Investigate `cond` -> C codegen for `__yo_effect_escaped` checks after
-   each expression within a cond branch
-
-## Workaround (applied)
-
-Trailing commas are handled by proactively detecting `)` after whitespace
-skipping and using `cond` + `return` — avoiding the `if` codegen bug and
-the `exn.throw` propagation issue entirely.
+The fix exposes a separate, pre-existing bug in the codegen of
+`isEffectRecordMember` handlers with `forall(ResumeType)` in their ctl
+signature. Their stub body in `src/codegen/functions/generation.ts`
+unconditionally emits `__yo_effect_escaped = 1; return (T){0};`, which
+is wrong for handlers whose actual body is a `return(resume_val)`
+(resume). Under the old propagate-everywhere behaviour, this masked
+itself because the outer test body short-circuited past any assertion.
+The fix exposes the issue in
+`tests/algebraic_effects.test.yo` →
+_"Struct-record effect with forall handler — early return after
+resume in while loop"_. Tracking separately in
+`issues/codegen-forall-resume-handler-stub.md`.

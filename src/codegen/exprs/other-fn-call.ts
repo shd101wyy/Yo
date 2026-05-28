@@ -36,7 +36,7 @@ import {
   isUnionType,
   isUnitType,
 } from "../../types/guards";
-import { typeContainsRcType } from "../../types/utils";
+import { typeContainsRcType, typeIsControlBound } from "../../types/utils";
 import { TypeTag } from "../../types/tags";
 import {
   isFunctionValue,
@@ -1033,26 +1033,48 @@ export function generateOtherFunctionCall(
                 }
               }
             }
-            // Fallback for explicit params (Phase 2): if the callee has function-typed
-            // regular params, check if any matching variable is locally bound in a
-            // begin-block frame — this indicates a handler installation point.
+            // Fallback for explicit params (Phase 2): if the callee has a
+            // function-typed regular param OR a struct/effect-record param
+            // whose type transitively carries a `ctl(...)` field (e.g.
+            // `exn : Exception`), check whether the argument variable is
+            // locally bound in a begin-block frame of the enclosing
+            // function — that makes the call site the handler installation
+            // point for any unwind raised inside the callee.
+            //
+            // We match against the call's *argument atoms* rather than the
+            // param labels so a renamed binding like `local_exn` for an
+            // `exn` param still resolves to the local frame.
             if (!callIsHandlerInstallation && functionType) {
               const callEnv2 = expr.func.$?.env ?? expr.$?.env;
               if (callEnv2) {
-                for (const param of functionType.parameters) {
-                  if (!isFunctionType(param.type)) continue;
+                for (let i = 0; i < functionType.parameters.length; i++) {
+                  const param = functionType.parameters[i]!;
+                  const paramIsFn = isFunctionType(param.type);
+                  const paramHasCtl = typeIsControlBound(param.type);
+                  if (!paramIsFn && !paramHasCtl) continue;
+                  // Resolve the argument variable name passed for this param.
+                  const argExpr = expr.args[i];
+                  let argVarName: string | undefined;
+                  if (argExpr && exprIsAtom(argExpr)) {
+                    argVarName = argExpr.token.value;
+                  } else if (param.label) {
+                    // Named-arg desugar: arg labels match param labels.
+                    argVarName = param.label;
+                  }
+                  if (!argVarName) continue;
                   const frameIdx = findInnermostFrameWithGivenVariable(
                     callEnv2,
-                    (v) => v.name === param.label
+                    (v) => v.name === argVarName
                   );
                   if (
-                    frameIdx >= 0 &&
-                    frameIdx > callEnv2.functionDeclarationFrameLevel &&
-                    callEnv2.frames[frameIdx]?.isBeginBlockFrame
+                    frameIdx < 0 ||
+                    frameIdx <= callEnv2.functionDeclarationFrameLevel ||
+                    !callEnv2.frames[frameIdx]?.isBeginBlockFrame
                   ) {
-                    callIsHandlerInstallation = true;
-                    break;
+                    continue;
                   }
+                  callIsHandlerInstallation = true;
+                  break;
                 }
               }
             }
