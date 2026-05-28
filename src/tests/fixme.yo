@@ -1,5 +1,13 @@
+// Reproduction of the wctype crash: import from a file processed earlier
 pragma(Pragma.AllowUnsafe);
-MyObj :: object(
-  _ptr : ?*(i32)
+
+// This file uses a type from stdint.yo
+// The crash happens when stdint was already processed as a separate file
+// and now wctype imports it, causing double-evaluation
+{ wint_t } :: import("./stdint");
+
+c_include(
+  "<wctype.h>",
+  iswalnum :
+    fn(wc : wint_t) -> int
 );
-MyFn :: (fn(ref(self) : MyObj) -> ref(i32));
