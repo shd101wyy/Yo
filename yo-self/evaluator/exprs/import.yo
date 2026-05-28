@@ -131,8 +131,17 @@ _build_module_val_from_env :: (fn(env : Environment) -> EvalValue)({
             .Some(v) => match(
               v.value,
               .Some(val) => {
-                names.push(String.from(v.name.as_str()));
-                values.push(val);
+                // Skip prelude operator / impl-method names (like bool.!, i32.MAX)
+                // that would cause "already exported" errors when spread-exporting
+                // multiple imports in flatten-eval mode. Real module exports never
+                // contain '.' — operator/impl names do.
+                name_str := v.name.as_str();
+                if(String.from(name_str).contains(String.from(".")), {
+                  // skip — prelude operator binding, not a module export
+                }, {
+                  names.push(String.from(name_str));
+                  values.push(val);
+                });
               },
               .None => ()
             ),
