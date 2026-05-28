@@ -23,7 +23,7 @@ open(import("std/string"));
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_some_t } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -173,12 +173,22 @@ evaluate_c_include :: (
     env.input_string = result.env.input_string;
     // NOTE: TypeScript sets is_extern/"c" and cInclude/externName on the type here.
     // yo-self skips that mutation — TypeValue has no such fields (codegen-only metadata).
+    // If the field type is Type (TypeUni(0)), this is a type declaration (e.g. time_t : Type).
+    // Create a SomeType placeholder so the identifier can be used in type expressions.
+    (field_val : EvalValue) = match(
+      result.field_type,
+      .TypeUni(level) => cond(
+        (level == usize(0)) =>.TypeVal(Box(TypeValue)(t_some_t(result.label.clone(), usize(0)))),
+        true => create_unknown_val_with_name(result.field_type, result.label.clone())
+      ),
+      _ => create_unknown_val_with_name(result.field_type, result.label.clone())
+    );
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
       env,
       String.from(result.label.as_str()),
       result.field_type,
-      Option(EvalValue).Some(create_unknown_val_with_name(result.field_type, String.from(result.label.as_str()))),
+      Option(EvalValue).Some(field_val),
       true,
       // is_compile_time_only
       false,
