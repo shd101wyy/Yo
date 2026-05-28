@@ -535,6 +535,14 @@ run_check :: (
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
   std_path := resolve_std_path();
+  // Pre-load the prelude first so g_cached_prelude_env is a
+  // clean prelude-only environment, not polluted by the first
+  // file's own definitions. Only do this for multi-file checks.
+  (is_multi_file : bool) = !(files.len() == usize(1));
+  if(is_multi_file && g_cached_prelude_env.is_none(), {
+    prelude_path := `${std_path.as_str()}/prelude.yo`;
+    check_single_file(prelude_path, std_path.clone(), io, exn);
+  });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   total := files.len();
