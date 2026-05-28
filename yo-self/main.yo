@@ -167,7 +167,7 @@ extract_test_body :: (fn(expr : AstExpr) -> Option(AstExpr))(
 /// Normalize an import path: append `.yo` if not already present.
 normalize_import_path :: (fn(path_str : str) -> String)(
   cond(
-    (String.from(path_str).ends_with(String.from(".yo"))) => String.from(path_str),
+    (String.from(path_str).ends_with(String.from(".yo")) || String.from(path_str).ends_with(String.from(".test.yo"))) => String.from(path_str),
     true => `${path_str}.yo`
   )
 );
@@ -342,7 +342,7 @@ _walk_check_dir :: (
             });
           },
           .File => {
-            if(entry.name.ends_with(String.from(".yo")), {
+            if(entry.name.ends_with(String.from(".yo")) || entry.name.ends_with(String.from(".test.yo")), {
               out.push(full);
             });
           },
@@ -371,7 +371,7 @@ collect_check_files :: (
   meta := io.await(metadata(Path.new(path_str.clone()), io), IoExn(io : io, exn : exn));
   cond(
     meta.is_file() => {
-      if(path_str.ends_with(String.from(".yo")), {
+      if(path_str.ends_with(String.from(".yo")) || path_str.ends_with(String.from(".test.yo")), {
         out.push(path_str.clone());
       });
     },
