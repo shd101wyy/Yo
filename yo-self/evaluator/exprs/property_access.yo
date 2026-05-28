@@ -461,6 +461,54 @@ evaluate_property_access :: (
       ),
       .None => t_unit()
     );
+    // --- TypeVal + primitive (Int/Float/Usize/Isize/Bool/C-types) --------
+    // `impl(usize, MAX : ...)`, `impl(i32, MIN : ...)`, etc. register
+    // their fields in the trait-method registry keyed by the synthetic
+    // primitive ids (see `type_id_or_empty`). Look them up here so
+    // expressions like `usize.MAX` resolve to the registered value.
+    // None of the specific `is_*_type` branches below match primitives,
+    // so without this path the lookup falls through to the runtime
+    // method-dispatch slow path and the comptime value is lost.
+    if(
+      ast_expr_is_atom(property_expr) &&
+      !(is_enum_type(type_val_inner)) &&
+      !(is_struct_type(type_val_inner)) &&
+      !(is_union_type(type_val_inner)) &&
+      !(is_module_type(type_val_inner)) &&
+      !(is_some_type(type_val_inner))
+    , {
+      prim_type_id := type_id_or_empty(type_val_inner);
+      if(prim_type_id != String.from(""), {
+        prim_prop_name := ast_expr_token(property_expr).value;
+        prim_methods := get_type_trait_methods_by_name(prim_type_id, prim_prop_name);
+        if(prim_methods.len() > usize(0), {
+          (pm_idx : usize) = usize(0);
+          (pm_done : bool) = false;
+          while((pm_idx < prim_methods.len()) && !(pm_done), {
+            match(
+              prim_methods.get(pm_idx),
+              .Some(pm) => match(
+                pm.value,
+                .Some(pmv) => {
+                  out_prim := new_expr_info(env, pm.ty);
+                  out_prim.value = Option(EvalValue).Some(pmv);
+                  out_prim.is_accessing_property = Option(bool).Some(true);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_prim);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_prim);
+                  pm_done = true;
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            pm_idx = (pm_idx + usize(1));
+          });
+          if(pm_done, {
+            return(expr);
+          });
+        });
+      });
+    });
     // --- TypeVal + EnumT --------------------------------------------------
     if(is_enum_type(type_val_inner), {
       if(!(ast_expr_is_atom(property_expr)), {
