@@ -36,7 +36,7 @@ open(import("std/fmt"));
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_some_t, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
@@ -725,15 +725,22 @@ evaluate_function_parameter :: (
       // Use raw evaluator path so throws (e.g. propagated from
       // nested type evaluations) reach the caller's exn cleanly
       // instead of via the panic wrapper.
+      saved_expected := ctx.expected_type;
+      ctx.expected_type = match(
+        param_type,
+        .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(pt, env_mut)),
+        .None => saved_expected
+      );
       evaluated_dve := evaluate_expression_raw(dve, env_mut, ctx, exn);
+      ctx.expected_type = saved_expected;
       info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dve));
       match(
         info_opt,
         .Some(info) => {
-      env_mut.frames = info.env.frames;
-      env_mut.module_path = info.env.module_path;
-      env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-      env_mut.input_string = info.env.input_string;
+          env_mut.frames = info.env.frames;
+          env_mut.module_path = info.env.module_path;
+          env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+          env_mut.input_string = info.env.input_string;
           dv_val_opt := info.value;
           // Coerce comptime types (e.g. comptime_string) to their runtime
           // equivalents when the param has an explicit annotation. Mirrors
@@ -2895,12 +2902,31 @@ evaluate_function_type :: (
   (return_label : Option(String)) = Option(String).None;
   (is_return_comptime_only : bool) = false;
   (is_return_unquote : bool) = false;
+  (is_return_type_ref : bool) = false;
   (return_type_expr : AstExpr) = return_expr;
   // -> (ret : i32) or -> (comptime(ret) : i32) or -> (unquote(ret) : Expr)
   if(ast_expr_is_fn_call_of(return_type_expr, ":",.Some(usize(2))), {
     ret_args := _fn_call_args(return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     return_type_expr = match(ret_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+    // ref(name) : T — return label ref (mirrors TS lines 2380-2410)
+    if(ast_expr_is_fn_call_of(rl_expr, BK_REF, Option(usize).None), {
+      r_ref_args := _fn_call_args(rl_expr);
+      if(!(r_ref_args.len() == usize(1)), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(rl_expr),
+              `Expected one argument for "ref" in return label, got ${r_ref_args.len()}`,
+              false,
+              .None
+            )
+          )
+        );
+      });
+      rl_expr = match(r_ref_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      is_return_type_ref = true;
+    });
     // comptime modifier
     if(ast_expr_is_fn_call_of(rl_expr, BK_COMPTIME, Option(usize).None), {
       is_return_comptime_only = true;
@@ -2983,6 +3009,24 @@ evaluate_function_type :: (
     return_label =.Some(ast_expr_token(rl_expr).value);
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
+    // Unwrap ref(T) before comptime/unquote — ref is outermost.
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+      rr_args := _fn_call_args(return_type_expr);
+      if(!(rr_args.len() == usize(1)), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(return_type_expr),
+              `Expected one argument for "ref" return slot, got ${rr_args.len()}`,
+              false,
+              .None
+            )
+          )
+        );
+      });
+      is_return_type_ref = true;
+      return_type_expr = match(rr_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    });
     if(ast_expr_is_fn_call_of(return_type_expr, BK_COMPTIME, Option(usize).None), {
       is_return_comptime_only = true;
       ct_args2 := _fn_call_args(return_type_expr);
@@ -3046,6 +3090,37 @@ evaluate_function_type :: (
         )
       );
     });
+  });
+  // Unwrap ref(T) in return type slot (mirrors TS lines 2492-2509).
+  // ref(T) is only legal at the outermost position of a return slot.
+  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+    rt_args := _fn_call_args(return_type_expr);
+    if(!(rt_args.len() == usize(1)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(return_type_expr),
+            `Expected one argument for "ref" return slot, got ${rt_args.len()}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    if(is_return_unquote, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(return_type_expr),
+            `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    is_return_type_ref = true;
+    return_type_expr = match(rt_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   });
   // Evaluate return type expression
   prev_eval_fn := ctx.is_evaluating_function_type;

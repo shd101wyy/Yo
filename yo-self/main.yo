@@ -399,7 +399,12 @@ check_single_file :: (
   // Yo's `->` rule), so we can't print here — the caller logs the
   // file's pass/fail status from the bool return.
   local_exn := Exception(
-    throw : ((_err) -> unwind(false))
+    throw : (
+      (err) -> {
+        eprintln(`check: error in: ${err.to_string()}`);
+        unwind(false)
+      }
+    )
   );
   println(`check: parsing ${input_path}`);
   src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
