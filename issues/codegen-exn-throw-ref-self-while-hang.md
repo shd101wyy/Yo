@@ -32,24 +32,33 @@ all `ref(self)` methods on the `Parser` object.
 
 ## Confirmed working patterns
 
-| Pattern                                           | Result |
-| ------------------------------------------------- | ------ |
-| `cond(cond1 => val1, true => val2)`               | Works  |
-| `return(...)` from `cond` branch                  | Works  |
-| `==` comparison (`next.kind == TokenKind.RParen`) | Works  |
-| `!=` / assignment (`:=`, `=`)                     | Works  |
-| `self.skip_ws_fwd(idx)`                           | Works  |
+| Pattern                                  | Result                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------- |
+| `cond`                                   | Works (generateCondExpression has proper C codegen)                             |
+| `if`                                     | **Works** (verified in C output — generates correct if/else C code with return) |
+| `return(...)` from `cond` or `if` branch | Works                                                                           |
+| `==` comparison                          | Works                                                                           |
+| `self.skip_ws_fwd(idx)`                  | Works                                                                           |
 
-## Fix direction
+## Updated root cause
 
-Investigate the TS codegen for:
+Initial diagnosis pointed to `if` codegen, but C-level verification shows
+`if` IS correctly generated. The trailing comma hang was actually caused by
+not skipping whitespace between comma and RParen — not an `if` codegen bug.
+The fix uses `self.skip_ws_fwd` + `cond` which works correctly.
 
-1. `src/codegen/exprs/other-fn-call.ts` — how `if` is compiled vs `cond`
-2. `src/codegen/exprs/generation.ts` — how while loops in `ref(self)` methods
-   interact with effect escape checks
-3. Possible issue: `ref(self)` methods use function pointers or `self` is
-   passed as a pointer, and the codegen for control flow in this context
-   generates incorrect C.
+The REAL remaining issue is: `exn.throw(dyn(make_parse_error(...)))` inside
+`cond` branches of `while(runtime(true))` loops in `ref(self)` methods.
+The `__yo_effect_escaped` flag IS set by the handler, and IS checked by
+the callers, but the propagation chain may have a gap at some level,
+or `__yo_effect_escaped` may carry a stale value from a previous operation.
+
+## Next steps
+
+1. Check if `__yo_effect_escaped` is reset to 0 before parser method calls
+2. Add verbose tracing of `__yo_effect_escaped` at each call level
+3. Investigate `cond` -> C codegen for `__yo_effect_escaped` checks after
+   each expression within a cond branch
 
 ## Workaround (applied)
 
