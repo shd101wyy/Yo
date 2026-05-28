@@ -27,7 +27,9 @@ open(import("std/fmt"));
 { ExprInfoTable } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
-{ Environment } :: import("./env.yo");
+{ Environment, clone_env } :: import("./env.yo");
+// Cached prelude env — populated on first check, reused thereafter.
+(g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
 { EvalContext, eval_context_new } :: import("./evaluator/context.yo");
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
@@ -406,19 +408,22 @@ check_single_file :: (
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
-  // Only load prelude dependencies for non-prelude files
-  (is_prelude : bool) = input_path.ends_with(String.from("prelude.yo"));
-  if(!(is_prelude), {
-    prelude_literal := String.from("prelude.yo");
-    collect_module_deps(
-      prelude_literal.as_str(),
-      std_path.as_str(),
-      std_path.as_str(),
-      visited,
-      dep_exprs,
-      io,
-      local_exn
-    );
+  (has_cached : bool) = g_cached_prelude_env.is_some();
+  // Only load prelude dependencies if not cached
+  if(!(has_cached), {
+    (is_prelude : bool) = input_path.ends_with(String.from("prelude.yo"));
+    if(!(is_prelude), {
+      prelude_literal := String.from("prelude.yo");
+      collect_module_deps(
+        prelude_literal.as_str(),
+        std_path.as_str(),
+        std_path.as_str(),
+        visited,
+        dep_exprs,
+        io,
+        local_exn
+      );
+    });
   });
   println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
   input_base_dir := match(
@@ -478,7 +483,10 @@ check_single_file :: (
     );
   });
   println(`check: collected ${all_exprs.len().to_string()} exprs total (deps + body); registering evaluator`);
-  env := Environment.new(input_path.clone());
+  env := cond(
+    has_cached => clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(String.from("")))),
+    true => Environment.new(input_path.clone())
+  );
   ctx := eval_context_new(std_path.clone(), input_path.clone());
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
@@ -490,6 +498,10 @@ check_single_file :: (
     local_exn
   );
   println(`check: ${input_path} — evaluator OK`);
+  // Cache the prelude env for subsequent files
+  if(!(has_cached), {
+    g_cached_prelude_env = Option(Environment).Some(env);
+  });
   true
 });
 /// Run the `check` subcommand — evaluator-only.
