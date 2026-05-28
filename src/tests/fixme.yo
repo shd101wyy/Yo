@@ -1,41 +1,45 @@
-// Minimal repro for issues/codegen-exn-throw-ref-self-while-hang.md:
-// When an Exception is locally bound and passed to a function that uses
-// exn.throw + handler-unwind, the install-point should clear
-// __yo_effect_escaped, but for non-evidence calls it propagates instead.
-open(import("std/string"));
-open(import("std/error"));
-open(import("std/fmt"));
+// Minimal repro for issues/codegen-forall-resume-handler-stub.md:
+// forall ctl-handler stub emits `__yo_effect_escaped = 1; return zero;`
+// even when the source body is `return(resume_val)` (resume, not unwind).
 
-MyErr :: object(msg : String);
-impl(MyErr, ToString(to_string : ((self) -> `my err`)));
-impl(MyErr, Error());
+MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+  struct(
+    throw : (ctl(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+  )
+);
 
-// Function takes Exception by value and throws inside.
-inner_throws :: (fn(exn : Exception) -> bool)({
-  exn.throw(dyn(MyErr(msg : `boom`)));
-  true
-});
+safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
+  cond(
+    (x < 0) => exn.throw(x, i32(0)),
+    true => x
+  )
+);
 
-// Install point: this function binds `local_exn` and calls inner_throws.
-// The unwind in local_exn.throw discards continuation and returns false.
-call_with_local :: (fn() -> bool)({
-  local_exn := Exception(throw : ((_e) -> unwind(false)));
-  _r := inner_throws(local_exn);
-  true
+find_first_positive :: (fn() -> i32)({
+  counter := Box(i32)(0);
+  exn := MyException(i32)(
+    throw : (
+      (val, resume_val) -> {
+        return(resume_val);
+      }
+    )
+  );
+  while(runtime(counter.* < i32(10)), {
+    result := safe_op(counter.* - i32(3), exn);
+    counter.* = (counter.* + 1);
+    cond(
+      (result > i32(0)) => {
+        return(result);
+      },
+      true => ()
+    );
+  });
+  return(i32(-(1)));
 });
 
 main :: (fn() -> unit)({
-  r1 := call_with_local();
-  // If exn correctly unwinds: r1 = false (the unwind value).
-  // If bug: r1 = (bool){0} = false from propagate-return, BUT __yo_effect_escaped
-  // is left set, causing the assert(...) call below to short-circuit and main
-  // to exit without reporting the assertion failure.
-  println(`r1 = ${r1.to_string()}`);
-  // This second call should run normally, but if __yo_effect_escaped is stale,
-  // the second call may misbehave.
-  r2 := call_with_local();
-  println(`r2 = ${r2.to_string()}`);
-  assert(r1 == false, "r1 should be false");
-  assert(r2 == false, "r2 should be false");
+  result := find_first_positive();
+  // counter: 0→-3→0, 1→-2→0, 2→-1→0, 3→0, 4→1>0 → return 1
+  assert(result == i32(1), "should find 1 after resume");
 });
 export(main);

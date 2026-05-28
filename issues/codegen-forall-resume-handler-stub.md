@@ -1,6 +1,6 @@
 # Codegen: forall ctl-handler stub treats resume as unwind
 
-**Status:** Open
+**Status:** Fixed
 
 ## Symptom
 
@@ -58,24 +58,32 @@ resume in while loop"_ now aborts with a real assertion failure
 (`result == i32(1)` is `false` because `result == 0`, the propagated
 zero from the stub).
 
-## Sketch of a fix
+## Fix
 
-The stub generator at `src/codegen/functions/generation.ts:349`
-(`if (value.isEffectRecordMember) { ... }`) needs to distinguish:
+The stub generator in `src/codegen/functions/generation.ts` now walks
+`value.body` and distinguishes the two cases:
 
-- Bodies that unwind (use `unwind(...)`) → keep the existing stub
+- `bodyHasUnwind(body)` → keep the previous unwind stub
   (`__yo_effect_escaped = 1; return (T){0};`).
-- Bodies that only resume (use `return(<atom>)` matching a parameter
-  name) → emit `return <that_param>;` with no flag write.
+- Otherwise, `getResumeReturnParam(body, paramLabels)` looks for a
+  `return(<atom>)` (inside `begin(...)` if present, skipping the
+  trailing unit terminator) where the atom names a parameter. If
+  found, the stub becomes `return <that_param>;` with no flag write.
+- Conservative fallback to the unwind stub when neither pattern
+  matches — preserves the previous behaviour for any shape this
+  detector doesn't recognise.
 
-The body's control-flow flags (`body.$?.controlFlow.unwind` /
-`body.$?.controlFlow.return`) already differentiate these — provided
-they get populated for the deferred body. If not, walk the body for an
-`unwind(...)` call.
+`body.$?.controlFlow.unwind` was considered but isn't reliable here:
+forall handler bodies whose stub gets emitted are deferred, so the
+`.$` metadata on sub-expressions may be unpopulated. Walking the AST
+for the `unwind`/`return` keywords is robust against that.
 
-## Workaround
+## Verification
 
-None applied. The failing test passes when the install-point fix is
-reverted, but that re-introduces the parser bug fixed by
-`issues/codegen-exn-throw-ref-self-while-hang.md`. Leaving the test
-failing is the smaller cost while the stub generator is corrected.
+The previously failing
+`tests/algebraic_effects.test.yo` →
+_"Struct-record effect with forall handler — early return after
+resume in while loop"_ now passes. The full algebraic effects suite
+goes from 70/71 to 71/71 passing. The broader codegen tests are
+unaffected — remaining failures (iterator/BTreeMap/HashMap combinator
+hangs and aborts) are pre-existing and reproduce on `develop`.

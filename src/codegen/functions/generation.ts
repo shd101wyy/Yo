@@ -211,6 +211,62 @@ function bodyHasExplicitReturn(expr: Expr): boolean {
 }
 
 /**
+ * True if the expression tree contains an `unwind(...)` call anywhere.
+ * Used by the `isEffectRecordMember` stub generator to distinguish
+ * unwind-only handlers (set the escape flag, return zero) from resume
+ * handlers (no escape flag, just return the resume value).
+ */
+function bodyHasUnwind(expr: Expr): boolean {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) {
+    return true;
+  }
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of (expr as FnCallExpr).args) {
+      if (bodyHasUnwind(arg)) return true;
+    }
+    if (bodyHasUnwind((expr as FnCallExpr).func)) return true;
+  }
+  return false;
+}
+
+/**
+ * If the body returns a single parameter via `return(<atom>)`, return
+ * that parameter name. Otherwise return undefined. Used by the
+ * `isEffectRecordMember` stub generator to emit `return <param>;` for
+ * trivial resume handlers like `(val, resume_val) -> return(resume_val)`.
+ *
+ * Begin-block bodies are unwrapped — the parser appends a unit `()`
+ * terminator, so we scan all begin args (not just the last) for the
+ * actual `return(...)`. Bodies that aren't begin are checked directly.
+ *
+ * Returns undefined for any shape that isn't a single direct return of
+ * a parameter atom — callers fall back to the unwind stub in that case.
+ */
+function getResumeReturnParam(
+  expr: Expr,
+  paramLabels: Set<string>
+): string | undefined {
+  // Collect candidate return calls: scan begin args (terminator `()`
+  // ends up as the last arg), otherwise just the expression itself.
+  const candidates: Expr[] = exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
+    ? (expr as FnCallExpr).args.slice()
+    : [expr];
+  let found: string | undefined;
+  for (const candidate of candidates) {
+    if (!exprIsFunctionCallOf(candidate, BuiltinKeywords.return)) continue;
+    const returnArgs = (candidate as FnCallExpr).args;
+    if (returnArgs.length !== 1) return undefined;
+    const returnArg = returnArgs[0]!;
+    if (!exprIsAtom(returnArg)) return undefined;
+    const atomName = returnArg.token.value;
+    if (!paramLabels.has(atomName)) return undefined;
+    if (found && found !== atomName) return undefined; // multiple distinct returns
+    found = atomName;
+  }
+  return found;
+}
+
+/**
  * Generate all collected functions
  */
 export function generateAllFunctions(context: FunctionGenerationContext): void {
@@ -356,14 +412,44 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       if (hasRegisteredSpecs || isUnspecializedForallWithReturn) {
         const proto = generateFunctionPrototype(value.type, cName, context);
         const returnTypeStr = getTypeString(value.type.return.type, context);
-        const returnStmt = isUnitType(value.type.return.type)
-          ? `return;`
-          : returnTypeStr === "void"
-            ? `return;`
-            : `return (${returnTypeStr}){0};`;
+        // Distinguish unwind from resume:
+        //   - body contains `unwind(...)` → unwind handler. Set the
+        //     escape flag so the install site can read __yo_unwind_value.
+        //   - body is just `return(<param>)` → resume handler. Return
+        //     the named parameter, no flag — the caller of exn.throw
+        //     resumes normally with the value.
+        //   - anything else → conservative fallback to the unwind stub.
+        // See issues/codegen-forall-resume-handler-stub.md.
+        const body = value.body;
+        const isUnwindBody = !!body && bodyHasUnwind(body);
+        const paramLabels = new Set(
+          value.type.parameters
+            .map((p) => p.label)
+            .filter((l): l is string => !!l)
+        );
+        const resumeParam =
+          !isUnwindBody && !!body
+            ? getResumeReturnParam(body, paramLabels)
+            : undefined;
         context.emitter.emitLine(`static inline ${proto} {`);
-        context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
-        context.emitter.emitLine(`  ${returnStmt}`);
+        if (resumeParam !== undefined) {
+          const cParam = sanitizeForCIdentifier(resumeParam);
+          if (isUnitType(value.type.return.type) || returnTypeStr === "void") {
+            // Resume on a unit-returning ctl: just fall through.
+            context.emitter.emitLine(`  (void)${cParam};`);
+            context.emitter.emitLine(`  return;`);
+          } else {
+            context.emitter.emitLine(`  return ${cParam};`);
+          }
+        } else {
+          const returnStmt = isUnitType(value.type.return.type)
+            ? `return;`
+            : returnTypeStr === "void"
+              ? `return;`
+              : `return (${returnTypeStr}){0};`;
+          context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
+          context.emitter.emitLine(`  ${returnStmt}`);
+        }
         context.emitter.emitLine(`}`);
         continue;
       }
