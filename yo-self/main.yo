@@ -492,6 +492,11 @@ check_single_file :: (
     has_cached => clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(String.from("")))),
     true => Environment.new(input_path.clone())
   );
+  // Ensure env.module_path reflects the current file, not the cached prelude's path,
+  // so relative imports (e.g. "./stdint") resolve against the correct directory.
+  if(has_cached, {
+    env.module_path = input_path.clone();
+  });
   ctx := eval_context_new(std_path.clone(), input_path.clone());
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
