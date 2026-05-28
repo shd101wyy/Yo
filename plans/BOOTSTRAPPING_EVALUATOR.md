@@ -94,8 +94,11 @@ write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
 
 **Headline number:** `yo-self-bin check ./std` is currently at **44/96**
 files passing `evaluator OK` (up from 0/96 at the start of the session).
-The remaining 51 all hit the same downstream gap (spread-export of
-imported modules in multi-file mode — see "Next gap" below).
+The remaining 51 now fail with `Element "bool.!" is already exported`
+— a deeper symptom of `_build_module_val_from_env` returning the
+whole env instead of just the imported file's exports. The
+spread-export type-check is unblocked but exposed the env-scoped
+module-value problem (see "Active blocker" below).
 
 **Fixes landed this session:**
 
@@ -132,52 +135,54 @@ multi-file directory checks` (`898f12ad`), and
   `Fix evaluator: ref return type, expected_type for defaults, error
 reporting` (`48a2d6f9`).
 
-#### Next gap — spread-export of imported modules
+- **Global AstExpr ids (`354b235b`).**
+  Each Parser instance started its `next_expr_id` at 0, so file A's
+  expr id N and file B's expr id N collided in the per-ctx
+  `expr_info_table`. In multi-file `check`, the dep file's `i32(7)`
+  at id N would silently overwrite the user file's
+  `import("./...")` at id N, so the spread-export read back
+  `(ty=i32, value=ModuleVal)` and rejected with
+  `Expected struct type for export, got i32`. Switched to a
+  per-process monotonic `g_next_global_expr_id`. Verified via 3-stage
+  diagnostic: import-time saw `ty=ModuleT`, bind-time saw `ty=i32`,
+  same id — definitive id-collision evidence. After this fix the
+  spread-export advances past the type-check.
 
-After the two fixes above, every remaining `./std` failure is the same
-shape:
+#### Active blocker — `_build_module_val_from_env` returns the whole env
+
+The remaining 51 `./std` failures now hit a different shape:
 
 ```
-check: error in: Error: Expected struct type for export, got:
-unit
-
-std/string:6:7:
-  ...(_rune),
-        ^
+check: error in: Error: Element "bool.!" is already exported in the module.
 ```
 
-The pattern is:
+Root cause: when `evaluate_import` doesn't have `ctx.load_module`
+registered (which is the case for `run_check`), it synthesises the
+module value by walking _all_ env frames via
+`_build_module_val_from_env`. That returns ~1380 names (prelude +
+every dep evaluated so far). Spread-exporting that — and especially
+spread-exporting multiple imports like
+`export(...(_rune), ...(_string), ...(_string_builder))` in
+`std/string/index.yo` — trips the duplicate-label check on the second
+spread because the prelude bindings (e.g. `bool.!` from
+`impl(bool, LogicalNot((!) : ...))`) are already in `field_labels`.
 
-```rust
-_rune :: import("./rune.yo");
-export(...(_rune));
-```
+Attempted workaround: make the spread loop idempotent (silently skip
+duplicates instead of erroring). It worked on the minimal repro but
+caused a cascade of "Module not found" failures during `./std`
+because subsequent files' deps started resolving relative paths
+against the wrong base directory. Reverted.
 
-`evaluate_import` builds a `ModuleVal` from the current env via
-`_build_module_val_from_env` when no module loader is registered (which
-is the case for `run_check`). In single-file mode every dep is already
-in env (deps are flattened into `all_exprs`), so the synthesised module
-value carries the right names. In multi-file mode the dep's exprs are
-also prepended to `all_exprs`, so by the time `import("./rune.yo")`
-is evaluated they ARE in env — but the binding for `_rune` is then
-seeing `unit` instead of the ModuleVal at export time.
+The right fix is bigger: either
 
-Likely causes (need to verify):
+1. Track per-file binding sets so `_build_module_val_from_env` can
+   filter to just the imported file's exports.
+2. Port (a stub of) `module-manager.ts` so `ctx.load_module` is
+   populated for `run_check` and `evaluate_import` takes the proper
+   per-file path.
 
-1. `_build_module_val_from_env(env)` walks every frame, so the
-   "module" it returns is the _entire_ visible env (prelude + all
-   deps) rather than just the imported file's exports. The export
-   spread then re-spreads everything, which the type check correctly
-   rejects.
-2. The binding `_rune :: import(...)` is happening in a frame that
-   gets discarded between `::` evaluation and `export` evaluation.
-3. The import's `out_info.value` is `Some(ModuleVal)` but the
-   destructuring/binding pathway is overwriting it with the
-   destructured-unit value somewhere.
-
-Pursuing (1) first: track export-source-file ids through `import` and
-filter the synthesised `ModuleVal` to just the names declared in the
-import target.
+(2) is the closer-to-TS approach. (1) is faster but leaves yo-self
+diverged from the TS module model.
 
 ### Strategy: strict 1-to-1 port
 
@@ -317,10 +322,13 @@ done | tee /tmp/yoself_drift.txt | wc -l
 
 Remaining work, in order of expected impact:
 
-1. **Spread-export of imported modules (current blocker).**
-   `export(...(_mod))` where `_mod :: import("./foo.yo")` fails with
-   `Expected struct type for export, got unit` for the 51 files that
-   currently fail. See the _Next gap_ note above.
+1. **`_build_module_val_from_env` returning the whole env (current
+   blocker).** Multi-file `check` has no `ctx.load_module`, so each
+   `import("./x.yo")` synthesises a ModuleVal from the entire visible
+   env. Spread-exporting that trips duplicate-label errors on
+   `bool.!`, `i32.+`, etc. — bindings the prelude added that show up
+   in every synthesised module. See _Active blocker_ above. The
+   AstExpr-id collision from `354b235b` was a separate prerequisite.
 2. **Cross-module isolation.** yo-self currently uses a
    flatten-all-exprs shortcut instead of TS's per-module sub-evaluation
    - caching (`src/evaluator/index.ts`, `module-manager.ts`). After the
