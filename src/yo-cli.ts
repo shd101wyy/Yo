@@ -85,7 +85,14 @@ function walkCheckDir(dir: string, out: string[]): void {
       ) {
         walkCheckDir(full, out);
       }
-    } else if (entry.isFile() && entry.name.endsWith(".yo")) {
+    } else if (
+      entry.isFile() &&
+      entry.name.endsWith(".yo") &&
+      // Skip dot-prefixed `.yo` files — these are auto-generated, not-yet-
+      // cleaned-up test-batch artifacts (`.yo_test_batch_<ts>_<rand>.yo`),
+      // not source files, and shouldn't be type-checked.
+      !entry.name.startsWith(".")
+    ) {
       out.push(full);
     }
   }

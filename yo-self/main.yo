@@ -461,7 +461,10 @@ _walk_check_dir :: (
             });
           },
           .File => {
-            if(entry.name.ends_with(String.from(".yo")) || entry.name.ends_with(String.from(".test.yo")), {
+            // Skip dot-prefixed `.yo` files — auto-generated, not-yet-
+            // cleaned-up test-batch artifacts (`.yo_test_batch_*.yo`), not
+            // source. Mirrors `walkCheckDir` in `src/yo-cli.ts`.
+            if((entry.name.ends_with(String.from(".yo")) || entry.name.ends_with(String.from(".test.yo"))) && !(entry.name.starts_with(String.from("."))), {
               out.push(full);
             });
           },
