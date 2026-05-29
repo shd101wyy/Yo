@@ -496,11 +496,24 @@ cluster by root cause (first-error sampling):
    `check ./tests` count is still 8/170 — the assert _layer_ is cleared
    (files now reach their _next_ gap), but the corpus has deeper layered
    gaps (below), so first-error progress doesn't yet flip files to green.
-2. **Empty-type unification** — `Cannot unify incompatible types: "" and
-"comptime_string"` (`error.test.yo`, `fmt.test.yo`). Some `TypeValue`
-   renders to the empty string via `type_to_string` (also seen latently
-   in Phase 1's `create_str_type` path). Needs the producing site
-   identified.
+2. **Template-string `to_string` dispatch** — `Cannot unify incompatible
+types: "<struct:…>" and "comptime_string"` (`error.test.yo`,
+   `fmt.test.yo`, and any bare `` `text` ``). Traced: a backtick template
+   lowers (in both yo-self and TS) to `"text".to_string()` — i.e.
+   `("text".to_string)()`. The **hand-written** `("abc".to_string)()`
+   checks clean, but the **synthetic** form emitted by
+   `parse_template_string`/`make_ts_call` fails: its `to_string`-on-
+   `comptime_string` dispatch resolves to `String`'s method, whose `Self`
+   (a nameless `str`/`String` newtype struct) then fails to unify with the
+   `comptime_string` receiver. The expr-id collision in the synthetic
+   sub-exprs was fixed (unique `alloc_id`s) and `type_to_string` now
+   reveals empty-named structs, but those weren't the cause — the
+   single-literal case still fails. **Open:** the synthetic-token AST
+   takes a different method-resolution/coercion path than the identical
+   natural AST; next step is to instrument the `to_string` dispatch and
+   compare the receiver's resolved type+value (and the chosen method's
+   `Self`) for synthetic vs natural. High value — template strings are
+   pervasive in the test corpus.
 3. **Array length inference `Array(T, _)`** — explicitly unimplemented in
    the self-hosted compiler (`array.test.yo`): "Array length inference
    with `_` is not supported".
