@@ -257,6 +257,47 @@ export function isFlowableExpr(
     return true;
   }
 
+  // Pointer arithmetic: `base &+ offset` / `base &- offset` (only legal
+  // in `pragma(Pragma.AllowUnsafe)` files) yields a pointer into the SAME
+  // storage as `base`, displaced by an integer index. The result is
+  // flowable iff the base pointer is flowable — the offset is a plain
+  // integer and introduces no new storage root. Without this, an
+  // assignment like `result = .Some(data_ptr &+ i)` in a hand-written
+  // unsafe iterator (e.g. std/collections/hash_map.yo) is wrongly rejected
+  // even though `data_ptr` roots back to a `ref(self)` field.
+  if (
+    exprIsFunctionCallOf(call, "&+", 2) ||
+    exprIsFunctionCallOf(call, "&-", 2)
+  ) {
+    return isFlowableExpr(call.args[0]!, options);
+  }
+
+  // Enum/variant construction: `.Variant(args...)`. The callee is the
+  // variant selector `.Variant`, which is itself parsed as a 1-arg `.`
+  // call (`.(Variant)`) — i.e. `call.func` is a `.`/1 function call (or,
+  // defensively, a `.`-typed atom). The constructed value can only carry
+  // a raw pointer through its arguments, so it is flowable iff every
+  // argument whose own representation carries a raw pointer is flowable.
+  // Tag-only and numeric args can't smuggle a dangling reference, so they
+  // don't constrain flowability.
+  const isVariantCtor =
+    (exprIsFunctionCall(call.func) &&
+      exprIsFunctionCallOf(call.func as FnCallExpr, ".", 1)) ||
+    (exprIsAtom(call.func) && call.func.token.type === TokenType.Dot);
+  if (isVariantCtor) {
+    for (const a of call.args) {
+      const aType = a.$?.type;
+      if (
+        aType &&
+        typeRepresentationContainsRawPtr(aType) &&
+        !isFlowableExpr(a, options)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // R3: regular function call. The callee's return slot must be
   //     `ref(T)`, and every `ref`-typed argument must itself be
   //     flowable.

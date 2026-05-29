@@ -177,6 +177,17 @@ reassign_slice_same_scope :: (fn(s0 : Slice(i32)) -> usize)({
   cur = a;
   cur.len()
 });
+// Assigning a VARIANT that wraps a flowable slice is accepted — the
+// assignment-flowability check must traverse `.Some(...)` to the wrapped
+// value. Regression guard: without that traversal the variant ctor fell
+// into the function-call path (unresolvable) and was wrongly rejected,
+// breaking e.g. std/collections/hash_map.yo's `result = .Some(ptr &+ i)`
+// iterator (the pointer-arith form is exercised end-to-end by
+// derive_clone_complex.test.yo).
+reassign_option_slice_from_param :: (fn(s0 : Slice(i32)) -> usize)({
+  (cur : Option(Slice(i32))) =.Some(s0);
+  match(cur,.Some(s) => s.len(),.None => usize(0))
+});
 test("slice-flow assign: reassign from a parameter is accepted", {
   list := ArrayList(i32).new();
   list.push(i32(1));
@@ -195,6 +206,16 @@ test("slice-flow assign: reassign from a same-scope local is accepted", {
   match(
     list.as_slice(),
     .Some(s) => assert(reassign_slice_same_scope(s) == usize(3), "same-scope reassign keeps len"),
+    .None => panic("unexpected None")
+  );
+});
+test("slice-flow assign: assigning `.Some(flowable_slice)` is accepted", {
+  list := ArrayList(i32).new();
+  list.push(i32(7));
+  list.push(i32(8));
+  match(
+    list.as_slice(),
+    .Some(s) => assert(reassign_option_slice_from_param(s) == usize(2), "variant-wrapped slice keeps len"),
     .None => panic("unexpected None")
   );
 });
