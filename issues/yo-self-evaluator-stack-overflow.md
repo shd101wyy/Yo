@@ -36,13 +36,32 @@ shallow depth, with genuine evaluator-coverage gaps:
   `sys/unix.yo`, `net/tcp.yo`, `net/udp.yo`, `net/dns.yo`,
   `http/client.yo`, `http/index.yo`):
   `Expected bool type for "or" argument, got: platform == (Platform.Macos)`.
-  `platform` (`__yo_process_platform()`) and `Platform.Macos` are both
-  comptime strings, so `platform == Platform.Macos` is a comptime-string
-  `==`. yo-self's evaluator does not resolve that operator dispatch to a
-  comptime bool, so `||` rejects the non-bool operand. The crash (139)
-  is secondary: `_evaluate_expression_wrapper` prints the error and
-  unwinds with a `make_err_expr()` placeholder, and evaluation limps on
-  with that placeholder until a downstream access segfaults.
+
+  **Root cause (pinned):** comptime comparison operators produce a
+  `unit`-typed result instead of `bool`. Minimal repro:
+  `(r : bool) = ("a" == "a");` → `Incompatible types: Expected bool,
+Given unit`. This is NOT string-specific — `(i32(1) == i32(1)) ||
+(i32(1) == i32(1))` fails the same way. `==` (an operator-trait /
+  `Eq` dispatch) falls into the evaluator's unbound-operator-name
+  fallback in `evaluator/exprs/identifer_and_operator.yo`, which returns
+  `UnknownVal(t_unit())`; the call result therefore types as `unit`.
+  `cond` tolerates a non-`bool` condition, which is why a bare
+  `cond((a == b) => …)` passes — but `||`/`&&`
+  (`evaluator/builtins/and_or.yo`) and `bool`-typed bindings strictly
+  require `is_bool_type`, so they reject it. `platform` and
+  `Platform.Macos` are both comptime strings, so socket.yo's
+  `(platform == Platform.Macos) || (platform == Platform.Windows)`
+  hits exactly this.
+
+  The crash (139) is secondary: `_evaluate_expression_wrapper` prints the
+  error and unwinds with a `make_err_expr()` placeholder, and evaluation
+  limps on with that placeholder until a downstream access segfaults.
+
+  **Real fix:** port comptime operator-trait (`Eq`/`Ord`/…) dispatch so
+  comparison operators on comptime values resolve to their impl and type
+  as `bool`. Sizable evaluator-coverage work; would unblock all 9 files
+  at once.
+
 - **`build.yo`**: `evaluate_yo_build_functions: not yet implemented`.
 - **`env.yo`, `os/env.yo`, `fs/temp.yo`**:
   `Failed to import module "./libc/stdlib"`.
