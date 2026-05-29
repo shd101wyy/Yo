@@ -84,6 +84,15 @@ function unwrapBeginBlocks(expr: Expr): Expr {
  *    lifetime is bounded by its block, which is bounded by the local's
  *    frame, so the source can't go away before the borrow does). The
  *    strict R1 (ref-bound only) still applies elsewhere.
+ *  - `maxLocalFrameLevel`: refines `allowSameFrameLocal` with a scope
+ *    bound. A `=` reassignment (unlike `:=`) targets a binding that may
+ *    live in an *outer* block than the current one; a local source in an
+ *    *inner* block would then dangle when its block exits. The assignment
+ *    site passes the target binding's `frameLevel` here, and a same-frame
+ *    local is accepted only when its `frameLevel <= maxLocalFrameLevel`
+ *    (i.e. the source's scope encloses — outlives — the target's). When
+ *    unset, `allowSameFrameLocal` accepts any non-module local (the
+ *    `:=` binding-site semantics, where the new binding is innermost).
  *  - `allowParameterSource`: passed by the slice-flowability check
  *    (`plans/SLICE_FLOWABILITY.md`). Accepts a name reference whose
  *    binding is a parameter of the current function (any parameter,
@@ -102,6 +111,7 @@ export function isFlowableExpr(
     allowSameFrameLocal?: boolean;
     allowParameterSource?: boolean;
     allowComptimeSource?: boolean;
+    maxLocalFrameLevel?: number;
   } = {}
 ): boolean {
   // Strip any outer `begin(...)` wrapper(s). Single-expression
@@ -167,8 +177,20 @@ export function isFlowableExpr(
     // the borrow does. The strict R1 (ref-bound only) still applies
     // at function-return sites; only the `ref(name) := …` binding-
     // site call from `init-assignment.ts` passes `allowSameFrameLocal`.
+    //
+    // `maxLocalFrameLevel` (assignment site): the source local is only
+    // sound if its scope encloses the assignment target's — i.e. its
+    // frame level is no deeper than the target's. A deeper (inner-block)
+    // local would be freed when its block exits, dangling the slice
+    // stored in the outer-scope target. Fall through (don't hard-fail)
+    // so a binding that is also a parameter/comptime can still match.
     if (options.allowSameFrameLocal && !v.isModuleLevel) {
-      return true;
+      if (
+        options.maxLocalFrameLevel === undefined ||
+        v.frameLevel <= options.maxLocalFrameLevel
+      ) {
+        return true;
+      }
     }
     // R1'' (slice-flowability only): a parameter of the enclosing
     // function counts as flowable when the slice-flowability check

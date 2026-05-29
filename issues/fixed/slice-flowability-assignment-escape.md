@@ -1,6 +1,7 @@
 # Slice-flowability gap: borrowed `str`/`Slice` escapes via assignment to an outer-scope binding (use-after-free in safe code)
 
-**Status:** Open — confirmed memory-safety hole in safe code (no `pragma(Pragma.AllowUnsafe)`).
+**Status:** Fixed — flowability is now enforced at the `=` assignment
+boundary, not only at `return`. See "Fix" below.
 
 ## Summary
 
@@ -85,3 +86,29 @@ backing drops). Most real code returns owned `String`/`ArrayList` or uses
 slices within a single scope, so it is unlikely to be hit by accident — but
 the safety contract ("safe Yo code cannot express undefined behavior",
 `docs/en-US/MEMORY_SAFETY.md`) is violated, so it should be closed.
+
+## Fix
+
+Enforce flowability at the `=` reassignment site in
+`src/evaluator/exprs/assignment.ts`, mirroring the existing return-position
+check. After the RHS is evaluated, when the _target's_ type carries a raw
+pointer (`typeRepresentationContainsRawPtr` — owned `object` types like
+`String`/`ArrayList` are excluded), the RHS must be `isFlowableExpr` with
+the target binding's scope as the bound.
+
+The scope bound is the new `maxLocalFrameLevel` option on `isFlowableExpr`
+(`src/evaluator/types/flowability.ts`). `:=` binding sites pass
+`allowSameFrameLocal` _without_ a bound (the new binding is always
+innermost, so no inversion is possible). `=` reassignment passes the
+target binding's `frameLevel` as `maxLocalFrameLevel`: a same-frame local
+source is accepted only when `source.frameLevel <= target.frameLevel`
+(its scope encloses — outlives — the target's). Parameters, comptime
+values, and `ref`-bound names outlive the whole function and stay
+flowable; `unsafe(...)` still opts out in privileged files.
+
+Tests: `tests/slice_flowability.test.yo` — negatives (A) inner-block
+`str` escapes to outer binding and (B) the `Slice(i32)` variant via
+`comptime_expect_error`; positives reassigning from a parameter and from
+a same-scope local via runtime `test(...)`. `./std` passes 151/151;
+`ref_flowability`, `safe_user_code`, `safe_code_structural_gates`,
+`extern_unsafe_wrap` all pass.

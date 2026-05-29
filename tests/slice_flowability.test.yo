@@ -119,3 +119,82 @@ test("slice-flow: comptime-bound string literal flows out as `str`", {
   msg := comptime_str();
   assert(msg.len() == usize(5), "comptime-bound str keeps length");
 });
+// ─────────────────────────────────────────────────────────────────
+// Assignment-boundary flowability
+// (issues/slice-flowability-assignment-escape.md)
+//
+// Flowability is enforced at `=` reassignment too, not only at
+// `return`. A borrowed slice/`str` may only be assigned to a target
+// whose scope it outlives. A value borrowed from a *narrower* inner
+// block assigned to an *outer*-scope binding would dangle when the
+// inner block exits — a use-after-free reachable from safe code.
+// ─────────────────────────────────────────────────────────────────
+// ── (A) `str` borrowed from an inner-block `String`, assigned to an
+//        outer-scope `str` binding. REJECT — the String's buffer is
+//        freed at inner-block end, leaving `s` dangling.
+comptime_expect_error(
+  assign_escape_str :: (fn() -> unit)({
+    (s : str) = "";
+    {
+      x := `inner buffer that gets freed`;
+      s = x.as_str();
+    };
+    ()
+  })
+);
+// ── (B) Same shape with `Slice(i32)` borrowed from an inner-block
+//        `ArrayList`, assigned to an outer-scope `Slice` binding.
+//        REJECT — not `str`-specific; any raw-ptr-carrying value.
+comptime_expect_error(
+  assign_escape_slice :: (fn(seed : Slice(i32)) -> unit)({
+    (cur : Slice(i32)) = seed;
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(
+        inner.as_slice(),
+        .Some(sl) => sl,
+        .None => seed
+      );
+      cur = inner_slice;
+    };
+    ()
+  })
+);
+// ── Positive accept-path helpers (reassignment that is sound) ────
+// Reassigning from a parameter is fine — the caller's storage
+// outlives the call, so it outlives any binding in the callee.
+reassign_slice_from_param :: (fn(s0 : Slice(i32)) -> usize)({
+  (cur : Slice(i32)) = s0;
+  cur = s0;
+  cur.len()
+});
+// Reassigning from a same-scope local is fine — its scope encloses
+// (equals) the target's, so it cannot be freed first.
+reassign_slice_same_scope :: (fn(s0 : Slice(i32)) -> usize)({
+  (cur : Slice(i32)) = s0;
+  a := s0;
+  cur = a;
+  cur.len()
+});
+test("slice-flow assign: reassign from a parameter is accepted", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  match(
+    list.as_slice(),
+    .Some(s) => assert(reassign_slice_from_param(s) == usize(2), "param reassign keeps len"),
+    .None => panic("unexpected None")
+  );
+});
+test("slice-flow assign: reassign from a same-scope local is accepted", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  match(
+    list.as_slice(),
+    .Some(s) => assert(reassign_slice_same_scope(s) == usize(3), "same-scope reassign keeps len"),
+    .None => panic("unexpected None")
+  );
+});

@@ -46,9 +46,11 @@ import { allPathsUnwind } from "../../expr-traversal";
 import {
   convertComptimeTypeToRuntimeType,
   typeContainsRcType,
+  typeRepresentationContainsRawPtr,
   typeRequiresInference,
   typeToString,
 } from "../../types/utils";
+import { isFlowableExpr } from "../types/flowability";
 import { VUnit } from "../../unit-value";
 import { generateVarialeId } from "../../utils";
 import {
@@ -257,6 +259,42 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       });
     }
     env = rhs.$.env;
+
+    // Slice-flowability at the assignment boundary (plans/SLICE_FLOWABILITY.md;
+    // issues/slice-flowability-assignment-escape.md). When the target's type
+    // carries a raw pointer (a `Slice`/`str`/aggregate-thereof — owned `object`
+    // types like `String`/`ArrayList` are excluded by the predicate), the RHS
+    // must be rooted in storage that outlives the *target binding*. Otherwise
+    // `s = innerLocal.as_str()` would let the slice outlive its backing when
+    // the inner block exits — a use-after-free reachable from safe code.
+    //
+    // `:=` bindings are checked at the binding site (init-assignment) and the
+    // new binding is always innermost, so no scope inversion is possible there.
+    // `=` reassignment can target an *outer*-scope binding, so we pass the
+    // target's `frameLevel` as `maxLocalFrameLevel`: a local source is only
+    // accepted when its scope encloses the target's. Parameters, comptime
+    // values, and `ref`-bound names outlive the whole function and are always
+    // accepted. In privileged files the documented `unsafe(...)` wrap opts out
+    // (isFlowableExpr treats it as flowable).
+    if (typeRepresentationContainsRawPtr(variable.type)) {
+      if (
+        !isFlowableExpr(rhs, {
+          allowSameFrameLocal: true,
+          maxLocalFrameLevel: variable.frameLevel,
+          allowParameterSource: true,
+          allowComptimeSource: true,
+        })
+      ) {
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Assigning to '${variableName}' (type '${typeToString(
+            variable.type
+          )}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variableName}'. The assigned expression is not flowable:\n  ${exprToString(
+            rhs
+          )}\n\nThis would let the slice/pointer outlive its backing storage (e.g. a value borrowed from a narrower inner block assigned to an outer-scope binding) — a use-after-free.\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter; a 'comptime' constant or string literal; a local whose scope encloses '${variableName}'; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.\n\nFixes:\n  - Assign an owned type ('String', 'ArrayList') instead — heap-allocated, no lifetime concern.\n  - Bind the source so it outlives the target.\n  - Wrap unsafe construction in 'pragma(Pragma.AllowUnsafe);' + 'unsafe(...)' if you genuinely need the raw form.`,
+        });
+      }
+    }
 
     // Check if the LHS variable was consumed by the RHS (e.g., via own parameter).
     // This happens in patterns like `v = v.push(x)` where push takes own(self).
