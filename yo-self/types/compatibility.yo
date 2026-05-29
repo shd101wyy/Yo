@@ -15,7 +15,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag } :: import("./creators.yo");
-{ is_int_type, is_float_type } :: import("./guards.yo");
+{ is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -181,6 +181,47 @@ _compat_impl :: (
       return(false);
     });
     return(type_value_tag(actual) == type_value_tag(expected));
+  });
+  // --- SomeType vs DynType --------------------------------------------------
+  // A DynType is compatible with a SomeType parameter. If the SomeType has
+  // required traits (e.g. `Self <: ToString` introduced by a where-clause),
+  // each must be satisfied by some trait the DynType carries. This lets a
+  // `dyn(Error)` receiver match a `Self`-constrained `self` param when the
+  // dyn's required traits (incl. expanded supertraits) cover the constraint.
+  // Checked before the tag-mismatch guard since the tags differ.
+  // Mirrors `areTypesCompatible` (src/types/compatibility.ts:662-684).
+  if(is_some_type(actual) && is_dyn_type(expected), {
+    artt := match(
+      actual,
+      .SomeT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    drtt := match(
+      expected,
+      .DynT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    i := usize(0);
+    while(runtime(i < artt.len()), {
+      req := match(artt.get(i),.Some(v) => v,.None => TypeValue.Unit);
+      satisfied := false;
+      j := usize(0);
+      while(runtime(j < drtt.len()), {
+        dt := match(drtt.get(j),.Some(v) => v,.None => TypeValue.Unit);
+        if(recur(req, dt, false, visited), {
+          satisfied = true;
+        });
+        if(satisfied, {
+          break;
+        });
+        j = (j + usize(1));
+      });
+      if(!(satisfied), {
+        return(false);
+      });
+      i = (i + usize(1));
+    });
+    return(true);
   });
   // --- Tag mismatch ---------------------------------------------------------
   if(type_value_tag(actual) != type_value_tag(expected), {

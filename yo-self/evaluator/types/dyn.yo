@@ -239,7 +239,42 @@ evaluate_dyn_type :: (
     });
     i = (i + usize(1));
   });
-  // Phase 2aq deferred: self-constraint / supertrait expansion.
+  // Expand self-constraints (supertraits) from all required traits.
+  // e.g. if `Error` has `where(Self <: ToString)`, then `Dyn(Error)` must
+  // also carry `ToString` so a `dyn(Error)` value satisfies a `Self <:
+  // ToString`-constrained parameter. The loop re-reads `.len()` each
+  // iteration, so traits appended here are themselves expanded (BFS).
+  // Mirrors `src/evaluator/types/dyn.ts:88-104`.
+  qi := usize(0);
+  while(runtime(qi < required_traits.len()), {
+    cur_trait := match(required_traits.get(qi),.Some(t) => t,.None => t_i32());
+    scs := match(
+      cur_trait,
+      .TraitT(_, _, _, _, _, _, sc, _) => sc,
+      _ => ArrayList(TypeValue).new()
+    );
+    k := usize(0);
+    while(runtime(k < scs.len()), {
+      constraint := match(scs.get(k),.Some(t) => t,.None => t_i32());
+      cid := trait_id_for_dedup(constraint);
+      already := false;
+      m := usize(0);
+      while(runtime(m < required_ids.len()), {
+        eid := match(required_ids.get(m),.Some(s) => s,.None => String.from(""));
+        if(eid == cid, {
+          already = true;
+        });
+        m = (m + usize(1));
+      });
+      if(!(already), {
+        required_traits.push(constraint);
+        required_levels.push(usize(0));
+        required_ids.push(cid);
+      });
+      k = (k + usize(1));
+    });
+    qi = (qi + usize(1));
+  });
   // Phase 2aq deferred: function-name conflict check across required traits.
   // Phase 2aq deferred: reserved function-name check.
   // Phase 2aq deferred: addRcFunctionsToDynType ARC injection.

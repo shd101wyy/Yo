@@ -526,17 +526,40 @@ AnyError) = dyn(`x`)` failed (`Cannot unify "<String>" and
    return type was matched against the dyn and reached `synthesize_types`
    (tag mismatch). Fixed by evaluating the inner with a fresh `SomeT`
    carrying the dyn's traits (or cleared, when the outer expected isn't a
-   dyn), mirroring TS `evaluateDynValue`. std stays 151/151. **Next gap
-   (open):** dyn _method dispatch_ — `err.source()` on a `dyn(Error)`
-   receiver fails `Type mismatch for parameter "self"` (the trait
-   method's `Self`-constrained self param vs the `dyn` receiver). Related
-   but distinct subsystem.
+   dyn), mirroring TS `evaluateDynValue`. std stays 151/151.
+   5b. **dyn method dispatch — DONE.** `err.source()` on a `dyn(Error)`
+   receiver failed `Type mismatch for parameter "self": Expected Self :
+   ((to_string …)) Got dyn(Error)`. Two faithful-port gaps, both fixed:
+   (a) **supertrait expansion** — `evaluate_dyn_type`
+   (`yo-self/evaluator/types/dyn.yo`) had deferred the self-constraint
+   expansion, so `Dyn(Error)` carried only `[Error]`, not `[Error,
+   ToString]` (Error has `where(Self <: ToString)`). Ported the BFS over
+   `TraitT.self_constraints` (mirrors `src/evaluator/types/dyn.ts:88-104`).
+   (b) **SomeT-vs-Dyn compatibility** — `are_types_compatible`
+   (`yo-self/types/compatibility.yo`) rejected a `DynT` arg against a
+   `SomeT` param (the tag-mismatch guard fired before the structural
+   match). Added the `isSomeType(actual) && isDynType(expected)` rule
+   _before_ the tag guard: each of the SomeT's required traits must be
+   satisfied by some trait the dyn carries (mirrors
+   `src/types/compatibility.ts:662-684`). NB: the SomeT-binding/resolution
+   path (`get_value_of_some_type_from_env`) does **not** resolve this case
+   — the param's `Self` SomeT has `frame_level=3` but the callee env has
+   only 2 frames, so frame-keyed lookup misses; TS likewise relies on the
+   direct compat rule, not resolution. std stays 151/151; TS green.
+   **Next gap (open):** with dyn dispatch cleared, `error.test.yo`
+   advances to `Cannot unify "comptime_int" and "i32"` (a deeper
+   layered gap), then SIGSEGVs on the large file (same stack-depth crash
+   class as the 36 other big test files — pre-existing).
 6. **Misc per-feature gaps** — `closure.test.yo` (`Incompatible types`),
    `comptime.test.yo` (`Cannot unify f32 and unit`), `array_list.test.yo`
    (comptime-`while`), `arc.test.yo` (begin last-expr not evaluated),
    GADTs, HKTs, etc. (The test corpus has deep LAYERED gaps — each fix
-   advances files to their next error; per-file `check ./tests` is 11/170
-   after the template-string + dyn-coercion fixes.)
+   advances files to their next error; clearing the template-string,
+   dyn-coercion, and dyn-method-dispatch gaps moves the affected files to
+   their next error rather than to passing. Per-file `check ./tests` =
+   45/82 top-level files evaluator-OK, 0 clean failures, 37 SIGSEGV on
+   large files — the crash count is a pre-existing stack-depth class, not
+   regressed by these fixes.)
 
 The historically-tracked extracts below are a subset of #4:
 
