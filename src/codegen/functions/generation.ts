@@ -38,7 +38,7 @@ import {
   typeContainsSomeTypeForCodegenParam,
   typeToString,
 } from "../../types/utils";
-import { isTargetWindows } from "../../target";
+import { isTargetWindows, isTargetPosix } from "../../target";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -803,8 +803,67 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
       }
     }
 
-    // Emit main() header
-    emitter.emitLine(`
+    // On POSIX native targets, run the whole program body on a dedicated
+    // pthread with a large (1 GiB) stack instead of the OS main thread.
+    // The macOS main-thread stack is hard-capped at ~64 MiB, which the
+    // deeply-recursive comptime evaluator (notably yo-self checking heavy
+    // std files) overruns. A pthread stack is not bound by that cap, and
+    // the 1 GiB reservation is virtual-only (pages commit on touch), so it
+    // is cheap for ordinary programs.
+    //
+    // The async runtime's scheduler-init flag and task queue are
+    // thread-local, so the scheduler init, `__yo_user_main`, and
+    // `__yo_async_wait_all` must all run on this same worker thread. Plain
+    // globals (`__yo_argc`/`argv`/`args`) are shared and set on the OS main
+    // thread before the worker starts.
+    //
+    // Windows / WASM keep the direct main-thread call (no pthread there;
+    // those targets are not used for the bootstrap workload).
+    const useWorkerStack = isTargetPosix(context.targetInfo);
+    if (useWorkerStack) {
+      // Worker-thread entry: runs scheduler init + module init + user main.
+      emitter.emitLine(`
+// Program body runs on a large-stack worker thread (see generateMainWrapper).
+static void* __yo_main_thread_entry(void* __yo_unused_arg) {
+  (void)__yo_unused_arg;${asyncInit}`);
+      if (moduleLevelVars.length > 0) {
+        emitter.emitLine(`  // Initialize module-level mutable variables`);
+        for (const { cVarName, rhs } of moduleLevelVars) {
+          const rhsCode = generateExpr(rhs, "  ", context);
+          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+        }
+      }
+      emitter.emitLine(`  // Call sync main
+  __yo_user_main${mainCallArgs};
+  ${asyncWait}
+  return NULL;
+}
+
+// Main wrapper - runs program body on a 1 GiB-stack worker thread
+int main(int argc, char** argv) {
+  // Store command-line arguments (plain globals, shared with the worker)
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+
+  pthread_attr_t __yo_main_attr;
+  pthread_t __yo_main_tid;
+  size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
+  if (pthread_attr_init(&__yo_main_attr) == 0
+      && pthread_attr_setstacksize(&__yo_main_attr, __yo_main_stack) == 0
+      && pthread_create(&__yo_main_tid, &__yo_main_attr, __yo_main_thread_entry, NULL) == 0) {
+    pthread_attr_destroy(&__yo_main_attr);
+    pthread_join(__yo_main_tid, NULL);
+  } else {
+    // Fallback: run directly on the main thread if thread creation fails.
+    __yo_main_thread_entry(NULL);
+  }
+  return 0;
+}
+`);
+    } else {
+      // Windows / WASM: run directly on the main thread.
+      emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
   // Store command-line arguments
@@ -813,22 +872,23 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
   ${asyncInit}`);
 
-    // Generate module-level init code INSIDE main() so temp vars and function calls
-    // are valid C (not file-scope initializers).
-    if (moduleLevelVars.length > 0) {
-      emitter.emitLine(`  // Initialize module-level mutable variables`);
-      for (const { cVarName, rhs } of moduleLevelVars) {
-        const rhsCode = generateExpr(rhs, "  ", context);
-        emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+      // Generate module-level init code INSIDE main() so temp vars and function calls
+      // are valid C (not file-scope initializers).
+      if (moduleLevelVars.length > 0) {
+        emitter.emitLine(`  // Initialize module-level mutable variables`);
+        for (const { cVarName, rhs } of moduleLevelVars) {
+          const rhsCode = generateExpr(rhs, "  ", context);
+          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+        }
       }
-    }
 
-    emitter.emitLine(`  // Call sync main
+      emitter.emitLine(`  // Call sync main
   __yo_user_main${mainCallArgs};
   ${asyncWait}
   return 0;
 }
 `);
+    }
   }
 }
 
