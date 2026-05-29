@@ -465,7 +465,7 @@ tests are excluded — TS fails those by design):
 | Compiler      | `*.test.yo` pass rate                                            |
 | ------------- | ---------------------------------------------------------------- |
 | TS (`yo-cli`) | **170 / 170** (was 169; `derive_clone_complex` fixed — see note) |
-| `yo-self-bin` | **8 / 170** (start of Phase 2)                                   |
+| `yo-self-bin` | **11 / 170** (Phase 2 in progress; 8 at start)                   |
 
 > Note: `derive_clone_complex.test.yo` was failing TS too — a flowability
 > false positive introduced earlier this session (the assignment-escape
@@ -496,24 +496,22 @@ cluster by root cause (first-error sampling):
    `check ./tests` count is still 8/170 — the assert _layer_ is cleared
    (files now reach their _next_ gap), but the corpus has deeper layered
    gaps (below), so first-error progress doesn't yet flip files to green.
-2. **Template-string `to_string` dispatch** — `Cannot unify incompatible
-types: "<struct:…>" and "comptime_string"` (`error.test.yo`,
-   `fmt.test.yo`, and any bare `` `text` ``). Traced: a backtick template
-   lowers (in both yo-self and TS) to `"text".to_string()` — i.e.
-   `("text".to_string)()`. The **hand-written** `("abc".to_string)()`
-   checks clean, but the **synthetic** form emitted by
-   `parse_template_string`/`make_ts_call` fails: its `to_string`-on-
-   `comptime_string` dispatch resolves to `String`'s method, whose `Self`
-   (a nameless `str`/`String` newtype struct) then fails to unify with the
-   `comptime_string` receiver. The expr-id collision in the synthetic
-   sub-exprs was fixed (unique `alloc_id`s) and `type_to_string` now
-   reveals empty-named structs, but those weren't the cause — the
-   single-literal case still fails. **Open:** the synthetic-token AST
-   takes a different method-resolution/coercion path than the identical
-   natural AST; next step is to instrument the `to_string` dispatch and
-   compare the receiver's resolved type+value (and the chosen method's
-   `Self`) for synthetic vs natural. High value — template strings are
-   pervasive in the test corpus.
+2. **Template-string `to_string` dispatch — DONE.** A backtick template
+   `` `text` `` desugars to `("text".to_string)()`; the self arg is a
+   `comptime_string` matched against `to_string`'s `Self = str`. In
+   `check_if_function_parameter_matches_argument` (`helper.yo`),
+   `synthesize_types` ran on the RAW arg type and rejected the `str` vs
+   `comptime_string` tag mismatch **before** the step-8 compatibility
+   coercion (and `comptime_string` has no `to_string` of its own — it
+   relies on the comptime*string→str coercion). Fixed by coercing the
+   arg's comptime type to the parameter's concrete runtime type before
+   synthesis — **guarded** to fire only when the param type is a genuine
+   runtime concrete type, never a `SomeT` nor a comptime type
+   (`convert*…`lowers comptime_int→i32 unconditionally, so an unguarded
+version regressed std 151→17). Took per-file`check ./tests`**8 → 11**;
+std stays 151/151. (Two improvements landed en route: unique expr ids
+for template sub-exprs, and`type_to_string`renders empty-named
+structs as`<struct:ID>`.)
 3. **Array length inference `Array(T, _)`** — explicitly unimplemented in
    the self-hosted compiler (`array.test.yo`): "Array length inference
    with `_` is not supported".
