@@ -59,14 +59,14 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
-| Milestone                                            | Status         | Number                                                 |
-| ---------------------------------------------------- | -------------- | ------------------------------------------------------ |
-| `./yo-cli check yo-self/main.yo`                     | green          | —                                                      |
-| `./yo-cli compile yo-self/main.yo`                   | builds         | —                                                      |
-| `/tmp/yo-self-bin check std/prelude.yo`              | green          | —                                                      |
-| `/tmp/yo-self-bin check ./std` (per-file)            | **green**      | **151 / 151 files OK**                                 |
-| `/tmp/yo-self-bin check ./tests` (per-file, all 170) | **near-green** | **169 / 170 files OK** (1 SIGSEGV: `io/reader_writer`) |
-| `/tmp/yo-self-bin check ./yo-self`                   | not yet run    | —                                                      |
+| Milestone                                            | Status      | Number                                                 |
+| ---------------------------------------------------- | ----------- | ------------------------------------------------------ |
+| `./yo-cli check yo-self/main.yo`                     | green       | —                                                      |
+| `./yo-cli compile yo-self/main.yo`                   | builds      | —                                                      |
+| `/tmp/yo-self-bin check std/prelude.yo`              | green       | —                                                      |
+| `/tmp/yo-self-bin check ./std` (per-file)            | **green**   | **151 / 151 files OK**                                 |
+| `/tmp/yo-self-bin check ./tests` (per-file, all 170) | **green**   | **170 / 170 files OK** (matches TS — Phase 2 complete) |
+| `/tmp/yo-self-bin check ./yo-self`                   | not yet run | —                                                      |
 
 > **Phase 1 complete** — per-file `check ./std` matches the TS reference
 > (151/151). This session closed every remaining gap: comptime
@@ -578,21 +578,30 @@ AnyError) = dyn(`x`)` failed (`Cannot unify "<String>" and
    `evaluate_assignment` (the `=` lhs + 2 rhs sites), and `while`'s
    step-expr eval. Per-file `check ./tests` (all 170, incl. subdirs)
    **169/170** (`imm_threading` CRASH→OK, **0 regressions**, 0 clean
-   failures); std 151/151; TS green. Only `io/reader_writer.test.yo` still
-   SIGSEGVs — a **pure** segfault (no error message, pre-existing in the
-   dyn-baseline too), i.e. a genuine deep-recursion/stack crash, NOT an
-   error-propagation leak. Pattern note: yo-self's non-raw
+   failures); std 151/151; TS green. Pattern note: yo-self's non-raw
    `evaluate_expression` (the `_evaluate_expression_wrapper`) is a
    bootstrap-diagnostics divergence — it catches+prints+continues instead
    of propagating like TS's `evaluateExpression`; any evaluator fn holding
    an `exn` whose sub-eval error must reach the caller should use
    `evaluate_expression_raw(…, exn)`.
-6. **Misc per-feature gaps** — the remaining gap is `io/reader_writer.test.yo`
-   (a pure SIGSEGV, no diagnostic — genuine stack/recursion), plus
-   GADT/HKT-heavy evaluator paths. (The test corpus had deep LAYERED gaps;
-   clearing the template-string, dyn-coercion, dyn-method-dispatch,
-   trial-eval-swallow, and non-raw-propagation gaps took per-file
-   `check ./tests` to **169/170** — only `io/reader_writer` remains.)
+   5e. **Self-referential-trait substitution recursion (io/reader_writer) —
+   DONE → Phase 2 COMPLETE (170/170).** The last `./tests` crash was a
+   pure SIGSEGV (no diagnostic): impl-matching a trait method whose
+   parameter is `Dyn(Error)` (= `AnyError`; `Error.source` returns
+   `Option(Dyn(SelfTrait))`, forming a **cyclic** `DynT → TraitT → … →
+   DynT` TypeValue graph). `_substitute_self_in_method_ty` →
+   `substitute` (`yo-self/types/substitution.yo`) walked that cyclic graph
+   with no cycle guard → infinite recursion → stack overflow. (Regular
+   fns with an `Exception` param don't hit this; only trait-method impl
+   Self-substitution does — so std, which never impls a trait with such a
+   param, was unaffected.) Fix: add a `visited_trait_ids` set to the
+   `Substitution` object (fresh per top-level `substitute`, threaded
+   automatically since `s` is passed to every recursive call) and guard
+   the `TraitT` case — if a trait id is already being recursed into,
+   return it unchanged. Re-descending into an already-visited trait's
+   methods is also semantically unnecessary (those carry the _trait's_
+   own `Self`, not the impl receiver's). **`check ./tests` 170/170 —
+   matches TS**; std 151/151; **0 regressions**. Phase 2 done.
 
 The historically-tracked extracts below are a subset of #4:
 
