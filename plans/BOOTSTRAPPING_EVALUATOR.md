@@ -659,15 +659,32 @@ G(usize).new(); (z : usize) = tmp.a` → "Failed to evaluate `tmp.a`"
 impl(forall(T:Type), G(T), new : (fn()->Self)(Self(a:the(T))));
 tmp := G(usize).new(); (z:usize) = tmp.a;`
 
-**Next step:** the generic-receiver static-method path —
-`find_methods_from_generic_impls` → `try_match_generic_impl`
-(`evaluator/values/impl.yo`) matching `G(usize)` against the registered
-`impl(forall(T), G(T), …)` for an OBJECT receiver, and/or the `Self`-return
-specialization of the resolved `.new` for objects. Instrument
-`try_match_generic_impl` (does it match for the object case?) and the
-call's return-type resolution. Fixing this single bug should unlock the
-bulk of Phase 3 at once. _(ENV: `bun` keeps dropping from PATH; set
-`BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
+**Root cause (pinned via STRUCTSYN instrumentation):** ANY method (static
+OR instance) on a generic OBJECT fails — so it's the generic-impl MATCH,
+not the call. `find_methods_from_generic_impls` → `try_match_generic_impl`
+(`evaluator/values/impl.yo`) matches via
+`synthesize_types(receiver_pattern G(T), concrete G(usize))`. Objects are
+`Struct(is_ref=true)`, so they hit synthesizer.yo's **Struct case (≈line 1303)**, which **throws on `exp_id != giv_id`** (struct-id equality).
+`evaluate_object_type` delegates to `evaluate_struct_type`, which assigns
+a FRESH `struct_${random_id(...)}` on every evaluation — so the impl's
+stored pattern `G(T)` (e.g. id 2488) and the call-site concrete `G(usize)`
+(id 2491) never share an id → synthesize throws → no match → method
+resolves to `unit`. Confirmed: object-gated STRUCTSYN shows the G(T)-vs-
+G(usize) compares all `match=false exp_ref=true giv_ref=true`.
+
+Generic **structs** (q6) work — they do NOT show up in object-gated
+STRUCTSYN, so they match by a DIFFERENT path (NOT the is*ref Struct
+id-check). **OPEN: why do generic structs match despite the same
+`random_id` scheme?** Likely they reach synthesize as a `TypeAppT`
+(constructor + args, matched structurally) rather than a resolved
+`Struct`, or the generic comptime-fn call is memoised so `G(usize)` is
+id-stable for structs. Find that path, then make generic-OBJECT
+instantiation take the same one (preserve `TypeAppT` / share the
+constructor's id), OR relax synthesizer.yo's Struct-id-check to fall back
+to structural field-unification when ids differ but field shapes line up.
+Fixing this single bug should unlock the bulk of Phase 3 at once.
+*(ENV: `bun` keeps dropping from PATH; set
+`BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)\_
 
 A natural stretch target after Phase 3: **fixpoint** — `yo-self-bin
 check ./yo-self` produces the same result as `./yo-cli check ./yo-self`,
