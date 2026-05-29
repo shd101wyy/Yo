@@ -452,15 +452,53 @@ runtime_type_with_expected` (`types/env_lookup.yo`) coerced a
    Added a guard to keep the comptime type when the expected type is
    `comptime_string`. Took per-file `check ./std` **150 → 151**.
 
-### Phase 2 — `yo-self-bin check ./tests`
+### Phase 2 — `yo-self-bin check ./tests` (in progress)
 
 **Exit criteria:** `yo-self-bin check ./tests` matches TS `yo-cli check
 ./tests` (every test file type-checks; note `check` does not _run_
 tests, only evaluates them).
 
-Likely work — the evaluator paths behind the historically-failing test
-extracts (all evaluator-only; their codegen counterparts are out of
-scope):
+**Baseline (2026-05-29).** Per-file sweep over the 170 `tests/*.test.yo`
+files (the `.yo_test_batch_*.yo` artifacts and `circular_deps/*` error
+tests are excluded — TS fails those by design):
+
+| Compiler      | `*.test.yo` pass rate                                     |
+| ------------- | --------------------------------------------------------- |
+| TS (`yo-cli`) | **169 / 170** (only `derive_clone_complex.test.yo` fails) |
+| `yo-self-bin` | **8 / 170** (start of Phase 2)                            |
+
+So the Phase 2 target is **169 / 170** (matching TS). The 162 failures
+cluster by root cause (first-error sampling):
+
+1. **Default-argument application at call sites — DOMINANT.** A call like
+   `assert(x == 10)` to `assert :: (fn(flag : bool, (msg : str) ?=
+"Assertion failed.") -> unit)` is rejected with `Argument count
+   mismatch: expected 2, got 1`. yo-self's call-site arg-count check
+   (`evaluator/calls/helper.yo`, step 3) requires `n_args == n_params`
+   and has no notion of optional (defaulted) trailing params. `assert`
+   appears in nearly every test, so this single gap accounts for most of
+   the 162. **Blocked on a representation change:** the `Func` `TypeValue`
+   variant carries only parallel `param_labels`/`param_types` arrays with
+   **no per-param default/optional info**, and nothing survives from
+   definition-time param eval to the call site except the `Func` type
+   itself. Fixing it faithfully means adding a `param_defaults` /
+   `param_is_optional` field to the `Func` variant and threading it
+   through **~105 positional `.Func(...)` match sites across 32 files**
+   plus all constructions — a deliberate, mechanical, high-blast-radius
+   change. (Definition-time default-value type-checking already works —
+   see Phase 1 item 6 — only call-site _application_ is missing.)
+2. **Empty-type unification** — `Cannot unify incompatible types: "" and
+"comptime_string"` (`error.test.yo`, `fmt.test.yo`). Some `TypeValue`
+   renders to the empty string via `type_to_string` (also seen latently
+   in Phase 1's `create_str_type` path). Needs the producing site
+   identified.
+3. **Array length inference `Array(T, _)`** — explicitly unimplemented in
+   the self-hosted compiler (`array.test.yo`): "Array length inference
+   with `_` is not supported".
+4. **Misc per-feature gaps** — `closure.test.yo` (`Incompatible types`),
+   `comptime.test.yo` (`Cannot unify f32 and unit`), GADTs, HKTs, etc.
+
+The historically-tracked extracts below are a subset of #4:
 
 - where-clause trait-eval throw propagation
   ([`issues/yo-self-where-clause-trait-eval-segfault.md`](../issues/yo-self-where-clause-trait-eval-segfault.md))
