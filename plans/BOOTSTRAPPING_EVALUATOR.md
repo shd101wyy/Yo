@@ -59,14 +59,14 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
-| Milestone                                              | Status         | Number                                            |
-| ------------------------------------------------------ | -------------- | ------------------------------------------------- |
-| `./yo-cli check yo-self/main.yo`                       | green          | —                                                 |
-| `./yo-cli compile yo-self/main.yo`                     | builds         | —                                                 |
-| `/tmp/yo-self-bin check std/prelude.yo`                | green          | —                                                 |
-| `/tmp/yo-self-bin check ./std` (per-file)              | **green**      | **151 / 151 files OK**                            |
-| `/tmp/yo-self-bin check ./tests` (per-file, top-level) | **near-green** | **81 / 82 files OK** (1 SIGSEGV: `imm_threading`) |
-| `/tmp/yo-self-bin check ./yo-self`                     | not yet run    | —                                                 |
+| Milestone                                            | Status         | Number                                                 |
+| ---------------------------------------------------- | -------------- | ------------------------------------------------------ |
+| `./yo-cli check yo-self/main.yo`                     | green          | —                                                      |
+| `./yo-cli compile yo-self/main.yo`                   | builds         | —                                                      |
+| `/tmp/yo-self-bin check std/prelude.yo`              | green          | —                                                      |
+| `/tmp/yo-self-bin check ./std` (per-file)            | **green**      | **151 / 151 files OK**                                 |
+| `/tmp/yo-self-bin check ./tests` (per-file, all 170) | **near-green** | **169 / 170 files OK** (1 SIGSEGV: `io/reader_writer`) |
+| `/tmp/yo-self-bin check ./yo-self`                   | not yet run    | —                                                      |
 
 > **Phase 1 complete** — per-file `check ./std` matches the TS reference
 > (151/151). This session closed every remaining gap: comptime
@@ -567,13 +567,32 @@ AnyError) = dyn(`x`)` failed (`Cannot unify "<String>" and
    handler. Mirrors TS (`evaluateExpression` propagates; `evaluateTest`
    try/catches). Result: per-file `check ./tests` **46/82 → 81/82**
    (35 files CRASH→OK, **0 regressions**, 0 clean failures); std stays
-   151/151; TS green. Only `imm_threading.test.yo` still SIGSEGVs
-   (pre-existing, thread-runtime path).
-6. **Misc per-feature gaps** — the remaining gap is `imm_threading.test.yo`
-   (SIGSEGV in the thread path), plus GADT/HKT-heavy evaluator paths. (The
-   test corpus had deep LAYERED gaps; clearing the template-string,
-   dyn-coercion, dyn-method-dispatch, and trial-eval-swallow gaps took
-   per-file `check ./tests` to **81/82** — only `imm_threading` remains.)
+   151/151; TS green.
+   5d. **More non-raw `evaluate_expression` leaks (imm_threading) — DONE.**
+   The same class as 5c: a spurious trial-eval error (`Cannot unify "usize"
+   and "unit"` from `while(runtime(i < <runtime-usize>), …)` in a test
+   block) leaked through a non-raw `evaluate_expression` that the test-body
+   swallow couldn't catch. Converted the remaining non-raw calls in the
+   while-condition/body path to `evaluate_expression_raw` (threads `exn`):
+   `evaluate_runtime` (the `runtime(...)` arg — the actual leak),
+   `evaluate_assignment` (the `=` lhs + 2 rhs sites), and `while`'s
+   step-expr eval. Per-file `check ./tests` (all 170, incl. subdirs)
+   **169/170** (`imm_threading` CRASH→OK, **0 regressions**, 0 clean
+   failures); std 151/151; TS green. Only `io/reader_writer.test.yo` still
+   SIGSEGVs — a **pure** segfault (no error message, pre-existing in the
+   dyn-baseline too), i.e. a genuine deep-recursion/stack crash, NOT an
+   error-propagation leak. Pattern note: yo-self's non-raw
+   `evaluate_expression` (the `_evaluate_expression_wrapper`) is a
+   bootstrap-diagnostics divergence — it catches+prints+continues instead
+   of propagating like TS's `evaluateExpression`; any evaluator fn holding
+   an `exn` whose sub-eval error must reach the caller should use
+   `evaluate_expression_raw(…, exn)`.
+6. **Misc per-feature gaps** — the remaining gap is `io/reader_writer.test.yo`
+   (a pure SIGSEGV, no diagnostic — genuine stack/recursion), plus
+   GADT/HKT-heavy evaluator paths. (The test corpus had deep LAYERED gaps;
+   clearing the template-string, dyn-coercion, dyn-method-dispatch,
+   trial-eval-swallow, and non-raw-propagation gaps took per-file
+   `check ./tests` to **169/170** — only `io/reader_writer` remains.)
 
 The historically-tracked extracts below are a subset of #4:
 

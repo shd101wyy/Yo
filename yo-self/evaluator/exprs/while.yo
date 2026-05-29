@@ -39,7 +39,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Constants
@@ -372,7 +372,7 @@ evaluate_while :: (
         step_expr_opt,
         .None => (),
         .Some(step_expr_cont) => {
-          eval_step_cont := evaluate_expression(step_expr_cont, updated_env_cont, ctx);
+          eval_step_cont := evaluate_expression_raw(step_expr_cont, updated_env_cont, ctx, exn);
           step_info_cont_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_cont));
           if(step_info_cont_opt.is_none(), {
             exn.throw(
@@ -489,7 +489,7 @@ evaluate_while :: (
     step_expr_opt,
     .None => (),
     .Some(step_expr_s) => {
-      eval_step_s := evaluate_expression(step_expr_s, env, ctx);
+      eval_step_s := evaluate_expression_raw(step_expr_s, env, ctx, exn);
       step_info_s_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_s));
       if(step_info_s_opt.is_none(), {
         exn.throw(
