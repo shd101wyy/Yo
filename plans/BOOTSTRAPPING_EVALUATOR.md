@@ -69,13 +69,18 @@ structure).
 | `/tmp/yo-self-bin check ./yo-self`        | not yet run     | —                      |
 
 > The 137/151 figure is the **per-file** pass rate (each file checked in
-> its own process). A single `check ./std` run still aborts partway with
-> a SIGSEGV — see the deep-eval stack-overflow blocker below — so the
-> per-file harness is the honest measure until that is fixed. The 13
-> files that fail are exactly the ones that trip that overflow
-> (`net/*`, `sys/*`, `http/*`, `build.yo`, `env.yo`, `os/env.yo`,
-> `fs/temp.yo`); the 14th, `encoding/json.yo`, hits an unrelated
-> pointer-argument evaluator gap.
+> its own process). The 14 failures are **evaluator-coverage gaps, not
+> the stack overflow** (which is now fixed — see below):
+>
+> - **9** (`net/*`, `sys/*`, `http/*`): comptime operator-trait dispatch
+>   — `platform == Platform.Macos` etc. (the **active blocker**).
+> - **`build.yo`**: `evaluate_yo_build_functions` not yet implemented.
+> - **`env.yo`, `os/env.yo`, `fs/temp.yo`**: `./libc/stdlib` import gap.
+> - **`encoding/json.yo`**: pointer-argument evaluator gap.
+>
+> Each failing file crashes (SIGSEGV) only as a _secondary_ effect:
+> `_evaluate_expression_wrapper` prints the gap error then unwinds with a
+> placeholder and limps on until a downstream access faults.
 
 ### Phase 0: **complete** — all drift repaired, main.yo passes
 
@@ -103,9 +108,11 @@ write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
 
 **Headline number:** per-file `check ./std` is at **137 / 151** (up from
 0 at the start, then 44 mid-session). The jump from 44 → 137 came from
-implementing per-module isolation (`ctx.load_module`); the remaining 14
-are the deep-eval stack-overflow blocker (13) plus one pointer-eval gap
-(`encoding/json.yo`).
+implementing per-module isolation (`ctx.load_module`). The remaining 14
+are **evaluator-coverage gaps** — the long-suspected "deep-eval stack
+overflow" turned out to be a misdiagnosis (the genuine stack overflow is
+now fixed; see below). The active blocker is comptime operator-trait
+dispatch (9 of the 14).
 
 **Fixes landed this session:**
 
@@ -186,19 +193,52 @@ reporting` (`48a2d6f9`).
   `ctx.load_module = None` fallback still used by `run_compile` /
   `run_test`.
 
-#### Active blocker — deep-eval stack overflow (SIGSEGV)
+- **Stack overflow fixed; "net/sys = stack overflow" was a misdiagnosis
+  (`6aff3bd7`).** The generated `main()` now runs the program body on a
+  1 GiB-stack POSIX worker thread (`pthread_attr_setstacksize`); the
+  macOS main thread is hard-capped at ~64 MiB. Verified: at the default
+  8 MiB stack the old binary SIGSEGVs on `std/prelude.yo`, the new one
+  exits 0 — so **`ulimit -s 65520` is no longer required**. Crucially,
+  the 13 `net/sys/http` files still fail _with the big stack_, at shallow
+  depth — they were never stack overflows. See the active blocker.
 
-A single `check ./std` process aborts partway with a SIGSEGV, and 13
-individual files segfault even in isolation (`net/*`, `sys/*`,
-`http/*`, `build.yo`, `env.yo`, `os/env.yo`, `fs/temp.yo`). These are
-heavy files with deep comptime evaluation (platform conditionals,
-socket constant tables). This is the long-standing recursive-evaluator
-stack-overflow blocker (see
-[`issues/yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md)),
-now the dominant remaining `./std` blocker. `ulimit -s 65520` (64 MB,
-the macOS main-thread cap) is the current floor; the real fix is to
-shrink evaluator stack frames (box large by-value structs / reduce
-copying) or run evaluation on a thread with a larger stack.
+#### Active blocker — comptime operator-trait dispatch (`==`/`<`/… → `unit`)
+
+The 9 `net/sys/http` files fail on
+`Expected bool type for "or" argument, got: platform == Platform.Macos`.
+`platform` and `Platform.Macos` are comptime strings; `platform ==
+Platform.Macos` is a comptime `==`. yo-self does not dispatch comparison
+operators to their trait impl, so `==` types as `unit` (it falls into
+the unbound-operator-name fallback in
+`evaluator/exprs/identifer_and_operator.yo` → `UnknownVal(t_unit())`).
+`cond` tolerates a non-`bool` condition (so a bare `cond((a==b)=>…)`
+passes), but `||`/`&&` and `bool` bindings reject it; the resulting
+throw then crashes via the eval wrapper's unwind-with-placeholder.
+
+**Attempted (reverted) — port note for the next attempt.** Adding an
+infix-operator branch to `evaluate_function_call` (mirror of TS
+`function.ts`: `stringIsOperator(name) && expr.isInfix` →
+`get_receiver_methods_by_name_from_env(op, receiverType, is_infix=true)`
+→ dispatch) does make `==` resolve to the `<type>.<op>` method. But it
+then bottoms out two layers deeper and **regresses prelude** (turns the
+previously-silent `__yo_pointer_size_bits() == 32` into a hard error),
+so it was reverted. The remaining blocker, pinned with a diagnostic:
+
+> The operator trait method `(==) : fn(comptime(lhs) : Self,
+comptime(rhs) : Rhs) -> comptime(bool)` (from `ComptimeEq`) is
+> evaluated such that the `lhs` parameter's **type** resolves to a
+> type-var named after the param **label** (`"lhs"`) instead of `Self`
+> — `try_to_call`'s param check reports
+> `expected=lhs given=comptime_int resolved_pt=lhs`. So
+> `are_types_compatible(Self-as-"lhs", comptime_int)` fails. Setting
+> `ctx.self_type = receiverType` around the call did not fix it.
+
+Root the next attempt in `evaluator/types/function.yo`'s
+`evaluate_function_type` / `evaluate_function_parameter`: confirm how
+`comptime(lhs) : Self` builds the stored param type, and why `Self`
+becomes a `"lhs"`-named type-var (likely a param-type-naming or
+Self-substitution-at-impl-registration bug). This is deeper
+trait-method-function-type work, not a surgical dispatch insert.
 
 ### Strategy: strict 1-to-1 port
 
@@ -231,7 +271,7 @@ Continue the existing structural port. Per the project rule (and
 ### Build + check loop (Phases 1–3)
 
 ```bash
-ulimit -s 65520                                   # see stack-overflow blocker
+# ulimit no longer needed since 6aff3bd7 (eval runs on a 1 GiB worker thread)
 ./yo-cli compile yo-self/main.yo -o /tmp/yo-self-bin   # NO --release (faster loop)
 /tmp/yo-self-bin check std/prelude.yo             # smoke
 /tmp/yo-self-bin check ./std                      # corpus
@@ -338,27 +378,26 @@ done | tee /tmp/yoself_drift.txt | wc -l
 
 Remaining work, in order of expected impact:
 
-1. **Deep-eval stack overflow (current blocker).** 13 heavy files
-   (`net/*`, `sys/*`, `http/*`, `build.yo`, `env.yo`, `os/env.yo`,
-   `fs/temp.yo`) SIGSEGV — individually and mid-run. The recursive
-   evaluator carries large by-value structs and blows the macOS
-   main-thread stack cap (~64 MB at `ulimit -s 65520`). Real fix: box
-   large frames / reduce by-value copying, or run evaluation on a
-   thread with a bigger stack. See
-   [`issues/yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md).
-   This is what stops a single `check ./std` run from completing, so
-   it also gates an in-process (non-per-file) pass count.
-2. **Per-module isolation — DONE (`32307361`).** Replaced the
-   flatten-all-exprs shortcut with real per-module evaluation via
-   `ctx.load_module` + a path→module_value cache (see the fix entry
-   above). Remaining parity gaps vs TS `module-manager.ts`: circular
-   imports (preload breaks cycles with a `visited` set but does not
-   return a partial module like TS's `loadingModules`), and module
-   privacy. Neither blocks std today.
-3. **Individual evaluator gaps surfaced by the broader corpus.**
-   e.g. `encoding/json.yo`'s "Failed to evaluate the argument
-   expression for pointer". Patch as encountered; lower priority than
-   the stack-overflow blocker.
+1. **Comptime operator-trait dispatch (current blocker).** Comparison
+   operators (`==`/`!=`/`<`/…) on comptime values type as `unit`, not
+   `bool`, breaking `||`/`&&` operands and `bool` bindings in 9
+   `net/sys/http` files. Needs the infix-operator dispatch (TS-style)
+   **plus** a fix to trait-method function-type evaluation so
+   `comptime(lhs) : Self` types `lhs` as `Self`, not a `"lhs"`-named
+   type-var. See the active-blocker note above for the pinned diagnostic
+   and the reverted first attempt.
+2. **Stack overflow — DONE (`6aff3bd7`).** Program body runs on a 1 GiB
+   worker thread; `ulimit` no longer required. (Was never the net/sys
+   blocker.)
+3. **Per-module isolation — DONE (`32307361`).** Real per-module
+   evaluation via `ctx.load_module` + cache. Remaining parity gaps vs TS
+   `module-manager.ts`: circular imports (preload breaks cycles with a
+   `visited` set but does not return a partial module like TS's
+   `loadingModules`), and module privacy. Neither blocks std today.
+4. **Other individual evaluator gaps.** `build.yo`
+   (`evaluate_yo_build_functions` not implemented); `env.yo`/`os/env.yo`/
+   `fs/temp.yo` (`./libc/stdlib` import); `encoding/json.yo` (pointer
+   argument). Patch as encountered.
 
 ### Phase 2 — `yo-self-bin check ./tests`
 
@@ -414,7 +453,8 @@ of scope here).
 | `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                       | 1     | fixed                                                     |
 | Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                       | 1     | fixed (per-module loader)                                 |
 | Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                       | 1     | fixed                                                     |
-| Recursive evaluator stack overflow (heavy net/sys/http files SIGSEGV)                                                           | `yo-self-evaluator-stack-overflow.md`                     | 1     | **active blocker** (13 files; ulimit floor)               |
+| Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`                     | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                   |
+| Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | `yo-self-evaluator-stack-overflow.md` (NOTE section)      | 1     | **active blocker**                                        |
 | Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — per-module eval works; cycle/privacy parity TBD |
 | where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                      |
 | nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                      |
@@ -460,8 +500,8 @@ moved on substantially.)
 
 - [`BOOTSTRAPPING.md`](BOOTSTRAPPING.md) — full self-hosting plan/status
   (incl. codegen), file-mapping table, component port progress.
-- [`yo-self/README.md`](../yo-self/README.md) — quick start, the
-  `ulimit -s 65520` requirement.
+- [`yo-self/README.md`](../yo-self/README.md) — quick start. (The
+  `ulimit -s 65520` requirement is obsolete as of `6aff3bd7`.)
 - `issues/yo-self-*.md` — per-blocker diagnoses.
 - `MEMORY.md` notes: strict 1-to-1 port; validate with `check` not the
   pre-broken yo-self tests; no `--release` during the porting loop.
