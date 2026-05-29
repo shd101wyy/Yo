@@ -794,9 +794,30 @@ _evaluate_expression :: (
                                                 ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS,.None) ||
                                                   ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE,.None) ||
                                                     ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC,.None)
-        ) =>
-          // TODO Phase 3: pre-evaluate args before dispatching (mirrors TypeScript's for loop)
-          evaluate_yo_build_functions(expr, env, ctx, exn),
+        ) => {
+          // Pre-evaluate args before dispatching — the build builtins read
+          // each arg's resolved comptime value from the expr-info table.
+          // Mirrors the for-loop before `evaluateYoBuildFunctions` in TS
+          // `_expr.ts`. Mutating the args ArrayList in place updates
+          // `expr.args` (FnCall holds it by reference).
+          build_call_args := match(
+            expr,
+            .FnCall(_, _, a, _, _) => a,
+            .Atom(_, _) => ArrayList(AstExpr).new()
+          );
+          (bca_i : usize) = usize(0);
+          while(runtime(bca_i < build_call_args.len()), {
+            match(
+              build_call_args.get(bca_i),
+              .Some(ba) => {
+                build_call_args(bca_i) = recur(ba, env, ctx, exn);
+              },
+              .None => ()
+            );
+            bca_i = (bca_i + usize(1));
+          });
+          evaluate_yo_build_functions(expr, env, ctx, exn)
+        },
         ast_expr_is_fn_call_of(expr, BK_WHILE,.None) =>
           evaluate_while(expr, env, ctx, usize(0), exn),
         ast_expr_is_fn_call_of(expr, BF_VA_START,.None) =>

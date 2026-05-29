@@ -59,27 +59,22 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
-| Milestone                                 | Status          | Number                 |
-| ----------------------------------------- | --------------- | ---------------------- |
-| `./yo-cli check yo-self/main.yo`          | green           | —                      |
-| `./yo-cli compile yo-self/main.yo`        | builds          | —                      |
-| `/tmp/yo-self-bin check std/prelude.yo`   | green           | —                      |
-| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **150 / 151 files OK** |
-| `/tmp/yo-self-bin check ./tests`          | not yet run     | —                      |
-| `/tmp/yo-self-bin check ./yo-self`        | not yet run     | —                      |
+| Milestone                                 | Status      | Number                 |
+| ----------------------------------------- | ----------- | ---------------------- |
+| `./yo-cli check yo-self/main.yo`          | green       | —                      |
+| `./yo-cli compile yo-self/main.yo`        | builds      | —                      |
+| `/tmp/yo-self-bin check std/prelude.yo`   | green       | —                      |
+| `/tmp/yo-self-bin check ./std` (per-file) | **green**   | **151 / 151 files OK** |
+| `/tmp/yo-self-bin check ./tests`          | not yet run | —                      |
+| `/tmp/yo-self-bin check ./yo-self`        | not yet run | —                      |
 
-> The 150/151 figure is the **per-file** pass rate (each file checked in
-> its own process). This session fixed: comptime operator-trait dispatch
-> (9 `net/*`/`sys/*`/`http/*` files), the nested-import preload gap
-> (`env.yo`, `os/env.yo`, `fs/temp.yo`), and associated-type resolution
-> on an enum receiver (`encoding/json.yo`'s `Self.Output`) — all below.
-> The remaining 1 failure is an unrelated evaluator-coverage gap:
->
-> - **`build.yo`**: `evaluate_yo_build_functions` not yet implemented.
->
-> It crashes (SIGSEGV) only as a _secondary_ effect:
-> `_evaluate_expression_wrapper` prints the gap error then unwinds with a
-> placeholder and limps on until a downstream access faults.
+> **Phase 1 complete** — per-file `check ./std` matches the TS reference
+> (151/151). This session closed every remaining gap: comptime
+> operator-trait dispatch (9 `net/*`/`sys/*`/`http/*` files), the
+> nested-import preload gap (`env.yo`, `os/env.yo`, `fs/temp.yo`),
+> associated-type resolution on an enum receiver (`encoding/json.yo`'s
+> `Self.Output`), and the build builtins + comptime-string default
+> coercion (`build.yo`) — all below.
 
 ### Phase 0: **complete** — all drift repaired, main.yo passes
 
@@ -103,20 +98,19 @@ write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
   `ResumeType`, can't mix with `unit` in `cond` branches)
 - **`main.yo` safety**: wrapped `unsafe(exit(int(1)))`
 
-### Phase 1: **in progress** — `yo-self-bin check ./std`
+### Phase 1: **complete** — `yo-self-bin check ./std` (151/151)
 
-**Headline number:** per-file `check ./std` is at **150 / 151** (up from
-0 at the start, then 44, then 137, then 146, then 149). The jump from
-44 → 137 came from implementing per-module isolation (`ctx.load_module`);
-137 → 146 from fixing comptime operator-trait dispatch (the 9
-`net/sys/http` files — see the resolved-blocker section below); 146 →
-149 from recursively preloading **nested** imports (the `env.yo`/
-`os/env.yo`/`fs/temp.yo` `./libc/stdlib` gap); 149 → 150 from resolving
-associated types on an enum receiver (`encoding/json.yo`'s
-`Self.Output` — see below). The remaining 1 is an unrelated
-**evaluator-coverage gap** — the long-suspected "deep-eval stack
-overflow" turned out to be a misdiagnosis (the genuine stack overflow is
-now fixed; see below).
+**Headline number:** per-file `check ./std` is at **151 / 151** —
+**Phase 1 complete** (matches TS `yo-cli check ./std`). Progression:
+0 → 44 (per-module isolation, `ctx.load_module`) → 137 (spread-export /
+global-id / primitive-registry fixes) → 146 (comptime operator-trait
+dispatch, the 9 `net/sys/http` files) → 149 (recursive **nested**-import
+preload, the `env.yo`/`os/env.yo`/`fs/temp.yo` `./libc/stdlib` gap) →
+150 (associated-type resolution on an enum receiver,
+`encoding/json.yo`'s `Self.Output`) → 151 (`build.yo`: the
+`evaluate_yo_build_functions` dispatch + a comptime-string default-value
+coercion fix). The long-suspected "deep-eval stack overflow" turned out
+to be a misdiagnosis (the genuine stack overflow is fixed; see below).
 
 **Fixes landed this session:**
 
@@ -400,9 +394,9 @@ done | tee /tmp/yoself_drift.txt | wc -l
 
 **Exit criteria:** every file under `./std` checks cleanly under
 `yo-self-bin`, matching the TS `yo-cli check ./std` result (151/151).
-**Current: 150/151 per-file.**
+**DONE — 151/151 per-file.**
 
-Remaining work, in order of expected impact:
+Work completed (in order of impact):
 
 1. **Comptime operator-trait dispatch — DONE.** Comparison operators
    (`==`/`!=`/`<`/…) on comptime values now dispatch to their trait impl
@@ -439,8 +433,24 @@ index : (fn(…) -> *(Self.Output))(…)))` evaluated `Self.Output` where
    (where `Output : JsonValue` is registered under JsonValue's id) — and
    called it in the EnumT not-found branch before throwing. Took per-file
    `check ./std` **149 → 150**.
-6. **Other individual evaluator gaps.** `build.yo`
-   (`evaluate_yo_build_functions` not implemented). Patch as encountered.
+6. **Build builtins + comptime-string default coercion — DONE.**
+   `build.yo` hit two issues. (a) `evaluate_yo_build_functions` was a
+   "not yet implemented" stub. Implemented the dispatch
+   (`evaluator/builtins/build.yo`): args are pre-evaluated in `_expr.yo`
+   (mirrors TS), then each `__yo_build_*` builtin validates its arguments
+   and returns the correct comptime TYPE — `comptime_string` for
+   `target_host`/`target_parse`/`option`/`dep_module`, `unit` otherwise,
+   plus the trial-evaluation early return (`target_host` → host triple,
+   `option` → "", else unit) used during function-definition
+   type-checking. The `BuildRegistry` population is build-runner behavior
+   (out of scope, and even TS skips it on the trial path), so the
+   handlers don't mutate the registry. (b) `convert_comptime_type_to_
+runtime_type_with_expected` (`types/env_lookup.yo`) coerced a
+   `comptime_string` value to `str` even when the expected type was
+   itself `comptime_string`, so `(comptime(x) : comptime_string) ?= "…"`
+   failed its default-value check (`Expected comptime_string, Got <str>`).
+   Added a guard to keep the comptime type when the expected type is
+   `comptime_string`. Took per-file `check ./std` **150 → 151**.
 
 ### Phase 2 — `yo-self-bin check ./tests`
 
@@ -532,9 +542,9 @@ moved on substantially.)
 
 ## Success criteria (summary)
 
-1. `./yo-cli check yo-self/main.yo` passes (drift repaired). _(Phase 0)_
-2. `yo-self-bin` builds from `yo-self/main.yo`. _(Phase 0)_
-3. `yo-self-bin check ./std` matches `yo-cli check ./std`. _(Phase 1)_
+1. ✅ `./yo-cli check yo-self/main.yo` passes (drift repaired). _(Phase 0)_
+2. ✅ `yo-self-bin` builds from `yo-self/main.yo`. _(Phase 0)_
+3. ✅ `yo-self-bin check ./std` matches `yo-cli check ./std` (151/151). _(Phase 1)_
 4. `yo-self-bin check ./tests` matches `yo-cli check ./tests`. _(Phase 2)_
 5. `yo-self-bin check ./yo-self` passes — evaluator self-check fixpoint.
    _(Phase 3)_
