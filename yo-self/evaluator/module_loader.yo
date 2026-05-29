@@ -1,0 +1,100 @@
+//! evaluator/module_loader — per-module evaluation cache for `check`.
+//!
+//! yo-self has no equivalent of TypeScript's `ModuleManager`
+//! (`src/module-manager.ts`). For the `check` subcommand we still need
+//! `ctx.load_module` to return *just* an imported file's exports — not
+//! the whole flatten-eval env (which conflates prelude + every dep and
+//! breaks spread-export with "already exported" errors).
+//!
+//! This module provides the minimal slice that makes that work within
+//! yo-self's constraints:
+//!
+//!   * I/O (reading + parsing dependency files) cannot happen inside a
+//!     plain `fn(path) -> LoadModuleResult` callback — `io` is
+//!     control-bound and the callback signature is fixed. So the actual
+//!     reading + evaluation is done up front by the orchestration in
+//!     `main.yo` (`preload_module_tree`), which has `io`/`exn` in scope.
+//!   * That orchestration evaluates each dependency module in isolation
+//!     (against a clone of the cached prelude env) and registers the
+//!     resulting `ModuleVal` here, keyed by the `file://`-prefixed
+//!     absolute path that `evaluate_import` computes.
+//!   * `load_module_from_cache` is then a pure lookup, usable directly as
+//!     `ctx.load_module`.
+//!
+//! This mirrors the *effect* of TS's `ModuleManager.loadModule` (cache +
+//! per-module isolation) while keeping all effects at the orchestration
+//! layer.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ EvalValue } :: import("../value.yo");
+{ LoadModuleResult } :: import("./context.yo");
+// Parallel-array cache: `g_module_cache_keys(i)` (a `file://…` absolute
+// path) maps to `g_module_cache_vals(i)` (that module's exports as a
+// `ModuleVal`). Parallel arrays rather than a HashMap to keep the value
+// type (`EvalValue`) simple and avoid extra trait requirements.
+(g_module_cache_keys : ArrayList(String)) = ArrayList(String).new();
+(g_module_cache_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+/// Reset the cache. Call between independent `check` runs so module
+/// values from a previous file don't leak into the next.
+clear_module_cache :: (fn() -> unit)({
+  g_module_cache_keys = ArrayList(String).new();
+  g_module_cache_vals = ArrayList(EvalValue).new();
+  ()
+});
+/// Find the cache index for `path`, or `.None`.
+_module_cache_index :: (fn(path : str) -> Option(usize))({
+  (idx : Option(usize)) = Option(usize).None;
+  (i : usize) = usize(0);
+  n := g_module_cache_keys.len();
+  while((i < n) && idx.is_none(), {
+    match(
+      g_module_cache_keys.get(i),
+      .Some(k) => if(k.as_str() == path, {
+        idx = Option(usize).Some(i);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  idx
+});
+/// True iff a module value has already been registered for `path`.
+module_cache_has :: (fn(path : str) -> bool)(
+  _module_cache_index(path).is_some()
+);
+/// Register the evaluated `module_value` for `path`. First registration
+/// wins; callers guard with `module_cache_has` so this is a no-op on
+/// re-registration (a duplicate push would still be harmless because
+/// `_module_cache_index` returns the first match).
+register_module :: (fn(path : String, module_value : EvalValue) -> unit)({
+  if(!(module_cache_has(path.as_str())), {
+    g_module_cache_keys.push(path);
+    g_module_cache_vals.push(module_value);
+  });
+});
+/// Pure lookup used as `ctx.load_module`. On a hit, returns the cached
+/// module value; on a miss, returns a `LoadModuleResult` carrying an
+/// error message so `evaluate_import` can surface it.
+load_module_from_cache :: (fn(path : String) -> LoadModuleResult)(
+  match(
+    _module_cache_index(path.as_str()),
+    .Some(i) => LoadModuleResult(
+      module_value : match(
+        g_module_cache_vals.get(i),
+        .Some(v) => v,
+        .None => EvalValue.UnitVal
+      ),
+      module_error : Option(String).None
+    ),
+    .None => LoadModuleResult(
+      module_value : EvalValue.UnitVal,
+      module_error : Option(String).Some(`module not preloaded: ${path}`)
+    )
+  )
+);
+export(
+  clear_module_cache,
+  module_cache_has,
+  register_module,
+  load_module_from_cache
+);

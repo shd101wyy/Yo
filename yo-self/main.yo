@@ -30,9 +30,12 @@ open(import("std/fmt"));
 { Environment, clone_env } :: import("./env.yo");
 // Cached prelude env — populated on first check, reused thereafter.
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
-{ EvalContext, eval_context_new } :: import("./evaluator/context.yo");
+{ EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
+{ resolve_module_path, ModuleResolveResult } :: import("./evaluator/exprs/import.yo");
+{ clear_module_cache, module_cache_has, register_module, load_module_from_cache } :: import("./evaluator/module_loader.yo");
+{ EvalValue } :: import("./value.yo");
 { compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 // Temporary C source path used during compilation.
@@ -306,6 +309,111 @@ collect_module_deps :: (
     );
   });
 });
+/// Pre-evaluate the dependency tree rooted at `import_path` (as written
+/// in an importing file) and register each module's exports in the
+/// module-loader cache, so a later `import("…")` resolved by
+/// `evaluate_import` finds *just that module's exports* (not the whole
+/// flatten-eval env).
+///
+/// This is the orchestration half of the per-module-isolation design
+/// (see `evaluator/module_loader.yo`): it performs the I/O (reading +
+/// parsing dependency files) and the per-module evaluation that the
+/// pure `ctx.load_module` callback cannot. Post-order DFS guarantees a
+/// module's own dependencies are registered before it is evaluated, so
+/// its `import("…")` calls hit the cache.
+///
+/// `base_dir` is the directory of the *importing* file, used to resolve
+/// relative paths — and chosen so the resolved `file://` key matches the
+/// one `evaluate_import` will compute for the same import.
+preload_module_tree :: (
+  fn(
+    import_path : str,
+    base_dir : str,
+    std_path : str,
+    visited : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  // Resolve to a concrete file:// abs path (same resolver evaluate_import uses).
+  abs := match(
+    resolve_module_path(import_path, base_dir, std_path),
+    .Found(p) => p,
+    // Not-found / ambiguous deps are left unregistered; the later
+    // evaluate_import call surfaces the proper diagnostic.
+    .NotFound(_) => return(()),
+    .Ambiguous(_) => return(())
+  );
+  // The prelude is injected directly into every env — never preloaded.
+  if(abs.ends_with(String.from("prelude.yo")), {
+    return(());
+  });
+  // Dedup: skip if already cached or currently being preloaded (cycles).
+  if(module_cache_has(abs.as_str()), {
+    return(());
+  });
+  (iv : usize) = usize(0);
+  (already : bool) = false;
+  while((iv < visited.len()) && !(already), {
+    match(
+      visited.get(iv),
+      .Some(v) => if(v.as_str() == abs.as_str(), {
+        already = true;
+      }),
+      .None => ()
+    );
+    iv = (iv + usize(1));
+  });
+  if(already, {
+    return(());
+  });
+  visited.push(abs.clone());
+  // Strip `file://` to get the filesystem path.
+  fs_path := abs.replace(String.from("file://"), String.from(""));
+  mod_dir := match(
+    Path.new(String.from(fs_path.as_str())).parent(),
+    .Some(p) => p.to_string(),
+    .None => String.from(".")
+  );
+  // Read + parse the module.
+  src_bytes := io.await(read_file(Path.new(String.from(fs_path.as_str())), io), IoExn(io : io, exn : exn));
+  src := String.from_bytes(src_bytes);
+  mod_exprs := parse(src, abs.clone(), exn);
+  // Post-order: preload this module's own dependencies first.
+  (ni : usize) = mod_exprs.len();
+  (di : usize) = usize(0);
+  while(runtime(di < ni), {
+    match(
+      mod_exprs.get(di),
+      .None => (),
+      .Some(e) => match(
+        extract_import_path(e),
+        .None => (),
+        .Some(child) => {
+          recur(child.as_str(), mod_dir.as_str(), std_path, visited, io, exn);
+        }
+      )
+    );
+    di = (di + usize(1));
+  });
+  // Evaluate this module in isolation against a fresh clone of the
+  // cached prelude env, with its own imports resolving via the cache.
+  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(abs.clone())));
+  env.module_path = abs.clone();
+  ctx := eval_context_new(String.from(std_path), abs.clone());
+  ctx.load_module = Option((fn(path : String) -> LoadModuleResult)).Some(load_module_from_cache);
+  register_evaluate_expression();
+  result := evaluate_anonymous_module_begin_exprs(
+    mod_exprs,
+    env,
+    ctx,
+    false,
+    false,
+    exn
+  );
+  // Register this module's exports under its resolved path.
+  register_module(abs.clone(), result.module_value);
+});
 /// Recursive helper for `collect_check_files` — walks a directory
 /// tree appending each `.yo` file path to `out`.
 _walk_check_dir :: (
@@ -412,114 +520,92 @@ check_single_file :: (
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
-  visited := ArrayList(String).new();
-  dep_exprs := ArrayList(AstExpr).new();
-  (has_cached : bool) = g_cached_prelude_env.is_some();
-  // Only load prelude dependencies if not cached
-  if(!(has_cached), {
-    (is_prelude : bool) = input_path.ends_with(String.from("prelude.yo"));
-    if(!(is_prelude), {
-      prelude_literal := String.from("prelude.yo");
-      collect_module_deps(
-        prelude_literal.as_str(),
-        std_path.as_str(),
-        std_path.as_str(),
-        visited,
-        dep_exprs,
-        io,
-        local_exn
-      );
-    });
+  (is_prelude : bool) = input_path.ends_with(String.from("prelude.yo"));
+  // ---------------------------------------------------------------------------
+  // Prelude: evaluate directly and cache the resulting env. The prelude
+  // is injected (cloned) into every other file's env, so it is never
+  // routed through the module loader.
+  // ---------------------------------------------------------------------------
+  if(is_prelude, {
+    prelude_env := Environment.new(input_path.clone());
+    prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
+    register_evaluate_expression();
+    println(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
+    // keep_frame_at_end=true so the prelude's bindings survive into the
+    // cached env (see issues/yo-self-multi-file-prelude-bindings.md).
+    _rp := evaluate_anonymous_module_begin_exprs(
+      exprs,
+      prelude_env,
+      prelude_ctx,
+      false,
+      true,
+      local_exn
+    );
+    g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    println(`check: ${input_path} — evaluator OK`);
+    return(true);
   });
-  println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
+  // ---------------------------------------------------------------------------
+  // Ensure the prelude env is cached (single-file checks skip the
+  // run_check pre-load step).
+  // ---------------------------------------------------------------------------
+  if(g_cached_prelude_env.is_none(), {
+    prelude_path := `${std_path.as_str()}/prelude.yo`;
+    _pre := recur(prelude_path, std_path.clone(), io, exn);
+  });
   input_base_dir := match(
     Path.new(String.from(input_path.as_str())).parent(),
     .None => String.from("."),
     .Some(p) => p.to_string()
   );
+  // ---------------------------------------------------------------------------
+  // Pre-evaluate this file's imports so each `import("…")` resolves to
+  // exactly that module's exports (per-module isolation). Registered in
+  // the module-loader cache keyed by resolved file:// path.
+  // ---------------------------------------------------------------------------
+  preload_visited := ArrayList(String).new();
   (nip : usize) = exprs.len();
   (iip : usize) = usize(0);
   while(runtime(iip < nip), {
-    iip = (iip + usize(1));
     match(
-      exprs.get(iip - usize(1)),
+      exprs.get(iip),
       .None => (),
       .Some(e) => match(
         extract_import_path(e),
         .None => (),
         .Some(imp_path) => {
-          collect_module_deps(
+          preload_module_tree(
             imp_path.as_str(),
             input_base_dir.as_str(),
             std_path.as_str(),
-            visited,
-            dep_exprs,
+            preload_visited,
             io,
             local_exn
           );
         }
       )
     );
+    iip = (iip + usize(1));
   });
-  // Combine: dependency module declarations first, then the
-  // input file's declarations.
-  all_exprs := ArrayList(AstExpr).new();
-  (ndep : usize) = dep_exprs.len();
-  (idep : usize) = usize(0);
-  while(runtime(idep < ndep), {
-    idep = (idep + usize(1));
-    match(
-      dep_exprs.get(idep - usize(1)),
-      .None => (),
-      .Some(e) => {
-        all_exprs.push(e);
-      }
-    );
-  });
-  (nexp : usize) = exprs.len();
-  (iexp : usize) = usize(0);
-  while(runtime(iexp < nexp), {
-    iexp = (iexp + usize(1));
-    match(
-      exprs.get(iexp - usize(1)),
-      .None => (),
-      .Some(e) => {
-        all_exprs.push(e);
-      }
-    );
-  });
-  println(`check: collected ${all_exprs.len().to_string()} exprs total (deps + body); registering evaluator`);
-  env := cond(
-    has_cached => clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(String.from("")))),
-    true => Environment.new(input_path.clone())
-  );
-  // Ensure env.module_path reflects the current file, not the cached prelude's path,
-  // so relative imports (e.g. "./stdint") resolve against the correct directory.
-  if(has_cached, {
-    env.module_path = input_path.clone();
-  });
+  // ---------------------------------------------------------------------------
+  // Evaluate this file's own declarations against a clone of the prelude
+  // env, with `ctx.load_module` wired to the per-module cache.
+  // ---------------------------------------------------------------------------
+  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(input_path.clone())));
+  env.module_path = input_path.clone();
   ctx := eval_context_new(std_path.clone(), input_path.clone());
+  ctx.load_module = Option((fn(path : String) -> LoadModuleResult)).Some(load_module_from_cache);
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
-  // Pass `keep_frame_at_end=true` so the module-body frame stays on the
-  // stack — the prelude bindings need to survive into the cached env so
-  // later files in a multi-file `check` can find `Option`, `Result`, etc.
-  // (without this, the evaluator's pop_frame discards every prelude
-  // binding right before we cache the env). See
-  // issues/yo-self-multi-file-prelude-bindings.md.
   _r := evaluate_anonymous_module_begin_exprs(
-    all_exprs,
+    exprs,
     env,
     ctx,
     false,
-    true,
+    false,
     local_exn
   );
   println(`check: ${input_path} — evaluator OK`);
-  // Cache the prelude env for subsequent files
-  if(!(has_cached), {
-    g_cached_prelude_env = Option(Environment).Some(env);
-  });
   true
 });
 /// Run the `check` subcommand — evaluator-only.
@@ -548,13 +634,17 @@ run_check :: (
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
   std_path := resolve_std_path();
-  // Pre-load the prelude first so g_cached_prelude_env is a
-  // clean prelude-only environment, not polluted by the first
-  // file's own definitions. Only do this for multi-file checks.
-  (is_multi_file : bool) = !(files.len() == usize(1));
-  if(is_multi_file && g_cached_prelude_env.is_none(), {
+  // Reset the per-module loader cache for this run. Keys are absolute
+  // paths, so cache entries are valid for the whole run (a module
+  // imported by several files is evaluated once).
+  clear_module_cache();
+  // Pre-load the prelude so g_cached_prelude_env is a clean prelude-only
+  // environment before any file is checked. (check_single_file also
+  // self-bootstraps the prelude, but doing it once here keeps the cached
+  // env free of the first file's own bindings.)
+  if(g_cached_prelude_env.is_none(), {
     prelude_path := `${std_path.as_str()}/prelude.yo`;
-    check_single_file(prelude_path, std_path.clone(), io, exn);
+    _pre := check_single_file(prelude_path, std_path.clone(), io, exn);
   });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);

@@ -42,6 +42,78 @@ _file_exists_sync :: (fn(absolute_path : String) -> bool)({
   unsafe(access(ptr, F_OK)) == int(0)
 });
 // ---------------------------------------------------------------------------
+// Module path resolution (shared with main.yo's preload_module_tree)
+// ---------------------------------------------------------------------------
+/// Result of resolving an `import("…")` path string to a concrete file.
+/// `Found` carries the `file://`-prefixed absolute path (with extension).
+ModuleResolveResult :: enum(
+  Found(abs_path : String),
+  NotFound(base : String),
+  Ambiguous(base : String)
+);
+/// Resolve an import path string (already stripped of surrounding quotes,
+/// and known not to be the prelude) to a concrete `file://` module path.
+///
+/// I/O-free: file existence is probed with `_file_exists_sync` (POSIX
+/// `access(2)`), so this is a pure `fn` usable from both the evaluator
+/// (`evaluate_import`) and the orchestration layer (`preload_module_tree`
+/// in main.yo). Keeping resolution in one place guarantees both compute
+/// the *same* cache key for `ctx.load_module`.
+///
+/// Mirrors the resolution order in `src/evaluator/exprs/import.ts`:
+///   1. `std/…`     → relative to `std_path`
+///   2. `std`       → `std_path/index.yo`
+///   3. `.`/`..`    → relative to `current_dir`
+///   4. otherwise   → relative to CWD
+/// then extension resolution: `<path>.yo` xor `<path>/index.yo`.
+resolve_module_path :: (
+  fn(import_path : str, current_dir : str, std_path : str) -> ModuleResolveResult
+)({
+  (module_path_to_import : String) = String.from(import_path);
+  // 1. `std/` prefix → resolve relative to std_path.
+  if(module_path_to_import.starts_with(String.from("std/")), {
+    rel := module_path_to_import.substring(usize(4), module_path_to_import.len());
+    module_path_to_import = Path.new(String.from(std_path)).join(Path.new(rel)).to_string();
+  });
+  // 2. `std` alone → std/index.yo.
+  if(module_path_to_import.as_str() == "std", {
+    module_path_to_import = Path.new(String.from(std_path)).join(Path.new(String.from("index.yo"))).to_string();
+  });
+  // 3. Relative paths (`.` or `..` prefix) — resolve relative to current dir.
+  //    Build a combined string and re-`Path.new` it: `Path.new` collapses
+  //    `..`/`.` segments on construction, whereas `Path.join` does NOT
+  //    re-normalize `..` in its argument (so `std/imm`.join(`../allocator`)
+  //    would wrongly yield `std/imm/allocator`, not `std/allocator`).
+  if(module_path_to_import.starts_with(String.from(".")), {
+    module_path_to_import = Path.new(`${current_dir}/${module_path_to_import.as_str()}`).to_string();
+  });
+  // 4. Non-relative, non-absolute paths: resolve relative to CWD.
+  if(!(Path.new(String.from(module_path_to_import.as_str())).is_absolute()), {
+    cwd_result := match(
+      cwd(),
+      .Ok(p) => p.to_string(),
+      .Err(_) => String.from(".")
+    );
+    module_path_to_import = Path.new(cwd_result).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
+  });
+  // Extension resolution.
+  ext_opt := Path.new(String.from(module_path_to_import.as_str())).extension();
+  has_ext := match(ext_opt,.Some(_) => true,.None => false);
+  if(has_ext, {
+    return(ModuleResolveResult.Found(`file://${module_path_to_import}`));
+  });
+  yo_file_path := `${module_path_to_import}.yo`;
+  index_yo_path := `${module_path_to_import}/index.yo`;
+  yo_exists := _file_exists_sync(String.from(yo_file_path.as_str()));
+  index_exists := _file_exists_sync(String.from(index_yo_path.as_str()));
+  cond(
+    (yo_exists && index_exists) => ModuleResolveResult.Ambiguous(module_path_to_import),
+    yo_exists => ModuleResolveResult.Found(`file://${yo_file_path}`),
+    index_exists => ModuleResolveResult.Found(`file://${index_yo_path}`),
+    true => ModuleResolveResult.NotFound(module_path_to_import)
+  )
+});
+// ---------------------------------------------------------------------------
 // _find_project_root
 // ---------------------------------------------------------------------------
 /// Walk up the directory tree to find the nearest project root.
@@ -304,75 +376,38 @@ evaluate_import :: (
     .Some(p) => p.to_string(),
     .None => String.from(".")
   );
-  // 1. `std/` prefix → resolve relative to ctx.std_path.
-  if(module_path_to_import.starts_with(String.from("std/")), {
-    rel := module_path_to_import.substring(usize(4), module_path_to_import.len());
-    abs_std := Path.new(ctx.std_path).join(Path.new(rel)).to_string();
-    module_path_to_import = abs_std;
-  });
-  // 2. `std` alone → std/index.yo.
-  if(module_path_to_import.as_str() == "std", {
-    abs_std := Path.new(ctx.std_path).join(Path.new(String.from("index.yo"))).to_string();
-    module_path_to_import = abs_std;
-  });
-  // 3. Relative paths (`.` or `..` prefix) — resolve relative to current dir.
-  if(module_path_to_import.starts_with(String.from(".")), {
-    resolved := Path.new(String.from(current_dir.as_str())).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
-    module_path_to_import = resolved;
-  });
-  // 4. Non-relative, non-absolute paths: resolve relative to CWD.
-  if(!(Path.new(String.from(module_path_to_import.as_str())).is_absolute()), {
-    cwd_result := match(
-      cwd(),
-      .Ok(p) => p.to_string(),
-      .Err(_) => String.from(".")
-    );
-    module_path_to_import = Path.new(cwd_result).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
-  });
-  // ---------------------------------------------------------------------------
-  // Extension resolution
-  // ---------------------------------------------------------------------------
-  // Build the `file://` absolute path.
-  (module_abs_path : String) = `file://${module_path_to_import}`;
-  // If the path has no `.yo` extension, try `<path>.yo` then `<path>/index.yo`.
-  ext_opt := Path.new(String.from(module_path_to_import.as_str())).extension();
-  has_ext := match(ext_opt,.Some(_) => true,.None => false);
-  if(!(has_ext), {
-    yo_file_path := `${module_path_to_import}.yo`;
-    index_yo_path := `${module_path_to_import}/index.yo`;
-    yo_exists := _file_exists_sync(String.from(yo_file_path.as_str()));
-    index_exists := _file_exists_sync(String.from(index_yo_path.as_str()));
-    if(yo_exists && index_exists, {
+  // Resolve via the shared resolver so the cache key here matches the one
+  // `preload_module_tree` (main.yo) registers under.
+  (module_abs_path : String) = match(
+    resolve_module_path(module_path_to_import.as_str(), current_dir.as_str(), ctx.std_path.as_str()),
+    .Found(p) => p,
+    .Ambiguous(base) => {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            `Ambiguous import("${module_path_to_import}": both "${module_path_to_import}.yo" and "${module_path_to_import}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`,
+            `Ambiguous import("${base}": both "${base}.yo" and "${base}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`,
             false,
             .None
           )
         )
       );
-    });
-    if(yo_exists, {
-      module_abs_path = `file://${yo_file_path}`;
-    });
-    if(index_exists, {
-      module_abs_path = `file://${index_yo_path}`;
-    });
-    if(!(yo_exists) && !(index_exists), {
+      String.from("")
+    },
+    .NotFound(base) => {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            `Module not found: tried "${module_path_to_import}.yo" and "${module_path_to_import}/index.yo"`,
+            `Module not found: tried "${base}.yo" and "${base}/index.yo"`,
             false,
             .None
           )
         )
       );
-    });
-  });
+      String.from("")
+    }
+  );
   // ---------------------------------------------------------------------------
   // Load the module
   // ---------------------------------------------------------------------------
@@ -419,4 +454,4 @@ evaluate_import :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-export(evaluate_import);
+export(evaluate_import, resolve_module_path, ModuleResolveResult);
