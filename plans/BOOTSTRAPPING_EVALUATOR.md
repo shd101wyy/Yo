@@ -519,10 +519,24 @@ structs as`<struct:ID>`.)
    condition is compile-time known but the `comptime` modifier is
    missing" (yo-self over-strictly requires `while(comptime(...))` when
    the condition folds to a constant).
-5. **Misc per-feature gaps** — `closure.test.yo` (`Incompatible types`),
-   `comptime.test.yo` (`Cannot unify f32 and unit`), `dyn.test.yo`
-   (return `i32` vs `unit`), `arc.test.yo` (begin last-expr not
-   evaluated), GADTs, HKTs, etc.
+5. **`dyn(...)` concrete→trait-object coercion — DONE.** `(err :
+AnyError) = dyn(`x`)` failed (`Cannot unify "<String>" and
+"dyn(Error)"`): `evaluate_dyn_value` evaluated its inner expression
+   with the raw dyn target as `expected_type`, so the inner's concrete
+   return type was matched against the dyn and reached `synthesize_types`
+   (tag mismatch). Fixed by evaluating the inner with a fresh `SomeT`
+   carrying the dyn's traits (or cleared, when the outer expected isn't a
+   dyn), mirroring TS `evaluateDynValue`. std stays 151/151. **Next gap
+   (open):** dyn _method dispatch_ — `err.source()` on a `dyn(Error)`
+   receiver fails `Type mismatch for parameter "self"` (the trait
+   method's `Self`-constrained self param vs the `dyn` receiver). Related
+   but distinct subsystem.
+6. **Misc per-feature gaps** — `closure.test.yo` (`Incompatible types`),
+   `comptime.test.yo` (`Cannot unify f32 and unit`), `array_list.test.yo`
+   (comptime-`while`), `arc.test.yo` (begin last-expr not evaluated),
+   GADTs, HKTs, etc. (The test corpus has deep LAYERED gaps — each fix
+   advances files to their next error; per-file `check ./tests` is 11/170
+   after the template-string + dyn-coercion fixes.)
 
 The historically-tracked extracts below are a subset of #4:
 
