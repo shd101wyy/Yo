@@ -64,17 +64,17 @@ structure).
 | `./yo-cli check yo-self/main.yo`          | green           | —                      |
 | `./yo-cli compile yo-self/main.yo`        | builds          | —                      |
 | `/tmp/yo-self-bin check std/prelude.yo`   | green           | —                      |
-| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **146 / 151 files OK** |
+| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **149 / 151 files OK** |
 | `/tmp/yo-self-bin check ./tests`          | not yet run     | —                      |
 | `/tmp/yo-self-bin check ./yo-self`        | not yet run     | —                      |
 
-> The 146/151 figure is the **per-file** pass rate (each file checked in
-> its own process). The comptime operator-trait dispatch blocker (the 9
-> `net/*`/`sys/*`/`http/*` files) is now **fixed** — see below. The
-> remaining 5 failures are unrelated evaluator-coverage gaps:
+> The 149/151 figure is the **per-file** pass rate (each file checked in
+> its own process). The comptime operator-trait dispatch blocker (9
+> `net/*`/`sys/*`/`http/*` files) and the nested-import preload gap
+> (`env.yo`, `os/env.yo`, `fs/temp.yo`) are now **fixed** — see below.
+> The remaining 2 failures are unrelated evaluator-coverage gaps:
 >
 > - **`build.yo`**: `evaluate_yo_build_functions` not yet implemented.
-> - **`env.yo`, `os/env.yo`, `fs/temp.yo`**: `./libc/stdlib` import gap.
 > - **`encoding/json.yo`**: pointer-argument evaluator gap.
 >
 > Each failing file crashes (SIGSEGV) only as a _secondary_ effect:
@@ -105,14 +105,16 @@ write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
 
 ### Phase 1: **in progress** — `yo-self-bin check ./std`
 
-**Headline number:** per-file `check ./std` is at **146 / 151** (up from
-0 at the start, then 44 mid-session, then 137). The jump from 44 → 137
+**Headline number:** per-file `check ./std` is at **149 / 151** (up from
+0 at the start, then 44, then 137, then 146). The jump from 44 → 137
 came from implementing per-module isolation (`ctx.load_module`); 137 →
-146 came from fixing comptime operator-trait dispatch (the 9
-`net/sys/http` files — see the resolved-blocker section below). The
-remaining 5 are unrelated **evaluator-coverage gaps** — the
-long-suspected "deep-eval stack overflow" turned out to be a
-misdiagnosis (the genuine stack overflow is now fixed; see below).
+146 from fixing comptime operator-trait dispatch (the 9 `net/sys/http`
+files — see the resolved-blocker section below); 146 → 149 from
+recursively preloading **nested** imports (the `env.yo`/`os/env.yo`/
+`fs/temp.yo` `./libc/stdlib` gap — see below). The remaining 2 are
+unrelated **evaluator-coverage gaps** — the long-suspected "deep-eval
+stack overflow" turned out to be a misdiagnosis (the genuine stack
+overflow is now fixed; see below).
 
 **Fixes landed this session:**
 
@@ -396,7 +398,7 @@ done | tee /tmp/yoself_drift.txt | wc -l
 
 **Exit criteria:** every file under `./std` checks cleanly under
 `yo-self-bin`, matching the TS `yo-cli check ./std` result (151/151).
-**Current: 137/151 per-file.**
+**Current: 149/151 per-file.**
 
 Remaining work, in order of expected impact:
 
@@ -414,10 +416,19 @@ Remaining work, in order of expected impact:
    `module-manager.ts`: circular imports (preload breaks cycles with a
    `visited` set but does not return a partial module like TS's
    `loadingModules`), and module privacy. Neither blocks std today.
-4. **Other individual evaluator gaps.** `build.yo`
-   (`evaluate_yo_build_functions` not implemented); `env.yo`/`os/env.yo`/
-   `fs/temp.yo` (`./libc/stdlib` import); `encoding/json.yo` (pointer
-   argument). Patch as encountered.
+4. **Nested-import preload — DONE.** `env.yo`/`os/env.yo`/`fs/temp.yo`
+   imported `./libc/stdlib` from _inside_ an `impl({...})` body; the
+   preload DFS only scanned **top-level** imports, so `libc/stdlib.yo`
+   was never cached → `evaluate_import` failed with "module not
+   preloaded". Added `collect_import_paths_recursive`
+   (`codegen/driver.yo`) — recursively collects every import path
+   reachable from an expr (nested in impl/module/begin bodies) — and used
+   it at both preload sites in `main.yo` (`preload_module_tree`'s
+   post-order walk and `check_single_file`'s entry walk). Took per-file
+   `check ./std` **146 → 149**.
+5. **Other individual evaluator gaps.** `build.yo`
+   (`evaluate_yo_build_functions` not implemented); `encoding/json.yo`
+   (pointer argument). Patch as encountered.
 
 ### Phase 2 — `yo-self-bin check ./tests`
 
@@ -476,6 +487,7 @@ of scope here).
 | Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`                     | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                         |
 | Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | (this doc — resolved-blocker section)                     | 1     | fixed (infix dispatch + parametric-trait lookup + `Self` subst) |
 | Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — per-module eval works; cycle/privacy parity TBD       |
+| Nested imports not preloaded: `import(...)` inside `impl({...})` body skipped by top-level-only preload walk (`./libc/stdlib`)  | (this doc — Phase 1 item 4)                               | 1     | fixed (`collect_import_paths_recursive`)                        |
 | where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                            |
 | nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                            |
 | impl fn parametric return SIGSEGV                                                                                               | `yo-self-impl-fn-parametric-return-sigsegv.md`            | 2     | open                                                            |

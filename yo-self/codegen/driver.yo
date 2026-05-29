@@ -2096,6 +2096,46 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
   )
 );
 export(extract_bare_import_path, extract_import_path);
+/// Recursively collect every `import(...)` path reachable from `expr`,
+/// including imports NESTED inside `impl({...})` / module / `begin`
+/// bodies. `extract_import_path` only inspects a single expression, so a
+/// top-level-only walk misses e.g. `env :: impl({ { getenv, setenv } ::
+/// import("./libc/stdlib"); ... })` — the import lives inside the impl
+/// body, not at module top level. The preload step (main.yo) needs these
+/// nested imports cached, otherwise `evaluate_import` fails with
+/// "module not preloaded" when the impl body is evaluated.
+///
+/// Paths may appear more than once (e.g. a `{ ... } :: import(p)` node
+/// yields `p`, and recursing into its `import(p)` child yields `p`
+/// again); callers dedup by resolved path.
+collect_import_paths_recursive :: (
+  fn(expr : AstExpr, out : ArrayList(String)) -> unit
+)({
+  match(
+    extract_import_path(expr),
+    .Some(p) => {
+      out.push(p);
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .Atom(_, _) => (),
+    .FnCall(_, fb, args, _, _) => {
+      recur(fb.*, out);
+      (i : usize) = usize(0);
+      while(runtime(i < args.len()), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+export(collect_import_paths_recursive);
 // ---------------------------------------------------------------------------
 // Test body compilation
 // ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ open(import("std/fmt"));
 { resolve_module_path, ModuleResolveResult } :: import("./evaluator/exprs/import.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache } :: import("./evaluator/module_loader.yo");
 { EvalValue } :: import("./value.yo");
-{ compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
+{ compile_module_to_c, compile_test_body_to_c, extract_import_path, collect_import_paths_recursive, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -380,21 +380,31 @@ preload_module_tree :: (
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, abs.clone(), exn);
   // Post-order: preload this module's own dependencies first.
+  // Collect imports recursively so nested imports (inside `impl({...})`
+  // / module / begin bodies, e.g. std/env.yo's `env :: impl({ {getenv,
+  // setenv} :: import("./libc/stdlib"); ... })`) are also preloaded.
+  child_imports := ArrayList(String).new();
   (ni : usize) = mod_exprs.len();
   (di : usize) = usize(0);
   while(runtime(di < ni), {
     match(
       mod_exprs.get(di),
       .None => (),
-      .Some(e) => match(
-        extract_import_path(e),
-        .None => (),
-        .Some(child) => {
-          recur(child.as_str(), mod_dir.as_str(), std_path, visited, io, exn);
-        }
-      )
+      .Some(e) => collect_import_paths_recursive(e, child_imports)
     );
     di = (di + usize(1));
+  });
+  (nci : usize) = child_imports.len();
+  (ci : usize) = usize(0);
+  while(runtime(ci < nci), {
+    match(
+      child_imports.get(ci),
+      .None => (),
+      .Some(child) => {
+        recur(child.as_str(), mod_dir.as_str(), std_path, visited, io, exn);
+      }
+    );
+    ci = (ci + usize(1));
   });
   // Evaluate this module in isolation against a fresh clone of the
   // cached prelude env, with its own imports resolving via the cache.
@@ -564,28 +574,38 @@ check_single_file :: (
   // the module-loader cache keyed by resolved file:// path.
   // ---------------------------------------------------------------------------
   preload_visited := ArrayList(String).new();
+  // Collect imports recursively so nested imports (inside `impl({...})`
+  // / module / begin bodies) are preloaded too — see
+  // collect_import_paths_recursive.
+  entry_imports := ArrayList(String).new();
   (nip : usize) = exprs.len();
   (iip : usize) = usize(0);
   while(runtime(iip < nip), {
     match(
       exprs.get(iip),
       .None => (),
-      .Some(e) => match(
-        extract_import_path(e),
-        .None => (),
-        .Some(imp_path) => {
-          preload_module_tree(
-            imp_path.as_str(),
-            input_base_dir.as_str(),
-            std_path.as_str(),
-            preload_visited,
-            io,
-            local_exn
-          );
-        }
-      )
+      .Some(e) => collect_import_paths_recursive(e, entry_imports)
     );
     iip = (iip + usize(1));
+  });
+  (nei : usize) = entry_imports.len();
+  (iei : usize) = usize(0);
+  while(runtime(iei < nei), {
+    match(
+      entry_imports.get(iei),
+      .None => (),
+      .Some(imp_path) => {
+        preload_module_tree(
+          imp_path.as_str(),
+          input_base_dir.as_str(),
+          std_path.as_str(),
+          preload_visited,
+          io,
+          local_exn
+        );
+      }
+    );
+    iei = (iei + usize(1));
   });
   // ---------------------------------------------------------------------------
   // Evaluate this file's own declarations against a clone of the prelude
