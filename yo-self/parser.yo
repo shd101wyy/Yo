@@ -437,13 +437,30 @@ impl(
     dot_tok := self.make_syn_tok(TokenKind.Dot, String.from("."));
     plus_tok := self.make_syn_tok(TokenKind.Operator, String.from("+"));
     to_str_tok := self.make_syn_tok(TokenKind.Identifier, String.from("to_string"));
-    // Helper: build `e.to_string()` — takes explicit params since local fns can't capture outer values
-    make_ts_call :: (fn(e : AstExpr, d_tok : Token, ts_tok : Token, outer_tok : Token) -> AstExpr)({
+    // Helper: build `e.to_string()` — takes explicit params since local fns
+    // can't capture outer values. The four synthetic sub-expressions need
+    // UNIQUE expr ids (passed in via `id_*`): hardcoding `usize(0)` made
+    // every template-string sub-expr collide on id 0 in the per-ctx
+    // `expr_info_table`, corrupting their evaluated types (a downstream
+    // `.to_string()` dispatch then saw garbage and failed to unify). Mirrors
+    // the global-expr-id collision fixed in commit 354b235b.
+    make_ts_call :: (
+      fn(
+        e : AstExpr,
+        d_tok : Token,
+        ts_tok : Token,
+        outer_tok : Token,
+        id_ts_atom : usize,
+        id_dot_atom : usize,
+        id_prop : usize,
+        id_outer : usize
+      ) -> AstExpr
+    )({
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e);
-      prop_args.push(.Atom(usize(0), ts_tok));
-      (prop : AstExpr) =.FnCall(usize(0), box(.Atom(usize(0), d_tok)), prop_args, true, d_tok);
-      .FnCall(usize(0), box(prop), ArrayList(AstExpr).new(), false, outer_tok)
+      prop_args.push(.Atom(id_ts_atom, ts_tok));
+      (prop : AstExpr) =.FnCall(id_prop, box(.Atom(id_dot_atom, d_tok)), prop_args, true, d_tok);
+      .FnCall(id_outer, box(prop), ArrayList(AstExpr).new(), false, outer_tok)
     });
     num_parts := part_content.len();
     (result_expr_opt : Option(AstExpr)) =.None;
@@ -466,7 +483,7 @@ impl(
               return(ParseResult(expr : make_err_expr(), index : (index + usize(1))));
             }
           );
-          make_ts_call(inner_expr, dot_tok, to_str_tok, tok)
+          make_ts_call(inner_expr, dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
         },
         true => {
           // Literal string part: "content".to_string()
@@ -481,7 +498,7 @@ impl(
             module_path : tok.module_path,
             input : tok.input
           );
-          make_ts_call(.Atom(self.alloc_id(), str_tok), dot_tok, to_str_tok, tok)
+          make_ts_call(.Atom(self.alloc_id(), str_tok), dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
         }
       );
       result_expr_opt = match(
@@ -542,9 +559,13 @@ impl(
           idx = (idx + usize(1));
           // Accept trailing comma: skip whitespace, check for RParen.
           nxt_idx := self.skip_ws_fwd(idx);
-          nxt := match(self.tokens.get(nxt_idx),.Some(t) => t,.None => {
-            return(FnArgsResult(args : args, index : nxt_idx));
-          });
+          nxt := match(
+            self.tokens.get(nxt_idx),
+            .Some(t) => t,
+            .None => {
+              return(FnArgsResult(args : args, index : nxt_idx));
+            }
+          );
           is_rp := (nxt.kind == TokenKind.RParen);
           cond(
             is_rp => {
