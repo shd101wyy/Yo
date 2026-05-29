@@ -105,13 +105,14 @@ write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
 
 ### Phase 1: **in progress** — `yo-self-bin check ./std`
 
-**Headline number:** per-file `check ./std` is at **137 / 151** (up from
-0 at the start, then 44 mid-session). The jump from 44 → 137 came from
-implementing per-module isolation (`ctx.load_module`). The remaining 14
-are **evaluator-coverage gaps** — the long-suspected "deep-eval stack
-overflow" turned out to be a misdiagnosis (the genuine stack overflow is
-now fixed; see below). The active blocker is comptime operator-trait
-dispatch (9 of the 14).
+**Headline number:** per-file `check ./std` is at **146 / 151** (up from
+0 at the start, then 44 mid-session, then 137). The jump from 44 → 137
+came from implementing per-module isolation (`ctx.load_module`); 137 →
+146 came from fixing comptime operator-trait dispatch (the 9
+`net/sys/http` files — see the resolved-blocker section below). The
+remaining 5 are unrelated **evaluator-coverage gaps** — the
+long-suspected "deep-eval stack overflow" turned out to be a
+misdiagnosis (the genuine stack overflow is now fixed; see below).
 
 **Fixes landed this session:**
 
