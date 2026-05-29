@@ -150,6 +150,88 @@ build_field_path_collection :: (
   });
   result
 });
+/// Try to resolve `<TypeVal>.<prop_name>` as an ASSOCIATED TYPE.
+///
+/// Associated types (e.g. `Self.Output` from `impl(JsonValue,
+/// Index(String)(Output : JsonValue, …))`) are registered in the
+/// type-trait-methods registry keyed by the receiver type's id, with a
+/// `TypeVal` value. During generic-impl specialization they may also be
+/// bound directly in the env. This mirrors the assoc-type fallbacks in
+/// the struct/union branch (and TS `property-access.ts`'s
+/// `isEvaluatingGenericImplSpecialization` + associated-type lookups).
+///
+/// On success, sets ExprInfo on both `expr` and `property_expr` and
+/// returns `true`; otherwise returns `false` (caller proceeds to its
+/// not-found handling). Used by the EnumT branch — without it,
+/// `Self.Output` on an enum receiver wrongly errors as a missing enum
+/// variant before any associated-type lookup runs.
+_try_resolve_associated_type :: (
+  fn(
+    type_val_inner : TypeValue,
+    prop_name : String,
+    expr : AstExpr,
+    property_expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext
+  ) -> bool
+)({
+  // (a) During generic-impl specialization the assoc type may be bound
+  //     directly in the env (mirrors TS isEvaluatingGenericImplSpecialization).
+  if(ctx.is_evaluating_generic_impl_specialization, {
+    spec_vars := get_variables_from_env(env, prop_name);
+    n_spec := spec_vars.len();
+    if(n_spec > usize(0), {
+      match(
+        spec_vars.get(n_spec - usize(1)),
+        .Some(last_spec) => {
+          if(is_type_value(last_spec.value), {
+            match(
+              last_spec.value,
+              .Some(spec_tv) => {
+                out_spec := new_expr_info(env, type_of_eval_value(spec_tv));
+                out_spec.value = Option(EvalValue).Some(spec_tv);
+                out_spec.is_accessing_property = Option(bool).Some(true);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec);
+                return(true);
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+    });
+  });
+  // (b) Look up in the type-trait-methods registry — covers impl-provided
+  //     associated types (the `Output : JsonValue` field is registered
+  //     under JsonValue's type id before the `index` method is evaluated).
+  type_id := type_id_or_empty(type_val_inner);
+  if(type_id != String.from(""), {
+    registry_methods := get_type_trait_methods_by_name(type_id, prop_name);
+    (rm_idx : usize) = usize(0);
+    while(runtime(rm_idx < registry_methods.len()), {
+      match(
+        registry_methods.get(rm_idx),
+        .Some(rm) => match(
+          rm.value,
+          .Some(rmv) => {
+            out_rm := new_expr_info(env, rm.ty);
+            out_rm.value = Option(EvalValue).Some(rmv);
+            out_rm.is_accessing_property = Option(bool).Some(true);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rm);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rm);
+            return(true);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      rm_idx = (rm_idx + usize(1));
+    });
+  });
+  false
+});
 // ---------------------------------------------------------------------------
 // evaluate_property_access
 // ---------------------------------------------------------------------------
@@ -180,7 +262,7 @@ evaluate_property_access :: (
   // Short-circuit: Type.<KindName> — kind-constraint syntactic sugar.
   // -------------------------------------------------------------------------
   dot_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-  if((dot_args.len() == usize(2)), {
+  if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
     if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value.as_str() == "Type")) && ast_expr_is_atom(prop_expr), {
@@ -469,14 +551,12 @@ evaluate_property_access :: (
     // None of the specific `is_*_type` branches below match primitives,
     // so without this path the lookup falls through to the runtime
     // method-dispatch slow path and the comptime value is lost.
-    if(
-      ast_expr_is_atom(property_expr) &&
+    if(ast_expr_is_atom(property_expr) &&
       !(is_enum_type(type_val_inner)) &&
-      !(is_struct_type(type_val_inner)) &&
-      !(is_union_type(type_val_inner)) &&
-      !(is_module_type(type_val_inner)) &&
-      !(is_some_type(type_val_inner))
-    , {
+        !(is_struct_type(type_val_inner)) &&
+          !(is_union_type(type_val_inner)) &&
+            !(is_module_type(type_val_inner)) &&
+              !(is_some_type(type_val_inner)), {
       prim_type_id := type_id_or_empty(type_val_inner);
       if(prim_type_id != String.from(""), {
         prim_prop_name := ast_expr_token(property_expr).value;
@@ -532,7 +612,12 @@ evaluate_property_access :: (
           match(
             fidx_tv_en,
             .None => {
-              // Generic methods stub returns empty — throw directly.
+              // Not an enum variant — try resolving as an associated type
+              // (e.g. `Self.Output` from `impl(JsonValue, Index(String)(
+              // Output : JsonValue, …))`). Only throw if that also fails.
+              if(_try_resolve_associated_type(type_val_inner, variant_name_tv, expr, property_expr, env, ctx), {
+                return(expr);
+              });
               exn.throw(
                 dyn(
                   format_error_message(

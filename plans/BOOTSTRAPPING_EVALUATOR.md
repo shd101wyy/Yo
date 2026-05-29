@@ -64,20 +64,20 @@ structure).
 | `./yo-cli check yo-self/main.yo`          | green           | —                      |
 | `./yo-cli compile yo-self/main.yo`        | builds          | —                      |
 | `/tmp/yo-self-bin check std/prelude.yo`   | green           | —                      |
-| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **149 / 151 files OK** |
+| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **150 / 151 files OK** |
 | `/tmp/yo-self-bin check ./tests`          | not yet run     | —                      |
 | `/tmp/yo-self-bin check ./yo-self`        | not yet run     | —                      |
 
-> The 149/151 figure is the **per-file** pass rate (each file checked in
-> its own process). The comptime operator-trait dispatch blocker (9
-> `net/*`/`sys/*`/`http/*` files) and the nested-import preload gap
-> (`env.yo`, `os/env.yo`, `fs/temp.yo`) are now **fixed** — see below.
-> The remaining 2 failures are unrelated evaluator-coverage gaps:
+> The 150/151 figure is the **per-file** pass rate (each file checked in
+> its own process). This session fixed: comptime operator-trait dispatch
+> (9 `net/*`/`sys/*`/`http/*` files), the nested-import preload gap
+> (`env.yo`, `os/env.yo`, `fs/temp.yo`), and associated-type resolution
+> on an enum receiver (`encoding/json.yo`'s `Self.Output`) — all below.
+> The remaining 1 failure is an unrelated evaluator-coverage gap:
 >
 > - **`build.yo`**: `evaluate_yo_build_functions` not yet implemented.
-> - **`encoding/json.yo`**: pointer-argument evaluator gap.
 >
-> Each failing file crashes (SIGSEGV) only as a _secondary_ effect:
+> It crashes (SIGSEGV) only as a _secondary_ effect:
 > `_evaluate_expression_wrapper` prints the gap error then unwinds with a
 > placeholder and limps on until a downstream access faults.
 
@@ -105,16 +105,18 @@ write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
 
 ### Phase 1: **in progress** — `yo-self-bin check ./std`
 
-**Headline number:** per-file `check ./std` is at **149 / 151** (up from
-0 at the start, then 44, then 137, then 146). The jump from 44 → 137
-came from implementing per-module isolation (`ctx.load_module`); 137 →
-146 from fixing comptime operator-trait dispatch (the 9 `net/sys/http`
-files — see the resolved-blocker section below); 146 → 149 from
-recursively preloading **nested** imports (the `env.yo`/`os/env.yo`/
-`fs/temp.yo` `./libc/stdlib` gap — see below). The remaining 2 are
-unrelated **evaluator-coverage gaps** — the long-suspected "deep-eval
-stack overflow" turned out to be a misdiagnosis (the genuine stack
-overflow is now fixed; see below).
+**Headline number:** per-file `check ./std` is at **150 / 151** (up from
+0 at the start, then 44, then 137, then 146, then 149). The jump from
+44 → 137 came from implementing per-module isolation (`ctx.load_module`);
+137 → 146 from fixing comptime operator-trait dispatch (the 9
+`net/sys/http` files — see the resolved-blocker section below); 146 →
+149 from recursively preloading **nested** imports (the `env.yo`/
+`os/env.yo`/`fs/temp.yo` `./libc/stdlib` gap); 149 → 150 from resolving
+associated types on an enum receiver (`encoding/json.yo`'s
+`Self.Output` — see below). The remaining 1 is an unrelated
+**evaluator-coverage gap** — the long-suspected "deep-eval stack
+overflow" turned out to be a misdiagnosis (the genuine stack overflow is
+now fixed; see below).
 
 **Fixes landed this session:**
 
@@ -398,7 +400,7 @@ done | tee /tmp/yoself_drift.txt | wc -l
 
 **Exit criteria:** every file under `./std` checks cleanly under
 `yo-self-bin`, matching the TS `yo-cli check ./std` result (151/151).
-**Current: 149/151 per-file.**
+**Current: 150/151 per-file.**
 
 Remaining work, in order of expected impact:
 
@@ -426,9 +428,19 @@ Remaining work, in order of expected impact:
    it at both preload sites in `main.yo` (`preload_module_tree`'s
    post-order walk and `check_single_file`'s entry walk). Took per-file
    `check ./std` **146 → 149**.
-5. **Other individual evaluator gaps.** `build.yo`
-   (`evaluate_yo_build_functions` not implemented); `encoding/json.yo`
-   (pointer argument). Patch as encountered.
+5. **Associated-type resolution on enum receiver — DONE.**
+   `encoding/json.yo`'s `impl(JsonValue, Index(String)(Output : JsonValue,
+index : (fn(…) -> *(Self.Output))(…)))` evaluated `Self.Output` where
+   `Self` = the `JsonValue` enum. The TypeVal+EnumT property-access branch
+   threw `Enum variant "Output" not found in enum` before any
+   associated-type lookup. Added `_try_resolve_associated_type`
+   (`evaluator/exprs/property_access.yo`) — checks the env (during
+   generic-impl specialization) then the type-trait-methods registry
+   (where `Output : JsonValue` is registered under JsonValue's id) — and
+   called it in the EnumT not-found branch before throwing. Took per-file
+   `check ./std` **149 → 150**.
+6. **Other individual evaluator gaps.** `build.yo`
+   (`evaluate_yo_build_functions` not implemented). Patch as encountered.
 
 ### Phase 2 — `yo-self-bin check ./tests`
 
@@ -488,6 +500,7 @@ of scope here).
 | Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | (this doc — resolved-blocker section)                     | 1     | fixed (infix dispatch + parametric-trait lookup + `Self` subst) |
 | Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — per-module eval works; cycle/privacy parity TBD       |
 | Nested imports not preloaded: `import(...)` inside `impl({...})` body skipped by top-level-only preload walk (`./libc/stdlib`)  | (this doc — Phase 1 item 4)                               | 1     | fixed (`collect_import_paths_recursive`)                        |
+| Associated type on enum receiver: `Self.Output` errored as a missing enum variant before assoc-type lookup (`encoding/json.yo`) | (this doc — Phase 1 item 5)                               | 1     | fixed (`_try_resolve_associated_type` in EnumT branch)          |
 | where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                            |
 | nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                            |
 | impl fn parametric return SIGSEGV                                                                                               | `yo-self-impl-fn-parametric-return-sigsegv.md`            | 2     | open                                                            |
