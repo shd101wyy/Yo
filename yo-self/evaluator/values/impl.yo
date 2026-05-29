@@ -53,6 +53,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
 { is_some_type } :: import("../../types/guards.yo");
+{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -506,10 +507,16 @@ find_methods_from_generic_impls :: (
 /// `.None` when the resulting head isn't bound to a TraitT — that
 /// case falls back to legacy "no expected_type" behavior.
 _try_lookup_trait_type :: (
-  fn(trait_expr : AstExpr, env : Environment) -> Option(TypeValue)
+  fn(
+    trait_expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Option(TypeValue)
 )({
-  // Walk through `Trait(...)` / `Trait(A)(B)` etc. to reach the
-  // leftmost atom.
+  // Fast path: walk through `Trait(...)` / `Trait(A)(B)` etc. to reach
+  // the leftmost atom and look it up directly. This succeeds for
+  // non-parametric traits bound directly as a `TraitT` in the env.
   (head_expr : AstExpr) = trait_expr;
   (steps : usize) = usize(0);
   while(runtime(!(ast_expr_is_atom(head_expr)) && (steps < usize(32))), {
@@ -520,33 +527,62 @@ _try_lookup_trait_type :: (
     );
     steps = (steps + usize(1));
   });
-  if(!(ast_expr_is_atom(head_expr)), {
-    return(Option(TypeValue).None);
+  (atom_result : Option(TypeValue)) = Option(TypeValue).None;
+  if(ast_expr_is_atom(head_expr), {
+    name := ast_expr_token(head_expr).value;
+    vars := get_variables_from_env(env, name);
+    if(vars.len() > usize(0), {
+      match(
+        vars.get(vars.len() - usize(1)),
+        .Some(last_v) => match(
+          last_v.value,
+          .Some(ev) => match(
+            ev,
+            .TypeVal(tb) => match(
+              tb.*,
+              .TraitT(_, _, _, _, _, _, _, _) => {
+                atom_result = Option(TypeValue).Some(tb.*);
+              },
+              _ => ()
+            ),
+            _ => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
   });
-  name := ast_expr_token(head_expr).value;
-  vars := get_variables_from_env(env, name);
-  if(vars.len() == usize(0), {
-    return(Option(TypeValue).None);
+  if(atom_result.is_some(), {
+    return(atom_result);
   });
-  last_v := match(
-    vars.get(vars.len() - usize(1)),
-    .Some(v) => v,
-    .None => {
-      return(Option(TypeValue).None);
-    }
-  );
+  // Parametric traits (e.g. `ComptimeEq(comptime_int)`) are produced by
+  // CALLING a trait-constructor function — `ComptimeEq :: (fn(...) ->
+  // comptime(Trait))(trait(...))` — so the leftmost atom resolves to the
+  // constructor FuncVal, not a TraitT, and the fast path above yields
+  // None. Evaluate the full trait expression to obtain the specialized
+  // TraitT so impl method bodies (anonymous lambdas) get the correct
+  // expected function type per field label. Without this, the lambda
+  // falls back to `_synthesize_default_func_type`, which mints a fresh
+  // SomeT named after each parameter label (e.g. `lhs`) — breaking the
+  // later parameter type-compatibility check at the call site.
+  evaluated := evaluate_expression_raw(trait_expr, env, ctx, exn);
   match(
-    last_v.value,
-    .None => Option(TypeValue).None,
-    .Some(ev) => match(
-      ev,
-      .TypeVal(tb) => match(
-        tb.*,
-        .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(tb.*),
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(info) => match(
+      info.value,
+      .Some(ev) => match(
+        ev,
+        .TypeVal(tb) => match(
+          tb.*,
+          .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(tb.*),
+          _ => Option(TypeValue).None
+        ),
         _ => Option(TypeValue).None
       ),
-      _ => Option(TypeValue).None
-    )
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
   )
 });
 /// Look up the type of a trait field by its label. Returns `.None` if
@@ -582,6 +618,72 @@ _trait_field_type_by_label :: (
       },
       _ => Option(TypeValue).None
     )
+  )
+);
+/// Find the frame level of the trait's `Self` type variable inside a
+/// method's function type. All `Self` occurrences in one trait share the
+/// same `(name, frame_level)` (evaluate_trait_type creates a single Self
+/// SomeT), so scanning the parameter types — then the result type — for
+/// the first `SomeT` named "Self" yields the level we need to build a
+/// substitution. Returns `.None` when the method type mentions no `Self`.
+_find_self_level_in_method_ty :: (
+  fn(method_ty : TypeValue) -> Option(usize)
+)(
+  match(
+    method_ty,
+    .Func(_, _, _, pts, _, _, _, _, ret) => {
+      (found : Option(usize)) = Option(usize).None;
+      (i : usize) = usize(0);
+      while(runtime((i < pts.len()) && found.is_none()), {
+        match(
+          pts.get(i),
+          .Some(p) => match(
+            p,
+            .SomeT(_, n, lvl, _, _, _, _, _, _, _) => {
+              if(n.as_str() == "Self", {
+                found = Option(usize).Some(lvl);
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(found.is_none(), {
+        match(
+          ret.*,
+          .SomeT(_, n, lvl, _, _, _, _, _, _, _) => {
+            if(n.as_str() == "Self", {
+              found = Option(usize).Some(lvl);
+            });
+          },
+          _ => ()
+        );
+      });
+      found
+    },
+    _ => Option(usize).None
+  )
+);
+/// Substitute the trait's `Self` type variable with the concrete receiver
+/// type throughout a method's function type. This mirrors TS's
+/// `SelfType: receiverType` substitution at impl registration: the stored
+/// method type carries no `Self` SomeT, so the call-site parameter check
+/// compares concrete types directly (rather than relying on call-time
+/// SomeT synthesis, which fails for `Self` because the SomeT's frame level
+/// is the stale trait-definition frame, not the callee frame).
+_substitute_self_in_method_ty :: (
+  fn(method_ty : TypeValue, self_concrete : TypeValue) -> TypeValue
+)(
+  match(
+    _find_self_level_in_method_ty(method_ty),
+    .Some(lvl) => {
+      s := subst_new();
+      subst_add(s, String.from("Self"), lvl, self_concrete);
+      substitute(s, method_ty)
+    },
+    .None => method_ty
   )
 );
 evaluate_module_value :: (
@@ -951,7 +1053,7 @@ evaluate_module_value :: (
             .FnCall(_, fb, _, _, _) => fb.*,
             .Atom(_, _) => make_err_expr()
           );
-          current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env);
+          current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env, ctx, exn);
           (ti2 : usize) = usize(0);
           while(runtime(ti2 < trait_inner_args.len()), {
             match(
@@ -987,9 +1089,21 @@ evaluate_module_value :: (
               // field-by-label. This lets anonymous lambdas (e.g. the body
               // of an impl method) see the function type the trait expects.
               expected_method_ty := _trait_field_type_by_label(current_trait_ty, method_name);
+              // Substitute the trait's abstract `Self` with the concrete
+              // receiver type so the impl method's anonymous lambda binds
+              // its parameters at concrete types (e.g. `comptime_int`)
+              // rather than the trait's `Self` SomeT — which the call-site
+              // parameter check cannot resolve (its frame level is the
+              // stale trait-definition frame). Mirrors TS's `SelfType`
+              // substitution at impl registration.
+              expected_method_ty_resolved := match(
+                expected_method_ty,
+                .Some(t) => Option(TypeValue).Some(_substitute_self_in_method_ty(t, receiver_ty)),
+                .None => Option(TypeValue).None
+              );
               saved2 := ctx.expected_type;
               ctx.expected_type = match(
-                expected_method_ty,
+                expected_method_ty_resolved,
                 .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : local_env)),
                 .None => Option(ExpectedTypeCtx).None
               );

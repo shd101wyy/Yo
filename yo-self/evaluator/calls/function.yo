@@ -42,6 +42,7 @@ open(import("std/string"));
 { random_id } :: import("../../utils.yo");
 {
   EvalContext,
+  ExpectedTypeCtx,
   FuncOrAsyncBlockCtx,
   FuncOrAsyncBlockKind,
   TypeCallResult,
@@ -236,6 +237,78 @@ evaluate_function_call :: (
       },
       _ => ()
     );
+  });
+  // ------------------------------------------------------------------
+  // Infix comparison operator → trait-method dispatch.
+  //
+  // Mirrors TS `function.ts` (the `stringIsOperator(functionName) &&
+  // expr.isInfix` branch), but restricted to the COMPARISON operators
+  // (`==`/`!=`/`<`/`<=`/`>`/`>=`). These resolve to a trait method on the
+  // receiver (lhs) type via the registry and return `bool`/`comptime(bool)`;
+  // without dispatch they fall into the unbound-operator-name soft fallback
+  // (which yields `unit`), so `||`/`&&` operands and `bool` bindings reject
+  // `a == b` (e.g. `(platform == Platform.Macos) || ...` in
+  // std/sys/socket.yo).
+  //
+  // Arithmetic/bitwise operators are deliberately NOT routed here: the
+  // bootstrap already evaluates them through a separate concrete path
+  // (so `usize * usize` etc. keep their inferred result type); routing
+  // them through generic trait dispatch would lose the return type
+  // (`Failed to infer the function call return type`).
+  // ------------------------------------------------------------------
+  is_infix_call := match(expr,.FnCall(_, _, _, inf, _) => inf,.Atom(_, _) => false);
+  op_name := match(func_expr,.Atom(_, ftok) => ftok.value, _ => String.new());
+  op_is_comparison := cond(
+    (op_name.as_str() == "==") => true,
+    (op_name.as_str() == "!=") => true,
+    (op_name.as_str() == "<") => true,
+    (op_name.as_str() == "<=") => true,
+    (op_name.as_str() == ">") => true,
+    (op_name.as_str() == ">=") => true,
+    true => false
+  );
+  if((is_infix_call && op_is_comparison) && (args.len() >= usize(1)), {
+    first_arg := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    // Evaluate the first operand with `expected_type` cleared — the
+    // operand type must come from the operand itself, not from the
+    // bool/etc. type the outer context expects of the operator result.
+    saved_et := ctx.expected_type;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    evaluated_first := evaluate_expression_raw(first_arg, env, ctx, exn);
+    ctx.expected_type = saved_et;
+    receiver_ty := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_first)),
+      .Some(ri) => ri.ty,
+      .None => t_unit()
+    );
+    // is_infix_operator_call = true: infix operators don't allow auto
+    // pointer conversion of the receiver.
+    op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+    if(op_methods.len() > usize(0), {
+      first_m := match(
+        op_methods.get(usize(0)),
+        .Some(m) => m,
+        .None => return(expr)
+      );
+      call_result_op := try_to_call_function_with_arguments(
+        first_m.value,
+        first_m.ty,
+        expr,
+        func_expr,
+        args,
+        env,
+        ctx,
+        true,
+        false,
+        false,
+        exn
+      );
+      out_op := new_expr_info(call_result_op.caller_env, call_result_op.return_type);
+      out_op.value = Option(EvalValue).Some(create_unknown_val(call_result_op.return_type));
+      out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
+      return(expr);
+    });
   });
   // Evaluate the callee.
   evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, exn);

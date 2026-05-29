@@ -64,16 +64,15 @@ structure).
 | `./yo-cli check yo-self/main.yo`          | green           | —                      |
 | `./yo-cli compile yo-self/main.yo`        | builds          | —                      |
 | `/tmp/yo-self-bin check std/prelude.yo`   | green           | —                      |
-| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **137 / 151 files OK** |
+| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **146 / 151 files OK** |
 | `/tmp/yo-self-bin check ./tests`          | not yet run     | —                      |
 | `/tmp/yo-self-bin check ./yo-self`        | not yet run     | —                      |
 
-> The 137/151 figure is the **per-file** pass rate (each file checked in
-> its own process). The 14 failures are **evaluator-coverage gaps, not
-> the stack overflow** (which is now fixed — see below):
+> The 146/151 figure is the **per-file** pass rate (each file checked in
+> its own process). The comptime operator-trait dispatch blocker (the 9
+> `net/*`/`sys/*`/`http/*` files) is now **fixed** — see below. The
+> remaining 5 failures are unrelated evaluator-coverage gaps:
 >
-> - **9** (`net/*`, `sys/*`, `http/*`): comptime operator-trait dispatch
->   — `platform == Platform.Macos` etc. (the **active blocker**).
 > - **`build.yo`**: `evaluate_yo_build_functions` not yet implemented.
 > - **`env.yo`, `os/env.yo`, `fs/temp.yo`**: `./libc/stdlib` import gap.
 > - **`encoding/json.yo`**: pointer-argument evaluator gap.
@@ -202,43 +201,65 @@ reporting` (`48a2d6f9`).
   the 13 `net/sys/http` files still fail _with the big stack_, at shallow
   depth — they were never stack overflows. See the active blocker.
 
-#### Active blocker — comptime operator-trait dispatch (`==`/`<`/… → `unit`)
+#### Comptime operator-trait dispatch (`==`/`<`/… → `bool`) — **FIXED**
 
-The 9 `net/sys/http` files fail on
+The 9 `net/sys/http` files failed on
 `Expected bool type for "or" argument, got: platform == Platform.Macos`.
 `platform` and `Platform.Macos` are comptime strings; `platform ==
-Platform.Macos` is a comptime `==`. yo-self does not dispatch comparison
-operators to their trait impl, so `==` types as `unit` (it falls into
-the unbound-operator-name fallback in
+Platform.Macos` is a comptime `==`. yo-self did not dispatch comparison
+operators to their trait impl, so `==` typed as `unit` (it fell into the
+unbound-operator-name fallback in
 `evaluator/exprs/identifer_and_operator.yo` → `UnknownVal(t_unit())`).
-`cond` tolerates a non-`bool` condition (so a bare `cond((a==b)=>…)`
-passes), but `||`/`&&` and `bool` bindings reject it; the resulting
-throw then crashes via the eval wrapper's unwind-with-placeholder.
+`cond` tolerates a non-`bool` condition, but `||`/`&&` and `bool`
+bindings reject it.
 
-**Attempted (reverted) — port note for the next attempt.** Adding an
-infix-operator branch to `evaluate_function_call` (mirror of TS
-`function.ts`: `stringIsOperator(name) && expr.isInfix` →
-`get_receiver_methods_by_name_from_env(op, receiverType, is_infix=true)`
-→ dispatch) does make `==` resolve to the `<type>.<op>` method. But it
-then bottoms out two layers deeper and **regresses prelude** (turns the
-previously-silent `__yo_pointer_size_bits() == 32` into a hard error),
-so it was reverted. The remaining blocker, pinned with a diagnostic:
+The fix has **three** parts (commit on `feat/bootstrapping-evaluator`):
 
-> The operator trait method `(==) : fn(comptime(lhs) : Self,
-comptime(rhs) : Rhs) -> comptime(bool)` (from `ComptimeEq`) is
-> evaluated such that the `lhs` parameter's **type** resolves to a
-> type-var named after the param **label** (`"lhs"`) instead of `Self`
-> — `try_to_call`'s param check reports
-> `expected=lhs given=comptime_int resolved_pt=lhs`. So
-> `are_types_compatible(Self-as-"lhs", comptime_int)` fails. Setting
-> `ctx.self_type = receiverType` around the call did not fix it.
+1. **Infix comparison dispatch** (`evaluator/calls/function.yo`). Added
+   an early branch in `evaluate_function_call`, before callee evaluation,
+   mirroring TS `function.ts`'s `stringIsOperator(name) && expr.isInfix`
+   branch: for an infix comparison operator (`==`/`!=`/`<`/`<=`/`>`/`>=`),
+   evaluate the first operand (with `expected_type` cleared) to get the
+   receiver type, resolve the method via
+   `get_receiver_methods_by_name_from_env(op, receiverType,
+is_infix=true)`, and call it. **Restricted to comparison operators**:
+   arithmetic/bitwise operators already lower through a separate concrete
+   path in the bootstrap; routing them through generic trait dispatch
+   loses the result type (`Failed to infer the function call return
+type`) and regressed `sys/sysinfo.yo`'s `usize * usize`.
 
-Root the next attempt in `evaluator/types/function.yo`'s
-`evaluate_function_type` / `evaluate_function_parameter`: confirm how
-`comptime(lhs) : Self` builds the stored param type, and why `Self`
-becomes a `"lhs"`-named type-var (likely a param-type-naming or
-Self-substitution-at-impl-registration bug). This is deeper
-trait-method-function-type work, not a surgical dispatch insert.
+2. **Parametric-trait expected-type lookup** (`evaluator/values/impl.yo`,
+   `_try_lookup_trait_type`). The impl `(==) : ((lhs, rhs) -> …)` is a
+   **bare lambda**; its parameter types come from the _expected_ trait
+   field type. But `ComptimeEq(comptime_int)` is produced by _calling_ a
+   trait-constructor function (`ComptimeEq :: (fn(...) ->
+comptime(Trait))(trait(...))`), so the leftmost-atom lookup found the
+   constructor `FuncVal`, not a `TraitT`, returned `None`, and the lambda
+   fell back to `_synthesize_default_func_type` — which mints a fresh
+   `SomeT` named after each parameter label (`lhs`). Fixed by evaluating
+   the full parametric-trait expression to obtain the specialized
+   `TraitT` (with an atom-lookup fast path retained for non-parametric
+   traits).
+
+3. **`Self` substitution at impl registration** (`evaluator/values/impl.yo`,
+   `_substitute_self_in_method_ty`). Even with the real expected type, the
+   trait field type still carries the abstract `Self` SomeT. Call-time
+   SomeT synthesis can't resolve it: the synthesizer binds `Self` at the
+   callee's top frame, but `_chain_resolve` looks `Self` up by its
+   _definition_ frame level (the stale trait-definition frame) → miss.
+   Mirroring TS's `SelfType: receiverType` substitution, the impl now
+   substitutes `Self` → the concrete receiver type in each method's
+   function type before binding the lambda, so the stored method type is
+   fully concrete (`fn(comptime(lhs) : comptime_int, …) -> comptime(bool)`)
+   and the call-site parameter check compares concrete types directly.
+
+Also improved the call-site `Type mismatch for parameter` diagnostic
+(`evaluator/calls/helper.yo`) to print `Expected`/`Got` type strings.
+
+Result: per-file `check ./std` went **137 → 146** (the 9 `net/sys/http`
+files now pass; `sys/sysinfo.yo` no longer regresses). Verified against
+`/tmp/repro_psb.yo` (`v :: (__yo_pointer_size_bits() == 32)`) and prelude
+(`std/prelude.yo`, exit 0); TS `yo-cli check ./std` stays 151/151.
 
 ### Strategy: strict 1-to-1 port
 
@@ -378,14 +399,12 @@ done | tee /tmp/yoself_drift.txt | wc -l
 
 Remaining work, in order of expected impact:
 
-1. **Comptime operator-trait dispatch (current blocker).** Comparison
-   operators (`==`/`!=`/`<`/…) on comptime values type as `unit`, not
-   `bool`, breaking `||`/`&&` operands and `bool` bindings in 9
-   `net/sys/http` files. Needs the infix-operator dispatch (TS-style)
-   **plus** a fix to trait-method function-type evaluation so
-   `comptime(lhs) : Self` types `lhs` as `Self`, not a `"lhs"`-named
-   type-var. See the active-blocker note above for the pinned diagnostic
-   and the reverted first attempt.
+1. **Comptime operator-trait dispatch — DONE.** Comparison operators
+   (`==`/`!=`/`<`/…) on comptime values now dispatch to their trait impl
+   and type as `bool`. Three-part fix (infix dispatch + parametric-trait
+   expected-type lookup + `Self` substitution at impl registration); see
+   the resolved-blocker section above. Took per-file `check ./std`
+   **137 → 146**.
 2. **Stack overflow — DONE (`6aff3bd7`).** Program body runs on a 1 GiB
    worker thread; `ulimit` no longer required. (Was never the net/sys
    blocker.)
@@ -446,21 +465,21 @@ of scope here).
 
 ## Known evaluator blockers
 
-| Blocker                                                                                                                         | Issue                                                     | Phase | Status                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----- | --------------------------------------------------------- |
-| API/syntax drift vs current `src/`                                                                                              | (this doc)                                                | 0     | fixed                                                     |
-| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                       | 1     | fixed                                                     |
-| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                       | 1     | fixed                                                     |
-| Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                       | 1     | fixed (per-module loader)                                 |
-| Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                       | 1     | fixed                                                     |
-| Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`                     | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                   |
-| Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | `yo-self-evaluator-stack-overflow.md` (NOTE section)      | 1     | **active blocker**                                        |
-| Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — per-module eval works; cycle/privacy parity TBD |
-| where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                      |
-| nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                      |
-| impl fn parametric return SIGSEGV                                                                                               | `yo-self-impl-fn-parametric-return-sigsegv.md`            | 2     | open                                                      |
-| `TypeValue` variants too narrow for stub ports                                                                                  | `yo-self-typevalue-variants-too-narrow-for-stub-ports.md` | 2     | open                                                      |
-| enum-eval memory leak                                                                                                           | `yo-self-evaluator-enum-memory-leak.md`                   | 2     | open                                                      |
+| Blocker                                                                                                                         | Issue                                                     | Phase | Status                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----- | --------------------------------------------------------------- |
+| API/syntax drift vs current `src/`                                                                                              | (this doc)                                                | 0     | fixed                                                           |
+| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                       | 1     | fixed                                                           |
+| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                       | 1     | fixed                                                           |
+| Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                       | 1     | fixed (per-module loader)                                       |
+| Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                       | 1     | fixed                                                           |
+| Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`                     | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                         |
+| Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | (this doc — resolved-blocker section)                     | 1     | fixed (infix dispatch + parametric-trait lookup + `Self` subst) |
+| Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — per-module eval works; cycle/privacy parity TBD       |
+| where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                            |
+| nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                            |
+| impl fn parametric return SIGSEGV                                                                                               | `yo-self-impl-fn-parametric-return-sigsegv.md`            | 2     | open                                                            |
+| `TypeValue` variants too narrow for stub ports                                                                                  | `yo-self-typevalue-variants-too-narrow-for-stub-ports.md` | 2     | open                                                            |
+| enum-eval memory leak                                                                                                           | `yo-self-evaluator-enum-memory-leak.md`                   | 2     | open                                                            |
 
 (The `yo-self-codegen-*` and `yo-self-bin-rebuild-segfaults-*` issues are
 codegen concerns — out of scope for the `check` goal, though the rebuild
