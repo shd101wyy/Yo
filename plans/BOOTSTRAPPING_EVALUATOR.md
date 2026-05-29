@@ -59,14 +59,14 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
-| Milestone                                 | Status      | Number                 |
-| ----------------------------------------- | ----------- | ---------------------- |
-| `./yo-cli check yo-self/main.yo`          | green       | —                      |
-| `./yo-cli compile yo-self/main.yo`        | builds      | —                      |
-| `/tmp/yo-self-bin check std/prelude.yo`   | green       | —                      |
-| `/tmp/yo-self-bin check ./std` (per-file) | **green**   | **151 / 151 files OK** |
-| `/tmp/yo-self-bin check ./tests`          | not yet run | —                      |
-| `/tmp/yo-self-bin check ./yo-self`        | not yet run | —                      |
+| Milestone                                              | Status         | Number                                            |
+| ------------------------------------------------------ | -------------- | ------------------------------------------------- |
+| `./yo-cli check yo-self/main.yo`                       | green          | —                                                 |
+| `./yo-cli compile yo-self/main.yo`                     | builds         | —                                                 |
+| `/tmp/yo-self-bin check std/prelude.yo`                | green          | —                                                 |
+| `/tmp/yo-self-bin check ./std` (per-file)              | **green**      | **151 / 151 files OK**                            |
+| `/tmp/yo-self-bin check ./tests` (per-file, top-level) | **near-green** | **81 / 82 files OK** (1 SIGSEGV: `imm_threading`) |
+| `/tmp/yo-self-bin check ./yo-self`                     | not yet run    | —                                                 |
 
 > **Phase 1 complete** — per-file `check ./std` matches the TS reference
 > (151/151). This session closed every remaining gap: comptime
@@ -546,20 +546,34 @@ AnyError) = dyn(`x`)` failed (`Cannot unify "<String>" and
    — the param's `Self` SomeT has `frame_level=3` but the callee env has
    only 2 frames, so frame-keyed lookup misses; TS likewise relies on the
    direct compat rule, not resolution. std stays 151/151; TS green.
-   **Next gap (open):** with dyn dispatch cleared, `error.test.yo`
-   advances to `Cannot unify "comptime_int" and "i32"` (a deeper
-   layered gap), then SIGSEGVs on the large file (same stack-depth crash
-   class as the 36 other big test files — pre-existing).
-6. **Misc per-feature gaps** — `closure.test.yo` (`Incompatible types`),
-   `comptime.test.yo` (`Cannot unify f32 and unit`), `array_list.test.yo`
-   (comptime-`while`), `arc.test.yo` (begin last-expr not evaluated),
-   GADTs, HKTs, etc. (The test corpus has deep LAYERED gaps — each fix
-   advances files to their next error; clearing the template-string,
-   dyn-coercion, and dyn-method-dispatch gaps moves the affected files to
-   their next error rather than to passing. Per-file `check ./tests` =
-   45/82 top-level files evaluator-OK, 0 clean failures, 37 SIGSEGV on
-   large files — the crash count is a pre-existing stack-depth class, not
-   regressed by these fixes.)
+   5c. **test-body trial-eval errors not swallowed → 36 SIGSEGVs — DONE.**
+   The `error.test.yo` `comptime_int`/`i32` error (and the bulk of the
+   `./tests` crashes) was NOT a deep layered gap but a single root cause:
+   (a) `evaluate_test` did not swallow trial-evaluation errors the way TS's
+   `evaluateTest` wraps the trial in `try { … } catch {}` (trial errors are
+   non-fatal — the test-block context takes a different inference path than
+   the real `main` wrapper; e.g. a call to a locally-defined
+   `cond`-with-`throw` fn fails in the trial but compiles fine in `main`).
+   (b) `evaluate_initialization_assignment` evaluated the `:=` rhs through
+   the _non-raw_ `evaluate_expression`, whose `_evaluate_expression_wrapper`
+   **catches, prints, and continues with a placeholder expr** instead of
+   propagating — so the trial error was printed (`evaluate_expression:
+   Cannot unify …`) and evaluation continued with a bogus expr → SIGSEGV.
+   Fix: `evaluate_test` trial-evaluates via a helper that installs a local
+   swallowing handler (`unwind`), drops the two non-TS throws (“Failed to
+   evaluate test body”, “Test body must have unit type”), and restores the
+   env frame stack; `evaluate_initialization_assignment` uses the
+   exn-threading `evaluate_expression_raw` so rhs errors propagate to that
+   handler. Mirrors TS (`evaluateExpression` propagates; `evaluateTest`
+   try/catches). Result: per-file `check ./tests` **46/82 → 81/82**
+   (35 files CRASH→OK, **0 regressions**, 0 clean failures); std stays
+   151/151; TS green. Only `imm_threading.test.yo` still SIGSEGVs
+   (pre-existing, thread-runtime path).
+6. **Misc per-feature gaps** — the remaining gap is `imm_threading.test.yo`
+   (SIGSEGV in the thread path), plus GADT/HKT-heavy evaluator paths. (The
+   test corpus had deep LAYERED gaps; clearing the template-string,
+   dyn-coercion, dyn-method-dispatch, and trial-eval-swallow gaps took
+   per-file `check ./tests` to **81/82** — only `imm_threading` remains.)
 
 The historically-tracked extracts below are a subset of #4:
 

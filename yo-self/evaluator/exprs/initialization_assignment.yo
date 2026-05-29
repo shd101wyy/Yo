@@ -60,7 +60,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { is_valid_variable_name } :: import("./binding.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
 {
@@ -198,7 +198,15 @@ evaluate_initialization_assignment :: (
   if(is_implicit, {
     ctx.is_inside_given_handler = true;
   });
-  rhs = evaluate_expression(rhs, env, ctx);
+  // Use the exn-threading (raw) evaluator so a compile error in the rhs
+  // propagates to the caller's handler instead of being caught, printed,
+  // and swallowed by the non-raw `_evaluate_expression_wrapper` (which then
+  // continues with a placeholder expr). In particular this lets a test
+  // body's trial-evaluation swallow (see `evaluate_test`) actually catch
+  // errors raised while evaluating a `:=` rhs. Mirrors TS
+  // `evaluateInitializationAssignment` calling the propagating
+  // `evaluateExpression`.
+  rhs = evaluate_expression_raw(rhs, env, ctx, exn);
   ctx.expected_type = old_expected_type;
   ctx.is_inside_given_handler = old_is_inside_given_handler;
   // Update env from the evaluated rhs.
