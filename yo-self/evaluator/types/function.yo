@@ -155,6 +155,64 @@ is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
+// Optional-parameter side-table (default-argument support).
+//
+// `TypeValue.Func` carries only parallel `param_labels`/`param_types`
+// arrays — no per-param default info. In src/ this lives on
+// `FunctionParameter.defaultValue`; here we side-table it keyed by
+// `func_id`, like the macro registries above. Index `i` holds
+// `.Some(value)` when parameter `i` has a `?= default` (and may be
+// omitted at the call site, then bound to `value`) or `.None` when
+// required.
+//
+// Registration is two-step (the value's id isn't known when the type is
+// built): `evaluate_function_type` registers keyed by the `fn(...)`
+// type-expression id; `try_to_implement_function_by_function_type` then
+// copies the entry under the freshly-minted `FuncVal` id, which is what
+// the call site (`helper.yo` / the FuncVal-call arm) has in hand.
+(g_func_param_defaults : HashMap(String, ArrayList(Option(EvalValue)))) =
+  HashMap(String, ArrayList(Option(EvalValue))).new();
+/// Register the per-parameter default values for a function.
+/// No-op when no parameter has a default (keeps the table sparse).
+register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Option(EvalValue))) -> unit)({
+  (any_default : bool) = false;
+  (i : usize) = usize(0);
+  while(runtime((i < defaults.len()) && !(any_default)), {
+    match(
+      defaults.get(i),
+      .Some(d) => if(d.is_some(), {
+        any_default = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any_default, {
+    ___ := g_func_param_defaults.set(func_id.clone(), defaults);
+  });
+});
+/// Copy a registered default-values entry from `from_id` to `to_id`
+/// (used to re-key from the fn-type-expr id to the FuncVal id). No-op
+/// when `from_id` has no entry.
+copy_func_param_defaults :: (fn(from_id : str, to_id : String) -> unit)({
+  match(
+    g_func_param_defaults.get(String.from(from_id)),
+    .Some(defaults) => {
+      ___ := g_func_param_defaults.set(to_id.clone(), defaults);
+    },
+    .None => ()
+  );
+});
+/// Return the per-parameter default values for `func_id`, or an empty
+/// list when none are registered (i.e. all parameters required).
+get_func_param_defaults :: (fn(func_id : str) -> ArrayList(Option(EvalValue)))(
+  match(
+    g_func_param_defaults.get(String.from(func_id)),
+    .Some(defaults) => defaults,
+    .None => ArrayList(Option(EvalValue)).new()
+  )
+);
+// ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
 /// Processed function parameter — mirrors TypeScript `FunctionParameter`.
@@ -165,7 +223,13 @@ FuncParam :: struct(
   is_quote : bool,
   is_owning_rc_value : bool,
   is_implicit : bool,
-  is_effect_row_spread : bool
+  is_effect_row_spread : bool,
+  // The parameter's evaluated `?= default` value, or `.None` for a
+  // required parameter. Collected into a func-id-keyed side-table (the
+  // Func TypeValue does not carry per-param default info) so call-site arg
+  // matching can treat trailing defaulted params as optional AND bind an
+  // omitted argument to the recorded default value.
+  default_value : Option(EvalValue)
 );
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
@@ -439,6 +503,10 @@ evaluate_function_parameter :: (
   (label_expr : Option(AstExpr)) = Option(AstExpr).None;
   (default_value_expr : Option(AstExpr)) = Option(AstExpr).None;
   (assigned_value_expr : Option(AstExpr)) = Option(AstExpr).None;
+  // The evaluated default value (`?= <value>`), captured for the
+  // default-argument side-table so omitted args can be bound to it at
+  // call sites. `.None` for a required parameter.
+  (captured_default_value : Option(EvalValue)) = Option(EvalValue).None;
   (expr_mut : AstExpr) = expr;
   // Handle assigned value: (T : Type) = value
   if(ast_expr_is_fn_call_of(expr_mut, "=",.Some(usize(2))), {
@@ -742,6 +810,7 @@ evaluate_function_parameter :: (
           env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
           env_mut.input_string = info.env.input_string;
           dv_val_opt := info.value;
+          captured_default_value = dv_val_opt;
           // Coerce comptime types (e.g. comptime_string) to their runtime
           // equivalents when the param has an explicit annotation. Mirrors
           // TS `convertComptimeTypeToRuntimeType` at default-value sites —
@@ -971,7 +1040,8 @@ use_id :: (fn(forall(T : Type),
           is_quote,
           is_owning_rc_value,
           false,
-          false
+          false,
+          captured_default_value
         )
       )
     );
@@ -1141,7 +1211,8 @@ use_id :: (fn(forall(T : Type),
     is_quote,
     is_owning_rc_value,
     false,
-    false
+    false,
+    captured_default_value
   )
 });
 // ---------------------------------------------------------------------------
@@ -1949,7 +2020,8 @@ evaluate_function_parameters :: (
     false,
     false,
     false,
-    false
+    false,
+    Option(EvalValue).None
   );
   (find_variadic : bool) = false;
   // --------------------------------------------------------------------------
@@ -2036,7 +2108,8 @@ evaluate_function_parameters :: (
               false,
               false,
               false,
-              false
+              false,
+              Option(EvalValue).None
             )
           );
           is_eff_row_forall = true;
@@ -2168,7 +2241,8 @@ evaluate_function_parameters :: (
                               false,
                               false,
                               true,
-                              false
+                              false,
+                              Option(EvalValue).None
                             )
                           );
                           ki = (ki + usize(1));
@@ -2205,7 +2279,8 @@ evaluate_function_parameters :: (
                         false,
                         false,
                         true,
-                        true
+                        true,
+                        Option(EvalValue).None
                       )
                     );
                     eff_row_handled = true;
@@ -2230,7 +2305,8 @@ evaluate_function_parameters :: (
                               false,
                               false,
                               true,
-                              false
+                              false,
+                              Option(EvalValue).None
                             )
                           );
                           ki2 = (ki2 + usize(1));
@@ -2265,7 +2341,8 @@ evaluate_function_parameters :: (
                         false,
                         false,
                         true,
-                        true
+                        true,
+                        Option(EvalValue).None
                       )
                     );
                     eff_row_handled = true;
@@ -2390,7 +2467,8 @@ evaluate_function_parameters :: (
         param.is_quote,
         param.is_owning_rc_value,
         true,
-        false
+        false,
+        Option(EvalValue).None
       );
       implicit_params.push(impl_param);
       // Mark variable as implicit in env top frame
@@ -2691,7 +2769,8 @@ evaluate_function_parameters :: (
         is_vquote,
         false,
         false,
-        false
+        false,
+        Option(EvalValue).None
       );
       // Add to env if named
       if(!(vparam_name == String.from("...")), {
@@ -3246,6 +3325,7 @@ evaluate_function_type :: (
     fpi = (fpi + usize(1));
   });
   (ppi : usize) = usize(0);
+  param_defaults := ArrayList(Option(EvalValue)).new();
   while(runtime(ppi < params_result.params.len()), {
     pp := match(
       params_result.params.get(ppi),
@@ -3257,8 +3337,14 @@ evaluate_function_type :: (
     );
     param_labels.push(pp.label);
     param_types.push(pp.ty);
+    param_defaults.push(pp.default_value);
     ppi = (ppi + usize(1));
   });
+  // Register the per-parameter default values keyed by this `fn(...)`
+  // type-expression id. `try_to_implement_function_by_function_type`
+  // re-keys them under the FuncVal id so call-site arg matching can treat
+  // trailing defaulted params as optional. (See the side-table above.)
+  register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
   (ipi : usize) = usize(0);
   while(runtime(ipi < params_result.implicit_params.len()), {
     ip := match(
@@ -3393,4 +3479,9 @@ export(
   macro_return_is_unquote,
   is_macro_fn,
   is_param_quoted
+);
+export(
+  register_func_param_defaults,
+  copy_func_param_defaults,
+  get_func_param_defaults
 );

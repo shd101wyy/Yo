@@ -36,6 +36,7 @@ open(import("std/string"));
   get_receiver_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ get_func_param_defaults } :: import("../types/function.yo");
 { t_unit, t_type, t_comptime_int } :: import("../../types/creators.yo");
 { TokenKind } :: import("../../token.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
@@ -893,23 +894,53 @@ evaluate_function_call :: (
         cap_names,
         cap_tys,
         cap_vals,
-        _func_id_fv
+        func_id_fv
       ) => {
         n_p := param_names.len();
         n_ev := evidence_names.len();
         n_a := args.len();
-        if((n_p + n_ev) != n_a, {
-          exn.throw(
-            dyn(
-              format_error_message(
-                tok,
-                `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`,
-                false,
-                .None
-              )
-            )
-          );
+        // Per-parameter default values (default-argument support): a
+        // registered `.Some(value)` at regular-param index i means that
+        // param has a `?= default` and may be omitted (then bound to
+        // `value`). Looked up by this FuncVal's id (see
+        // evaluator/types/function.yo). `fv_param_types` carries the
+        // declared regular-param types for the omitted-binding fallback.
+        fv_defaults := get_func_param_defaults(func_id_fv.as_str());
+        fv_param_types := match(
+          callee_info_opt,
+          .Some(ci) => match(
+            ci.ty,
+            .Func(_, _, _, fpts, _, _, _, _, _) => fpts,
+            _ => ArrayList(TypeValue).new()
+          ),
+          .None => ArrayList(TypeValue).new()
+        );
+        (n_required_reg : usize) = n_p;
+        if(fv_defaults.len() == n_p, {
+          (nrr : usize) = usize(0);
+          (oi : usize) = usize(0);
+          while(runtime(oi < n_p), {
+            match(
+              fv_defaults.get(oi),
+              .Some(d) => if(d.is_none(), {
+                nrr = (nrr + usize(1));
+              }),
+              .None => ()
+            );
+            oi = (oi + usize(1));
+          });
+          n_required_reg = nrr;
         });
+        if((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev)), {
+          (fv_count_msg : String) = `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`;
+          if(n_required_reg != n_p, {
+            fv_count_msg = `Argument count mismatch: expected ${(n_required_reg + n_ev)}..${(n_p + n_ev)}, got ${n_a}`;
+          });
+          exn.throw(dyn(format_error_message(tok, fv_count_msg, false,.None)));
+        });
+        // Number of regular args actually supplied (the rest of `n_a` are
+        // evidence args, which follow the regulars in `evaled_arg_infos`).
+        n_supplied_reg := if(n_a >= n_ev, n_a - n_ev, n_a);
         // Evaluate all arguments.
         evaled_arg_infos := ArrayList(ExprInfo).new();
         (ai : usize) = usize(0);
@@ -1017,12 +1048,36 @@ evaluate_function_call :: (
           });
           fa_i = (fa_i + usize(1));
         });
-        // Bind regular params.
+        // Bind regular params. Params at index >= n_supplied_reg were
+        // omitted at the call site (they have `?= default`s); bind each to
+        // its recorded default value (typed by its declared type) so the
+        // body type-checks with the real default — e.g. `assert(cond)`
+        // binds `msg` to the literal "Assertion failed.", which the
+        // `panic(msg)` in the body requires.
         param_vars := ArrayList(Variable).new();
         (pi : usize) = usize(0);
         while(runtime(pi < n_p), {
           pname := match(param_names.get(pi),.Some(n) => n,.None => String.from(""));
-          arg_info := match(evaled_arg_infos.get(pi),.Some(i) => i,.None => new_expr_info(env, t_unit()));
+          (arg_info : ExprInfo) = new_expr_info(env, t_unit());
+          if(pi < n_supplied_reg, {
+            arg_info = match(evaled_arg_infos.get(pi),.Some(i) => i,.None => new_expr_info(env, t_unit()));
+          }, {
+            p_ty := match(fv_param_types.get(pi),.Some(t) => t,.None => t_unit());
+            arg_info = new_expr_info(env, p_ty);
+            (omitted_val : EvalValue) = create_unknown_val(p_ty);
+            match(
+              fv_defaults.get(pi),
+              .Some(d) => match(
+                d,
+                .Some(dv) => {
+                  omitted_val = dv;
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            arg_info.value = Option(EvalValue).Some(omitted_val);
+          });
           is_ct := match(arg_info.value,.Some(_) => true,.None => false);
           var_opt := add_variable_to_env(
             fresh_env,
@@ -1048,7 +1103,7 @@ evaluate_function_call :: (
         (evi : usize) = usize(0);
         while(runtime(evi < n_ev), {
           ev_name := match(evidence_names.get(evi),.Some(n) => n,.None => String.from(""));
-          ev_info := match(evaled_arg_infos.get(n_p + evi),.Some(i) => i,.None => new_expr_info(env, t_unit()));
+          ev_info := match(evaled_arg_infos.get(n_supplied_reg + evi),.Some(i) => i,.None => new_expr_info(env, t_unit()));
           is_ct_ev := match(ev_info.value,.Some(_) => true,.None => false);
           _add_ev := add_variable_to_env(
             fresh_env,

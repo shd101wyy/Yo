@@ -57,7 +57,8 @@ open(import("std/string"));
   EvalValue,
   eval_value_eq,
   value_to_string,
-  create_type_value
+  create_type_value,
+  create_unknown_val
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -93,7 +94,8 @@ open(import("std/string"));
 } :: import("../../types/compatibility.yo");
 {
   evaluate_function_parameter_type_again,
-  evaluate_function_return_type_again
+  evaluate_function_return_type_again,
+  get_func_param_defaults
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -1440,15 +1442,51 @@ try_to_call_function_with_arguments :: (
       });
       // ----------------------------------------------------------------
       // Step 3: Argument count check.
+      //
+      // Parameters with a `?= default` are optional and may be omitted at
+      // the call site. The optional flags are looked up (by FuncVal id)
+      // from the side-table populated at definition time. A call is valid
+      // when it supplies at least the required-parameter count and no more
+      // than the total. Omitted trailing optionals are bound to their
+      // declared type below (Step 7).
       // ----------------------------------------------------------------
       n_params := pl.len();
       n_args := adjusted_args.len();
-      if(n_args != n_params, {
+      call_param_defaults := match(
+        func_val,
+        .Some(fvv) => match(
+          fvv,
+          .FuncVal(_, _, _, _, _, _, _, _, fvid) => get_func_param_defaults(fvid.as_str()),
+          _ => ArrayList(Option(EvalValue)).new()
+        ),
+        .None => ArrayList(Option(EvalValue)).new()
+      );
+      (n_required : usize) = n_params;
+      if(call_param_defaults.len() == n_params, {
+        (nr : usize) = usize(0);
+        (ofi : usize) = usize(0);
+        while(runtime(ofi < n_params), {
+          match(
+            call_param_defaults.get(ofi),
+            .Some(d) => if(d.is_none(), {
+              nr = (nr + usize(1));
+            }),
+            .None => ()
+          );
+          ofi = (ofi + usize(1));
+        });
+        n_required = nr;
+      });
+      if((n_args < n_required) || (n_args > n_params), {
+        (count_msg : String) = `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`;
+        if(n_required != n_params, {
+          count_msg = `Argument count mismatch: expected ${n_required.to_string()}..${n_params.to_string()} arguments, got ${n_args.to_string()}`;
+        });
         exn.throw(
           dyn(
             format_error_message(
               tok,
-              `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`,
+              count_msg,
               false,
               .None
             )
@@ -1563,6 +1601,43 @@ try_to_call_function_with_arguments :: (
       while(runtime(pi < n_params), {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
         ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
+        // Omitted optional parameter (no corresponding argument): bind it
+        // to its recorded default value (falling back to an `UnknownVal`
+        // of its declared type if, defensively, no default is recorded).
+        if(pi >= n_args, {
+          (omitted_val : EvalValue) = create_unknown_val(ptype);
+          match(
+            call_param_defaults.get(pi),
+            .Some(d) => match(
+              d,
+              .Some(dv) => {
+                omitted_val = dv;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          _ := add_variable_to_env(
+            callee_env_m,
+            plabel,
+            ptype,
+            Option(EvalValue).Some(omitted_val),
+            false,
+            false,
+            false,
+            false,
+            synthetic_token(plabel, callee_env_m.module_path)
+          );
+          arg_vals.push(
+            ArgEntry(
+              value : Option(EvalValue).Some(omitted_val),
+              parameter_type : ptype,
+              arg_type : ptype
+            )
+          );
+          pi = (pi + usize(1));
+          continue;
+        });
         parg := match(adjusted_args.get(pi),.Some(a) => a,.None => make_err_expr());
         pr := check_if_function_parameter_matches_argument(
           plabel,
