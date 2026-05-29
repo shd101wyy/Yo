@@ -57,16 +57,25 @@ structure).
 
 ---
 
-## Current state (updated 2026-05-28)
+## Current state (updated 2026-05-29)
 
-| Milestone                                   | Status          | Number               |
-| ------------------------------------------- | --------------- | -------------------- |
-| `./yo-cli check yo-self/main.yo`            | green           | —                    |
-| `./yo-cli compile yo-self/main.yo`          | builds          | —                    |
-| `/tmp/yo-self-bin check std/prelude.yo`     | green           | —                    |
-| `/tmp/yo-self-bin check ./std` (multi-file) | **in progress** | **44 / 96 files OK** |
-| `/tmp/yo-self-bin check ./tests`            | not yet run     | —                    |
-| `/tmp/yo-self-bin check ./yo-self`          | not yet run     | —                    |
+| Milestone                                 | Status          | Number                 |
+| ----------------------------------------- | --------------- | ---------------------- |
+| `./yo-cli check yo-self/main.yo`          | green           | —                      |
+| `./yo-cli compile yo-self/main.yo`        | builds          | —                      |
+| `/tmp/yo-self-bin check std/prelude.yo`   | green           | —                      |
+| `/tmp/yo-self-bin check ./std` (per-file) | **in progress** | **137 / 151 files OK** |
+| `/tmp/yo-self-bin check ./tests`          | not yet run     | —                      |
+| `/tmp/yo-self-bin check ./yo-self`        | not yet run     | —                      |
+
+> The 137/151 figure is the **per-file** pass rate (each file checked in
+> its own process). A single `check ./std` run still aborts partway with
+> a SIGSEGV — see the deep-eval stack-overflow blocker below — so the
+> per-file harness is the honest measure until that is fixed. The 13
+> files that fail are exactly the ones that trip that overflow
+> (`net/*`, `sys/*`, `http/*`, `build.yo`, `env.yo`, `os/env.yo`,
+> `fs/temp.yo`); the 14th, `encoding/json.yo`, hits an unrelated
+> pointer-argument evaluator gap.
 
 ### Phase 0: **complete** — all drift repaired, main.yo passes
 
@@ -92,13 +101,11 @@ write_file/read_dir/metadata` in formatter.yo and main.yo; IoExn futures use
 
 ### Phase 1: **in progress** — `yo-self-bin check ./std`
 
-**Headline number:** `yo-self-bin check ./std` is currently at **44/96**
-files passing `evaluator OK` (up from 0/96 at the start of the session).
-The remaining 51 now fail with `Element "bool.!" is already exported`
-— a deeper symptom of `_build_module_val_from_env` returning the
-whole env instead of just the imported file's exports. The
-spread-export type-check is unblocked but exposed the env-scoped
-module-value problem (see "Active blocker" below).
+**Headline number:** per-file `check ./std` is at **137 / 151** (up from
+0 at the start, then 44 mid-session). The jump from 44 → 137 came from
+implementing per-module isolation (`ctx.load_module`); the remaining 14
+are the deep-eval stack-overflow blocker (13) plus one pointer-eval gap
+(`encoding/json.yo`).
 
 **Fixes landed this session:**
 
@@ -148,41 +155,50 @@ reporting` (`48a2d6f9`).
   same id — definitive id-collision evidence. After this fix the
   spread-export advances past the type-check.
 
-#### Active blocker — `_build_module_val_from_env` returns the whole env
+- **Per-module isolation via `ctx.load_module` (`32307361`).**
+  The flatten-all-deps model made every `import("…")` return the whole
+  visible env (via `_build_module_val_from_env`), so spread-exporting
+  multiple imports tripped `Element "X" is already exported`. Replaced
+  with real per-module evaluation (option 2 below):
 
-The remaining 51 `./std` failures now hit a different shape:
+  - `evaluator/module_loader.yo` — a `path → module_value` cache plus a
+    pure `load_module_from_cache(path)` used directly as
+    `ctx.load_module`. The callback must be pure (I/O cannot run inside
+    it: `io` is control-bound and the signature is fixed), so it is a
+    lookup over a cache populated up front.
+  - `resolve_module_path` — factored out of `evaluate_import` into one
+    I/O-free resolver shared by both `evaluate_import` and the
+    orchestration layer, guaranteeing identical `file://` cache keys.
+    Also fixed a latent `..` bug: relative imports were resolved with
+    `Path.join` (which does **not** collapse `..`) instead of
+    `Path.new` (which does), so `std/imm/list.yo`'s
+    `import("../allocator.yo")` wrongly resolved to
+    `std/imm/allocator.yo`.
+  - `main.yo preload_module_tree` — post-order DFS that reads/parses
+    each dependency, evaluates it in isolation against a clone of the
+    cached prelude env (with `ctx.load_module` wired so its own imports
+    resolve), and registers just its exports. `check_single_file` now
+    preloads a file's imports, then evaluates only that file's own
+    declarations.
 
-```
-check: error in: Error: Element "bool.!" is already exported in the module.
-```
+  Took per-file `check ./std` from **44 → 137 / 151**. The legacy
+  flatten path (`_build_module_val_from_env`) is retained as the
+  `ctx.load_module = None` fallback still used by `run_compile` /
+  `run_test`.
 
-Root cause: when `evaluate_import` doesn't have `ctx.load_module`
-registered (which is the case for `run_check`), it synthesises the
-module value by walking _all_ env frames via
-`_build_module_val_from_env`. That returns ~1380 names (prelude +
-every dep evaluated so far). Spread-exporting that — and especially
-spread-exporting multiple imports like
-`export(...(_rune), ...(_string), ...(_string_builder))` in
-`std/string/index.yo` — trips the duplicate-label check on the second
-spread because the prelude bindings (e.g. `bool.!` from
-`impl(bool, LogicalNot((!) : ...))`) are already in `field_labels`.
+#### Active blocker — deep-eval stack overflow (SIGSEGV)
 
-Attempted workaround: make the spread loop idempotent (silently skip
-duplicates instead of erroring). It worked on the minimal repro but
-caused a cascade of "Module not found" failures during `./std`
-because subsequent files' deps started resolving relative paths
-against the wrong base directory. Reverted.
-
-The right fix is bigger: either
-
-1. Track per-file binding sets so `_build_module_val_from_env` can
-   filter to just the imported file's exports.
-2. Port (a stub of) `module-manager.ts` so `ctx.load_module` is
-   populated for `run_check` and `evaluate_import` takes the proper
-   per-file path.
-
-(2) is the closer-to-TS approach. (1) is faster but leaves yo-self
-diverged from the TS module model.
+A single `check ./std` process aborts partway with a SIGSEGV, and 13
+individual files segfault even in isolation (`net/*`, `sys/*`,
+`http/*`, `build.yo`, `env.yo`, `os/env.yo`, `fs/temp.yo`). These are
+heavy files with deep comptime evaluation (platform conditionals,
+socket constant tables). This is the long-standing recursive-evaluator
+stack-overflow blocker (see
+[`issues/yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md)),
+now the dominant remaining `./std` blocker. `ulimit -s 65520` (64 MB,
+the macOS main-thread cap) is the current floor; the real fix is to
+shrink evaluator stack frames (box large by-value structs / reduce
+copying) or run evaluation on a thread with a larger stack.
 
 ### Strategy: strict 1-to-1 port
 
@@ -318,42 +334,31 @@ done | tee /tmp/yoself_drift.txt | wc -l
 
 **Exit criteria:** every file under `./std` checks cleanly under
 `yo-self-bin`, matching the TS `yo-cli check ./std` result (151/151).
-**Current: 44/96.**
+**Current: 137/151 per-file.**
 
 Remaining work, in order of expected impact:
 
-1. **`_build_module_val_from_env` returning the whole env (current
-   blocker).** Multi-file `check` has no `ctx.load_module`, so each
-   `import("./x.yo")` synthesises a ModuleVal from the entire visible
-   env. Spread-exporting that trips duplicate-label errors on
-   `bool.!`, `i32.+`, etc. — bindings the prelude added that show up
-   in every synthesised module. See _Active blocker_ above. The
-   AstExpr-id collision from `354b235b` was a separate prerequisite.
-2. **Cross-module isolation.** yo-self currently uses a
-   flatten-all-exprs shortcut instead of TS's per-module sub-evaluation
-   - caching (`src/evaluator/index.ts`, `module-manager.ts`). After the
-     `keep_frame_at_end` fix the multi-file path is functional, but it's
-     still doing a "one env contains everything" approximation — real
-     privacy and (some) circular import patterns will need closer parity
-     with `module-manager.ts`.
-3. **Cumulative state across files.** Earlier hand-off note flagged
-   "memory/corruption after ~22 files" during a long `check ./std`
-   run. Re-measure with the new code path: the prelude-frame fix may
-   have eliminated this (the failure shape it created — every file
-   missing every prelude binding — would have looked like creeping
-   corruption); if it persists, the next suspects are
-   `g_impl_registry_*` and `g_*_methods` globals accumulating per-file
-   entries.
-4. **Stack overflow.** The recursive evaluator carries large by-value
-   structs and blows the default 8 MB macOS stack at ~40–50 frames
-   (`ulimit -s 65520` is the current workaround). A real fix (box
-   large frames / reduce by-value copying / raise the runtime's own
-   thread stack) is needed for std files deeper than the prelude. See
+1. **Deep-eval stack overflow (current blocker).** 13 heavy files
+   (`net/*`, `sys/*`, `http/*`, `build.yo`, `env.yo`, `os/env.yo`,
+   `fs/temp.yo`) SIGSEGV — individually and mid-run. The recursive
+   evaluator carries large by-value structs and blows the macOS
+   main-thread stack cap (~64 MB at `ulimit -s 65520`). Real fix: box
+   large frames / reduce by-value copying, or run evaluation on a
+   thread with a bigger stack. See
    [`issues/yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md).
-5. **Individual evaluator gaps surfaced by the broader corpus.**
-   Lower priority — patch as encountered after items 1–4 unblock the
-   majority of files. The `usize.MAX` gap fixed this session is an
-   example of this class.
+   This is what stops a single `check ./std` run from completing, so
+   it also gates an in-process (non-per-file) pass count.
+2. **Per-module isolation — DONE (`32307361`).** Replaced the
+   flatten-all-exprs shortcut with real per-module evaluation via
+   `ctx.load_module` + a path→module_value cache (see the fix entry
+   above). Remaining parity gaps vs TS `module-manager.ts`: circular
+   imports (preload breaks cycles with a `visited` set but does not
+   return a partial module like TS's `loadingModules`), and module
+   privacy. Neither blocks std today.
+3. **Individual evaluator gaps surfaced by the broader corpus.**
+   e.g. `encoding/json.yo`'s "Failed to evaluate the argument
+   expression for pointer". Patch as encountered; lower priority than
+   the stack-overflow blocker.
 
 ### Phase 2 — `yo-self-bin check ./tests`
 
@@ -402,20 +407,20 @@ of scope here).
 
 ## Known evaluator blockers
 
-| Blocker                                                                                                                         | Issue                                                     | Phase | Status                                                         |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----- | -------------------------------------------------------------- |
-| API/syntax drift vs current `src/`                                                                                              | (this doc)                                                | 0     | fixed                                                          |
-| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                       | 1     | fixed                                                          |
-| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                       | 1     | fixed                                                          |
-| Spread-export of imported modules: `export(...(_mod))` sees `unit` instead of ModuleVal in multi-file mode                      | (this doc / _Next gap_)                                   | 1     | **active blocker**                                             |
-| Recursive evaluator stack overflow (~40–50 frames)                                                                              | `yo-self-evaluator-stack-overflow.md`                     | 1     | workaround (ulimit)                                            |
-| Cross-module isolation still uses flatten-all-exprs shortcut (not per-module sub-eval like TS `module-manager.ts`)              | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — multi-file works, privacy/circular-import parity TBD |
-| Cumulative state corruption after ~22 files                                                                                     | (hand-off note)                                           | 1     | needs re-measurement after prelude-frame fix                   |
-| where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                           |
-| nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                           |
-| impl fn parametric return SIGSEGV                                                                                               | `yo-self-impl-fn-parametric-return-sigsegv.md`            | 2     | open                                                           |
-| `TypeValue` variants too narrow for stub ports                                                                                  | `yo-self-typevalue-variants-too-narrow-for-stub-ports.md` | 2     | open                                                           |
-| enum-eval memory leak                                                                                                           | `yo-self-evaluator-enum-memory-leak.md`                   | 2     | open                                                           |
+| Blocker                                                                                                                         | Issue                                                     | Phase | Status                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----- | --------------------------------------------------------- |
+| API/syntax drift vs current `src/`                                                                                              | (this doc)                                                | 0     | fixed                                                     |
+| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                       | 1     | fixed                                                     |
+| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                       | 1     | fixed                                                     |
+| Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                       | 1     | fixed (per-module loader)                                 |
+| Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                       | 1     | fixed                                                     |
+| Recursive evaluator stack overflow (heavy net/sys/http files SIGSEGV)                                                           | `yo-self-evaluator-stack-overflow.md`                     | 1     | **active blocker** (13 files; ulimit floor)               |
+| Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — per-module eval works; cycle/privacy parity TBD |
+| where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                      |
+| nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                      |
+| impl fn parametric return SIGSEGV                                                                                               | `yo-self-impl-fn-parametric-return-sigsegv.md`            | 2     | open                                                      |
+| `TypeValue` variants too narrow for stub ports                                                                                  | `yo-self-typevalue-variants-too-narrow-for-stub-ports.md` | 2     | open                                                      |
+| enum-eval memory leak                                                                                                           | `yo-self-evaluator-enum-memory-leak.md`                   | 2     | open                                                      |
 
 (The `yo-self-codegen-*` and `yo-self-bin-rebuild-segfaults-*` issues are
 codegen concerns — out of scope for the `check` goal, though the rebuild
