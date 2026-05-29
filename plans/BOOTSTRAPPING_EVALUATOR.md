@@ -59,14 +59,14 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
-| Milestone                                            | Status      | Number                                                 |
-| ---------------------------------------------------- | ----------- | ------------------------------------------------------ |
-| `./yo-cli check yo-self/main.yo`                     | green       | —                                                      |
-| `./yo-cli compile yo-self/main.yo`                   | builds      | —                                                      |
-| `/tmp/yo-self-bin check std/prelude.yo`              | green       | —                                                      |
-| `/tmp/yo-self-bin check ./std` (per-file)            | **green**   | **151 / 151 files OK**                                 |
-| `/tmp/yo-self-bin check ./tests` (per-file, all 170) | **green**   | **170 / 170 files OK** (matches TS — Phase 2 complete) |
-| `/tmp/yo-self-bin check ./yo-self`                   | not yet run | —                                                      |
+| Milestone                                                  | Status          | Number                                                        |
+| ---------------------------------------------------------- | --------------- | ------------------------------------------------------------- |
+| `./yo-cli check yo-self/main.yo`                           | green           | —                                                             |
+| `./yo-cli compile yo-self/main.yo`                         | builds          | —                                                             |
+| `/tmp/yo-self-bin check std/prelude.yo`                    | green           | —                                                             |
+| `/tmp/yo-self-bin check ./std` (per-file)                  | **green**       | **151 / 151 files OK**                                        |
+| `/tmp/yo-self-bin check ./tests` (per-file, all 170)       | **green**       | **170 / 170 files OK** (matches TS — Phase 2 complete)        |
+| `/tmp/yo-self-bin check ./yo-self` (per-file, excl. tests) | **in progress** | **51 / 223 files OK** (1 root cause blocks ~170; see Phase 3) |
 
 > **Phase 1 complete** — per-file `check ./std` matches the TS reference
 > (151/151). This session closed every remaining gap: comptime
@@ -632,6 +632,42 @@ This is the headline milestone. It transitively requires Phases 0–2
 tail of evaluator features that only yo-self's own source exercises
 (large match statements, deep generic instantiation, the
 `ExprInfo`/`ExprId` side-table patterns).
+
+**Baseline (2026-05-30):** per-file `check ./yo-self` (223 `.yo` files,
+excluding `yo-self/tests/` which is pre-existing-broken) = **51 OK / 170
+FAIL / 2 CRASH** _(classify by EXIT CODE — 0/1/139 — not by grepping
+"evaluator OK", because the prelude's own `"std/prelude.yo — evaluator
+OK"` line precedes the target file's verdict and would mis-count errored
+files as OK)._
+
+**ONE dominant root cause** (≈all 170 FAILs + the 2 crashes share it):
+`Incompatible types: Expected <struct…> / Given unit` on a module-level
+typed runtime global `(g_x : HashMap(...)) = HashMap(...).new()` /
+`(g_x : ArrayList(...)) = ArrayList(...).new()` — which nearly every
+compiler file declares. Isolated (≈15 reductions) to: **a static method
+(`.new()`) called on a GENERIC OBJECT-type instantiation evaluates to
+`unit`.** It is NOT about module-vs-fn, is_executing, or expected_type
+per se:
+
+- generic **struct** `.new()` → OK; non-generic **object** `.new()` → OK;
+  generic **object** `.new()` → **unit** (the bug).
+- `:=` "passes" only because it doesn't type-check the rhs; the typed
+  `(x : T) =` form surfaces the unit. Confirmed via `tmp :=
+G(usize).new(); (z : usize) = tmp.a` → "Failed to evaluate `tmp.a`"
+  (tmp is unit).
+- Minimal repro: `G :: (fn(comptime(T):Type)->comptime(Type))(object(a:T));
+impl(forall(T:Type), G(T), new : (fn()->Self)(Self(a:the(T))));
+tmp := G(usize).new(); (z:usize) = tmp.a;`
+
+**Next step:** the generic-receiver static-method path —
+`find_methods_from_generic_impls` → `try_match_generic_impl`
+(`evaluator/values/impl.yo`) matching `G(usize)` against the registered
+`impl(forall(T), G(T), …)` for an OBJECT receiver, and/or the `Self`-return
+specialization of the resolved `.new` for objects. Instrument
+`try_match_generic_impl` (does it match for the object case?) and the
+call's return-type resolution. Fixing this single bug should unlock the
+bulk of Phase 3 at once. _(ENV: `bun` keeps dropping from PATH; set
+`BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
 
 A natural stretch target after Phase 3: **fixpoint** — `yo-self-bin
 check ./yo-self` produces the same result as `./yo-cli check ./yo-self`,
