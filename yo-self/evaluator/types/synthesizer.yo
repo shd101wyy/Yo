@@ -408,7 +408,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
     .IsoT(child) => recur(some_type_id, child.*, visited, exn),
-    .Func(_, _, _, param_types, _, implicit_types, _, _, result) => {
+    .Func(_, _, _, param_types, _, implicit_types, _, _, result, _) => {
       (res : bool) = false;
       i := usize(0);
       while(runtime((i < param_types.len()) && !(res)), {
@@ -1546,16 +1546,16 @@ _synthesize_types_impl :: (
   });
   // Case: Func + Func (same forall+param count)
   if(is_function_type(expected_ty) && is_function_type(given_ty), {
-    exp_fa := match(expected_ty,.Func(_, fats, _, _, _, _, _, _, _) => fats, _ => ArrayList(TypeValue).new());
-    giv_fa := match(given_ty,.Func(_, fats, _, _, _, _, _, _, _) => fats, _ => ArrayList(TypeValue).new());
-    exp_pt := match(expected_ty,.Func(_, _, _, pts, _, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
-    giv_pt := match(given_ty,.Func(_, _, _, pts, _, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
-    exp_il := match(expected_ty,.Func(_, _, _, _, ils, _, _, _, _) => ils, _ => ArrayList(String).new());
-    exp_it := match(expected_ty,.Func(_, _, _, _, _, its, _, _, _) => its, _ => ArrayList(TypeValue).new());
-    exp_is := match(expected_ty,.Func(_, _, _, _, _, _, iss, _, _) => iss, _ => ArrayList(bool).new());
-    giv_il := match(given_ty,.Func(_, _, _, _, ils, _, _, _, _) => ils, _ => ArrayList(String).new());
-    giv_it := match(given_ty,.Func(_, _, _, _, _, its, _, _, _) => its, _ => ArrayList(TypeValue).new());
-    giv_is := match(given_ty,.Func(_, _, _, _, _, _, iss, _, _) => iss, _ => ArrayList(bool).new());
+    exp_fa := match(expected_ty,.Func(_, fats, _, _, _, _, _, _, _, _) => fats, _ => ArrayList(TypeValue).new());
+    giv_fa := match(given_ty,.Func(_, fats, _, _, _, _, _, _, _, _) => fats, _ => ArrayList(TypeValue).new());
+    exp_pt := match(expected_ty,.Func(_, _, _, pts, _, _, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
+    giv_pt := match(given_ty,.Func(_, _, _, pts, _, _, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
+    exp_il := match(expected_ty,.Func(_, _, _, _, ils, _, _, _, _, _) => ils, _ => ArrayList(String).new());
+    exp_it := match(expected_ty,.Func(_, _, _, _, _, its, _, _, _, _) => its, _ => ArrayList(TypeValue).new());
+    exp_is := match(expected_ty,.Func(_, _, _, _, _, _, iss, _, _, _) => iss, _ => ArrayList(bool).new());
+    giv_il := match(given_ty,.Func(_, _, _, _, ils, _, _, _, _, _) => ils, _ => ArrayList(String).new());
+    giv_it := match(given_ty,.Func(_, _, _, _, _, its, _, _, _, _) => its, _ => ArrayList(TypeValue).new());
+    giv_is := match(given_ty,.Func(_, _, _, _, _, _, iss, _, _, _) => iss, _ => ArrayList(bool).new());
     exp_ret := match(expected_ty,.Func(result : r) => r.*, _ => TypeValue.Unit);
     giv_ret := match(given_ty,.Func(result : r) => r.*, _ => TypeValue.Unit);
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {

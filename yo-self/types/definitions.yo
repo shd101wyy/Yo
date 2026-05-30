@@ -80,7 +80,19 @@ TypeValue :: enum(
     // isEffectRowSpread flags
     where_types : ArrayList(Self),
     // where-clause constraint types
-    result : Box(Self) // return type
+    result : Box(Self),
+    // return type
+    /// Mirrors `FunctionType.return.isCompileTimeOnly` in
+    /// `src/types/definitions.ts` (TS models the return as a
+    /// `FunctionParameter { type, isCompileTimeOnly, … }`; yo-self flattened
+    /// that to a bare `result`, so this restores the one bit the CTFE gate
+    /// needs). True when the declared return is `comptime(...)` — i.e. the
+    /// function is a compile-time-only function (a type constructor, macro,
+    /// or comptime-value producer). `helper.ts:1731` gates CTFE on this; the
+    /// FuncVal-call delegation + `evaluate_comptime_fn_call`'s `should_cache`
+    /// use it so type-constructor calls whose return RESOLVED to a concrete
+    /// struct (not bare `Type`) are still routed through memoization.
+    result_is_comptime_only : bool
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition (mirrors `StructType.id`

@@ -589,7 +589,7 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .CLongDouble =>.None,
     // Pointer and function types are pointer-sized
     .Pointer(_) =>.Some(usize(get_target_pointer_size_bits())),
-    .Func(_, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bits())),
+    .Func(_, _, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
     .Array(element : el, length : n) => match(
       recur(el.*),
@@ -637,7 +637,7 @@ get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .CLongDouble =>.None,
     // Pointer and function types: pointer-aligned
     .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
-    .Func(_, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bytes())),
+    .Func(_, _, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
     .Array(element : el, _) => recur(el.*),
     // Slice: pointer-aligned (fat pointer)

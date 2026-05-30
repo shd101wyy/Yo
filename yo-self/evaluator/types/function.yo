@@ -925,7 +925,7 @@ evaluate_function_parameter :: (
   if(!(is_compile_time_only) && is_function_type(final_param_type), {
     has_forall := match(
       final_param_type,
-      .Func(forall_labels, _, _, _, _, _, _, _, _) => (forall_labels.len() > usize(0)),
+      .Func(forall_labels, _, _, _, _, _, _, _, _, _) => (forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -3402,7 +3402,10 @@ evaluate_function_type :: (
     implicit_types,
     implicit_spreads,
     where_types,
-    Box(TypeValue)(return_type)
+    Box(TypeValue)(return_type),
+    // result_is_comptime_only — mirrors TS `return.isCompileTimeOnly`,
+    // set from the `comptime(...)` wrapper on the declared return.
+    is_return_comptime_only
   );
   // Set expr info on the expr
   out_info := new_expr_info(env_mut, type_of_type(func_type));

@@ -439,7 +439,7 @@ is_transitive_effect_call_ :: (
   if(is_function_type(func_type.clone()), {
     result := match(
       func_type,
-      .Func(_, _, _, _, implicit_labels, implicit_types, implicit_spreads, _, _) => {
+      .Func(_, _, _, _, implicit_labels, implicit_types, implicit_spreads, _, _, _) => {
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
@@ -592,7 +592,7 @@ detect_effect_expr_ :: (
         .None => (),
         .Some(fn_type) => match(
           fn_type,
-          .Func(_, _, _, param_types, _, _, _, _, _) => {
+          .Func(_, _, _, param_types, _, _, _, _, _, _) => {
             pn := param_types.len();
             pi := usize(0);
             while(runtime(pi < pn), {
@@ -624,7 +624,7 @@ detect_effect_expr_ :: (
         .None => Option(TypeValue).None,
         .Some(fn_type) => match(
           fn_type,
-          .Func(_, _, _, _, _, _, _, _, result) => Option(TypeValue).Some(result.*),
+          .Func(_, _, _, _, _, _, _, _, result, _) => Option(TypeValue).Some(result.*),
           _ => Option(TypeValue).None
         )
       );
@@ -694,7 +694,7 @@ detect_effect_expr_ :: (
           transitive_arg_types := ArrayList(TypeValue).new();
           match(
             ctl_type.clone(),
-            .Func(_, _, _, param_types, _, _, _, _, _) => {
+            .Func(_, _, _, param_types, _, _, _, _, _, _) => {
               pn := param_types.len();
               pi := usize(0);
               while(runtime(pi < pn), {
@@ -716,7 +716,7 @@ detect_effect_expr_ :: (
           transitive_result_type_opt := cond(
             via_closure => match(
               ctl_type,
-              .Func(_, _, _, _, _, _, _, _, result) => Option(TypeValue).Some(result.*),
+              .Func(_, _, _, _, _, _, _, _, result, _) => Option(TypeValue).Some(result.*),
               _ => Option(TypeValue).None
             ),
             true => match(

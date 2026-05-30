@@ -112,7 +112,7 @@ evaluate_comptime_fn_call :: (
   // Extract the return type from the function type.
   return_type := match(
     function_type,
-    .Func(_, _, _, _, _, _, _, _, result_b) => result_b.*,
+    .Func(_, _, _, _, _, _, _, _, result_b, _) => result_b.*,
     _ => t_unit()
   );
   // Extract func_id and body from the FuncVal.
@@ -236,7 +236,16 @@ evaluate_comptime_fn_call :: (
   // Only cache CTFE calls that return a Type (TypeHierarchyType / TypeUni).
   // Pure type-constructor functions like Box(T), Vec(T) etc. are safe to cache.
   // Functions returning runtime values may have side effects and must not be cached.
-  should_cache := is_type_hierarchy_type(return_type);
+  // Cache type-returning calls. `is_type_hierarchy_type` catches bare-`Type`
+  // returns; `result_is_comptime_only` (the function's declared
+  // comptime-only return, mirroring TS `return.isCompileTimeOnly`) also
+  // catches comptime constructors whose return resolved to a concrete struct.
+  func_result_is_comptime := match(
+    function_type,
+    .Func(_, _, _, _, _, _, _, _, _, rico) => rico,
+    _ => false
+  );
+  should_cache := (is_type_hierarchy_type(return_type) || func_result_is_comptime);
   // Find or create the cache bucket for this func_id in ctx.comptime_fn_caches.
   (entry_idx_opt : Option(usize)) = Option(usize).None;
   {
