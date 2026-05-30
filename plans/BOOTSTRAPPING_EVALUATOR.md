@@ -907,6 +907,37 @@ binding-annotation `(g : HashMap(...))` concrete bypasses memoization
 cannot satisfy both constraints. Until then, do NOT re-apply the
 `struct.yo`/known-set stamp — it is net-negative (re-SIGBUS + 0 gain).
 
+**ROUTING REFACTOR ATTEMPTED (reverted) — blocked one layer deeper.** A
+`[FCALL]` probe at `function.yo`'s FuncVal branch showed the 22 HashMap
+calls split **20 `itht=T`** (delegate→memoize) + **2 `itht=F cfto=Some`** —
+the 2 are exactly the unstamped annotation concretes. So the callee DOES
+resolve to a Func (`cfto=Some`), but `is_type_hierarchy_type(ret_type)` is
+false because the resolved Func's **return is a specialized struct, not bare
+`Type`**. Tried routing those through memoization two ways:
+(a) gate on `is_function_type_and_returns_comptime_value(callee_func_type)`
+(the faithful TS `return.isCompileTimeOnly` check) — **didn't fire**: the 2
+calls' Func return is NOT recognised as comptime-only by
+`is_comptime_only_type_simple`; (b) gate struct/enum-return delegation behind
+a "known type-constructor" set (mark a func_id when seen returning `Type`,
+then route its later specialized-struct-return calls) + broaden `should_cache`
+likewise — **still `Given unit`**. No SIGBUS in either (memoization-routed =
+stable id), but `.new()` never resolved and `utils.yo` is −1 (its side-table
+ArrayList globals hit the same unresolved-`.new()`), so net ≤ 0 → reverted.
+
+**The real blocker is now precise:** in a type-ANNOTATION position the callee
+`HashMap` resolves to a Func whose **return type is neither `Type` nor a
+comptime-only type** — it's a bare/specialized struct that no available
+predicate (`is_type_hierarchy_type`, `is_function_type_and_returns_comptime_value`)
+classifies as a type-constructor return. So neither memoization nor the
+funcId stamp can be triggered from the call site by inspecting the return
+type. The fix must go UPSTREAM: understand why the annotation-context callee
+type-resolution produces a non-comptime struct-returning Func (it likely
+pre-specializes the return), and either make it preserve the comptime-`Type`
+return (so the existing `is_type_hierarchy_type` gate fires) or carry a
+type-constructor marker on the resolved callee. This is a focused
+investigation into the type-annotation / binding-LHS type-evaluation path —
+a distinct sub-problem from method resolution itself.
+
 **STRATEGIC VERDICT:** generic method resolution is **necessary but a dead
 end on its own** — it moves the count by 0 across 4 attempts (memoization is
 a SEPARATE, landed win). Two viable
