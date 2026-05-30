@@ -438,7 +438,9 @@ evaluate_comptime_fn_call :: (
       create_unknown_val(return_type)
     }
   );
-  callee_env = body_info.env;
+  // Local copy — `callee_env` is an immutable parameter; thread the updated
+  // env through `out_callee_env` and return it.
+  (out_callee_env : Environment) = body_info.env;
   // Update or remove the temp cache entry based on whether caching is enabled.
   if(should_cache, {
     updated_cache := CalledComptimeFnCache(
@@ -449,7 +451,12 @@ evaluate_comptime_fn_call :: (
     match(
       ctx.comptime_fn_caches.get(the_entry_idx),
       .Some(entry) => {
-        entry.caches(temp_cache_index).* = updated_cache;
+        // ArrayList has no in-place element assignment; replace the temp
+        // placeholder by removing it and pushing the finalized entry.
+        // (Recursive sub-calls only append AFTER temp_cache_index, so it is
+        // still the correct slot to drop; lookups match by content, not index.)
+        _ := entry.caches.remove(temp_cache_index, usize(1));
+        _ := entry.caches.push(updated_cache);
       },
       .None => ()
     );
@@ -465,7 +472,7 @@ evaluate_comptime_fn_call :: (
   ComptimeFnCallResult(
     value : return_value,
     caller_env : caller_env,
-    callee_env : callee_env
+    callee_env : out_callee_env
   )
 });
 export(evaluate_comptime_fn_call);

@@ -49,8 +49,13 @@ open(import("std/string"));
   TypeCallResult,
   ModuleTypeCallResult,
   TraitTypeCallResult,
-  TraitSpecializationResult
+  TraitSpecializationResult,
+  ArgValues,
+  ArgEntry,
+  VarArgEntry
 } :: import("../context.yo");
+{ is_type_hierarchy_type } :: import("../../types/guards.yo");
+{ evaluate_comptime_fn_call } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
@@ -1134,6 +1139,59 @@ evaluate_function_call :: (
           .Some(ci) => Option(TypeValue).Some(ci.ty),
           .None => Option(TypeValue).None
         );
+        // Comptime type-constructor calls (return type IS a Type, e.g.
+        // `HashMap(K,V)`, `Vec(T)`) are routed through
+        // `evaluate_comptime_fn_call`, which MEMOIZES the result keyed by
+        // (func_id, arg values) in `ctx.comptime_fn_caches`. This mirrors TS
+        // `helper.ts` delegating to `evaluateComptimeFunctionCall` when the
+        // return is compile-time-only. Memoization gives each distinct
+        // instantiation a single shared TypeValue (stable id), which both
+        // terminates recursive-type synthesis (the cycle guard keys on the
+        // struct id) and matches TS's per-instantiation identity. Without it,
+        // every `Vec(i32)` call produced a fresh id. The previous inline body
+        // eval below is kept for all non-type-returning calls.
+        if(is_type_hierarchy_type(ret_type), {
+          ct_arg_entries := ArrayList(ArgEntry).new();
+          (ct_ai : usize) = usize(0);
+          while(runtime(ct_ai < evaled_arg_infos.len()), {
+            ct_info := match(
+              evaled_arg_infos.get(ct_ai),
+              .Some(i) => i,
+              .None => new_expr_info(env, t_unit())
+            );
+            _ct_push := ct_arg_entries.push(
+              ArgEntry(
+                value : ct_info.value,
+                parameter_type : ct_info.ty,
+                arg_type : ct_info.ty
+              )
+            );
+            ct_ai = (ct_ai + usize(1));
+          });
+          ct_arg_values := ArgValues(
+            forall_args : ArrayList(ArgEntry).new(),
+            args : ct_arg_entries,
+            implicit_args : Option(ArrayList(ArgEntry)).None,
+            variadic_args : ArrayList(VarArgEntry).new()
+          );
+          ct_func_type := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
+          ct_func_value := match(callee_value,.Some(v) => v,.None => EvalValue.UnitVal);
+          ct_result := evaluate_comptime_fn_call(
+            Option(AstExpr).Some(func_expr),
+            ct_func_type,
+            ct_func_value,
+            ct_arg_values,
+            env,
+            fresh_env,
+            ctx,
+            exn
+          );
+          out_ct := new_expr_info(ct_result.caller_env, ret_type);
+          out_ct.value = Option(EvalValue).Some(ct_result.value);
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
+          _ := param_vars;
+          return(expr);
+        });
         old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
         old_ret_ty := ctx.enclosing_function_return_type;
         fn_ctx := FuncOrAsyncBlockCtx(
