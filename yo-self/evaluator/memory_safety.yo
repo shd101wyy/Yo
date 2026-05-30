@@ -16,52 +16,25 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-/// Pragma flags a file can declare. Mirrors `PragmaKind` in
-/// `src/evaluator/memory-safety.ts`.
-PragmaKind :: enum(
-  AllowUnsafe,
-  SkipPrelude,
-  SkipWasm,
-  SkipWasm32Emscripten,
-  SkipWasm32Wasi,
-  // Formal-verification pragmas — Phase 0 just registers them.
-  // See plans/FORMAL_VERIFICATION.md.
-  Verify,
-  VerifyOrAssert,
-  NoContracts
-);
-/// Structural equality for `PragmaKind` (no derived `==` yet).
-pragma_kind_eq :: (fn(a : PragmaKind, b : PragmaKind) -> bool)(
-  match(
-    a,
-    .AllowUnsafe => match(b,.AllowUnsafe => true, _ => false),
-    .SkipPrelude => match(b,.SkipPrelude => true, _ => false),
-    .SkipWasm => match(b,.SkipWasm => true, _ => false),
-    .SkipWasm32Emscripten => match(b,.SkipWasm32Emscripten => true, _ => false),
-    .SkipWasm32Wasi => match(b,.SkipWasm32Wasi => true, _ => false),
-    .Verify => match(b,.Verify => true, _ => false),
-    .VerifyOrAssert => match(b,.VerifyOrAssert => true, _ => false),
-    .NoContracts => match(b,.NoContracts => true, _ => false)
-  )
-);
+// NOTE: TS's `memory-safety.ts` declares its own internal `PragmaKind`
+// string-union, separate from the user-facing `Pragma` enum. yo-self is
+// self-hosted, so the compiler reuses the language's own `Pragma` enum
+// (defined in `std/prelude.yo`, auto-loaded into every module) as the
+// pragma-kind type — one source of truth, no duplicate enum. `Pragma`
+// derives `Eq` in the prelude, so `==` is used directly below.
 /// One `(module_path, kind)` entry in the per-file pragma registry.
 /// (yo-self flattens TS's `Map<string, Set<PragmaKind>>` to a list of pairs
-/// to avoid a `HashSet(PragmaKind)` hashing requirement; the semantics —
+/// to avoid a `HashSet(Pragma)` hashing requirement; the semantics —
 /// membership of a `kind` for a `module_path` — are identical.)
-PragmaEntry :: struct(module_path : String, kind : PragmaKind);
+PragmaEntry :: struct(module_path : String, kind : Pragma);
 /// Per-file pragma registry. Keyed by canonical module URI (the value of
 /// `token.module_path`, e.g. `file:///path/to/foo.yo`). Mirrors the
 /// `privilegedFiles` map in `src/evaluator/memory-safety.ts`.
 (g_privileged_files : ArrayList(PragmaEntry)) = ArrayList(PragmaEntry).new();
-/// Record that `module_path` declared `pragma(Pragma.X);`.
-/// Mirrors `registerFilePragma`.
-register_file_pragma :: (fn(module_path : String, kind : PragmaKind) -> unit)({
-  if(!(file_has_pragma(Option(String).Some(module_path.clone()), kind)), {
-    _ := g_privileged_files.push(PragmaEntry(module_path : module_path, kind : kind));
-  });
-});
 /// Has `module_path` declared a given pragma? Mirrors `fileHasPragma`.
-file_has_pragma :: (fn(module_path : Option(String), kind : PragmaKind) -> bool)(
+/// (Defined before `register_file_pragma`, which calls it — yo-self requires
+/// define-before-use; TS hoists.)
+file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
   match(
     module_path,
     .None => false,
@@ -72,7 +45,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : PragmaKind) -> bool)
       while(runtime((i < n) && !(found)), {
         match(
           g_privileged_files.get(i),
-          .Some(entry) => if((entry.module_path.as_str() == mp.as_str()) && pragma_kind_eq(entry.kind, kind), {
+          .Some(entry) => if((entry.module_path.as_str() == mp.as_str()) && (entry.kind == kind), {
             found = true;
           }),
           .None => ()
@@ -83,6 +56,13 @@ file_has_pragma :: (fn(module_path : Option(String), kind : PragmaKind) -> bool)
     }
   )
 );
+/// Record that `module_path` declared `pragma(Pragma.X);`.
+/// Mirrors `registerFilePragma`.
+register_file_pragma :: (fn(module_path : String, kind : Pragma) -> unit)({
+  if(!(file_has_pragma(Option(String).Some(module_path.clone()), kind)), {
+    _ := g_privileged_files.push(PragmaEntry(module_path : module_path, kind : kind));
+  });
+});
 /// Reset the registry. Used between independent `check` runs. Mirrors
 /// `_clearPragmaRegistry`.
 _clear_pragma_registry :: (fn() -> unit)({
@@ -119,9 +99,9 @@ is_implicitly_unsafe_capable_file :: (fn(module_path : Option(String)) -> bool)(
     module_path,
     .None => false,
     .Some(mp) => if(
-      mp.starts_with("auto-generated://"),
+      mp.starts_with(String.from("auto-generated://")),
       true,
-      file_has_pragma(Option(String).Some(mp.clone()), PragmaKind.AllowUnsafe)
+      file_has_pragma(Option(String).Some(mp.clone()), Pragma.AllowUnsafe)
     )
   )
 );
@@ -132,12 +112,10 @@ is_auto_generated_expansion :: (fn(module_path : Option(String)) -> bool)(
   match(
     module_path,
     .None => false,
-    .Some(mp) => mp.starts_with("auto-generated://")
+    .Some(mp) => mp.starts_with(String.from("auto-generated://"))
   )
 );
 export(
-  PragmaKind,
-  pragma_kind_eq,
   register_file_pragma,
   file_has_pragma,
   _clear_pragma_registry,

@@ -6813,6 +6813,10 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
   )
 });
 derive_rule(Eq, __derive_eq);
+// `Pragma` (defined near the top) is compared by `==` in the compiler's
+// memory-safety pragma registry. Derived here, once the `Eq` derive rule
+// is registered.
+derive(Pragma, Eq(Pragma));
 // --- derive_rule for Clone ---
 __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
   info :: Type.get_info(T);

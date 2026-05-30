@@ -21,21 +21,22 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_fn_call_of, BF_PRAGMA } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
-// `PragmaKind` lives in `../memory_safety.yo` (mirrors TS, where it is
-// declared in `src/evaluator/memory-safety.ts`).
-{ PragmaKind } :: import("../memory_safety.yo");
+// Pragma kinds use the prelude's `Pragma` enum (auto-loaded), not a separate
+// internal type — yo-self is self-hosted, so the compiler reuses the
+// language's own `Pragma`. (TS keeps a distinct `Pragma` in
+// `src/evaluator/memory-safety.ts`; here that collapses to `Pragma`.)
 /// Map a `Pragma.X` variant name (as a `str`) to the corresponding
-/// `PragmaKind`. Returns `.None` when the name doesn't match any
+/// `Pragma`. Returns `.None` when the name doesn't match any
 /// known variant — typo handling for full evaluation belongs in
 /// `evaluatePragma`; the pre-scan just ignores unknown names.
-pragma_kind_from_variant_name :: (fn(name : str) -> Option(PragmaKind))(
+pragma_kind_from_variant_name :: (fn(name : str) -> Option(Pragma))(
   cond(
-    (name == "AllowUnsafe") => Option(PragmaKind).Some(.AllowUnsafe),
-    (name == "SkipPrelude") => Option(PragmaKind).Some(.SkipPrelude),
-    (name == "SkipWasm") => Option(PragmaKind).Some(.SkipWasm),
-    (name == "SkipWasm32Emscripten") => Option(PragmaKind).Some(.SkipWasm32Emscripten),
-    (name == "SkipWasm32Wasi") => Option(PragmaKind).Some(.SkipWasm32Wasi),
-    true => Option(PragmaKind).None
+    (name == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
+    (name == "SkipPrelude") => Option(Pragma).Some(.SkipPrelude),
+    (name == "SkipWasm") => Option(Pragma).Some(.SkipWasm),
+    (name == "SkipWasm32Emscripten") => Option(Pragma).Some(.SkipWasm32Emscripten),
+    (name == "SkipWasm32Wasi") => Option(Pragma).Some(.SkipWasm32Wasi),
+    true => Option(Pragma).None
   )
 );
 /// Recognise the `Pragma.X` argument shape in a pragma call. Yo
@@ -48,18 +49,18 @@ pragma_kind_from_variant_name :: (fn(name : str) -> Option(PragmaKind))(
 ///
 /// Mirrors `recognizePragmaArgByAstShape` in
 /// `src/evaluator/builtins/pragma.ts`.
-recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(PragmaKind))(
+recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
   match(
     arg,
-    .Atom(_, _) => Option(PragmaKind).None,
+    .Atom(_, _) => Option(Pragma).None,
     .FnCall(_, func_box, args, _, _) => {
       is_dot := match(
         func_box.*,
         .Atom(_, tok) => (tok.kind == TokenKind.Dot),
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(is_dot), return(Option(PragmaKind).None));
-      if(args.len() != usize(2), return(Option(PragmaKind).None));
+      if(!(is_dot), return(Option(Pragma).None));
+      if(args.len() != usize(2), return(Option(Pragma).None));
       lhs_is_pragma := match(
         args.get(usize(0)),
         .Some(lhs) => match(
@@ -69,15 +70,15 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(PragmaKind))(
         ),
         .None => false
       );
-      if(!(lhs_is_pragma), return(Option(PragmaKind).None));
+      if(!(lhs_is_pragma), return(Option(Pragma).None));
       match(
         args.get(usize(1)),
         .Some(rhs) => match(
           rhs,
           .Atom(_, tok) => pragma_kind_from_variant_name(tok.value.as_str()),
-          .FnCall(_, _, _, _, _) => Option(PragmaKind).None
+          .FnCall(_, _, _, _, _) => Option(Pragma).None
         ),
-        .None => Option(PragmaKind).None
+        .None => Option(Pragma).None
       )
     }
   )
