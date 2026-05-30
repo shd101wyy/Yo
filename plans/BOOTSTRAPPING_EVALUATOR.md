@@ -847,10 +847,37 @@ resolves `.new()` apparently operates on a struct id that is NOT the one
 stamped in `comptime_fn.yo` (substituted/cloned copy? different eval path?).
 The −1 was self-inflicted (the side table's own `HashMap.new()` in
 `utils.yo` hit the same unresolved-`.new()` bug). NET: 0 gain + regress →
-reverted. **Open question for next attempt:** instrument WHERE the
-`.new()`-resolving synthesize gets its concrete struct id post-memoization,
-and stamp THAT (or stamp at the call site in `function.yo` AFTER the
-delegation returns, mirroring attempt #4 which worked).
+reverted.
+
+**ROOT CAUSE pinpointed (instrumented `[STAMP]`+`[STC]` build, reverted).**
+Stamped the returned type at the `function.yo` call site after the
+delegation returns (mirroring attempt #4) and logged every
+`_same_type_constructor` call. Decisive line:
+`[STC] exp=struct_yo_id_2315 ef=yo_id_2196 giv=struct_yo_id_3044 gf=- res=F`.
+Every `HashMap` instantiation stamps consistently to `yo_id_2196` (the
+generic-impl receiver **pattern** `2315` included, `ef=yo_id_2196`), but the
+**concrete the synthesizer compares (`3044`) is NEVER stamped** (`gf=-`).
+`3044` is created during the failing global's own evaluation — the type
+ANNOTATION `(_type_trait_methods : HashMap(String, ArrayList(MethodEntry)))`
+— via a path that bypasses BOTH `function.yo`'s FuncVal-callee delegation
+AND `evaluate_comptime_fn_call` (separate type-expression construction, or a
+substituted/cloned copy that drops the side-table entry). So
+`_same_type_constructor(pattern, concrete)` = F → `.new()` stays `unit`.
+This is also why stamping inside `evaluate_comptime_fn_call` (earlier
+sub-attempt) failed identically — the annotation concrete never reaches it.
+(Side note: the side table cannot be a module-level `HashMap(...).new()` OR
+`ArrayList(...).new()` global in any file that must `check`-pass — that
+global hits the very unresolved-`.new()` bug; both forms failed `utils.yo`.)
+
+**NEXT STEP:** find the type-ANNOTATION / binding-type evaluation path that
+constructs the concrete `HashMap(String, ArrayList(MethodEntry))` (`3044`)
+— likely a type-expression evaluator calling the comptime fn via
+`helper.yo`'s `try_to_call_function_with_arguments` rather than
+`function.yo`'s `evaluate_function_call` — and stamp the result THERE; OR,
+if `3044` is a clone/substitution of a stamped struct, make
+`substitute()`/the clone copy the side-table entry to the new id. The rest
+of attempt #4's chain already works (matched=Y → error moves deeper), so
+connecting the concrete's stamp is the last missing link for `.new()`.
 
 **STRATEGIC VERDICT:** generic method resolution is **necessary but a dead
 end on its own** — it moves the count by 0 across 4 attempts (memoization is
