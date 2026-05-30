@@ -982,17 +982,34 @@ specialized-struct return as comptime.
 **FAITHFUL 1-TO-1 FIX (the correct path — supersedes the workarounds).**
 Restore the dropped fields to yo-self's `TypeValue`, matching TS:
 
-- Add `functionValue` (or at minimum the constructor `func_id`) to `Struct`,
-  `EnumT`, `ModuleT`, `TraitT`; set it where TS does
-  (`calls/comptime-fn.ts:274`); compare it in `synthesizer.yo`'s Struct/Enum
-  cases. This REPLACES `g_type_constructor_funcid` with a faithful field and
-  removes the "concrete unstamped" failure mode (the field travels with the
-  type through substitution/specialization, unlike the side table).
-- Restore `is_compile_time_only` on the `Func` param/return representation
-  (port `FunctionParameter` faithfully rather than flattening to bare
-  `TypeValue`), and gate CTFE/memoization on `return.is_compile_time_only`
-  exactly as `helper.ts` does — so specialized-struct returns of comptime
-  constructors are still recognised.
+- **STAGE 1 — DONE (`0d4e951f`).** Added `constructor_func_id : String` to
+  `TypeValue.Struct` (stores `functionValue.funcId`; the full `FunctionValue`
+  can't be stored — `TypeValue` can't import `EvalValue` without a cycle, and
+  `funcId` is the only part the synthesizer reads). Threaded through all 29
+  touched files (constructions set `""`, positional matches padded, curly
+  matches unaffected). SET at the comptime-fn call site (`comptime_fn.yo`,
+  mirroring `comptime-fn.ts:274`), PRESERVED across substitution
+  (`substitution.yo`), COMPARED in `synthesizer.yo`'s Struct case
+  (`synthesizer.ts:662`). Replaces the reverted `g_type_constructor_funcid`
+  side table. **Per-file: std 151, tests 156, yo-self 51 — fully neutral, 0
+  regressions.** Neutral because the annotation concrete still doesn't reach
+  the comptime-fn path (needs Stage 2). _TODO: extend to `EnumT` (and
+  `ModuleT`/`TraitT`) — same mechanical pattern._
+- **STAGE 2 — NEXT.** Restore `FunctionParameter.isCompileTimeOnly` on the
+  `Func` RETURN. Add `result_is_comptime_only : bool` to `TypeValue.Func`
+  (the targeted field for the CTFE gate; full per-param `isCompileTimeOnly`
+  is a separate, later concern). ~111 `.Func(` sites, mostly curly
+  (unaffected) — positional matches (9-arg) pad, constructions set the flag.
+  The flag must be SET where Func types are built from declarations (from the
+  `comptime(...)` wrapper on the declared return, BEFORE it's stripped —
+  locate that site, likely `calls/function_type.yo` / fn-type evaluation),
+  and USED in `function.yo`'s delegation gate + `comptime_fn.yo`'s
+  `should_cache`, replacing the `is_type_hierarchy_type(ret_type)` proxy with
+  `return.is_compile_time_only` exactly as `helper.ts:1731`. This routes the
+  `itht=F` annotation calls through memoization → they get
+  `constructor_func_id` set (Stage 1) → synthesizer unifies them → `.new()`
+  resolves. Expected to flip the large batch of module-level generic-`.new()`
+  globals at once.
 
 This is a **schema change to heavily-matched enum variants** (`Struct`/`Func`
 appear in hundreds of `match`/construction sites), so it must be a careful,
