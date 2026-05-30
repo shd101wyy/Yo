@@ -59,14 +59,14 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
-| Milestone                                                  | Status          | Number                                                        |
-| ---------------------------------------------------------- | --------------- | ------------------------------------------------------------- |
-| `./yo-cli check yo-self/main.yo`                           | green           | —                                                             |
-| `./yo-cli compile yo-self/main.yo`                         | builds          | —                                                             |
-| `/tmp/yo-self-bin check std/prelude.yo`                    | green           | —                                                             |
-| `/tmp/yo-self-bin check ./std` (per-file)                  | **green**       | **151 / 151 files OK**                                        |
-| `/tmp/yo-self-bin check ./tests` (per-file, all 170)       | **green**       | **170 / 170 files OK** (matches TS — Phase 2 complete)        |
-| `/tmp/yo-self-bin check ./yo-self` (per-file, excl. tests) | **in progress** | **51 / 223 files OK** (1 root cause blocks ~170; see Phase 3) |
+| Milestone                                                  | Status          | Number                                                          |
+| ---------------------------------------------------------- | --------------- | --------------------------------------------------------------- |
+| `./yo-cli check yo-self/main.yo`                           | green           | —                                                               |
+| `./yo-cli compile yo-self/main.yo`                         | builds          | —                                                               |
+| `/tmp/yo-self-bin check std/prelude.yo`                    | green           | —                                                               |
+| `/tmp/yo-self-bin check ./std` (per-file)                  | **green**       | **151 / 151 files OK**                                          |
+| `/tmp/yo-self-bin check ./tests` (per-file)                | **green**       | **156 / 182 files OK** (per-file; the "170" was directory-mode) |
+| `/tmp/yo-self-bin check ./yo-self` (per-file, excl. tests) | **in progress** | **51 / 223 files OK** (after comptime memoization; see Phase 3) |
 
 > **Phase 1 complete** — per-file `check ./std` matches the TS reference
 > (151/151). This session closed every remaining gap: comptime
@@ -818,8 +818,43 @@ identity, which is what makes its synthesize recursion terminate. The
 two instantiations) but cannot make the cycle guard terminate without
 per-instantiation memoized identity.
 
+**LANDED (`663fca9f`) — comptime-instantiation memoization (+1).** The full
+memoization (`evaluate_comptime_fn_call` + `ctx.comptime_fn_caches`, keyed by
+func_id + arg values) EXISTED but was DEAD: the live FuncVal-callee path in
+`function.yo` inlined the body eval instead of delegating, so every
+`Vec(i32)`/`HashMap(K,V)` call produced a fresh struct id (the TS divergence —
+`helper.ts` delegates to `evaluateComptimeFunctionCall`). Wired it in:
+`function.yo`'s FuncVal branch now routes type-returning calls
+(`is_type_hierarchy_type(ret_type)`) through `evaluate_comptime_fn_call`.
+Fixed three latent bugs in the never-exercised `comptime_fn.yo` (immutable-
+param reassign `callee_env`→local; unsupported in-place ArrayList element
+write → remove+push). Per-file diff: **std 151→151, tests 156→156 (no
+regressions), yo-self 50→51** (`utils.yo` flips). First Phase-3 gain,
+regression-free, faithful to TS. **Bonus:** memoization makes the SIGBUS
+regressors (`imm_vec`/`imm_threading`/`priority_queue`) terminate — stable
+per-instantiation ids let the synthesize cycle guard catch recursion — so it
+also unblocks the funcId-match approach from crashing.
+
+**funcId match ON TOP of memoization — STILL doesn't land (reverted).** Re-
+applied the side table + `_same_type_constructor` guard + a stamp inside
+`evaluate_comptime_fn_call` (where the returned type is finalized). Result:
+no SIGBUS (memoization fixed that), BUT yo-self 51→50 — `.new()` STILL
+resolves to `unit` (`type_trait_methods.yo` shows `Given unit`), unlike
+attempt #4's inline-path stamp which DID make it resolve. So routing the
+comptime call through `evaluate_comptime_fn_call` changed something that
+breaks the stamp's effectiveness for method resolution — the synthesize that
+resolves `.new()` apparently operates on a struct id that is NOT the one
+stamped in `comptime_fn.yo` (substituted/cloned copy? different eval path?).
+The −1 was self-inflicted (the side table's own `HashMap.new()` in
+`utils.yo` hit the same unresolved-`.new()` bug). NET: 0 gain + regress →
+reverted. **Open question for next attempt:** instrument WHERE the
+`.new()`-resolving synthesize gets its concrete struct id post-memoization,
+and stamp THAT (or stamp at the call site in `function.yo` AFTER the
+delegation returns, mirroring attempt #4 which worked).
+
 **STRATEGIC VERDICT:** generic method resolution is **necessary but a dead
-end on its own** — it moves the count by 0 across 4 attempts. Two viable
+end on its own** — it moves the count by 0 across 4 attempts (memoization is
+a SEPARATE, landed win). Two viable
 forward paths, in priority order:
 
 1. **Clear the deeper gaps first.** The next concrete blocker behind
