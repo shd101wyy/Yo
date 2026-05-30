@@ -644,47 +644,69 @@ files as OK)._
 `Incompatible types: Expected <struct…> / Given unit` on a module-level
 typed runtime global `(g_x : HashMap(...)) = HashMap(...).new()` /
 `(g_x : ArrayList(...)) = ArrayList(...).new()` — which nearly every
-compiler file declares. Isolated (≈15 reductions) to: **a static method
-(`.new()`) called on a GENERIC OBJECT-type instantiation evaluates to
-`unit`.** It is NOT about module-vs-fn, is_executing, or expected_type
-per se:
+compiler file declares.
 
-- generic **struct** `.new()` → OK; non-generic **object** `.new()` → OK;
-  generic **object** `.new()` → **unit** (the bug).
-- `:=` "passes" only because it doesn't type-check the rhs; the typed
-  `(x : T) =` form surfaces the unit. Confirmed via `tmp :=
-G(usize).new(); (z : usize) = tmp.a` → "Failed to evaluate `tmp.a`"
-  (tmp is unit).
-- Minimal repro: `G :: (fn(comptime(T):Type)->comptime(Type))(object(a:T));
-impl(forall(T:Type), G(T), new : (fn()->Self)(Self(a:the(T))));
-tmp := G(usize).new(); (z:usize) = tmp.a;`
+**Corrected root cause (an earlier struct-vs-object framing was a
+grep artifact — always classify by exit code):** a static method
+(`.new()`, and in fact ANY method) on a **GENERIC type instantiation**
+(`G(usize)`) resolves to `unit`. Struct vs object is irrelevant; non-generic
+vs **generic** is the axis. Two caveats that fooled earlier runs:
 
-**Root cause (pinned via STRUCTSYN instrumentation):** ANY method (static
-OR instance) on a generic OBJECT fails — so it's the generic-impl MATCH,
-not the call. `find_methods_from_generic_impls` → `try_match_generic_impl`
-(`evaluator/values/impl.yo`) matches via
-`synthesize_types(receiver_pattern G(T), concrete G(usize))`. Objects are
-`Struct(is_ref=true)`, so they hit synthesizer.yo's **Struct case (≈line 1303)**, which **throws on `exp_id != giv_id`** (struct-id equality).
-`evaluate_object_type` delegates to `evaluate_struct_type`, which assigns
-a FRESH `struct_${random_id(...)}` on every evaluation — so the impl's
-stored pattern `G(T)` (e.g. id 2488) and the call-site concrete `G(usize)`
-(id 2491) never share an id → synthesize throws → no match → method
-resolves to `unit`. Confirmed: object-gated STRUCTSYN shows the G(T)-vs-
-G(usize) compares all `match=false exp_ref=true giv_ref=true`.
+- **yo-self `check` does NOT type-check ordinary `fn` bodies** (only
+  module-level statements, `test` blocks, comptime). Deliberate type
+  errors inside `main`'s body still exit 0. So "fn-level works" results are
+  vacuous — the generic `.new()` is simply never checked there. Module-level
+  globals are the one spot it IS checked, which is why they surface it.
+- `:=` "passes" because it doesn't type-check the rhs; the typed `(x:T) =`
+  / module global is what checks it.
 
-Generic **structs** (q6) work — they do NOT show up in object-gated
-STRUCTSYN, so they match by a DIFFERENT path (NOT the is*ref Struct
-id-check). **OPEN: why do generic structs match despite the same
-`random_id` scheme?** Likely they reach synthesize as a `TypeAppT`
-(constructor + args, matched structurally) rather than a resolved
-`Struct`, or the generic comptime-fn call is memoised so `G(usize)` is
-id-stable for structs. Find that path, then make generic-OBJECT
-instantiation take the same one (preserve `TypeAppT` / share the
-constructor's id), OR relax synthesizer.yo's Struct-id-check to fall back
-to structural field-unification when ids differ but field shapes line up.
+**Mechanism:** `.new()` resolves via `find_methods_from_generic_impls` →
+`try_match_generic_impl` (`evaluator/values/impl.yo`), which matches the
+impl receiver pattern `G(T)` against the concrete `G(usize)` via
+`synthesize_types`. The synthesizer Struct case (≈line 1320) and Enum case
+**throw on `exp_id != giv_id`**. `evaluate_struct_type` assigns a fresh
+`struct_${random_id()}` on EVERY evaluation, so `G(T)` (id 2488) and
+`G(usize)` (id 2491) never share an id → throw → no match → `unit`.
+
+**TS does this right via `StructType.functionValue.funcId`** (set in
+`comptime-fn.ts:274` `returnedType.functionValue = functionValue`; matched
+in `synthesizer.ts:649-665`). yo-self's `TypeValue` has no such field — the
+synthesizer.yo header even notes _"StructType.functionValue comparison
+skipped … uses id only."_ THAT omission is the bug.
+
+**Fix attempt (reverted — see notes):** a side table
+`struct_id → constructor func_id` (mirroring `definition_site_registry.yo`),
+stamped where a comptime type-fn returns a struct/enum, consulted in the
+synthesizer Struct/Enum id-checks (`_same_type_constructor`). The
+synthesizer-side change is correct and builds (std stays 151/151). TWO
+blockers stopped it:
+
+1. **Registration point.** `evaluate_comptime_fn_call`
+   (`evaluator/calls/comptime_fn.yo`) is **dead code in yo-self** (no
+   callers — confirmed REGCTOR fired 0×). The real comptime-type-fn-call
+   evaluation is inlined elsewhere (TS does it in `comptime-fn.ts` called
+   from `helper.ts:1746`; in yo-self look at `calls/helper.yo`
+   specialization ≈line 994 `evaluate_begin_expression` and the call
+   dispatch). Stamp the returned struct/enum id there.
+2. **Side-table keying + the registry module.** The registry must be a
+   `TypeValue`-FREE leaf — `definition_site_registry.yo` imports
+   `types/type.yo`'s `TypeValue`, which is a SEPARATE definition from
+   `types/definitions.yo`'s; importing it from `synthesizer.yo` triggered a
+   C `redefinition … with a different type` for
+   `g_definition_site_return_registry`. Put the String→String registry in a
+   `TypeValue`-free module (e.g. `yo-self/utils.yo`).
+   **Bigger risk:** struct **cloning** (`derive Clone`, `substitute`)
+   generates a fresh `random_id`, so a struct's id can change between the
+   comptime-fn-call site and synthesize — defeating a side-table-by-id. If
+   that's happening (verify whether the 2488/2491 ids synthesize sees are
+   the SAME ids produced at the call site), the only faithful fix is to add
+   a real `function_value_id` FIELD to the `Struct`/`EnumT` `TypeValue`
+   variants, propagated through clone + `substitute` (invasive: ~hundreds of
+   `.Struct(...)` construction/match sites).
+
 Fixing this single bug should unlock the bulk of Phase 3 at once.
-*(ENV: `bun` keeps dropping from PATH; set
-`BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)\_
+_(ENV: `bun` keeps dropping from PATH; set
+`BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
 
 A natural stretch target after Phase 3: **fixpoint** — `yo-self-bin
 check ./yo-self` produces the same result as `./yo-cli check ./yo-self`,
