@@ -1019,21 +1019,31 @@ Restore the dropped fields to yo-self's `TypeValue`, matching TS:
   regressions.** Neutral because the annotation concrete still doesn't reach
   the comptime-fn path (needs Stage 2). _TODO: extend to `EnumT` (and
   `ModuleT`/`TraitT`) — same mechanical pattern._
-- **STAGE 2 — NEXT.** Restore `FunctionParameter.isCompileTimeOnly` on the
-  `Func` RETURN. Add `result_is_comptime_only : bool` to `TypeValue.Func`
-  (the targeted field for the CTFE gate; full per-param `isCompileTimeOnly`
-  is a separate, later concern). ~111 `.Func(` sites, mostly curly
-  (unaffected) — positional matches (9-arg) pad, constructions set the flag.
-  The flag must be SET where Func types are built from declarations (from the
-  `comptime(...)` wrapper on the declared return, BEFORE it's stripped —
-  locate that site, likely `calls/function_type.yo` / fn-type evaluation),
-  and USED in `function.yo`'s delegation gate + `comptime_fn.yo`'s
-  `should_cache`, replacing the `is_type_hierarchy_type(ret_type)` proxy with
-  `return.is_compile_time_only` exactly as `helper.ts:1731`. This routes the
-  `itht=F` annotation calls through memoization → they get
-  `constructor_func_id` set (Stage 1) → synthesizer unifies them → `.new()`
-  resolves. Expected to flip the large batch of module-level generic-`.new()`
-  globals at once.
+- **STAGE 2 — DONE (`755d54f9`), but NEUTRAL (didn't flip `.new()`).** Added
+  `result_is_comptime_only : bool` to `TypeValue.Func` (TS
+  `FunctionParameter.isCompileTimeOnly` on the return). Threaded through all
+  `.Func(` sites; SET at fn-type construction from the existing
+  `is_return_comptime_only` (the `comptime(...)` return wrapper, function.yo);
+  comptime-result builtin → true; closure / Fn-trait / `t_func_simple` →
+  false; PRESERVED across substitution; USED additively (OR'd) in
+  `function.yo`'s delegation gate + `comptime_fn.yo`'s `should_cache`,
+  mirroring `helper.ts:1731`. Per-file: std 151, yo-self-eval 44, regressors
+  clean — fully neutral. **`type_trait_methods.yo` still `Given unit`.**
+- **REMAINING WIRING GAP (Stage 3 — the actual `.new()` unblocker).** Both
+  faithful fields are now restored, but `.new()` still doesn't resolve. The
+  gate keys on the _callee_ Func's `result_is_comptime_only`, but the
+  annotation receiver `HashMap(String,X)` resolves to a **specialized Func
+  (struct return)** built on a path that does NOT carry the flag (so the gate
+  doesn't fire → the concrete never routes through `evaluate_comptime_fn_call`
+  → never gets `constructor_func_id` set → synthesizer can't unify it with the
+  impl pattern). To close it: **instrument** (one build) to find (a) whether
+  the impl receiver pattern `HashMap(K,V)` gets `constructor_func_id` set at
+  registration, (b) whether the annotation concrete does, and (c) which
+  build-site produces the specialized struct-return Func and whether it
+  preserves `result_is_comptime_only`. Then set/preserve the flag on that
+  specialization path (and ensure the impl-pattern call routes through the
+  comptime path too). The fields are correct; the gap is purely WHERE they
+  get set across the specialization + impl-registration paths.
 
 This is a **schema change to heavily-matched enum variants** (`Struct`/`Func`
 appear in hundreds of `match`/construction sites), so it must be a careful,
