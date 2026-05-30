@@ -21,16 +21,9 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_fn_call_of, BF_PRAGMA } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
-/// Pragma kinds recognised by the pre-scan. Keep aligned with
-/// `PragmaKind` in `src/evaluator/memory-safety.ts`.
-PragmaKind :: enum(
-  AllowUnsafe,
-  SkipPrelude,
-  SkipWasm,
-  SkipWasm32Emscripten,
-  SkipWasm32Wasi
-);
-export(PragmaKind);
+// `PragmaKind` lives in `../memory_safety.yo` (mirrors TS, where it is
+// declared in `src/evaluator/memory-safety.ts`).
+{ PragmaKind } :: import("../memory_safety.yo");
 /// Map a `Pragma.X` variant name (as a `str`) to the corresponding
 /// `PragmaKind`. Returns `.None` when the name doesn't match any
 /// known variant — typo handling for full evaluation belongs in

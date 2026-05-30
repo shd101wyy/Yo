@@ -1,0 +1,147 @@
+//! Memory-safety helpers (Phase C of plans/MEMORY_SAFETY.md).
+//!
+//! 1-to-1 port of `src/evaluator/memory-safety.ts`.
+//!
+//! Per-file privilege tracking via `pragma(Pragma.AllowUnsafe);`. When the
+//! `pragma` builtin is evaluated, it records the file's URI in the
+//! `privileged_files` registry. The pointer-op gates then look up the
+//! current expression's source file in this registry — files that declared
+//! the pragma bypass the unsafe-wrap requirement.
+//!
+//! Not yet ported from `src/evaluator/memory-safety.ts`:
+//!   * `record_extern_call_site` — a Phase-C migration helper that writes a
+//!     JSON worklist on `process.on("exit")` (gated on the
+//!     `YO_EXTERN_WRAP_DUMP_FILE` env var). yo-self has no process-exit hook
+//!     and it is not needed for evaluator correctness, so it is deferred.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+/// Pragma flags a file can declare. Mirrors `PragmaKind` in
+/// `src/evaluator/memory-safety.ts`.
+PragmaKind :: enum(
+  AllowUnsafe,
+  SkipPrelude,
+  SkipWasm,
+  SkipWasm32Emscripten,
+  SkipWasm32Wasi,
+  // Formal-verification pragmas — Phase 0 just registers them.
+  // See plans/FORMAL_VERIFICATION.md.
+  Verify,
+  VerifyOrAssert,
+  NoContracts
+);
+/// Structural equality for `PragmaKind` (no derived `==` yet).
+pragma_kind_eq :: (fn(a : PragmaKind, b : PragmaKind) -> bool)(
+  match(
+    a,
+    .AllowUnsafe => match(b,.AllowUnsafe => true, _ => false),
+    .SkipPrelude => match(b,.SkipPrelude => true, _ => false),
+    .SkipWasm => match(b,.SkipWasm => true, _ => false),
+    .SkipWasm32Emscripten => match(b,.SkipWasm32Emscripten => true, _ => false),
+    .SkipWasm32Wasi => match(b,.SkipWasm32Wasi => true, _ => false),
+    .Verify => match(b,.Verify => true, _ => false),
+    .VerifyOrAssert => match(b,.VerifyOrAssert => true, _ => false),
+    .NoContracts => match(b,.NoContracts => true, _ => false)
+  )
+);
+/// One `(module_path, kind)` entry in the per-file pragma registry.
+/// (yo-self flattens TS's `Map<string, Set<PragmaKind>>` to a list of pairs
+/// to avoid a `HashSet(PragmaKind)` hashing requirement; the semantics —
+/// membership of a `kind` for a `module_path` — are identical.)
+PragmaEntry :: struct(module_path : String, kind : PragmaKind);
+/// Per-file pragma registry. Keyed by canonical module URI (the value of
+/// `token.module_path`, e.g. `file:///path/to/foo.yo`). Mirrors the
+/// `privilegedFiles` map in `src/evaluator/memory-safety.ts`.
+(g_privileged_files : ArrayList(PragmaEntry)) = ArrayList(PragmaEntry).new();
+/// Record that `module_path` declared `pragma(Pragma.X);`.
+/// Mirrors `registerFilePragma`.
+register_file_pragma :: (fn(module_path : String, kind : PragmaKind) -> unit)({
+  if(!(file_has_pragma(Option(String).Some(module_path.clone()), kind)), {
+    _ := g_privileged_files.push(PragmaEntry(module_path : module_path, kind : kind));
+  });
+});
+/// Has `module_path` declared a given pragma? Mirrors `fileHasPragma`.
+file_has_pragma :: (fn(module_path : Option(String), kind : PragmaKind) -> bool)(
+  match(
+    module_path,
+    .None => false,
+    .Some(mp) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      n := g_privileged_files.len();
+      while(runtime((i < n) && !(found)), {
+        match(
+          g_privileged_files.get(i),
+          .Some(entry) => if((entry.module_path.as_str() == mp.as_str()) && pragma_kind_eq(entry.kind, kind), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
+/// Reset the registry. Used between independent `check` runs. Mirrors
+/// `_clearPragmaRegistry`.
+_clear_pragma_registry :: (fn() -> unit)({
+  g_privileged_files = ArrayList(PragmaEntry).new();
+  ()
+});
+/// Drop pragma entries for a single module (LSP edit / cache invalidation).
+/// Mirrors `_clearPragmaForModule`.
+_clear_pragma_for_module :: (fn(module_path : String) -> unit)({
+  kept := ArrayList(PragmaEntry).new();
+  (i : usize) = usize(0);
+  n := g_privileged_files.len();
+  while(runtime(i < n), {
+    match(
+      g_privileged_files.get(i),
+      .Some(entry) => if(entry.module_path.as_str() != module_path.as_str(), {
+        _ := kept.push(entry);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_privileged_files = kept;
+  ()
+});
+/// Is the module path implicitly unsafe-capable for pointer ops?
+///
+/// True if the file declared `pragma(Pragma.AllowUnsafe);`, OR the
+/// expression came from compiler-synthesized code whose URI is
+/// `auto-generated://...` (which inherits the privileged caller's policy).
+/// Mirrors `isImplicitlyUnsafeCapableFile`.
+is_implicitly_unsafe_capable_file :: (fn(module_path : Option(String)) -> bool)(
+  match(
+    module_path,
+    .None => false,
+    .Some(mp) => if(
+      mp.starts_with("auto-generated://"),
+      true,
+      file_has_pragma(Option(String).Some(mp.clone()), PragmaKind.AllowUnsafe)
+    )
+  )
+);
+/// Is this module path a compiler-synthesized expansion (macro, derive,
+/// prelude desugaring)? Such URIs are tagged `auto-generated://...`.
+/// Mirrors `isAutoGeneratedExpansion`.
+is_auto_generated_expansion :: (fn(module_path : Option(String)) -> bool)(
+  match(
+    module_path,
+    .None => false,
+    .Some(mp) => mp.starts_with("auto-generated://")
+  )
+);
+export(
+  PragmaKind,
+  pragma_kind_eq,
+  register_file_pragma,
+  file_has_pragma,
+  _clear_pragma_registry,
+  _clear_pragma_for_module,
+  is_implicitly_unsafe_capable_file,
+  is_auto_generated_expansion
+);
