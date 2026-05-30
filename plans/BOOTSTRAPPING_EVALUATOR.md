@@ -277,6 +277,19 @@ Continue the existing structural port. Per the project rule (and
 - Validate changes with `./yo-cli check`, **not** by running
   `yo-self/tests/` (many of those are pre-existing-broken for reasons
   unrelated to a given change).
+- **Data types must be ported faithfully too — not just functions.** When a
+  TS interface field is dropped or flattened in the yo-self `TypeValue`, the
+  algorithms that depend on it cannot be ported faithfully, and working
+  around the gap with side tables / proxy predicates leads to dead ends.
+  **Cautionary example (the generic-`.new()` saga, Phase 3):**
+  `StructType.functionValue` and `FunctionParameter.isCompileTimeOnly` were
+  dropped from yo-self's `TypeValue`; ~8 attempts to reconstruct them
+  externally (a `func_id` side table, `is_type_hierarchy_type` proxy gates)
+  all failed, because the missing fields don't travel with the type through
+  substitution/specialization the way the real fields do. The fix is to
+  restore the fields (see Phase 3 "UPSTREAM ROOT CAUSE"), not to work around
+  them. When porting, prefer reproducing the TS data structure exactly over a
+  "simpler" flattened shape.
 
 ### Drift-repair loop (Phase 0)
 
@@ -938,29 +951,62 @@ type-constructor marker on the resolved callee. This is a focused
 investigation into the type-annotation / binding-LHS type-evaluation path —
 a distinct sub-problem from method resolution itself.
 
-**STRATEGIC VERDICT:** generic method resolution is **necessary but a dead
-end on its own** — it moves the count by 0 across 4 attempts (memoization is
-a SEPARATE, landed win). Two viable
-forward paths, in priority order:
+**UPSTREAM ROOT CAUSE — yo-self's `TypeValue` diverged from TS (a 1-to-1
+fidelity gap).** The generic-`.new()` blocker is NOT a missing algorithm —
+it is two dropped fields that TS carries and yo-self flattened away:
 
-1. **Clear the deeper gaps first.** The next concrete blocker behind
-   `.new()` is `type_trait_methods.yo`'s `Expected enum type or primitive
-type for match expression, got unit`. Fix the layers a file actually
-   stacks (deepest reachable first) until at least one file flips — only
-   then is the method-resolution layer worth landing alongside them.
-2. **Memoize comptime type instantiations** (port TS's
-   `calledComptimeFunctionCaches` into `function.yo`'s FuncVal-callee
-   branch). This is the architectural root fix: it makes `Vec(i32)` a single
-   shared TypeValue, which (a) gives the synthesizer real identity so
-   same-constructor matching terminates (no SIGBUS), and (b) likely makes
-   `.new()` resolve _without_ the funcid side table at all. Bigger change,
-   but it removes the regression class entirely.
+1. **`StructType.functionValue` (and on Enum/Module/Trait).** TS
+   `src/types/definitions.ts:222` stores `functionValue: FunctionValue` on
+   every named type; `synthesizer.ts:662` unifies two instantiations of the
+   same generic by `functionValue.funcId`. yo-self's `Struct`/`EnumT` carry
+   only an `id` — `synthesizer.yo`'s own header admits _"StructType.functionValue
+   comparison skipped (not in yo-self); uses id only."_ The
+   `g_type_constructor_funcid` side table was an external, NON-faithful
+   reconstruction of this field.
+2. **`FunctionParameter.isCompileTimeOnly` on params AND the return.** TS
+   `definitions.ts` models each parameter (and the function return) as a
+   `FunctionParameter { type, isCompileTimeOnly, … }`; CTFE is gated on
+   `functionType.return.isCompileTimeOnly` (`helper.ts:1731`). yo-self's
+   `Func` variant flattened these to bare `param_types`/`result : Box(Self)`,
+   dropping `isCompileTimeOnly` entirely. yo-self substitutes the proxies
+   `is_type_hierarchy_type(ret_type)` / `is_function_type_and_returns_comptime_value`,
+   which both FAIL when a type-constructor's return resolves to a specialized
+   concrete struct (the `itht=F cfto=Some` annotation calls) — so the call
+   site can neither memoize nor stamp it.
 
-**Do NOT re-apply the funcid stamp + `_same_type_constructor` guard alone** —
-it is proven net-negative (0 improved / 3 regressed). Validate ANY Phase-3
-change with the baseline-vs-fix per-file diff harness (capture `$? $file`
-per file, `join` on filename); aggregate counts hid the 0-improved result
-three times.
+These two divergences fully explain every dead end above: the side-table
+funcId stamp reconstructs (1) but can't be triggered for the annotation
+concrete because (2) is missing; the proxy gates can't classify a
+specialized-struct return as comptime.
+
+**FAITHFUL 1-TO-1 FIX (the correct path — supersedes the workarounds).**
+Restore the dropped fields to yo-self's `TypeValue`, matching TS:
+
+- Add `functionValue` (or at minimum the constructor `func_id`) to `Struct`,
+  `EnumT`, `ModuleT`, `TraitT`; set it where TS does
+  (`calls/comptime-fn.ts:274`); compare it in `synthesizer.yo`'s Struct/Enum
+  cases. This REPLACES `g_type_constructor_funcid` with a faithful field and
+  removes the "concrete unstamped" failure mode (the field travels with the
+  type through substitution/specialization, unlike the side table).
+- Restore `is_compile_time_only` on the `Func` param/return representation
+  (port `FunctionParameter` faithfully rather than flattening to bare
+  `TypeValue`), and gate CTFE/memoization on `return.is_compile_time_only`
+  exactly as `helper.ts` does — so specialized-struct returns of comptime
+  constructors are still recognised.
+
+This is a **schema change to heavily-matched enum variants** (`Struct`/`Func`
+appear in hundreds of `match`/construction sites), so it must be a careful,
+staged refactor — but it is the faithful port and dissolves the whole
+generic-`.new()` problem at the root instead of papering over it. **Abandon
+the side-table / proxy-gate workarounds** (all reverted; net ≤ 0 and
+non-faithful). Memoization (`663fca9f`, +1) WAS a faithful port (it wired the
+already-TS-mirrored `evaluate_comptime_fn_call`) and stands.
+
+**Do NOT re-apply the funcid stamp + `_same_type_constructor` guard as a side
+table** — proven net-negative (0 improved / 3 regressed) AND non-faithful.
+Validate ANY Phase-3 change with the baseline-vs-fix per-file diff harness
+(capture `$? $file` per file, `join` on filename); aggregate counts hid the
+0-improved result repeatedly.
 
 _(ENV: `bun` keeps dropping from PATH; set
 `BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
