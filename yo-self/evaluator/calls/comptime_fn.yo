@@ -438,6 +438,27 @@ evaluate_comptime_fn_call :: (
       create_unknown_val(return_type)
     }
   );
+  // Stamp the returned type with this constructor's func_id, mirroring
+  // `src/evaluator/calls/comptime-fn.ts:274` (`returnedType.functionValue =
+  // functionValue`). Only set when currently empty (TS: `if
+  // (!returnedType.functionValue)`). TypeValue is immutable, so rebuild the
+  // Struct with the field populated. The synthesizer then unifies two
+  // instantiations of the same generic constructor by this id.
+  final_return_value := match(
+    return_value,
+    .TypeVal(rv_tb) => match(
+      rv_tb.*,
+      .Struct(sid, sname, slabels, stypes, sref, satomic, snt, scfid) => if(
+        scfid.len() == usize(0),
+        EvalValue.TypeVal(
+          box(TypeValue.Struct(sid, sname, slabels, stypes, sref, satomic, snt, func_id_str))
+        ),
+        return_value
+      ),
+      _ => return_value
+    ),
+    _ => return_value
+  );
   // Local copy — `callee_env` is an immutable parameter; thread the updated
   // env through `out_callee_env` and return it.
   (out_callee_env : Environment) = body_info.env;
@@ -446,7 +467,7 @@ evaluate_comptime_fn_call :: (
     updated_cache := CalledComptimeFnCache(
       func_id : func_id_str,
       arg_values : all_arg_vals,
-      value : return_value
+      value : final_return_value
     );
     match(
       ctx.comptime_fn_caches.get(the_entry_idx),
@@ -470,7 +491,7 @@ evaluate_comptime_fn_call :: (
     );
   });
   ComptimeFnCallResult(
-    value : return_value,
+    value : final_return_value,
     caller_env : caller_env,
     callee_env : out_callee_env
   )

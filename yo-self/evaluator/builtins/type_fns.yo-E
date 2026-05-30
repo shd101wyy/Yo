@@ -752,7 +752,7 @@ _ti_bind_comptime_list :: (
     type_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(type_result_ast)),
       .Some(i) => i,
-      .None => new_expr_info(env_ptr, t_unit())
+    .None => new_expr_info(env_ptr, t_unit())
     );
     env_ptr.frames = type_info.env.frames;
     env_ptr.module_path = type_info.env.module_path;
@@ -1013,7 +1013,7 @@ evaluate_yo_type_get_info :: (
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
     },
-    .Struct(_, _, labels, types, is_ref, is_atomic, is_newtype, _) => {
+    .Struct(_, _, labels, types, is_ref, is_atomic, is_newtype) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       kind_str := cond(
         is_newtype => String.from("StructKind.NewType"),
@@ -1463,12 +1463,12 @@ evaluate_type_join_fields :: (
   // Collect struct field label/type lists.
   struct_labels := match(
     target_type,
-    .Struct(_, _, ls, _, _, _, _, _) => ls,
+    .Struct(_, _, ls, _, _, _, _) => ls,
     _ => ArrayList(String).new()
   );
   struct_types := match(
     target_type,
-    .Struct(_, _, _, ts, _, _, _, _) => ts,
+    .Struct(_, _, _, ts, _, _, _) => ts,
     _ => ArrayList(TypeValue).new()
   );
   n_fields := struct_labels.len();

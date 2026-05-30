@@ -89,6 +89,16 @@ TypeValue :: enum(
   /// `is_reference_semantics` = true for `object(...)`, false for `struct(...)`.
   /// `is_atomic_rc` = true for `atomic object(...)`.
   /// `is_newtype` = true for `newtype(...)`.
+  /// `constructor_func_id` mirrors `StructType.functionValue` in
+  /// `src/types/definitions.ts:222`: the `funcId` of the comptime
+  /// type-constructor that produced this type (set at the comptime-fn call
+  /// site, `src/evaluator/calls/comptime-fn.ts:274`). The synthesizer uses
+  /// it to unify two instantiations of the SAME generic constructor
+  /// (`src/evaluator/types/synthesizer.ts:662` compares `functionValue.funcId`).
+  /// `""` = unknown origin (mirrors TS `functionValue` being optional).
+  /// Only the `funcId` is stored, not the whole `FunctionValue`, because
+  /// `TypeValue` (this module) cannot import `EvalValue` (`value.yo`) without
+  /// a cycle — and `funcId` is the only part the synthesizer reads.
   Struct(
     id : String,
     name : String,
@@ -96,7 +106,8 @@ TypeValue :: enum(
     field_types : ArrayList(Self),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
-    is_newtype : bool
+    is_newtype : bool,
+    constructor_func_id : String
   ),
   /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
   /// Each variant has a name and an `ArrayList` of field types (possibly empty).
