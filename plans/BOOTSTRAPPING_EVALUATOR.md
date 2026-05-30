@@ -1042,10 +1042,10 @@ Restore the dropped fields to yo-self's `TypeValue`, matching TS:
     stamped — the pattern IS routed/stamped) vs the **concrete**
     (`gcf=''`, ❌ unstamped) → `same=F` → no match → `unit`.
   - **Fix that worked:** stamp `constructor_func_id` at struct creation
-    (`struct.yo`) from the enclosing **known type-constructor** (a func_id
+    (`struct.yo`) from the enclosing **known type-constructor** (a func*id
     set marked in `comptime_fn.yo` when it stamps a type-return). With it,
-    the concrete got `gcf='yo_id_2196'` and **`same=T`** — _the synthesizer
-    now unifies pattern↔concrete._ This is the core structural win.
+    the concrete got `gcf='yo_id_2196'` and **`same=T`** — \_the synthesizer
+    now unifies pattern↔concrete.* This is the core structural win.
   - **BUT it re-introduced the recursive-generic SIGBUS** (`imm_vec`/
     `imm_threading`): stamping nested structs created on the inline path
     (fresh ids) lets the same-constructor field-recursion run forever on
@@ -1063,22 +1063,36 @@ Restore the dropped fields to yo-self's `TypeValue`, matching TS:
     deep crashes; the bound can't cleanly separate infinite from large-finite.
     All reverted to the Stage-2 committed state (`ec797b48`).
 
-- **STAGE 4 — the real remaining work (two independent problems).**
-  1. **Recursive-generic termination.** The inline-path concretes have fresh
-     `random_id`s, so the id-keyed cycle guard can't stop same-constructor
-     recursion. TS terminates via Type-object identity. The faithful fix is
-     to **memoize the inline path too** (so every `Vec(i32)` is one shared,
-     stable-id TypeValue and the existing guard catches the cycle) — i.e.
-     route the `itht=F crc=F` inline calls through `evaluate_comptime_fn_call`
-     as well. Then `struct.yo` stamping is safe (no fresh-id recursion) and
-     the bound is unnecessary.
-  2. **Downstream candidate resolution.** Once synthesize matches, confirm
-     `find_methods_from_generic_impls` returns exactly one `new` candidate
-     (dedup preload-duplicate impls if not) and that its specialized return
-     type isn't `unit`.
-     The structural foundation (both `TypeValue` fields + proven synthesize
-     unification) is done; these two are the path to actually flipping the
-     batch.
+- **STAGE 4a ATTEMPTED — memoize the inline path (reverted, FAILED).** Added
+  a known-type-constructor gate: mark a func_id when `evaluate_comptime_fn_call`
+  caches a Type-return, then route later `itht=F crc=F` calls (specialized
+  struct-return callee) through the comptime cache via that mark (+ broaden
+  `should_cache` with the mark). Hypothesis: memoizing every instantiation →
+  one stable-id TypeValue → id-cycle-guard terminates Vec recursion + the
+  call-site stamp sets `constructor_func_id`. **Result: still SIGBUS on
+  `imm_vec`/`imm_threading`, and `.new()` still `unit`.** prelude/hash_map
+  stayed clean (no broad regression), but both target problems persist:
+  memoizing the top-level call did NOT make the recursive node structure
+  stable-id (persistent-Vec nodes aren't deduped by the (func_id,args) cache
+  the way the outer type is), so the recursion still runs; and `.new()`
+  resolution is blocked downstream regardless. Reverted to `dc4398f7`.
+
+- **STATUS: deep knot — ~12 incremental attempts have not cracked it.** Solid
+  & committed: memoization (+1), both faithful `TypeValue` fields
+  (`constructor_func_id` + `result_is_comptime_only`), and the PROVEN
+  synthesize unification (`same=T` when the concrete is stamped). Resisting
+  every incremental fix: (1) recursive-generic synthesis termination without
+  per-node Type-object identity — yo-self's (func_id,args) comptime cache
+  dedups the outer type but NOT the internal nodes, so a memoized `Vec(i32)`
+  still contains fresh-id nodes that loop; (2) the downstream
+  candidate/specialization step (`.new()` → `unit` even when synthesize
+  matches). **A faithful resolution likely needs a deeper port of TS's
+  comptime-instantiation identity model** (every nested instantiation shares
+  identity, not just the outermost call) — a major multi-session effort — OR
+  progressing the bootstrap on other fronts (the 4 unported evaluator
+  modules; other non-generic-method gaps) while this is parked. **Do NOT keep
+  retrying stamp/route/bound variants — they are charted dead ends** (see the
+  Stage-3/4a attempt logs above).
 
 This is a **schema change to heavily-matched enum variants** (`Struct`/`Func`
 appear in hundreds of `match`/construction sites), so it must be a careful,
