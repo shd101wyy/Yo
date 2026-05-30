@@ -14,14 +14,17 @@ pass the **`check`** subcommand on three corpora, in order:
 ```bash
 yo-self-bin check ./std
 yo-self-bin check ./tests
-yo-self-bin check ./yo-self
+yo-self-bin check ./yo-self   # Phase 3: EVALUATOR-ONLY — excludes yo-self/codegen/ (and yo-self/tests/)
 ```
 
 `check` runs **lexer → parser → evaluator** (type-check, CTFE, trait
 resolution) and stops before codegen. So this goal isolates the
-evaluator: when `yo-self-bin check ./yo-self` passes, the self-hosted
-evaluator can validate its own source — a true evaluator-level
-self-hosting fixpoint.
+evaluator: when `yo-self-bin check`'s on its own **evaluator** source pass,
+the self-hosted evaluator can validate itself — a true evaluator-level
+self-hosting fixpoint. **Phase 3 is scoped to the evaluator + support files
+and EXCLUDES `yo-self/codegen/`** (a later bootstrap phase whose ports are
+likely stale); see the scope note under "Current state". The bar is to
+match the TS reference (`./yo-cli check`) on that set, not codegen.
 
 The work is a **faithful 1-to-1 port** of `src/` → `yo-self/` (see
 [strict 1-to-1 rule](#strategy-strict-1-to-1-port)), continued and
@@ -59,14 +62,35 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
-| Milestone                                                  | Status          | Number                                                          |
-| ---------------------------------------------------------- | --------------- | --------------------------------------------------------------- |
-| `./yo-cli check yo-self/main.yo`                           | green           | —                                                               |
-| `./yo-cli compile yo-self/main.yo`                         | builds          | —                                                               |
-| `/tmp/yo-self-bin check std/prelude.yo`                    | green           | —                                                               |
-| `/tmp/yo-self-bin check ./std` (per-file)                  | **green**       | **151 / 151 files OK**                                          |
-| `/tmp/yo-self-bin check ./tests` (per-file)                | **green**       | **156 / 182 files OK** (per-file; the "170" was directory-mode) |
-| `/tmp/yo-self-bin check ./yo-self` (per-file, excl. tests) | **in progress** | **51 / 223 files OK** (after comptime memoization; see Phase 3) |
+| Milestone                                                                           | Status          | Number                                                                                  |
+| ----------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------- |
+| `./yo-cli check yo-self/main.yo`                                                    | green           | —                                                                                       |
+| `./yo-cli compile yo-self/main.yo`                                                  | builds          | —                                                                                       |
+| `/tmp/yo-self-bin check std/prelude.yo`                                             | green           | —                                                                                       |
+| `/tmp/yo-self-bin check ./std` (per-file)                                           | **green**       | **151 / 151 files OK**                                                                  |
+| `/tmp/yo-self-bin check ./tests` (per-file)                                         | **green**       | **156 / 182 files OK** (per-file; the "170" was directory-mode)                         |
+| `/tmp/yo-self-bin check ./yo-self` **evaluator-only** (excl. `codegen/` + `tests/`) | **in progress** | **44 / 177 files OK** (the Phase 3 milestone — see scope below)                         |
+| `/tmp/yo-self-bin check ./yo-self/codegen` (excl. tests)                            | deferred        | 7 / 46 — **out of Phase 3 scope** (codegen is a later bootstrap phase and likely stale) |
+
+> **Phase 3 scope (refined 2026-05-30): evaluator-only.** The Phase 3
+> milestone is `check` over the **evaluator + its support** files —
+> `yo-self/evaluator/` (135), `yo-self/types/` (11), and the top-level
+> lexer/parser/expr/token/value/env/… (~31) = **177 files** — and
+> **EXCLUDES `yo-self/codegen/` (46 files)**, which is a later bootstrap
+> phase whose ports are likely out of date. The **fixpoint target** is to
+> match the TS reference (`./yo-cli check`) on this set: the TS reference
+> passes nearly all 223 yo-self source files (they are valid Yo — only ~4
+> genuinely fail it: `build_runner.yo`, `compiler_utils.yo`,
+> `evaluator/async/await_analysis.yo`, `codegen/exprs/asm.yo`), so the gap
+> (177 − 44 = 133 evaluator files) is yo-self's own evaluator being
+> incomplete, dominated by the generic-method-resolution root cause.
+>
+> **Evaluator port is NOT yet complete — 4 TS modules unported (~1,118 LoC):** > `builtins/contracts.ts` (502, compile-time contracts), `types/flowability.ts`
+> (380, move/flow analysis), `memory-safety.ts` (147), `builtins/unsafe.ts`
+> (89). They are imported by ≥9 ported files (`function-type`,
+> `anonymous-function`, `_expr`, `assignment`, `cond`, `begin`, `function`,
+> `pointer`, `impl`), which currently stub/skip that logic — a porting gap to
+> close (faithfully) alongside the TypeValue-fidelity work.
 
 > **Phase 1 complete** — per-file `check ./std` matches the TS reference
 > (151/151). This session closed every remaining gap: comptime
