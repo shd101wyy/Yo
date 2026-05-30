@@ -674,37 +674,53 @@ in `synthesizer.ts:649-665`). yo-self's `TypeValue` has no such field — the
 synthesizer.yo header even notes _"StructType.functionValue comparison
 skipped … uses id only."_ THAT omission is the bug.
 
-**Fix attempt (reverted — see notes):** a side table
-`struct_id → constructor func_id` (mirroring `definition_site_registry.yo`),
-stamped where a comptime type-fn returns a struct/enum, consulted in the
-synthesizer Struct/Enum id-checks (`_same_type_constructor`). The
-synthesizer-side change is correct and builds (std stays 151/151). TWO
-blockers stopped it:
+**Fix attempt (reverted — mechanism validated, but incomplete for stdlib):**
+side table `struct_id → constructor func_id`, stamped in
+`evaluate_struct_type` from the **enclosing function context**
+(`ctx.is_evaluating_function_body_or_async_block.func_value` → `FuncVal`'s
+`func_id`), consulted in the synthesizer Struct/Enum id-checks via a
+`_same_type_constructor` helper. Findings from instrumentation:
 
-1. **Registration point.** `evaluate_comptime_fn_call`
-   (`evaluator/calls/comptime_fn.yo`) is **dead code in yo-self** (no
-   callers — confirmed REGCTOR fired 0×). The real comptime-type-fn-call
-   evaluation is inlined elsewhere (TS does it in `comptime-fn.ts` called
-   from `helper.ts:1746`; in yo-self look at `calls/helper.yo`
-   specialization ≈line 994 `evaluate_begin_expression` and the call
-   dispatch). Stamp the returned struct/enum id there.
-2. **Side-table keying + the registry module.** The registry must be a
-   `TypeValue`-FREE leaf — `definition_site_registry.yo` imports
-   `types/type.yo`'s `TypeValue`, which is a SEPARATE definition from
-   `types/definitions.yo`'s; importing it from `synthesizer.yo` triggered a
-   C `redefinition … with a different type` for
-   `g_definition_site_return_registry`. Put the String→String registry in a
-   `TypeValue`-free module (e.g. `yo-self/utils.yo`).
-   **Bigger risk:** struct **cloning** (`derive Clone`, `substitute`)
-   generates a fresh `random_id`, so a struct's id can change between the
-   comptime-fn-call site and synthesize — defeating a side-table-by-id. If
-   that's happening (verify whether the 2488/2491 ids synthesize sees are
-   the SAME ids produced at the call site), the only faithful fix is to add
-   a real `function_value_id` FIELD to the `Struct`/`EnumT` `TypeValue`
-   variants, propagated through clone + `substitute` (invasive: ~hundreds of
-   `.Struct(...)` construction/match sites).
+- **The cloning fear was unfounded** — instrumenting `evaluate_struct_type`
+  (`MKSTRUCT`) showed the exact ids synthesize compares (e.g. 2488 = pattern
+  `G(T)`, 2491 = concrete `G(usize)`) are assigned AT CREATION, both under
+  the SAME enclosing func id. So a side-table-by-id stamped at creation is
+  sound; no `Struct`-field needed.
+- **The mechanism works for user-defined generics:** with the registry in
+  `yo-self/utils.yo` (TypeValue-free leaf — putting it in
+  `definition_site_registry.yo` caused a C `redefinition` clash because that
+  file imports `types/type.yo`'s `TypeValue`, a SEPARATE enum from
+  `types/definitions.yo`'s), `qm` (the user-generic-object repro) advances
+  PAST `.new()` — `synthesize` no longer throws at the id-check, and the
+  error moves to a deeper `tmp.a : T` (field not specialized; an over-strict
+  repro artifact). `SYNSTRUCT` confirms `sameconstructor=true` fires.
+- **The real (stdlib) case still fails.** For `ArrayList(usize).new()`
+  (`(g_a : ArrayList(usize)) = …`), the concrete struct (id 2767) IS
+  registered (`fid 2213` = ArrayList's func), but **synthesize's Struct case
+  is NEVER reached for giv=2767** — so `.new()` on a stdlib generic
+  resolves via a DIFFERENT path than `try_match_generic_impl` (almost
+  certainly `evaluate_property_access`'s **type-trait-methods registry**,
+  keyed by a SPECIFIC instantiation id: `new` was registered under
+  `ArrayList(T)`'s id and the lookup uses `ArrayList(usize)`'s id → miss →
+  `unit`). The synthesizer funcid-match can't help a path that never calls
+  synthesize.
 
-Fixing this single bug should unlock the bulk of Phase 3 at once.
+**NEXT STEP (precise):** fix the static-method lookup in
+`evaluator/exprs/property_access.yo` — when resolving `.new` on a concrete
+generic instantiation, the type-trait-methods registry lookup (keyed by the
+instantiation's struct id) misses because the method was registered under a
+DIFFERENT instantiation id of the same constructor. Make that lookup also
+match by constructor `func_id` (reuse the `register_type_constructor_funcid`
+side table + a `same-constructor` check), OR register the method under the
+constructor's id. THEN the synthesizer `_same_type_constructor` change
+handles the generic-impl path. Two caveats: (a) the per-func registration
+is COARSE (every struct created in a func body, not just the comptime-fn
+RETURNED type as TS's `functionValue` is) — gate it to type-constructor
+funcs (the `is_function_type_and_returns_comptime_value` gate did NOT fire,
+so verify `func_type` is populated in that context first); (b) re-run the
+FULL `./tests` sweep — the coarse registration risks false struct-matches
+that could regress the 170/170.
+
 _(ENV: `bun` keeps dropping from PATH; set
 `BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
 
