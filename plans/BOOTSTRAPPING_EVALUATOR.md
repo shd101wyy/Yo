@@ -755,21 +755,91 @@ concrete** (no `SYNSTRUCT` for `giv=ArrayList(usize)`) points to the latter:
 stdlib `.new()` resolves via a different path, so the synthesizer guard is
 irrelevant to it.
 
-**NEXT STEP (pivot — stop guessing, instrument the actual path):** add ONE
-gated debug `eprintln` inside `find_methods_from_generic_impls` and the
-property_access generic-method branch (721) to print, for the literal
-`HashMap(String, ArrayList(MethodEntry)).new()` global at
-`type_trait_methods.yo:130`: the candidate count, each candidate's
-method-value `func_id`, and whether `try_match_generic_impl` /
-`synthesize_types` is even invoked. That data — not more blind stamping —
-tells us whether the blocker is (a) zero candidates (match fails), (b) >1
-candidates (dedup needed), or (c) a candidate found but its specialized
-return type collapses to `unit`. Each hypothesis has a different fix; the
-per-file diff proves the funcid-stamping hypothesis is wrong, so do NOT
-re-apply it. **Critically: any future fix MUST be validated by the
-baseline-vs-fix per-file diff harness above (capture `$? $file` for each,
-`join` on filename) — the aggregate count hid that 0 files improved while 2
-regressed.**
+**INSTRUMENTATION PASS + attempt #4 (DONE, reverted) — the mechanism is now
+fully understood AND proven to be a dead end for the count.** Gated
+`eprintln`s in `find_methods_from_generic_impls` (+ a `[NEWIMPL]` dump of
+every `new`-defining impl's receiver-pattern id vs the concrete id) and
+property_access branch 721 pinned down the exact failure for
+`HashMap(String, ArrayList(MethodEntry)).new()` at `type_trait_methods.yo`:
+
+- `total_entries=104, entries_defining_new=3, matched=2, results=0`. The 3
+  `new`-defining impls (receiver ids `2015/2215/2495`) ALL failed to match
+  the concrete (`3659`); the 2 that matched don't define `new`. So
+  **HashMap's own impl fails to unify `HashMap(K,V)` against
+  `HashMap(String,X)`** — the synthesizer Struct case throws on the raw
+  random-id mismatch (yo-self structs are nominally anonymous;
+  `type_to_string` renders both as `<struct:id>`).
+- **`func_id` IS stable** here: `func_id := "fn_"+random_id(...)` is fresh
+  per _evaluation_ (same as TS, anon-function.ts:681), BUT modules ARE
+  cached (`module_loader.yo`), so HashMap's FuncVal is shared between
+  impl-registration and the use site → same `func_id`. The dedup premise of
+  attempt #3 was WRONG: `entries_defining_new=3` proves **no duplication**.
+- Attempt #3's stamps didn't connect because `struct.yo` gates on
+  `is_evaluating_function_body_or_async_block` but the live comptime
+  type-fn call path doesn't always populate it consistently. **The correct,
+  faithful stamp site is the comptime-fn CALL site** — `function.yo`'s
+  FuncVal-callee branch (~line 1165, right after `out.value =
+body_info.value`), mirroring `comptime-fn.ts:259–276`
+  (`returnedType.functionValue = functionValue`). Stamping the returned
+  Struct/Enum id → the **called** FuncVal's `func_id_fv` there is non-coarse
+  (only the returned type) and connects BOTH the impl receiver `HashMap(K,V)`
+  and the use-site `HashMap(String,X)` (both call the same cached FuncVal).
+
+**Attempt #4** did exactly that (call-site stamp in `function.yo` +
+`_same_type_constructor` guard in `synthesizer.yo`, NO `struct.yo`/`impl.yo`
+changes). Result, validated by the per-file diff harness:
+
+| corpus  | base OK | #4 OK | improved | regressed                                            |
+| ------- | ------- | ----- | -------- | ---------------------------------------------------- |
+| yo-self | 50      | 50    | **0**    | 0                                                    |
+| tests   | 156     | 153   | **0**    | **3** (`imm_vec`, `imm_threading`, `priority_queue`) |
+
+- **It WORKS** — `[NEWIMPL]` shows HashMap's impl `2495` now `matched=Y` vs
+  concrete `3659`; the `type_trait_methods.yo` error moves PAST `.new()` to a
+  **deeper** gap: `Expected enum type or primitive type for match
+expression, got unit`.
+- **But it flips ZERO files**: every affected file has a deeper layered gap
+  behind method resolution, so resolving `.new()` alone never reaches OK.
+- **And it regresses recursive generics** to SIGBUS. `imm/vec` is NOT itself
+  recursive (`object(_ptr:*(T),_len,_cap)`), so the runaway is the prelude's
+  recursive types cascading once `_same_type_constructor` opens same-
+  constructor field-recursion. Crucially the recursion is **NOT in
+  `_synthesize_call`** — a `checked.len() > 256` bound there **never fired**
+  — so it lives in a synthesize-callee (substitute / `_bind_some_type` /
+  `get_value_of_some_type_from_env`) or re-enters via the _public_
+  `synthesize_types` (fresh `checked`).
+
+**ROOT CAUSE of the whole layer:** yo-self does **not memoize comptime type
+instantiations** (no `calledComptimeFunctionCaches`), so every `Vec(i32)` /
+`HashMap(K,V)` call yields a fresh struct id. TS gets stable per-
+instantiation identity from its comptime cache + `functionValue` object
+identity, which is what makes its synthesize recursion terminate. The
+`func_id` side table reconstructs _constructor_ identity (enough to match
+two instantiations) but cannot make the cycle guard terminate without
+per-instantiation memoized identity.
+
+**STRATEGIC VERDICT:** generic method resolution is **necessary but a dead
+end on its own** — it moves the count by 0 across 4 attempts. Two viable
+forward paths, in priority order:
+
+1. **Clear the deeper gaps first.** The next concrete blocker behind
+   `.new()` is `type_trait_methods.yo`'s `Expected enum type or primitive
+type for match expression, got unit`. Fix the layers a file actually
+   stacks (deepest reachable first) until at least one file flips — only
+   then is the method-resolution layer worth landing alongside them.
+2. **Memoize comptime type instantiations** (port TS's
+   `calledComptimeFunctionCaches` into `function.yo`'s FuncVal-callee
+   branch). This is the architectural root fix: it makes `Vec(i32)` a single
+   shared TypeValue, which (a) gives the synthesizer real identity so
+   same-constructor matching terminates (no SIGBUS), and (b) likely makes
+   `.new()` resolve _without_ the funcid side table at all. Bigger change,
+   but it removes the regression class entirely.
+
+**Do NOT re-apply the funcid stamp + `_same_type_constructor` guard alone** —
+it is proven net-negative (0 improved / 3 regressed). Validate ANY Phase-3
+change with the baseline-vs-fix per-file diff harness (capture `$? $file`
+per file, `join` on filename); aggregate counts hid the 0-improved result
+three times.
 
 _(ENV: `bun` keeps dropping from PATH; set
 `BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
