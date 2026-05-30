@@ -1029,21 +1029,56 @@ Restore the dropped fields to yo-self's `TypeValue`, matching TS:
   `function.yo`'s delegation gate + `comptime_fn.yo`'s `should_cache`,
   mirroring `helper.ts:1731`. Per-file: std 151, yo-self-eval 44, regressors
   clean — fully neutral. **`type_trait_methods.yo` still `Given unit`.**
-- **REMAINING WIRING GAP (Stage 3 — the actual `.new()` unblocker).** Both
-  faithful fields are now restored, but `.new()` still doesn't resolve. The
-  gate keys on the _callee_ Func's `result_is_comptime_only`, but the
-  annotation receiver `HashMap(String,X)` resolves to a **specialized Func
-  (struct return)** built on a path that does NOT carry the flag (so the gate
-  doesn't fire → the concrete never routes through `evaluate_comptime_fn_call`
-  → never gets `constructor_func_id` set → synthesizer can't unify it with the
-  impl pattern). To close it: **instrument** (one build) to find (a) whether
-  the impl receiver pattern `HashMap(K,V)` gets `constructor_func_id` set at
-  registration, (b) whether the annotation concrete does, and (c) which
-  build-site produces the specialized struct-return Func and whether it
-  preserves `result_is_comptime_only`. Then set/preserve the flag on that
-  specialization path (and ensure the impl-pattern call routes through the
-  comptime path too). The fields are correct; the gap is purely WHERE they
-  get set across the specialization + impl-registration paths.
+- **STAGE 3 INSTRUMENTED + ATTEMPTED (reverted) — synthesize unification
+  PROVEN to work; two further blockers remain.** Three gated probes
+  (`[GATE]`/`[STAMP]`/`[SC]`) on `type_trait_methods.yo` gave the exact
+  picture:
+
+  - `[GATE]`: the 2 annotation `HashMap` calls are `itht=F crc=F` — the
+    callee resolves to a specialized struct-return Func whose
+    `result_is_comptime_only` is **false**, so the Stage-2 gate doesn't fire
+    → they take the **inline (non-memoized) path** → concrete unstamped.
+  - `[SC]`: synthesize compares the impl **pattern** (`ecf='yo_id_2196'`, ✅
+    stamped — the pattern IS routed/stamped) vs the **concrete**
+    (`gcf=''`, ❌ unstamped) → `same=F` → no match → `unit`.
+  - **Fix that worked:** stamp `constructor_func_id` at struct creation
+    (`struct.yo`) from the enclosing **known type-constructor** (a func_id
+    set marked in `comptime_fn.yo` when it stamps a type-return). With it,
+    the concrete got `gcf='yo_id_2196'` and **`same=T`** — _the synthesizer
+    now unifies pattern↔concrete._ This is the core structural win.
+  - **BUT it re-introduced the recursive-generic SIGBUS** (`imm_vec`/
+    `imm_threading`): stamping nested structs created on the inline path
+    (fresh ids) lets the same-constructor field-recursion run forever on
+    persistent `Vec`'s `Node→Node` structure (the id-keyed cycle guard can't
+    catch fresh ids). HashMap/Bucket nesting is finite so it's fine; Vec is
+    recursive so it loops.
+  - **AND `.new()` STILL → `unit`** even with `same=T` — a _downstream_
+    issue: with the pattern now matching, `find_methods_from_generic_impls`
+    likely returns >1 candidate (duplicate `new`-defining impls from preload)
+    or the matched candidate's specialized return collapses to `unit` →
+    property_access's "exactly 1 candidate" path fails.
+  - **A naive recursion bound BACKFIRED:** a `checked.len() > 512` throw in
+    `_synthesize_call` made _everything_ SIGSEGV (incl. prelude) — normal
+    `same_constructor` synthesis legitimately visits many pairs, and throwing
+    deep crashes; the bound can't cleanly separate infinite from large-finite.
+    All reverted to the Stage-2 committed state (`ec797b48`).
+
+- **STAGE 4 — the real remaining work (two independent problems).**
+  1. **Recursive-generic termination.** The inline-path concretes have fresh
+     `random_id`s, so the id-keyed cycle guard can't stop same-constructor
+     recursion. TS terminates via Type-object identity. The faithful fix is
+     to **memoize the inline path too** (so every `Vec(i32)` is one shared,
+     stable-id TypeValue and the existing guard catches the cycle) — i.e.
+     route the `itht=F crc=F` inline calls through `evaluate_comptime_fn_call`
+     as well. Then `struct.yo` stamping is safe (no fresh-id recursion) and
+     the bound is unnecessary.
+  2. **Downstream candidate resolution.** Once synthesize matches, confirm
+     `find_methods_from_generic_impls` returns exactly one `new` candidate
+     (dedup preload-duplicate impls if not) and that its specialized return
+     type isn't `unit`.
+     The structural foundation (both `TypeValue` fields + proven synthesize
+     unification) is done; these two are the path to actually flipping the
+     batch.
 
 This is a **schema change to heavily-matched enum variants** (`Struct`/`Func`
 appear in hundreds of `match`/construction sites), so it must be a careful,
