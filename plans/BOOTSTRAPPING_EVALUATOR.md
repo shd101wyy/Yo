@@ -705,49 +705,71 @@ side table `struct_id → constructor func_id`, stamped in
   `unit`). The synthesizer funcid-match can't help a path that never calls
   synthesize.
 
-**FULL CHAIN MAPPED (2nd attempt, reverted) — 4 layers, 3 fixed in
-principle:**
+**funcid-stamping + registry-dedup approach: RULED OUT (3rd attempt,
+reverted, with HARD per-file data).** Implemented the full thing —
+`g_type_constructor_funcid` side table in `utils.yo`; struct-creation
+stamping (from `ctx.is_evaluating_function_body_or_async_block.func_value`);
+`_same_type_constructor` guard in synthesizer Struct + Enum id-checks;
+layer-2 receiver-pattern stamping in `impl.yo`; and the requested
+registry-dedup in `register_generic_impl` (`g_registered_generic_impl_keys`,
+keyed by `ctorFuncId:traitKey:methodNames`). Built the binary, then ran a
+rigorous **per-file diff of a fix binary vs a HEAD-baseline binary** over
+`./std`, `./tests`, and `./yo-self` (classified by exit code). Result:
 
-1. _Generic instantiations get fresh `random_id`s_ → synthesize Struct/Enum
-   id-check throws → no match. **Fixed** by a `func_id` side table
-   (`g_type_constructor_funcid` in `yo-self/utils.yo`) + a
-   `_same_type_constructor` check before the id-throw in `synthesizer.yo`.
-2. _The impl receiver pattern (`ArrayList(T)`) is created WITHOUT an
-   enclosing constructor-fn context_ (evaluated at `impl.yo` generic-impl
-   path ≈line 831), so `struct.yo`'s auto-registration doesn't stamp it —
-   only call-site concretes (`ArrayList(usize)`) get stamped. **Fixed** by
-   explicitly registering the receiver pattern's id → the receiver
-   expression's callee `FuncVal.func_id` in `impl.yo` (verified via RCVMARK:
-   all `ArrayList(T_n)` patterns → `func_id 2213`).
-3. With 1+2, **USER-defined generic `.new()` RESOLVES** (validated: the `qm`
-   repro advances PAST `.new()` to a deeper `Expected usize / Given T`
-   field-non-specialization error — a repro artifact, since real Phase 3
-   globals don't access `.a`). `find_methods_from_generic_impls` returns 1
-   candidate → property_access branch 721 (==1) resolves.
-4. **STDLIB `.new()` STILL FAILS** — the open blocker. `ArrayList`'s
-   `impl(forall(T), …)` is registered **many times** (once per preload of
-   `std/collections/array_list.yo` across the module graph), so
-   `find_methods_from_generic_impls(ArrayList(usize), "new")` returns **N
-   duplicate candidates** → branch 721's `== 1` check fails → falls through
-   → `unit`. The method is generic-impl-only (NOT in the type-trait-methods
-   registry — verified `P6LOOK … final=0`), so the `func_id`-registry
-   fallback doesn't help either.
+| corpus  | baseline OK | fix OK | improved | regressed                               |
+| ------- | ----------- | ------ | -------- | --------------------------------------- |
+| std     | 151         | 151    | 0        | 0                                       |
+| tests   | 156         | 154    | 0        | 2 (`imm_vec`, `imm_threading` → SIGBUS) |
+| yo-self | 50          | 50     | 0        | 0                                       |
 
-**NEXT STEP:** make the generic-impl method resolution tolerate duplicate
-candidates — either (a) **dedup** the candidates returned by
-`find_methods_from_generic_impls` (collapse entries that are the same
-method from the same constructor: same `method_value` FuncVal `func_id`),
-so branch 721 sees 1; or (b) **dedup generic-impl registry entries** at
-registration (`impl.yo` `g_impl_registry_*`) so `ArrayList`'s impl isn't
-stored N times across preloads (the more correct root fix). THEN re-apply
-the validated layers 1+2. TWO caveats before committing: (i) the layer-2
-struct registration is COARSE (stamps every struct under any func context,
-not just the comptime-fn RETURNED type as TS's `functionValue` is) — gate
-it to type-constructor funcs; the `is_function_type_and_returns_comptime_value`
-gate did NOT fire (verify `func_type` is populated in that ctx first);
-(ii) re-run the FULL `./tests` sweep — the coarse registration risks false
-struct-matches that could regress 170/170. All instrumented findings
-(RCVREG/P5REG/P6LOOK/SYNSTRUCT) are reproducible via gated `eprintln`.
+**(Note: the true `./yo-self` baseline is 50, not the 51 recorded earlier.)**
+
+Two conclusive facts:
+
+1. **It does not resolve the target.** The blocking error on a representative
+   file is **byte-identical** with and without the fix:
+   `Incompatible types: Expected <struct:…> / Given unit` at
+   `yo-self/evaluator/values/type_trait_methods.yo:130` —
+   `(_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
+HashMap(...).new()`. So the stamps are **not connecting** the generic
+   receiver pattern to its concrete instantiation for the real stdlib
+   generics; `.new()` still resolves to `unit` exactly as before.
+2. **It spuriously connects unrelated structs**, deterministically crashing
+   `imm_vec`/`imm_threading` with **SIGBUS (signal 10)**. The coarse
+   struct-creation stamping gives two unrelated structs created under the
+   same enclosing fn the same `func_id`, so `_same_type_constructor`
+   returns true where the id-mismatch throw was correct; synthesize then
+   recurses fields and loops on recursive generics (its cycle guard
+   `_has_type_pair` keys on **non-stable random_ids**, never matching —
+   whereas TS guards by **Type object identity**, `pair.expected ===
+expected.type`, synthesizer.ts:234–243).
+
+**Why the stamps don't connect for stdlib (the real open question):** even
+with layer-2 stamping the receiver pattern and struct.yo stamping the
+concrete, `.new()` on `HashMap(...)`/`ArrayList(...)` did not flip — which
+means EITHER the pattern/concrete are not both reaching the side table with
+the same `func_id`, OR `.new()` resolves through a path that never consults
+`_same_type_constructor` (it returned `unit` identically). The earlier
+finding that synthesize's Struct case is **never reached for the stdlib
+concrete** (no `SYNSTRUCT` for `giv=ArrayList(usize)`) points to the latter:
+stdlib `.new()` resolves via a different path, so the synthesizer guard is
+irrelevant to it.
+
+**NEXT STEP (pivot — stop guessing, instrument the actual path):** add ONE
+gated debug `eprintln` inside `find_methods_from_generic_impls` and the
+property_access generic-method branch (721) to print, for the literal
+`HashMap(String, ArrayList(MethodEntry)).new()` global at
+`type_trait_methods.yo:130`: the candidate count, each candidate's
+method-value `func_id`, and whether `try_match_generic_impl` /
+`synthesize_types` is even invoked. That data — not more blind stamping —
+tells us whether the blocker is (a) zero candidates (match fails), (b) >1
+candidates (dedup needed), or (c) a candidate found but its specialized
+return type collapses to `unit`. Each hypothesis has a different fix; the
+per-file diff proves the funcid-stamping hypothesis is wrong, so do NOT
+re-apply it. **Critically: any future fix MUST be validated by the
+baseline-vs-fix per-file diff harness above (capture `$? $file` for each,
+`join` on filename) — the aggregate count hid that 0 files improved while 2
+regressed.**
 
 _(ENV: `bun` keeps dropping from PATH; set
 `BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
