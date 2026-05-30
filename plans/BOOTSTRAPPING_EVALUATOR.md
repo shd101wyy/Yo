@@ -869,15 +869,43 @@ sub-attempt) failed identically — the annotation concrete never reaches it.
 `ArrayList(...).new()` global in any file that must `check`-pass — that
 global hits the very unresolved-`.new()` bug; both forms failed `utils.yo`.)
 
-**NEXT STEP:** find the type-ANNOTATION / binding-type evaluation path that
-constructs the concrete `HashMap(String, ArrayList(MethodEntry))` (`3044`)
-— likely a type-expression evaluator calling the comptime fn via
-`helper.yo`'s `try_to_call_function_with_arguments` rather than
-`function.yo`'s `evaluate_function_call` — and stamp the result THERE; OR,
-if `3044` is a clone/substitution of a stamped struct, make
-`substitute()`/the clone copy the side-table entry to the new id. The rest
-of attempt #4's chain already works (matched=Y → error moves deeper), so
-connecting the concrete's stamp is the last missing link for `.new()`.
+**TRACED the binding-type path (instrumented `[GATE]`/`[MKS]`/`[STC]`
+builds, all reverted).** `[MKS]` showed the concrete `3033` IS created in
+HashMap's body (`ctxfn=yo_id_2196`). `[GATE]` showed why a `struct.yo`
+stamp gated on `func_type` misses it:
+`[GATE] struct_yo_id_3033 returns_type=F fv=yo_id_2196` — the concrete is
+created in a context where the enclosing fn's **`func_value` is present
+(`2196`) but `func_type` is ABSENT**, so the `is_type_hierarchy_type` gate
+returns F → not stamped (whereas the impl-receiver pattern IS created with
+`func_type` present → stamped). A "known-type-constructor func_ids" set
+(remember `2196` the first time it's seen with `func_type`, then stamp by
+`func_value` thereafter) was tried and **made things WORSE**:
+
+1. It RE-INTRODUCED the `imm_vec`/`imm_threading` **SIGBUS** — stamping by
+   `func_value` also stamps structs from NON-memoized (fresh-id) creation
+   paths, which re-breaks the synthesize cycle-guard's termination that
+   memoization had restored.
+2. It STILL did not resolve `.new()` (`type_trait_methods.yo` unchanged at
+   `Expected <struct:3033> / Given unit`).
+
+**KEY (negative) finding:** post-memoization, even broad stamping that makes
+`_same_type_constructor` return true for the HashMap pattern↔concrete pair
+does NOT make `.new()` resolve — unlike pre-memoization attempt #4's
+inline-path stamp which DID. So memoization's routing changed the resolution
+path such that the funcId match is no longer sufficient on its own. The two
+requirements now **conflict**: stamping the concrete (created via a
+`func_type`-absent path) needs broad `func_value`-based stamping, but broad
+stamping re-breaks recursion termination for non-memoized structs.
+
+**NEXT STEP (architectural, larger):** the clean fix is to route the
+type-ANNOTATION / use-site concrete construction through the SAME memoized
+comptime-fn path as everything else, so the concrete gets BOTH a stable
+(memoized) id — recursion-safe — AND a reliable stamp. I.e., find why the
+binding-annotation `(g : HashMap(...))` concrete bypasses memoization
+(constructed where `func_type` is absent and likely without going through
+`evaluate_comptime_fn_call`) and make that path delegate too. Stamping alone
+cannot satisfy both constraints. Until then, do NOT re-apply the
+`struct.yo`/known-set stamp — it is net-negative (re-SIGBUS + 0 gain).
 
 **STRATEGIC VERDICT:** generic method resolution is **necessary but a dead
 end on its own** — it moves the count by 0 across 4 attempts (memoization is
