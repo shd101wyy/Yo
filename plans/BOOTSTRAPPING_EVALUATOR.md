@@ -705,21 +705,49 @@ side table `struct_id → constructor func_id`, stamped in
   `unit`). The synthesizer funcid-match can't help a path that never calls
   synthesize.
 
-**NEXT STEP (precise):** fix the static-method lookup in
-`evaluator/exprs/property_access.yo` — when resolving `.new` on a concrete
-generic instantiation, the type-trait-methods registry lookup (keyed by the
-instantiation's struct id) misses because the method was registered under a
-DIFFERENT instantiation id of the same constructor. Make that lookup also
-match by constructor `func_id` (reuse the `register_type_constructor_funcid`
-side table + a `same-constructor` check), OR register the method under the
-constructor's id. THEN the synthesizer `_same_type_constructor` change
-handles the generic-impl path. Two caveats: (a) the per-func registration
-is COARSE (every struct created in a func body, not just the comptime-fn
-RETURNED type as TS's `functionValue` is) — gate it to type-constructor
-funcs (the `is_function_type_and_returns_comptime_value` gate did NOT fire,
-so verify `func_type` is populated in that context first); (b) re-run the
-FULL `./tests` sweep — the coarse registration risks false struct-matches
-that could regress the 170/170.
+**FULL CHAIN MAPPED (2nd attempt, reverted) — 4 layers, 3 fixed in
+principle:**
+
+1. _Generic instantiations get fresh `random_id`s_ → synthesize Struct/Enum
+   id-check throws → no match. **Fixed** by a `func_id` side table
+   (`g_type_constructor_funcid` in `yo-self/utils.yo`) + a
+   `_same_type_constructor` check before the id-throw in `synthesizer.yo`.
+2. _The impl receiver pattern (`ArrayList(T)`) is created WITHOUT an
+   enclosing constructor-fn context_ (evaluated at `impl.yo` generic-impl
+   path ≈line 831), so `struct.yo`'s auto-registration doesn't stamp it —
+   only call-site concretes (`ArrayList(usize)`) get stamped. **Fixed** by
+   explicitly registering the receiver pattern's id → the receiver
+   expression's callee `FuncVal.func_id` in `impl.yo` (verified via RCVMARK:
+   all `ArrayList(T_n)` patterns → `func_id 2213`).
+3. With 1+2, **USER-defined generic `.new()` RESOLVES** (validated: the `qm`
+   repro advances PAST `.new()` to a deeper `Expected usize / Given T`
+   field-non-specialization error — a repro artifact, since real Phase 3
+   globals don't access `.a`). `find_methods_from_generic_impls` returns 1
+   candidate → property_access branch 721 (==1) resolves.
+4. **STDLIB `.new()` STILL FAILS** — the open blocker. `ArrayList`'s
+   `impl(forall(T), …)` is registered **many times** (once per preload of
+   `std/collections/array_list.yo` across the module graph), so
+   `find_methods_from_generic_impls(ArrayList(usize), "new")` returns **N
+   duplicate candidates** → branch 721's `== 1` check fails → falls through
+   → `unit`. The method is generic-impl-only (NOT in the type-trait-methods
+   registry — verified `P6LOOK … final=0`), so the `func_id`-registry
+   fallback doesn't help either.
+
+**NEXT STEP:** make the generic-impl method resolution tolerate duplicate
+candidates — either (a) **dedup** the candidates returned by
+`find_methods_from_generic_impls` (collapse entries that are the same
+method from the same constructor: same `method_value` FuncVal `func_id`),
+so branch 721 sees 1; or (b) **dedup generic-impl registry entries** at
+registration (`impl.yo` `g_impl_registry_*`) so `ArrayList`'s impl isn't
+stored N times across preloads (the more correct root fix). THEN re-apply
+the validated layers 1+2. TWO caveats before committing: (i) the layer-2
+struct registration is COARSE (stamps every struct under any func context,
+not just the comptime-fn RETURNED type as TS's `functionValue` is) — gate
+it to type-constructor funcs; the `is_function_type_and_returns_comptime_value`
+gate did NOT fire (verify `func_type` is populated in that ctx first);
+(ii) re-run the FULL `./tests` sweep — the coarse registration risks false
+struct-matches that could regress 170/170. All instrumented findings
+(RCVREG/P5REG/P6LOOK/SYNSTRUCT) are reproducible via gated `eprintln`.
 
 _(ENV: `bun` keeps dropping from PATH; set
 `BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
