@@ -236,7 +236,48 @@ confirmed it engages (`is_static=T`, receiver corrected TypeUni→Struct).
   correct, faithful, regression-free prerequisite: without it the receiver is
   TypeUni and Layer 2 could never even be attempted.
 
-### Layer 2 — generic-impl match of the instantiation struct (REMAINING)
+### Layer 2 — generic-impl match of the instantiation struct (ATTEMPTED, reverted)
+
+**Probe chain (5 builds) pinpointed the exact mechanism and the wall:**
+
+1. With Layer 1, the static lookup reaches the concrete `HashMap(String,X)`
+   struct, but a `[L2]` probe in `find_methods_from_generic_impls` showed it
+   has **empty `constructor_func_id`** while all three `new`-defining impl
+   patterns ARE stamped (`cfid=yo_id_2853/1950/1791`). So `same_constructor3`
+   (synthesizer Struct case) is false → throw → no match → `unit`. **P1 = the
+   concrete is unstamped.**
+2. **Attempt:** route every FuncVal call whose arguments are ALL type values
+   (`all_args_are_types` — a robust type-constructor signal independent of the
+   mis-specialized return) through `evaluate_comptime_fn_call`, and widen
+   `should_cache` likewise, so each instantiation is MEMOIZED (stable id) and
+   STAMPED. Probe confirmed it WORKS at the top level: the concrete then
+   carries `cfid=yo_id_2677`, matching the HashMap pattern's `cfid=yo_id_2677`
+   → `same_constructor3` true.
+3. **But two blockers remained, so it was reverted:**
+   - **(2b) nested unstamped struct.** `[L2T]`/`[L2S]` probes: the top-level
+     match now recurses into fields, and `HashMap`'s `data : ?*(Bucket(K,V))`
+     field synthesizes `Bucket(K,V)` vs a nested `Bucket(String,X)` concrete
+     that is STILL unstamped (`cfid` empty) → field-level throw → `.new()`
+     still `unit`. The top-level routing doesn't reach nested type-constructor
+     instantiations built during the body eval.
+   - **(2c) SIGBUS regression.** The same all-type-args routing moves the
+     recursive-type instantiations of `imm_vec`/`imm_threading` onto the
+     memoized comptime path, where the temp-cache recursion guard fails to
+     terminate them → `rc=138`. (std stayed 151/151, but the regressors crash.)
+
+**Conclusion (confirmed empirically):** Layer 2 is genuinely coupled to P2
+(recursion termination). Stamping the concrete (P1) is necessary AND achievable
+via routing, but the SAME routing (a) misses nested generics and (b)
+re-triggers the recursive-generic SIGBUS through the comptime path's
+insufficient recursion guard. The clean fix requires repairing the
+comptime-path recursion guard (temp-cache `_ctfe_args_equal` apparently fails
+to catch the recursive re-instantiation) and/or recursively stamping nested
+instantiations — the hard architectural work that ~8 prior attempts hit. Layer
+1 stands committed; Layer 2 reverted to keep the regressors green. **Next: fix
+the `evaluate_comptime_fn_call` recursion guard FIRST (so routing recursive
+types is safe), THEN re-apply the all-type-args routing + add nested stamping.**
+
+### Layer 2 (original framing) — generic-impl match of the instantiation struct
 
 With Layer 1, the static lookup now correctly receives the concrete
 `HashMap(String, ArrayList(MethodEntry))` struct, but
