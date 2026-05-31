@@ -219,7 +219,7 @@ try_to_implement_function_by_function_type :: (
       param_type_names := ArrayList(String).new();
       (pti : usize) = usize(0);
       n_pt := param_types.len();
-      while(runtime(pti < n_pt), {
+      while(pti < n_pt, {
         pt_name := match(
           param_types.get(pti),
           .Some(pt) => match(
@@ -245,13 +245,13 @@ try_to_implement_function_by_function_type :: (
       cap_vals := ArrayList(EvalValue).new();
       n_cap_fr := caller_env.frames.len();
       (cap_fi : usize) = usize(0);
-      while(runtime(cap_fi < n_cap_fr), {
+      while(cap_fi < n_cap_fr, {
         match(
           caller_env.frames.get(cap_fi),
           .Some(cap_frame) => {
             n_cap_v := cap_frame.variables.len();
             (cap_vi : usize) = usize(0);
-            while(runtime(cap_vi < n_cap_v), {
+            while(cap_vi < n_cap_v, {
               match(
                 cap_frame.variables.get(cap_vi),
                 .Some(cv) => {

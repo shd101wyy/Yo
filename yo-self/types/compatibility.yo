@@ -31,7 +31,7 @@ open(import("std/string"));
 _visited_contains :: (fn(visited : ArrayList(String), key : String) -> bool)({
   i := usize(0);
   n := visited.len();
-  while(runtime(i < n), {
+  while(i < n, {
     s := match(visited.get(i),.Some(v) => v,.None => ``);
     if(s == key, {
       return(true);
@@ -43,7 +43,7 @@ _visited_contains :: (fn(visited : ArrayList(String), key : String) -> bool)({
 _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
   i := usize(0);
   n := used.len();
-  while(runtime(i < n), {
+  while(i < n, {
     ui := match(used.get(i),.Some(v) => v,.None => usize(999999));
     if(ui == idx, {
       return(true);
@@ -65,7 +65,7 @@ _flatten_effects :: (
 )({
   i := usize(0);
   n := labels.len();
-  while(runtime(i < n), {
+  while(i < n, {
     lbl := match(labels.get(i),.Some(v) => v,.None => ``);
     ty := match(types.get(i),.Some(v) => v,.None => TypeValue.Unit);
     sp := match(spreads.get(i),.Some(v) => v,.None => false);
@@ -75,7 +75,7 @@ _flatten_effects :: (
         .EffectsRowT(implicit_labels : row_labels, implicit_types : row_types) => {
           j := usize(0);
           m := row_labels.len();
-          while(runtime(j < m), {
+          while(j < m, {
             rl := match(row_labels.get(j),.Some(v) => v,.None => ``);
             rt := match(row_types.get(j),.Some(v) => v,.None => TypeValue.Unit);
             out_labels.push(rl);
@@ -202,11 +202,11 @@ _compat_impl :: (
       _ => ArrayList(TypeValue).new()
     );
     i := usize(0);
-    while(runtime(i < artt.len()), {
+    while(i < artt.len(), {
       req := match(artt.get(i),.Some(v) => v,.None => TypeValue.Unit);
       satisfied := false;
       j := usize(0);
-      while(runtime(j < drtt.len()), {
+      while(j < drtt.len(), {
         dt := match(drtt.get(j),.Some(v) => v,.None => TypeValue.Unit);
         if(recur(req, dt, false, visited), {
           satisfied = true;
@@ -278,7 +278,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < n), {
+        while(i < n, {
           at := match(atypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(etypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
           al := match(alabels.get(i),.Some(v) => v,.None => ``);
@@ -306,7 +306,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < afts.len()), {
+        while(i < afts.len(), {
           at := match(afts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(efts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -315,7 +315,7 @@ _compat_impl :: (
           i = (i + usize(1));
         });
         i = usize(0);
-        while(runtime(i < apts.len()), {
+        while(i < apts.len(), {
           at := match(apts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(epts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -376,7 +376,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < als.len()), {
+        while(i < als.len(), {
           al := match(als.get(i),.Some(v) => v,.None => ``);
           el := match(els.get(i),.Some(v) => v,.None => ``);
           at := match(ats.get(i),.Some(v) => v,.None => TypeValue.Unit);
@@ -411,7 +411,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < aargs.len()), {
+        while(i < aargs.len(), {
           at := match(aargs.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(eargs.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -435,11 +435,11 @@ _compat_impl :: (
         expected,
         .DynT(required_trait_types : ertt, negative_trait_types : entt) => {
           i := usize(0);
-          while(runtime(i < ertt.len()), {
+          while(i < ertt.len(), {
             et := match(ertt.get(i),.Some(v) => v,.None => TypeValue.Unit);
             found := false;
             j := usize(0);
-            while(runtime(j < artt.len()), {
+            while(j < artt.len(), {
               at := match(artt.get(j),.Some(v) => v,.None => TypeValue.Unit);
               if(recur(et, at, require_exact, visited), {
                 found = true;
@@ -455,10 +455,10 @@ _compat_impl :: (
             i = (i + usize(1));
           });
           i = usize(0);
-          while(runtime(i < entt.len()), {
+          while(i < entt.len(), {
             et := match(entt.get(i),.Some(v) => v,.None => TypeValue.Unit);
             j := usize(0);
-            while(runtime(j < artt.len()), {
+            while(j < artt.len(), {
               at := match(artt.get(j),.Some(v) => v,.None => TypeValue.Unit);
               if(recur(et, at, require_exact, visited), {
                 return(false);
@@ -482,7 +482,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < apts.len()), {
+        while(i < apts.len(), {
           at := match(apts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(epts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -521,12 +521,12 @@ _compat_impl :: (
           // Order-independent set matching
           used := ArrayList(usize).new();
           ei := usize(0);
-          while(runtime(ei < flat_e_types.len()), {
+          while(ei < flat_e_types.len(), {
             et := match(flat_e_types.get(ei),.Some(v) => v,.None => TypeValue.Unit);
             el := match(flat_e_labels.get(ei),.Some(v) => v,.None => ``);
             found := false;
             ai := usize(0);
-            while(runtime(ai < flat_a_types.len()), {
+            while(ai < flat_a_types.len(), {
               if(!(_is_in_used(used, ai)), {
                 at := match(flat_a_types.get(ai),.Some(v) => v,.None => TypeValue.Unit);
                 al := match(flat_a_labels.get(ai),.Some(v) => v,.None => ``);

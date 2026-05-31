@@ -210,7 +210,7 @@ evaluate_module_type :: (
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // Stub: spread (...) extend form — Phase 3
     if(ast_expr_is_fn_call_of(arg, "...", Option(usize).Some(usize(1))), {
@@ -230,7 +230,7 @@ evaluate_module_type :: (
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while(runtime((dup_idx < field_labels.len()) && !(has_dup)), {
+    while((dup_idx < field_labels.len()) && !(has_dup), {
       existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
       if(existing == result.label, {
         has_dup = true;

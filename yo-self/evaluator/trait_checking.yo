@@ -93,7 +93,7 @@ is_type_registered_as_trait :: (fn(type_id : String, trait_name : str) -> bool)(
       n := list.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         name := match(list.get(i),.Some(n2) => n2,.None => String.from(""));
         if(name.as_str() == trait_name, {
           found = true;
@@ -363,7 +363,7 @@ type_implements_trait :: (
     .DynT(required_trait_types, _, negative_trait_types, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         req_trait := match(
           required_trait_types.get(i),
           .Some(t) => t,
@@ -382,7 +382,7 @@ type_implements_trait :: (
           .TraitT(_, _, _, _, _, _, self_constraints, _) => {
             ns := self_constraints.len();
             (j : usize) = usize(0);
-            while(runtime(j < ns), {
+            while(j < ns, {
               sc := match(
                 self_constraints.get(j),
                 .Some(t) => t,
@@ -404,7 +404,7 @@ type_implements_trait :: (
       // Negative trait check.
       nn := negative_trait_types.len();
       (k : usize) = usize(0);
-      while(runtime(k < nn), {
+      while(k < nn, {
         neg_trait := match(
           negative_trait_types.get(k),
           .Some(t) => t,
@@ -432,7 +432,7 @@ type_implements_trait :: (
       // Check required_trait_types.
       nr := required_trait_types.len();
       (ir : usize) = usize(0);
-      while(runtime(ir < nr), {
+      while(ir < nr, {
         req_t := match(
           required_trait_types.get(ir),
           .Some(t) => t,
@@ -449,7 +449,7 @@ type_implements_trait :: (
       // Check negative_trait_types.
       nn2 := negative_trait_types.len();
       (in2 : usize) = usize(0);
-      while(runtime(in2 < nn2), {
+      while(in2 < nn2, {
         neg_t := match(
           negative_trait_types.get(in2),
           .Some(t) => t,
@@ -495,7 +495,7 @@ type_implements_trait :: (
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
   (gi : usize) = usize(0);
-  while(runtime(gi < gn), {
+  while(gi < gn, {
     entry := match(
       g_trait_check_recursion_guard.get(gi),
       .Some(s) => s,
@@ -557,7 +557,7 @@ check_type_implements_self_constraints :: (
       // Check positive constraints (must implement).
       np := self_constraints.len();
       (ip : usize) = usize(0);
-      while(runtime(ip < np), {
+      while(ip < np, {
         constraint := match(
           self_constraints.get(ip),
           .Some(c) => c,
@@ -575,7 +575,7 @@ check_type_implements_self_constraints :: (
       // Check negative constraints (must NOT implement).
       nn := neg_self_constraints.len();
       (in_ : usize) = usize(0);
-      while(runtime(in_ < nn), {
+      while(in_ < nn, {
         constraint := match(
           neg_self_constraints.get(in_),
           .Some(c) => c,
@@ -650,7 +650,7 @@ end_send_derivation :: (fn(type_id : String) -> unit)({
   n := g_send_derivation_in_progress.len();
   (i : usize) = usize(0);
   (found_idx : Option(usize)) = Option(usize).None;
-  while(runtime(i < n), {
+  while(i < n, {
     entry := match(
       g_send_derivation_in_progress.get(i),
       .Some(s) => s,
@@ -685,7 +685,7 @@ type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
   (in_derivation : bool) = false;
   nd := g_send_derivation_in_progress.len();
   (id : usize) = usize(0);
-  while(runtime(id < nd), {
+  while(id < nd, {
     entry := match(
       g_send_derivation_in_progress.get(id),
       .Some(s) => s,
@@ -750,7 +750,7 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -767,7 +767,7 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -804,7 +804,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -827,7 +827,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -863,7 +863,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -880,7 +880,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -909,7 +909,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -932,7 +932,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -1040,7 +1040,7 @@ find_some_type_missing_comptime_constraint :: (
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;
-            while(runtime(i < n), {
+            while(i < n, {
               req_t := match(
                 required_trait_types.get(i),
                 .Some(t) => t,

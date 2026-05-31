@@ -75,7 +75,7 @@ evaluate_comptime_print :: (
   );
   (i : usize) = usize(0);
   (cur_env : Environment) = env;
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg_expr := match(
       args.get(i),
       .Some(a) => a,
@@ -125,7 +125,7 @@ evaluate_comptime_print :: (
   // Print only when executing (not during function-definition validation).
   if(!(ctx.is_validating_function_definition) && ctx.is_executing, {
     (j : usize) = usize(0);
-    while(runtime(j < parts.len()), {
+    while(j < parts.len(), {
       part := match(parts.get(j),.Some(p) => p,.None => String.new());
       if(j > usize(0), {
         print(" ");

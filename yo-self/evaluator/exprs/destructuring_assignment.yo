@@ -62,7 +62,7 @@ DestructuringResult :: object(
 _label_already_seen :: (fn(seen : ArrayList(String), label : str) -> bool)({
   i := usize(0);
   (found : bool) = false;
-  while(runtime((i < seen.len()) && !(found)), {
+  while((i < seen.len()) && !(found), {
     match(
       seen.get(i),
       .Some(s) => {
@@ -93,7 +93,7 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
 _find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
   i := usize(0);
   (result : Option(usize)) = Option(usize).None;
-  while(runtime((i < field_labels.len()) && match(result,.None => true, _ => false)), {
+  while((i < field_labels.len()) && match(result,.None => true, _ => false), {
     match(
       field_labels.get(i),
       .Some(s) => {
@@ -182,7 +182,7 @@ handle_member_destructuring :: (
   seen_labels := ArrayList(String).new();
   runtime_destructurings := ArrayList(RuntimeDestructuring).new();
   (i : usize) = usize(0);
-  while(runtime(i < lhs_fields.len()), {
+  while(i < lhs_fields.len(), {
     lhs_field := match(lhs_fields.get(i),.Some(f) => f,.None => make_err_expr());
     (field_index : usize) = i; // default: positional
     (field_value_opt : Option(EvalValue)) = Option(EvalValue).None;
@@ -236,7 +236,7 @@ handle_member_destructuring :: (
       });
       // Spread: destructure all rhs fields not yet seen.
       (j : usize) = usize(0);
-      while(runtime(j < rhs_field_labels.len()), {
+      while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get(j),.Some(l) => l,.None => String.from(""));
         fty := match(rhs_field_types.get(j),.Some(t) => t,.None => TypeValue.Unit);
         if(!(_label_already_seen(seen_labels, flab.as_str())), {
@@ -710,7 +710,7 @@ evaluate_destructuring_assignment :: (
     field_labels := ArrayList(String).new();
     field_types := selected_fields;
     (fi : usize) = usize(0);
-    while(runtime(fi < field_types.len()), {
+    while(fi < field_types.len(), {
       ___ := field_labels.push(fi.to_string());
       fi = (fi + usize(1));
     });

@@ -26,7 +26,7 @@ trim_ascii_whitespace_ :: (fn(s : String) -> String)({
   n := bytes.len();
   start := usize(0);
   cont := true;
-  while(runtime(cont && (start < n)), {
+  while(cont && (start < n), {
     b := match(bytes.get(start),.Some(x) => x,.None => u8(0));
     cond(
       is_ascii_whitespace_byte_(b) => {
@@ -39,7 +39,7 @@ trim_ascii_whitespace_ :: (fn(s : String) -> String)({
   });
   end := n;
   cont2 := true;
-  while(runtime(cont2 && (end > start)), {
+  while(cont2 && (end > start), {
     b := match(bytes.get(end - usize(1)),.Some(x) => x,.None => u8(0));
     cond(
       is_ascii_whitespace_byte_(b) => {
@@ -52,7 +52,7 @@ trim_ascii_whitespace_ :: (fn(s : String) -> String)({
   });
   out := String.new();
   i := start;
-  while(runtime(i < end), {
+  while(i < end, {
     match(
       bytes.get(i),
       .None => (),
@@ -77,7 +77,7 @@ split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   depth := i32(0);
   cur := String.new();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
     cond(
       ((b == u8(40)) || ((b == u8(91)) || (b == u8(123)))) => {

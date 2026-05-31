@@ -376,7 +376,7 @@ _parse_trait_where_clauses :: (
 )({
   pending_traits := ArrayList(_PendingTraitConstraint).new();
   (ci : usize) = usize(0);
-  while(runtime(ci < constraint_exprs.len()), {
+  while(ci < constraint_exprs.len(), {
     constraint_expr := match(
       constraint_exprs.get(ci),
       .Some(e) => e,
@@ -423,7 +423,7 @@ _parse_trait_where_clauses :: (
     if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE,.None), {
       rhs_args := _fn_call_args(rhs_expr);
       (ri : usize) = usize(0);
-      while(runtime(ri < rhs_args.len()), {
+      while(ri < rhs_args.len(), {
         rte := match(rhs_args.get(ri),.Some(a) => a,.None => make_err_expr());
         rhs_trait_exprs.push(rte);
         ri = (ri + usize(1));
@@ -433,7 +433,7 @@ _parse_trait_where_clauses :: (
     });
     // Evaluate each trait expr and apply constraint
     (ti : usize) = usize(0);
-    while(runtime(ti < rhs_trait_exprs.len()), {
+    while(ti < rhs_trait_exprs.len(), {
       trait_expr_item := match(rhs_trait_exprs.get(ti),.Some(a) => a,.None => make_err_expr());
       ti = (ti + usize(1));
       // Check negation
@@ -1171,7 +1171,7 @@ evaluate_trait_type :: (
   // Evaluate trait fields (skip the where clause if present at the end)
   (field_index : usize) = usize(0);
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     i = (i + usize(1));
     if(ast_expr_is_fn_call_of(arg, BK_WHERE,.None), {
@@ -1214,7 +1214,7 @@ evaluate_trait_type :: (
     // Check for duplicate labels
     (is_duplicate : bool) = false;
     (li : usize) = usize(0);
-    while(runtime(li < field_labels.len()), {
+    while(li < field_labels.len(), {
       existing_label := match(field_labels.get(li),.Some(s) => s,.None => String.from(""));
       li = (li + usize(1));
       if(existing_label.as_str() == field_result.label.as_str(), {
@@ -1301,7 +1301,7 @@ evaluate_trait_type :: (
   if(pending_constraints.len() > usize(0), {
     retry_list := ArrayList(AstExpr).new();
     (pi : usize) = usize(0);
-    while(runtime(pi < pending_constraints.len()), {
+    while(pi < pending_constraints.len(), {
       match(
         pending_constraints.get(pi),
         .Some(p) => {

@@ -135,7 +135,7 @@ cond_emit_deferred_drops :: (fn(info : ExprInfo, ctx : CodegenContext, indent : 
     .None => (),
     .Some(drops) => {
       (i : usize) = usize(0);
-      while(runtime(i < drops.len()), {
+      while(i < drops.len(), {
         match(
           drops.get(i),
           .None => (),
@@ -173,7 +173,7 @@ cond_emit_begin_arm :: (
   (i : usize) = usize(0);
   (stopped : bool) = false;
   // Emit all but the last arg as statements.
-  while(runtime((i < n) && (!(stopped))), {
+  while((i < n) && (!(stopped)), {
     is_last := (i == (n - usize(1)));
     match(
       begin_args.get(i),
@@ -331,7 +331,7 @@ generate_cond :: (
       // is not a compile-time false.
       (first_non_false_idx : i64) = (i64(0) - i64(1));
       (fi : usize) = usize(0);
-      while(runtime((fi < n) && (first_non_false_idx < i64(0))), {
+      while((fi < n) && (first_non_false_idx < i64(0)), {
         match(
           args.get(fi),
           .None => (),
@@ -432,7 +432,7 @@ generate_cond :: (
           (has_emitted : bool) = false;
           (j : usize) = usize(0);
           (cont : bool) = true;
-          while(runtime((j < n) && cont), {
+          while((j < n) && cont, {
             match(
               args.get(j),
               .None => {
@@ -520,7 +520,7 @@ generate_cond :: (
 
           // Close all the else blocks that were opened.
           (k : usize) = usize(0);
-          while(runtime(k < else_depth), {
+          while(k < else_depth, {
             current_indent = current_indent.substring(usize(0), current_indent.len() - usize(2));
             ctx.emitter.emit_string_line(format_cond_block_close(current_indent));
             k = (k + usize(1));

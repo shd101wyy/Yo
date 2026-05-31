@@ -72,7 +72,7 @@ open(import("std/string"));
 contains_str_in_list :: (fn(list : ArrayList(String), s : str) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
-  while(runtime((i < list.len()) && !(found)), {
+  while((i < list.len()) && !(found), {
     match(
       list.get(i),
       .Some(item) => {
@@ -90,7 +90,7 @@ contains_str_in_list :: (fn(list : ArrayList(String), s : str) -> bool)({
 find_str_in_list :: (fn(list : ArrayList(String), s : str) -> Option(usize))({
   (i : usize) = usize(0);
   (result : Option(usize)) = Option(usize).None;
-  while(runtime((i < list.len()) && result.is_none()), {
+  while((i < list.len()) && result.is_none(), {
     match(
       list.get(i),
       .Some(item) => {
@@ -130,7 +130,7 @@ flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
   right_flat := recur(right);
   result := ArrayList(AstExpr).new();
   (lfi : usize) = usize(0);
-  while(runtime(lfi < left_flat.len()), {
+  while(lfi < left_flat.len(), {
     match(
       left_flat.get(lfi),
       .Some(e) => {
@@ -141,7 +141,7 @@ flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
     lfi = (lfi + usize(1));
   });
   (rfi : usize) = usize(0);
-  while(runtime(rfi < right_flat.len()), {
+  while(rfi < right_flat.len(), {
     match(
       right_flat.get(rfi),
       .Some(e) => {
@@ -192,7 +192,7 @@ evaluate_primitive_match :: (
   control_flows := ArrayList(ControlFlowFlags).new();
   return_bodies := ArrayList(AstExpr).new();
   (pat_i : usize) = usize(1);
-  while(runtime(pat_i < all_args.len()), {
+  while(pat_i < all_args.len(), {
     pattern := match(
       all_args.get(pat_i),
       .Some(p) => p,
@@ -347,7 +347,7 @@ evaluate_primitive_match :: (
         if(should_early_return_wc, {
           filtered_wc := ArrayList(AstExpr).new();
           (fwc_i : usize) = usize(0);
-          while(runtime(fwc_i < bodies.len()), {
+          while(fwc_i < bodies.len(), {
             b_wc := match(bodies.get(fwc_i),.Some(b2) => b2,.None => make_err_expr());
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_wc)),
@@ -412,7 +412,7 @@ evaluate_primitive_match :: (
       pat_vals := ArrayList(EvalValue).new();
       pat_exprs_eval := ArrayList(AstExpr).new();
       (fp_i : usize) = usize(0);
-      while(runtime(fp_i < flattened.len()), {
+      while(fp_i < flattened.len(), {
         fp_expr := match(flattened.get(fp_i),.Some(e) => e,.None => make_err_expr());
         fp_i = (fp_i + usize(1));
         old_expected_fp := ctx.expected_type;
@@ -494,7 +494,7 @@ evaluate_primitive_match :: (
               .None => new_expr_info(env, scrutinee_type)
             );
             (pv_check_i : usize) = usize(0);
-            while(runtime((pv_check_i < pat_vals.len()) && !(matches_at_ct)), {
+            while((pv_check_i < pat_vals.len()) && !(matches_at_ct), {
               pv_item := match(pat_vals.get(pv_check_i),.Some(v) => v,.None => EvalValue.UnitVal);
               pe_item := match(pat_exprs_eval.get(pv_check_i),.Some(e) => e,.None => make_err_expr());
               pe_info := match(
@@ -513,7 +513,7 @@ evaluate_primitive_match :: (
       // Build primitive_pattern_values list for ExprInfo
       pattern_value_opts := ArrayList(Option(EvalValue)).new();
       (pvs_i : usize) = usize(0);
-      while(runtime(pvs_i < pat_vals.len()), {
+      while(pvs_i < pat_vals.len(), {
         pvi := match(pat_vals.get(pvs_i),.Some(v) => v,.None => EvalValue.UnitVal);
         pattern_value_opts.push(Option(EvalValue).Some(pvi));
         pvs_i = (pvs_i + usize(1));
@@ -719,7 +719,7 @@ evaluate_primitive_match :: (
     rt_pm := match(result_type_pm,.Some(t) => t,.None => t_unit());
     non_return_pm := ArrayList(AstExpr).new();
     (nrpm_i : usize) = usize(0);
-    while(runtime(nrpm_i < bodies.len()), {
+    while(nrpm_i < bodies.len(), {
       b_pm := match(bodies.get(nrpm_i),.Some(b2) => b2,.None => make_err_expr());
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_pm)),
@@ -1098,7 +1098,7 @@ evaluate_match :: (
   return_bodies_em := ArrayList(AstExpr).new();
   (matched_body_idx : Option(usize)) = Option(usize).None;
   (arm_i : usize) = usize(1);
-  while(runtime(arm_i < all_args.len()), {
+  while(arm_i < all_args.len(), {
     pattern_em := match(
       all_args.get(arm_i),
       .Some(p) => p,
@@ -1533,7 +1533,7 @@ evaluate_match :: (
             });
             // Validate: no nested curly, no bare "_"
             (cvi : usize) = usize(0);
-            while(runtime(cvi < curly_inner.len()), {
+            while(cvi < curly_inner.len(), {
               cv_elem := match(curly_inner.get(cvi),.Some(e) => e,.None => make_err_expr());
               if(ast_expr_is_fn_call_of(cv_elem, "_",.None), {
                 exn.throw(
@@ -1566,7 +1566,7 @@ evaluate_match :: (
             // Lift inner args into mae_args_wf
             mae_args_wf.clear();
             (lfi2 : usize) = usize(0);
-            while(runtime(lfi2 < curly_inner.len()), {
+            while(lfi2 < curly_inner.len(), {
               match(
                 curly_inner.get(lfi2),
                 .Some(e) => {
@@ -1582,7 +1582,7 @@ evaluate_match :: (
           has_labeled_wf := is_curly_wf;
           if(!(has_labeled_wf), {
             (lbl_check_i : usize) = usize(0);
-            while(runtime((lbl_check_i < destr_params.len()) && !(has_labeled_wf)), {
+            while((lbl_check_i < destr_params.len()) && !(has_labeled_wf), {
               lbl_p := match(destr_params.get(lbl_check_i),.Some(p) => p,.None => make_err_expr());
               if(ast_expr_is_fn_call_of(lbl_p, ":",.Some(usize(2))), {
                 has_labeled_wf = true;
@@ -1645,7 +1645,7 @@ evaluate_match :: (
           if(variant_fields_wf.len() > usize(0), {
             destructured_labels := ArrayList(String).new();
             (dp_i : usize) = usize(0);
-            while(runtime(dp_i < destr_params.len()), {
+            while(dp_i < destr_params.len(), {
               param := match(destr_params.get(dp_i),.Some(p) => p,.None => make_err_expr());
               if(ast_expr_is_fn_call_of(param, ":",.Some(usize(2))), {
                 // Labeled destructuring: (label: variable) or (label: _)
@@ -1675,7 +1675,7 @@ evaluate_match :: (
                   // Build available labels string
                   available_labels := String.new();
                   (al_i : usize) = usize(0);
-                  while(runtime(al_i < variant_labels_wf.len()), {
+                  while(al_i < variant_labels_wf.len(), {
                     match(
                       variant_labels_wf.get(al_i),
                       .Some(lbl) => {
@@ -2004,7 +2004,7 @@ Supported patterns:
     if(!(contains_str_in_list(checked_variant_names, "_")), {
       missing_em := ArrayList(String).new();
       (vn_i : usize) = usize(0);
-      while(runtime(vn_i < en_vnames.len()), {
+      while(vn_i < en_vnames.len(), {
         match(
           en_vnames.get(vn_i),
           .Some(vname) => {
@@ -2020,7 +2020,7 @@ Supported patterns:
         missing_str_em := String.new();
         missing_str_em.push_str("\n- ");
         (ms_i : usize) = usize(0);
-        while(runtime(ms_i < missing_em.len()), {
+        while(ms_i < missing_em.len(), {
           match(
             missing_em.get(ms_i),
             .Some(mv) => {
@@ -2049,7 +2049,7 @@ Supported patterns:
     // Select environment: concrete CT scrutinee → use matched body's env
     non_return_em := ArrayList(AstExpr).new();
     (nrem_i : usize) = usize(0);
-    while(runtime(nrem_i < bodies.len()), {
+    while(nrem_i < bodies.len(), {
       b_em := match(bodies.get(nrem_i),.Some(b2) => b2,.None => make_err_expr());
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),

@@ -106,7 +106,7 @@ call_registered_derive_rule :: (
     trait_arg_expr,
     .FnCall(_, _, ta_args, _, _) => {
       (ti : usize) = usize(0);
-      while(runtime(ti < ta_args.len()), {
+      while(ti < ta_args.len(), {
         match(
           ta_args.get(ti),
           .Some(ta) => {
@@ -152,7 +152,7 @@ call_registered_derive_rule :: (
       // Bind captures.
       (cap_i : usize) = usize(0);
       n_cap := cap_names.len();
-      while(runtime(cap_i < n_cap), {
+      while(cap_i < n_cap, {
         cn := match(cap_names.get(cap_i),.Some(n) => n,.None => String.from(""));
         ct := match(cap_tys.get(cap_i),.Some(t) => t,.None => t_unit());
         cap_v := match(
@@ -201,12 +201,12 @@ call_registered_derive_rule :: (
       // Infer forall type params from argument types.
       n_forall := forall_names.len();
       (fa_i : usize) = usize(0);
-      while(runtime(fa_i < n_forall), {
+      while(fa_i < n_forall, {
         fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
         n_ptn := param_type_names.len();
         (ptn_i : usize) = usize(0);
         (fa_bound : bool) = false;
-        while(runtime((ptn_i < n_ptn) && (!(fa_bound))), {
+        while((ptn_i < n_ptn) && (!(fa_bound)), {
           ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
           if(ptn.as_str() == fa_name.as_str(), {
             arg_inf := match(
@@ -233,7 +233,7 @@ call_registered_derive_rule :: (
       });
       // Bind regular params.
       (pi : usize) = usize(0);
-      while(runtime(pi < n_p), {
+      while(pi < n_p, {
         pname := match(param_names.get(pi),.Some(n) => n,.None => String.from(""));
         arg_inf := match(evaled_arg_infos.get(pi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
         is_ct := match(arg_inf.value,.Some(_) => true,.None => false);
@@ -252,7 +252,7 @@ call_registered_derive_rule :: (
       });
       // Bind evidence params.
       (evi : usize) = usize(0);
-      while(runtime(evi < n_ev), {
+      while(evi < n_ev, {
         ev_name := match(evidence_names.get(evi),.Some(n) => n,.None => String.from(""));
         ev_inf := match(evaled_arg_infos.get(n_p + evi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
         is_ct_ev := match(ev_inf.value,.Some(_) => true,.None => false);
@@ -490,7 +490,7 @@ evaluate_derive :: (
     );
     _fr := env.push_frame(false);
     (fpi : usize) = usize(0);
-    while(runtime(fpi < forall_params.len()), {
+    while(fpi < forall_params.len(), {
       fp := match(forall_params.get(fpi),.Some(a) => a,.None => make_err_expr());
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
@@ -658,7 +658,7 @@ evaluate_derive :: (
   });
   // Process each trait argument.
   (result_env : Environment) = env;
-  while(runtime(arg_idx < n_args), {
+  while(arg_idx < n_args, {
     trait_arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
     result_env = process_trait_arg(
       trait_arg,

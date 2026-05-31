@@ -123,7 +123,7 @@ _find_project_root :: (fn(file_path : String) -> Option(String))({
   dir_path_opt := Path.new(file_path).parent();
   (result : Option(String)) =.None;
   (found : bool) = false;
-  while(runtime(!(found)), {
+  while(!(found), {
     match(
       dir_path_opt,
       .None => {
@@ -192,12 +192,12 @@ _build_module_val_from_env :: (fn(env : Environment) -> EvalValue)({
   names := ArrayList(String).new();
   values := ArrayList(EvalValue).new();
   (fi : usize) = usize(0);
-  while(runtime(fi < env.frames.len()), {
+  while(fi < env.frames.len(), {
     match(
       env.frames.get(fi),
       .Some(frame) => {
         (vi : usize) = usize(0);
-        while(runtime(vi < frame.variables.len()), {
+        while(vi < frame.variables.len(), {
           match(
             frame.variables.get(vi),
             .Some(v) => match(

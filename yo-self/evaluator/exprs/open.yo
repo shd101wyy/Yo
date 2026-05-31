@@ -44,7 +44,7 @@ walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
   cur := e;
   // Local-mutable loop: while cur is `.`-call, descend to first arg.
   done := false;
-  while(runtime(!(done)), {
+  while(!(done), {
     cond(
       ast_expr_is_fn_call_of(cur, BF_DOT,.None) => {
         match(
@@ -192,7 +192,7 @@ evaluate_open :: (
           v,
           .ModuleVal(mnames, mvals) => {
             i := usize(0);
-            while(runtime(i < mnames.len()), {
+            while(i < mnames.len(), {
               field_name := match(mnames.get(i),.Some(n) => n,.None => String.from(""));
               field_val := match(mvals.get(i),.Some(x) => x,.None => EvalValue.UnitVal);
               field_ty := type_of_eval_value(field_val);
@@ -222,7 +222,7 @@ evaluate_open :: (
         arg_ty,
         .Struct(_, _, field_labels, field_types, _, _, _, _) => {
           i := usize(0);
-          while(runtime(i < field_labels.len()), {
+          while(i < field_labels.len(), {
             label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
             fty := match(field_types.get(i),.Some(t) => t,.None => t_unit());
             // Pull the corresponding value from the StructVal, if any.

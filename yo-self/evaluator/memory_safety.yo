@@ -42,7 +42,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
       (found : bool) = false;
       (i : usize) = usize(0);
       n := g_privileged_files.len();
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         match(
           g_privileged_files.get(i),
           .Some(entry) => if((entry.module_path.as_str() == mp.as_str()) && (entry.kind == kind), {
@@ -75,7 +75,7 @@ _clear_pragma_for_module :: (fn(module_path : String) -> unit)({
   kept := ArrayList(PragmaEntry).new();
   (i : usize) = usize(0);
   n := g_privileged_files.len();
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       g_privileged_files.get(i),
       .Some(entry) => if(entry.module_path.as_str() != module_path.as_str(), {

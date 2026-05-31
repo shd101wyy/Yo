@@ -26,7 +26,7 @@ _strip_leading_underscores :: (fn(name : String) -> String)({
   bytes := name.as_bytes();
   n := bytes.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
     if(b != u8(95), {
       break;
@@ -39,7 +39,7 @@ _strip_leading_underscores :: (fn(name : String) -> String)({
   // Slice from i to n.
   out := ArrayList(u8).new();
   (j : usize) = i;
-  while(runtime(j < n), {
+  while(j < n, {
     match(
       bytes.get(j),
       .Some(b) => {
@@ -60,7 +60,7 @@ _strip_trailing_underscores :: (fn(name : String) -> String)({
     return(name);
   });
   (end : usize) = n;
-  while(runtime(end > usize(0)), {
+  while(end > usize(0), {
     b := match(bytes.get(end - usize(1)),.Some(x) => x,.None => u8(0));
     if(b != u8(95), {
       break;
@@ -72,7 +72,7 @@ _strip_trailing_underscores :: (fn(name : String) -> String)({
   });
   out := ArrayList(u8).new();
   (j : usize) = usize(0);
-  while(runtime(j < end), {
+  while(j < end, {
     match(
       bytes.get(j),
       .Some(b) => {
@@ -139,7 +139,7 @@ is_snake_case :: (fn(name : String) -> bool)({
   n := bytes.len();
   (i : usize) = usize(0);
   (found_upper : bool) = false;
-  while(runtime((i < n) && (!(found_upper))), {
+  while((i < n) && (!(found_upper)), {
     b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
     if(_is_upper_byte(b), {
       found_upper = true;

@@ -68,7 +68,7 @@ _is_all_digits :: (fn(s : String) -> bool)({
   if(n == usize(0), return(false));
   i := usize(0);
   ok := true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       s.at(i),
       .None => {
@@ -172,7 +172,7 @@ _parse_tags_for_latest_semver :: (fn(text : String) -> Option(String))({
   tags := ArrayList(SemVer).new();
   n := lines.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       lines.get(i),
       .None => (),
@@ -213,7 +213,7 @@ _parse_tags_for_latest_semver :: (fn(text : String) -> Option(String))({
     .Some(t) => t
   );
   j := usize(1);
-  while(runtime(j < tags.len()), {
+  while(j < tags.len(), {
     match(
       tags.get(j),
       .None => (),
@@ -313,7 +313,7 @@ parse_dependency_names :: (fn(content : String) -> ArrayList(String))({
   all_lines := content.split(String.from("\n"));
   n := all_lines.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       all_lines.get(i),
       .None => (),
@@ -346,7 +346,7 @@ _build_imports_block :: (fn(dep_names : ArrayList(String)) -> String)({
   if(n == usize(0), String.from("imports :: ComptimeList(build.ImportEntry)();\nexport(imports);\n"), {
     block := String.from("imports :: ComptimeList(build.ImportEntry)(\n");
     i := usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         dep_names.get(i),
         .None => (),
@@ -506,7 +506,7 @@ resolve_default_branch :: (
     result := String.from("main");
     n := lines.len();
     i := usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         lines.get(i),
         .None => (),

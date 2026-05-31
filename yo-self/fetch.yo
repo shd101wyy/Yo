@@ -78,7 +78,7 @@ remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit
     entries := io.await(walk_with(path, opts, io), io);
     n := entries.len();
     // Delete deepest entries first (reverse order from walk output)
-    while(runtime(n > usize(0)), {
+    while(n > usize(0), {
       n = (n - usize(1));
       match(
         entries.get(n),
@@ -105,17 +105,17 @@ sort_dir_entries :: (fn(entries : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
   // Track which entries have been moved to result
   added := ArrayList(bool).with_capacity(n);
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     added.push(false);
     i = (i + usize(1));
   });
   selected := usize(0);
-  while(runtime(selected < n), {
+  while(selected < n, {
     // Find the minimum-name entry not yet added
     min_idx := usize(0);
     found := false;
     j := usize(0);
-    while(runtime(j < n), {
+    while(j < n, {
       flag := match(added.get(j),.None => true,.Some(f) => f);
       if(!(flag), {
         if(!(found), {
@@ -155,7 +155,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   // Quick path: no CR in input
   has_cr := false;
   i := usize(0);
-  while(runtime((i < bytes.len()) && (!(has_cr))), {
+  while((i < bytes.len()) && (!(has_cr)), {
     match(
       bytes.get(i),
       .None => (),
@@ -168,7 +168,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   if(!(has_cr), bytes, {
     out := ArrayList(u8).with_capacity(bytes.len());
     j := usize(0);
-    while(runtime(j < bytes.len()), {
+    while(j < bytes.len(), {
       match(
         bytes.get(j),
         .None => (),
@@ -194,7 +194,7 @@ _push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
-  while(runtime(k < n), {
+  while(k < n, {
     {
       buf.push((p &+ k).*);
     };
@@ -206,7 +206,7 @@ _push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
-  while(runtime(k < n), {
+  while(k < n, {
     match(
       bytes.get(k),
       .None => (),
@@ -240,7 +240,7 @@ compute_content_hash :: (
     stack := ArrayList(_HashWorkItem).new();
     // Push root entries in reversed sorted order
     ri := root_sorted.len();
-    while(runtime(ri > usize(0)), {
+    while(ri > usize(0), {
       ri = (ri - usize(1));
       match(
         root_sorted.get(ri),
@@ -259,7 +259,7 @@ compute_content_hash :: (
         }
       );
     });
-    while(runtime(stack.len() > usize(0)), {
+    while(stack.len() > usize(0), {
       item := match(
         stack.pop(),
         .None => {
@@ -298,7 +298,7 @@ compute_content_hash :: (
           sub_entries := io.await(read_dir(Path.new(abs_sub)), io);
           sub_sorted := sort_dir_entries(sub_entries);
           si := sub_sorted.len();
-          while(runtime(si > usize(0)), {
+          while(si > usize(0), {
             si = (si - usize(1));
             match(
               sub_sorted.get(si),
@@ -345,7 +345,7 @@ compute_content_hash :: (
     digest := hasher.finish();
     hex_bytes := ArrayList(u8).with_capacity(usize(32));
     k := usize(0);
-    while(runtime(k < usize(32)), {
+    while(k < usize(32), {
       hex_bytes.push(digest(k));
       k = (k + usize(1));
     });
@@ -751,7 +751,7 @@ fetch_all_deps :: (
     n := deps.len();
     i := usize(0);
     current_lock := lock_file;
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         deps.get(i),
         .None => (),
@@ -767,14 +767,14 @@ fetch_all_deps :: (
     // Prune stale lock entries (deps no longer in build.yo)
     pruned_deps := ArrayList(LockEntry).new();
     k := usize(0);
-    while(runtime(k < current_lock.dependencies.len()), {
+    while(k < current_lock.dependencies.len(), {
       match(
         current_lock.dependencies.get(k),
         .None => (),
         .Some(entry) => {
           still_declared := false;
           m := usize(0);
-          while(runtime(m < deps.len()), {
+          while(m < deps.len(), {
             match(
               deps.get(m),
               .None => (),
@@ -817,7 +817,7 @@ are_deps_cached :: (
     cache_dir := get_global_deps_cache_dir();
     all_cached := true;
     i := usize(0);
-    while(runtime((i < deps.len()) && all_cached), {
+    while((i < deps.len()) && all_cached, {
       match(
         deps.get(i),
         .None => (),

@@ -370,7 +370,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .Tuple(_, tuple_field_types) => {
       i := usize(0);
       found := false;
-      while(runtime((i < tuple_field_types.len()) && (!(found))), {
+      while((i < tuple_field_types.len()) && (!(found)), {
         match(
           tuple_field_types.get(i),
           .Some(field_type) => {
@@ -385,7 +385,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .Func(_, forall_types, _, param_types, _, implicit_types, _, where_types, result_type, _) => {
       found := false;
       i := usize(0);
-      while(runtime((i < forall_types.len()) && (!(found))), {
+      while((i < forall_types.len()) && (!(found)), {
         match(
           forall_types.get(i),
           .Some(child) => {
@@ -396,7 +396,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
         i = (i + usize(1));
       });
       i = usize(0);
-      while(runtime((i < param_types.len()) && (!(found))), {
+      while((i < param_types.len()) && (!(found)), {
         match(
           param_types.get(i),
           .Some(child) => {
@@ -407,7 +407,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
         i = (i + usize(1));
       });
       i = usize(0);
-      while(runtime((i < implicit_types.len()) && (!(found))), {
+      while((i < implicit_types.len()) && (!(found)), {
         match(
           implicit_types.get(i),
           .Some(child) => {
@@ -418,7 +418,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
         i = (i + usize(1));
       });
       i = usize(0);
-      while(runtime((i < where_types.len()) && (!(found))), {
+      while((i < where_types.len()) && (!(found)), {
         match(
           where_types.get(i),
           .Some(child) => {
@@ -433,7 +433,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .Struct(_, _, _, struct_field_types, _, _, _, _) => {
       i := usize(0);
       found := false;
-      while(runtime((i < struct_field_types.len()) && (!(found))), {
+      while((i < struct_field_types.len()) && (!(found)), {
         match(
           struct_field_types.get(i),
           .Some(child) => {
@@ -448,12 +448,12 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .EnumT(_, _, _, variant_fields, _, _, _) => {
       i := usize(0);
       found := false;
-      while(runtime((i < variant_fields.len()) && (!(found))), {
+      while((i < variant_fields.len()) && (!(found)), {
         match(
           variant_fields.get(i),
           .Some(fields) => {
             j := usize(0);
-            while(runtime((j < fields.len()) && (!(found))), {
+            while((j < fields.len()) && (!(found)), {
               match(
                 fields.get(j),
                 .Some(child) => {
@@ -473,7 +473,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .Union(_, _, union_field_types) => {
       i := usize(0);
       found := false;
-      while(runtime((i < union_field_types.len()) && (!(found))), {
+      while((i < union_field_types.len()) && (!(found)), {
         match(
           union_field_types.get(i),
           .Some(child) => {
@@ -489,7 +489,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .ModuleT(_, _, _, module_field_types) => {
       i := usize(0);
       found := false;
-      while(runtime((i < module_field_types.len()) && (!(found))), {
+      while((i < module_field_types.len()) && (!(found)), {
         match(
           module_field_types.get(i),
           .Some(child) => {
@@ -504,7 +504,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .EffectsRowT(_, implicit_types) => {
       i := usize(0);
       found := false;
-      while(runtime((i < implicit_types.len()) && (!(found))), {
+      while((i < implicit_types.len()) && (!(found)), {
         match(
           implicit_types.get(i),
           .Some(child) => {
@@ -519,7 +519,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .DynT(required_trait_types, _, negative_trait_types, _) => {
       i := usize(0);
       found := false;
-      while(runtime((i < required_trait_types.len()) && (!(found))), {
+      while((i < required_trait_types.len()) && (!(found)), {
         match(
           required_trait_types.get(i),
           .Some(child) => {
@@ -530,7 +530,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
         i = (i + usize(1));
       });
       i = usize(0);
-      while(runtime((i < negative_trait_types.len()) && (!(found))), {
+      while((i < negative_trait_types.len()) && (!(found)), {
         match(
           negative_trait_types.get(i),
           .Some(child) => {
@@ -545,7 +545,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .FnTraitT(_, _, call_param_types, call_result, _, implicit_types, _) => {
       found := recur(call_result.*);
       i := usize(0);
-      while(runtime((i < call_param_types.len()) && (!(found))), {
+      while((i < call_param_types.len()) && (!(found)), {
         match(
           call_param_types.get(i),
           .Some(child) => {
@@ -556,7 +556,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
         i = (i + usize(1));
       });
       i = usize(0);
-      while(runtime((i < implicit_types.len()) && (!(found))), {
+      while((i < implicit_types.len()) && (!(found)), {
         match(
           implicit_types.get(i),
           .Some(child) => {
@@ -571,7 +571,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
     .FutureTraitT(_, output, _, effect_types, _) => {
       found := recur(output.*);
       i := usize(0);
-      while(runtime((i < effect_types.len()) && (!(found))), {
+      while((i < effect_types.len()) && (!(found)), {
         match(
           effect_types.get(i),
           .Some(child) => {
@@ -590,7 +590,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
 field_types_contain_some_type_ :: (fn(field_types : ArrayList(TypeValue)) -> bool)({
   i := usize(0);
   found := false;
-  while(runtime((i < field_types.len()) && (!(found))), {
+  while((i < field_types.len()) && (!(found)), {
     match(
       field_types.get(i),
       .Some(field_type) => {
@@ -615,7 +615,7 @@ generate_object_constructor_declarations :: (fn(ctx : CodegenContext) -> unit)({
 
   iter := ctx.types.values();
   more := true;
-  while(runtime(more), {
+  while(more, {
     match(
       iter.next(),
       .None => {
@@ -657,7 +657,7 @@ generate_closure_constructor_declarations :: (fn(_ctx : CodegenContext) -> unit)
 generate_capture_dispose_function_declarations :: (fn(ctx : CodegenContext) -> unit)({
   iter := ctx.closure_capture_map.keys();
   more := true;
-  while(runtime(more), {
+  while(more, {
     match(
       iter.next(),
       .None => {
@@ -697,7 +697,7 @@ is_threading_macro_function_ :: (fn(name : str) -> bool)(
 implicit_types_contain_func_type_ :: (fn(implicit_types : ArrayList(TypeValue)) -> bool)({
   i := usize(0);
   found := false;
-  while(runtime((i < implicit_types.len()) && !(found)), {
+  while((i < implicit_types.len()) && !(found), {
     match(
       implicit_types.get(i),
       .Some(it) => {
@@ -718,7 +718,7 @@ evidence_params_have_forall_ :: (fn(function_type : TypeValue) -> bool)({
   evid := get_evidence_parameters(function_type);
   i := usize(0);
   found := false;
-  while(runtime((i < evid.len()) && !(found)), {
+  while((i < evid.len()) && !(found), {
     match(
       evid.get(i),
       .Some(ep) => {
@@ -743,7 +743,7 @@ generate_function_declarations :: (fn(ctx : FunctionGenerationContext) -> unit)(
   base.emitter.emit_declaration_line("/// Extern functions");
   ext_iter := ctx.extern_functions.values();
   ext_more := true;
-  while(runtime(ext_more), {
+  while(ext_more, {
     match(
       ext_iter.next(),
       .None => {
@@ -793,7 +793,7 @@ generate_function_declarations :: (fn(ctx : FunctionGenerationContext) -> unit)(
   base.emitter.emit_declaration_line("/// Regular functions");
   fn_iter := ctx.functions.values();
   fn_more := true;
-  while(runtime(fn_more), {
+  while(fn_more, {
     match(
       fn_iter.next(),
       .None => {
@@ -911,7 +911,7 @@ generate_specialized_function_declarations :: (fn(ctx : FunctionGenerationContex
   generated := HashSet(String).new();
   iter := ctx.functions.values();
   more := true;
-  while(runtime(more), {
+  while(more, {
     match(
       iter.next(),
       .None => {
@@ -948,7 +948,7 @@ generate_specialized_function_declarations :: (fn(ctx : FunctionGenerationContex
           .Func(_, _, _, param_types, _, _, _, _, _, _) => {
             i := usize(0);
             found := false;
-            while(runtime((i < param_types.len()) && !(found)), {
+            while((i < param_types.len()) && !(found), {
               match(
                 param_types.get(i),
                 .Some(pt) => {

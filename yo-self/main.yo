@@ -244,7 +244,7 @@ collect_module_deps :: (
   nv := visited.len();
   (iv : usize) = usize(0);
   (already_visited : bool) = false;
-  while(runtime((iv < nv) && (!(already_visited))), {
+  while((iv < nv) && (!(already_visited)), {
     iv = (iv + usize(1));
     match(
       visited.get(iv - usize(1)),
@@ -274,7 +274,7 @@ collect_module_deps :: (
   // Recursively collect dependencies of this module first (post-order DFS)
   nm := mod_exprs.len();
   (im : usize) = usize(0);
-  while(runtime(im < nm), {
+  while(im < nm, {
     im = (im + usize(1));
     match(
       mod_exprs.get(im - usize(1)),
@@ -298,7 +298,7 @@ collect_module_deps :: (
   });
   // Append this module's declarations to all_exprs (after its deps)
   im = usize(0);
-  while(runtime(im < nm), {
+  while(im < nm, {
     im = (im + usize(1));
     match(
       mod_exprs.get(im - usize(1)),
@@ -386,7 +386,7 @@ preload_module_tree :: (
   child_imports := ArrayList(String).new();
   (ni : usize) = mod_exprs.len();
   (di : usize) = usize(0);
-  while(runtime(di < ni), {
+  while(di < ni, {
     match(
       mod_exprs.get(di),
       .None => (),
@@ -396,7 +396,7 @@ preload_module_tree :: (
   });
   (nci : usize) = child_imports.len();
   (ci : usize) = usize(0);
-  while(runtime(ci < nci), {
+  while(ci < nci, {
     match(
       child_imports.get(ci),
       .None => (),
@@ -437,7 +437,7 @@ _walk_check_dir :: (
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
   (n : usize) = entries.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     i = (i + usize(1));
     match(
       entries.get(i - usize(1)),
@@ -583,7 +583,7 @@ check_single_file :: (
   entry_imports := ArrayList(String).new();
   (nip : usize) = exprs.len();
   (iip : usize) = usize(0);
-  while(runtime(iip < nip), {
+  while(iip < nip, {
     match(
       exprs.get(iip),
       .None => (),
@@ -593,7 +593,7 @@ check_single_file :: (
   });
   (nei : usize) = entry_imports.len();
   (iei : usize) = usize(0);
-  while(runtime(iei < nei), {
+  while(iei < nei, {
     match(
       entry_imports.get(iei),
       .None => (),
@@ -672,7 +672,7 @@ run_check :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   total := files.len();
-  while(runtime(fi < total), {
+  while(fi < total, {
     match(
       files.get(fi),
       .None => (),
@@ -782,7 +782,7 @@ run_test :: (
   );
   (nip : usize) = exprs.len();
   (iip : usize) = usize(0);
-  while(runtime(iip < nip), {
+  while(iip < nip, {
     iip = (iip + usize(1));
     match(
       exprs.get(iip - usize(1)),
@@ -808,7 +808,7 @@ run_test :: (
   all_module_exprs := ArrayList(AstExpr).new();
   (ndep : usize) = dep_exprs.len();
   (idep : usize) = usize(0);
-  while(runtime(idep < ndep), {
+  while(idep < ndep, {
     idep = (idep + usize(1));
     match(
       dep_exprs.get(idep - usize(1)),
@@ -820,7 +820,7 @@ run_test :: (
   });
   (nexp : usize) = exprs.len();
   (iexp : usize) = usize(0);
-  while(runtime(iexp < nexp), {
+  while(iexp < nexp, {
     iexp = (iexp + usize(1));
     match(
       exprs.get(iexp - usize(1)),
@@ -843,7 +843,7 @@ run_test :: (
   (passed : usize) = usize(0);
   (failed : usize) = usize(0);
   (skipped : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     i = (i + usize(1));
     match(
       exprs.get(i - usize(1)),
@@ -935,7 +935,7 @@ run_fmt :: (
   input_paths := ArrayList(String).new();
   (check_mode : bool) = false;
   (ai : usize) = usize(2); // skip program name + "fmt"
-  while(runtime(ai < argv.len()), {
+  while(ai < argv.len(), {
     arg := argv(ai);
     cond(
       (arg.as_str() == "--check") => {
@@ -954,7 +954,7 @@ run_fmt :: (
   cond(
     check_mode => {
       (cidx : usize) = usize(0);
-      while(runtime(cidx < cn), {
+      while(cidx < cn, {
         match(
           result.changed.get(cidx),
           .Some(c) => println(`would format: ${c}`),
@@ -968,7 +968,7 @@ run_fmt :: (
     },
     true => {
       (cidx : usize) = usize(0);
-      while(runtime(cidx < cn), {
+      while(cidx < cn, {
         match(
           result.changed.get(cidx),
           .Some(c) => println(`formatted: ${c}`),

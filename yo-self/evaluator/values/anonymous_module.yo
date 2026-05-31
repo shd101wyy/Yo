@@ -60,7 +60,7 @@ _find_field_label_index :: (fn(field_labels : ArrayList(String), label : str) ->
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := field_labels.len();
-  while(runtime((i < n) && idx.is_none()), {
+  while((i < n) && idx.is_none(), {
     match(
       field_labels.get(i),
       .Some(lbl) => if(lbl.as_str() == label, {
@@ -77,7 +77,7 @@ _is_excluded_label :: (fn(excluded : ArrayList(String), label : str) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := excluded.len();
-  while(runtime((i < n) && !(found)), {
+  while((i < n) && !(found), {
     match(
       excluded.get(i),
       .Some(lbl) => if(lbl.as_str() == label, {
@@ -118,7 +118,7 @@ evaluate_anonymous_module_begin_exprs :: (
   // Evaluate each expression in the module body
   (i : usize) = usize(0);
   n := begin_exprs.len();
-  while(runtime((i < n) && !(should_stop)), {
+  while((i < n) && !(should_stop), {
     match(
       begin_exprs.get(i),
       .None => {
@@ -134,7 +134,7 @@ evaluate_anonymous_module_begin_exprs :: (
           export_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
           (j : usize) = usize(0);
           nj := export_args.len();
-          while(runtime((j < nj) && !(should_stop)), {
+          while((j < nj) && !(should_stop), {
             match(
               export_args.get(j),
               .None => {
@@ -255,7 +255,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             tuple_args := match(exclude_expr,.FnCall(_, _, ta, _, _) => ta, _ => ArrayList(AstExpr).new());
                             (k : usize) = usize(0);
                             nk := tuple_args.len();
-                            while(runtime((k < nk) && !(should_stop)), {
+                            while((k < nk) && !(should_stop), {
                               match(
                                 tuple_args.get(k),
                                 .None => {
@@ -320,7 +320,7 @@ evaluate_anonymous_module_begin_exprs :: (
                       .ModuleT(_, _, efls, efts) => {
                         (k : usize) = usize(0);
                         nk := efls.len();
-                        while(runtime((k < nk) && !(should_stop)), {
+                        while((k < nk) && !(should_stop), {
                           ext_label := match(efls.get(k),.Some(l) => l,.None => String.from(""));
                           ext_type := match(efts.get(k),.Some(t) => t,.None => TypeValue.Unit);
                           if(!(_is_excluded_label(excluded_labels, ext_label.as_str())), {

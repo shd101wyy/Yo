@@ -154,7 +154,7 @@ generate_step_expression :: (fn(step_expr : AstExpr, ctx : CodegenContext) -> St
         .Atom(_, _) => (),
         .FnCall(_, _, args, _, _) => {
           i := usize(0);
-          while(runtime(i < args.len()), {
+          while(i < args.len(), {
             match(
               args.get(i),
               .None => (),
@@ -193,7 +193,7 @@ emit_loop_body_deferred_drops :: (fn(body_expr : AstExpr, indent : String, ctx :
       .None => (),
       .Some(drop_exprs) => {
         i := usize(0);
-        while(runtime(i < drop_exprs.len()), {
+        while(i < drop_exprs.len(), {
           match(
             drop_exprs.get(i),
             .None => (),
@@ -219,7 +219,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, ctx : CodegenCon
       .Atom(_, _) => (),
       .FnCall(_, _, args, _, _) => {
         i := usize(0);
-        while(runtime(i < args.len()), {
+        while(i < args.len(), {
           match(
             args.get(i),
             .None => (),
@@ -279,7 +279,7 @@ generate_comptime_unrolled_bodies :: (
       .None => false,
       .Some(bodies) => {
         i := usize(0);
-        while(runtime(i < bodies.len()), {
+        while(i < bodies.len(), {
           match(
             bodies.get(i),
             .None => (),

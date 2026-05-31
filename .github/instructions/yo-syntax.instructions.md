@@ -428,7 +428,7 @@ walk_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
     stack := ArrayList(Path).new();
     { stack.push(root); };
-    while(runtime((stack.len() > usize(0))), {
+    while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
       entries := ctx.io.await(read_dir(cur, ctx.io), ctx.io);
       // process entries, push subdirs to stack…
@@ -517,6 +517,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - `unit` is a type not value, `()` is the unit value.
 - There is no `loop` function. Use `while(true, body)` for a runtime infinite loop.
 - **`while(cond, body)` is always a runtime loop**, regardless of whether `cond` is compile-time known.
+- **Do NOT wrap the `while` condition in `runtime(...)`** — `while(runtime(cond), body)` is redundant because the condition is already evaluated at runtime by default. Write `while(cond, body)`. (`runtime(...)` only matters in a `::`/comptime context to force runtime evaluation; a `while` condition is never that context.)
 - **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`unwind`).
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
@@ -1046,7 +1047,7 @@ increment :: (fn(ref(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i3
 ### `invariant(...)` is the FIRST statement of a `while` body
 
 ```rust
-while(runtime(i < n), {
+while(i < n, {
   invariant((i >= i32(0)) && (i <= n), acc >= i32(0)); // must be first
   i = (i + i32(1));
   acc = (acc + i);

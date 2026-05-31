@@ -145,7 +145,7 @@ _module_type_contains_ctl_field :: (
       n := field_types.len();
       (fi : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((fi < n) && (!(found))), {
+      while((fi < n) && (!(found)), {
         field_ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
         (field_val_opt : Option(EvalValue)) = match(
           module_val,
@@ -228,7 +228,7 @@ generate_deferred_drop_expressions :: (
   deferred := ArrayList(AstExpr).new();
   (cur_env : Environment) = env;
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       variables_to_drop.get(i),
       .Some(variable) => {
@@ -279,7 +279,7 @@ validate_function_return_type :: (
   some_types := get_all_some_types(return_type);
   n := some_types.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       some_types.get(i),
       .None => (),
@@ -302,7 +302,7 @@ validate_function_return_type :: (
                 (found_transitively : bool) = false;
                 (j : usize) = usize(0);
                 nv := all_vars.len();
-                while(runtime((j < nv) && !(found_transitively)), {
+                while((j < nv) && !(found_transitively), {
                   match(
                     all_vars.get(j),
                     .Some(var) => {
@@ -314,7 +314,7 @@ validate_function_return_type :: (
                             .TypeVal(ty_box) => {
                               transitive := get_all_some_types(ty_box.*);
                               (k : usize) = usize(0);
-                              while(runtime((k < transitive.len()) && !(found_transitively)), {
+                              while((k < transitive.len()) && !(found_transitively), {
                                 match(
                                   transitive.get(k),
                                   .Some(tst) => {
@@ -569,7 +569,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
   n := bytes.len();
   result := String.new();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
     is_alnum := (
       ((b >= u8(97)) && (b <= u8(122))) || // a-z
@@ -634,7 +634,7 @@ compute_compile_time_signature :: (
       n_fl := fl.len();
       n_fa := arg_values.forall_args.len();
       (fpi : usize) = usize(0);
-      while(runtime(fpi < n_fl), {
+      while(fpi < n_fl, {
         val_opt := if(
           fpi < n_fa,
           match(
@@ -681,7 +681,7 @@ compute_compile_time_signature :: (
     .Some(impl_args) => {
       n_ia := impl_args.len();
       (iai : usize) = usize(0);
-      while(runtime(iai < n_ia), {
+      while(iai < n_ia, {
         sig_str := match(
           impl_args.get(iai),
           .Some(ae) => match(
@@ -701,7 +701,7 @@ compute_compile_time_signature :: (
   // with the same compile-time args but different concrete closure capture types.
   n_rt := runtime_param_tys.len();
   (rti : usize) = usize(0);
-  while(runtime(rti < n_rt), {
+  while(rti < n_rt, {
     ptype := match(runtime_param_tys.get(rti),.Some(t) => t,.None => t_unit());
     if(type_contains_some_type(ptype), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_to_string(ptype))}`;
@@ -713,7 +713,7 @@ compute_compile_time_signature :: (
   result := String.new();
   n_parts := parts.len();
   (pi : usize) = usize(0);
-  while(runtime(pi < n_parts), {
+  while(pi < n_parts, {
     if(pi > usize(0), {
       result.push_str("_");
     });
@@ -745,7 +745,7 @@ _find_specialization_cache :: (
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
-  while(runtime((ei < n_entries) && result.is_none()), {
+  while((ei < n_entries) && result.is_none(), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
     match(
       entry_opt,
@@ -753,7 +753,7 @@ _find_specialization_cache :: (
         if(entry.func_id.as_str() == func_id, {
           n_caches := entry.caches.len();
           (ci : usize) = usize(0);
-          while(runtime((ci < n_caches) && result.is_none()), {
+          while((ci < n_caches) && result.is_none(), {
             cache_opt := entry.caches.get(ci);
             match(
               cache_opt,
@@ -764,7 +764,7 @@ _find_specialization_cache :: (
                 ct_match := (n_ct == n_cur_ct);
                 if(ct_match, {
                   (cti : usize) = usize(0);
-                  while(runtime((cti < n_ct) && ct_match), {
+                  while((cti < n_ct) && ct_match, {
                     cached_v := match(cache.compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
                     current_v := match(compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
                     if(!(eval_value_eq(cached_v, current_v)), {
@@ -781,7 +781,7 @@ _find_specialization_cache :: (
                   if(rt_match, {
                     _ := caller_env;
                     (rti : usize) = usize(0);
-                    while(runtime((rti < n_rt) && rt_match), {
+                    while((rti < n_rt) && rt_match, {
                       cached_ty := match(cache.runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
                       current_ty := match(runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
                       if(!(are_types_compatible_exact(cached_ty, current_ty)), {
@@ -828,7 +828,7 @@ _store_specialization_cache :: (
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (found : bool) = false;
-  while(runtime((ei < n_entries) && !(found)), {
+  while((ei < n_entries) && !(found), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
     match(
       entry_opt,
@@ -897,7 +897,7 @@ create_specialized_function_inline :: (
       // Add forall type arguments (always compile-time)
       (fai : usize) = usize(0);
       n_fa := arg_values.forall_args.len();
-      while(runtime(fai < n_fa), {
+      while(fai < n_fa, {
         match(
           arg_values.forall_args.get(fai),
           .Some(ae) => match(
@@ -917,7 +917,7 @@ create_specialized_function_inline :: (
         .Some(impl_args) => {
           (iai : usize) = usize(0);
           n_ia := impl_args.len();
-          while(runtime(iai < n_ia), {
+          while(iai < n_ia, {
             match(
               impl_args.get(iai),
               .Some(ae) => match(
@@ -939,7 +939,7 @@ create_specialized_function_inline :: (
       // This means we track all regular arg types for cache differentiation.
       (ai : usize) = usize(0);
       n_a := arg_values.args.len();
-      while(runtime(ai < n_a), {
+      while(ai < n_a, {
         match(
           arg_values.args.get(ai),
           .Some(ae) => {
@@ -1011,7 +1011,7 @@ create_specialized_function_inline :: (
           // Re-use existing captures from original function
           (oci : usize) = usize(0);
           n_oc := cap_names.len();
-          while(runtime(oci < n_oc), {
+          while(oci < n_oc, {
             cn := match(cap_names.get(oci),.Some(s) => s,.None => String.new());
             ct := match(cap_tys.get(oci),.Some(t) => t,.None => t_unit());
             cv := match(cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal);
@@ -1023,7 +1023,7 @@ create_specialized_function_inline :: (
           // Add compile-time args as additional captures (forall type bindings)
           (fai2 : usize) = usize(0);
           n_fl := match(func_type,.Func(fl, _, _, _, _, _, _, _, _, _) => fl.len(), _ => usize(0));
-          while(runtime(fai2 < n_fl), {
+          while(fai2 < n_fl, {
             label := match(
               func_type,
               .Func(fl, _, _, _, _, _, _, _, _, _) => {
@@ -1206,13 +1206,13 @@ evaluate_ctl_function_body_inline :: (
   // -------------------------------------------------------------------------
   n_caller_frames := caller_env.frames.len();
   (cfi : usize) = usize(0);
-  while(runtime(cfi < n_caller_frames), {
+  while(cfi < n_caller_frames, {
     match(
       caller_env.frames.get(cfi),
       .Some(caller_frame) => {
         n_vars := caller_frame.variables.len();
         (vi : usize) = usize(0);
-        while(runtime(vi < n_vars), {
+        while(vi < n_vars, {
           match(
             caller_frame.variables.get(vi),
             .Some(caller_var) => {
@@ -1266,7 +1266,7 @@ evaluate_ctl_function_body_inline :: (
   );
   n_forall := forall_labels.len();
   (fi2 : usize) = usize(0);
-  while(runtime(fi2 < n_forall), {
+  while(fi2 < n_forall, {
     fl_label := match(forall_labels.get(fi2),.Some(s) => s,.None => String.from(""));
     fl_ty := match(forall_types_list.get(fi2),.Some(t) => t,.None => TypeValue.Unit);
     ctl_tok := synthetic_token(fl_label.clone(), specialized_env.module_path);
@@ -1339,7 +1339,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_cap_vals := ArrayList(EvalValue).new();
   (oci : usize) = usize(0);
   n_oc := orig_cap_names.len();
-  while(runtime(oci < n_oc), {
+  while(oci < n_oc, {
     ctl_cap_names.push(match(orig_cap_names.get(oci),.Some(s) => s,.None => String.new()));
     ctl_cap_tys.push(match(orig_cap_tys.get(oci),.Some(t) => t,.None => TypeValue.Unit));
     ctl_cap_vals.push(match(orig_cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal));
@@ -1347,7 +1347,7 @@ evaluate_ctl_function_body_inline :: (
   });
   // Add forall type bindings as extra captures.
   (fi3 : usize) = usize(0);
-  while(runtime(fi3 < n_forall), {
+  while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3),.Some(s) => s,.None => String.new());
     ft3 := match(forall_types_list.get(fi3),.Some(t) => t,.None => TypeValue.Unit);
     ctl_cap_names.push(fl3.clone());
@@ -1458,7 +1458,7 @@ try_to_call_function_with_arguments :: (
       adjusted_args := ArrayList(AstExpr).new();
       n_total := arg_exprs.len();
       (ai : usize) = regular_start;
-      while(runtime(ai < n_total), {
+      while(ai < n_total, {
         a := match(arg_exprs.get(ai),.Some(x) => x,.None => make_err_expr());
         if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
           using_args_opt =.Some(_h_get_fn_call_args(a));
@@ -1492,7 +1492,7 @@ try_to_call_function_with_arguments :: (
       if(call_param_defaults.len() == n_params, {
         (nr : usize) = usize(0);
         (ofi : usize) = usize(0);
-        while(runtime(ofi < n_params), {
+        while(ofi < n_params, {
           match(
             call_param_defaults.get(ofi),
             .Some(d) => if(d.is_none(), {
@@ -1531,7 +1531,7 @@ try_to_call_function_with_arguments :: (
             fenv := Environment.new(caller_env.module_path);
             (ci : usize) = usize(0);
             n_cap := cn.len();
-            while(runtime(ci < n_cap), {
+            while(ci < n_cap, {
               cname := match(cn.get(ci),.Some(s) => s,.None => String.from(""));
               cty := match(ct.get(ci),.Some(t) => t,.None => t_unit());
               cval := match(
@@ -1567,7 +1567,7 @@ try_to_call_function_with_arguments :: (
       // ----------------------------------------------------------------
       n_forall := fl.len();
       (fpi : usize) = usize(0);
-      while(runtime(fpi < n_forall), {
+      while(fpi < n_forall, {
         flabel := match(fl.get(fpi),.Some(l) => l,.None => String.from(""));
         ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
@@ -1625,7 +1625,7 @@ try_to_call_function_with_arguments :: (
       (callee_env_m : Environment) = callee_env;
       (caller_env_m : Environment) = caller_env;
       (pi : usize) = usize(0);
-      while(runtime(pi < n_params), {
+      while(pi < n_params, {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
         ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
         // Omitted optional parameter (no corresponding argument): bind it
@@ -1693,7 +1693,7 @@ try_to_call_function_with_arguments :: (
       // Step 8: Extract resolved forall values from callee_env.
       // ----------------------------------------------------------------
       (fpi2 : usize) = usize(0);
-      while(runtime(fpi2 < n_forall), {
+      while(fpi2 < n_forall, {
         flabel2 := match(fl.get(fpi2),.Some(l) => l,.None => String.from(""));
         ftype2 := match(ft.get(fpi2),.Some(t) => t,.None => t_unit());
         vars2 := get_variables_from_env(callee_env_m, flabel2);
@@ -1754,7 +1754,7 @@ try_to_call_function_with_arguments :: (
       implicit_arg_vals := ArrayList(ArgEntry).new();
       n_impl := il.len();
       (impl_i : usize) = usize(0);
-      while(runtime(impl_i < n_impl), {
+      while(impl_i < n_impl, {
         impl_label := match(il.get(impl_i),.Some(l) => l,.None => String.from(""));
         impl_type := match(it.get(impl_i),.Some(t) => t,.None => t_unit());
         resolved_impl_type := evaluate_function_parameter_type_again(impl_type, callee_env_m, ctx);
@@ -1830,7 +1830,7 @@ try_to_call_function_with_arguments :: (
           (given_ty : TypeValue) = t_unit();
           (given_name : String) = String.from("");
           (vi : usize) = usize(0);
-          while(runtime((vi < n_cenv) && !(found_given)), {
+          while((vi < n_cenv) && !(found_given), {
             gv_opt := all_cenv_vars.get(vi);
             match(
               gv_opt,

@@ -295,7 +295,7 @@ handle_begin :: (
         result_so_far.push_str("  ");
         result_so_far
       };
-      while(runtime(i < (n - usize(1))), {
+      while(i < (n - usize(1)), {
         match(
           args.get(i),
           .None => (),
@@ -348,7 +348,7 @@ emit_cond_as_if_else :: (
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       args.get(i),
       .None => {
@@ -485,7 +485,7 @@ emit_cond_as_return_if_else :: (
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       args.get(i),
       .None => {
@@ -652,7 +652,7 @@ handle_cond :: (
       has_stmt_body := {
         (k : usize) = usize(0);
         (found : bool) = false;
-        while(runtime((k < n) && (!(found))), {
+        while((k < n) && (!(found)), {
           match(
             args.get(k),
             .None => (),
@@ -675,7 +675,7 @@ handle_cond :: (
       has_begin_body := {
         (bk : usize) = usize(0);
         (found_begin : bool) = false;
-        while(runtime((bk < n) && (!(found_begin))), {
+        while((bk < n) && (!(found_begin)), {
           match(
             args.get(bk),
             .None => (),
@@ -720,7 +720,7 @@ handle_cond :: (
             true => usize(0)
           );
           (done : bool) = (n <= usize(1));
-          while(runtime(!(done)), {
+          while(!(done), {
             match(
               acc,
               .None => {
@@ -890,7 +890,7 @@ emit_match_value_as_if_else :: (
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       arms.get(i),
       .None => {
@@ -1017,7 +1017,7 @@ handle_match_value :: (
             has_stmt := {
               (k : usize) = usize(1);
               (found : bool) = false;
-              while(runtime((k < n) && (!(found))), {
+              while((k < n) && (!(found)), {
                 match(
                   args.get(k),
                   .None => (),
@@ -1042,7 +1042,7 @@ handle_match_value :: (
                 // Build arm list from args[1..]
                 arms := ArrayList(AstExpr).new();
                 (k : usize) = usize(1);
-                while(runtime(k < n), {
+                while(k < n, {
                   match(
                     args.get(k),
                     .None => (),
@@ -1076,7 +1076,7 @@ handle_match_value :: (
                   true => usize(0)
                 );
                 (done : bool) = (arm_count <= usize(1));
-                while(runtime(!(done)), {
+                while(!(done), {
                   match(
                     acc,
                     .None => {
@@ -1127,7 +1127,7 @@ _split_csv :: (fn(csv : str) -> ArrayList(String))({
   base_ptr := csv.ptr();
   (i : usize) = usize(0);
   (start : usize) = usize(0);
-  while(runtime(i <= n), {
+  while(i <= n, {
     is_sep := cond(
       (i == n) => true,
       true => (csv.bytes(i) == u8(44)) // 44 = ','
@@ -1247,7 +1247,7 @@ _extract_data_arm :: (
                   );
                   nba := pat_args.len();
                   (bi : usize) = usize(0);
-                  while(runtime(bi < nba), {
+                  while(bi < nba, {
                     match(
                       pat_args.get(bi),
                       .None => (),
@@ -1292,7 +1292,7 @@ _extract_data_arm :: (
                             ) => {
                               nc := bargs.len();
                               (ci : usize) = usize(0);
-                              while(runtime(ci < nc), {
+                              while(ci < nc, {
                                 match(
                                   bargs.get(ci),
                                   .None => (),
@@ -1469,7 +1469,7 @@ emit_simplified_some_binding_expr :: (
         .Atom(_, binding_func_tok2) => if(binding_func_tok2.value.as_str() == BK_ANON_STRUCT, {
           (i : usize) = usize(0);
           n := binding_args.len();
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               binding_args.get(i),
               .None => (),
@@ -1490,7 +1490,7 @@ build_struct_field_index_expr :: (fn(var_name : String, fields_csv : String, idx
     true => {
       result := String.from("(*(");
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         match(
           fields.get(i),
           .None => (),
@@ -1534,7 +1534,7 @@ emit_simplified_some_bindings :: (
         .FnCall(_, _, _, _, _) => {
           n := pat_args.len();
           (i : usize) = usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               pat_args.get(i),
               .None => (),
@@ -1572,7 +1572,7 @@ emit_option_null_if_else :: (
   (some_body_expr : Option(AstExpr)) = Option(AstExpr).None;
   (none_body_expr : Option(AstExpr)) = Option(AstExpr).None;
   (wild_body_expr : Option(AstExpr)) = Option(AstExpr).None;
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       args.get(i),
       .None => (),
@@ -1758,7 +1758,7 @@ handle_match_data :: (
           simplified_some_body := {
             (si : usize) = usize(1);
             (found_some : Option(AstExpr)) = Option(AstExpr).None;
-            while(runtime(can_simplify_some_match && ((si < n) && found_some.is_none())), {
+            while(can_simplify_some_match && ((si < n) && found_some.is_none()), {
               match(
                 args.get(si),
                 .None => (),
@@ -1810,7 +1810,7 @@ handle_match_data :: (
               (any_arm_registered : bool) = false;
               {
                 (ci : usize) = usize(1);
-                while(runtime((ci < n) && (!(any_arm_registered))), {
+                while((ci < n) && (!(any_arm_registered)), {
                   match(
                     args.get(ci),
                     .None => (),
@@ -1854,7 +1854,7 @@ handle_match_data :: (
                   temp := ctx.fresh_temp();
                   data_arms := ArrayList(DataArm).new();
                   (i : usize) = usize(1);
-                  while(runtime(i < n), {
+                  while(i < n, {
                     match(
                       args.get(i),
                       .None => (),
@@ -1948,7 +1948,7 @@ step_to_c_expr :: (
             result_s := String.new();
             (k : usize) = usize(0);
             (first : bool) = true;
-            while(runtime(k < sn), {
+            while(k < sn, {
               match(
                 sargs.get(k),
                 .None => (),
@@ -2762,7 +2762,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                         sb := String.new();
                         n_fn := fn_args.len();
                         (pi : usize) = usize(0);
-                        while(runtime(pi < n_fn), {
+                        while(pi < n_fn, {
                           match(
                             fn_args.get(pi),
                             .None => (),
@@ -2894,7 +2894,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                 tuple_ty := String.from("struct { ");
                 (ti : usize) = usize(0);
                 (tuple_ok : bool) = true;
-                while(runtime((ti < n_tuple) && tuple_ok), {
+                while((ti < n_tuple) && tuple_ok, {
                   match(
                     func_args.get(ti),
                     .None => {
@@ -3165,7 +3165,7 @@ expr_all_ids_known :: (fn(expr : AstExpr, ctx : CodegenContext) -> bool)(
           (ok2i : bool) = recur(fn2.*, ctx);
           n2 := args2.len();
           (i2 : usize) = usize(0);
-          while(runtime((i2 < n2) && ok2i), {
+          while((i2 < n2) && ok2i, {
             match(
               args2.get(i2),
               .None => {
@@ -3731,7 +3731,7 @@ struct_template_field_names_csv :: (fn(expr : AstExpr) -> Option(String))(
             n := struct_args.len();
             (i : usize) = usize(0);
             (ok : bool) = true;
-            while(runtime((i < n) && ok), {
+            while((i < n) && ok, {
               match(
                 struct_args.get(i),
                 .None => {
@@ -3841,7 +3841,7 @@ ensure_generic_struct_instance :: (fn(ctx : CodegenContext, type_app_expr : AstE
               field_types_csv := String.new();
               n := fields.len();
               (i : usize) = usize(0);
-              while(runtime(i < n), {
+              while(i < n, {
                 match(
                   fields.get(i),
                   .None => (),
@@ -3893,7 +3893,7 @@ generic_struct_constructor_to_c :: (
             n := args.len();
             (i : usize) = usize(0);
             (ok : bool) = true;
-            while(runtime((i < n) && ok), {
+            while((i < n) && ok, {
               match(
                 fields.get(i),
                 .None => {
@@ -4302,7 +4302,7 @@ anon_struct_type_to_c :: (fn(type_args : ArrayList(AstExpr)) -> Option(String))(
   result := String.from("struct { ");
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       type_args.get(i),
       .None => {
@@ -4417,7 +4417,7 @@ anon_struct_initializer_to_c :: (
   n := value_args.len();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       value_args.get(i),
       .None => {
@@ -4456,7 +4456,7 @@ struct_default_values_csv :: (
   result := String.new();
   n := type_args.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     if(i > usize(0), {
       result.push_str(",");
     });
@@ -4497,7 +4497,7 @@ struct_defaults_has_value :: (fn(defaults_csv : String) -> bool)({
   n := parts.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       parts.get(i),
       .None => (),
@@ -4534,7 +4534,7 @@ aggregate_initializer_to_c :: (
             n := agg_args.len();
             (i : usize) = usize(0);
             (ok : bool) = true;
-            while(runtime((i < n) && ok), {
+            while((i < n) && ok, {
               match(
                 agg_args.get(i),
                 .None => {
@@ -4628,7 +4628,7 @@ expr_contains_ident_name :: (fn(expr : AstExpr, name : str) -> bool)(
     .FnCall(_, func_box, args, _, _) => {
       (found : bool) = recur(func_box.*, name);
       (i : usize) = usize(0);
-      while(runtime((i < args.len()) && (!(found))), {
+      while((i < args.len()) && (!(found)), {
         match(
           args.get(i),
           .None => (),
@@ -4742,7 +4742,7 @@ simple_closure_capture_from_body :: (fn(body_expr : AstExpr, param_name : str) -
           true => {
             (i : usize) = usize(0);
             (result : Option(String)) = Option(String).None;
-            while(runtime((i < begin_args.len()) && match(result,.None => true,.Some(_) => false)), {
+            while((i < begin_args.len()) && match(result,.None => true,.Some(_) => false), {
               match(
                 begin_args.get(i),
                 .None => (),
@@ -4834,7 +4834,7 @@ simple_closure_capture_from_body_or_cond :: (fn(body_expr : AstExpr, param_name 
             true => {
               (i : usize) = usize(0);
               (result : Option(String)) = Option(String).None;
-              while(runtime((i < begin_args.len()) && match(result,.None => true,.Some(_) => false)), {
+              while((i < begin_args.len()) && match(result,.None => true,.Some(_) => false), {
                 match(
                   begin_args.get(i),
                   .None => (),
@@ -4849,7 +4849,7 @@ simple_closure_capture_from_body_or_cond :: (fn(body_expr : AstExpr, param_name 
                       );
                       if(is_cond_expr, {
                         (ci : usize) = usize(0);
-                        while(runtime((ci < cond_args.len()) && match(result,.None => true,.Some(_) => false)), {
+                        while((ci < cond_args.len()) && match(result,.None => true,.Some(_) => false), {
                           match(
                             cond_args.get(ci),
                             .None => (),
@@ -5253,7 +5253,7 @@ handle_define :: (
                   n_rf := rf_args.len();
                   (rf_i : usize) = usize(0);
                   (all_ok : bool) = true;
-                  while(runtime((rf_i < n_rf) && all_ok), {
+                  while((rf_i < n_rf) && all_ok, {
                     match(
                       rf_args.get(rf_i),
                       .None => {
@@ -5579,7 +5579,7 @@ handle_define :: (
                                   ib := String.from("{");
                                   (ib_i : usize) = usize(0);
                                   (ib_ok : bool) = true;
-                                  while(runtime((ib_i < ac_fn_args.len()) && ib_ok), {
+                                  while((ib_i < ac_fn_args.len()) && ib_ok, {
                                     match(
                                       ac_fn_args.get(ib_i),
                                       .None => {
@@ -5648,7 +5648,7 @@ handle_define :: (
                     init_il := String.from("{");
                     (il_i : usize) = usize(0);
                     (il_ok : bool) = true;
-                    while(runtime((il_i < n_il) && il_ok), {
+                    while((il_i < n_il) && il_ok, {
                       match(
                         il_fn_args.get(il_i),
                         .None => {
@@ -5735,7 +5735,7 @@ handle_define :: (
                         n_av := arr_fn_args.len();
                         (av_i : usize) = usize(0);
                         (av_ok : bool) = true;
-                        while(runtime((av_i < n_av) && av_ok), {
+                        while((av_i < n_av) && av_ok, {
                           match(
                             arr_fn_args.get(av_i),
                             .None => {
@@ -6295,7 +6295,7 @@ handle_define :: (
                     all_labeled := {
                       (la : bool) = (destr_args.len() > usize(0));
                       (lai : usize) = usize(0);
-                      while(runtime((lai < destr_args.len()) && la), {
+                      while((lai < destr_args.len()) && la, {
                         match(
                           destr_args.get(lai),
                           .None => {
@@ -6346,7 +6346,7 @@ handle_define :: (
                         (ok_destr : bool) = true;
                         // Track bound field names for spread (`...`) support.
                         (bound_fields : ArrayList(String)) = ArrayList(String).new();
-                        while(runtime((di < nd) && ok_destr), {
+                        while((di < nd) && ok_destr, {
                           match(
                             destr_args.get(di),
                             .None => {
@@ -6388,7 +6388,7 @@ handle_define :: (
                                               .Some(all_fields_csv) => {
                                                 all_fields := _split_csv(all_fields_csv.as_str());
                                                 (af_i : usize) = usize(0);
-                                                while(runtime(af_i < all_fields.len()), {
+                                                while(af_i < all_fields.len(), {
                                                   match(
                                                     all_fields.get(af_i),
                                                     .None => (),
@@ -6396,7 +6396,7 @@ handle_define :: (
                                                       // Skip if already bound.
                                                       (already_bound : bool) = false;
                                                       (bf_i : usize) = usize(0);
-                                                      while(runtime((bf_i < bound_fields.len()) && (!(already_bound))), {
+                                                      while((bf_i < bound_fields.len()) && (!(already_bound)), {
                                                         match(
                                                           bound_fields.get(bf_i),
                                                           .None => (),
@@ -6654,7 +6654,7 @@ anon_typeof_receiver_name :: (fn(expr : AstExpr) -> Option(String))(
 replace_all_string :: (fn(input : String, needle : str, replacement : String) -> String)({
   result := input;
   needle_string := String.from(needle);
-  while(runtime(result.contains(needle_string)), {
+  while(result.contains(needle_string), {
     result = result.replace(needle_string, replacement);
   });
   result
@@ -6913,7 +6913,7 @@ _split_c_params :: (fn(params_str : str) -> ArrayList(String))({
     true => {
       s := String.from(params_str);
       (start : usize) = usize(0);
-      while(runtime(start <= total), {
+      while(start <= total, {
         sep_opt := s.index_of(String.from(","), start);
         sep := match(sep_opt,.Some(p) => p,.None => total);
         piece := s.substring(start, sep);
@@ -6921,7 +6921,7 @@ _split_c_params :: (fn(params_str : str) -> ArrayList(String))({
         trimmed := {
           (ts : usize) = usize(0);
           pl := piece.len();
-          while(runtime(ts < pl), {
+          while(ts < pl, {
             match(
               piece.at(ts),
               .None => {
@@ -6964,7 +6964,7 @@ first_captured_ident_name :: (
     .FnCall(_, capture_func_box, capture_args, _, _) => {
       found := recur(capture_func_box.*, param_name, ctx);
       (capture_i : usize) = usize(0);
-      while(runtime((capture_i < capture_args.len()) && match(found,.None => true,.Some(_) => false)), {
+      while((capture_i < capture_args.len()) && match(found,.None => true,.Some(_) => false), {
         match(
           capture_args.get(capture_i),
           .None => (),
@@ -7159,7 +7159,7 @@ lift_non_capturing_lambda :: (
                     true => n_pn
                   );
                   (pi : usize) = usize(0);
-                  while(runtime(pi < n_params), {
+                  while(pi < n_params, {
                     if(pi > usize(0), {
                       sb.push_str(", ");
                     });
@@ -7176,7 +7176,7 @@ lift_non_capturing_lambda :: (
                   // Register params temporarily so body can use them
                   {
                     (ri : usize) = usize(0);
-                    while(runtime(ri < n_params), {
+                    while(ri < n_params, {
                       p_ty2 := match(param_types.get(ri),.Some(s) => s,.None => String.from("void*"));
                       p_nm2 := match(param_names.get(ri),.Some(s) => s,.None => String.from("_p"));
                       ctx.register_var_type(p_nm2.as_str(), p_ty2.as_str());
@@ -7217,7 +7217,7 @@ gen_arg_list :: (
   result := String.new();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       args.get(i),
       .None => {
@@ -7303,7 +7303,7 @@ handle_regular_call :: (
           (i_inline : usize) = usize(0);
           (n_inline : usize) = args.len();
           (ok_inline : bool) = true;
-          while(runtime((i_inline < n_inline) && ok_inline), {
+          while((i_inline < n_inline) && ok_inline, {
             match(
               args.get(i_inline),
               .None => {
@@ -7746,7 +7746,7 @@ handle_regular_call :: (
           result_args := String.new();
           (i_rc : usize) = usize(0);
           (ok_rc : bool) = true;
-          while(runtime((i_rc < n_rc) && ok_rc), {
+          while((i_rc < n_rc) && ok_rc, {
             match(
               args.get(i_rc),
               .None => {
@@ -8813,7 +8813,7 @@ handle_method_call :: (
                 result.push_str(" = {");
                 (ai : usize) = usize(0);
                 (ok2 : bool) = true;
-                while(runtime((ai < na) && ok2), {
+                while((ai < na) && ok2, {
                   match(
                     args.get(ai),
                     .None => {
@@ -9576,7 +9576,7 @@ gen_anon_struct_compound :: (
   all_labeled_f := {
     (al : bool) = (n > usize(0));
     (ali : usize) = usize(0);
-    while(runtime((ali < n) && al), {
+    while((ali < n) && al, {
       match(
         struct_args.get(ali),
         .None => {
@@ -9611,7 +9611,7 @@ gen_anon_struct_compound :: (
   all_bare_idents := {
     (ok_f : bool) = true;
     (ii : usize) = usize(0);
-    while(runtime((ii < n) && ok_f), {
+    while((ii < n) && ok_f, {
       match(
         struct_args.get(ii),
         .None => {
@@ -9638,7 +9638,7 @@ gen_anon_struct_compound :: (
   result.push_str("){");
   (i2 : usize) = usize(0);
   (ok2 : bool) = true;
-  while(runtime((i2 < n) && ok2), {
+  while((i2 < n) && ok2, {
     match(
       struct_args.get(i2),
       .None => {
@@ -9840,7 +9840,7 @@ handle_assignment :: (
                                               init_rv := String.from("{");
                                               (rvi : usize) = usize(0);
                                               (rv_ok : bool) = true;
-                                              while(runtime((rvi < n_rv) && rv_ok), {
+                                              while((rvi < n_rv) && rv_ok, {
                                                 match(
                                                   rhs_arr_args.get(rvi),
                                                   .None => {
@@ -10185,7 +10185,7 @@ handle_assignment :: (
                         n_ala := ala_args.len();
                         (ala_i : usize) = usize(0);
                         (ala_ok : bool) = true;
-                        while(runtime((ala_i < n_ala) && ala_ok), {
+                        while((ala_i < n_ala) && ala_ok, {
                           match(
                             ala_args.get(ala_i),
                             .None => {
@@ -10443,7 +10443,7 @@ handle_assignment :: (
                                       (nt_fnames : ArrayList(String)) = ArrayList(String).new();
                                       (nt_fctypes : ArrayList(String)) = ArrayList(String).new();
                                       (nti : usize) = usize(0);
-                                      while(runtime((nti < n_nt) && nt_ok), {
+                                      while((nti < n_nt) && nt_ok, {
                                         match(
                                           nt_fa.get(nti),
                                           .None => {
@@ -10520,7 +10520,7 @@ handle_assignment :: (
                                           ctx.emitter.emit_string(indent);
                                           ctx.emitter.emit("struct { ");
                                           (pi : usize) = usize(0);
-                                          while(runtime(pi < n_nt), {
+                                          while(pi < n_nt, {
                                             match(
                                               nt_fctypes.get(pi),
                                               .None => (),
@@ -10534,7 +10534,7 @@ handle_assignment :: (
                                             pi = (pi + usize(1));
                                           });
                                           (ni2 : usize) = usize(0);
-                                          while(runtime(ni2 < n_nt), {
+                                          while(ni2 < n_nt, {
                                             match(
                                               nt_fctypes.get(ni2),
                                               .None => (),
@@ -10556,7 +10556,7 @@ handle_assignment :: (
                                           ctx.emitter.emit(" = {");
                                           // ._0 = tmp._0, ._1 = tmp._1, ...
                                           (ii : usize) = usize(0);
-                                          while(runtime(ii < n_nt), {
+                                          while(ii < n_nt, {
                                             if(ii > usize(0), {
                                               ctx.emitter.emit(", ");
                                             });
@@ -10570,7 +10570,7 @@ handle_assignment :: (
                                           });
                                           // .a = tmp._0, .b = tmp._1, ...
                                           (ii2 : usize) = usize(0);
-                                          while(runtime(ii2 < n_nt), {
+                                          while(ii2 < n_nt, {
                                             ctx.emitter.emit(", .");
                                             match(
                                               nt_fnames.get(ii2),
@@ -10855,7 +10855,7 @@ all_labeled_args :: (fn(args : ArrayList(AstExpr)) -> bool)({
     true => {
       (all : bool) = true;
       (i : usize) = usize(0);
-      while(runtime((i < n) && all), {
+      while((i < n) && all, {
         match(
           args.get(i),
           .None => {
@@ -10912,7 +10912,7 @@ handle_struct_constructor :: (
   (all_ok : bool) = true;
   (first : bool) = true;
   provided_fields := ArrayList(String).new();
-  while(runtime((i < n) && all_ok), {
+  while((i < n) && all_ok, {
     match(
       args.get(i),
       .None => {
@@ -10980,7 +10980,7 @@ handle_struct_constructor :: (
             field_names := _split_csv(fields_csv.as_str());
             n_defaults := default_values.len();
             (di : usize) = usize(0);
-            while(runtime(di < n_defaults), {
+            while(di < n_defaults, {
               match(
                 default_values.get(di),
                 .None => (),
@@ -10993,7 +10993,7 @@ handle_struct_constructor :: (
                       .Some(default_field_name) => {
                         (already_provided : bool) = false;
                         (pi : usize) = usize(0);
-                        while(runtime((pi < provided_fields.len()) && (!(already_provided))), {
+                        while((pi < provided_fields.len()) && (!(already_provided)), {
                           match(
                             provided_fields.get(pi),
                             .None => (),
@@ -11151,7 +11151,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           // First pass: collect field names and val codes
           field_names_anon := ArrayList(String).new();
           field_vals_anon := ArrayList(String).new();
-          while(runtime((ai_anon < n_anon) && ok_anon), {
+          while((ai_anon < n_anon) && ok_anon, {
             match(
               args.get(ai_anon),
               .None => {
@@ -11200,7 +11200,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
               // Build struct type + initializer (or just initializer for named type)
               if(!(use_named_ty_anon), {
                 (bi : usize) = usize(0);
-                while(runtime(bi < n_anon), {
+                while(bi < n_anon, {
                   bi = (bi + usize(1));
                   match(
                     field_vals_anon.get(bi - usize(1)),
@@ -11221,7 +11221,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                 result_anon.push_str("}){ ");
               });
               (ci : usize) = usize(0);
-              while(runtime(ci < n_anon), {
+              while(ci < n_anon, {
                 ci = (ci + usize(1));
                 if(ci > usize(1), {
                   result_anon.push_str(", ");
@@ -11262,7 +11262,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                   n_sh := args.len();
                   (ok_sh : bool) = true;
                   (shi : usize) = usize(0);
-                  while(runtime((shi < n_sh) && ok_sh), {
+                  while((shi < n_sh) && ok_sh, {
                     match(
                       args.get(shi),
                       .None => {
@@ -11301,7 +11301,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (fi_sh : usize) = usize(0);
           // Collect field names (all identifiers)
           field_names_sh := ArrayList(String).new();
-          while(runtime(fi_sh < n_sh2), {
+          while(fi_sh < n_sh2, {
             fi_sh = (fi_sh + usize(1));
             match(
               args.get(fi_sh - usize(1)),
@@ -11317,7 +11317,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           });
           if(!(use_named_ty_sh), {
             (gi_sh : usize) = usize(0);
-            while(runtime(gi_sh < n_sh2), {
+            while(gi_sh < n_sh2, {
               gi_sh = (gi_sh + usize(1));
               match(
                 field_names_sh.get(gi_sh - usize(1)),
@@ -11334,7 +11334,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             result_sh.push_str("}){ ");
           });
           (hi_sh : usize) = usize(0);
-          while(runtime(hi_sh < n_sh2), {
+          while(hi_sh < n_sh2, {
             hi_sh = (hi_sh + usize(1));
             if(hi_sh > usize(1), {
               result_sh.push_str(", ");
@@ -11396,7 +11396,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                   field_list := _split_csv(fcsv.as_str());
                   nflds := field_list.len();
                   (fi_open : usize) = usize(0);
-                  while(runtime(fi_open < nflds), {
+                  while(fi_open < nflds, {
                     fi_open = (fi_open + usize(1));
                     match(
                       field_list.get(fi_open - usize(1)),
@@ -11861,7 +11861,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             n_args2 := args.len();
             (ai : usize) = usize(0);
             (args_ok : bool) = true;
-            while(runtime((ai < n_args2) && args_ok), {
+            while((ai < n_args2) && args_ok, {
               match(
                 args.get(ai),
                 .None => {
@@ -11888,7 +11888,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
               .Some(defaults_csv2) => {
                 default_values2 := _split_csv(defaults_csv2.as_str());
                 n_defaults2 := default_values2.len();
-                while(runtime((ai < n_defaults2) && args_ok), {
+                while((ai < n_defaults2) && args_ok, {
                   match(
                     default_values2.get(ai),
                     .None => (),
@@ -12176,7 +12176,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             (i_meta : usize) = usize(0);
             (n_meta : usize) = args.len();
             (ok_meta : bool) = true;
-            while(runtime((i_meta < n_meta) && ok_meta), {
+            while((i_meta < n_meta) && ok_meta, {
               match(
                 args.get(i_meta),
                 .None => {
@@ -12338,7 +12338,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                               true => {
                                 (has_sl : bool) = false;
                                 (sli : usize) = usize(0);
-                                while(runtime((sli < chk_args.len()) && (!(has_sl))), {
+                                while((sli < chk_args.len()) && (!(has_sl)), {
                                   match(
                                     chk_args.get(sli),
                                     .None => (),
@@ -12601,7 +12601,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                       init_il2 := String.from("{");
                       (il2_i : usize) = usize(0);
                       (il2_ok : bool) = true;
-                      while(runtime((il2_i < n_il2) && il2_ok), {
+                      while((il2_i < n_il2) && il2_ok, {
                         match(
                           il_args2.get(il2_i),
                           .None => {

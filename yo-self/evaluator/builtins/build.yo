@@ -275,13 +275,13 @@ impl(
     new_steps := ArrayList(BuildStep).new();
     i := usize(0);
     n := self.steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       step := self.steps(i);
       if(step.name == String.from(step_name), {
         already := false;
         j := usize(0);
         m := step.dependency_names.len();
-        while(runtime(j < m), {
+        while(j < m, {
           if(step.dependency_names(j) == dep_name, {
             already = true;
           });
@@ -312,7 +312,7 @@ impl(
     already := false;
     i := usize(0);
     n := self.dependency_artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       r := self.dependency_artifacts(i);
       if((r.dependency_name == ref.dependency_name) && (r.artifact_name == ref.artifact_name), {
         already = true;
@@ -329,7 +329,7 @@ impl(
   register_module : (fn(ref(self) : Self, entry : BuildModuleEntry) -> unit)({
     i := usize(0);
     n := self.modules.len();
-    while(runtime(i < n), {
+    while(i < n, {
       if(self.modules(i).name == entry.name, return(()));
       i = (i + usize(1));
     });
@@ -340,13 +340,13 @@ impl(
     new_artifacts := ArrayList(BuildArtifact).new();
     i := usize(0);
     n := self.artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       art := self.artifacts(i);
       if(art.name == String.from(artifact_name), {
         already := false;
         j := usize(0);
         m := art.linked_artifacts.len();
-        while(runtime(j < m), {
+        while(j < m, {
           if(art.linked_artifacts(j) == library_name, {
             already = true;
           });
@@ -370,7 +370,7 @@ impl(
   find_artifact : (fn(ref(self) : Self, name : str) -> Option(BuildArtifact))({
     i := usize(0);
     n := self.artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       a := self.artifacts(i);
       if(a.name == String.from(name), return(Option(BuildArtifact).Some(a)));
       i = (i + usize(1));
@@ -380,7 +380,7 @@ impl(
   find_test : (fn(ref(self) : Self, name : str) -> Option(BuildTestSuite))({
     i := usize(0);
     n := self.test_suites.len();
-    while(runtime(i < n), {
+    while(i < n, {
       t := self.test_suites(i);
       if(t.name == String.from(name), return(Option(BuildTestSuite).Some(t)));
       i = (i + usize(1));
@@ -390,7 +390,7 @@ impl(
   find_run_step : (fn(ref(self) : Self, name : str) -> Option(BuildRunStep))({
     i := usize(0);
     n := self.run_steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       r := self.run_steps(i);
       if(r.name == String.from(name), return(Option(BuildRunStep).Some(r)));
       i = (i + usize(1));
@@ -400,7 +400,7 @@ impl(
   find_step : (fn(ref(self) : Self, name : str) -> Option(BuildStep))({
     i := usize(0);
     n := self.steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       s := self.steps(i);
       if(s.name == String.from(name), return(Option(BuildStep).Some(s)));
       i = (i + usize(1));
@@ -410,7 +410,7 @@ impl(
   find_documentation : (fn(ref(self) : Self, name : str) -> Option(BuildDocConfig))({
     i := usize(0);
     n := self.doc_configs.len();
-    while(runtime(i < n), {
+    while(i < n, {
       d := self.doc_configs(i);
       if(d.name == String.from(name), return(Option(BuildDocConfig).Some(d)));
       i = (i + usize(1));
@@ -420,7 +420,7 @@ impl(
   find_module : (fn(ref(self) : Self, name : str) -> Option(BuildModuleEntry))({
     i := usize(0);
     n := self.modules.len();
-    while(runtime(i < n), {
+    while(i < n, {
       m := self.modules(i);
       if(m.name == String.from(name), return(Option(BuildModuleEntry).Some(m)));
       i = (i + usize(1));
@@ -430,7 +430,7 @@ impl(
   find_dependency : (fn(ref(self) : Self, name : str) -> Option(BuildGitDependency))({
     i := usize(0);
     n := self.dependencies.len();
-    while(runtime(i < n), {
+    while(i < n, {
       d := self.dependencies(i);
       if(d.name == String.from(name), return(Option(BuildGitDependency).Some(d)));
       i = (i + usize(1));
@@ -440,7 +440,7 @@ impl(
   find_path_dependency : (fn(ref(self) : Self, name : str) -> Option(BuildPathDependency))({
     i := usize(0);
     n := self.path_dependencies.len();
-    while(runtime(i < n), {
+    while(i < n, {
       d := self.path_dependencies(i);
       if(d.name == String.from(name), return(Option(BuildPathDependency).Some(d)));
       i = (i + usize(1));
@@ -450,7 +450,7 @@ impl(
   find_system_library : (fn(ref(self) : Self, name : str) -> Option(BuildSystemLibrary))({
     i := usize(0);
     n := self.system_libraries.len();
-    while(runtime(i < n), {
+    while(i < n, {
       l := self.system_libraries(i);
       if(l.name == String.from(name), return(Option(BuildSystemLibrary).Some(l)));
       i = (i + usize(1));
@@ -461,7 +461,7 @@ impl(
     names := ArrayList(String).new();
     i := usize(0);
     n := self.steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       names.push(self.steps(i).name);
       i = (i + usize(1));
     });
@@ -521,7 +521,7 @@ impl(
   _check_duplicate_artifact_name : (fn(ref(self) : Self, name : str, exn : Exception) -> unit)({
     i := usize(0);
     n := self.artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       a := self.artifacts(i);
       if(a.name == String.from(name), {
         kind_str := match(
@@ -564,7 +564,7 @@ _build_is_trial :: (
 )({
   (i : usize) = usize(0);
   (trial : bool) = false;
-  while(runtime((i < args.len()) && !(trial)), {
+  while((i < args.len()) && !(trial), {
     match(
       _build_arg_value(args, i, ctx),
       .None => {

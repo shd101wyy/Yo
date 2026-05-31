@@ -37,7 +37,7 @@ subst_new :: (fn() -> Substitution)(
 _subst_trait_visited :: (fn(s : Substitution, id : String) -> bool)({
   i := usize(0);
   n := s.visited_trait_ids.len();
-  while(runtime(i < n), {
+  while(i < n, {
     vi := match(s.visited_trait_ids.get(i),.Some(v) => v,.None => ``);
     if(vi.as_str() == id.as_str(), {
       return(true);
@@ -50,7 +50,7 @@ _subst_trait_visited :: (fn(s : Substitution, id : String) -> bool)({
 subst_add :: (fn(s : Substitution, name : String, level : usize, ty : TypeValue) -> unit)({
   i := usize(0);
   n := s.names.len();
-  while(runtime(i < n), {
+  while(i < n, {
     ni := match(s.names.get(i),.Some(v) => v,.None => ``);
     li := match(s.levels.get(i),.Some(v) => v,.None => usize(0));
     if((ni == name) && (li == level), {
@@ -67,7 +67,7 @@ subst_add :: (fn(s : Substitution, name : String, level : usize, ty : TypeValue)
 subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(TypeValue))({
   i := usize(0);
   n := s.names.len();
-  while(runtime(i < n), {
+  while(i < n, {
     ni := match(s.names.get(i),.Some(v) => v,.None => ``);
     li := match(s.levels.get(i),.Some(v) => v,.None => usize(0));
     if((ni == name) && (li == level), {
@@ -101,7 +101,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .Tuple(labels, types) => {
       new_types := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < types.len()), {
+      while(i < types.len(), {
         elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_types.push(recur(s, elem));
         i = (i + usize(1));
@@ -123,28 +123,28 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     ) => {
       new_fts := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < fts.len()), {
+      while(i < fts.len(), {
         elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_fts.push(recur(s, elem));
         i = (i + usize(1));
       });
       new_pts := ArrayList(TypeValue).new();
       i = usize(0);
-      while(runtime(i < pts.len()), {
+      while(i < pts.len(), {
         elem := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_pts.push(recur(s, elem));
         i = (i + usize(1));
       });
       new_its := ArrayList(TypeValue).new();
       i = usize(0);
-      while(runtime(i < its.len()), {
+      while(i < its.len(), {
         elem := match(its.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_its.push(recur(s, elem));
         i = (i + usize(1));
       });
       new_wts := ArrayList(TypeValue).new();
       i = usize(0);
-      while(runtime(i < wts.len()), {
+      while(i < wts.len(), {
         elem := match(wts.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_wts.push(recur(s, elem));
         i = (i + usize(1));
@@ -174,7 +174,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           });
           new_fts := ArrayList(TypeValue).new();
           i := usize(0);
-          while(runtime(i < fts.len()), {
+          while(i < fts.len(), {
             elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
             new_fts.push(recur(s, elem));
             i = (i + usize(1));
@@ -185,7 +185,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .ModuleT(id : mid, name : n, field_labels : fls, field_types : fts) => {
       new_fts := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < fts.len()), {
+      while(i < fts.len(), {
         elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_fts.push(recur(s, elem));
         i = (i + usize(1));
@@ -210,14 +210,14 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         .None => {
           new_rts := ArrayList(TypeValue).new();
           i := usize(0);
-          while(runtime(i < rts.len()), {
+          while(i < rts.len(), {
             elem := match(rts.get(i),.Some(t) => t,.None => TypeValue.Unit);
             new_rts.push(recur(s, elem));
             i = (i + usize(1));
           });
           new_nts := ArrayList(TypeValue).new();
           i = usize(0);
-          while(runtime(i < nts.len()), {
+          while(i < nts.len(), {
             elem := match(nts.get(i),.Some(t) => t,.None => TypeValue.Unit);
             new_nts.push(recur(s, elem));
             i = (i + usize(1));
@@ -230,7 +230,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .Struct(id, name, labels, types, is_ref, is_atomic, is_nt, cfid) => {
       new_types := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < types.len()), {
+      while(i < types.len(), {
         elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_types.push(recur(s, elem));
         i = (i + usize(1));
@@ -243,7 +243,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs) => {
       new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
       i := usize(0);
-      while(runtime(i < variant_fields.len()), {
+      while(i < variant_fields.len(), {
         vf := match(
           variant_fields.get(i),
           .Some(vf_inner) => vf_inner,
@@ -251,7 +251,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         );
         new_vf := ArrayList(TypeValue).new();
         j := usize(0);
-        while(runtime(j < vf.len()), {
+        while(j < vf.len(), {
           elem := match(vf.get(j),.Some(t) => t,.None => TypeValue.Unit);
           new_vf.push(recur(s, elem));
           j = (j + usize(1));
@@ -264,7 +264,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .Union(name, labels, types) => {
       new_types := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < types.len()), {
+      while(i < types.len(), {
         elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_types.push(recur(s, elem));
         i = (i + usize(1));
@@ -276,7 +276,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
       new_types := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < types.len()), {
+      while(i < types.len(), {
         elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_types.push(recur(s, elem));
         i = (i + usize(1));
@@ -286,7 +286,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .TypeAppT(constructor, args) => {
       new_args := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < args.len()), {
+      while(i < args.len(), {
         elem := match(args.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_args.push(recur(s, elem));
         i = (i + usize(1));
@@ -302,14 +302,14 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     ) => {
       new_rtt := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < rtt.len()), {
+      while(i < rtt.len(), {
         elem := match(rtt.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_rtt.push(recur(s, elem));
         i = (i + usize(1));
       });
       new_ntt := ArrayList(TypeValue).new();
       i = usize(0);
-      while(runtime(i < ntt.len()), {
+      while(i < ntt.len(), {
         elem := match(ntt.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_ntt.push(recur(s, elem));
         i = (i + usize(1));
@@ -319,14 +319,14 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, implicit_spreads : isps) => {
       new_cpts := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < cpts.len()), {
+      while(i < cpts.len(), {
         elem := match(cpts.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_cpts.push(recur(s, elem));
         i = (i + usize(1));
       });
       new_its := ArrayList(TypeValue).new();
       (iti : usize) = usize(0);
-      while(runtime(iti < its.len()), {
+      while(iti < its.len(), {
         elem := match(its.get(iti),.Some(t) => t,.None => TypeValue.Unit);
         new_its.push(recur(s, elem));
         iti = (iti + usize(1));
@@ -336,7 +336,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : esp) => {
       new_ets := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < ets.len()), {
+      while(i < ets.len(), {
         elem := match(ets.get(i),.Some(t) => t,.None => TypeValue.Unit);
         new_ets.push(recur(s, elem));
         i = (i + usize(1));
@@ -351,7 +351,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
 substitute_all :: (fn(s : Substitution, types : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   result := ArrayList(TypeValue).new();
   i := usize(0);
-  while(runtime(i < types.len()), {
+  while(i < types.len(), {
     elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
     result.push(substitute(s, elem));
     i = (i + usize(1));

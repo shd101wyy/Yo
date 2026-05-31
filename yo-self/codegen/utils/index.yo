@@ -325,7 +325,7 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
       // least one variant.
       all_empty := true;
       i := usize(0);
-      while(runtime(i < variant_fields.len()), {
+      while(i < variant_fields.len(), {
         match(
           variant_fields.get(i),
           .None => (),
@@ -362,7 +362,7 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
         (pointer_payload : Option(TypeValue)) = Option(TypeValue).None;
         (bad : bool) = false;
         (i : usize) = usize(0);
-        while(runtime((i < variant_fields.len()) && !(bad)), {
+        while((i < variant_fields.len()) && !(bad), {
           match(
             variant_fields.get(i),
             .None => {
@@ -694,7 +694,7 @@ is_deferred_drop_for_closure_capture :: (
     .Some(target) => {
       found := false;
       i := usize(0);
-      while(runtime((i < current_closure_captures.len()) && !(found)), {
+      while((i < current_closure_captures.len()) && !(found), {
         match(
           current_closure_captures.get(i),
           .None => (),

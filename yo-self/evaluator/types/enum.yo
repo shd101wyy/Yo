@@ -61,7 +61,7 @@ _fn_call_func :: (fn(e : AstExpr) -> AstExpr)(
 _has_variant :: (fn(variant_names : ArrayList(String), name : str) -> bool)({
   i := usize(0);
   (found : bool) = false;
-  while(runtime((i < variant_names.len()) && !(found)), {
+  while((i < variant_names.len()) && !(found), {
     match(
       variant_names.get(i),
       .Some(vn) => if(vn.as_str() == name, {
@@ -215,7 +215,7 @@ evaluate_enum_type :: (
   (next_discriminant : i64) = i64(0);
   args := _fn_call_args(expr);
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     enum_arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // -------------------------------------------------------------------
     // GADT detection (not yet implemented in Phase 1 bootstrap).
@@ -395,14 +395,14 @@ evaluate_enum_type :: (
         v_field_types := ArrayList(TypeValue).new();
         v_field_labels := ArrayList(String).new();
         (j : usize) = usize(0);
-        while(runtime(j < v_args.len()), {
+        while(j < v_args.len(), {
           field_arg := match(v_args.get(j),.Some(a) => a,.None => make_err_expr());
           result := evaluate_type_field(field_arg, j, env, ctx, "enum", exn);
           field := result.field;
           // Check for duplicate labels in this variant.
           (dup_idx : usize) = usize(0);
           (has_dup : bool) = false;
-          while(runtime((dup_idx < v_field_labels.len()) && !(has_dup)), {
+          while((dup_idx < v_field_labels.len()) && !(has_dup), {
             existing := match(v_field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
             if(existing == field.label, {
               has_dup = true;

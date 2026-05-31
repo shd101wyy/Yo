@@ -121,7 +121,7 @@ lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))(
   (i : usize) = usize(0);
   n := g_recursive_type_refs.len();
   (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
-  while(runtime((i < n) && match(found,.None => true,.Some(_) => false)), {
+  while((i < n) && match(found,.None => true,.Some(_) => false), {
     match(
       g_recursive_type_refs.get(i),
       .Some(r) => if(r.some_id.as_str() == some_id.as_str(), {
@@ -162,7 +162,7 @@ _arg_vals_equal :: (fn(a : ArrayList(EvalValue), b : ArrayList(EvalValue)) -> bo
   (i : usize) = usize(0);
   (ok : bool) = true;
   n := a.len();
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       a.get(i),
       .Some(av) => match(
@@ -205,7 +205,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
   {
     (ci : usize) = usize(0);
     n_c := ctx.comptime_fn_caches.len();
-    while(runtime((ci < n_c) && match(bucket_opt,.None => true,.Some(_) => false)), {
+    while((ci < n_c) && match(bucket_opt,.None => true,.Some(_) => false), {
       match(
         ctx.comptime_fn_caches.get(ci),
         .Some(e) => if(e.func_id.as_str() == rref.func_id.as_str(), {
@@ -227,7 +227,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
   {
     (i : usize) = usize(0);
     n := bucket.caches.len();
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         bucket.caches.get(i),
         .Some(cache) => if(_arg_vals_equal(cache.arg_values, rref.arg_values), {
@@ -254,7 +254,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
   {
     (i : usize) = usize(0);
     n := bucket.caches.len();
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         bucket.caches.get(i),
         .Some(cache) => match(
@@ -360,7 +360,7 @@ evaluate_comptime_fn_call :: (
   (collect_ok : bool) = true;
   n_fa := arg_values.forall_args.len();
   (fai : usize) = usize(0);
-  while(runtime((fai < n_fa) && collect_ok), {
+  while((fai < n_fa) && collect_ok, {
     match(
       arg_values.forall_args.get(fai),
       .Some(e) => match(
@@ -380,7 +380,7 @@ evaluate_comptime_fn_call :: (
   });
   n_a := arg_values.args.len();
   (ai : usize) = usize(0);
-  while(runtime((ai < n_a) && collect_ok), {
+  while((ai < n_a) && collect_ok, {
     match(
       arg_values.args.get(ai),
       .Some(e) => match(
@@ -400,7 +400,7 @@ evaluate_comptime_fn_call :: (
   });
   n_va := arg_values.variadic_args.len();
   (vai : usize) = usize(0);
-  while(runtime((vai < n_va) && collect_ok), {
+  while((vai < n_va) && collect_ok, {
     match(
       arg_values.variadic_args.get(vai),
       .Some(e) => match(
@@ -456,7 +456,7 @@ evaluate_comptime_fn_call :: (
     true => {
       (ok2 : bool) = true;
       (cti : usize) = usize(0);
-      while(runtime((cti < all_arg_vals.len()) && ok2), {
+      while((cti < all_arg_vals.len()) && ok2, {
         match(
           all_arg_vals.get(cti),
           .Some(v) => if(!(is_type_val(v)), {
@@ -477,7 +477,7 @@ evaluate_comptime_fn_call :: (
   {
     (ci : usize) = usize(0);
     n_c := ctx.comptime_fn_caches.len();
-    while(runtime((ci < n_c) && match(entry_idx_opt,.None => true,.Some(_) => false)), {
+    while((ci < n_c) && match(entry_idx_opt,.None => true,.Some(_) => false), {
       match(
         ctx.comptime_fn_caches.get(ci),
         .Some(e) => if(e.func_id.as_str() == func_id_str.as_str(), {
@@ -509,7 +509,7 @@ evaluate_comptime_fn_call :: (
       .Some(entry) => {
         (cfi : usize) = usize(0);
         n_cc := entry.caches.len();
-        while(runtime((cfi < n_cc) && match(cached_result,.None => true,.Some(_) => false)), {
+        while((cfi < n_cc) && match(cached_result,.None => true,.Some(_) => false), {
           match(
             entry.caches.get(cfi),
             .Some(cache) => {
@@ -517,7 +517,7 @@ evaluate_comptime_fn_call :: (
                 (args_match : bool) = true;
                 (ami : usize) = usize(0);
                 n_av := all_arg_vals.len();
-                while(runtime((ami < n_av) && args_match), {
+                while((ami < n_av) && args_match, {
                   match(
                     cache.arg_values.get(ami),
                     .Some(cached_av) => match(

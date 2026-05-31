@@ -52,7 +52,7 @@ _remove_dir_all :: (
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
     entries := io.await(walk_with(path, opts, io), io);
     n := entries.len();
-    while(runtime(n > usize(0)), {
+    while(n > usize(0), {
       n = (n - usize(1));
       match(
         entries.get(n),
@@ -134,7 +134,7 @@ _json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
       depth := i32(1); // already inside the opening '{'
       in_string := false;
       unwind_next := false;
-      while(runtime((pos < json_len) && (depth > i32(0))), {
+      while((pos < json_len) && (depth > i32(0)), {
         byte_opt := bytes.get(pos);
         pos = (pos + usize(1)); // advance BEFORE dispatch
         match(
@@ -226,16 +226,16 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
   result := ArrayList(String).with_capacity(n);
   added := ArrayList(bool).with_capacity(n);
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     added.push(false);
     i = (i + usize(1));
   });
   selected := usize(0);
-  while(runtime(selected < n), {
+  while(selected < n, {
     min_idx := usize(0);
     found := false;
     j := usize(0);
-    while(runtime(j < n), {
+    while(j < n, {
       flag := match(added.get(j),.None => true,.Some(f) => f);
       if(!(flag), {
         if(!(found), {
@@ -328,7 +328,7 @@ list_cached_versions :: (
     entries := io.await(read_dir(Path.new(versions_dir)), io);
     versions := ArrayList(String).new();
     i := usize(0);
-    while(runtime(i < entries.len()), {
+    while(i < entries.len(), {
       match(
         entries.get(i),
         .None => (),

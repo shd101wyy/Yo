@@ -69,7 +69,7 @@ _collect_anon_param_names :: (
         (ptok.value.as_str() == BK_TUPLE) => {
           (i : usize) = usize(0);
           n := args.len();
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               args.get(i),
               .Some(a) => match(
@@ -126,7 +126,7 @@ _synthesize_default_func_type :: (
   param_types := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   n := names.len();
-  while(runtime(i < n), {
+  while(i < n, {
     name := match(names.get(i),.Some(s) => s,.None => String.from("_p"));
     param_types.push(t_some_t(name, frame_level));
     i = (i + usize(1));
@@ -368,7 +368,7 @@ evaluate_anonymous_function_implementation :: (
   regular_param_exprs := ArrayList(AstExpr).new();
   (sep_i : usize) = usize(0);
   n_raw := raw_param_exprs.len();
-  while(runtime(sep_i < n_raw), {
+  while(sep_i < n_raw, {
     pe := match(raw_param_exprs.get(sep_i),.Some(a) => a,.None => make_err_expr());
     is_forall_call := ast_expr_is_fn_call_of(pe, "forall",.None);
     is_using_call := ast_expr_is_fn_call_of(pe, "using",.None);
@@ -376,7 +376,7 @@ evaluate_anonymous_function_implementation :: (
       is_forall_call => {
         fa := match(pe,.FnCall(_, _, fa_args, _, _) => fa_args,.Atom(_, _) => ArrayList(AstExpr).new());
         (fi : usize) = usize(0);
-        while(runtime(fi < fa.len()), {
+        while(fi < fa.len(), {
           fpe := match(fa.get(fi),.Some(a) => a,.None => make_err_expr());
           forall_param_exprs.push(fpe);
           fi = (fi + usize(1));
@@ -385,7 +385,7 @@ evaluate_anonymous_function_implementation :: (
       is_using_call => {
         ua := match(pe,.FnCall(_, _, ua_args, _, _) => ua_args,.Atom(_, _) => ArrayList(AstExpr).new());
         (ui : usize) = usize(0);
-        while(runtime(ui < ua.len()), {
+        while(ui < ua.len(), {
           upe := match(ua.get(ui),.Some(a) => a,.None => make_err_expr());
           using_param_exprs.push(upe);
           ui = (ui + usize(1));
@@ -427,13 +427,13 @@ evaluate_anonymous_function_implementation :: (
   cap_vals := ArrayList(EvalValue).new();
   n_cap_fr := env.frames.len();
   (cap_fi : usize) = usize(0);
-  while(runtime(cap_fi < n_cap_fr), {
+  while(cap_fi < n_cap_fr, {
     match(
       env.frames.get(cap_fi),
       .Some(cap_frame) => {
         n_cap_v := cap_frame.variables.len();
         (cap_vi : usize) = usize(0);
-        while(runtime(cap_vi < n_cap_v), {
+        while(cap_vi < n_cap_v, {
           match(
             cap_frame.variables.get(cap_vi),
             .Some(cv) => {
@@ -469,7 +469,7 @@ evaluate_anonymous_function_implementation :: (
   // Each forall type variable is bound as a compile-time unknown SomeT.
   // -------------------------------------------------------------------------
   (fa_env_i : usize) = usize(0);
-  while(runtime(fa_env_i < forall_labels.len()), {
+  while(fa_env_i < forall_labels.len(), {
     fl_name := match(forall_labels.get(fa_env_i),.Some(n) => n,.None => String.from(""));
     fl_ty := TypeValue.SomeT(
       fl_name.clone(),
@@ -501,7 +501,7 @@ evaluate_anonymous_function_implementation :: (
   // Add implicit (using) parameters to the environment.
   // -------------------------------------------------------------------------
   (il_env_i : usize) = usize(0);
-  while(runtime(il_env_i < implicit_labels.len()), {
+  while(il_env_i < implicit_labels.len(), {
     il_name := match(implicit_labels.get(il_env_i),.Some(n) => n,.None => String.from(""));
     il_ty := match(implicit_types.get(il_env_i),.Some(t) => t,.None => TypeValue.Unit);
     il_tok := synthetic_token(il_name.clone(), env.module_path);
@@ -527,7 +527,7 @@ evaluate_anonymous_function_implementation :: (
   param_type_names := ArrayList(String).new();
   actual_param_labels := ArrayList(String).new();
   (rp_i : usize) = usize(0);
-  while(runtime(rp_i < n_regular), {
+  while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i),.Some(a) => a,.None => make_err_expr());
     exp_label := match(param_labels.get(rp_i),.Some(n) => n,.None => String.from(""));
     rp_ty := match(param_types.get(rp_i),.Some(t) => t,.None => TypeValue.Unit);

@@ -136,7 +136,7 @@ is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
       (found : bool) = false;
       (i : usize) = usize(0);
       n := idxs.len();
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         match(
           idxs.get(i),
           .Some(idx) => cond(
@@ -177,7 +177,7 @@ is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
 register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Option(EvalValue))) -> unit)({
   (any_default : bool) = false;
   (i : usize) = usize(0);
-  while(runtime((i < defaults.len()) && !(any_default)), {
+  while((i < defaults.len()) && !(any_default), {
     match(
       defaults.get(i),
       .Some(d) => if(d.is_some(), {
@@ -1000,7 +1000,7 @@ use_id :: (fn(forall(T : Type),
   (existing_where_var : Option(Variable)) = Option(Variable).None;
   (existing_pre_var : Option(Variable)) = Option(Variable).None;
   (vi : usize) = n_existing;
-  while(runtime(vi > usize(0)), {
+  while(vi > usize(0), {
     vi = (vi - usize(1));
     v := match(
       existing_vars.get(vi),
@@ -1071,7 +1071,7 @@ use_id :: (fn(forall(T : Type),
                   .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
-                    while(runtime(ri < new_rtt.len()), {
+                    while(ri < new_rtt.len(), {
                       nt := match(
                         new_rtt.get(ri),
                         .Some(t) => t,
@@ -1085,7 +1085,7 @@ use_id :: (fn(forall(T : Type),
                     });
                     // Merge negative traits
                     (ni : usize) = usize(0);
-                    while(runtime(ni < new_ntt.len()), {
+                    while(ni < new_ntt.len(), {
                       nt := match(
                         new_ntt.get(ni),
                         .Some(t) => t,
@@ -1554,7 +1554,7 @@ parse_where_clause_constraints :: (
 )({
   pending_traits := ArrayList(PendingConstraint).new();
   (ci : usize) = usize(0);
-  while(runtime(ci < constraint_exprs.len()), {
+  while(ci < constraint_exprs.len(), {
     constraint_expr := match(
       constraint_exprs.get(ci),
       .Some(e) => e,
@@ -1737,7 +1737,7 @@ parse_where_clause_constraints :: (
     if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE,.None), {
       rhs_args := _fn_call_args(rhs_expr);
       (ri : usize) = usize(0);
-      while(runtime(ri < rhs_args.len()), {
+      while(ri < rhs_args.len(), {
         rte := match(rhs_args.get(ri),.Some(a) => a,.None => make_err_expr());
         rhs_trait_exprs.push(rte);
         ri = (ri + usize(1));
@@ -1747,7 +1747,7 @@ parse_where_clause_constraints :: (
     });
     // Evaluate each trait expression and apply constraint incrementally
     (ti : usize) = usize(0);
-    while(runtime(ti < rhs_trait_exprs.len()), {
+    while(ti < rhs_trait_exprs.len(), {
       trait_expr_item := match(rhs_trait_exprs.get(ti),.Some(a) => a,.None => make_err_expr());
       ti = (ti + usize(1));
       // Check negation
@@ -1882,7 +1882,7 @@ prepare_where_clause_variables :: (
 )({
   pending := ArrayList(PendingConstraint).new();
   (ci : usize) = usize(0);
-  while(runtime(ci < constraint_exprs.len()), {
+  while(ci < constraint_exprs.len(), {
     constraint_expr := match(
       constraint_exprs.get(ci),
       .Some(e) => e,
@@ -1935,7 +1935,7 @@ prepare_where_clause_variables :: (
     one_expr.push(constraint_expr);
     new_pending := parse_where_clause_constraints(one_expr, env_mut, ctx, true, exn);
     (pi : usize) = usize(0);
-    while(runtime(pi < new_pending.len()), {
+    while(pi < new_pending.len(), {
       pc := match(
         new_pending.get(pi),
         .Some(p) => p,
@@ -1966,7 +1966,7 @@ retry_pending_constraints :: (
 )({
   still_pending := ArrayList(PendingConstraint).new();
   (i : usize) = usize(0);
-  while(runtime(i < pending.len()), {
+  while(i < pending.len(), {
     pc := match(
       pending.get(i),
       .Some(p) => p,
@@ -2032,7 +2032,7 @@ evaluate_function_parameters :: (
     if(ast_expr_is_fn_call_of(first_param, BK_FORALL, Option(usize).None), {
       forall_args := _fn_call_args(first_param);
       (j : usize) = usize(0);
-      while(runtime(j < forall_args.len()), {
+      while(j < forall_args.len(), {
         tp_expr := match(forall_args.get(j),.Some(a) => a,.None => make_err_expr());
         j = (j + usize(1));
         // Detect E : Type.Struct — effect row variable declaration
@@ -2044,7 +2044,7 @@ evaluate_function_parameters :: (
           // Duplicate check
           (erd_found : bool) = false;
           (erdi : usize) = usize(0);
-          while(runtime(erdi < forall_params.len()), {
+          while(erdi < forall_params.len(), {
             erfp := match(
               forall_params.get(erdi),
               .Some(p) => p,
@@ -2121,7 +2121,7 @@ evaluate_function_parameters :: (
         // Duplicate check
         dup_found := false;
         (di : usize) = usize(0);
-        while(runtime(di < forall_params.len()), {
+        while(di < forall_params.len(), {
           fp := match(
             forall_params.get(di),
             .Some(p) => p,
@@ -2157,7 +2157,7 @@ evaluate_function_parameters :: (
   // --------------------------------------------------------------------------
   (using_count : usize) = usize(0);
   (ui : usize) = usize(0);
-  while(runtime(ui < param_exprs.len()), {
+  while(ui < param_exprs.len(), {
     param_expr := match(param_exprs.get(ui),.Some(e) => e,.None => make_err_expr());
     ui = (ui + usize(1));
     if(!(ast_expr_is_fn_call_of(param_expr, "using", Option(usize).None)), {
@@ -2178,7 +2178,7 @@ evaluate_function_parameters :: (
     });
     using_args := _fn_call_args(param_expr);
     (uj : usize) = usize(0);
-    while(runtime(uj < using_args.len()), {
+    while(uj < using_args.len(), {
       impl_expr := match(using_args.get(uj),.Some(a) => a,.None => make_err_expr());
       uj = (uj + usize(1));
       // Detect E : Type.Struct — effect row spread in
@@ -2230,7 +2230,7 @@ evaluate_function_parameters :: (
                       inner_ty.clone(),
                       .EffectsRowT(row_ls, row_ts) => {
                         (ki : usize) = usize(0);
-                        while(runtime(ki < row_ls.len()), {
+                        while(ki < row_ls.len(), {
                           lbl := match(row_ls.get(ki),.Some(l) => l,.None => String.from(""));
                           ty := match(row_ts.get(ki),.Some(t) => t,.None => TypeValue.Unit);
                           implicit_params.push(
@@ -2294,7 +2294,7 @@ evaluate_function_parameters :: (
                       inner_ty2.clone(),
                       .EffectsRowT(row_ls2, row_ts2) => {
                         (ki2 : usize) = usize(0);
-                        while(runtime(ki2 < row_ls2.len()), {
+                        while(ki2 < row_ls2.len(), {
                           lbl2 := match(row_ls2.get(ki2),.Some(l) => l,.None => String.from(""));
                           ty2 := match(row_ts2.get(ki2),.Some(t) => t,.None => TypeValue.Unit);
                           implicit_params.push(
@@ -2404,7 +2404,7 @@ evaluate_function_parameters :: (
       // Duplicate checks
       (dup_forall : bool) = false;
       (dfi : usize) = usize(0);
-      while(runtime(dfi < forall_params.len()), {
+      while(dfi < forall_params.len(), {
         fp := match(
           forall_params.get(dfi),
           .Some(p) => p,
@@ -2433,7 +2433,7 @@ evaluate_function_parameters :: (
       });
       (dup_impl : bool) = false;
       (dii : usize) = usize(0);
-      while(runtime(dii < implicit_params.len()), {
+      while(dii < implicit_params.len(), {
         ip := match(
           implicit_params.get(dii),
           .Some(p) => p,
@@ -2477,7 +2477,7 @@ evaluate_function_parameters :: (
         env_mut.frames.get(top_frame_idx),
         .Some(frame) => {
           (fvi : usize) = usize(0);
-          while(runtime(fvi < frame.variables.len()), {
+          while(fvi < frame.variables.len(), {
             fv := match(
               frame.variables.get(fvi),
               .Some(v) => v,
@@ -2502,7 +2502,7 @@ evaluate_function_parameters :: (
   // --------------------------------------------------------------------------
   (pre_added_indices : ArrayList(usize)) = ArrayList(usize).new();
   (pi3 : usize) = usize(0);
-  while(runtime(pi3 < param_exprs.len()), {
+  while(pi3 < param_exprs.len(), {
     param_expr := match(param_exprs.get(pi3),.Some(e) => e,.None => make_err_expr());
     (current_idx : usize) = pi3;
     pi3 = (pi3 + usize(1));
@@ -2566,7 +2566,7 @@ evaluate_function_parameters :: (
       where_args := _fn_call_args(last_param);
       // Copy where_args to where_clause_exprs
       (wai : usize) = usize(0);
-      while(runtime(wai < where_args.len()), {
+      while(wai < where_args.len(), {
         we := match(where_args.get(wai),.Some(a) => a,.None => make_err_expr());
         where_clause_exprs.push(we);
         wai = (wai + usize(1));
@@ -2591,7 +2591,7 @@ evaluate_function_parameters :: (
   // Pass 5 — process regular parameters
   // --------------------------------------------------------------------------
   (pi5 : usize) = usize(0);
-  while(runtime(pi5 < param_exprs.len()), {
+  while(pi5 < param_exprs.len(), {
     param_expr := match(param_exprs.get(pi5),.Some(e) => e,.None => make_err_expr());
     (current_i : usize) = pi5;
     pi5 = (pi5 + usize(1));
@@ -2821,7 +2821,7 @@ evaluate_function_parameters :: (
       // Duplicate check
       (dup_p : bool) = false;
       (dpi : usize) = usize(0);
-      while(runtime(dpi < params.len()), {
+      while(dpi < params.len(), {
         pp := match(
           params.get(dpi),
           .Some(p) => p,
@@ -2862,7 +2862,7 @@ evaluate_function_parameters :: (
   });
   // Validate ExprList must be last parameter
   (eli : usize) = usize(0);
-  while(runtime(eli < params.len()), {
+  while(eli < params.len(), {
     p := match(
       params.get(eli),
       .Some(x) => x,
@@ -3262,7 +3262,7 @@ evaluate_function_type :: (
   // All params must be comptime if return is comptime
   if(is_return_comptime_only, {
     (rci : usize) = usize(0);
-    while(runtime(rci < params_result.params.len()), {
+    while(rci < params_result.params.len(), {
       rp := match(
         params_result.params.get(rci),
         .Some(p) => p,
@@ -3311,7 +3311,7 @@ evaluate_function_type :: (
   implicit_spreads := ArrayList(bool).new();
   where_types := ArrayList(TypeValue).new();
   (fpi : usize) = usize(0);
-  while(runtime(fpi < params_result.forall_params.len()), {
+  while(fpi < params_result.forall_params.len(), {
     fp := match(
       params_result.forall_params.get(fpi),
       .Some(p) => p,
@@ -3326,7 +3326,7 @@ evaluate_function_type :: (
   });
   (ppi : usize) = usize(0);
   param_defaults := ArrayList(Option(EvalValue)).new();
-  while(runtime(ppi < params_result.params.len()), {
+  while(ppi < params_result.params.len(), {
     pp := match(
       params_result.params.get(ppi),
       .Some(p) => p,
@@ -3346,7 +3346,7 @@ evaluate_function_type :: (
   // trailing defaulted params as optional. (See the side-table above.)
   register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
   (ipi : usize) = usize(0);
-  while(runtime(ipi < params_result.implicit_params.len()), {
+  while(ipi < params_result.implicit_params.len(), {
     ip := match(
       params_result.implicit_params.get(ipi),
       .Some(p) => p,
@@ -3363,7 +3363,7 @@ evaluate_function_type :: (
   // where_types: collect trait types from where clause exprs (for substitution)
   // We store the constraint trait types from the SomeT required_trait_types
   (wci : usize) = usize(0);
-  while(runtime(wci < params_result.forall_params.len()), {
+  while(wci < params_result.forall_params.len(), {
     fp := match(
       params_result.forall_params.get(wci),
       .Some(p) => p,
@@ -3376,7 +3376,7 @@ evaluate_function_type :: (
       fp.ty,
       .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
         (ti2 : usize) = usize(0);
-        while(runtime(ti2 < required_trait_types.len()), {
+        while(ti2 < required_trait_types.len(), {
           tt := match(
             required_trait_types.get(ti2),
             .Some(t) => t,

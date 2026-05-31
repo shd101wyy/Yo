@@ -200,7 +200,7 @@ _has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : Str
   n := pairs.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while(runtime((i < n) && !(found)), {
+  while((i < n) && !(found), {
     p := match(
       pairs.get(i),
       .Some(p) => p,
@@ -316,7 +316,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
   {
     vi := usize(0);
     n := visited.len();
-    while(runtime((vi < n) && !(found_visited)), {
+    while((vi < n) && !(found_visited), {
       v := match(
         visited.get(vi),
         .Some(s) => s,
@@ -341,7 +341,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .Struct(_, _, _, field_types, _, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < field_types.len()) && !(res)), {
+      while((i < field_types.len()) && !(res), {
         ft := match(
           field_types.get(i),
           .Some(t) => t,
@@ -360,7 +360,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .EnumT(_, _, _, variant_fields, _, _, _) => {
       (res : bool) = false;
       vi := usize(0);
-      while(runtime((vi < variant_fields.len()) && !(res)), {
+      while((vi < variant_fields.len()) && !(res), {
         vf := match(
           variant_fields.get(vi),
           .Some(f) => f,
@@ -370,7 +370,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
           }
         );
         fi := usize(0);
-        while(runtime((fi < vf.len()) && !(res)), {
+        while((fi < vf.len()) && !(res), {
           ft := match(
             vf.get(fi),
             .Some(t) => t,
@@ -391,7 +391,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .Tuple(_, field_types) => {
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < field_types.len()) && !(res)), {
+      while((i < field_types.len()) && !(res), {
         ft := match(
           field_types.get(i),
           .Some(t) => t,
@@ -416,7 +416,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .Func(_, _, _, param_types, _, implicit_types, _, _, result, _) => {
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < param_types.len()) && !(res)), {
+      while((i < param_types.len()) && !(res), {
         pt := match(
           param_types.get(i),
           .Some(t) => t,
@@ -443,7 +443,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
       });
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < ets.len()) && !(res)), {
+      while((i < ets.len()) && !(res), {
         et := match(
           ets.get(i),
           .Some(t) => t,
@@ -462,7 +462,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .FnTraitT(_, _, call_param_types, call_result, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < call_param_types.len()) && !(res)), {
+      while((i < call_param_types.len()) && !(res), {
         pt := match(
           call_param_types.get(i),
           .Some(t) => t,
@@ -489,7 +489,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
       });
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < args.len()) && !(res)), {
+      while((i < args.len()) && !(res), {
         arg := match(
           args.get(i),
           .Some(t) => t,
@@ -508,7 +508,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .TraitT(_, _, _, field_types, _, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < field_types.len()) && !(res)), {
+      while((i < field_types.len()) && !(res), {
         ft := match(
           field_types.get(i),
           .Some(t) => t,
@@ -527,7 +527,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .ModuleT(_, _, _, field_types) => {
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < field_types.len()) && !(res)), {
+      while((i < field_types.len()) && !(res), {
         ft := match(
           field_types.get(i),
           .Some(t) => t,
@@ -546,7 +546,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
     .Union(_, _, field_types) => {
       (res : bool) = false;
       i := usize(0);
-      while(runtime((i < field_types.len()) && !(res)), {
+      while((i < field_types.len()) && !(res), {
         ft := match(
           field_types.get(i),
           .Some(t) => t,
@@ -584,7 +584,7 @@ _expand_effects :: (
   result := ArrayList(ImplicitEntry).new();
   n := labels.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     lbl := match(
       labels.get(i),
       .Some(s) => s,
@@ -608,7 +608,7 @@ _expand_effects :: (
         ty,
         .EffectsRowT(row_labels, row_types) => {
           ri := usize(0);
-          while(runtime(ri < row_labels.len()), {
+          while(ri < row_labels.len(), {
             rl := match(
               row_labels.get(ri),
               .Some(s) => s,
@@ -666,7 +666,7 @@ _synthesize_implicit_params :: (
   unsolved_spreads := ArrayList(ImplicitEntry).new();
   n_exp := expected_labels.len();
   (ei : usize) = usize(0);
-  while(runtime(ei < n_exp), {
+  while(ei < n_exp, {
     lbl := match(
       expected_labels.get(ei),
       .Some(s) => s,
@@ -726,7 +726,7 @@ _synthesize_implicit_params :: (
   matched_given := ArrayList(bool).new();
   {
     (mgi : usize) = usize(0);
-    while(runtime(mgi < n_giv), {
+    while(mgi < n_giv, {
       matched_given.push(false);
       mgi = (mgi + usize(1));
     });
@@ -736,13 +736,13 @@ _synthesize_implicit_params :: (
   matched_expected := ArrayList(bool).new();
   {
     (mei : usize) = usize(0);
-    while(runtime(mei < n_ce), {
+    while(mei < n_ce, {
       matched_expected.push(false);
       mei = (mei + usize(1));
     });
   };
   (cei : usize) = usize(0);
-  while(runtime(cei < n_ce), {
+  while(cei < n_ce, {
     exp := match(
       concrete_expected.get(cei),
       .Some(e) => e,
@@ -753,7 +753,7 @@ _synthesize_implicit_params :: (
     );
     exp_id := synthesis_type_id(exp.ty);
     (gj : usize) = usize(0);
-    while(runtime(gj < n_giv), {
+    while(gj < n_giv, {
       already_matched := match(matched_given.get(gj),.Some(b) => b,.None => false);
       if(!(already_matched), {
         giv := match(
@@ -786,7 +786,7 @@ _synthesize_implicit_params :: (
   // 2. Match solved spreads' expanded effects against given
   n_ss := solved_spreads.len();
   (ssi : usize) = usize(0);
-  while(runtime(ssi < n_ss), {
+  while(ssi < n_ss, {
     spread := match(
       solved_spreads.get(ssi),
       .Some(s) => s,
@@ -800,7 +800,7 @@ _synthesize_implicit_params :: (
       .EffectsRowT(row_labels, row_types) => {
         r := ArrayList(ImplicitEntry).new();
         ri := usize(0);
-        while(runtime(ri < row_labels.len()), {
+        while(ri < row_labels.len(), {
           rl := match(
             row_labels.get(ri),
             .Some(s) => s,
@@ -826,7 +826,7 @@ _synthesize_implicit_params :: (
     );
     n_exp_effects := expanded.len();
     (eei : usize) = usize(0);
-    while(runtime(eei < n_exp_effects), {
+    while(eei < n_exp_effects, {
       exp := match(
         expanded.get(eei),
         .Some(e) => e,
@@ -837,7 +837,7 @@ _synthesize_implicit_params :: (
       );
       exp_id := synthesis_type_id(exp.ty);
       (gj : usize) = usize(0);
-      while(runtime(gj < n_giv), {
+      while(gj < n_giv, {
         already_matched := match(matched_given.get(gj),.Some(b) => b,.None => false);
         if(!(already_matched), {
           giv := match(
@@ -872,7 +872,7 @@ _synthesize_implicit_params :: (
   if(unsolved_spreads.len() == usize(1), {
     (matched_exp_count : usize) = usize(0);
     (mci : usize) = usize(0);
-    while(runtime(mci < matched_expected.len()), {
+    while(mci < matched_expected.len(), {
       b := match(matched_expected.get(mci),.Some(v) => v,.None => false);
       if(b, {
         matched_exp_count = (matched_exp_count + usize(1));
@@ -909,7 +909,7 @@ _synthesize_implicit_params :: (
           remaining_labels := ArrayList(String).new();
           remaining_types := ArrayList(TypeValue).new();
           (ri : usize) = usize(0);
-          while(runtime(ri < n_giv), {
+          while(ri < n_giv, {
             already := match(matched_given.get(ri),.Some(b) => b,.None => false);
             if(!(already), {
               giv := match(
@@ -957,7 +957,7 @@ _synthesize_fn_traits :: (
   (ge : Environment) = given_env;
   n := exp_params.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     et := match(
       exp_params.get(i),
       .Some(t) => t,
@@ -1099,7 +1099,7 @@ _synthesize_types_impl :: (
             .SomeT(_, _, _, _, given_traits, _, _, _, _, _) => {
               n_et := expected_traits.len();
               (eti : usize) = usize(0);
-              while(runtime(eti < n_et), {
+              while(eti < n_et, {
                 exp_trait := match(
                   expected_traits.get(eti),
                   .Some(t) => t,
@@ -1112,7 +1112,7 @@ _synthesize_types_impl :: (
                   is_fn_trait_type(exp_trait) => {
                     // Find matching Fn trait in given_traits
                     (fi : usize) = usize(0);
-                    while(runtime(fi < given_traits.len()), {
+                    while(fi < given_traits.len(), {
                       giv_trait := match(
                         given_traits.get(fi),
                         .Some(t) => t,
@@ -1133,7 +1133,7 @@ _synthesize_types_impl :: (
                   is_future_trait_type(exp_trait) => {
                     // Find matching Future trait in given_traits
                     (fi : usize) = usize(0);
-                    while(runtime(fi < given_traits.len()), {
+                    while(fi < given_traits.len(), {
                       giv_trait := match(
                         given_traits.get(fi),
                         .Some(t) => t,
@@ -1194,7 +1194,7 @@ _synthesize_types_impl :: (
       // Recursively synthesize required trait type parameters
       n_et := exp_traits.len();
       (eti : usize) = usize(0);
-      while(runtime(eti < n_et), {
+      while(eti < n_et, {
         exp_trait := match(
           exp_traits.get(eti),
           .Some(t) => t,
@@ -1279,7 +1279,7 @@ _synthesize_types_impl :: (
     }, {
       n := exp_fields.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         et := match(
           exp_fields.get(i),
           .Some(t) => t,
@@ -1330,7 +1330,7 @@ _synthesize_types_impl :: (
       giv_ft := match(given_ty,.Struct(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         et := match(
           exp_ft.get(i),
           .Some(t) => t,
@@ -1381,7 +1381,7 @@ _synthesize_types_impl :: (
       giv_vf := match(given_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
       n_v := exp_vf.len();
       (vi : usize) = usize(0);
-      while(runtime(vi < n_v), {
+      while(vi < n_v, {
         exp_variant := match(
           exp_vf.get(vi),
           .Some(f) => f,
@@ -1400,7 +1400,7 @@ _synthesize_types_impl :: (
         );
         n_f := exp_variant.len();
         (fi : usize) = usize(0);
-        while(runtime(fi < n_f), {
+        while(fi < n_f, {
           et := match(
             exp_variant.get(fi),
             .Some(t) => t,
@@ -1436,7 +1436,7 @@ _synthesize_types_impl :: (
       giv_ft := match(given_ty,.ModuleT(_, _, _, fts) => fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         et := match(
           exp_ft.get(i),
           .Some(t) => t,
@@ -1470,7 +1470,7 @@ _synthesize_types_impl :: (
       giv_ft := match(given_ty,.TraitT(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         et := match(
           exp_ft.get(i),
           .Some(t) => t,
@@ -1573,7 +1573,7 @@ _synthesize_types_impl :: (
       // Synthesize forall type params
       n_fa := exp_fa.len();
       (fai : usize) = usize(0);
-      while(runtime(fai < n_fa), {
+      while(fai < n_fa, {
         et := match(
           exp_fa.get(fai),
           .Some(t) => t,
@@ -1598,7 +1598,7 @@ _synthesize_types_impl :: (
       // Synthesize normal param types
       n_p := exp_pt.len();
       (pi : usize) = usize(0);
-      while(runtime(pi < n_p), {
+      while(pi < n_p, {
         et := match(
           exp_pt.get(pi),
           .Some(t) => t,
@@ -1652,7 +1652,7 @@ _synthesize_types_impl :: (
     ge = res.given_env;
     n_a := exp_args.len();
     (ai : usize) = usize(0);
-    while(runtime(ai < n_a), {
+    while(ai < n_a, {
       et := match(
         exp_args.get(ai),
         .Some(t) => t,
@@ -1682,7 +1682,7 @@ _synthesize_types_impl :: (
     giv_ft := match(given_ty,.Union(_, _, fts) => fts, _ => ArrayList(TypeValue).new());
     n := exp_ft.len();
     (i : usize) = usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       et := match(
         exp_ft.get(i),
         .Some(t) => t,
@@ -1716,7 +1716,7 @@ _synthesize_types_impl :: (
     empty_spreads := ArrayList(bool).new();
     {
       (si : usize) = usize(0);
-      while(runtime(si < exp_el.len()), {
+      while(si < exp_el.len(), {
         empty_spreads.push(false);
         si = (si + usize(1));
       });
@@ -1724,7 +1724,7 @@ _synthesize_types_impl :: (
     empty_giv_spreads := ArrayList(bool).new();
     {
       (si : usize) = usize(0);
-      while(runtime(si < giv_el.len()), {
+      while(si < giv_el.len(), {
         empty_giv_spreads.push(false);
         si = (si + usize(1));
       });

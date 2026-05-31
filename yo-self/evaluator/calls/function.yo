@@ -573,7 +573,7 @@ evaluate_function_call :: (
               .None => {
                 tf := ArrayList(TypeField).new();
                 (tfi : usize) = usize(0);
-                while(runtime(tfi < struct_field_labels.len()), {
+                while(tfi < struct_field_labels.len(), {
                   sf_lbl := match(struct_field_labels.get(tfi),.Some(l) => String.from(l.as_str()),.None => String.new());
                   sf_ty := match(struct_field_types.get(tfi),.Some(t) => t,.None => TypeValue.Unit);
                   tf.push(
@@ -600,7 +600,7 @@ evaluate_function_call :: (
             // carry UnknownVal values.
             (all_known_s : bool) = true;
             (ki_s : usize) = usize(0);
-            while(runtime((ki_s < call_result_s.values.len()) && all_known_s), {
+            while((ki_s < call_result_s.values.len()) && all_known_s, {
               match(
                 call_result_s.values.get(ki_s),
                 .Some(inner_opt_s) => {
@@ -622,7 +622,7 @@ evaluate_function_call :: (
               fnames_s := ArrayList(String).new();
               fvals_s := ArrayList(EvalValue).new();
               (bi_s : usize) = usize(0);
-              while(runtime(bi_s < call_result_s.values.len()), {
+              while(bi_s < call_result_s.values.len(), {
                 match(
                   call_result_s.values.get(bi_s),
                   .Some(inner_v_s) => {
@@ -672,7 +672,7 @@ evaluate_function_call :: (
             (variant_idx : usize) = usize(0);
             (found_variant : bool) = false;
             (vs_i : usize) = usize(0);
-            while(runtime((vs_i < variant_names.len()) && !(found_variant)), {
+            while((vs_i < variant_names.len()) && !(found_variant), {
               match(
                 variant_names.get(vs_i),
                 .Some(vn) => {
@@ -701,7 +701,7 @@ evaluate_function_call :: (
             labels_for_var := match(variant_field_labels.get(variant_idx),.Some(l) => l,.None => ArrayList(String).new());
             tf_e := ArrayList(TypeField).new();
             (tfi_e : usize) = usize(0);
-            while(runtime(tfi_e < fields_for_var.len()), {
+            while(tfi_e < fields_for_var.len(), {
               vf_ty := match(fields_for_var.get(tfi_e),.Some(t) => t,.None => TypeValue.Unit);
               vf_lbl := match(labels_for_var.get(tfi_e),.Some(l) => String.from(l.as_str()),.None => String.new());
               tf_e.push(
@@ -723,7 +723,7 @@ evaluate_function_call :: (
             // (`.None`) abort comptime construction.
             (all_known_e : bool) = true;
             (ki_e : usize) = usize(0);
-            while(runtime((ki_e < call_result_e.values.len()) && all_known_e), {
+            while((ki_e < call_result_e.values.len()) && all_known_e, {
               match(
                 call_result_e.values.get(ki_e),
                 .Some(inner_opt_e) => {
@@ -744,7 +744,7 @@ evaluate_function_call :: (
             enum_val := if(all_known_e, {
               fvals_e := ArrayList(EvalValue).new();
               (bi_e : usize) = usize(0);
-              while(runtime(bi_e < call_result_e.values.len()), {
+              while(bi_e < call_result_e.values.len(), {
                 match(
                   call_result_e.values.get(bi_e),
                   .Some(inner_v_e) => {
@@ -775,7 +775,7 @@ evaluate_function_call :: (
           .Union(_, union_labels, union_types) => {
             tf_u := ArrayList(TypeField).new();
             (tfi_u : usize) = usize(0);
-            while(runtime(tfi_u < union_labels.len()), {
+            while(tfi_u < union_labels.len(), {
               u_lbl := match(union_labels.get(tfi_u),.Some(l) => String.from(l.as_str()),.None => String.new());
               u_ty := match(union_types.get(tfi_u),.Some(t) => t,.None => TypeValue.Unit);
               tf_u.push(
@@ -820,7 +820,7 @@ evaluate_function_call :: (
           .TraitT(_, _, _, _, _, _, _, _) => {
             (has_spec : bool) = false;
             (spec_i : usize) = usize(0);
-            while(runtime((spec_i < args.len()) && !(has_spec)), {
+            while((spec_i < args.len()) && !(has_spec), {
               match(
                 args.get(spec_i),
                 .Some(a) => {
@@ -1010,7 +1010,7 @@ evaluate_function_call :: (
         if(fv_defaults.len() == n_p, {
           (nrr : usize) = usize(0);
           (oi : usize) = usize(0);
-          while(runtime(oi < n_p), {
+          while(oi < n_p, {
             match(
               fv_defaults.get(oi),
               .Some(d) => if(d.is_none(), {
@@ -1035,7 +1035,7 @@ evaluate_function_call :: (
         // Evaluate all arguments.
         evaled_arg_infos := ArrayList(ExprInfo).new();
         (ai : usize) = usize(0);
-        while(runtime(ai < n_a), {
+        while(ai < n_a, {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
           evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
           arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
@@ -1064,7 +1064,7 @@ evaluate_function_call :: (
         // Bind captures.
         (cap_i : usize) = usize(0);
         n_cap := cap_names.len();
-        while(runtime(cap_i < n_cap), {
+        while(cap_i < n_cap, {
           cn := match(cap_names.get(cap_i),.Some(n) => n,.None => String.from(""));
           ct := match(cap_tys.get(cap_i),.Some(t) => t,.None => t_unit());
           cap_v := match(cap_vals.get(cap_i),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
@@ -1109,12 +1109,12 @@ evaluate_function_call :: (
         // Infer forall type params from argument types.
         n_forall := forall_names.len();
         (fa_i : usize) = usize(0);
-        while(runtime(fa_i < n_forall), {
+        while(fa_i < n_forall, {
           fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
           n_ptn := param_type_names.len();
           (ptn_i : usize) = usize(0);
           (fa_bound : bool) = false;
-          while(runtime((ptn_i < n_ptn) && (!(fa_bound))), {
+          while((ptn_i < n_ptn) && (!(fa_bound)), {
             ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
             if(ptn.as_str() == fa_name.as_str(), {
               arg_info := match(
@@ -1147,7 +1147,7 @@ evaluate_function_call :: (
         // `panic(msg)` in the body requires.
         param_vars := ArrayList(Variable).new();
         (pi : usize) = usize(0);
-        while(runtime(pi < n_p), {
+        while(pi < n_p, {
           pname := match(param_names.get(pi),.Some(n) => n,.None => String.from(""));
           (arg_info : ExprInfo) = new_expr_info(env, t_unit());
           if(pi < n_supplied_reg, {
@@ -1192,7 +1192,7 @@ evaluate_function_call :: (
         });
         // Bind evidence params (implicit args at indices n_p..n_p+n_ev).
         (evi : usize) = usize(0);
-        while(runtime(evi < n_ev), {
+        while(evi < n_ev, {
           ev_name := match(evidence_names.get(evi),.Some(n) => n,.None => String.from(""));
           ev_info := match(evaled_arg_infos.get(n_supplied_reg + evi),.Some(i) => i,.None => new_expr_info(env, t_unit()));
           is_ct_ev := match(ev_info.value,.Some(_) => true,.None => false);
@@ -1261,7 +1261,7 @@ evaluate_function_call :: (
           true => {
             (ok : bool) = true;
             (tai : usize) = usize(0);
-            while(runtime((tai < evaled_arg_infos.len()) && ok), {
+            while((tai < evaled_arg_infos.len()) && ok, {
               match(
                 evaled_arg_infos.get(tai),
                 .Some(tinfo) => match(
@@ -1285,7 +1285,7 @@ evaluate_function_call :: (
         if((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || all_args_are_types, {
           ct_arg_entries := ArrayList(ArgEntry).new();
           (ct_ai : usize) = usize(0);
-          while(runtime(ct_ai < evaled_arg_infos.len()), {
+          while(ct_ai < evaled_arg_infos.len(), {
             ct_info := match(
               evaled_arg_infos.get(ct_ai),
               .Some(i) => i,
@@ -1424,7 +1424,7 @@ evaluate_function_call :: (
             all_args.push(method_info.receiver_expr);
           });
           (ai : usize) = usize(0);
-          while(runtime(ai < args.len()), {
+          while(ai < args.len(), {
             match(
               args.get(ai),
               .Some(a) => {

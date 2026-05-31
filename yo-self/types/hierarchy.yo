@@ -30,7 +30,7 @@ open(import("std/string"));
 _name_in_visited :: (fn(visited : ArrayList(String), name : String) -> bool)({
   result := false;
   i := usize(0);
-  while(runtime(i < visited.len()), {
+  while(i < visited.len(), {
     elem := match(visited.get(i),.Some(s) => s,.None => String.from(""));
     cond(
       (elem.as_str() == name.as_str()) => {
@@ -63,7 +63,7 @@ _determine_type_universe :: (
 )({
   max_level := usize(0);
   i := usize(0);
-  while(runtime(i < field_types.len()), {
+  while(i < field_types.len(), {
     field := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
     subtype := match(
       g_type_of_type_visited_fn,
@@ -142,10 +142,10 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
           new_visited.push(String.from(ename.as_str()));
           all_fields := ArrayList(TypeValue).new();
           vi := usize(0);
-          while(runtime(vi < variant_fields.len()), {
+          while(vi < variant_fields.len(), {
             vfields := match(variant_fields.get(vi),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
             fi := usize(0);
-            while(runtime(fi < vfields.len()), {
+            while(fi < vfields.len(), {
               ft := match(vfields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
               all_fields.push(ft);
               fi = (fi + usize(1));

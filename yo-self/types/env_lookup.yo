@@ -94,7 +94,7 @@ _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
   (found : bool) = false;
   n := visited_ids.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       visited_ids.get(i),
       .Some(existing) =>
@@ -125,7 +125,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
           m := vars.len();
           (result : Option(TypeValue)) =.None;
           (i : usize) = usize(0);
-          while(runtime(i < m), {
+          while(i < m, {
             match(
               vars.get(i),
               .Some(var) =>
@@ -162,14 +162,14 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
   (found : bool) = false;
   n_frames := env.frames.len();
   (fi : usize) = usize(0);
-  while(runtime((fi < n_frames) && !(found)), {
+  while((fi < n_frames) && !(found), {
     match(
       env.frames.get(fi),
       .Some(frame) => {
         vars := frame.variables;
         m := vars.len();
         (vi : usize) = usize(0);
-        while(runtime((vi < m) && !(found)), {
+        while((vi < m) && !(found), {
           match(
             vars.get(vi),
             .Some(var) =>
@@ -248,7 +248,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
   (current : TypeValue) = start;
   (done : bool) = false;
   (result : TypeValue) = start;
-  while(runtime(!(done)), {
+  while(!(done), {
     cur_id := _some_id(current);
     cur_name := _some_name(current);
     cond(
@@ -405,7 +405,7 @@ create_str_type :: (fn(env : Environment) -> TypeValue)({
   (i : usize) = usize(0);
   (found : Option(TypeValue)) =.None;
   (n : usize) = vars.len();
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       vars.get(i),
       .Some(v) => match(

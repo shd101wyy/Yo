@@ -104,7 +104,7 @@ evaluate_anonymous_struct_value :: (
   runtime_arg_exprs := ArrayList(AstExpr).new();
   n := args.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // Check if arg is a labeled pair `field: val` (infix `:` with 2 args)
     is_labeled := (
@@ -205,7 +205,7 @@ evaluate_anonymous_struct_value :: (
   all_comptime := {
     (ac : bool) = true;
     (ai : usize) = usize(0);
-    while(runtime((ai < field_values.len()) && ac), {
+    while((ai < field_values.len()) && ac, {
       match(
         field_values.get(ai),
         .None => {
@@ -228,7 +228,7 @@ evaluate_anonymous_struct_value :: (
       sv_names := ArrayList(String).new();
       sv_vals := ArrayList(EvalValue).new();
       (si : usize) = usize(0);
-      while(runtime(si < field_labels.len()), {
+      while(si < field_labels.len(), {
         match(
           field_labels.get(si),
           .Some(l) => {

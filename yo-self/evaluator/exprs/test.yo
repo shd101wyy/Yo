@@ -280,7 +280,7 @@ evaluate_test :: (
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
   // Restore env to its pre-test frame state: pops the implicit-io frame and
   // any frames left behind by a trial evaluation that unwound on error.
-  while(runtime(env.frames.len() > saved_frames_len), {
+  while(env.frames.len() > saved_frames_len, {
     env.pop_frame();
   });
   // NOTE: Don't propagate env (matches TypeScript behavior).

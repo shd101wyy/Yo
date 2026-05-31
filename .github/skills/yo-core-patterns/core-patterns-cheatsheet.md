@@ -327,7 +327,7 @@ node_eq :: (fn(a : Node, b : Node) -> bool)(
             true => {
               (i : usize) = usize(0);
               (ok : bool) = true;
-              while(runtime(((i < acs.len()) && ok)), {
+              while(((i < acs.len()) && ok), {
                 match(acs.get(i),
                   .Some(ac) => match(bcs.get(i),
                     .Some(bc) => { ok = recur(ac, bc); },

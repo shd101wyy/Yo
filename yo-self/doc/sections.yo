@@ -33,7 +33,7 @@ trim_section_content_ :: (fn(lines : ArrayList(String)) -> String)({
   count := lines.len();
   // Find start: skip leading blank lines
   start := usize(0);
-  while(runtime(start < count), {
+  while(start < count, {
     line := match(
       lines.get(start),
       .Some(l) => l,
@@ -48,7 +48,7 @@ trim_section_content_ :: (fn(lines : ArrayList(String)) -> String)({
   });
   // Find end: skip trailing blank lines
   end := count;
-  while(runtime(end > start), {
+  while(end > start, {
     prev := (end - usize(1));
     line := match(
       lines.get(prev),
@@ -65,7 +65,7 @@ trim_section_content_ :: (fn(lines : ArrayList(String)) -> String)({
   // Collect lines[start..end] and join
   result := ArrayList(String).new();
   i := start;
-  while(runtime(i < end), {
+  while(i < end, {
     line := match(
       lines.get(i),
       .Some(l) => l,
@@ -87,7 +87,7 @@ extract_summary_ :: (fn(description : String) -> String)({
   summary_lines := ArrayList(String).new();
   count := lines.len();
   i := usize(0);
-  while(runtime(i < count), {
+  while(i < count, {
     line := match(
       lines.get(i),
       .Some(l) => l,
@@ -127,7 +127,7 @@ parse_doc_comment :: (fn(text : String) -> ParsedDocComment)({
   current_section_lines := ArrayList(String).new();
   count := lines.len();
   i := usize(0);
-  while(runtime(i < count), {
+  while(i < count, {
     line := match(
       lines.get(i),
       .Some(l) => l,

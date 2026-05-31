@@ -76,7 +76,7 @@ path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) 
     return(false);
   });
   i := usize(0);
-  while(runtime(i < n2), {
+  while(i < n2, {
     s1 := match(path1.get(i),.Some(s) => s,.None => String.from(""));
     s2 := match(path2.get(i),.Some(s) => s,.None => String.from("~"));
     if(s1 != s2, {
@@ -104,10 +104,10 @@ path_collection_conflicts_with_path_collection :: (
   n1 := c1.len();
   n2 := c2.len();
   i := usize(0);
-  while(runtime(i < n1), {
+  while(i < n1, {
     p1 := match(c1.get(i),.Some(p) => p,.None => ArrayList(String).new());
     j := usize(0);
-    while(runtime(j < n2), {
+    while(j < n2, {
       p2 := match(c2.get(j),.Some(p) => p,.None => ArrayList(String).new());
       if(path_conflicts_with_path(p1, p2), {
         return(true);
@@ -215,7 +215,7 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
   c := false;
   n := flows.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     cf := match(
       flows.get(i),
       .Some(f) => f,

@@ -189,7 +189,7 @@ _has_data_arm :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       args.get(i),
       .None => (),
@@ -239,11 +239,11 @@ contains_return_word :: (fn(code : String) -> bool)({
       i := usize(0);
       end := (haystack_len - needle_len);
       found := false;
-      while(runtime((i <= end) && !(found)), {
+      while((i <= end) && !(found), {
         // Match the needle bytes at position `i`.
         matches := true;
         k := usize(0);
-        while(runtime((k < needle_len) && matches), {
+        while((k < needle_len) && matches, {
           h := match(haystack_bytes.get(i + k),.Some(b) => b,.None => u8(0));
           n := match(needle_bytes.get(k),.Some(b) => b,.None => u8(1));
           if(h != n, {
@@ -327,7 +327,7 @@ flatten_or_pattern :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
             left_flat := recur(left);
             right_flat := recur(right);
             i := usize(0);
-            while(runtime(i < left_flat.len()), {
+            while(i < left_flat.len(), {
               match(
                 left_flat.get(i),
                 .None => (),
@@ -338,7 +338,7 @@ flatten_or_pattern :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
               i = (i + usize(1));
             });
             j := usize(0);
-            while(runtime(j < right_flat.len()), {
+            while(j < right_flat.len(), {
               match(
                 right_flat.get(j),
                 .None => (),
@@ -532,7 +532,7 @@ generate_match_simple :: (
   emit_switch_open(scrutinee_c, false, ctx);
   (i : usize) = usize(0);
   n := arms.len();
-  while(runtime(i < n), {
+  while(i < n, {
     arm_opt := arms.get(i);
     match(
       arm_opt,
@@ -567,7 +567,7 @@ emit_data_bindings :: (
 )({
   (i : usize) = usize(0);
   n := bindings.len();
-  while(runtime(i < n), {
+  while(i < n, {
     b_opt := bindings.get(i);
     match(
       b_opt,
@@ -604,7 +604,7 @@ generate_match_data :: (
   emit_switch_open(scrutinee_c, true, ctx);
   (i : usize) = usize(0);
   n := arms.len();
-  while(runtime(i < n), {
+  while(i < n, {
     arm_opt := arms.get(i);
     match(
       arm_opt,

@@ -160,13 +160,13 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
     stack := ArrayList(Path).new();
     { stack.push(root); };
 
-    while(runtime((stack.len() > usize(0))), {
+    while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
       entries := ctx.io.await(read_dir(cur, ctx.io), ctx.io);
       // process `entries`, push subdirectories to `stack`
       n := entries.len();
       i := usize(0);
-      while(runtime((i < n)), {
+      while(i < n, {
         match(entries.get(i),
           .None => (),
           .Some(e) => {

@@ -133,7 +133,7 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
   processed := ArrayList(String).new();
   j := usize(0);
   m := raw_lines.len();
-  while(runtime(j < m), {
+  while(j < m, {
     raw_line := match(
       raw_lines.get(j),
       .Some(l) => l,
@@ -153,7 +153,7 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
     j = (j + usize(1));
   });
   // Trim leading blank lines
-  while(runtime(processed.len() > usize(0)), {
+  while(processed.len() > usize(0), {
     first := match(
       processed.get(usize(0)),
       .Some(l) => l,
@@ -168,7 +168,7 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
     });
   });
   // Trim trailing blank lines
-  while(runtime(processed.len() > usize(0)), {
+  while(processed.len() > usize(0), {
     last_idx := (processed.len() - usize(1));
     last := match(
       processed.get(last_idx),
@@ -193,7 +193,7 @@ strip_doc_block_comment_ :: (fn(value : String) -> String)(
 find_next_declaration_name_ :: (fn(tokens : ArrayList(Token), start_index : usize) -> DeclarationNameResult_)({
   i := start_index;
   n := tokens.len();
-  while(runtime(i < n), {
+  while(i < n, {
     token := match(
       tokens.get(i),
       .Some(t) => t,
@@ -237,7 +237,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
   inner_doc_module_path := ``;
   i := usize(0);
   n := tokens.len();
-  while(runtime(i < n), {
+  while(i < n, {
     token := match(
       tokens.get(i),
       .Some(t) => t,
@@ -260,7 +260,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
         i = (i + usize(1));
         // Skip whitespace between consecutive //! lines
         cont_ws := true;
-        while(runtime((i < n) && cont_ws), {
+        while((i < n) && cont_ws, {
           ws_tok := match(
             tokens.get(i),
             .Some(t) => t,
@@ -274,7 +274,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
               // Check if next non-whitespace token is also //!
               next := (i + usize(1));
               cont_next := true;
-              while(runtime((next < n) && cont_next), {
+              while((next < n) && cont_next, {
                 nxt := match(
                   tokens.get(next),
                   .Some(t) => t,
@@ -321,10 +321,10 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
         i = (i + usize(1));
         // Merge consecutive /// lines
         cont_merge := true;
-        while(runtime((i < n) && cont_merge), {
+        while((i < n) && cont_merge, {
           j := i;
           // Skip whitespace tokens
-          while(runtime(j < n), {
+          while(j < n, {
             ws := match(
               tokens.get(j),
               .Some(t) => t,
@@ -416,7 +416,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
 // ── Inline doc identifier finder ─────────────────────────────────────
 find_next_identifier_ :: (fn(tokens : ArrayList(Token), start_index : usize, end_index : usize) -> String)({
   i := start_index;
-  while(runtime(i < end_index), {
+  while(i < end_index, {
     token := match(
       tokens.get(i),
       .Some(t) => t,
@@ -455,7 +455,7 @@ extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_i
     (end_index < tokens.len()) => end_index,
     true => tokens.len()
   );
-  while(runtime(i < end), {
+  while(i < end, {
     token := match(
       tokens.get(i),
       .Some(t) => t,
@@ -469,10 +469,10 @@ extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_i
       i = (i + usize(1));
       // Merge consecutive /// lines
       cont_merge := true;
-      while(runtime((i < end) && cont_merge), {
+      while((i < end) && cont_merge, {
         j := i;
         // Skip whitespace tokens
-        while(runtime(j < end), {
+        while(j < end, {
           ws := match(
             tokens.get(j),
             .Some(t) => t,
@@ -531,7 +531,7 @@ find_matching_parens :: (fn(tokens : ArrayList(Token), search_start : usize) -> 
   n := tokens.len();
   // Find the opening paren
   found_open := false;
-  while(runtime(i < n), {
+  while(i < n, {
     tok := match(
       tokens.get(i),
       .Some(t) => t,
@@ -551,7 +551,7 @@ find_matching_parens :: (fn(tokens : ArrayList(Token), search_start : usize) -> 
   open_index := i;
   depth := usize(1);
   i = (i + usize(1));
-  while(runtime((i < n) && (depth > usize(0))), {
+  while((i < n) && (depth > usize(0)), {
     tok := match(
       tokens.get(i),
       .Some(t) => t,

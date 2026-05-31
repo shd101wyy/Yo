@@ -406,7 +406,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               func_str := recur(func_box.*);
               sb := StringBuilder.new();
               i := usize(0);
-              while(runtime(i < n), {
+              while(i < n, {
                 if(i > usize(0), {
                   sb.write_str(", ");
                 });
@@ -421,7 +421,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
         func_is_tuple_kw => {
           sb := StringBuilder.new();
           i := usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             if(i > usize(0), {
               sb.write_str(", ");
             });
@@ -444,7 +444,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
           );
           sb := StringBuilder.new();
           i := usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             if(i > usize(0), {
               sb.write_str(", ");
             });
@@ -484,7 +484,7 @@ ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
     .Atom(_, tok) => {
       n := values.len();
       i := usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         v := match(values.get(i),.Some(s) => s,.None => "~unreachable~");
         if(tok.value == String.from(v), {
           return(true);
@@ -535,7 +535,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
           n := func_names.len();
           i := usize(0);
           found := false;
-          while(runtime(i < n), {
+          while(i < n, {
             v := match(func_names.get(i),.Some(s) => s,.None => "~unreachable~");
             if(tok.value == String.from(v), {
               found = true;
@@ -585,7 +585,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
           return(false);
         });
         i := usize(0);
-        while(runtime(i < n1), {
+        while(i < n1, {
           a1 := match(args1.get(i),.Some(a) => a,.None => make_err_expr());
           a2 := match(args2.get(i),.Some(a) => a,.None => make_err_expr());
           if(!(recur(a1, a2)), {

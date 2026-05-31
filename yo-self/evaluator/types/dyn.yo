@@ -90,7 +90,7 @@ evaluate_dyn_type :: (
   negative_ids := ArrayList(String).new();
   cur_env := env;
   i := usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     trait_arg := match(
       args.get(i),
       .Some(a) => a,
@@ -170,7 +170,7 @@ evaluate_dyn_type :: (
       // Duplicate-in-negative check.
       already := false;
       j := usize(0);
-      while(runtime(j < negative_ids.len()), {
+      while(j < negative_ids.len(), {
         existing := match(negative_ids.get(j),.Some(s) => s,.None => String.from(""));
         if(existing == tid, {
           already = true;
@@ -205,7 +205,7 @@ evaluate_dyn_type :: (
       // Duplicate-in-required check.
       already := false;
       j := usize(0);
-      while(runtime(j < required_ids.len()), {
+      while(j < required_ids.len(), {
         existing := match(required_ids.get(j),.Some(s) => s,.None => String.from(""));
         if(existing == tid, {
           already = true;
@@ -246,7 +246,7 @@ evaluate_dyn_type :: (
   // iteration, so traits appended here are themselves expanded (BFS).
   // Mirrors `src/evaluator/types/dyn.ts:88-104`.
   qi := usize(0);
-  while(runtime(qi < required_traits.len()), {
+  while(qi < required_traits.len(), {
     cur_trait := match(required_traits.get(qi),.Some(t) => t,.None => t_i32());
     scs := match(
       cur_trait,
@@ -254,12 +254,12 @@ evaluate_dyn_type :: (
       _ => ArrayList(TypeValue).new()
     );
     k := usize(0);
-    while(runtime(k < scs.len()), {
+    while(k < scs.len(), {
       constraint := match(scs.get(k),.Some(t) => t,.None => t_i32());
       cid := trait_id_for_dedup(constraint);
       already := false;
       m := usize(0);
-      while(runtime(m < required_ids.len()), {
+      while(m < required_ids.len(), {
         eid := match(required_ids.get(m),.Some(s) => s,.None => String.from(""));
         if(eid == cid, {
           already = true;

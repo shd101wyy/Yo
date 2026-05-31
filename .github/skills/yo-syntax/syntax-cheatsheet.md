@@ -524,7 +524,9 @@ divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y)
 increment :: (fn(ref(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
 
 // invariant(...) must be the FIRST statement of a while body.
-while(runtime(i < n), {
+// NOTE: do NOT wrap the condition in runtime(...) — while conditions are
+// runtime by default, so `while(runtime(i < n), …)` is redundant; use `while(i < n, …)`.
+while(i < n, {
   invariant(i <= n, acc >= i32(0));
   i = (i + i32(1)); acc = (acc + i);
 });

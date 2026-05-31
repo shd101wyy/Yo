@@ -177,7 +177,7 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
   (key_idx : Option(usize)) = Option(usize).None;
   (ki : usize) = usize(0);
   (n_keys : usize) = g_impl_registry_keys.len();
-  while(runtime(ki < n_keys), {
+  while(ki < n_keys, {
     existing_key := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
     if(existing_key.as_str() == key.as_str(), {
       key_idx = Option(usize).Some(ki);
@@ -236,7 +236,7 @@ try_match_generic_impl :: (
   _ := unify_env.push_frame(false);
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
-  while(runtime(ui < n_forall), {
+  while(ui < n_forall, {
     fa_name := match(
       entry.forall_names.get(ui),
       .Some(n) => n,
@@ -294,7 +294,7 @@ try_match_generic_impl :: (
   // Verify each forall param was actually bound to a concrete type.
   (all_bound : bool) = true;
   (vi : usize) = usize(0);
-  while(runtime((vi < n_forall) && all_bound), {
+  while((vi < n_forall) && all_bound, {
     fa_name2 := match(
       entry.forall_names.get(vi),
       .Some(n) => n,
@@ -370,7 +370,7 @@ find_matching_generic_impl :: (
     Option(ArrayList(GenericImplEntry)).None;
   (ki : usize) = usize(0);
   (n_keys : usize) = g_impl_registry_keys.len();
-  while(runtime(ki < n_keys), {
+  while(ki < n_keys, {
     k := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
     if(k.as_str() == key.as_str(), {
       entry_list_opt = g_impl_registry_entry_lists.get(ki);
@@ -387,7 +387,7 @@ find_matching_generic_impl :: (
   );
   (n_entries : usize) = entries.len();
   (ei : usize) = usize(0);
-  while(runtime(ei < n_entries), {
+  while(ei < n_entries, {
     entry := match(
       entries.get(ei),
       .Some(e) => e,
@@ -441,7 +441,7 @@ find_methods_from_generic_impls :: (
   // Iterate all key buckets.
   n_keys := g_impl_registry_keys.len();
   (ki : usize) = usize(0);
-  while(runtime(ki < n_keys), {
+  while(ki < n_keys, {
     entry_list := match(
       g_impl_registry_entry_lists.get(ki),
       .Some(l) => l,
@@ -452,7 +452,7 @@ find_methods_from_generic_impls :: (
     );
     n_entries := entry_list.len();
     (ei : usize) = usize(0);
-    while(runtime(ei < n_entries), {
+    while(ei < n_entries, {
       entry := match(
         entry_list.get(ei),
         .Some(e) => e,
@@ -468,7 +468,7 @@ find_methods_from_generic_impls :: (
       // Found a matching impl — search for the method field.
       n_fields := entry.field_names.len();
       (fi : usize) = usize(0);
-      while(runtime(fi < n_fields), {
+      while(fi < n_fields, {
         fname := match(
           entry.field_names.get(fi),
           .Some(n) => n,
@@ -519,7 +519,7 @@ _try_lookup_trait_type :: (
   // non-parametric traits bound directly as a `TraitT` in the env.
   (head_expr : AstExpr) = trait_expr;
   (steps : usize) = usize(0);
-  while(runtime(!(ast_expr_is_atom(head_expr)) && (steps < usize(32))), {
+  while(!(ast_expr_is_atom(head_expr)) && (steps < usize(32)), {
     head_expr = match(
       head_expr,
       .FnCall(_, fb, _, _, _) => fb.*,
@@ -602,7 +602,7 @@ _trait_field_type_by_label :: (
         (i : usize) = usize(0);
         (found : Option(TypeValue)) = Option(TypeValue).None;
         n := labels.len();
-        while(runtime((i < n) && found.is_none()), {
+        while((i < n) && found.is_none(), {
           match(
             labels.get(i),
             .Some(l) => {
@@ -634,7 +634,7 @@ _find_self_level_in_method_ty :: (
     .Func(_, _, _, pts, _, _, _, _, ret, _) => {
       (found : Option(usize)) = Option(usize).None;
       (i : usize) = usize(0);
-      while(runtime((i < pts.len()) && found.is_none()), {
+      while((i < pts.len()) && found.is_none(), {
         match(
           pts.get(i),
           .Some(p) => match(
@@ -770,7 +770,7 @@ evaluate_module_value :: (
     (forall_names : ArrayList(String)) = ArrayList(String).new();
     (forall_some_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
     (fi2 : usize) = usize(0);
-    while(runtime(fi2 < forall_args.len()), {
+    while(fi2 < forall_args.len(), {
       fp_expr := match(forall_args.get(fi2),.Some(e) => e,.None => make_err_expr());
       fi2 = (fi2 + usize(1));
       // Extract name: `T : Type` colon pair or plain atom `T`.
@@ -857,7 +857,7 @@ evaluate_module_value :: (
     old_self_type_g := ctx.self_type;
     ctx.self_type =.Some(receiver_type_pattern);
     (fj : usize) = (receiver_arg_idx + usize(1));
-    while(runtime(fj < n_args), {
+    while(fj < n_args, {
       mf_expr := match(args.get(fj),.None => make_err_expr(),.Some(e) => e);
       fj = (fj + usize(1));
       if(ast_expr_is_fn_call(mf_expr) && ast_expr_is_fn_call_of(mf_expr, BK_COLON,.Some(usize(2))), {
@@ -974,7 +974,7 @@ evaluate_module_value :: (
   (pre_registered_trait_ids : ArrayList(String)) = ArrayList(String).new();
   if(receiver_type_id != String.from(""), {
     (preri : usize) = usize(1);
-    while(runtime(preri < n_args), {
+    while(preri < n_args, {
       match(
         args.get(preri),
         .None => (),
@@ -1017,7 +1017,7 @@ evaluate_module_value :: (
   // Process each field expression: `name : fn_def` or a trait constructor
   // like `Trait(name: fn_def, ...)` whose inner args are colon pairs.
   (field_idx : usize) = usize(1);
-  while(runtime(field_idx < n_args), {
+  while(field_idx < n_args, {
     match(
       args.get(field_idx),
       .None => (),
@@ -1055,7 +1055,7 @@ evaluate_module_value :: (
           );
           current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env, ctx, exn);
           (ti2 : usize) = usize(0);
-          while(runtime(ti2 < trait_inner_args.len()), {
+          while(ti2 < trait_inner_args.len(), {
             match(
               trait_inner_args.get(ti2),
               .None => (),
@@ -1070,7 +1070,7 @@ evaluate_module_value :: (
         });
         // Register each collected colon-pair method expression.
         (mj : usize) = usize(0);
-        while(runtime(mj < method_exprs.len()), {
+        while(mj < method_exprs.len(), {
           match(
             method_exprs.get(mj),
             .None => (),
@@ -1170,7 +1170,7 @@ evaluate_module_value :: (
   // `finally { for (const key of preRegisteredKeys) ... }`.
   (postri : usize) = usize(0);
   pre_n := pre_registered_trait_ids.len();
-  while(runtime(postri < pre_n), {
+  while(postri < pre_n, {
     match(
       pre_registered_trait_ids.get(postri),
       .None => (),
@@ -1203,7 +1203,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
   out := ArrayList(MethodEntry).new();
   n := candidates.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       candidates.get(i),
       .Some(c) => {
