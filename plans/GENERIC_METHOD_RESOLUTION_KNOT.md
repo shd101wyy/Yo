@@ -236,7 +236,37 @@ confirmed it engages (`is_static=T`, receiver corrected TypeUni→Struct).
   correct, faithful, regression-free prerequisite: without it the receiver is
   TypeUni and Layer 2 could never even be attempted.
 
-### Layer 2 — generic-impl match of the instantiation struct (ATTEMPTED, reverted)
+### Recursion guard FIXED (`68053176`) + Layer 2 retry (still not viable)
+
+Per "fix the recursion guard first, then retry layer 2":
+
+- **Recursion guard fixed & committed (`68053176`):** crash-report analysis of
+  the Layer 2 SIGBUS showed it was infinite recursion in **`type_to_string`**
+  (frames bottoming out in `___chkstk_darwin`), reached via
+  `synthesis_type_id`'s `type_to_string` fallback when the generic-impl
+  synthesize descends into a recursive type's non-struct fields. `type_to_string`
+  had no cycle/depth guard. Added a depth cap (`_tts(t, _d)`, cap 40).
+  **Neutral at HEAD: std 151/151, regressors imm_vec/imm_threading/
+  priority_queue all pass.**
+- **Layer 2 retry (all-type-args routing) — STILL NOT VIABLE, reverted again.**
+  With the type_to_string guard in place, re-applying the all-type-args
+  routing no longer SIGBUSes — but `imm_vec` now **HANGS** (infinite loop, no
+  stack growth; killed after 3+ min). So the guard only removed the
+  stack-overflow _site_; the underlying non-terminating recursion in the
+  synthesize/memoization of recursive-type instantiations persists, just
+  manifesting as a hang instead of a crash. Diagnostics ruled out the obvious
+  suspects: comptime-fn recursion is finite (~710 calls), and `_synthesize_call`'s
+  per-`checked` depth never exceeds ~1200 (the cross-entry re-entrancy uses
+  fresh `checked` lists). The loop is a non-stack-growing cycle (likely
+  try_match → synthesize → trait-constraint check → find_matching_generic_impl
+  → try_match, each re-instantiating). **Conclusion: the all-type-args routing
+  is too broad — it routes recursive-type instantiations onto the memoized path
+  where they don't terminate. Layer 2 needs a narrower stamping approach that
+  does NOT route recursive types through memoization (or a proper cross-entry
+  cycle guard on the try_match/trait-check path).** Reverted; only the
+  type_to_string guard landed.
+
+### Layer 2 — generic-impl match of the instantiation struct (earlier attempt, reverted)
 
 **Probe chain (5 builds) pinpointed the exact mechanism and the wall:**
 
