@@ -1206,7 +1206,41 @@ evaluate_function_call :: (
           .Some(cft) => match(cft,.Func(_, _, _, _, _, _, _, _, _, rico) => rico, _ => false),
           .None => false
         );
-        if(is_type_hierarchy_type(ret_type) || callee_result_is_comptime, {
+        // A FuncVal call whose arguments are ALL compile-time type VALUES is a
+        // type-constructor instantiation (`HashMap(String, X)`, `Vec(i32)`),
+        // even when the callee's recorded return type was specialized to a
+        // concrete struct in an expected-type context. Route those through
+        // `evaluate_comptime_fn_call` so the result is MEMOIZED + STAMPED with
+        // `constructor_func_id`. Safe for recursive types: the recursion guard
+        // returns a finite SomeT-leaf placeholder (recursiveTypeRef A/B) and
+        // `synthesis_type_id` uses a shallow key, so synthesis terminates.
+        all_args_are_types := cond(
+          (evaled_arg_infos.len() == usize(0)) => false,
+          true => {
+            (ok : bool) = true;
+            (tai : usize) = usize(0);
+            while(runtime((tai < evaled_arg_infos.len()) && ok), {
+              match(
+                evaled_arg_infos.get(tai),
+                .Some(tinfo) => match(
+                  tinfo.value,
+                  .Some(v) => if(!(is_type_val(v)), {
+                    ok = false;
+                  }),
+                  .None => {
+                    ok = false;
+                  }
+                ),
+                .None => {
+                  ok = false;
+                }
+              );
+              tai = (tai + usize(1));
+            });
+            ok
+          }
+        );
+        if((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || all_args_are_types, {
           ct_arg_entries := ArrayList(ArgEntry).new();
           (ct_ai : usize) = usize(0);
           while(runtime(ct_ai < evaled_arg_infos.len()), {

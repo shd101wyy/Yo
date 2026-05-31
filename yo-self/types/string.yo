@@ -291,4 +291,12 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
 /// Pointer/Slice/Array/Tuple/Func/Struct/EnumT/Union, with a depth cap (see
 /// `_tts`) so cyclic / very deep types can't overflow the stack.
 type_to_string :: (fn(t : TypeValue) -> String)(_tts(t, usize(0)));
-export(type_to_string);
+/// A cheap, shallow key for the synthesizer's anti-circularity check. Renders
+/// only the top few levels of structure (then `…`), so it can't blow up the way
+/// full `type_to_string` (depth 40) does when called O(n) times over a large or
+/// deep type with a growing `checked` list (the O(n²) string-building that
+/// hangs recursive-type synthesis). For shallow types it's identical to
+/// `type_to_string`; only deep types are truncated. (TS uses O(1) object
+/// identity for `checkedTypePairs`; this is the value-semantic proxy.)
+type_to_string_key :: (fn(t : TypeValue) -> String)(_tts(t, usize(36)));
+export(type_to_string, type_to_string_key);

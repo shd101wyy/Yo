@@ -53,7 +53,7 @@ open(import("std/string"));
 :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env }
 :: import("../../types/env_lookup.yo");
-{ type_to_string } :: import("../../types/string.yo");
+{ type_to_string, type_to_string_key } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
 { format_error_message, ErrorKind } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -178,7 +178,12 @@ _synthesize_call :: (
 // ---------------------------------------------------------------------------
 /// Extract a stable identity key from a TypeValue for use in `TypePair`.
 /// For named types (Struct, Enum, Trait, Module, SomeT), uses their `id` field.
-/// For everything else, uses `type_to_string` as a unique-enough key.
+/// For everything else, uses a shallow `type_to_string_key` as a
+/// unique-enough key. (Was full `type_to_string`, which is O(depth-40) per call
+/// and, called O(n) times over a large type with a growing `checked` list,
+/// blows up to O(n²) string-building — the hang seen when routing recursive-
+/// type instantiations through synthesis. The shallow key bounds that cost; it
+/// is identical to the full string for shallow types.)
 synthesis_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
@@ -187,7 +192,7 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
     .TraitT(_, _, _, _, id, _, _, _) => id,
     .ModuleT(id, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
-    _ => type_to_string(ty)
+    _ => type_to_string_key(ty)
   )
 );
 /// Check if a `TypePair` is already in the checked-pairs list.

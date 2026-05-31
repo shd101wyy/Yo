@@ -445,7 +445,32 @@ evaluate_comptime_fn_call :: (
     .Func(_, _, _, _, _, _, _, _, _, rico) => rico,
     _ => false
   );
-  should_cache := (is_type_hierarchy_type(return_type) || func_result_is_comptime);
+  // A call whose arguments are ALL compile-time type VALUES is a
+  // type-constructor instantiation; cache it (keyed by func_id + type args) so
+  // every instantiation is one stable-id TypeValue (terminates the
+  // synthesizer's id-keyed cycle guard) and is stamped. Mirrors the routing
+  // widening in `function.yo`'s gate.
+  all_args_are_types := cond(
+    (all_arg_vals.len() == usize(0)) => false,
+    true => {
+      (ok2 : bool) = true;
+      (cti : usize) = usize(0);
+      while(runtime((cti < all_arg_vals.len()) && ok2), {
+        match(
+          all_arg_vals.get(cti),
+          .Some(v) => if(!(is_type_val(v)), {
+            ok2 = false;
+          }),
+          .None => {
+            ok2 = false;
+          }
+        );
+        cti = (cti + usize(1));
+      });
+      ok2
+    }
+  );
+  should_cache := ((is_type_hierarchy_type(return_type) || func_result_is_comptime) || all_args_are_types);
   // Find or create the cache bucket for this func_id in ctx.comptime_fn_caches.
   (entry_idx_opt : Option(usize)) = Option(usize).None;
   {
