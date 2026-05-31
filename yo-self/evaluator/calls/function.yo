@@ -56,7 +56,7 @@ open(import("std/string"));
   VarArgEntry
 } :: import("../context.yo");
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
-{ evaluate_comptime_fn_call } :: import("./comptime_fn.yo");
+{ evaluate_comptime_fn_call, resolve_recursive_type_ref } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
@@ -343,9 +343,29 @@ evaluate_function_call :: (
   // Evaluate the callee.
   evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, exn);
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
-  callee_value := match(
+  callee_value_raw := match(
     callee_info_opt,
     .Some(ci) => ci.value,
+    .None => Option(EvalValue).None
+  );
+  // Resolve a recursive-type-reference placeholder before dispatch. When the
+  // callee evaluated to a `SomeT` recursion placeholder (created by
+  // `evaluate_comptime_fn_call` for a self-referential type constructor),
+  // resolve it to the actual struct/enum type via the comptime-fn cache so the
+  // call dispatches as a real type constructor. Mirrors TS
+  // `function.ts:929-945`. `resolve_recursive_type_ref` returns `.None` for any
+  // non-placeholder TypeVal, so this is a no-op for ordinary callees.
+  callee_value := match(
+    callee_value_raw,
+    .Some(cv) => match(
+      cv,
+      .TypeVal(tb) => match(
+        resolve_recursive_type_ref(tb.*, ctx),
+        .Some(rt) => Option(EvalValue).Some(EvalValue.TypeVal(box(rt))),
+        .None => callee_value_raw
+      ),
+      _ => callee_value_raw
+    ),
     .None => Option(EvalValue).None
   );
   callee_env := match(

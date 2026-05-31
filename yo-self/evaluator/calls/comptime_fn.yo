@@ -24,7 +24,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_some_type, is_type_hierarchy_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 {
   EvalValue,
@@ -131,6 +131,142 @@ lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))(
     i = (i + usize(1));
   });
   found
+});
+/// Is `v` a TypeVal carrying a RESOLVED type (not a recursion placeholder)?
+/// A placeholder is a `SomeT` whose id is registered in the side-table; any
+/// other TypeVal is resolved. Returns the inner type when resolved.
+_resolved_type_of :: (fn(v : EvalValue) -> Option(TypeValue))(
+  match(
+    v,
+    .TypeVal(tb) => {
+      t := tb.*;
+      is_placeholder := match(
+        t,
+        .SomeT(id : sid2) => match(lookup_recursive_type_ref(sid2),.Some(_) => true,.None => false),
+        _ => false
+      );
+      cond(
+        is_placeholder => Option(TypeValue).None,
+        true => Option(TypeValue).Some(t)
+      )
+    },
+    _ => Option(TypeValue).None
+  )
+);
+/// Pairwise-equal two CTFE arg-value lists (same length + `_ctfe_args_equal`).
+_arg_vals_equal :: (fn(a : ArrayList(EvalValue), b : ArrayList(EvalValue)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  n := a.len();
+  while(runtime((i < n) && ok), {
+    match(
+      a.get(i),
+      .Some(av) => match(
+        b.get(i),
+        .Some(bv) => {
+          ok = _ctfe_args_equal(av, bv);
+        },
+        .None => {
+          ok = false;
+        }
+      ),
+      .None => {
+        ok = false;
+      }
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
+/// Resolve a recursion-placeholder `SomeT` to its actual type. Mirrors TS
+/// `resolveRecursiveTypeRef` (`function.ts:133`): (1) the cache entry of the
+/// same func with exactly-matching args whose value is resolved; (2)
+/// `ctx.self_type` when it is a struct/object; (3) ANY resolved cache entry of
+/// the same func (all instantiations share the same structure). Returns `.None`
+/// when `some_ty` is not a registered placeholder or nothing has resolved yet.
+resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Option(TypeValue))({
+  sid := match(some_ty,.SomeT(id : x) => x, _ => String.from(""));
+  if(sid.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  rref := match(
+    lookup_recursive_type_ref(sid),
+    .Some(r) => r,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  // Locate the cache bucket for the recursive function.
+  (bucket_opt : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
+  {
+    (ci : usize) = usize(0);
+    n_c := ctx.comptime_fn_caches.len();
+    while(runtime((ci < n_c) && match(bucket_opt,.None => true,.Some(_) => false)), {
+      match(
+        ctx.comptime_fn_caches.get(ci),
+        .Some(e) => if(e.func_id.as_str() == rref.func_id.as_str(), {
+          bucket_opt = Option(ComptimeFnCacheEntry).Some(e);
+        }),
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+  };
+  bucket := match(
+    bucket_opt,
+    .Some(b) => b,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  // Strategy 1: exact-arg-match cache entry with a resolved value.
+  {
+    (i : usize) = usize(0);
+    n := bucket.caches.len();
+    while(runtime(i < n), {
+      match(
+        bucket.caches.get(i),
+        .Some(cache) => if(_arg_vals_equal(cache.arg_values, rref.arg_values), {
+          match(
+            _resolved_type_of(cache.value),
+            .Some(rt) => return(Option(TypeValue).Some(rt)),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  };
+  // Strategy 2: ctx.self_type when it is a struct/object.
+  match(
+    ctx.self_type,
+    .Some(st) => if(is_struct_type(st), {
+      return(Option(TypeValue).Some(st));
+    }),
+    .None => ()
+  );
+  // Strategy 3: any resolved cache entry of the same function.
+  {
+    (i : usize) = usize(0);
+    n := bucket.caches.len();
+    while(runtime(i < n), {
+      match(
+        bucket.caches.get(i),
+        .Some(cache) => match(
+          _resolved_type_of(cache.value),
+          .Some(rt) => return(Option(TypeValue).Some(rt)),
+          .None => ()
+        ),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  };
+  Option(TypeValue).None
 });
 /// Build the in-progress recursion placeholder for a type-constructor call.
 /// When the return is the `Type` universe (level 0) — i.e. a type constructor —
@@ -571,4 +707,4 @@ evaluate_comptime_fn_call :: (
 });
 export(evaluate_comptime_fn_call);
 export(ComptimeFnCallResult);
-export(RecursiveTypeRef, lookup_recursive_type_ref);
+export(RecursiveTypeRef, lookup_recursive_type_ref, resolve_recursive_type_ref);
