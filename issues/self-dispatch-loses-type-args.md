@@ -26,6 +26,21 @@ and have it bind from the receiver struct's `type_arguments` when
 Container populates `type_arguments` but HashMap(String,String) apparently does
 not (where-constraint? instantiation path?).
 
+**Update (helper.yo Step 6 ruled out):** added a fallback in
+`try_to_call_function_with_arguments` Step 6 (`helper.yo:~1568`) to bind a still-
+`UnknownVal` forall param from `ctx.self_type`'s `type_arguments`, plus a
+`HDBG` print keyed on `flabel == "K"`. **It never fired for either repro** — so
+no-arg `Self`-dispatched methods do not bind their forall in Step 6 either.
+Reverted. The forall binding for these dispatches flows through the method-
+resolution `substitute()` path (matching the receiver against the impl pattern
+yields `K→concrete`, applied to the method type). `type_arguments` fixed the
+Container repro through that substitution; **html.yo's HashMap still fails
+because synthesize-matching `HashMap(String,String)` against the impl pattern
+`HashMap(K,V)` does not yield `K→String`** — the original knot core (the
+recursive `?*(Bucket(K,V))` field and/or the `where(K <: (Eq,Hash))`
+constraint defeat the unification). That is a separate, harder sub-problem;
+`type_arguments` is a necessary prerequisite but not sufficient alone.
+
 This is the current head of the **generic-method-resolution knot** cascade
 (see `plans/GENERIC_METHOD_RESOLUTION_KNOT.md`). It is what blocks
 `std/encoding/html.yo` (and ~all of `check ./yo-self`).
