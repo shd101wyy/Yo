@@ -1,7 +1,39 @@
 # Remaining unported evaluator files (TS → yo-self)
 
-Of the 3 TS evaluator files without a yo-self counterpart, 1 is now ported and
-2 are blocked on prerequisite sub-ports.
+**Update:** all 3 files now have yo-self counterparts. `unsafe.yo` is fully
+active. `flowability.yo` and the `contracts.yo` markers are ported and
+regression-free; each has a documented _activation_ follow-up (wiring +
+remaining sub-piece) below.
+
+| File                                      | Status                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------ |
+| `builtins/unsafe.ts` → `unsafe.yo`        | **Done + active** (`21052924`)                                                 |
+| `types/flowability.ts` → `flowability.yo` | **Ported** (`3675b39d`); pending activation (setters + caller wiring)          |
+| `builtins/contracts.ts` → `contracts.yo`  | **Markers ported** (`f22993f7`); `wrap_function_body_with_contracts` remaining |
+
+Prerequisites landed: Func.param_is_ref/result_is_ref (`fab9f423`),
+Variable.is_ref/is_parameter (`b0ca9387`), type_representation_contains_raw_ptr
+/ type_may_provide_slice_source (`1d41ff4c`), has_any_control_flow (pre-existing).
+
+## Activation follow-ups
+
+- **flowability**: (1) SET `Variable.is_ref` at `ref(name) : T` param bindings
+  and `ref(name) := …` locals, and `Variable.is_parameter` at all param
+  bindings; (2) wire `is_flowable_expr` into its callers (function_type.yo
+  return-flow, begin.yo return, the `ref(name) :=` binding site). The setters
+  MUST precede enforcement wiring — otherwise legitimate `ref(T)`-returning
+  functions are wrongly rejected during codegen. Both are codegen-only (not
+  reached by `check`).
+- **contracts**: port `wrap_function_body_with_contracts` (the ~250-line
+  signature→assert lowering) and wire it into function_type.yo /
+  anonymous_function.yo body construction.
+
+---
+
+## Original assessment (historical)
+
+Of the 3 TS evaluator files without a yo-self counterpart, 1 was tractable and
+2 were blocked on prerequisite sub-ports (now landed — see above).
 
 ## ✅ `evaluator/builtins/unsafe.ts` → `unsafe.yo` (DONE, `21052924`)
 
