@@ -7,6 +7,55 @@
 > dead ends. See `BOOTSTRAPPING_EVALUATOR.md` Phase 3 / Stage 1–4 for the
 > full attempt log.
 
+## CORRECTION (BEGIN step 2, probe build `/tmp/yo-self-probe`): the knot is method resolution, NOT the gate/memoization
+
+The Stage-3 SIGBUS framing was a red herring. Running the **committed
+baseline** (no Stage-3 struct stamping) instrumented with `[GATE]`/`[CFC]`
+probes showed:
+
+- **`imm_vec` PASSES** (`check` rc=0) — the baseline does **not** crash.
+  The SIGBUS was introduced only by the (reverted) Stage-3 `struct.yo`
+  stamping. There is no active crash to fix.
+- **The routing gate works for the vast majority** of type constructors:
+  `Option` 96×, `ArrayList` 13×, every trait constructor — all
+  `itht=T crc=T ret=TypeUni`. (A minority — `Vec` 60×, `ArrayList` 7× —
+  show `itht=F crc=F ret=other`, i.e. a callee whose return resolved to a
+  `SomeT`/non-Type; worth a faithful follow-up but NOT the knot.)
+- **The cache is active** (`sc=T`, 215 HIT / 456 MISS) — memoization runs.
+
+**The actual knot symptom** (`type_trait_methods.yo:130`, hit while checking
+any file that imports it):
+
+```
+Incompatible types:
+- Expected: <struct:struct_yo_id_3073>   // the LHS annotation HashMap(String, ArrayList(MethodEntry))
+- Given   : unit                          // the RHS  HashMap(String, ArrayList(MethodEntry)).new()
+```
+
+`.new()` on a generic instantiation resolves to **`unit`**. The resolution
+path (`env.yo:get_type_trait_methods_by_name_from_env`):
+
+1. `type_id_or_empty(ty)` → the receiver Struct's `id` (a fresh `random_id`
+   per instantiation, e.g. `3073`).
+2. `get_type_trait_methods_by_name(id, "new")` → exact-string `HashMap.get` →
+   **MISS** (the impl was registered under a different instantiation's id).
+3. Fallback `_g_find_methods_from_generic_impls_fn` → `impl.yo`
+   `find_methods_from_generic_impls` → for each registered generic impl,
+   `try_match_generic_impl(resolved, entry)` = `synthesize_types(receiver
+pattern `HashMap(K,V)`, concrete `HashMap(String,X)`)`. A match returns the
+   method candidate. The fallback IS wired (`impl.yo:1236`).
+
+So `.new()`→`unit` means the **fallback returned no candidate**. Three
+possible causes (the `[GIMP]` probe build narrows it):
+
+- **(c1) the HashMap generic impl was never registered** when checking this
+  file (`n_keys`/`total_entries` for the lookup = 0 or excludes HashMap);
+- **(c2) it is registered but `try_match_generic_impl` fails to synthesize**
+  `HashMap(K,V)` against `HashMap(String, ArrayList(MethodEntry))`
+  (`match=N`) — this is the funcId/synthesize gap the foundation targeted;
+- **(c3) it matches but the candidate's method type/value comes back as
+  `unit`** (`matched>0 results>0` yet still `unit` downstream).
+
 ## What is solid (committed foundation)
 
 - **Memoization** (`663fca9f`): the live FuncVal-callee path delegates
@@ -58,14 +107,44 @@ the inline-path `ArrayList(X)` call hit the comptime cache instead of
 re-evaluating, the re-instantiation would return the cached type and the loop
 would break.
 
-### Refined open question (BEGIN step 2)
+### KEY FINDING (BEGIN step 2 analysis): the TS routing gate + no-return-specialization
+
+Tracing the TS dispatch (`helper.ts:1731`) settled what the gate _should_ be:
+
+- **TS routes to `evaluateComptimeFunctionCall` purely on
+  `functionType.return.isCompileTimeOnly`** — NOT on `isTypeHierarchyType`.
+  yo-self's gate is `is_type_hierarchy_type(ret_type) || result_is_comptime_only`;
+  the first disjunct is an extra yo-self widening.
+- **Inside, `shouldCache = isTypeHierarchyType(returnType)` ALONE**
+  (`comptime-fn.ts:91`) — yo-self diverges by OR-ing `result_is_comptime_only`.
+- **CRUCIAL: TS never specializes the callee `functionType.return.type` to the
+  concrete struct.** For `ArrayList`, declared `-> comptime(Type)`, the callee
+  Func's `return.type` stays `Type` (TypeUni) and `return.isCompileTimeOnly`
+  stays `true` _through the whole call_. The concrete `object(...)` struct is
+  the call's _result VALUE_, written to the ExprInfo's value — never back into
+  the callee's return _type_. So in TS `isTypeHierarchyType(returnType)` is
+  TRUE here, `shouldCache=true`, and the in-progress recursion guard is active.
+
+**The yo-self bug, restated.** At the gate the probe showed `itht=F crc=F` for
+`ArrayList`. `itht=F` ⟹ yo-self's recorded callee Func `result` is the concrete
+`object(...)` struct, NOT `TypeUni`. `crc=F` ⟹ its `result_is_comptime_only`
+was also dropped. So yo-self is **specializing the callee Func's return type to
+the concrete struct** (and losing `rico`) somewhere between evaluating the
+`ArrayList` identifier and the call gate — exactly the thing TS does not do.
+Fix direction: preserve the callee Func's declared `result=Type` +
+`result_is_comptime_only=true` so the gate fires and the call is memoized
+(making yo-self's id-keyed cycle guard behave like TS's). The `[GATE]`/`[CFC]`
+probe build (this step) confirms whether `ret` is `Struct` (callee return
+wrongly specialized) and whether the `[CFC]` cache MISSes.
+
+### Earlier open question (superseded by the finding above)
 
 **Stage 4a already tried routing `itht=F crc=F` calls through
 `evaluate_comptime_fn_call` via the known-tc gate, and STILL SIGBUS'd.** So
 routing alone didn't break the loop. Why? Two candidates to instrument next:
 
 1. **The known-tc gate didn't fire for these `ArrayList` calls** — was
-   `ArrayList`'s func_id marked known-tc _before_ these calls? (Order: the
+   `ArrayList`'s func*id marked known-tc \_before* these calls? (Order: the
    mark happens when a Type-returning `ArrayList` call is cached; if the
    looping calls precede any Type-returning one, they're unmarked.)
 2. **It routed but the `(func_id, args)` cache missed** — the looping
@@ -125,6 +204,59 @@ Vec(str))`); key on `(cfid, arg-signature)` to disambiguate.
   dedup (the real mechanism-1 enabler).
 - **Step 3:** with the cache deduping, re-confirm `.new()` resolves +
   recursion terminates, run the full per-file diff, and only then land it.
+
+## RESOLVED DIAGNOSIS — the knot is LAYERED (two independent bugs)
+
+Probe builds (`/tmp/yo-self-{probe,probe2,rm,fix,base}`) over the actual knot
+file `type_trait_methods.yo:130` (`_type_trait_methods = HashMap(String,
+ArrayList(MethodEntry)).new()`) settled it into **two stacked layers**:
+
+### Layer 1 — static-vs-instance method dispatch (FIXED, `function.yo`)
+
+`HashMap(K,V).new()` is a STATIC method call (receiver is a _type_).
+`_try_find_receiver_method` took the receiver's compiled **type** (`ri.ty` =
+`Type`/TypeUni — the type-of-a-type) and ran the INSTANCE lookup, which can
+never match any struct's impl → `recv=<non-struct>`, no method, `unit`. TS
+(`function.ts:289-321`) branches on `isStaticMethodCall =
+isTypeValue(receiverValue)`: for a static call it uses
+`innerType = receiverValue.value` (the concrete struct) with
+`getTypeTraitMethodsByNameFromEnv` and prepends **no** receiver arg.
+
+**Fix landed in `_try_find_receiver_method`:** read the receiver's VALUE; when
+it's a `TypeVal`, unwrap to the inner struct and use the static lookup
+(`get_type_trait_methods_by_name_from_env`), and add `is_static` to
+`ReceiverMethodResult` so the caller skips prepending the receiver. Probe
+confirmed it engages (`is_static=T`, receiver corrected TypeUni→Struct).
+
+- **Validation: std 151/151; all 170 `./tests` files pass per-file; zero
+  per-file regressions vs baseline.** (`check ./tests` in _directory_ mode
+  exits 139 on BOTH baseline and fix — a pre-existing cumulative-state crash,
+  NOT introduced here. Validate per-file, never directory-aggregate.)
+- It flips **0** yo-self files on its own — Layer 2 still blocks — but it is a
+  correct, faithful, regression-free prerequisite: without it the receiver is
+  TypeUni and Layer 2 could never even be attempted.
+
+### Layer 2 — generic-impl match of the instantiation struct (REMAINING)
+
+With Layer 1, the static lookup now correctly receives the concrete
+`HashMap(String, ArrayList(MethodEntry))` struct, but
+`get_type_trait_methods_by_name_from_env` → `find_methods_from_generic_impls`
+→ `try_match_generic_impl` (`impl.yo`) still returns **0** candidates: the
+`synthesize_types(receiver pattern `HashMap(K,V)`, concrete struct)` can't
+identify the fresh-random-id instantiation as a `HashMap`. This is the
+ORIGINAL funcId knot (P1/P2): the instantiation lacks the
+`constructor_func_id`/name identity for synthesis to unify it with the impl
+pattern. The committed foundation (`constructor_func_id` + synthesizer guard)
+targets exactly this but is not yet effective on the generic-impl-match path,
+and enabling same-constructor recursion there is what previously SIGBUS'd —
+so Layer 2 is coupled to the recursion-termination work and must be done
+under supervision (it can crash the whole corpus if unbounded).
+
+**Next session:** land Layer 1 (verified safe), then attack Layer 2 by making
+`try_match_generic_impl`'s synthesis recognize same-constructor
+instantiations via `constructor_func_id` WITH a terminating cycle guard
+(object-identity-equivalent), validating per-file each step against the
+`imm_vec`/`imm_threading`/`priority_queue` SIGBUS regressors.
 
 _(ENV: `bun` drops from PATH; `BUN=/nix/store/*-bun-1.3.3/bin/bun`. Build
 loop ~5 min; classify by exit code, per-file diff, not aggregate.)_
