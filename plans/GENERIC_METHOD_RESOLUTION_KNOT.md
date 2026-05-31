@@ -282,6 +282,21 @@ COPY the type and re-create the infinite expansion. The placeholder must STAY a
 leaf in the type structure (keeping types finite); resolution happens LAZILY
 only when the type is used as a constructor — exactly TS's contract.
 
+**Progress.** A (`3b0c8957`) and B (`17d20dd6`) are LANDED and neutral (std
+151, regressors pass without routing). **C is NOT yet viable:** re-applying the
+all-type-args routing on top of A+B STILL hangs `imm_vec`. `sample`'ing the hung
+process (macOS `sample <pid> 4`) showed the hot path is **string/array
+building** (`concat` 442, `to_string`/`from`, ArrayList `extend`/`with_capacity`)
+at SHALLOW eval depth — synthesize repeatedly stringifying a large/growing type:
+`synthesis_type_id` falls to `type_to_string` for non-struct types, and with
+`checked` growing it's O(n²) string-building. So the recursiveTypeRef
+placeholder isn't shrinking imm_vec's structure (its recursion likely doesn't
+hit the temp-cache path, or the type is genuinely large). **Next candidate
+(C-prereq):** make `synthesis_type_id` use a CHEAP bounded structural key (tag +
+one level of child ids) for non-struct types instead of full `type_to_string`
+(TS's `checkedTypePairs` is O(1) object identity; yo-self stringifies → the
+blowup). C reverted; A+B kept.
+
 **Steps.**
 
 - **A:** make the temp-cache placeholder a `SomeT` leaf (use
