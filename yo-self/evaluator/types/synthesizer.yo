@@ -187,7 +187,7 @@ _synthesize_call :: (
 synthesis_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
-    .Struct(id, _, _, _, _, _, _, _) => id,
+    .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _) => id,
     .ModuleT(id, _, _, _) => id,
@@ -338,7 +338,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
   match(
     ty,
     .SomeT(sid, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
-    .Struct(_, _, _, field_types, _, _, _, _) => {
+    .Struct({ field_types }) => {
       (res : bool) = false;
       i := usize(0);
       while((i < field_types.len()) && !(res), {
@@ -1306,13 +1306,13 @@ _synthesize_types_impl :: (
   });
   // Case : Type.Struct + Struct
   if(is_struct_type(expected_ty) && is_struct_type(given_ty), {
-    exp_id3 := match(expected_ty,.Struct(id, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_id3 := match(given_ty,.Struct(id, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_id3 := match(expected_ty,.Struct({ id }) => id, _ => ``);
+    giv_id3 := match(given_ty,.Struct({ id }) => id, _ => ``);
     // Two instantiations of the same generic constructor get distinct fresh
     // ids but share `constructor_func_id`. Mirrors TS `synthesizer.ts:662`
     // comparing `functionValue.funcId`.
-    exp_cfid3 := match(expected_ty,.Struct(_, _, _, _, _, _, _, cfid) => cfid, _ => ``);
-    giv_cfid3 := match(given_ty,.Struct(_, _, _, _, _, _, _, cfid) => cfid, _ => ``);
+    exp_cfid3 := match(expected_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
+    giv_cfid3 := match(given_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
     same_constructor3 := ((exp_cfid3.len() > usize(0)) && (exp_cfid3.as_str() == giv_cfid3.as_str()));
     if((exp_id3 != giv_id3) && !(same_constructor3), {
       exn.throw(
@@ -1326,8 +1326,8 @@ _synthesize_types_impl :: (
         )
       );
     }, {
-      exp_ft := match(expected_ty,.Struct(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
-      giv_ft := match(given_ty,.Struct(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
+      exp_ft := match(expected_ty,.Struct({ field_types : fts }) => fts, _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty,.Struct({ field_types : fts }) => fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {

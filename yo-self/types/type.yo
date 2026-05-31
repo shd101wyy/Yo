@@ -458,7 +458,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Array(_, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
     .Func(result : _) => TypeTag.TFunction,
-    .Struct(_, _, _, _, _, _, _, _) => TypeTag.TStruct,
+    .Struct({ id : _ }) => TypeTag.TStruct,
     .EnumT(_, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,
     .TraitT(name : _) => TypeTag.TTrait,
@@ -533,7 +533,7 @@ is_module_type :: (fn(t : TypeValue) -> bool)(
   match(t,.ModuleT(_, _, _, _) => true, _ => false)
 );
 is_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct(_, _, _, _, _, _, _, _) => true, _ => false)
+  match(t,.Struct({ id : _ }) => true, _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)

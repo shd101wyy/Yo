@@ -689,14 +689,39 @@ evaluate_comptime_fn_call :: (
     ),
     _ => ()
   );
+  // Collect this instantiation's type-valued arguments, in parameter order, to
+  // record on the returned Struct (faithful stand-in for `StructType.env`): a
+  // method later dispatched on the instantiation binds its `forall` params
+  // positionally from these. Non-type args become `Unit` placeholders so the
+  // positions still line up with the constructor's parameters.
+  inst_type_args := ArrayList(TypeValue).new();
+  (tai : usize) = usize(0);
+  while(tai < all_arg_vals.len(), {
+    match(
+      all_arg_vals.get(tai),
+      .Some(av) => {
+        match(
+          av,
+          .TypeVal(tb) => {
+            _p := inst_type_args.push(tb.*);
+          },
+          _ => {
+            _p := inst_type_args.push(TypeValue.Unit);
+          }
+        );
+      },
+      .None => ()
+    );
+    tai = (tai + usize(1));
+  });
   final_return_value := match(
     return_value,
     .TypeVal(rv_tb) => match(
       rv_tb.*,
-      .Struct(sid, sname, slabels, stypes, sref, satomic, snt, scfid) => if(
+      .Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid }) => if(
         scfid.len() == usize(0),
         EvalValue.TypeVal(
-          box(TypeValue.Struct(sid, sname, slabels, stypes, sref, satomic, snt, func_id_str))
+          box(TypeValue.Struct(sid, sname, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args))
         ),
         return_value
       ),

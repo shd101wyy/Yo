@@ -1013,7 +1013,7 @@ evaluate_yo_type_get_info :: (
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
     },
-    .Struct(_, _, labels, types, is_ref, is_atomic, is_newtype, _) => {
+    .Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype }) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       kind_str := cond(
         is_newtype => String.from("StructKind.NewType"),
@@ -1463,12 +1463,12 @@ evaluate_type_join_fields :: (
   // Collect struct field label/type lists.
   struct_labels := match(
     target_type,
-    .Struct(_, _, ls, _, _, _, _, _) => ls,
+    .Struct({ field_labels : ls }) => ls,
     _ => ArrayList(String).new()
   );
   struct_types := match(
     target_type,
-    .Struct(_, _, _, ts, _, _, _, _) => ts,
+    .Struct({ field_types : ts }) => ts,
     _ => ArrayList(TypeValue).new()
   );
   n_fields := struct_labels.len();

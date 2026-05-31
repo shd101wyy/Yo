@@ -74,7 +74,7 @@ is_module_type :: (fn(t : TypeValue) -> bool)(
   match(t,.ModuleT(_, _, _, _) => true, _ => false)
 );
 is_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct(_, _, _, _, _, _, _, _) => true, _ => false)
+  match(t,.Struct({ id : _ }) => true, _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)
@@ -370,7 +370,7 @@ is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(false);
 is_rc_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Struct(_, _, _, _, is_ref, _, _, _) => is_ref,
+    .Struct({ is_reference_semantics : is_ref }) => is_ref,
     .DynT(required_trait_types : _) => true,
     .IsoT(_) => true,
     .SomeT(required_trait_types : req_traits) => {

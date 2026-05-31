@@ -688,13 +688,13 @@ evaluate_property_access :: (
       prop_name_su := ast_expr_token(property_expr).value;
       su_labels := match(
         type_val_inner,
-        .Struct(_, _, labels, _, _, _, _, _) => labels,
+        .Struct({ field_labels : labels }) => labels,
         .Union(_, labels, _) => labels,
         _ => ArrayList(String).new()
       );
       su_types := match(
         type_val_inner,
-        .Struct(_, _, _, types, _, _, _, _) => types,
+        .Struct({ field_types : types }) => types,
         .Union(_, _, types) => types,
         _ => ArrayList(TypeValue).new()
       );
@@ -1026,14 +1026,14 @@ evaluate_property_access :: (
     fields_labels := match(
       base_ty,
       .Tuple(labels, _) => labels,
-      .Struct(_, _, labels, _, _, _, _, _) => labels,
+      .Struct({ field_labels : labels }) => labels,
       .Union(_, labels, _) => labels,
       _ => ArrayList(String).new()
     );
     fields_types := match(
       base_ty,
       .Tuple(_, types) => types,
-      .Struct(_, _, _, types, _, _, _, _) => types,
+      .Struct({ field_types : types }) => types,
       .Union(_, _, types) => types,
       _ => ArrayList(TypeValue).new()
     );

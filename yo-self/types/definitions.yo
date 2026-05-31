@@ -119,7 +119,14 @@ TypeValue :: enum(
     is_reference_semantics : bool,
     is_atomic_rc : bool,
     is_newtype : bool,
-    constructor_func_id : String
+    constructor_func_id : String,
+    /// Concrete type arguments of a generic instantiation, in constructor-
+    /// parameter order (`HashMap(String, String)` → `[String, String]`). Empty
+    /// for non-generic or not-yet-instantiated structs. Faithful stand-in for
+    /// `StructType.env` (TS carries the instantiation env): a method dispatched
+    /// on this struct binds its `forall` params positionally from here. See
+    /// plans/STRUCT_TYPE_ARGUMENTS.md.
+    type_arguments : ArrayList(Self)
   ),
   /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
   /// Each variant has a name and an `ArrayList` of field types (possibly empty).

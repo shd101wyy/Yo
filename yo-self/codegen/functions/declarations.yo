@@ -109,7 +109,7 @@ collect_evidence_from_record_ :: (
             nested_path := copy_path_with_label_(path_prefix, field_label);
             recur(implicit_label, nested_labels, nested_types, nested_path, result);
           },
-          .Struct(_, _, nested_labels, nested_types, _, _, _, _) => {
+          .Struct({ field_labels : nested_labels, field_types : nested_types }) => {
             nested_path := copy_path_with_label_(path_prefix, field_label);
             recur(implicit_label, nested_labels, nested_types, nested_path, result);
           },
@@ -208,7 +208,7 @@ get_evidence_parameters :: (fn(function_type : TypeValue) -> ArrayList(EvidenceP
         .ModuleT(_, _, labels, types) => {
           collect_evidence_from_record_(implicit.label, labels, types, ArrayList(String).new(), result);
         },
-        .Struct(_, _, labels, types, _, _, _, _) => {
+        .Struct({ field_labels : labels, field_types : types }) => {
           collect_evidence_from_record_(implicit.label, labels, types, ArrayList(String).new(), result);
         },
         .Func(_, _, _, _, _, _, _, _, _, _) => {
@@ -430,7 +430,7 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
       });
       found || recur(result_type.*)
     },
-    .Struct(_, _, _, struct_field_types, _, _, _, _) => {
+    .Struct({ field_types : struct_field_types }) => {
       i := usize(0);
       found := false;
       while((i < struct_field_types.len()) && (!(found)), {
@@ -623,7 +623,7 @@ generate_object_constructor_declarations :: (fn(ctx : CodegenContext) -> unit)({
       },
       .Some(entry) => match(
         entry.type_value,
-        .Struct(_, _, field_labels, field_types, is_reference_semantics, _, _, _) => cond(
+        .Struct({ field_labels, field_types, is_reference_semantics }) => cond(
           (is_reference_semantics && (!(field_types_contain_some_type_(field_types)))) => {
             constructor_name := (String.from("__yo_new_") + entry.c_name);
             param_strings := ArrayList(String).new();

@@ -566,7 +566,7 @@ evaluate_function_call :: (
           // ----------------------------------------------------------------
           // Struct construction: StructType(field1: v1, field2: v2, ...).
           // ----------------------------------------------------------------
-          .Struct(struct_id, struct_name, struct_field_labels, struct_field_types, is_ref, _, _, _) => {
+          .Struct({ id : struct_id, name : struct_name, field_labels : struct_field_labels, field_types : struct_field_types, is_reference_semantics : is_ref }) => {
             fields := match(
               get_struct_fields(struct_id),
               .Some(f) => f,
@@ -1106,6 +1106,18 @@ evaluate_function_call :: (
           false,
           synthetic_token(String.from("__recur_fn"), env.module_path)
         );
+        // For a static method call (`Type.method()`), the receiver type carries
+        // its concrete type arguments (`type_arguments`, set at instantiation).
+        // A `forall` param NOT inferable from call arguments (e.g. a no-arg
+        // method whose body uses `K`/`V`, or one dispatched via `Self`) is bound
+        // positionally from these. Faithful stand-in for TS recovering the
+        // substitution from `StructType.env`. See
+        // issues/self-dispatch-loses-type-args.md.
+        recv_type_args := match(
+          _static_dot_receiver_self_type(func_expr, ctx),
+          .Some(rt) => match(rt,.Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new()),
+          .None => ArrayList(TypeValue).new()
+        );
         // Infer forall type params from argument types.
         n_forall := forall_names.len();
         (fa_i : usize) = usize(0);
@@ -1136,6 +1148,28 @@ evaluate_function_call :: (
               fa_bound = true;
             });
             ptn_i = (ptn_i + usize(1));
+          });
+          // Fallback: bind the i-th forall param from the receiver's i-th type
+          // argument when it could not be inferred from call arguments.
+          if(!(fa_bound) && (fa_i < recv_type_args.len()), {
+            match(
+              recv_type_args.get(fa_i),
+              .Some(rta) => {
+                _add_forall_rt := add_variable_to_env(
+                  fresh_env,
+                  fa_name,
+                  TypeValue.TypeUni(usize(0)),
+                  Option(EvalValue).Some(EvalValue.TypeVal(box(rta))),
+                  true,
+                  false,
+                  false,
+                  false,
+                  synthetic_token(fa_name, env.module_path)
+                );
+                fa_bound = true;
+              },
+              .None => ()
+            );
           });
           fa_i = (fa_i + usize(1));
         });

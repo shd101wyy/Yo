@@ -475,7 +475,7 @@ generate_type_decl :: (
 )(
   match(
     type_val,
-    .Struct(id, name, field_labels, field_types, _, _, _, _) => {
+    .Struct({ id, name, field_labels, field_types }) => {
       c_name := generate_struct_decl(id, name, field_labels, field_types, module_id, type_id, ctx);
       // Populate the codegen types registry so downstream handlers
       // (downcast / dyn / typeid / comptime-value) can resolve this
@@ -671,7 +671,7 @@ generate_rc_fns :: (
 )(
   match(
     type_val,
-    .Struct(_, _, _, _, _, _, _, _) => {
+    .Struct({ id : _ }) => {
       c_name := struct_c_name(module_id, type_id);
       generate_rc_fns_trivial(c_name.as_str(), true, ctx);
       true

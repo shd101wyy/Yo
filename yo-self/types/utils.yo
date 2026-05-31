@@ -345,7 +345,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         found
       },
       // Struct — check all field types
-      .Struct(id : _, name : _, field_labels : _, field_types : fields, is_reference_semantics : _, is_atomic_rc : _, is_newtype : _) => {
+      .Struct({ field_types : fields }) => {
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !(found), {
@@ -499,7 +499,7 @@ _collect_some_types_into :: (
         i = (i + usize(1));
       });
     },
-    .Struct(_, _, _, field_types : ftys, _, _, _) => {
+    .Struct({ field_types : ftys }) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
         match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());

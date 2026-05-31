@@ -592,14 +592,14 @@ evaluate_destructuring_assignment :: (
   if(is_struct_union_module && ast_expr_is_fn_call(lhs), {
     field_labels_opt := match(
       rhs_type,
-      .Struct(_, _, fl, _, _, _, _, _) => Option(ArrayList(String)).Some(fl),
+      .Struct({ field_labels : fl }) => Option(ArrayList(String)).Some(fl),
       .Union(_, fl, _) => Option(ArrayList(String)).Some(fl),
       .ModuleT(_, _, fl, _) => Option(ArrayList(String)).Some(fl),
       _ => Option(ArrayList(String)).None
     );
     field_types_opt := match(
       rhs_type,
-      .Struct(_, _, _, ft, _, _, _, _) => Option(ArrayList(TypeValue)).Some(ft),
+      .Struct({ field_types : ft }) => Option(ArrayList(TypeValue)).Some(ft),
       .Union(_, _, ft) => Option(ArrayList(TypeValue)).Some(ft),
       .ModuleT(_, _, _, ft) => Option(ArrayList(TypeValue)).Some(ft),
       _ => Option(ArrayList(TypeValue)).None

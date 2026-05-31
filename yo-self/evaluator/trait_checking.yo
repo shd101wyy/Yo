@@ -164,7 +164,7 @@ _trait_type_name :: (fn(ty : TypeValue) -> String)(
 _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
-    .Struct(id, _, _, _, _, _, _, _) => id,
+    .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _) => id,
     .Union(name, _, _) => name,
     _ => String.from("")
@@ -185,7 +185,7 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
   match(
     ty,
     // Object types (reference semantics) — always runtime, never comptime.
-    .Struct(_, _, _, _, is_ref, _, _, _) => cond(
+    .Struct({ is_reference_semantics : is_ref }) => cond(
       is_ref => Option(bool).Some(false),
       true => Option(bool).None
     ),

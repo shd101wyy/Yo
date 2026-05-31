@@ -227,7 +227,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       )
     },
     // Struct / Enum / Union — recurse into field types.
-    .Struct(id, name, labels, types, is_ref, is_atomic, is_nt, cfid) => {
+    .Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs }) => {
       new_types := ArrayList(TypeValue).new();
       i := usize(0);
       while(i < types.len(), {
@@ -235,9 +235,19 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         new_types.push(recur(s, elem));
         i = (i + usize(1));
       });
+      // Substitute the stored type arguments too, so a generic pattern's
+      // `type_arguments` (e.g. `[K, V]`) becomes the concrete `[String, V]`
+      // after substitution — keeping them aligned with the substituted fields.
+      new_tyargs := ArrayList(TypeValue).new();
+      ti := usize(0);
+      while(ti < tyargs.len(), {
+        targ := match(tyargs.get(ti),.Some(t) => t,.None => TypeValue.Unit);
+        new_tyargs.push(recur(s, targ));
+        ti = (ti + usize(1));
+      });
       // Preserve constructor_func_id across substitution so the
       // type-constructor identity travels with specialized instantiations.
-      .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid)
+      .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs)
     },
     // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
     .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs) => {
