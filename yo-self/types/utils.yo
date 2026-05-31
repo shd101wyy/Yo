@@ -29,8 +29,9 @@
 //! type_requires_inference (`false` — yo-self Array length is always
 //! concretely known), type_contains_some_type (top-level only;
 //! recursive descent in `_collect_some_types_into`), get_all_some_types,
-//! get_size_of_type / get_alignment_of_type (primitive/pointer/array;
-//! Struct/EnumT/Union return `.None` for the bootstrap codegen path).
+//! get_size_of_type / get_alignment_of_type (full: primitive/pointer/array
+//! plus Struct/Tuple/Union/EnumT C-layout aggregate sizing — recursion broken
+//! via the `g_size_of_type_fn` / `g_alignment_of_type_fn` slots).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
@@ -311,7 +312,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while(runtime((i < fields.len()) && !(found)), {
+        while((i < fields.len()) && !(found), {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -329,7 +330,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Union(name : _, field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while(runtime((i < fields.len()) && !(found)), {
+        while((i < fields.len()) && !(found), {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -347,7 +348,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Struct(id : _, name : _, field_labels : _, field_types : fields, is_reference_semantics : _, is_atomic_rc : _, is_newtype : _) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while(runtime((i < fields.len()) && !(found)), {
+        while((i < fields.len()) && !(found), {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -365,12 +366,12 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .EnumT(id : _, name : _, variant_names : _, variant_fields : all_fields, selected_variant_name : _, variant_field_labels : _, variant_discriminants : _) => {
         (found : bool) = false;
         (vi : usize) = usize(0);
-        while(runtime((vi < all_fields.len()) && !(found)), {
+        while((vi < all_fields.len()) && !(found), {
           match(
             all_fields.get(vi),
             .Some(v_fields) => {
               (fi : usize) = usize(0);
-              while(runtime((fi < v_fields.len()) && !(found)), {
+              while((fi < v_fields.len()) && !(found), {
                 match(
                   v_fields.get(fi),
                   .Some(ft) => {
@@ -461,7 +462,7 @@ _collect_some_types_into :: (
       recur(con.*, acc);
       (i : usize) = usize(0);
       n := args_list.len();
-      while(runtime(i < n), {
+      while(i < n, {
         match(args_list.get(i),.Some(a) => recur(a, acc),.None => ());
         i = (i + usize(1));
       });
@@ -480,12 +481,12 @@ _collect_some_types_into :: (
     },
     .Func(forall_types : ftys, param_types : ptys, result : res) => {
       (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
+      while(i < ftys.len(), {
         match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
         i = (i + usize(1));
       });
       (j : usize) = usize(0);
-      while(runtime(j < ptys.len()), {
+      while(j < ptys.len(), {
         match(ptys.get(j),.Some(pt) => recur(pt, acc),.None => ());
         j = (j + usize(1));
       });
@@ -493,26 +494,26 @@ _collect_some_types_into :: (
     },
     .Tuple(_, field_types : ftys) => {
       (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
+      while(i < ftys.len(), {
         match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
         i = (i + usize(1));
       });
     },
     .Struct(_, _, _, field_types : ftys, _, _, _) => {
       (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
+      while(i < ftys.len(), {
         match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
         i = (i + usize(1));
       });
     },
     .EnumT(_, _, _, variant_fields : vfs, _, _, _) => {
       (vi : usize) = usize(0);
-      while(runtime(vi < vfs.len()), {
+      while(vi < vfs.len(), {
         match(
           vfs.get(vi),
           .Some(field_list) => {
             (fi : usize) = usize(0);
-            while(runtime(fi < field_list.len()), {
+            while(fi < field_list.len(), {
               match(field_list.get(fi),.Some(ft) => recur(ft, acc),.None => ());
               fi = (fi + usize(1));
             });
@@ -524,7 +525,7 @@ _collect_some_types_into :: (
     },
     .ModuleT(_, _, _, field_types : ftys) => {
       (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
+      while(i < ftys.len(), {
         match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
         i = (i + usize(1));
       });
@@ -555,6 +556,177 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
 // Return values:
 //   get_size_of_type      → size in **bits** (`.None` = unknown)
 //   get_alignment_of_type → alignment in **bytes** (`.None` = unknown)
+// Function-pointer slots breaking the mutual recursion between
+// `get_size_of_type`/`get_alignment_of_type` and the `_aggregate_size`/
+// `_max_field_alignment` helpers (which must be defined BEFORE the public
+// functions that call them, yet need to recurse back into them). Same pattern
+// as `hierarchy.yo`'s `g_type_of_type_visited_fn`. Assigned at module top level
+// after both functions are defined.
+SizeFn :: (fn(ty : TypeValue) -> Option(usize));
+(g_size_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
+(g_alignment_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
+_size_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
+  match(g_size_of_type_fn,.Some(f) => f(ty),.None => Option(usize).None)
+);
+_align_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
+  match(g_alignment_of_type_fn,.Some(f) => f(ty),.None => Option(usize).None)
+);
+/// Larger of two `usize`.
+_max_usize :: (fn(a : usize, b : usize) -> usize)(cond((a >= b) => a, true => b));
+/// `ceil(offset / align) * align` for `align >= 1` (round `offset` up to a
+/// multiple of `align`). Integer-only.
+_round_up :: (fn(offset : usize, align : usize) -> usize)(
+  cond(
+    (align == usize(0)) => offset,
+    true => ((((offset + align) - usize(1)) / align) * align)
+  )
+);
+/// `ceil(log2(n))` — smallest `b` with `2^b >= n`. `n <= 1 → 0`.
+_ceil_log2 :: (fn(n : usize) -> usize)({
+  (b : usize) = usize(0);
+  (pow : usize) = usize(1);
+  while(pow < n, {
+    pow = (pow * usize(2));
+    b = (b + usize(1));
+  });
+  b
+});
+/// Max alignment (bytes) across a field-type list; `.None` if any is unknown.
+/// Recurses into `get_alignment_of_type` via the `g_alignment_of_type_fn` slot
+/// (set at module top level) to break the mutual forward reference.
+_max_field_alignment :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
+  (acc : usize) = usize(1);
+  (unknown : bool) = false;
+  (i : usize) = usize(0);
+  n := fts.len();
+  while((i < n) && !(unknown), {
+    ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    match(
+      _align_via_slot(ft),
+      .Some(a) => {
+        acc = _max_usize(acc, a);
+      },
+      .None => {
+        unknown = true;
+      }
+    );
+    i = (i + usize(1));
+  });
+  cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+});
+/// Aggregate size (in BITS) of a sequence of fields laid out with C-style
+/// alignment padding, then padded to the aggregate's own alignment. Mirrors
+/// the body of TS `getStructTypeSize` / `getTupleTypeSize`. `.None` if any
+/// field size/alignment is unknown. Recurses via the size/alignment slots.
+_aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
+  (offset_bytes : usize) = usize(0);
+  (max_align : usize) = usize(1);
+  (unknown : bool) = false;
+  (i : usize) = usize(0);
+  n := fts.len();
+  while((i < n) && !(unknown), {
+    ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    match(
+      _size_via_slot(ft),
+      .Some(fbits) => match(
+        _align_via_slot(ft),
+        .Some(fa) => {
+          fbytes := ((fbits + usize(7)) / usize(8));
+          offset_bytes = _round_up(offset_bytes, fa);
+          offset_bytes = (offset_bytes + fbytes);
+          max_align = _max_usize(max_align, fa);
+        },
+        .None => {
+          unknown = true;
+        }
+      ),
+      .None => {
+        unknown = true;
+      }
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    unknown => Option(usize).None,
+    true => Option(usize).Some(usize(_round_up(offset_bytes, max_align) * usize(8)))
+  )
+});
+/// Return the alignment of `ty` in bytes, or `.None` if not statically known.
+/// Mirrors `getAlignmentOfType` in `src/types/utils.ts`. Recurses into itself
+/// via `recur` and into the field helpers defined just above.
+get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
+  match(
+    ty,
+    // comptime-only types have minimal alignment
+    .Unit =>.Some(usize(1)),
+    .ComptimeInt =>.Some(usize(1)),
+    .ComptimeFloat =>.Some(usize(1)),
+    .ComptimeString =>.Some(usize(1)),
+    .Void =>.Some(usize(1)),
+    .TypeUni(_) =>.Some(usize(1)),
+    // Bool: 1 byte aligned
+    .BoolT =>.Some(usize(1)),
+    // Platform-sized integers: pointer-aligned
+    .Usize =>.Some(usize(get_target_pointer_size_bytes())),
+    .Isize =>.Some(usize(get_target_pointer_size_bytes())),
+    // Fixed-width integers: bits/8 bytes
+    .Int({ bits : b }) =>.Some(usize(u32(b) / u32(8))),
+    // Floating-point: bits/8 bytes
+    .Float({ bits : b }) =>.Some(usize(u32(b) / u32(8))),
+    // C platform-dependent integers — return `.None`
+    .CChar =>.None,
+    .CShort =>.None,
+    .CUShort =>.None,
+    .CInt =>.None,
+    .CUInt =>.None,
+    .CLong =>.None,
+    .CULong =>.None,
+    .CLongLong =>.None,
+    .CULongLong =>.None,
+    .CLongDouble =>.None,
+    // Pointer and function types: pointer-aligned
+    .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
+    .Func(_, _, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bytes())),
+    // Array: element alignment
+    .Array({ element : el }) => recur(el.*),
+    // Slice: pointer-aligned (fat pointer)
+    .Slice(_) =>.Some(usize(get_target_pointer_size_bytes())),
+    // Struct: reference-semantics (object) → pointer-aligned; newtype →
+    // inner field's alignment; otherwise the max field alignment.
+    .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
+      cond(
+        s_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
+        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)),.Some(f0) => recur(f0),.None => Option(usize).None),
+        true => _max_field_alignment(sfts)
+      ),
+    // Tuple: max field alignment.
+    .Tuple({ field_types : tfts }) => _max_field_alignment(tfts),
+    // Union: max field alignment.
+    .Union({ field_types : ufts }) => _max_field_alignment(ufts),
+    // Enum: max alignment across all variants' fields.
+    .EnumT({ variant_fields : evf }) => {
+      (acc : usize) = usize(1);
+      (unknown : bool) = false;
+      (vi : usize) = usize(0);
+      n_v := evf.len();
+      while((vi < n_v) && !(unknown), {
+        vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        match(
+          _max_field_alignment(vf),
+          .Some(a) => {
+            acc = _max_usize(acc, a);
+          },
+          .None => {
+            unknown = true;
+          }
+        );
+        vi = (vi + usize(1));
+      });
+      cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+    },
+    _ =>.None
+  )
+);
 /// Return the size of `ty` in bits, or `.None` if not statically known.
 /// Mirrors `getSizeOfType` in `src/types/utils.ts`.
 get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
@@ -573,9 +745,9 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .Usize =>.Some(usize(get_target_pointer_size_bits())),
     .Isize =>.Some(usize(get_target_pointer_size_bits())),
     // Fixed-width integers
-    .Int(bits : b, _) =>.Some(usize(b)),
+    .Int({ bits : b }) =>.Some(usize(b)),
     // Floating-point
-    .Float(bits : b) =>.Some(usize(b)),
+    .Float({ bits : b }) =>.Some(usize(b)),
     // C platform-dependent integers — return `.None` (platform-specific)
     .CChar =>.None,
     .CShort =>.None,
@@ -591,61 +763,93 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .Pointer(_) =>.Some(usize(get_target_pointer_size_bits())),
     .Func(_, _, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
-    .Array(element : el, length : n) => match(
+    .Array({ element : el, length : n }) => match(
       recur(el.*),
       .Some(elem_bits) =>.Some(elem_bits * n),
       .None =>.None
     ),
     // Slice: fat pointer (pointer + length) = 2 × pointer size
     .Slice(_) =>.Some(usize(u32(2) * get_target_pointer_size_bits())),
-    // Complex types : Type.Struct / EnumT / Union / Tuple require is_newtype /
-    // is_reference_semantics — return `.None` until Phase 3.
+    // Struct: reference-semantics (object) → pointer-sized; newtype → inner
+    // field's size; otherwise the C-laid-out aggregate size.
+    .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
+      cond(
+        s_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
+        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)),.Some(f0) => recur(f0),.None => Option(usize).None),
+        true => _aggregate_size(sfts)
+      ),
+    // Tuple: C-laid-out aggregate size.
+    .Tuple({ field_types : tfts }) => _aggregate_size(tfts),
+    // Union: max field size (overlapping storage).
+    .Union({ field_types : ufts }) => {
+      (acc : usize) = usize(0);
+      (unknown : bool) = false;
+      (i : usize) = usize(0);
+      n := ufts.len();
+      while((i < n) && !(unknown), {
+        ft := match(ufts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        match(
+          recur(ft),
+          .Some(s) => {
+            acc = _max_usize(acc, s);
+          },
+          .None => {
+            unknown = true;
+          }
+        );
+        i = (i + usize(1));
+      });
+      cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+    },
+    // Enum: tag (sized by variant count) + the largest variant payload, with
+    // alignment. Mirrors TS `getEnumTypeSize`.
+    .EnumT({ variant_fields : evf }) => {
+      (max_data : usize) = usize(0);
+      (max_align_bits : usize) = usize(0);
+      (unknown : bool) = false;
+      (vi : usize) = usize(0);
+      n_v := evf.len();
+      while((vi < n_v) && !(unknown), {
+        vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        match(
+          _aggregate_size(vf),
+          .Some(vbits) => match(
+            _max_field_alignment(vf),
+            .Some(va_bytes) => {
+              max_data = _max_usize(max_data, vbits);
+              max_align_bits = _max_usize(max_align_bits, va_bytes * usize(8));
+            },
+            .None => {
+              unknown = true;
+            }
+          ),
+          .None => {
+            unknown = true;
+          }
+        );
+        vi = (vi + usize(1));
+      });
+      cond(
+        unknown => Option(usize).None,
+        true => {
+          tag_bits := _round_up(_ceil_log2(n_v), usize(8));
+          data_align_bits := _max_usize(max_align_bits, usize(8));
+          struct_align_bits := _max_usize(usize(32), data_align_bits);
+          // Pad tag end up to data alignment, add data, then pad total to
+          // struct alignment (all in bits; alignments are byte multiples ×8).
+          after_tag := _round_up(tag_bits, data_align_bits);
+          total_before := (after_tag + max_data);
+          Option(usize).Some(usize(_round_up(total_before, struct_align_bits)))
+        }
+      )
+    },
     _ =>.None
   )
 );
-/// Return the alignment of `ty` in bytes, or `.None` if not statically known.
-/// Mirrors `getAlignmentOfType` in `src/types/utils.ts`.
-get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
-  match(
-    ty,
-    // comptime-only types have minimal alignment
-    .Unit =>.Some(usize(1)),
-    .ComptimeInt =>.Some(usize(1)),
-    .ComptimeFloat =>.Some(usize(1)),
-    .ComptimeString =>.Some(usize(1)),
-    .Void =>.Some(usize(1)),
-    .TypeUni(_) =>.Some(usize(1)),
-    // Bool: 1 byte aligned
-    .BoolT =>.Some(usize(1)),
-    // Platform-sized integers: pointer-aligned
-    .Usize =>.Some(usize(get_target_pointer_size_bytes())),
-    .Isize =>.Some(usize(get_target_pointer_size_bytes())),
-    // Fixed-width integers: bits/8 bytes
-    .Int(bits : b, _) =>.Some(usize(u32(b) / u32(8))),
-    // Floating-point: bits/8 bytes
-    .Float(bits : b) =>.Some(usize(u32(b) / u32(8))),
-    // C platform-dependent integers — return `.None`
-    .CChar =>.None,
-    .CShort =>.None,
-    .CUShort =>.None,
-    .CInt =>.None,
-    .CUInt =>.None,
-    .CLong =>.None,
-    .CULong =>.None,
-    .CLongLong =>.None,
-    .CULongLong =>.None,
-    .CLongDouble =>.None,
-    // Pointer and function types: pointer-aligned
-    .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
-    .Func(_, _, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bytes())),
-    // Array: element alignment
-    .Array(element : el, _) => recur(el.*),
-    // Slice: pointer-aligned (fat pointer)
-    .Slice(_) =>.Some(usize(get_target_pointer_size_bytes())),
-    // Complex types: return `.None` until Phase 3
-    _ =>.None
-  )
-);
+// Wire the function-pointer slots now that both functions are defined. Assigned
+// at module top level (not inside a closure) per the captured-global rule.
+g_size_of_type_fn = Option(SizeFn).Some(get_size_of_type);
+g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);
