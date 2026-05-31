@@ -297,6 +297,33 @@ one level of child ids) for non-struct types instead of full `type_to_string`
 (TS's `checkedTypePairs` is O(1) object identity; yo-self stringifies → the
 blowup). C reverted; A+B kept.
 
+**UPDATE — C LANDED (`b0878d36`); 2b isolated.** The cheap synthesis key
+(`type_to_string_key`) fixed the blowup, so the all-type-args routing now
+terminates: std 151/151, `./tests` 154/154, regressors pass — all
+regression-free, committed as the Layer 2 foundation. The termination wall is
+solved. Remaining: `HashMap(String,X).new()` still → unit. Isolated the
+`try_match` throw (cross-module `g_dbg_synth_active` flag set only for the
+HashMap-shaped entry, gating the synthesizer throw probes): the TOP level now
+matches (concrete stamped, cfid == pattern), but synthesize recurses into
+`data : ?*(Bucket(K,V))` and throws because the **nested** concrete is
+unstamped — two cases:
+
+1. `?*(T)` is an Option-like **enum**; `EnumT` has no `constructor_func_id`, so
+   the enum synthesize case throws on raw id-inequality. A `variant_names`-based
+   same_constructor guard ENGAGED but is too coarse — **regressed std 151→150**
+   (`std/encoding/html.yo`, false enum unification in HashMap internals).
+   Reverted. Needs precise `constructor_func_id` on `EnumT`.
+2. After the enum, it throws on a nested **struct** (`Bucket`) whose concrete
+   side has EMPTY `constructor_func_id` — unstamped despite routing.
+
+**Common root:** comptime_fn stamps only the TOP-LEVEL returned struct; nested
+instantiations built during body eval reach synthesize unstamped. **2b =
+(a) make nested instantiations get stamped (investigate why Bucket(K,V)/
+Bucket(String,X) built in HashMap's body isn't routed→stamped), and (b) add
+`constructor_func_id` to `EnumT` (mirror Struct; substitute preserves enum id so
+a side-table keyed by id is viable; `variant_names` is NOT — too coarse).**
+Substantial multi-part sub-project; foundation stands regression-free.
+
 **Steps.**
 
 - **A:** make the temp-cache placeholder a `SomeT` leaf (use
