@@ -22,9 +22,9 @@ open(import("std/string"));
 { ExprInfo, new_expr_info, expr_info_table_get } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_some_t } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_some_type, is_type_hierarchy_type } :: import("../../types/guards.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 {
   EvalValue,
@@ -88,6 +88,70 @@ _ctfe_args_equal :: (
       _ => false
     ),
     _ => eval_value_eq(cached_av, given_av)
+  )
+);
+// ---------------------------------------------------------------------------
+// Recursive-type-reference side-table (port of TS `SomeType.recursiveTypeRef`).
+//
+// When a type constructor recursively references itself during CTFE, the
+// recursive call hits the in-progress temp cache and must return a placeholder
+// that is a LEAF in the type graph (so the resulting TypeValue is a finite DAG
+// and `type_to_string`/`synthesize`/`substitute` terminate). TS returns a
+// `SomeType` tagged with `recursiveTypeRef: {functionValue, argValues}` and
+// resolves it lazily when the type is used as a constructor.
+//
+// yo-self's `SomeT` (in `definitions.yo`) cannot carry `EvalValue` arg-values
+// (circular import), so we keep the placeholder a bare `SomeT` and record the
+// resolution info in this module-level side-table, keyed by the placeholder
+// SomeT's unique id. `resolve_recursive_type_ref` (in `function.yo`) reads it.
+// Mutated via `push` (never reassigned), mirroring `impl.yo`'s registry.
+// ---------------------------------------------------------------------------
+RecursiveTypeRef :: object(
+  /// The placeholder `SomeT`'s `id` — the lookup key.
+  some_id : String,
+  /// The type-constructor function's `func_id` (→ `ctx.comptime_fn_caches`).
+  func_id : String,
+  /// The argument values of the in-progress instantiation (for exact match).
+  arg_values : ArrayList(EvalValue)
+);
+(g_recursive_type_refs : ArrayList(RecursiveTypeRef)) = ArrayList(RecursiveTypeRef).new();
+/// Look up the recursive-type-ref for a placeholder SomeT id, if any.
+lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))({
+  (i : usize) = usize(0);
+  n := g_recursive_type_refs.len();
+  (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
+  while(runtime((i < n) && match(found,.None => true,.Some(_) => false)), {
+    match(
+      g_recursive_type_refs.get(i),
+      .Some(r) => if(r.some_id.as_str() == some_id.as_str(), {
+        found = Option(RecursiveTypeRef).Some(r);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Build the in-progress recursion placeholder for a type-constructor call.
+/// When the return is the `Type` universe (level 0) — i.e. a type constructor —
+/// the placeholder is a fresh `SomeT` LEAF (mirroring TS `createUnknownValue`
+/// promoting to a `SomeType` when `variableName` is given and the type is
+/// `Type` level 0), and we record `(some_id → func_id, arg_values)` so it can
+/// be resolved later. Otherwise it stays a bare `UnknownVal` (TS's non-type
+/// branch). `arg_vals` is the flattened argument-value list of this call.
+_recursive_placeholder :: (
+  fn(return_type : TypeValue, func_id : String, arg_vals : ArrayList(EvalValue)) -> EvalValue
+)(
+  cond(
+    is_type_0(return_type) => {
+      placeholder := t_some_t(`recur_${func_id}`, usize(0));
+      sid := match(placeholder,.SomeT(id : x) => x, _ => String.from(""));
+      _ := g_recursive_type_refs.push(
+        RecursiveTypeRef(some_id : sid, func_id : func_id, arg_values : arg_vals)
+      );
+      EvalValue.TypeVal(box(placeholder))
+    },
+    true => create_unknown_val(return_type)
   )
 );
 // ---------------------------------------------------------------------------
@@ -341,7 +405,7 @@ evaluate_comptime_fn_call :: (
   temp_cache := CalledComptimeFnCache(
     func_id : func_id_str,
     arg_values : all_arg_vals,
-    value : create_unknown_val(return_type)
+    value : _recursive_placeholder(return_type, func_id_str, all_arg_vals)
   );
   match(
     ctx.comptime_fn_caches.get(the_entry_idx),
@@ -507,3 +571,4 @@ evaluate_comptime_fn_call :: (
 });
 export(evaluate_comptime_fn_call);
 export(ComptimeFnCallResult);
+export(RecursiveTypeRef, lookup_recursive_type_ref);
