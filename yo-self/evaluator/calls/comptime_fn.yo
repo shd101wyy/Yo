@@ -313,7 +313,7 @@ evaluate_comptime_fn_call :: (
   // Extract the return type from the function type.
   return_type := match(
     function_type,
-    .Func(_, _, _, _, _, _, _, _, result_b, _) => result_b.*,
+    .Func({ result : result_b }) => result_b.*,
     _ => t_unit()
   );
   // Extract func_id and body from the FuncVal.
@@ -443,7 +443,7 @@ evaluate_comptime_fn_call :: (
   // catches comptime constructors whose return resolved to a concrete struct.
   func_result_is_comptime := match(
     function_type,
-    .Func(_, _, _, _, _, _, _, _, _, rico) => rico,
+    .Func({ result_is_comptime_only : rico }) => rico,
     _ => false
   );
   // A call whose arguments are ALL compile-time type VALUES is a

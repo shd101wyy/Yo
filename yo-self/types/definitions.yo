@@ -92,7 +92,19 @@ TypeValue :: enum(
     /// FuncVal-call delegation + `evaluate_comptime_fn_call`'s `should_cache`
     /// use it so type-constructor calls whose return RESOLVED to a concrete
     /// struct (not bare `Type`) are still routed through memoization.
-    result_is_comptime_only : bool
+    result_is_comptime_only : bool,
+    /// Per-parameter `ref` flags, parallel to `param_labels`/`param_types`.
+    /// `param_is_ref(i)` is true when the i-th parameter was declared
+    /// `ref(name) : T` (a by-reference borrow). Mirrors
+    /// `FunctionParameter.isRef` in `src/types/definitions.ts` (yo-self
+    /// flattened FunctionParameter to parallel arrays, so this restores the
+    /// `isRef` bit). Used by `is_flowable_expr` (the `ref(T)`-flow soundness
+    /// check). Empty/all-false for functions with no `ref` parameters.
+    param_is_ref : ArrayList(bool),
+    /// True when the return type was declared `-> ref(T)` (a by-reference
+    /// return borrow). Mirrors `FunctionType.return.isRef`. Used by
+    /// `is_flowable_expr` to require the return expression be flowable.
+    result_is_ref : bool
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition (mirrors `StructType.id`

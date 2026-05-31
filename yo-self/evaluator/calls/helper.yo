@@ -161,7 +161,7 @@ _module_type_contains_ctl_field :: (
           )
         );
         // Check if field is a Func type and value is a control function
-        is_func_field := match(field_ty,.Func(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
+        is_func_field := match(field_ty,.Func({ result : _ }) => true, _ => false);
         if(is_func_field, {
           match(
             field_val_opt,
@@ -630,7 +630,7 @@ compute_compile_time_signature :: (
   // Forall type arguments — extract from forall_labels vs arg_values.forall_args
   match(
     func_type,
-    .Func(fl, _, _, _, _, _, _, _, _, _) => {
+    .Func({ forall_labels : fl }) => {
       n_fl := fl.len();
       n_fa := arg_values.forall_args.len();
       (fpi : usize) = usize(0);
@@ -981,7 +981,7 @@ create_specialized_function_inline :: (
               original_func_id : func_id,
               specialized_func_id : specialized_func_id,
               specialized_return_type : evaluate_function_return_type_again(
-                match(func_type,.Func(result : r) => r.*, _ => t_unit()),
+                match(func_type,.Func({ result : r }) => r.*, _ => t_unit()),
                 callee_env,
                 ctx
               ),
@@ -1022,11 +1022,11 @@ create_specialized_function_inline :: (
           });
           // Add compile-time args as additional captures (forall type bindings)
           (fai2 : usize) = usize(0);
-          n_fl := match(func_type,.Func(fl, _, _, _, _, _, _, _, _, _) => fl.len(), _ => usize(0));
+          n_fl := match(func_type,.Func({ forall_labels : fl }) => fl.len(), _ => usize(0));
           while(fai2 < n_fl, {
             label := match(
               func_type,
-              .Func(fl, _, _, _, _, _, _, _, _, _) => {
+              .Func({ forall_labels : fl }) => {
                 r := match(fl.get(fai2),.Some(s) => s,.None => String.new());
                 r
               },
@@ -1142,14 +1142,14 @@ evaluate_ctl_function_body_inline :: (
         fb_ctx.func_type,
         .Some(enclosing_ty) => match(
           enclosing_ty,
-          .Func(_, _, _, _, _, _, _, _, rb, _) => rb.*,
-          _ => match(func_type,.Func(_, _, _, _, _, _, _, _, rb, _) => rb.*, _ => TypeValue.Unit)
+          .Func({ result : rb }) => rb.*,
+          _ => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
         ),
-        .None => match(func_type,.Func(_, _, _, _, _, _, _, _, rb, _) => rb.*, _ => TypeValue.Unit)
+        .None => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
       ),
-      _ => match(func_type,.Func(_, _, _, _, _, _, _, _, rb, _) => rb.*, _ => TypeValue.Unit)
+      _ => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
     ),
-    .None => match(func_type,.Func(_, _, _, _, _, _, _, _, rb, _) => rb.*, _ => TypeValue.Unit)
+    .None => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
   );
   // -------------------------------------------------------------------------
   // Determine enclosing return type from definition-site registry.
@@ -1256,12 +1256,12 @@ evaluate_ctl_function_body_inline :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     func_type,
-    .Func(fl, _, _, _, _, _, _, _, _, _) => fl,
+    .Func({ forall_labels : fl }) => fl,
     _ => ArrayList(String).new()
   );
   forall_types_list := match(
     func_type,
-    .Func(_, ft, _, _, _, _, _, _, _, _) => ft,
+    .Func({ forall_types : ft }) => ft,
     _ => ArrayList(TypeValue).new()
   );
   n_forall := forall_labels.len();
@@ -1420,7 +1420,7 @@ try_to_call_function_with_arguments :: (
   tok := ast_expr_token(expr);
   match(
     func_type,
-    .Func(fl, ft, pl, pt, il, it, ispr, wt, ret_b, _) => {
+    .Func({ forall_labels : fl, forall_types : ft, param_labels : pl, param_types : pt, implicit_labels : il, implicit_types : it, implicit_spreads : ispr, where_types : wt, result : ret_b }) => {
       _ := ispr;
       _ := wt;
       // ----------------------------------------------------------------

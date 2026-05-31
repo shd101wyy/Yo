@@ -191,7 +191,7 @@ _find_all_index_methods :: (
               match(
                 ty_opt,
                 .Some(fty) => {
-                  if(match(fty,.Func(result : _) => true, _ => false), {
+                  if(match(fty,.Func({ result : _ }) => true, _ => false), {
                     result.push(
                       _IndexMethodEntry(
                         method_type : fty,
@@ -234,7 +234,7 @@ _find_index_method :: (
       .Some(m) => {
         match(
           m.method_type,
-          .Func(_, _, _, param_types, _, _, _, _, result_box, _) => {
+          .Func({ param_types, result : result_box }) => {
             if(param_types.len() == usize(2), {
               p0_opt := param_types.get(usize(0));
               p1_opt := param_types.get(usize(1));
@@ -1093,7 +1093,7 @@ try_to_call_with_index_trait :: (
   // Get the output type: index method returns *(Output), deref to get Output
   ret_ty := match(
     method.method_type,
-    .Func(_, _, _, _, _, _, _, _, result_box, _) => result_box.*,
+    .Func({ result : result_box }) => result_box.*,
     _ => t_unit()
   );
   output_ty := match(

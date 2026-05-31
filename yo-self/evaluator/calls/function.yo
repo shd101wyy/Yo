@@ -427,7 +427,7 @@ evaluate_function_call :: (
         func_type := func_type_box.*;
         match(
           func_type,
-          .Func(_, _, _, _, _, _, _, _, _, _) => {
+          .Func({ result : _ }) => {
             if(args.len() != usize(1), {
               exn.throw(
                 dyn(
@@ -1001,7 +1001,7 @@ evaluate_function_call :: (
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            .Func(_, _, _, fpts, _, _, _, _, _, _) => fpts,
+            .Func({ param_types : fpts }) => fpts,
             _ => ArrayList(TypeValue).new()
           ),
           .None => ArrayList(TypeValue).new()
@@ -1249,7 +1249,7 @@ evaluate_function_call :: (
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            .Func(_, _, _, _, _, _, _, _, result_b, _) => result_b.*,
+            .Func({ result : result_b }) => result_b.*,
             _ => t_unit()
           ),
           .None => t_unit()
@@ -1279,7 +1279,7 @@ evaluate_function_call :: (
         // otherwise wrongly take the non-memoized inline path.
         callee_result_is_comptime := match(
           callee_func_type_opt,
-          .Some(cft) => match(cft,.Func(_, _, _, _, _, _, _, _, _, rico) => rico, _ => false),
+          .Some(cft) => match(cft,.Func({ result_is_comptime_only : rico }) => rico, _ => false),
           .None => false
         );
         // A FuncVal call whose arguments are ALL compile-time type VALUES is a

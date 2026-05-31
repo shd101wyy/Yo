@@ -285,15 +285,15 @@ evaluate_comptime_fn :: (
     return(expr);
   });
   // Extract TypeValue.Func fields.
-  forall_labels := match(func_type,.Func(fl, _, _, _, _, _, _, _, _, _) => fl, _ => ArrayList(String).new());
-  forall_types := match(func_type,.Func(_, ft, _, _, _, _, _, _, _, _) => ft, _ => ArrayList(TypeValue).new());
-  param_labels := match(func_type,.Func(_, _, pl, _, _, _, _, _, _, _) => pl, _ => ArrayList(String).new());
-  param_types := match(func_type,.Func(_, _, _, pt, _, _, _, _, _, _) => pt, _ => ArrayList(TypeValue).new());
-  implicit_labels := match(func_type,.Func(_, _, _, _, il, _, _, _, _, _) => il, _ => ArrayList(String).new());
-  implicit_types := match(func_type,.Func(_, _, _, _, _, it, _, _, _, _) => it, _ => ArrayList(TypeValue).new());
-  implicit_spreads := match(func_type,.Func(_, _, _, _, _, _, is, _, _, _) => is, _ => ArrayList(bool).new());
-  where_types := match(func_type,.Func(_, _, _, _, _, _, _, wt, _, _) => wt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type,.Func(_, _, _, _, _, _, _, _, rb, _) => rb, _ => box(t_unit()));
+  forall_labels := match(func_type,.Func({ forall_labels : fl }) => fl, _ => ArrayList(String).new());
+  forall_types := match(func_type,.Func({ forall_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  param_labels := match(func_type,.Func({ param_labels : pl }) => pl, _ => ArrayList(String).new());
+  param_types := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  implicit_labels := match(func_type,.Func({ implicit_labels : il }) => il, _ => ArrayList(String).new());
+  implicit_types := match(func_type,.Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
+  implicit_spreads := match(func_type,.Func({ implicit_spreads : is }) => is, _ => ArrayList(bool).new());
+  where_types := match(func_type,.Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
+  result_box := match(func_type,.Func({ result : rb }) => rb, _ => box(t_unit()));
   // Skip functions with forall parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
     exn.throw(
@@ -368,7 +368,11 @@ evaluate_comptime_fn :: (
     implicit_spreads,
     where_types,
     box(comptime_result_ty),
-    true // result_is_comptime_only — this builds the comptime-result form
+    true,
+    // result_is_comptime_only — this builds the comptime-result form
+    ArrayList(bool).new(),
+    // param_is_ref
+    false // result_is_ref
   );
   // Extract body_box and captures from the FuncVal.
   body_box := match(arg_val,.FuncVal(_, _, _, _, bb, _, _, _, _) => bb, _ => box(make_err_expr()));

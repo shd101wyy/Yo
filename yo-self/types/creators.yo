@@ -90,7 +90,11 @@ t_func_simple :: (
     ArrayList(bool).new(),
     ArrayList(TypeValue).new(),
     box(result),
-    false // result_is_comptime_only — simple (runtime) function type
+    false,
+    // result_is_comptime_only — simple (runtime) function type
+    ArrayList(bool).new(),
+    // param_is_ref — no ref params in a synthesized type
+    false // result_is_ref
   )
 );
 /// Create a trait type with associated-type names and method/field lists.
@@ -268,7 +272,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Slice(_) => TypeTag.TSlice,
     .Array(_, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
-    .Func(result : _) => TypeTag.TFunction,
+    .Func({ result : _ }) => TypeTag.TFunction,
     .Struct({ id : _ }) => TypeTag.TStruct,
     .EnumT(_, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,

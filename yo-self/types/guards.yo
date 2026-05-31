@@ -56,7 +56,7 @@ is_array_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Array(_, _) => true, _ => false)
 );
 is_function_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Func(result : _) => true, _ => false)
+  match(t,.Func({ result : _ }) => true, _ => false)
 );
 is_some_type :: (fn(t : TypeValue) -> bool)(
   match(t,.SomeT(name : _) => true, _ => false)
@@ -232,7 +232,7 @@ is_fn_trait_type :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_is_type_function :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(result : r) => match(r.*,.TypeUni(_) => true, _ => false),
+    .Func({ result : r }) => match(r.*,.TypeUni(_) => true, _ => false),
     _ => false
   )
 );
@@ -265,7 +265,7 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(result : r) => is_comptime_only_type_simple(r.*),
+    .Func({ result : r }) => is_comptime_only_type_simple(r.*),
     _ => false
   )
 );
@@ -423,7 +423,7 @@ is_c_compatible_type :: (fn(t : TypeValue) -> bool)(
 is_function_type_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(forall_labels : fl, implicit_labels : il, param_types : pts) =>
+    .Func({ forall_labels : fl, implicit_labels : il, param_types : pts }) =>
       cond(
         (fl.len() > usize(0)) => true,
         (il.len() > usize(0)) => true,
@@ -466,7 +466,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
 is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(forall_labels : fl, param_types : pts) =>
+    .Func({ forall_labels : fl, param_types : pts }) =>
       cond(
         (fl.len() > usize(0)) => true,
         // Partial: check if any param is SomeT (Phase 2b: exclude resolved SomeType)

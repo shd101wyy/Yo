@@ -397,7 +397,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       // Module — false (modules don't own references)
       .ModuleT(id : _, name : _, field_labels : _, field_types : _) => false,
       // Function — false (functions are not reference types)
-      .Func(forall_labels : _) => false,
+      .Func({ result : _ }) => false,
       // Everything else — false
       _ => false
     )
@@ -479,7 +479,7 @@ _collect_some_types_into :: (
     .IsoT(child : ch) => {
       recur(ch.*, acc);
     },
-    .Func(forall_types : ftys, param_types : ptys, result : res) => {
+    .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
         match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
@@ -686,7 +686,7 @@ get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .CLongDouble =>.None,
     // Pointer and function types: pointer-aligned
     .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
-    .Func(_, _, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bytes())),
+    .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
     .Array({ element : el }) => recur(el.*),
     // Slice: pointer-aligned (fat pointer)
@@ -761,7 +761,7 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .CLongDouble =>.None,
     // Pointer and function types are pointer-sized
     .Pointer(_) =>.Some(usize(get_target_pointer_size_bits())),
-    .Func(_, _, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bits())),
+    .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
     .Array({ element : el, length : n }) => match(
       recur(el.*),

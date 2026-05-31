@@ -222,7 +222,7 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
-    .Func(result : _) => Option(bool).Some(true),
+    .Func({ result : _ }) => Option(bool).Some(true),
     // Undecided — env / Comptime trait lookup needed.
     _ => Option(bool).None
   )
@@ -338,7 +338,11 @@ type_implements_trait :: (
         ArrayList(bool).new(),
         ArrayList(TypeValue).new(),
         result,
-        false // result_is_comptime_only — Fn-trait call type (runtime)
+        false,
+        // result_is_comptime_only — Fn-trait call type (runtime)
+        ArrayList(bool).new(),
+        // param_is_ref
+        false // result_is_ref
       ),
       _ => {
         return(TraitCheckResult(implemented : false, env : env));

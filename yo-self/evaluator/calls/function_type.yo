@@ -104,7 +104,7 @@ create_function_body_evaluation_context :: (
         block.func_type,
         .Some(ft) => match(
           ft,
-          .Func(result : ret_box) => Option(TypeValue).Some(ret_box.*),
+          .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box.*),
           _ => Option(TypeValue).None
         ),
         .None => Option(TypeValue).None
@@ -115,7 +115,7 @@ create_function_body_evaluation_context :: (
   // Extract the return type from function_type for expected_type.
   return_type := match(
     function_type,
-    .Func(result : ret_box) => ret_box.*,
+    .Func({ result : ret_box }) => ret_box.*,
     _ => t_unit()
   );
   // Build the new EvalContext with overrides (mirrors `{ ...context, overrides }` in TS).
@@ -194,7 +194,7 @@ try_to_implement_function_by_function_type :: (
 )(
   match(
     function_type,
-    .Func(forall_labels, _, param_labels, param_types, implicit_labels, _, _, _, result_box, _) => {
+    .Func({ forall_labels, param_labels, param_types, implicit_labels, result : result_box }) => {
       tok := ast_expr_token(expr);
       // Extract the function body from args[0] of the outer call expression.
       args := match(
