@@ -2,7 +2,30 @@
 
 ## Status
 
-Open — diagnosed precisely, fix is a TypeValue schema change (next sub-project).
+**Schema landed (`0f2189f6`), regression-free; html.yo still pends.** Added
+`type_arguments` to `TypeValue.Struct` + populate (comptime_fn) + substitute
+(substitution.yo) + a consume fallback in `function.yo`'s FuncVal-callee forall
+loop. This **fixes the minimal cross-module Container reproducer** below
+(std 150/151, check ./tests 66/82 — zero regressions). **But html.yo's HashMap
+case still fails identically** at `hash_map.yo:59`.
+
+Instrumentation finding (next-step pointer): the `function.yo:~1109`
+forall-binding loop where the consume fallback lives **never executes** for
+either repro (a `TADBG` print keyed on `fa_name == "K"` produced no output for
+Container _or_ HashMap). So the real cross-module method dispatch does NOT go
+through that path — it goes through
+`helper.yo:create_specialized_function_inline`, which binds `forall` params from
+`arg_values.forall_args` (line ~899), and that is empty for a no-arg
+`Self`-dispatched method. The Container repro was fixed by the populate/
+substitute stages via some other consumer; the HashMap case differs (likely
+HashMap(String,String) not getting `type_arguments` populated, or the helper.yo
+path not reading the receiver struct's `type_arguments`). **NEXT: instrument
+`helper.yo` to find where the no-arg `Self`-dispatched method binds `forall`,
+and have it bind from the receiver struct's `type_arguments` when
+`arg_values.forall_args` is empty.** Determine via an instrumented build why
+Container populates `type_arguments` but HashMap(String,String) apparently does
+not (where-constraint? instantiation path?).
+
 This is the current head of the **generic-method-resolution knot** cascade
 (see `plans/GENERIC_METHOD_RESOLUTION_KNOT.md`). It is what blocks
 `std/encoding/html.yo` (and ~all of `check ./yo-self`).
