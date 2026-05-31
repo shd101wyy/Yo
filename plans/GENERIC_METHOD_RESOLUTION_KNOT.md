@@ -236,6 +236,66 @@ confirmed it engages (`is_static=T`, receiver corrected TypeUni→Struct).
   correct, faithful, regression-free prerequisite: without it the receiver is
   TypeUni and Layer 2 could never even be attempted.
 
+## THE FAITHFUL FIX: port TS's `recursiveTypeRef` placeholder + resolution
+
+Tracing how TS terminates recursive-type instantiation (the thing that crashes/
+hangs yo-self) pinpointed a concrete, faithful gap — NOT a fundamental
+limitation:
+
+**TS mechanism.** When a type constructor recursively references itself during
+CTFE, the recursive call hits the in-progress temp cache and returns
+`createUnknownValue(return.type, { variableName, recursiveTypeRef:
+{functionValue, argValues} })`. Because a `variableName` is passed AND the
+return is `Type` level 0, `createUnknownValue` (`value.ts:585`) promotes it to a
+**`SomeType`** tagged with `recursiveTypeRef` (`definitions.ts:221`). So:
+
+- The recursive reference is a **`SomeType` LEAF**, not a back-edge → the
+  `TypeValue` stays a **finite DAG**, never cyclic. `typeToString`,
+  `synthesizeTypes`, `substitute` all terminate (they hit the leaf).
+- When the type is later **used as a constructor**, `resolveRecursiveTypeRef`
+  (`function.ts:133`) resolves the placeholder from the now-completed cache:
+  (1) exact arg-match cache entry, (2) `context.SelfType`, (3) any resolved
+  entry of the same function.
+
+**yo-self gap (two parts).**
+
+1. The temp-cache placeholder uses bare `create_unknown_val(return_type)`
+   (`comptime_fn.yo:344`) → always `UnknownVal`, never a `SomeType`. (yo-self
+   HAS `create_unknown_val_with_name` which promotes to `SomeT` for `Type`
+   returns — TS's behavior — but the recursion-guard site doesn't use it.) So
+   the recursive reference is a non-type `UnknownVal`, the type structure isn't
+   a clean finite DAG, and traversal doesn't terminate (SIGBUS in
+   `type_to_string`, then hang after the depth cap).
+2. No `recursiveTypeRef` tag and no `resolveRecursiveTypeRef`.
+
+**Representation decision.** `recursiveTypeRef = {functionValue, argValues}`
+where `argValues : Value[]`. yo-self's `SomeT` lives in `definitions.yo`
+(TypeValue) and CANNOT hold `EvalValue` arg-values — that's a circular import
+(`value.yo` → `definitions.yo`). So store it in a **side-table** keyed by the
+placeholder `SomeT`'s `id`: `someT_id → (func_id : String, arg_values :
+ArrayList(EvalValue))`. Lazy-init the side-table (no module-level `.new()` —
+that would hit the very knot we're fixing).
+
+**Why not "just resolve into the field".** yo-self `TypeValue` is value-
+semantic (no shared objects), so resolving the placeholder INTO the field would
+COPY the type and re-create the infinite expansion. The placeholder must STAY a
+leaf in the type structure (keeping types finite); resolution happens LAZILY
+only when the type is used as a constructor — exactly TS's contract.
+
+**Steps.**
+
+- **A:** make the temp-cache placeholder a `SomeT` leaf (use
+  `create_unknown_val_with_name` with a name derived from func_id) + record
+  `(someT_id → func_id, arg_values)` in the side-table. Validate neutral at
+  HEAD (std/tests), and that it (with the all-type-args routing) stops the
+  imm_vec hang.
+- **B:** port `resolveRecursiveTypeRef` (3 strategies) and call it where the
+  placeholder `SomeT` is used as a constructor / where its concrete type is
+  required (method dispatch, codegen-facing sites).
+- **C:** re-apply the Layer 2 all-type-args routing on top; the recursive-type
+  instantiations now terminate (finite DAG), so it should be safe; validate
+  per-file (std 151, regressors, then env_lookup `.new()` resolves).
+
 ### Recursion guard FIXED (`68053176`) + Layer 2 retry (still not viable)
 
 Per "fix the recursion guard first, then retry layer 2":
@@ -249,10 +309,10 @@ Per "fix the recursion guard first, then retry layer 2":
   **Neutral at HEAD: std 151/151, regressors imm_vec/imm_threading/
   priority_queue all pass.**
 - **Layer 2 retry (all-type-args routing) — STILL NOT VIABLE, reverted again.**
-  With the type_to_string guard in place, re-applying the all-type-args
+  With the type*to_string guard in place, re-applying the all-type-args
   routing no longer SIGBUSes — but `imm_vec` now **HANGS** (infinite loop, no
   stack growth; killed after 3+ min). So the guard only removed the
-  stack-overflow _site_; the underlying non-terminating recursion in the
+  stack-overflow \_site*; the underlying non-terminating recursion in the
   synthesize/memoization of recursive-type instantiations persists, just
   manifesting as a hang instead of a crash. Diagnostics ruled out the obvious
   suspects: comptime-fn recursion is finite (~710 calls), and `_synthesize_call`'s
