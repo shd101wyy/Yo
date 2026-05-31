@@ -76,15 +76,15 @@ structure).
 > (see Phase 3 / Stage 4 notes) or, for +1, the `hierarchy.yo` reassign.
 > The TS-reference fixpoint target is 172/177 evaluator-only.
 
-| Milestone                                                                           | Status          | Number                                                                                  |
-| ----------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------- |
-| `./yo-cli check yo-self/main.yo`                                                    | green           | —                                                                                       |
-| `./yo-cli compile yo-self/main.yo`                                                  | builds          | —                                                                                       |
-| `/tmp/yo-self-bin check std/prelude.yo`                                             | green           | —                                                                                       |
-| `/tmp/yo-self-bin check ./std` (per-file)                                           | **green**       | **151 / 151 files OK**                                                                  |
-| `/tmp/yo-self-bin check ./tests` (per-file)                                         | **green**       | **156 / 182 files OK** (per-file; the "170" was directory-mode)                         |
-| `/tmp/yo-self-bin check ./yo-self` **evaluator-only** (excl. `codegen/` + `tests/`) | **in progress** | **44 / 177 files OK** (the Phase 3 milestone — see scope below)                         |
-| `/tmp/yo-self-bin check ./yo-self/codegen` (excl. tests)                            | deferred        | 7 / 46 — **out of Phase 3 scope** (codegen is a later bootstrap phase and likely stale) |
+| Milestone                                                                           | Status          | Number                                                                                                                |
+| ----------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `./yo-cli check yo-self/main.yo`                                                    | green           | —                                                                                                                     |
+| `./yo-cli compile yo-self/main.yo`                                                  | builds          | —                                                                                                                     |
+| `/tmp/yo-self-bin check std/prelude.yo`                                             | green           | —                                                                                                                     |
+| `/tmp/yo-self-bin check ./std` (per-file)                                           | **green**       | **151 / 151 files OK**                                                                                                |
+| `/tmp/yo-self-bin check ./tests` (per-file)                                         | **green**       | **156 / 182 files OK** (per-file; the "170" was directory-mode)                                                       |
+| `/tmp/yo-self-bin check ./yo-self` **evaluator-only** (excl. `codegen/` + `tests/`) | **in progress** | **45 / 178 files OK** (the Phase 3 milestone — see scope below; +1 hierarchy.yo reassign fix; memory_safety.yo added) |
+| `/tmp/yo-self-bin check ./yo-self/codegen` (excl. tests)                            | deferred        | 7 / 46 — **out of Phase 3 scope** (codegen is a later bootstrap phase and likely stale)                               |
 
 > **Phase 3 scope (refined 2026-05-30): evaluator-only.** The Phase 3
 > milestone is `check` over the **evaluator + its support** files —

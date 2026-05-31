@@ -177,10 +177,14 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
   )
 );
 // Set the function pointer after type_of_type_with_visited is defined.
-_hierarchy_fn_init := (fn() -> bool)({
-  g_type_of_type_visited_fn =.Some(type_of_type_with_visited);
-  true
-})();
+// Assigned at module top level (not inside an IIFE): a module-level global
+// is reassignable, but a closure-CAPTURED copy of it is not, so reassigning
+// from inside an `(fn() -> ...)({ ... })()` wrapper is rejected. The direct
+// top-level assignment reassigns the real global.
+g_type_of_type_visited_fn =
+  Option((fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue)).Some(
+    type_of_type_with_visited
+  );
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
