@@ -62,6 +62,20 @@ structure).
 
 ## Current state (updated 2026-05-29)
 
+> **TRIAGE (2026-05-31): the Phase-3 gap is monolithic.** Grouping the 133
+> failing evaluator files (Stage-2 binary, evaluator-only) by error: **132 /
+> 133 fail with `Incompatible types … Given: unit`** — the SAME
+> generic-method-resolution knot (`.new()` and any method on a generic type
+> instantiation). Only **1** file fails on something else
+> (`hierarchy.yo`: `Cannot reassign "g_type_of_type_visited_fn"` — a
+> module-level function-pointer-slot reassign yo-self-bin rejects standalone
+> but TS accepts; likely masked by the knot error in every other file with
+> the same pattern). **Conclusion: there is no long tail of independent
+> fixable gaps — the ~128-file gap is the one knot.** Incremental gap-closing
+> is exhausted; closing the count requires cracking the generic-method knot
+> (see Phase 3 / Stage 4 notes) or, for +1, the `hierarchy.yo` reassign.
+> The TS-reference fixpoint target is 172/177 evaluator-only.
+
 | Milestone                                                                           | Status          | Number                                                                                  |
 | ----------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------- |
 | `./yo-cli check yo-self/main.yo`                                                    | green           | —                                                                                       |
