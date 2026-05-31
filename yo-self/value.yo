@@ -1088,3 +1088,38 @@ export(
 );
 export(is_type_value, create_unknown_val, create_unknown_val_with_name);
 export(eval_value_eq);
+// ---------------------------------------------------------------------------
+// Enum constructor-func-id side-table. `TypeValue.EnumT` has no
+// `constructor_func_id` field (only `Struct` does), so two instantiations of
+// the same generic enum (`Option(X)`/`Option(Y)`) — distinct fresh ids — can't
+// be recognized as the same constructor in synthesis. Records `enum_id ->
+// func_id` whenever a comptime type-constructor call returns an `EnumT`
+// (populated by `evaluate_comptime_fn_call`); the synthesizer's enum
+// same_constructor guard reads it. Lives here (leaf both comptime_fn and
+// synthesizer import, no cycle). `substitute()` preserves enum id → key stays
+// valid across specialization. Mirrors `Struct.constructor_func_id`.
+// ---------------------------------------------------------------------------
+EnumCfidEntry :: object(enum_id : String, func_id : String);
+(g_enum_cfids : ArrayList(EnumCfidEntry)) = ArrayList(EnumCfidEntry).new();
+register_enum_cfid :: (fn(enum_id : String, func_id : String) -> unit)({
+  if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)), {
+    _ := g_enum_cfids.push(EnumCfidEntry(enum_id : enum_id, func_id : func_id));
+  });
+});
+lookup_enum_cfid :: (fn(enum_id : String) -> String)({
+  (i : usize) = usize(0);
+  n := g_enum_cfids.len();
+  (r : String) = String.from("");
+  while(runtime((i < n) && (r.len() == usize(0))), {
+    match(
+      g_enum_cfids.get(i),
+      .Some(e) => if(e.enum_id.as_str() == enum_id.as_str(), {
+        r = e.func_id.clone();
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  r
+});
+export(register_enum_cfid, lookup_enum_cfid);

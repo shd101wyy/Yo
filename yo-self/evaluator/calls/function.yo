@@ -206,6 +206,48 @@ _try_find_receiver_method :: (
     )
   )
 });
+// ---------------------------------------------------------------------------
+// _static_dot_receiver_self_type — when the callee is a static method call
+// `Type.method` (a 2-arg `.` whose receiver evaluated to a `TypeVal`), return
+// that receiver's inner type — the `Self` for the method body. The call site
+// sets `ctx.self_type` to it around the body evaluation so `Self` references
+// inside the (possibly specialized) body resolve to the concrete receiver
+// (e.g. inside `HashMap(K,V).new()`'s body, `Self._alloc_with_capacity(...)`
+// dispatches statically on `HashMap(String,X)`). This cascades: each
+// `Self.method()` is itself a static dot-call, so the same logic re-sets
+// `ctx.self_type` for the next body. Mirrors TS `context.SelfType =
+// dereferencedReceiverType`. Returns `.None` for non-static-method callees.
+// ---------------------------------------------------------------------------
+_static_dot_receiver_self_type :: (
+  fn(callee : AstExpr, ctx : EvalContext) -> Option(TypeValue)
+)({
+  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
+    return(Option(TypeValue).None);
+  });
+  pargs := match(
+    callee,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(Option(TypeValue).None);
+    }
+  );
+  recv := match(
+    pargs.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
+    .Some(ri) => match(
+      ri.value,
+      .Some(rv) => match(rv,.TypeVal(ib) => Option(TypeValue).Some(ib.*), _ => Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+});
 /// arguments, and returning the annotated expression.
 ///
 /// Phase 2bn: handles function definitions (TypeVal callee) and simple FuncVal calls.
@@ -1292,6 +1334,18 @@ evaluate_function_call :: (
         );
         ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(fn_ctx);
         ctx.enclosing_function_return_type = Option(TypeValue).Some(ret_type);
+        // For a static method call (`Type.method()`), bind `ctx.self_type` to
+        // the receiver type so `Self` references inside the body resolve to the
+        // concrete receiver (e.g. `Self._alloc_with_capacity(...)` inside
+        // `HashMap(String,X).new()`). Cascades to nested `Self.method()` calls.
+        old_self_ty_fv := ctx.self_type;
+        match(
+          _static_dot_receiver_self_type(func_expr, ctx),
+          .Some(st_fv) => {
+            ctx.self_type = Option(TypeValue).Some(st_fv);
+          },
+          .None => ()
+        );
         // Evaluate the function body.
         evaled_body := evaluate_begin_expression(
           body_box.*,
@@ -1301,6 +1355,7 @@ evaluate_function_call :: (
           true,
           exn
         );
+        ctx.self_type = old_self_ty_fv;
         ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
         ctx.enclosing_function_return_type = old_ret_ty;
         body_info := match(

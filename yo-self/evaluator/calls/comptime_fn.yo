@@ -30,7 +30,8 @@ open(import("std/string"));
   EvalValue,
   eval_value_eq,
   is_type_val,
-  create_unknown_val
+  create_unknown_val,
+  register_enum_cfid
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -678,6 +679,16 @@ evaluate_comptime_fn_call :: (
   // (!returnedType.functionValue)`). TypeValue is immutable, so rebuild the
   // Struct with the field populated. The synthesizer then unifies two
   // instantiations of the same generic constructor by this id.
+  // Record enum constructor identity (EnumT has no cfid field to stamp).
+  match(
+    return_value,
+    .TypeVal(rv_eb) => match(
+      rv_eb.*,
+      .EnumT(eid, _, _, _, _, _, _) => register_enum_cfid(eid, func_id_str),
+      _ => ()
+    ),
+    _ => ()
+  );
   final_return_value := match(
     return_value,
     .TypeVal(rv_tb) => match(

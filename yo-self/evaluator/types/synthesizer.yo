@@ -54,7 +54,7 @@ open(import("std/string"));
 { get_value_of_some_type_from_env }
 :: import("../../types/env_lookup.yo");
 { type_to_string, type_to_string_key } :: import("../../types/string.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, lookup_enum_cfid } :: import("../../value.yo");
 { format_error_message, ErrorKind } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -1359,7 +1359,13 @@ _synthesize_types_impl :: (
   if(is_enum_type(expected_ty) && is_enum_type(given_ty), {
     exp_enum_id := match(expected_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
     giv_enum_id := match(given_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
-    if(exp_enum_id != giv_enum_id, {
+    // Two instantiations of the same generic enum share a constructor_func_id
+    // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
+    // constructor → unify variant fields. Mirrors the struct same_constructor.
+    exp_enum_cf := lookup_enum_cfid(exp_enum_id);
+    giv_enum_cf := lookup_enum_cfid(giv_enum_id);
+    same_enum_ctor := ((exp_enum_cf.len() > usize(0)) && (exp_enum_cf.as_str() == giv_enum_cf.as_str()));
+    if((exp_enum_id != giv_enum_id) && !(same_enum_ctor), {
       exn.throw(
         dyn(
           format_error_message(
