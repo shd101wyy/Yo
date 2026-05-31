@@ -45,7 +45,9 @@ open(import("std/fmt"));
   is_comptime_int_type,
   is_comptime_float_type,
   is_some_type,
-  is_rc_type
+  is_rc_type,
+  is_object_type,
+  is_dyn_type
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -850,6 +852,163 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
 // at module top level (not inside a closure) per the captured-global rule.
 g_size_of_type_fn = Option(SizeFn).Some(get_size_of_type);
 g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
+// ---------------------------------------------------------------------------
+// Raw-pointer / slice-source representation predicates (for flow analysis)
+// ---------------------------------------------------------------------------
+/// Internal: does `ty`'s representation transitively contain a raw pointer
+/// (`Ptr`/`Slice`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
+/// buffer alive across a value return). `depth` caps recursion in place of TS's
+/// object-identity `checkedTypes` set (yo-self `TypeValue` is value-semantic).
+/// Field loops are inlined (via `recur`) to avoid a mutual forward reference.
+/// Mirrors `typeRepresentationContainsRawPtr` in `src/types/utils.ts`.
+_type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
+  cond(
+    (depth == usize(0)) => false,
+    is_object_type(ty) => false,
+    is_dyn_type(ty) => false,
+    true => match(
+      ty,
+      .Pointer(_) => true,
+      .Slice(_) => true,
+      .Struct({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Tuple({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Union({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .EnumT({ variant_fields : vfs }) => {
+        (vi : usize) = usize(0);
+        (found : bool) = false;
+        while((vi < vfs.len()) && !(found), {
+          vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while((fi < vf.len()) && !(found), {
+            ft := match(vf.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            if(recur(ft, depth - usize(1)), {
+              found = true;
+            });
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      .Array({ element : el }) => recur(el.*, depth - usize(1)),
+      _ => false
+    )
+  )
+);
+/// Does `ty`'s representation transitively contain a raw pointer? `object`/`Dyn`
+/// are safe leaves (Rc-managed). Public entry; caps recursion depth at 40.
+type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)(
+  _type_repr_contains_raw_ptr(ty, usize(40))
+);
+/// Internal: sibling of `_type_repr_contains_raw_ptr` that ALSO treats
+/// `object`/`Dyn` as a "yes" leaf — used by the slice-flowability arg-source
+/// check. Mirrors `typeMayProvideSliceSource` in `src/types/utils.ts`.
+_type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
+  cond(
+    (depth == usize(0)) => false,
+    is_object_type(ty) => true,
+    is_dyn_type(ty) => true,
+    true => match(
+      ty,
+      .Pointer(_) => true,
+      .Slice(_) => true,
+      .Struct({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Tuple({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Union({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .EnumT({ variant_fields : vfs }) => {
+        (vi : usize) = usize(0);
+        (found : bool) = false;
+        while((vi < vfs.len()) && !(found), {
+          vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while((fi < vf.len()) && !(found), {
+            ft := match(vf.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            if(recur(ft, depth - usize(1)), {
+              found = true;
+            });
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      .Array({ element : el }) => recur(el.*, depth - usize(1)),
+      _ => false
+    )
+  )
+);
+/// May `ty` provide the source storage for a returned slice's pointer? Like
+/// `type_representation_contains_raw_ptr`, but `object`/`Dyn` ALSO count.
+/// Public entry; caps recursion depth at 40.
+type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)(
+  _type_provides_slice_source(ty, usize(40))
+);
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);
@@ -870,3 +1029,4 @@ export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
 export(get_size_of_type, get_alignment_of_type);
+export(type_representation_contains_raw_ptr, type_may_provide_slice_source);
