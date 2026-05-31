@@ -31,14 +31,26 @@
    ONLY `std/encoding/html.yo` changes (its `_entity_map := HashMap(...).new()`
    moves from silently-accepted `unit` to a real CTFE that hits the next
    cascade gap). Regressors green.
+6. `0aa5f5f2` — **sizeof port**: `get_size_of_type` / `get_alignment_of_type`
+   now compute C-layout aggregate size/alignment for Struct/Tuple/Union/EnumT
+   (were stubbed `.None`). Mutual recursion (per-field helpers ↔ public fns)
+   broken with function-pointer slots (`g_size_of_type_fn` /
+   `g_alignment_of_type_fn`), wired at module top level. std 150/151, neutral.
 
-**Remaining (the method cascade — see "pursue the full cascade" below):** with
-`.new()` resolving, module-level `:= HashMap(...).new()` CTFE-specializes the
-whole call graph; the next gap is `bucket_size :: sizeof(Bucket(K,V))` at
-`hash_map.yo:59` — `sizeof` of a generic struct during specialization yields a
-"runtime value" where a `::` comptime binding is required. Then likely more
-(malloc handling, etc.). **Validation gate is per-file expected-change, NOT
-std==151** (html.yo and any untyped `:= G(...).new()` legitimately change).
+**Remaining — the REAL next gap is generic SUBSTITUTION, not sizeof.**
+Instrumenting `sizeof.yo` proved that the sizeof port alone does NOT advance the
+cascade: at `hash_map.yo:59` `sizeof(Bucket(K,V))` receives a `Struct` whose
+`field_types` are unsubstituted `SomeT` (ids 1450/1451), not `String` — i.e.
+during `_alloc_with_capacity`'s specialization, the type params `K→String,
+V→String` were never substituted into the inner `Bucket(K,V)` construction (the
+struct name is also empty). `get_size_of_type` correctly returns `.None` for a
+`SomeT` field, so the `::` binding still fails. **NEXT: find why the specialized
+method body builds `Bucket(K,V)` with abstract `SomeT` params instead of the
+concrete instantiation — likely the Self-plumbing sets `ctx.self_type` but not
+the type-PARAM environment, or `substitute()` isn't applied to constructor-call
+args inside the specialized body.** Then likely more (malloc handling, etc.).
+**Validation gate is per-file expected-change, NOT std==151** (html.yo and any
+untyped `:= G(...).new()` legitimately change).
 
 ## Porting fidelity (TS → yo) — mostly 1-to-1, with documented divergences
 
