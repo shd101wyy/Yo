@@ -7,6 +7,61 @@
 > dead ends. See `BOOTSTRAPPING_EVALUATOR.md` Phase 3 / Stage 1–4 for the
 > full attempt log.
 
+## CURRENT STATUS (latest first)
+
+**Landed & committed (all regression-free unless noted):**
+
+1. `66cc149e` — **Layer 1**: static-vs-instance method dispatch
+   (`_try_find_receiver_method` uses the receiver VALUE; static calls look up
+   the inner struct). std 151, tests 154 per-file, 0 regressions.
+2. `68053176` — **type_to_string depth cap** (recursion guard for cyclic/deep
+   types). Neutral.
+3. `3b0c8957` + `17d20dd6` — **recursiveTypeRef port (A+B)**: SomeT-leaf
+   recursion placeholder + `resolve_recursive_type_ref`. Neutral.
+4. `b0878d36` — **Layer 2 foundation**: all-type-args routing (memoize+stamp
+   every type-constructor instantiation) + cheap `type_to_string_key` synthesis
+   key (fixes the O(n²) stringify blowup). **Termination wall solved** — std
+   151, tests 154, regressors green. Top-level knot provably resolves (concrete
+   stamped, cfid matches impl pattern).
+5. `b07e9338` — **Gap A (enum cfid side-table) + Gap B (Self-plumbing)**: the
+   generic static-method CASCADE now advances. `HashMap(String,X).new()` →
+   `new` and `_alloc_with_capacity` both resolve (`ctx.self_type` is set from
+   the static-dot receiver around the body eval, so `Self.method()` dispatches
+   statically; cascades through nested calls). std **temporarily 150/151** —
+   ONLY `std/encoding/html.yo` changes (its `_entity_map := HashMap(...).new()`
+   moves from silently-accepted `unit` to a real CTFE that hits the next
+   cascade gap). Regressors green.
+
+**Remaining (the method cascade — see "pursue the full cascade" below):** with
+`.new()` resolving, module-level `:= HashMap(...).new()` CTFE-specializes the
+whole call graph; the next gap is `bucket_size :: sizeof(Bucket(K,V))` at
+`hash_map.yo:59` — `sizeof` of a generic struct during specialization yields a
+"runtime value" where a `::` comptime binding is required. Then likely more
+(malloc handling, etc.). **Validation gate is per-file expected-change, NOT
+std==151** (html.yo and any untyped `:= G(...).new()` legitimately change).
+
+## Porting fidelity (TS → yo) — mostly 1-to-1, with documented divergences
+
+The **functions** are faithful 1-to-1 ports (`evaluate_function_call`,
+`evaluate_comptime_fn_call`, `resolve_recursive_type_ref`, the synthesizer, the
+static/instance dispatch, the `ctx.self_type` mechanism = TS `context.SelfType`).
+Some **data representations** deliberately diverge because yo-self's `TypeValue`
+is a value-semantic enum (no object identity) and lower modules can't import
+`EvalValue` (circular):
+
+- `Struct.constructor_func_id` — added as a real field (faithful to TS
+  `StructType.functionValue.funcId`).
+- **Enum** `constructor_func_id` — a **side-table** (`value.yo g_enum_cfids`),
+  not a field (EnumT field-add is ~65-site churn; behaviorally equivalent;
+  `substitute` preserves the enum id so the key stays valid).
+- **recursiveTypeRef** — a **side-table** (`comptime_fn.yo g_recursive_type_refs`),
+  not a `SomeT` field (SomeT can't hold `EvalValue` arg-values — circular import).
+- `type_to_string_key` (shallow synthesis key) — a yo-self-specific perf proxy
+  for TS's O(1) `checkedTypePairs` object identity (yo-self has no identity).
+
+These are behaviorally faithful; the divergences are forced by yo-self's value
+semantics + module graph, and each is documented at its definition site.
+
 ## CORRECTION (BEGIN step 2, probe build `/tmp/yo-self-probe`): the knot is method resolution, NOT the gate/memoization
 
 The Stage-3 SIGBUS framing was a red herring. Running the **committed
