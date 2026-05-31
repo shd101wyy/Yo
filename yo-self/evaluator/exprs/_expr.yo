@@ -65,6 +65,7 @@ open(import("std/fmt"));
   BK_CONST,
   BF_TYPEOF,
   BF_SIZEOF,
+  BF_UNSAFE,
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
@@ -307,6 +308,7 @@ open(import("std/fmt"));
   evaluate_yo_some_type_dup
 } :: import("../builtins/rc_fns.yo");
 { evaluate_size_of } :: import("../builtins/sizeof.yo");
+{ evaluate_unsafe } :: import("../builtins/unsafe.yo");
 { evaluate_the } :: import("../builtins/the.yo");
 {
   evaluate_yo_are_types_compatible,
@@ -564,6 +566,8 @@ _evaluate_expression :: (
           evaluate_typeof(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_SIZEOF,.None) =>
           evaluate_size_of(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_UNSAFE,.None) =>
+          evaluate_unsafe(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_ALIGNOF,.None) =>
           evaluate_align_of(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_TYPEID,.None) =>

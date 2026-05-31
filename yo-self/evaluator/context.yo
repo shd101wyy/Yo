@@ -204,6 +204,10 @@ EvalContext :: object(
   current_module_path : Option(String),
   /// Whether the function type being evaluated is marked unsafe.
   is_unsafe_function_type : bool,
+  /// Whether the expression currently being evaluated is inside an
+  /// `unsafe(...)` block. Set by `evaluate_unsafe`; permits raw-pointer
+  /// operations (deref/arith) within. Mirrors TS `EvaluatorContext.unsafeContext`.
+  unsafe_context : bool,
   /// Whether the function type being evaluated was declared `ctl(...)
   /// -> ret`. Control functions may contain `unwind` in their body and
   /// are frame-bound (escape boundaries reject them).
@@ -272,6 +276,7 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     std_path : std_path,
     current_module_path : Option(String).Some(module_path),
     is_unsafe_function_type : false,
+    unsafe_context : false,
     is_control_function_type : false,
     enclosing_function_return_type : Option(TypeValue).None,
     has_control_function_implicit_params : false,

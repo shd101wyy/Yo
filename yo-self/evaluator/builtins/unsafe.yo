@@ -1,0 +1,118 @@
+//! evaluator/builtins/unsafe — implements evaluate_unsafe.
+//!
+//! 1:1 port of `src/evaluator/builtins/unsafe.ts`.
+//!
+//! `unsafe(expr)` is a compile-time marker that permits pointer deref
+//! (`p.*`), pointer arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)`
+//! inside `expr`. Outside `unsafe(...)`, those operations are compile errors.
+//!
+//! Semantically transparent: the value, type, and environment of
+//! `unsafe(expr)` are identical to `expr` itself. Codegen lowers
+//! `unsafe(expr)` to its inner expression — no runtime cost.
+//!
+//! See plans/MEMORY_SAFETY.md for the full design.
+open(import("std/string"));
+open(import("std/fmt"));
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BF_UNSAFE,
+  make_err_expr
+} :: import("../../expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
+:: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ t_i32 } :: import("../../types/creators.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ format_error_message } :: import("../../error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+/// Evaluate the `unsafe(expr)` builtin. Evaluates the inner expression with
+/// `ctx.unsafe_context = true` (permitting raw-pointer ops within), then
+/// transparently propagates the inner expression's `ExprInfo` (value, type,
+/// env, variable name, ownership fields) to the outer call. Mirrors
+/// `evaluateUnsafe` in `src/evaluator/builtins/unsafe.ts`.
+evaluate_unsafe :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // Validate shape: `unsafe` with exactly 1 argument.
+  if(!(ast_expr_is_fn_call_of(expr, BF_UNSAFE,.Some(usize(1)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected unsafe(expr), got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  // Privilege check: `unsafe(...)` itself is only callable inside a file that
+  // has declared `pragma(Pragma.AllowUnsafe);`. Without this gate, user code
+  // could trivially bypass the deref/arith gates by wrapping every pointer op
+  // in `unsafe(...)`. See Phase C of plans/MEMORY_SAFETY.md.
+  tok := ast_expr_token(expr);
+  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone()))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from("'unsafe(...)' is not available in safe code.\n\nTo use raw pointer operations in this file, declare at the top:\n\n    pragma(Pragma.AllowUnsafe);\n\nThis marks the file as unsafe-capable and accepts responsibility for\nthe raw memory operations it contains."),
+          false,
+          .None
+        )
+      )
+    );
+  });
+  // Pull the argument out of the FnCall.
+  arg_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
+      .Some(a) => a,
+      .None => make_err_expr()
+    ),
+    .Atom(_, _) => make_err_expr()
+  );
+  // Evaluate the argument with the unsafe context enabled, then restore.
+  old_unsafe := ctx.unsafe_context;
+  ctx.unsafe_context = true;
+  evaluated_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
+  ctx.unsafe_context = old_unsafe;
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  match(
+    info_opt,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Failed to evaluate the argument of 'unsafe(...)'."),
+            false,
+            .None
+          )
+        )
+      );
+    },
+    .Some(_) => ()
+  );
+  arg_info := match(info_opt,.Some(i) => i,.None => new_expr_info(env, t_i32()));
+  // `unsafe(...)` is transparent — propagate the inner expression's full
+  // ExprInfo (value, type, env, variable name, ownership fields) to the outer
+  // call so downstream bindings, dup/drop scheduling, and consumption tracking
+  // see the inner temp variable as if `unsafe(...)` weren't there. Reusing the
+  // same ExprInfo object mirrors TS's `expr.$ = { ...evaluatedArgExpr.$, env }`.
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), arg_info);
+  expr
+});
+export(evaluate_unsafe);
