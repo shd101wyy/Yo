@@ -66,6 +66,12 @@ open(import("std/fmt"));
   BF_TYPEOF,
   BF_SIZEOF,
   BF_UNSAFE,
+  BF_REQUIRES,
+  BF_ENSURES,
+  BF_INVARIANT,
+  BF_GHOST,
+  BF_GHOST_FN,
+  BF_OLD,
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
@@ -309,6 +315,14 @@ open(import("std/fmt"));
 } :: import("../builtins/rc_fns.yo");
 { evaluate_size_of } :: import("../builtins/sizeof.yo");
 { evaluate_unsafe } :: import("../builtins/unsafe.yo");
+{
+  evaluate_requires,
+  evaluate_ensures,
+  evaluate_invariant,
+  evaluate_ghost,
+  evaluate_ghost_fn,
+  evaluate_old
+} :: import("../builtins/contracts.yo");
 { evaluate_the } :: import("../builtins/the.yo");
 {
   evaluate_yo_are_types_compatible,
@@ -568,6 +582,18 @@ _evaluate_expression :: (
           evaluate_size_of(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_UNSAFE,.None) =>
           evaluate_unsafe(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_REQUIRES,.None) =>
+          evaluate_requires(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_ENSURES,.None) =>
+          evaluate_ensures(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_INVARIANT,.None) =>
+          evaluate_invariant(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_GHOST,.None) =>
+          evaluate_ghost(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_GHOST_FN,.None) =>
+          evaluate_ghost_fn(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_OLD,.None) =>
+          evaluate_old(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_ALIGNOF,.None) =>
           evaluate_align_of(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_TYPEID,.None) =>

@@ -51,6 +51,18 @@ BF_PRAGMA :: "pragma";
 BF_DROP :: "___drop";
 BF_DUP :: "___dup";
 BF_VA_START :: "va_start";
+/// Phase 0 of plans/FORMAL_VERIFICATION.md — contract builtins. Evaluated as
+/// no-op markers (their args are evaluated; the call returns `unit`).
+/// `requires`/`ensures` in a function SIGNATURE are extracted + lowered to
+/// runtime asserts by the function-type evaluator; these handlers fire when the
+/// builtins appear in EXPRESSION position. `ghost_fn`/`old` are transparent
+/// pass-throughs. Mirrors `BuiltinFunctions` in `src/expr.ts:1321`.
+BF_REQUIRES :: "requires";
+BF_ENSURES :: "ensures";
+BF_INVARIANT :: "invariant";
+BF_GHOST :: "ghost";
+BF_GHOST_FN :: "ghost_fn";
+BF_OLD :: "old";
 BF_ADDRESS_OF :: "&";
 BF_ARRAY_FILL :: "__yo_array_fill";
 BF_DERIVE :: "derive";
@@ -641,6 +653,7 @@ export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER
 export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF);
 export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL);
 export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
+export(BF_REQUIRES, BF_ENSURES, BF_INVARIANT, BF_GHOST, BF_GHOST_FN, BF_OLD);
 export(BF_UNSAFE, BF_PRAGMA);
 export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_RC, BF_THE, BF_DOWNCAST);
 export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
