@@ -1380,6 +1380,15 @@ evaluate_function_call :: (
           },
           .None => ()
         );
+        // Propagate the declared return type as the body's expected type, so the
+        // body's tail expression (a `match`, `cond`, etc.) can infer enum-variant
+        // shorthands like `.Err(...)` / `.None` against the return enum. `begin`
+        // forwards this to the last expression only; `match` forwards it to its
+        // arms. Mirrors TS evaluating the body with `expectedType = returnType`.
+        old_expected_fv := ctx.expected_type;
+        ctx.expected_type = Option(ExpectedTypeCtx).Some(
+          ExpectedTypeCtx(ty : ret_type, env : fresh_env)
+        );
         // Evaluate the function body.
         evaled_body := evaluate_begin_expression(
           body_box.*,
@@ -1389,6 +1398,7 @@ evaluate_function_call :: (
           true,
           exn
         );
+        ctx.expected_type = old_expected_fv;
         ctx.self_type = old_self_ty_fv;
         ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
         ctx.enclosing_function_return_type = old_ret_ty;

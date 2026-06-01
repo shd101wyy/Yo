@@ -11,23 +11,22 @@ per-forall concrete bindings; `find_methods_from_generic_impls` injects them via
 Regression-neutral: `yo-self-bin check ./std` stays 150/151 (html.yo was already
 the lone failure), and the `bucket_size` error is gone.
 
-**Remaining html.yo blocker (separate bug):** with `K,V` now bound, html.yo
-progresses past `bucket_size` and hits a different gap at
-`std/collections/hash_map.yo:65`:
+**FIXED (enum-variant inference):** the FN-REG-BODY call path now propagates the
+declared return type as the body's `ctx.expected_type` (function.yo, around the
+`evaluate_begin_expression(body_box.*, ...)` call). `begin` forwards the hint to
+its tail expression and `match` forwards it to its arms, so a tail
+`match(..., .None => .Err(.AllocError(...)))` now infers `.Err` against
+`Result(Self, HashMapError)`. Verified by a minimal repro
+(`mk :: (fn(c:bool) -> E)(match(c, true => .A(x:1), false => .B)); _v := mk(true)`
+now passes) and regression-neutral on `check ./std` (still 150/151).
 
-```
-Error: Failed to infer enum variant type.
-      .None =>.Err(.AllocError(error :.OutOfMemory)),
-```
-
-The `.Err(...)` enum-variant shorthand needs `ctx.expected_type` set to the
-function's return enum (`Result(Self, HashMapError)`), but during CTFE of the
-method body (FN-REG-BODY path / module-level `_entity_map := HashMap(...).new()`)
-that expected type is not propagated into the `match` arms
-(`property_access.yo:317` throws when `ctx.expected_type` is `.None`). Tracked
-as the next blocker — expected-type propagation into CTFE'd function-body match
-arms. NOTE: `./tests` SIGSEGVs on `tests/circular_deps/` (a pre-existing preload
-limitation, unrelated to this fix).
+**Next html.yo blocker (separate):** html.yo now progresses past the enum-variant
+error and hits `Error: Cannot unify incompatible types: "usize" and "unit"`
+(synthetic location — somewhere in the CTFE'd `_alloc_with_capacity` body, which
+performs `malloc`, pointer writes, a `while` loop, and `Self(...)` construction).
+This is the next gap in fully CTFE-evaluating a runtime-returning method body
+during a module-level `:=`. NOTE: `./tests` and `./yo-self` SIGSEGV on
+`tests/circular_deps/` style preload limitations (pre-existing, unrelated).
 
 ---
 
