@@ -43,7 +43,7 @@ The annotated `(_m : M(String)) = …` adds a compatibility/synthesize step. Wit
 `Option(ArrayList(u8))` instantiations. Those **nested generic instantiations are
 unstamped / not identity-matched** (empty/ mismatched `constructor_func_id`), so
 `same_constructor` is false and the synthesizer **recurses into their field
-type lists** — which are misaligned/мис-substituted enough that an `i32` field
+type lists** — which are misaligned/mis-substituted enough that an `i32` field
 meets a `usize` field → "Cannot unify i32 and usize". (`i32`/`usize` are
 unrelated to `String`/`M` — pure machinery artifact of field-recursion on
 non-identity-matched nested instantiations.) The `:=`-infer form "passes" only
@@ -55,8 +55,8 @@ because it binds `_m : <whatever .new()/.make() yields>` with no compat check
 The fix is per-instantiation **type identity** for nested generic
 instantiations so synthesize matches them by constructor and never recurses into
 their fields. Prior attempts that stamped nested/inline-built structs
-**re-SIGBUS'd recursive generics** (imm_vec/imm_threading) because the
-id-cycle-guard needs _stable_ ids — which requires routing the inline/nested
+**re-SIGBUS'd recursive generics** (imm*vec/imm_threading) because the
+id-cycle-guard needs \_stable* ids — which requires routing the inline/nested
 construction path through the memoized `evaluate_comptime_fn_call` (stable id +
 stamp), not ad-hoc stamping. That routing was itself blocked because the
 annotation/inline callee resolves to a Func whose return is a _specialized
