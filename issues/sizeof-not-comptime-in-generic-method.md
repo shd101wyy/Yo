@@ -211,6 +211,37 @@ runtimeArgExprsInOrder, … }` — `helper.ts:~1860`), rather than just a bare
 regression-free (matches TS on `./tests`, `./std`, and the over-CTFE family).
 The diverse 15-file set is the validation target.
 
+### CORRECTION (the `expr.$` hypothesis was WRONG — it all reduces to the knot)
+
+Inspecting the 15 regressed-test errors directly (via the un-reverted fix
+binary): they are dominated by **`comptime_expect_error` tests** failing with
+"Expected compile error, but the expression was evaluated successfully"
+(`ref_*`, `slice_flowability`, `safe_code_structural_gates`, `thread_safety`,
+`extern_unsafe_wrap`, `negative_impl`, `algebraic_effects`) plus a few comptime
+type-app failures (`higher_kinded_types`). So the body-skip did NOT drop
+metadata — it **suppressed legitimate errors**. In yo-self, `check` does not
+separately type-check `fn` bodies, so those expected errors surface **during the
+call-time body evaluation**; skipping it removes yo-self's only error-surfacing
+path for the body.
+
+Crucially, the over-CTFE errors are **type-check errors, not execution errors**:
+`Cannot unify "i32" and "usize"` (String.from) / `usize`/`unit` (HashMap.new)
+come from `synthesize_types` while _type-checking_ the body, so they fire
+whether or not `is_executing` is set — only outright skipping the body avoids
+them, which is what suppresses the expected errors. And that `i32`/`usize` is
+the SAME `struct_yo_id_2052` finding: type-checking `String.from`'s body builds
+`String`'s representation and recurses into its **unstamped nested
+`Option(ArrayList(u8))`** instantiation (see
+`phase3-nested-generic-instantiation-identity.md`).
+
+**Conclusion: `String.from`, `HashMap.new`, and the ~170 Phase-3 files all
+reduce to the one nested-generic-instantiation identity knot.** The
+"don't execute runtime bodies" / `expr.$` detour does NOT bypass it — it only
+hides the symptom while suppressing real errors (net −15 on `./tests`). The
+genuine faithful fix is per-instantiation type identity for nested
+instantiations (the knot), NOT the body-execution change. Abandon the
+body-skip approach.
+
 ## Validation
 
 - The `HashMap(String, String).new()` repro must pass under `yo-self-bin check`.
