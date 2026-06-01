@@ -117,6 +117,28 @@ of a generic instantiation whose field is RC — `auto_derive_traits_for_struct_
 have that RC path use the concrete instantiation (not re-evaluate with abstract
 params). The `i32`-OK / `String`-FAIL split (value vs RC) is the discriminator.
 
+## FURTHER REFINEMENT — the discriminator is `String`'s specific shape
+
+Disambiguating "reference-semantics" vs "has-impls" vs "newtype" (all by exit
+code, field `g : K`, no impl on Outer):
+
+| `K` =                                                       | Result   |
+| ----------------------------------------------------------- | -------- |
+| `i32` (primitive)                                           | OK       |
+| user `struct(n : i32)` (value)                              | OK       |
+| user `object(n : i32)` (reference-semantics, no impls)      | OK       |
+| user value-struct WITH an impl                              | OK       |
+| user `newtype(v : i32)` (no impl)                           | OK       |
+| `String` (`newtype(_bytes : Option(ArrayList(u8)))` + impl) | **FAIL** |
+
+So none of {reference-semantics, has-impls, newtype} ALONE triggers it — only
+`String`'s full shape does: a **newtype wrapping an RC-containing field
+(`Option(ArrayList(u8))`) that also has an impl**. The next trace should
+reproduce that exact shape (a user newtype wrapping `Option(ArrayList(u8))` with
+an impl) and find which analysis (RC-function attachment / acyclic / drop, which
+recurse through the newtype's RC content) re-instantiates the enclosing generic
+constructor with the type-param bound to `UnknownVal`.
+
 ## Validation
 
 - The repro above must pass under `yo-self-bin check`.
