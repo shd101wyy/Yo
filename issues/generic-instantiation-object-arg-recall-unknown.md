@@ -2,6 +2,60 @@
 
 ## Status
 
+**RESOLVED — this was a PHANTOM (trace session 5).** The "2-line repro" below
+was an **invalid reproducer**: the scratch file never did
+`open(import("std/string"))`, so the identifier `String` was simply **not bound
+in scope**. yo-self's identifier evaluator has a _soft fallback_ (returns
+`UnknownVal` of `t_unit()` instead of throwing "Variable not found", see
+`yo-self/evaluator/exprs/identifer_and_operator.yo` ~line 147), which **masked**
+the missing binding: `String` → `UnknownVal` → param `K` bound to a non-type →
+the struct field `g : K` then failed with "Expected type for element, got K".
+
+`i32` "worked" only because `i32` is a **builtin keyword** resolved on the
+fast-path _without_ env lookup (`identifer_and_operator.yo` ~line 71), so it
+never hit the not-found fallback. That is the entire `i32`-OK / `String`-FAIL
+split that misled five trace sessions and ~21 builds. There was **never** a
+"second constructor call" — the lingering single-global breadcrumb created that
+illusion; trace session 5's _sequential_ prints (read in program order, not
+last-value) showed exactly ONE `S` call, failing inside its single body eval.
+
+**Verified with proper imports:**
+
+```rust
+open(import("std/string"));
+S :: (fn(comptime(K) : Type) -> comptime(Type))(struct(g : K));
+T :: S(String);                              // PASS (exit 0)
+```
+
+```rust
+open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
+T :: HashMap(String, String);                // PASS (exit 0)
+```
+
+So `HashMap(String,String)` **instantiates fine** under `yo-self-bin check`.
+The `type_arguments` / self-dispatch work (`issues/self-dispatch-loses-type-args.md`)
+stands on its own; it was never the cause of this symptom.
+
+**The real `std/encoding/html.yo` blocker is now a DIFFERENT error:**
+`Expected compile-time value for "bucket_size"` — `bucket_size :: sizeof(Bucket(K, V))`
+in `std/collections/hash_map.yo:59` evaluates to a _runtime_ value instead of a
+comptime one. Tracked separately in `issues/sizeof-not-comptime-in-generic-method.md`.
+
+**Lesson / latent footgun:** the not-found soft fallback in the identifier
+evaluator silently degrades a missing binding into `UnknownVal`. TS throws
+"Variable not found" here. The fallback exists to tolerate prelude operator-trait
+names (`==`, …) during preload, but it also swallows genuine scope errors and
+turns them into baffling far-downstream type failures. Consider narrowing it to
+only the operator-name cases (or logging) so future missing-binding bugs surface
+at the source.
+
+---
+
+_Original (pre-resolution) investigation notes preserved below for the record._
+
+## (HISTORICAL) Status
+
 Open — **root cause precisely localized** to a 4-line repro. This is the
 `std/encoding/html.yo` blocker (`HashMap(String,String)`), the head of the
 generic-method-resolution cascade. The earlier `type_arguments` /
