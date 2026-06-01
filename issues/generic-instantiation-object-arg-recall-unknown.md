@@ -188,6 +188,36 @@ helpers `type_implements_send`/`type_implements_acyclic` invoked on the `String`
 field) to catch the re-entry, and determine what about `String`'s specific
 prelude TypeVal (vs an identical-structure local newtype) drives it.
 
+## TRACE SESSION 3 (broad breadcrumb) — re-call is in the struct-build region
+
+Added a breadcrumb global (`dbg_set_crumb`/`dbg_get_crumb` in value.yo) set at
+the entry of many suspects (struct.yo `evaluate_struct_type`, field.yo
+`evaluate_type_field`, helper.yo `try_to_call_function_with_arguments` /
+`create_specialized_function_inline`, plus the earlier RC / generic-impl ones),
+printed at the `K=Unknown` `S` call. Results on `S :: …(struct(g : K)); T :: S(String)`:
+
+- crumb = **`field`** → then refined to **`field_te:*(T)`** (the breadcrumb was
+  set right before evaluating a field's type expr, and the active expr at that
+  point was a `*(T)` raw-pointer type with an **abstract** `T` — i.e. a generic
+  body being evaluated with `T` unbound, as in ArrayList's internal buffer
+  field, reached via String → `Option(ArrayList(u8))`).
+- After adding a reset (`dbg_set_crumb("field_after_te")` right after the
+  te-eval), the `K=Unknown` call showed crumb = **`field_after_te`** — i.e. the
+  re-call is **after** the field's type-expr eval, in the struct-finalization
+  region (and the global crumb lingers there).
+
+**Conclusion of session 3:** the spurious `S(K=Unknown)` re-call lives in the
+**struct-build → field-eval → finalization** region (NOT RC-derive, NOT
+generic-impl matching, NOT CTFE), and is reached while resolving the
+representation of a `String`-typed field (which transitively involves a generic
+body with an abstract pointer `*(T)`). **A single "last setter" breadcrumb is
+too coarse to pin the exact caller** — it lingers across struct finalization.
+The next trace needs a **push/pop call-stack breadcrumb** (a `String` stack
+pushed on entry / popped on exit of each candidate, printed at the `K=Unknown`
+call) to capture the actual call chain, OR direct instrumentation of
+`evaluate_struct_type`'s post-field steps + whatever resolves a newtype field's
+representation.
+
 ## Validation
 
 - The repro above must pass under `yo-self-bin check`.
