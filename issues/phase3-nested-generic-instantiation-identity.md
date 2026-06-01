@@ -63,6 +63,42 @@ annotation/inline callee resolves to a Func whose return is a _specialized
 struct_ (neither bare `Type` nor comptime-only), so no predicate classifies it
 as a type-constructor return to trigger memoization.
 
+## Precise pin (2026-06-01, instrumented synthesize_types on the minimal repro)
+
+Logging every external `synthesize_types` call + the tag-mismatch throw on the
+`M(String).make(...)` repro shows the failing sequence ends:
+
+```
+… ~25× "<struct:struct_yo_id_XXXX> VS <struct:struct_yo_id_2052>"  (impl-pattern trial matches, caught)
+DBG SYN-CALL comptime_string VS comptime_string   (ok)
+DBG SYN-CALL i32 VS i32                            (ok)
+DBG SYN-CALL i32 VS usize                          (FATAL)
+```
+
+- `struct_yo_id_2052` is an **early-built (low-id, prelude-era) unstamped**
+  nested instantiation from `String`'s representation (`Option(ArrayList(u8))`).
+  Its low id confirms it was constructed before the type-constructor funcs
+  existed, via a path that **bypasses the comptime-fn memoization** — so it has
+  an empty `constructor_func_id` and never identity-matches.
+- The `i32 VS usize` is a **direct top-level synth** (not struct-field
+  recursion) — `i32`/`usize` ARE genuinely incompatible, so the bug is upstream:
+  two structs that should be the same generic instantiation (matched by
+  constructor) are instead **structurally compared with misaligned field lists**,
+  so field-k `i32` meets field-k `usize`. Making them constructor-match (stamp /
+  memoize) removes the spurious recursion.
+- `M(i32)` works because `i32`'s representation has no such early-built nested
+  instantiation; only `String`'s `Option(ArrayList(u8))` triggers it.
+
+**The two conflicting requirements (why all ~8 attempts failed):** (1) the
+early/prelude-built nested instantiation must get a **stable per-instantiation
+id** (memoized, like `evaluate_comptime_fn_call`'s cache) so it identity-matches
+the use-site instantiation; AND (2) stamping fresh-id nested structs re-breaks
+the synthesize **recursive-type cycle-guard** (it keys on stable ids), causing
+SIGBUS on recursive generics (`imm_vec`/`imm_threading`). A fix must satisfy
+BOTH — e.g. route the prelude/inline nested-instantiation construction through
+the memoized path so ids are stable AND the cycle-guard still terminates. This
+needs a genuine design, not another stamp/guard tweak.
+
 ## Recommended approach for the next focused effort
 
 1. Work against the **minimal `M(String).make()` repro above**, not HashMap —
