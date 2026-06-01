@@ -1,0 +1,90 @@
+# Instantiating a generic with an impl + object-type arg re-calls the constructor with an `Unknown` arg → nested-generic field fails
+
+## Status
+
+Open — **root cause precisely localized** to a 4-line repro. This is the
+`std/encoding/html.yo` blocker (`HashMap(String,String)`), the head of the
+generic-method-resolution cascade. The earlier `type_arguments` /
+`self-dispatch` work (`issues/self-dispatch-loses-type-args.md`) was a related
+but distinct layer; THIS is why `HashMap(String,String)` fails to even
+instantiate as a type.
+
+## Minimal reproducer (no std internals — just `String`)
+
+```rust
+pragma(Pragma.AllowUnsafe);
+Inner :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(struct(x : A, y : B));
+Outer :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(object(f : ?*(Inner(K, V))));
+impl(forall(K : Type, V : Type), Outer(K, V), make : (fn() -> usize)(usize(0)));
+T :: Outer(String, String);
+export(T);
+```
+
+`yo-self-bin check` → `Error: (1) Expected type for element, got A`
+(`Inner`'s `x : A` field, with `A` = `Unknown`). TS `yo-cli check` → OK.
+
+## Bisection (each row flips ONE thing; FAIL/OK by **exit code**)
+
+| Variant                                      | Result   |
+| -------------------------------------------- | -------- |
+| `Outer(i32, i32)` (primitive args)           | **OK**   |
+| `Outer(String, i32)` / `Outer(i32, String)`  | **OK**   |
+| `Outer(String, String)`, **no impl block**   | **OK**   |
+| `Outer(String, String)`, **with impl block** | **FAIL** |
+
+So the trigger is the conjunction of THREE things:
+
+1. The outer generic has a **field referencing a nested generic** (`f : ?*(Inner(K,V))`).
+2. There is an **impl block** for the outer generic.
+3. It is instantiated with an **object / reference-semantics type** argument
+   (`String`). Primitive args (`i32`) never trigger it.
+
+The method body is irrelevant (an empty `usize(0)` body still fails) — only the
+impl's _presence_ matters. `where`-clauses are NOT required.
+
+## Root cause (instrumented)
+
+Instrumenting the param-binding loop (`function.yo`) + the field-throw
+(`field.yo`) shows: there is a **second `Outer(String, …)` call** whose argument
+expression `String` evaluates to **`UnknownVal`** (not the `String` type):
+
+```
+FNDBG K=Unknown: callee=Outer arg0=String body=object(f : ?*(Inner(K, V)))
+FLDDBG field-throw: label=x te=A
+```
+
+So `Outer`'s param `K` binds to `Unknown`; its body `object(f : ?*(Inner(K,V)))`
+then evaluates `Inner(Unknown, …)`, whose `x : A` field can't resolve `A` → the
+error. The phase flags on that call are all off
+(`ctfe_analysis=N validating_def=N force_ct=N`), so it is a **normal** eval, not
+CTFE-capability analysis.
+
+The _first_ `Outer(String,String)` call (the user's `T :: …`) evaluates `String`
+→ a proper `TypeVal` and takes the memoized comptime-fn path (works). The
+**second** call — triggered only when an impl is present AND the arg is an
+object type — re-invokes `Outer` with an arg that resolves to `UnknownVal`.
+
+## Where to look next (the fix)
+
+Find what re-invokes the type constructor during instantiation of an
+**object-type** generic that has an impl. Leading candidates:
+
+- The **impl/type-trait-method attachment** path: when `Outer(String,String)` is
+  instantiated and an impl `impl(forall(K,V), Outer(K,V), …)` exists, the
+  evaluator may re-instantiate the receiver to attach/match methods, passing
+  reconstructed args that resolve to `Unknown`.
+- The **RC/drop analysis** for reference-semantics types
+  (`auto_derive_traits_for_struct_type` / `type_contains_rc_type`): only object
+  args make `Inner(String,String)` contain an RC type, which could trigger a
+  re-walk/re-instantiation of the field with abstract `K`.
+
+The fix is to ensure that re-invocation passes the concrete type arguments (or
+does not re-evaluate the field types with `Unknown`-valued params). The
+`i32`-works / `String`-fails split is the key discriminator to follow.
+
+## Validation
+
+- The repro above must pass under `yo-self-bin check`.
+- `T :: HashMap(String, String)` (importing std) must pass.
+- `std/encoding/html.yo` must move past `hash_map.yo:59`.
+- `check ./std` per-file: only html.yo may change; regressors green.
