@@ -199,3 +199,55 @@ helper is a correct faithful port; recover it from this commit's history or
 re-port from `types/utils.ts:708` when the prerequisite (resolved-at-definition
 types) is met. **Prerequisite ordering confirmed: knot → definition-time body
 eval → flowability/contracts.**
+
+## ★★ ROOT CAUSE CORRECTED (2026): NOT nested-generic identity — it is comptime-arg parameter binding
+
+A fresh, instrumented investigation (eprintln tracing every `synthesize_types`
+call + the caller of the fatal pair + property-access receiver types) **disproves
+the "nested-generic-instantiation identity / struct_2052" theory above.** The
+fatal `synthesize_types(i32, usize)` is a TOP-LEVEL call (its `checked` trail has
+1 pair — itself), NOT struct-field recursion. Tracing its caller and source:
+
+- It comes from `helper.yo:509` (`check_if_function_parameter_matches_argument`),
+  per-parameter, synthesizing `slen == usize(0)` at **`std/string/string.yo:53`**
+  inside `String.from`.
+- `String.from(slice : str)` body does `slen := slice.len()`. When CTFE-evaluating
+  `String.from("hi")`, the argument `"hi"` is `comptime_string`. The FuncVal call
+  path **`function.yo:1207`** binds the parameter `slice` with the **raw argument
+  type** (`comptime_string`) instead of the **declared parameter type** (`str`),
+  skipping the comptime→runtime conversion that `helper.ts:504-568` performs.
+- So inside the body `slice` is `comptime_string`-typed → `slice.len()` dispatches
+  to `comptime_string.len()` (`prelude.yo:1026`, returns `comptime(comptime_int)`
+  → lowered to `i32`) instead of `str.len()` (`prelude.yo:~5572`, returns `usize`).
+  Then `slen(i32) == usize(0)` → the spurious `Cannot unify "i32" and "usize"`.
+
+**This is the "two FuncVal call paths" gap (memory `yo-self-default-args-side-table`):
+`function.yo`'s inline FuncVal binding never applies the comptime-arg→runtime-type
+conversion that `helper.yo` does.** Confirmed by patching `function.yo:1207` to
+bind the converted/declared `str` type: the `i32/usize` error **disappears**
+(`slice.len()` then dispatches on `str` → `usize`). The minimal repro
+`_s := String.from("hi")` reproduces it with no generics/HashMap at all — the M /
+HashMap framing was incidental.
+
+### Why a complete fix needs one more piece (the remaining layer)
+
+After binding `slice` as `str`, the comptime_string VALUE is still carried (TS
+keeps it under `forceCompileTimeBindings`), so `str.len()` / `str.ptr()` read a
+non-str value → `usize`/`unit` mismatch and `Cannot create a pointer to a value`.
+The faithful resolutions, in order of preference:
+
+1. **Coerce the comptime_string VALUE to a `str` value** at the binding (TS keeps
+   a _usable_ value under forceCTB). yo-self has no comptime_string→str value
+   coercion yet — it must be added.
+2. OR carry the **parameter `isCompileTimeOnly` flag** into the FuncVal call path
+   (a func-id side-table, like default args — `Func` can't hold it) so the
+   binding can faithfully mirror `helper.ts:504-512`: convert type + drop the
+   comptime value ONLY for runtime params, keeping it for comptime params. A
+   blanket drop regresses pointer creation (`&(comptime_param)` → prelude
+   `Cannot create a pointer to a value`), and a too-broad type conversion mangles
+   type-parameter args (`(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`).
+
+**Both fixes belong in `function.yo`'s FuncVal binding (≈ line 1207) AND
+`helper.yo`'s `check_if_function_parameter_matches_argument`.** The "nested
+generic instantiation identity / struct_2052 memoization" work in the sections
+above is a DEAD END for this bug — do not pursue it.
