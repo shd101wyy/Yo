@@ -168,7 +168,51 @@ through method registration (`get_type_trait_methods_by_name_from_env` /
 the trait-method registry) so the dispatcher can `add_variable_to_env(fresh_env,
 implForallName[i], TypeVal(recv_type_args[i]))` before evaluating the body.
 
+## Over-CTFE root + the faithful TS fix (attempted, reverted — has a prerequisite)
+
+The deeper cause of the `String.from`/`HashMap.new`/`x::add` family is
+**over-eager CTFE**: yo-self's `function.yo` FN-REG-BODY _executes_ a called
+function's body at check time. TS does **not** — `helper.ts:1729-1801` only
+executes a body when `functionType.return.isCompileTimeOnly` (routed through
+`evaluateComptimeFunctionCall`); for a **runtime-return** call, `returnValue`
+stays `undefined` → the call yields an `UnknownValue(returnType)`, body never
+run. (Confirmed by `helper.ts` read + behaviour: TS `_s := String.from("hi")`
+→ OK; TS `x :: add(1,2)` → "Expected compile-time value for x".)
+
+**Attempted fix (reverted):** make FN-REG-BODY's runtime fall-through return
+`UnknownVal(ret_type)` without executing the body. Results:
+
+- ✅ `String.from("hi")` (was `i32`/`usize`), `HashMap(String,String).new()`
+  (was `usize`/`unit`), and **`check ./std` 150 → 151** (html.yo's
+  `_entity_map := HashMap(String,String).new()` now type-checks). Phase 3
+  `check ./yo-self` 53 → 57.
+- ❌ **`check ./tests` regressed 169 → 154** — 15 files
+  (`ref_return`, `ref_flowability`, `ref_closure_capture`, `ref_return_labeled`,
+  `ref_local_binding`, `slice_flowability`, `safe_code_structural_gates`,
+  `comptime_ref`, `higher_kinded_types`, `gadts`, `algebraic_effects`,
+  `thread_safety`, `negative_impl`, `extern_unsafe_wrap`, `circular_import`).
+  **TS PASSES all of these** (sampled `ref_return`/`comptime_ref`/
+  `higher_kinded_types` → TS exit 0). Gating the skip on
+  `!force_compile_time_bindings` did NOT recover them (same 15).
+
+**So the fix is correct-in-concept but blocked by a prerequisite.** Since TS
+passes those 15 _without_ executing the body either, the regression is NOT
+"these need execution" — it's that yo-self's `UnknownVal`-return path drops
+metadata the downstream analyses read. The 15 cluster on **ref/flow analysis**
+(`is_flowable_expr`) and a few comptime/HKT paths: executing the body currently
+populates the body's `ExprInfo`/path-collection/`control_flow`, which the
+ref-flow soundness check and others consume; skipping it leaves those empty.
+
+**Next (the faithful path):** make the runtime fall-through yield
+`UnknownVal(ret_type)` **with** the ExprInfo metadata TS attaches for a runtime
+call (TS sets `expr.$ = { type: returnType, value: UnknownValue, pathCollection,
+runtimeArgExprsInOrder, … }` — `helper.ts:~1860`), rather than just a bare
+`UnknownVal`. Port that `expr.$` shape faithfully; then the body-skip should be
+regression-free (matches TS on `./tests`, `./std`, and the over-CTFE family).
+The diverse 15-file set is the validation target.
+
 ## Validation
 
 - The `HashMap(String, String).new()` repro must pass under `yo-self-bin check`.
 - `yo-self-bin check std/encoding/html.yo` must pass.
+- `check ./tests` must stay 169/170 and `check ./std` 151/151 (per-file diff).
