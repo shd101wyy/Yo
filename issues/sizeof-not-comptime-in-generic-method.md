@@ -113,7 +113,5 @@ implForallName[i], TypeVal(recv_type_args[i]))` before evaluating the body.
 
 ## Validation
 
-## Validation
-
 - The `HashMap(String, String).new()` repro must pass under `yo-self-bin check`.
 - `yo-self-bin check std/encoding/html.yo` must pass.
