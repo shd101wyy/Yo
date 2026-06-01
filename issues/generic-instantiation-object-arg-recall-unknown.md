@@ -218,6 +218,43 @@ call) to capture the actual call chain, OR direct instrumentation of
 `evaluate_struct_type`'s post-field steps + whatever resolves a newtype field's
 representation.
 
+## TRACE SESSION 4 (call-stack crumb) — re-call is in the `::`/`:=` binding's downstream
+
+Walked a single-global breadcrumb (`dbg_set_crumb`/`dbg_get_crumb`) downstream
+through the pipeline, set at fine points and printed at the `K=Unknown` `S`
+call. The crumb advanced, in order:
+
+`field` → `field_te:*(T)` → `field_after_te` → `sf_typeoftype` → `sf_done`
+(end of `evaluate_struct_type`) → `cf_return` (end of the first `S`'s
+`evaluate_comptime_fn_call`) → `ia_postrhs` → `ia_after_dup` →
+`ia_check_predef` (all inside `evaluate_initialization_assignment`, the
+`::`/`:=` binding handler).
+
+So the spurious **second `S(String→Unknown)` call happens during the
+`T :: S(String)` binding's DOWNSTREAM processing** — after the RHS eval (line 209) and the dup step, in the type-inference / comptime-modifier-check region
+(`initialization_assignment.yo`, after `set_expr_as_needs_to_call_dup`, around
+the `has_predefined_type` check). It is NOT the binding's own RHS eval (that's
+call #1, `K=String`), NOT `export` (fails without it), NOT the annotated
+`synthesize_expr_and_type` branch (`ia_synth_branch` never fired), NOT
+`convert_comptime_type_to_runtime_type` (`ia_before_convert` never fired).
+
+**Limitation:** a single "last-setter" global breadcrumb **cannot pin the exact
+line** — it lingers across the binding's tail/return, so each added crumb just
+moves the apparent location one region downstream. Pinning the exact re-eval
+needs a **push/pop call-STACK** (push on entry / pop on every return of each
+candidate — non-trivial because of Yo's early-`return`s), or instrumenting the
+specific binding-tail helpers (`require_expr_not_consumed`,
+`set_expr_as_needs_to_call_dup`, the comptime-modifier checks
+`type_requires_comptime_modifier`/`type_prohibits_comptime_modifier`, and the
+final `add_variable_to_env`) to find which one re-evaluates the RHS expr
+`S(String)` in an env where `String` resolves to `UnknownVal`.
+
+**Net (5 trace sessions, ~21 builds):** the years-old html.yo knot is reduced
+to a 2-line repro and localized to _the binding handler re-evaluating the RHS a
+second time, in its post-RHS/post-dup tail, with `String` resolving to Unknown_.
+RC, generic-impl matching, CTFE, `type_of_type`, struct-build, comptime_fn, and
+`export` are all ruled out.
+
 ## Validation
 
 - The repro above must pass under `yo-self-bin check`.
