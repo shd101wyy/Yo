@@ -214,20 +214,54 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
 // - No struct env fallback for erasure (simpler struct lookup).
 // - Where-clause constraints skipped (no `g_type_implements_trait_fn` check
 //   yet beyond returning true if function pointer is set).
-/// True if `entry` matches `concrete_type` in `env`.
+/// Resolve the concrete type bound to one `forall` param after a successful
+/// `synthesize_types`. Returns `.None` if the param stayed abstract (`SomeT`).
+/// Used by `try_match_generic_impl` to surface the unification result so the
+/// dispatcher can bind the impl's type params in the method body.
+_resolve_one_forall_binding :: (
+  fn(expected_env : Environment, fa_some : TypeValue, fa_name : String) -> Option(TypeValue)
+)({
+  bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
+  if(!(is_some_type(bound_type)), {
+    return(Option(TypeValue).Some(bound_type));
+  });
+  // Name-based fallback: look up `fa_name` directly in `expected_env`.
+  name_vars := get_variables_from_env(expected_env, fa_name);
+  n_nvars := name_vars.len();
+  if(n_nvars == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  last_nvar := match(name_vars.get(n_nvars - usize(1)),.Some(v) => v,.None => return(Option(TypeValue).None));
+  match(
+    last_nvar.value,
+    .Some(ev) => match(
+      ev,
+      .TypeVal(b) => cond(
+        !(is_some_type(b.*)) => Option(TypeValue).Some(b.*),
+        true => Option(TypeValue).None
+      ),
+      _ => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+});
+/// Match `entry` against `concrete_type` in `env`. Returns `.Some(bindings)`
+/// where `bindings[i]` is the concrete type bound to `entry.forall_names[i]`
+/// (in declaration order) when the impl matches and every forall param
+/// resolved to a concrete type; `.None` when there is no match.
 try_match_generic_impl :: (
   fn(
     concrete_type : TypeValue,
     entry : GenericImplEntry,
     env : Environment
-  ) -> bool
+  ) -> Option(ArrayList(TypeValue))
 )({
   // 1. Resolve SomeT — if still unresolved, cannot match.
   (resolved_concrete : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
     resolved := get_value_of_some_type_from_env(env, concrete_type);
     if(is_some_type(resolved), {
-      return(false); // Unresolved type param — cannot match.
+      return(Option(ArrayList(TypeValue)).None); // Unresolved type param — cannot match.
     });
     resolved_concrete = resolved;
   });
@@ -268,14 +302,13 @@ try_match_generic_impl :: (
     ui = (ui + usize(1));
   });
   // 3. Try synthesize_types(receiver_pattern, unify_env, concrete_type, env).
-  //    If it throws, return false (no match).
-  (matched : bool) = false;
+  //    If it throws, there is no match.
   exn_match := Exception(
     throw : (
       (err) -> {
         // Synthesis failed → no match.
         _ := err;
-        unwind(false);
+        unwind(Option(ArrayList(TypeValue)).None);
       }
     )
   );
@@ -290,65 +323,29 @@ try_match_generic_impl :: (
     opts,
     exn_match
   );
-  // Synthesis succeeded — all forall params should now be bound in expected_env.
-  // Verify each forall param was actually bound to a concrete type.
+  // Synthesis succeeded — collect the concrete binding for each forall param
+  // (in declaration order). If any param stayed abstract, there is no match.
+  bindings := ArrayList(TypeValue).new();
   (all_bound : bool) = true;
   (vi : usize) = usize(0);
   while((vi < n_forall) && all_bound, {
-    fa_name2 := match(
-      entry.forall_names.get(vi),
-      .Some(n) => n,
+    fa_name2 := match(entry.forall_names.get(vi),.Some(n) => n,.None => String.from(""));
+    fa_some2 := match(entry.forall_some_types.get(vi),.Some(s) => s,.None => t_unit());
+    match(
+      _resolve_one_forall_binding(synth_result.expected_env, fa_some2, fa_name2),
+      .Some(t) => {
+        _b := bindings.push(t);
+      },
       .None => {
-        vi = (vi + usize(1));
-        continue;
-      }
-    );
-    fa_some2 := match(
-      entry.forall_some_types.get(vi),
-      .Some(s) => s,
-      .None => {
-        vi = (vi + usize(1));
-        continue;
-      }
-    );
-    // Look up the binding: the SomeT should have been replaced in unify_env.
-    bound_type := get_value_of_some_type_from_env(synth_result.expected_env, fa_some2);
-    if(is_some_type(bound_type), {
-      // Try name-based fallback: look up fa_name2 directly in expected_env.
-      name_vars := get_variables_from_env(synth_result.expected_env, fa_name2);
-      (n_nvars : usize) = name_vars.len();
-      if(n_nvars > usize(0), {
-        last_nvar := match(name_vars.get(n_nvars - usize(1)),.Some(v) => v,.None => return(true));
-        match(
-          last_nvar.value,
-          .Some(ev) => {
-            match(
-              ev,
-              .TypeVal(b) => {
-                if(!(is_some_type(b.*)), (), // Found a concrete binding via name — still count as bound.
-                {
-                  all_bound = false;
-                });
-              },
-              _ => {
-                all_bound = false;
-              }
-            );
-          },
-          .None => {
-            all_bound = false;
-          }
-        );
-      }, {
         all_bound = false;
-      });
-    });
+      }
+    );
     vi = (vi + usize(1));
   });
-  if(all_bound, {
-    matched = true;
-  });
-  matched
+  cond(
+    all_bound => Option(ArrayList(TypeValue)).Some(bindings),
+    true => Option(ArrayList(TypeValue)).None
+  )
 });
 /// Check if any registered generic impl matches (concrete_type, trait_type, env).
 /// Returns true if a match is found.
@@ -396,7 +393,7 @@ find_matching_generic_impl :: (
         continue;
       }
     );
-    if(try_match_generic_impl(concrete_type, entry, env), {
+    if(try_match_generic_impl(concrete_type, entry, env).is_some(), {
       return(true);
     });
     ei = (ei + usize(1));
@@ -417,11 +414,63 @@ MethodCandidate :: struct(
   method_value : Option(EvalValue),
   source_trait_id : String
 );
-/// Search ALL registered generic impls for matching entries that have a field
-/// with `method_name`. Returns candidates (unspecialized).
+/// Inject the impl's `forall` type-param bindings into a matched method's
+/// closure captures, so the method body resolves `K`, `V`, … to the
+/// receiver's concrete type arguments. Mirrors TS restoring the impl's
+/// instantiation env (`func.$.env`) at dispatch: impl methods carry no
+/// `forall` of their own (the `forall(K, V)` lives on the impl block), so the
+/// regular call path — which only binds a method's *own* forall params — would
+/// otherwise leave `K`/`V` abstract and break e.g. `sizeof(Bucket(K, V))`.
 ///
-/// Simplified port of `findMethodsFromGenericImpls` — no specialization,
-/// just returns the original type/value for the field.
+/// Only `FuncVal` methods are affected; associated-type and other field shapes
+/// pass through unchanged. The existing capture arrays are COPIED (never
+/// mutated) so the registry entry stays reusable across instantiations.
+_inject_forall_captures :: (
+  fn(
+    method_val : Option(EvalValue),
+    forall_names : ArrayList(String),
+    bindings : ArrayList(TypeValue)
+  ) -> Option(EvalValue)
+)(
+  match(
+    method_val,
+    .None => method_val,
+    .Some(mv) => match(
+      mv,
+      .FuncVal(fns, ps, ptns, evs, body, cns, cts, cvs, fid) => {
+        new_cns := ArrayList(String).new();
+        new_cts := ArrayList(TypeValue).new();
+        new_cvs := ArrayList(EvalValue).new();
+        // Copy existing captures (do not mutate the registry's arrays).
+        (ci : usize) = usize(0);
+        while(ci < cns.len(), {
+          _a := new_cns.push(match(cns.get(ci),.Some(x) => x,.None => String.from("")));
+          _b := new_cts.push(match(cts.get(ci),.Some(x) => x,.None => t_unit()));
+          _c := new_cvs.push(match(cvs.get(ci),.Some(x) => x,.None => EvalValue.UnitVal));
+          ci = (ci + usize(1));
+        });
+        // Append one capture per impl forall param (bound to its concrete type).
+        n_fa := forall_names.len();
+        (fi2 : usize) = usize(0);
+        while(fi2 < n_fa, {
+          fa_n := match(forall_names.get(fi2),.Some(n) => n,.None => String.from(""));
+          fa_t := match(bindings.get(fi2),.Some(t) => t,.None => t_unit());
+          _a2 := new_cns.push(fa_n);
+          _b2 := new_cts.push(t_type());
+          _c2 := new_cvs.push(EvalValue.TypeVal(box(fa_t)));
+          fi2 = (fi2 + usize(1));
+        });
+        Option(EvalValue).Some(
+          EvalValue.FuncVal(fns, ps, ptns, evs, body, new_cns, new_cts, new_cvs, fid)
+        )
+      },
+      _ => method_val
+    )
+  )
+);
+/// Search ALL registered generic impls for matching entries that have a field
+/// with `method_name`. Returns candidates, with the impl's `forall` bindings
+/// injected into each `FuncVal` method's captures (see `_inject_forall_captures`).
 find_methods_from_generic_impls :: (
   fn(
     concrete_type : TypeValue,
@@ -461,10 +510,14 @@ find_methods_from_generic_impls :: (
           continue;
         }
       );
-      if(!(try_match_generic_impl(resolved, entry, env)), {
-        ei = (ei + usize(1));
-        continue;
-      });
+      match_bindings := match(
+        try_match_generic_impl(resolved, entry, env),
+        .Some(b) => b,
+        .None => {
+          ei = (ei + usize(1));
+          continue;
+        }
+      );
       // Found a matching impl — search for the method field.
       n_fields := entry.field_names.len();
       (fi : usize) = usize(0);
@@ -487,7 +540,7 @@ find_methods_from_generic_impls :: (
           results.push(
             MethodCandidate(
               method_type : ftype,
-              method_value : fvalue,
+              method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings),
               source_trait_id : entry.trait_key.clone()
             )
           );

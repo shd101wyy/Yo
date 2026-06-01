@@ -2,10 +2,39 @@
 
 ## Status
 
-Open — **this is the REAL `std/encoding/html.yo` blocker** (the previous
+**FIXED** — the impl-level `forall(K,V)` are now bound into the matched
+method's closure captures during generic-impl dispatch
+(`yo-self/evaluator/values/impl.yo`: `try_match_generic_impl` now returns the
+per-forall concrete bindings; `find_methods_from_generic_impls` injects them via
+`_inject_forall_captures`). `sizeof(Bucket(K,V))` inside
+`HashMap(String,String)._alloc_with_capacity` now resolves to a comptime value.
+Regression-neutral: `yo-self-bin check ./std` stays 150/151 (html.yo was already
+the lone failure), and the `bucket_size` error is gone.
+
+**Remaining html.yo blocker (separate bug):** with `K,V` now bound, html.yo
+progresses past `bucket_size` and hits a different gap at
+`std/collections/hash_map.yo:65`:
+
+```
+Error: Failed to infer enum variant type.
+      .None =>.Err(.AllocError(error :.OutOfMemory)),
+```
+
+The `.Err(...)` enum-variant shorthand needs `ctx.expected_type` set to the
+function's return enum (`Result(Self, HashMapError)`), but during CTFE of the
+method body (FN-REG-BODY path / module-level `_entity_map := HashMap(...).new()`)
+that expected type is not propagated into the `match` arms
+(`property_access.yo:317` throws when `ctx.expected_type` is `.None`). Tracked
+as the next blocker — expected-type propagation into CTFE'd function-body match
+arms. NOTE: `./tests` SIGSEGVs on `tests/circular_deps/` (a pre-existing preload
+limitation, unrelated to this fix).
+
+---
+
+_(historical) Open — **this is the REAL `std/encoding/html.yo` blocker** (the previous
 "generic-instantiation re-call" theory was a phantom; see
 `issues/generic-instantiation-object-arg-recall-unknown.md`). Minimal repro
-isolated; root cause narrowed but not yet pinned to a line.
+isolated; root cause narrowed but not yet pinned to a line._
 
 ## Symptom
 
