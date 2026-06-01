@@ -82,6 +82,41 @@ The fix is to ensure that re-invocation passes the concrete type arguments (or
 does not re-evaluate the field types with `Unknown`-valued params). The
 `i32`-works / `String`-fails split is the key discriminator to follow.
 
+## REFINEMENT (corrected, simpler) — it is an RC-field trigger, NOT impl
+
+The impl block and nested generic in the repro above are NOT required. The
+minimal trigger is much simpler:
+
+```rust
+Outer :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(struct(g : K));
+T :: Outer(String, i32);
+export(T);
+```
+
+→ `Error: (1) Expected type for element, got K`.
+
+Bisection (FAIL/OK by **exit code** — note: a `grep … | tail -1` harness is
+unreliable here because it matches the prelude's "evaluator OK" line):
+
+| Variant (field `g : K`, NO impl)                                 | Result   |
+| ---------------------------------------------------------------- | -------- |
+| `Outer(i32, i32)`                                                | OK       |
+| `Outer(MyVal, MyVal)`, `MyVal :: struct(n : i32)` (value struct) | OK       |
+| `Outer(String, i32)` — `String` in K (the field-used param)      | **FAIL** |
+| `Outer(i32, String)` — `String` in V (not used by the field)     | OK       |
+| field `g : V`, `Outer(i32, String)`                              | **FAIL** |
+| field `g : V`, `Outer(String, i32)`                              | OK       |
+
+**Precise trigger:** the type-param a field's type uses is bound to a
+**reference-semantics / RC type** (`String`). A value type (`i32`, a plain
+`struct`) in the same position never triggers it. So the second
+`Outer(<param>→Unknown)` constructor re-call is driven by **RC/drop analysis**
+of a generic instantiation whose field is RC — `auto_derive_traits_for_struct_type`
+/ `type_contains_rc_type` / RC-function attachment re-evaluates the constructor
+(or its field types) with the type-param bound to `UnknownVal`. The fix is to
+have that RC path use the concrete instantiation (not re-evaluate with abstract
+params). The `i32`-OK / `String`-FAIL split (value vs RC) is the discriminator.
+
 ## Validation
 
 - The repro above must pass under `yo-self-bin check`.
