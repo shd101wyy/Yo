@@ -139,6 +139,55 @@ an impl) and find which analysis (RC-function attachment / acyclic / drop, which
 recurse through the newtype's RC content) re-instantiates the enclosing generic
 constructor with the type-param bound to `UnknownVal`.
 
+## DEFINITIVE MINIMAL REPRO + hypothesis elimination (trace session 2)
+
+The smallest reproducer is just two lines:
+
+```rust
+S :: (fn(comptime(K) : Type) -> comptime(Type))(struct(g : K));
+T :: S(String);     // FAIL: "Expected type for element, got K"
+```
+
+Confirmed by **exit code** (write→check, no grep-tail pitfall):
+
+| `K` =                                                                                                                | Result   |
+| -------------------------------------------------------------------------------------------------------------------- | -------- |
+| `i32`, `bool`, user `struct`, user `object`, user `newtype`, `Option(i32)`, `ArrayList(u8)`, `Option(ArrayList(u8))` | **OK**   |
+| `String`                                                                                                             | **FAIL** |
+
+Also required: `K` must be **used in the struct body** (`struct(g : i32)` with K
+unused → OK), and the body must **build a struct** (`idt(String)` where the body
+just returns the param `X` → OK). So: _building `struct(g : K)` where `K` is
+bound to `String` re-invokes `S` with `K = Unknown`, and the re-called body's
+field `g : K` fails._
+
+**`String` is genuinely unique** — not its structure (a hand-written
+`newtype(Option(ArrayList(u8)))` + impl does NOT reproduce), not the types it
+wraps (`ArrayList(u8)` / `Option(ArrayList(u8))` as `K` are fine), not
+reference-semantics / has-impls / newtype individually. It is tied to `String`'s
+exact prelude definition (`std/string/string.yo`: a newtype with MANY impls —
+`Add`, `Eq`, `Ord`, `ToString`, an `Iterable`/iterator impl with `ref(self)`,
+etc.).
+
+**Hypotheses ELIMINATED by instrumentation** (breadcrumb global set at suspect
+entries, read at the field-throw):
+
+- **NOT RC/drop auto-derivation**: `rc_derive_active = N` at the throw (a depth
+  counter around `auto_derive_traits_for_struct_type`).
+- **NOT generic-impl matching / method resolution**: `crumb = none` at the
+  throw (breadcrumbs in `try_match_generic_impl`,
+  `find_methods_from_generic_impls`, `get_type_trait_methods_by_name_from_env`
+  never fired on the failing path).
+- **NOT CTFE-capability analysis / definition validation**: those ctx flags are
+  all off on the failing call.
+
+So the spurious second `S(String→Unknown)` call happens during **plain
+evaluation**, from a path none of the above covers. Next trace: a breadcrumb in
+**every** `evaluate_*` dispatch (or `evaluate_struct_type` + the trait-check
+helpers `type_implements_send`/`type_implements_acyclic` invoked on the `String`
+field) to catch the re-entry, and determine what about `String`'s specific
+prelude TypeVal (vs an identical-structure local newtype) drives it.
+
 ## Validation
 
 - The repro above must pass under `yo-self-bin check`.
