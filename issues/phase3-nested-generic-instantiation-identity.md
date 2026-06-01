@@ -157,3 +157,45 @@ evaluation (TS `function-type.ts`) — evaluate the body with `is_executing=fals
   staged effort with the per-file baseline-vs-fix diff harness. This is the single
   highest-leverage faithful divergence to close; flowability/contracts/knot are
   facets of it.
+
+## Experiment (2026): faithful definition-time body-eval port — measured 53→3, REVERTED
+
+Acting on the unifying root, I attempted the faithful 1-to-1 port of TS's
+definition-time body evaluation into
+`try_to_implement_function_by_function_type` (function_type.yo):
+
+- Ported `typeContainsSomeTypeForCodegenParam` (types/utils.ts) into
+  `trait_checking.yo` (not utils.yo — it needs `type_implements_fn/future`,
+  which live in trait_checking, and utils can't import trait_checking without a
+  cycle). Adapted for yo-self's model: SomeT has no `is_extern` /
+  `resolved_concrete_type` fields (resolution is via env), and struct fields
+  have no `is_effect_param` flag — those TS branches were omitted (documented).
+  Added a Struct/EnumT-id cycle guard (mirrors TS `checkedTypes`) to avoid
+  SIGBUS on recursive generics.
+- Wired `should_defer_body_evaluation` (forall>0 ‖ any param is codegen-param
+  some-type ‖ `ctx.self_type` contains some-type ‖ return type is codegen-param
+  some-type) + the body eval (mirroring `closure_type.yo`: push frame, bind
+  params, `create_function_body_evaluation_context`, `evaluate_begin_expression`).
+
+**Result (per-file diff vs HEAD baseline 53/227): 53 → 3.** 50 files regressed —
+uniformly, because the failure is in the PRELUDE: evaluating concrete-signature
+prelude bodies at definition throws on `rune.from_u32 : (fn(value : u32) ->
+Option(Self))`, then the `exn.throw` aborts prelude evaluation partway, cascading
+to later prelude defs (`Index` trait `-> *(Self.Output)`, `Range`
+`struct(start : T, end : T)`).
+
+**Why `should_defer` can't catch it:** at this pipeline point the return type
+`Option(Self)` carries `Self` as an **unresolved atom**, NOT a `SomeT` — it
+prints literally as `Self`. So neither `type_contains_some_type` nor the
+codegen-param scan detects it, and the body is evaluated with `Self` unbound.
+The types referenced by the body simply aren't resolved at definition time.
+
+**Conclusion:** this is the SAME wall as the over-CTFE experiment (std 151→71)
+and the knot. Definition-time body eval can't be ported incrementally — it
+requires yo-self's evaluation pipeline to resolve the generic/`Self` constructs
+that bodies reference (the same deep work the knot needs). Reverted both the
+wiring and the (now-consumer-less) helper to keep HEAD clean at 53/227. The
+helper is a correct faithful port; recover it from this commit's history or
+re-port from `types/utils.ts:708` when the prerequisite (resolved-at-definition
+types) is met. **Prerequisite ordering confirmed: knot → definition-time body
+eval → flowability/contracts.**
