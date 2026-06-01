@@ -28,6 +28,35 @@ This is the next gap in fully CTFE-evaluating a runtime-returning method body
 during a module-level `:=`. NOTE: `./tests` and `./yo-self` SIGSEGV on
 `tests/circular_deps/` style preload limitations (pre-existing, unrelated).
 
+### ATTEMPTED + REVERTED: `param_is_comptime` (the over-eager-CTFE root)
+
+Root cause of the cascade: yo-self's `Func` type dropped TS's per-parameter
+`FunctionParameter.isCompileTimeOnly`, so `function.yo` FN-REG-BODY binds a param
+compile-time-only via `is_ct := arg_info.value.is_some()` — i.e. ANY param whose
+argument carries a compile-time value becomes a comptime variable. So
+`_alloc_with_capacity(DEFAULT_CAPACITY)` binds the runtime param `capacity`
+comptime → the body is over-CTFE'd (comptime-unrolling the `while`, executing
+`malloc` at comptime, …).
+
+I implemented the faithful fix: added `param_is_comptime : ArrayList(bool)` to
+`Func` (populated from `FuncParam.is_compile_time_only`, threaded through
+`substitution.yo` + all constructions), made `::` set
+`force_compile_time_bindings` for its RHS, and changed FN-REG-BODY to bind a
+param comptime only when `param_declared_comptime || force_compile_time_bindings
+|| omitted`, dropping the comptime value (→ `UnknownVal`) otherwise.
+
+Result: html.yo advanced well past `usize`/`unit` (to "Cannot create a pointer
+to a value"), and `x :: add(1,2)` / the enum-variant repro still passed — BUT
+`check ./std` regressed **151→71**: 76 files failed with
+`Cannot create a pointer to a value. Use "&" ...`. **Binding runtime params to
+their comptime argument values is load-bearing FAR beyond `::`** — pointer
+creation/casts, type-level computation, and much of std's comptime machinery
+rely on it. The `::`-only force was nowhere near enough; replicating TS's full
+comptime-evaluation-CONTEXT propagation (every context that requires a
+comptime result, not just `::`) is a large, separate effort, not a localized
+fix. **Reverted in full** (back to the two good session fixes; `./std` 150/151).
+Re-attempting this needs a proper comptime-context model, not the `is_ct` tweak.
+
 ---
 
 _(historical) Open — **this is the REAL `std/encoding/html.yo` blocker** (the previous
