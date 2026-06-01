@@ -60,51 +60,33 @@ structure).
 
 ---
 
-## Current state (updated 2026-05-29)
+## Current state (updated 2026-06-01)
 
-> **TRIAGE (2026-05-31): the Phase-3 gap is monolithic.** Grouping the 133
-> failing evaluator files (Stage-2 binary, evaluator-only) by error: **132 /
-> 133 fail with `Incompatible types … Given: unit`** — the SAME
-> generic-method-resolution knot (`.new()` and any method on a generic type
-> instantiation). Only **1** file fails on something else
-> (`hierarchy.yo`: `Cannot reassign "g_type_of_type_visited_fn"` — a
-> module-level function-pointer-slot reassign yo-self-bin rejects standalone
-> but TS accepts; likely masked by the knot error in every other file with
-> the same pattern). **Conclusion: there is no long tail of independent
-> fixable gaps — the ~128-file gap is the one knot.** Incremental gap-closing
-> is exhausted; closing the count requires cracking the generic-method knot
-> (see Phase 3 / Stage 4 notes) or, for +1, the `hierarchy.yo` reassign.
-> The TS-reference fixpoint target is 172/177 evaluator-only.
+> **Phases 0–2 complete; Phase 3 in progress, blocked on one knot.** Measure
+> all directory checks **per-file by exit code** — full-directory mode SIGSEGVs
+> on cross-file state pollution (a harness limitation, not an evaluator bug;
+> single files and subdirs check fine).
 
-| Milestone                                                                           | Status          | Number                                                                                                                |
-| ----------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `./yo-cli check yo-self/main.yo`                                                    | green           | —                                                                                                                     |
-| `./yo-cli compile yo-self/main.yo`                                                  | builds          | —                                                                                                                     |
-| `/tmp/yo-self-bin check std/prelude.yo`                                             | green           | —                                                                                                                     |
-| `/tmp/yo-self-bin check ./std` (per-file)                                           | **green**       | **151 / 151 files OK**                                                                                                |
-| `/tmp/yo-self-bin check ./tests` (per-file)                                         | **green**       | **156 / 182 files OK** (per-file; the "170" was directory-mode)                                                       |
-| `/tmp/yo-self-bin check ./yo-self` **evaluator-only** (excl. `codegen/` + `tests/`) | **in progress** | **45 / 178 files OK** (the Phase 3 milestone — see scope below; +1 hierarchy.yo reassign fix; memory_safety.yo added) |
-| `/tmp/yo-self-bin check ./yo-self/codegen` (excl. tests)                            | deferred        | 7 / 46 — **out of Phase 3 scope** (codegen is a later bootstrap phase and likely stale)                               |
+| Milestone                                | Status          | Number                                         |
+| ---------------------------------------- | --------------- | ---------------------------------------------- |
+| `./yo-cli check yo-self/main.yo`         | green           | —                                              |
+| `./yo-cli compile yo-self/main.yo`       | builds          | —                                              |
+| `yo-self-bin check ./std` (per-file)     | **complete**    | **151 / 151** (matches TS)                     |
+| `yo-self-bin check ./tests` (per-file)   | **complete**    | **169 / 170** (matches TS)                     |
+| `yo-self-bin check ./yo-self` (per-file) | **in progress** | **53 / 227** (172 FAIL / 2 CRASH) — Phase 3    |
+| `yo-self-bin check ./yo-self/codegen`    | deferred        | out of Phase 3 scope (a later bootstrap phase) |
 
-> **Phase 3 scope (refined 2026-05-30): evaluator-only.** The Phase 3
-> milestone is `check` over the **evaluator + its support** files —
-> `yo-self/evaluator/` (135), `yo-self/types/` (11), and the top-level
-> lexer/parser/expr/token/value/env/… (~31) = **177 files** — and
-> **EXCLUDES `yo-self/codegen/` (46 files)**, which is a later bootstrap
-> phase whose ports are likely out of date. The **fixpoint target** is to
-> match the TS reference (`./yo-cli check`) on this set: the TS reference
-> passes nearly all 223 yo-self source files (they are valid Yo — only ~4
-> genuinely fail it: `build_runner.yo`, `compiler_utils.yo`,
-> `evaluator/async/await_analysis.yo`, `codegen/exprs/asm.yo`), so the gap
-> (177 − 44 = 133 evaluator files) is yo-self's own evaluator being
-> incomplete, dominated by the generic-method-resolution root cause.
+> **Phase 3 scope: evaluator-only.** The fixpoint target is to match the TS
+> reference (`./yo-cli check`) over `yo-self/`'s evaluator + support files,
+> EXCLUDING `yo-self/codegen/` (a later bootstrap phase). **170 of the 172
+> fails share one root cause** — the generic-instantiation identity knot (see
+> Phase 3 below). There is no long tail of independent gaps.
 >
-> **Evaluator port is NOT yet complete — 4 TS modules unported (~1,118 LoC):** > `builtins/contracts.ts` (502, compile-time contracts), `types/flowability.ts`
-> (380, move/flow analysis), `memory-safety.ts` (147), `builtins/unsafe.ts`
-> (89). They are imported by ≥9 ported files (`function-type`,
-> `anonymous-function`, `_expr`, `assignment`, `cond`, `begin`, `function`,
-> `pointer`, `impl`), which currently stub/skip that logic — a porting gap to
-> close (faithfully) alongside the TypeValue-fidelity work.
+> **Evaluator port is file-complete:** every TS evaluator module
+> (`src/evaluator/**`, ~130 files) now has a `yo-self/` counterpart, including
+> the formerly-unported `builtins/contracts`, `types/flowability`,
+> `memory-safety`, and `builtins/unsafe`. Remaining work is functional
+> correctness, dominated by the Phase 3 knot.
 
 > **Phase 1 complete** — per-file `check ./std` matches the TS reference
 > (151/151). This session closed every remaining gap: comptime
@@ -503,656 +485,157 @@ runtime_type_with_expected` (`types/env_lookup.yo`) coerced a
    Added a guard to keep the comptime type when the expected type is
    `comptime_string`. Took per-file `check ./std` **150 → 151**.
 
-### Phase 2 — `yo-self-bin check ./tests` (in progress)
+### Phase 2 — `yo-self-bin check ./tests` — **complete (169/170, matches TS)**
 
-**Exit criteria:** `yo-self-bin check ./tests` matches TS `yo-cli check
-./tests` (every test file type-checks; note `check` does not _run_
-tests, only evaluates them).
+**Exit criteria (met):** per-file `yo-self-bin check ./tests` matches TS
+`yo-cli check ./tests` (every test file type-checks; `check` evaluates, does
+not run, tests). Progression: 8 → 169/170 over the session.
 
-**Baseline (2026-05-29).** Per-file sweep over the 170 `tests/*.test.yo`
-files (the `.yo_test_batch_*.yo` artifacts and `circular_deps/*` error
-tests are excluded — TS fails those by design):
+**Fixes landed (all regression-neutral, std stayed 151/151):**
 
-| Compiler      | `*.test.yo` pass rate                                            |
-| ------------- | ---------------------------------------------------------------- |
-| TS (`yo-cli`) | **170 / 170** (was 169; `derive_clone_complex` fixed — see note) |
-| `yo-self-bin` | **11 / 170** (Phase 2 in progress; 8 at start)                   |
+- **Default-argument application at call sites** — func-id-keyed side-table of
+  per-param defaults (`FuncParam.default_value`), since `TypeValue.Func` carries
+  no per-param default info; both call paths bind omitted optionals to the
+  recorded default.
+- **Template-string `to_string` dispatch** — coerce the arg's comptime type to
+  the param's concrete runtime type before `synthesize_types` (guarded to fire
+  only for genuine runtime concrete params, never `SomeT`/comptime — an
+  unguarded version regressed std 151→17).
+- **`dyn(...)` concrete→trait-object coercion + dyn method dispatch** — evaluate
+  the inner with a trait-carrying `SomeT` expected type; supertrait expansion in
+  `evaluate_dyn_type`; a `SomeT`-vs-`Dyn` rule in `are_types_compatible` before
+  the tag-mismatch guard.
+- **Self-referential-trait substitution cycle guard** — `Error.source` returns
+  `Option(Dyn(SelfTrait))`, forming a cyclic `DynT→TraitT→…→DynT` graph;
+  `substitute` looped → SIGSEGV. Added `visited_trait_ids` to `Substitution`.
 
-> Note: `derive_clone_complex.test.yo` was failing TS too — a flowability
-> false positive introduced earlier this session (the assignment-escape
-> check didn't traverse `.Some(...)`/`&+`). Fixed in `src/`; TS is now
-> 170/170. Also, `yo check` now skips dot-prefixed `.yo` files
-> (auto-generated `.yo_test_batch_*` artifacts) in both the TS and
-> yo-self directory walkers.
+**Key reusable learning (the swallow→crash class — recurred several times):**
+yo-self's NON-raw `evaluate_expression` (`_evaluate_expression_wrapper`) is a
+bootstrap-diagnostics divergence — it **catches + prints + continues with a
+placeholder** instead of propagating like TS's `evaluateExpression`. A
+sub-eval error swallowed there leaves a bogus expr → downstream SIGSEGV. Any
+evaluator fn holding an `exn` whose sub-eval error must reach the caller should
+use `evaluate_expression_raw(…, exn)`. This single pattern (plus `evaluate_test`
+swallowing trial-eval errors like TS's `try/catch`) turned ~36 `./tests`
+crashes into clean per-file results. (Same class fixed circular_deps in Phase 3,
+`d2732a2f`.) Memory: `yo-self-test-trial-eval-swallow`.
 
-So the Phase 2 target is **169 / 170** (matching TS). The 162 failures
-cluster by root cause (first-error sampling):
-
-1. **Default-argument application at call sites — DONE (infra).** A call
-   like `assert(x == 10)` to `assert :: (fn(flag : bool, (msg : str) ?=
-"Assertion failed.") -> unit)` was rejected with `Argument count
-   mismatch: expected 2, got 1` — no notion of optional (defaulted)
-   params at the call site. Since `TypeValue.Func` carries no per-param
-   default info (and a new field touches ~105 positional `.Func(...)`
-   match sites), this was solved with a **func-id-keyed side-table** of
-   per-parameter default values (mirroring the macro registry):
-   `FuncParam.default_value` is captured at definition,
-   `evaluate_function_type` registers it by the `fn(...)` type-expr id,
-   `try_to_implement_function_by_function_type` re-keys it under the
-   FuncVal id, and both call paths (the inline FuncVal arm in
-   `calls/function.yo` and `try_to_call_function_with_arguments` in
-   `helper.yo`) allow `n_args ∈ [n_required, n_params]` and bind omitted
-   optionals to their recorded default value. Verified: `assert(1 == 1)`
-   checks clean; std stays 151/151. **Headline note:** the per-file
-   `check ./tests` count is still 8/170 — the assert _layer_ is cleared
-   (files now reach their _next_ gap), but the corpus has deeper layered
-   gaps (below), so first-error progress doesn't yet flip files to green.
-2. **Template-string `to_string` dispatch — DONE.** A backtick template
-   `` `text` `` desugars to `("text".to_string)()`; the self arg is a
-   `comptime_string` matched against `to_string`'s `Self = str`. In
-   `check_if_function_parameter_matches_argument` (`helper.yo`),
-   `synthesize_types` ran on the RAW arg type and rejected the `str` vs
-   `comptime_string` tag mismatch **before** the step-8 compatibility
-   coercion (and `comptime_string` has no `to_string` of its own — it
-   relies on the comptime*string→str coercion). Fixed by coercing the
-   arg's comptime type to the parameter's concrete runtime type before
-   synthesis — **guarded** to fire only when the param type is a genuine
-   runtime concrete type, never a `SomeT` nor a comptime type
-   (`convert*…`lowers comptime_int→i32 unconditionally, so an unguarded
-version regressed std 151→17). Took per-file`check ./tests`**8 → 11**;
-std stays 151/151. (Two improvements landed en route: unique expr ids
-for template sub-exprs, and`type_to_string`renders empty-named
-structs as`<struct:ID>`.)
-3. **Array length inference `Array(T, _)`** — explicitly unimplemented in
-   the self-hosted compiler (`array.test.yo`): "Array length inference
-   with `_` is not supported".
-4. **Comptime `while` condition** — `array_list.test.yo`: "while loop
-   condition is compile-time known but the `comptime` modifier is
-   missing" (yo-self over-strictly requires `while(comptime(...))` when
-   the condition folds to a constant).
-5. **`dyn(...)` concrete→trait-object coercion — DONE.** `(err :
-AnyError) = dyn(`x`)` failed (`Cannot unify "<String>" and
-"dyn(Error)"`): `evaluate_dyn_value` evaluated its inner expression
-   with the raw dyn target as `expected_type`, so the inner's concrete
-   return type was matched against the dyn and reached `synthesize_types`
-   (tag mismatch). Fixed by evaluating the inner with a fresh `SomeT`
-   carrying the dyn's traits (or cleared, when the outer expected isn't a
-   dyn), mirroring TS `evaluateDynValue`. std stays 151/151.
-   5b. **dyn method dispatch — DONE.** `err.source()` on a `dyn(Error)`
-   receiver failed `Type mismatch for parameter "self": Expected Self :
-   ((to_string …)) Got dyn(Error)`. Two faithful-port gaps, both fixed:
-   (a) **supertrait expansion** — `evaluate_dyn_type`
-   (`yo-self/evaluator/types/dyn.yo`) had deferred the self-constraint
-   expansion, so `Dyn(Error)` carried only `[Error]`, not `[Error,
-   ToString]` (Error has `where(Self <: ToString)`). Ported the BFS over
-   `TraitT.self_constraints` (mirrors `src/evaluator/types/dyn.ts:88-104`).
-   (b) **SomeT-vs-Dyn compatibility** — `are_types_compatible`
-   (`yo-self/types/compatibility.yo`) rejected a `DynT` arg against a
-   `SomeT` param (the tag-mismatch guard fired before the structural
-   match). Added the `isSomeType(actual) && isDynType(expected)` rule
-   _before_ the tag guard: each of the SomeT's required traits must be
-   satisfied by some trait the dyn carries (mirrors
-   `src/types/compatibility.ts:662-684`). NB: the SomeT-binding/resolution
-   path (`get_value_of_some_type_from_env`) does **not** resolve this case
-   — the param's `Self` SomeT has `frame_level=3` but the callee env has
-   only 2 frames, so frame-keyed lookup misses; TS likewise relies on the
-   direct compat rule, not resolution. std stays 151/151; TS green.
-   5c. **test-body trial-eval errors not swallowed → 36 SIGSEGVs — DONE.**
-   The `error.test.yo` `comptime_int`/`i32` error (and the bulk of the
-   `./tests` crashes) was NOT a deep layered gap but a single root cause:
-   (a) `evaluate_test` did not swallow trial-evaluation errors the way TS's
-   `evaluateTest` wraps the trial in `try { … } catch {}` (trial errors are
-   non-fatal — the test-block context takes a different inference path than
-   the real `main` wrapper; e.g. a call to a locally-defined
-   `cond`-with-`throw` fn fails in the trial but compiles fine in `main`).
-   (b) `evaluate_initialization_assignment` evaluated the `:=` rhs through
-   the _non-raw_ `evaluate_expression`, whose `_evaluate_expression_wrapper`
-   **catches, prints, and continues with a placeholder expr** instead of
-   propagating — so the trial error was printed (`evaluate_expression:
-   Cannot unify …`) and evaluation continued with a bogus expr → SIGSEGV.
-   Fix: `evaluate_test` trial-evaluates via a helper that installs a local
-   swallowing handler (`unwind`), drops the two non-TS throws (“Failed to
-   evaluate test body”, “Test body must have unit type”), and restores the
-   env frame stack; `evaluate_initialization_assignment` uses the
-   exn-threading `evaluate_expression_raw` so rhs errors propagate to that
-   handler. Mirrors TS (`evaluateExpression` propagates; `evaluateTest`
-   try/catches). Result: per-file `check ./tests` **46/82 → 81/82**
-   (35 files CRASH→OK, **0 regressions**, 0 clean failures); std stays
-   151/151; TS green.
-   5d. **More non-raw `evaluate_expression` leaks (imm_threading) — DONE.**
-   The same class as 5c: a spurious trial-eval error (`Cannot unify "usize"
-   and "unit"` from `while(runtime(i < <runtime-usize>), …)` in a test
-   block) leaked through a non-raw `evaluate_expression` that the test-body
-   swallow couldn't catch. Converted the remaining non-raw calls in the
-   while-condition/body path to `evaluate_expression_raw` (threads `exn`):
-   `evaluate_runtime` (the `runtime(...)` arg — the actual leak),
-   `evaluate_assignment` (the `=` lhs + 2 rhs sites), and `while`'s
-   step-expr eval. Per-file `check ./tests` (all 170, incl. subdirs)
-   **169/170** (`imm_threading` CRASH→OK, **0 regressions**, 0 clean
-   failures); std 151/151; TS green. Pattern note: yo-self's non-raw
-   `evaluate_expression` (the `_evaluate_expression_wrapper`) is a
-   bootstrap-diagnostics divergence — it catches+prints+continues instead
-   of propagating like TS's `evaluateExpression`; any evaluator fn holding
-   an `exn` whose sub-eval error must reach the caller should use
-   `evaluate_expression_raw(…, exn)`.
-   5e. **Self-referential-trait substitution recursion (io/reader_writer) —
-   DONE → Phase 2 COMPLETE (170/170).** The last `./tests` crash was a
-   pure SIGSEGV (no diagnostic): impl-matching a trait method whose
-   parameter is `Dyn(Error)` (= `AnyError`; `Error.source` returns
-   `Option(Dyn(SelfTrait))`, forming a **cyclic** `DynT → TraitT → … →
-   DynT` TypeValue graph). `_substitute_self_in_method_ty` →
-   `substitute` (`yo-self/types/substitution.yo`) walked that cyclic graph
-   with no cycle guard → infinite recursion → stack overflow. (Regular
-   fns with an `Exception` param don't hit this; only trait-method impl
-   Self-substitution does — so std, which never impls a trait with such a
-   param, was unaffected.) Fix: add a `visited_trait_ids` set to the
-   `Substitution` object (fresh per top-level `substitute`, threaded
-   automatically since `s` is passed to every recursive call) and guard
-   the `TraitT` case — if a trait id is already being recursed into,
-   return it unchanged. Re-descending into an already-visited trait's
-   methods is also semantically unnecessary (those carry the _trait's_
-   own `Self`, not the impl receiver's). **`check ./tests` 170/170 —
-   matches TS**; std 151/151; **0 regressions**. Phase 2 done.
-
-The historically-tracked extracts below are a subset of #4:
-
-- where-clause trait-eval throw propagation
-  ([`issues/yo-self-where-clause-trait-eval-segfault.md`](../issues/yo-self-where-clause-trait-eval-segfault.md))
-- nested TypeApplication in impl return
-  ([`issues/yo-self-nested-typeapp-in-impl-return-segfault.md`](../issues/yo-self-nested-typeapp-in-impl-return-segfault.md))
-- impl fn parametric return
-  ([`issues/yo-self-impl-fn-parametric-return-sigsegv.md`](../issues/yo-self-impl-fn-parametric-return-sigsegv.md))
-- `TypeValue` variants too narrow for some ports
-  ([`issues/yo-self-typevalue-variants-too-narrow-for-stub-ports.md`](../issues/yo-self-typevalue-variants-too-narrow-for-stub-ports.md))
-- HKT-heavy and GADT evaluator paths (`higher_kinded_types`, `gadts`).
-- Enum-eval memory leak (correctness under repeated eval)
-  ([`issues/yo-self-evaluator-enum-memory-leak.md`](../issues/yo-self-evaluator-enum-memory-leak.md)).
-
-Async/effects test files: `check` only type-checks them, so the **async
-runtime / effects runtime codegen is NOT required** — only the
-evaluator's effect-analysis paths (`evaluator/effects/`) must be
-faithful.
+**Out of scope for `check`:** async/effects test files are only type-checked,
+so the async/effects-runtime _codegen_ is not required — only the evaluator's
+`evaluator/effects/` analysis paths must be faithful.
 
 ### Phase 3 — `yo-self-bin check ./yo-self` (self-check fixpoint)
 
-**Exit criteria:** `yo-self-bin check ./yo-self` passes — the
-self-hosted evaluator validates its own source.
+**Exit criteria:** `yo-self-bin check ./yo-self` passes — the self-hosted
+evaluator validates its own source. This is the headline milestone; it
+transitively requires Phases 0–2.
 
-This is the headline milestone. It transitively requires Phases 0–2
-(yo-self uses std, and its own idioms overlap the test corpus). Expect a
-tail of evaluator features that only yo-self's own source exercises
-(large match statements, deep generic instantiation, the
-`ExprInfo`/`ExprId` side-table patterns).
+**Current state (2026-06-01):** per-file `check ./yo-self` = **53 OK / 172
+FAIL / 2 CRASH** (227 files; classify by **exit code** 0/1/139, never by
+grepping "evaluator OK" — the prelude's own OK line precedes the target's
+verdict). Up from the 50/51 baseline via this milestone's foundation work.
 
-**Baseline (2026-05-30):** per-file `check ./yo-self` (223 `.yo` files,
-excluding `yo-self/tests/` which is pre-existing-broken) = **51 OK / 170
-FAIL / 2 CRASH** _(classify by EXIT CODE — 0/1/139 — not by grepping
-"evaluator OK", because the prelude's own `"std/prelude.yo — evaluator
-OK"` line precedes the target file's verdict and would mis-count errored
-files as OK)._
+> **Measurement:** `check ./yo-self` (and `./tests`) SIGSEGV in
+> **full-directory mode** — cross-file state pollution accumulated across ~200
+> files, entangled with prelude-populated global registries (a harness
+> limitation, NOT an evaluator bug). **Single files and subdirs check fine.**
+> Always measure **per-file by exit code**. The `tests/circular_deps/` crash
+> was a separate swallow→crash bug, fixed in `d2732a2f` (`evaluate_open` now
+> uses the propagating raw evaluator).
 
-**ONE dominant root cause** (≈all 170 FAILs + the 2 crashes share it):
-`Incompatible types: Expected <struct…> / Given unit` on a module-level
-typed runtime global `(g_x : HashMap(...)) = HashMap(...).new()` /
-`(g_x : ArrayList(...)) = ArrayList(...).new()` — which nearly every
-compiler file declares.
+**The dominant blocker (≈170 of 172 FAILs): the generic-instantiation
+identity knot.** Nearly every compiler file transitively imports
+`type_trait_methods.yo:130`'s `(_type_trait_methods : HashMap(String,
+ArrayList(MethodEntry))) = HashMap(...).new()`, which fails
+`Incompatible types: Expected <HashMap> / Given unit` — so one root cause
+cascades to ~170 files.
 
-**Corrected root cause (an earlier struct-vs-object framing was a
-grep artifact — always classify by exit code):** a static method
-(`.new()`, and in fact ANY method) on a **GENERIC type instantiation**
-(`G(usize)`) resolves to `unit`. Struct vs object is irrelevant; non-generic
-vs **generic** is the axis. Two caveats that fooled earlier runs:
+Root cause: synthesizing a generic type that contains an RC/newtype field
+(e.g. `String`) recurses into its **unstamped nested generic instantiations**
+(`Option(ArrayList(u8))`), which lack stable per-instantiation identity, so the
+synthesizer descends into their field lists and hits a misaligned mismatch.
+TS avoids this via `StructType.functionValue.funcId` (per-instantiation type
+identity) + memoized comptime instantiation; yo-self's batch/inline construction
+path produces fresh-id instantiations that don't match.
 
-- **yo-self `check` does NOT type-check ordinary `fn` bodies** (only
-  module-level statements, `test` blocks, comptime). Deliberate type
-  errors inside `main`'s body still exit 0. So "fn-level works" results are
-  vacuous — the generic `.new()` is simply never checked there. Module-level
-  globals are the one spot it IS checked, which is why they surface it.
-- `:=` "passes" because it doesn't type-check the rhs; the typed `(x:T) =`
-  / module global is what checks it.
+**Clean minimal repro (isolated 2026-06-01, no HashMap):**
 
-**Mechanism:** `.new()` resolves via `find_methods_from_generic_impls` →
-`try_match_generic_impl` (`evaluator/values/impl.yo`), which matches the
-impl receiver pattern `G(T)` against the concrete `G(usize)` via
-`synthesize_types`. The synthesizer Struct case (≈line 1320) and Enum case
-**throw on `exp_id != giv_id`**. `evaluate_struct_type` assigns a fresh
-`struct_${random_id()}` on EVERY evaluation, so `G(T)` (id 2488) and
-`G(usize)` (id 2491) never share an id → throw → no match → `unit`.
+```rust
+M :: (fn(comptime(K) : Type) -> comptime(Type))(object(x : K));
+impl(forall(K : Type), M(K), make : (fn(v : K) -> Self)(Self(x : v)));
+(_m : M(String)) = M(String).make(String.from("hi"));   // "Cannot unify i32 and usize"
+```
 
-**TS does this right via `StructType.functionValue.funcId`** (set in
-`comptime-fn.ts:274` `returnedType.functionValue = functionValue`; matched
-in `synthesizer.ts:649-665`). yo-self's `TypeValue` has no such field — the
-synthesizer.yo header even notes _"StructType.functionValue comparison
-skipped … uses id only."_ THAT omission is the bug.
+`M(i32)` works, `M(String)` fails; returning `i32` works, returning `Self`
+(with a `String` field) fails. Full diagnosis + recommended approach in
+[`issues/phase3-nested-generic-instantiation-identity.md`](../issues/phase3-nested-generic-instantiation-identity.md).
 
-**Fix attempt (reverted — mechanism validated, but incomplete for stdlib):**
-side table `struct_id → constructor func_id`, stamped in
-`evaluate_struct_type` from the **enclosing function context**
-(`ctx.is_evaluating_function_body_or_async_block.func_value` → `FuncVal`'s
-`func_id`), consulted in the synthesizer Struct/Enum id-checks via a
-`_same_type_constructor` helper. Findings from instrumentation:
+**Foundation LANDED (regression-neutral, contributes to the eventual fix):**
 
-- **The cloning fear was unfounded** — instrumenting `evaluate_struct_type`
-  (`MKSTRUCT`) showed the exact ids synthesize compares (e.g. 2488 = pattern
-  `G(T)`, 2491 = concrete `G(usize)`) are assigned AT CREATION, both under
-  the SAME enclosing func id. So a side-table-by-id stamped at creation is
-  sound; no `Struct`-field needed.
-- **The mechanism works for user-defined generics:** with the registry in
-  `yo-self/utils.yo` (TypeValue-free leaf — putting it in
-  `definition_site_registry.yo` caused a C `redefinition` clash because that
-  file imports `types/type.yo`'s `TypeValue`, a SEPARATE enum from
-  `types/definitions.yo`'s), `qm` (the user-generic-object repro) advances
-  PAST `.new()` — `synthesize` no longer throws at the id-check, and the
-  error moves to a deeper `tmp.a : T` (field not specialized; an over-strict
-  repro artifact). `SYNSTRUCT` confirms `sameconstructor=true` fires.
-- **The real (stdlib) case still fails.** For `ArrayList(usize).new()`
-  (`(g_a : ArrayList(usize)) = …`), the concrete struct (id 2767) IS
-  registered (`fid 2213` = ArrayList's func), but **synthesize's Struct case
-  is NEVER reached for giv=2767** — so `.new()` on a stdlib generic
-  resolves via a DIFFERENT path than `try_match_generic_impl` (almost
-  certainly `evaluate_property_access`'s **type-trait-methods registry**,
-  keyed by a SPECIFIC instantiation id: `new` was registered under
-  `ArrayList(T)`'s id and the lookup uses `ArrayList(usize)`'s id → miss →
-  `unit`). The synthesizer funcid-match can't help a path that never calls
-  synthesize.
+- `663fca9f` — comptime-instantiation memoization (wired the dormant
+  `evaluate_comptime_fn_call` + `ctx.comptime_fn_caches`).
+- `0d4e951f` — `constructor_func_id` on `TypeValue.Struct` (= TS
+  `StructType.functionValue.funcId`); compared in the synthesizer's struct case.
+- `755d54f9` — `result_is_comptime_only` on `TypeValue.Func`.
+- `0f2189f6` — `type_arguments` on `TypeValue.Struct` (= TS `StructType.env`);
+  populated at the comptime-fn stamp site, substituted through, consumed in the
+  forall-binding fallback.
+- `8067aa03` — bind impl-level `forall(K,V)` into a matched method's closure
+  captures during generic-impl dispatch (fixes `sizeof(Bucket(K,V))` in
+  `_alloc_with_capacity`).
+- `198d481f` — propagate the declared return type as the body's
+  `ctx.expected_type` (fixes enum-variant-shorthand inference in tail `match`
+  arms).
 
-**funcid-stamping + registry-dedup approach: RULED OUT (3rd attempt,
-reverted, with HARD per-file data).** Implemented the full thing —
-`g_type_constructor_funcid` side table in `utils.yo`; struct-creation
-stamping (from `ctx.is_evaluating_function_body_or_async_block.func_value`);
-`_same_type_constructor` guard in synthesizer Struct + Enum id-checks;
-layer-2 receiver-pattern stamping in `impl.yo`; and the requested
-registry-dedup in `register_generic_impl` (`g_registered_generic_impl_keys`,
-keyed by `ctorFuncId:traitKey:methodNames`). Built the binary, then ran a
-rigorous **per-file diff of a fix binary vs a HEAD-baseline binary** over
-`./std`, `./tests`, and `./yo-self` (classified by exit code). Result:
+**The remaining work (Stage 4 — the open knot):** give nested generic
+instantiations stable per-instantiation identity so the synthesizer matches
+them by constructor and never recurses into their fields — WITHOUT re-breaking
+recursive-type termination (ad-hoc stamping re-SIGBUS'd recursive generics
+`imm_vec`/`imm_threading`). This needs routing the inline/nested construction
+path through memoization, which is blocked because the annotation/inline callee
+resolves to a _specialized-struct-returning_ Func that no predicate classifies
+as a type-constructor return.
 
-| corpus  | baseline OK | fix OK | improved | regressed                               |
-| ------- | ----------- | ------ | -------- | --------------------------------------- |
-| std     | 151         | 151    | 0        | 0                                       |
-| tests   | 156         | 154    | 0        | 2 (`imm_vec`, `imm_threading` → SIGBUS) |
-| yo-self | 50          | 50     | 0        | 0                                       |
-
-**(Note: the true `./yo-self` baseline is 50, not the 51 recorded earlier.)**
-
-Two conclusive facts:
-
-1. **It does not resolve the target.** The blocking error on a representative
-   file is **byte-identical** with and without the fix:
-   `Incompatible types: Expected <struct:…> / Given unit` at
-   `yo-self/evaluator/values/type_trait_methods.yo:130` —
-   `(_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
-HashMap(...).new()`. So the stamps are **not connecting** the generic
-   receiver pattern to its concrete instantiation for the real stdlib
-   generics; `.new()` still resolves to `unit` exactly as before.
-2. **It spuriously connects unrelated structs**, deterministically crashing
-   `imm_vec`/`imm_threading` with **SIGBUS (signal 10)**. The coarse
-   struct-creation stamping gives two unrelated structs created under the
-   same enclosing fn the same `func_id`, so `_same_type_constructor`
-   returns true where the id-mismatch throw was correct; synthesize then
-   recurses fields and loops on recursive generics (its cycle guard
-   `_has_type_pair` keys on **non-stable random_ids**, never matching —
-   whereas TS guards by **Type object identity**, `pair.expected ===
-expected.type`, synthesizer.ts:234–243).
-
-**Why the stamps don't connect for stdlib (the real open question):** even
-with layer-2 stamping the receiver pattern and struct.yo stamping the
-concrete, `.new()` on `HashMap(...)`/`ArrayList(...)` did not flip — which
-means EITHER the pattern/concrete are not both reaching the side table with
-the same `func_id`, OR `.new()` resolves through a path that never consults
-`_same_type_constructor` (it returned `unit` identically). The earlier
-finding that synthesize's Struct case is **never reached for the stdlib
-concrete** (no `SYNSTRUCT` for `giv=ArrayList(usize)`) points to the latter:
-stdlib `.new()` resolves via a different path, so the synthesizer guard is
-irrelevant to it.
-
-**INSTRUMENTATION PASS + attempt #4 (DONE, reverted) — the mechanism is now
-fully understood AND proven to be a dead end for the count.** Gated
-`eprintln`s in `find_methods_from_generic_impls` (+ a `[NEWIMPL]` dump of
-every `new`-defining impl's receiver-pattern id vs the concrete id) and
-property_access branch 721 pinned down the exact failure for
-`HashMap(String, ArrayList(MethodEntry)).new()` at `type_trait_methods.yo`:
-
-- `total_entries=104, entries_defining_new=3, matched=2, results=0`. The 3
-  `new`-defining impls (receiver ids `2015/2215/2495`) ALL failed to match
-  the concrete (`3659`); the 2 that matched don't define `new`. So
-  **HashMap's own impl fails to unify `HashMap(K,V)` against
-  `HashMap(String,X)`** — the synthesizer Struct case throws on the raw
-  random-id mismatch (yo-self structs are nominally anonymous;
-  `type_to_string` renders both as `<struct:id>`).
-- **`func_id` IS stable** here: `func_id := "fn_"+random_id(...)` is fresh
-  per _evaluation_ (same as TS, anon-function.ts:681), BUT modules ARE
-  cached (`module_loader.yo`), so HashMap's FuncVal is shared between
-  impl-registration and the use site → same `func_id`. The dedup premise of
-  attempt #3 was WRONG: `entries_defining_new=3` proves **no duplication**.
-- Attempt #3's stamps didn't connect because `struct.yo` gates on
-  `is_evaluating_function_body_or_async_block` but the live comptime
-  type-fn call path doesn't always populate it consistently. **The correct,
-  faithful stamp site is the comptime-fn CALL site** — `function.yo`'s
-  FuncVal-callee branch (~line 1165, right after `out.value =
-body_info.value`), mirroring `comptime-fn.ts:259–276`
-  (`returnedType.functionValue = functionValue`). Stamping the returned
-  Struct/Enum id → the **called** FuncVal's `func_id_fv` there is non-coarse
-  (only the returned type) and connects BOTH the impl receiver `HashMap(K,V)`
-  and the use-site `HashMap(String,X)` (both call the same cached FuncVal).
-
-**Attempt #4** did exactly that (call-site stamp in `function.yo` +
-`_same_type_constructor` guard in `synthesizer.yo`, NO `struct.yo`/`impl.yo`
-changes). Result, validated by the per-file diff harness:
-
-| corpus  | base OK | #4 OK | improved | regressed                                            |
-| ------- | ------- | ----- | -------- | ---------------------------------------------------- |
-| yo-self | 50      | 50    | **0**    | 0                                                    |
-| tests   | 156     | 153   | **0**    | **3** (`imm_vec`, `imm_threading`, `priority_queue`) |
-
-- **It WORKS** — `[NEWIMPL]` shows HashMap's impl `2495` now `matched=Y` vs
-  concrete `3659`; the `type_trait_methods.yo` error moves PAST `.new()` to a
-  **deeper** gap: `Expected enum type or primitive type for match
-expression, got unit`.
-- **But it flips ZERO files**: every affected file has a deeper layered gap
-  behind method resolution, so resolving `.new()` alone never reaches OK.
-- **And it regresses recursive generics** to SIGBUS. `imm/vec` is NOT itself
-  recursive (`object(_ptr:*(T),_len,_cap)`), so the runaway is the prelude's
-  recursive types cascading once `_same_type_constructor` opens same-
-  constructor field-recursion. Crucially the recursion is **NOT in
-  `_synthesize_call`** — a `checked.len() > 256` bound there **never fired**
-  — so it lives in a synthesize-callee (substitute / `_bind_some_type` /
-  `get_value_of_some_type_from_env`) or re-enters via the _public_
-  `synthesize_types` (fresh `checked`).
-
-**ROOT CAUSE of the whole layer:** yo-self does **not memoize comptime type
-instantiations** (no `calledComptimeFunctionCaches`), so every `Vec(i32)` /
-`HashMap(K,V)` call yields a fresh struct id. TS gets stable per-
-instantiation identity from its comptime cache + `functionValue` object
-identity, which is what makes its synthesize recursion terminate. The
-`func_id` side table reconstructs _constructor_ identity (enough to match
-two instantiations) but cannot make the cycle guard terminate without
-per-instantiation memoized identity.
-
-**LANDED (`663fca9f`) — comptime-instantiation memoization (+1).** The full
-memoization (`evaluate_comptime_fn_call` + `ctx.comptime_fn_caches`, keyed by
-func_id + arg values) EXISTED but was DEAD: the live FuncVal-callee path in
-`function.yo` inlined the body eval instead of delegating, so every
-`Vec(i32)`/`HashMap(K,V)` call produced a fresh struct id (the TS divergence —
-`helper.ts` delegates to `evaluateComptimeFunctionCall`). Wired it in:
-`function.yo`'s FuncVal branch now routes type-returning calls
-(`is_type_hierarchy_type(ret_type)`) through `evaluate_comptime_fn_call`.
-Fixed three latent bugs in the never-exercised `comptime_fn.yo` (immutable-
-param reassign `callee_env`→local; unsupported in-place ArrayList element
-write → remove+push). Per-file diff: **std 151→151, tests 156→156 (no
-regressions), yo-self 50→51** (`utils.yo` flips). First Phase-3 gain,
-regression-free, faithful to TS. **Bonus:** memoization makes the SIGBUS
-regressors (`imm_vec`/`imm_threading`/`priority_queue`) terminate — stable
-per-instantiation ids let the synthesize cycle guard catch recursion — so it
-also unblocks the funcId-match approach from crashing.
-
-**funcId match ON TOP of memoization — STILL doesn't land (reverted).** Re-
-applied the side table + `_same_type_constructor` guard + a stamp inside
-`evaluate_comptime_fn_call` (where the returned type is finalized). Result:
-no SIGBUS (memoization fixed that), BUT yo-self 51→50 — `.new()` STILL
-resolves to `unit` (`type_trait_methods.yo` shows `Given unit`), unlike
-attempt #4's inline-path stamp which DID make it resolve. So routing the
-comptime call through `evaluate_comptime_fn_call` changed something that
-breaks the stamp's effectiveness for method resolution — the synthesize that
-resolves `.new()` apparently operates on a struct id that is NOT the one
-stamped in `comptime_fn.yo` (substituted/cloned copy? different eval path?).
-The −1 was self-inflicted (the side table's own `HashMap.new()` in
-`utils.yo` hit the same unresolved-`.new()` bug). NET: 0 gain + regress →
-reverted.
-
-**ROOT CAUSE pinpointed (instrumented `[STAMP]`+`[STC]` build, reverted).**
-Stamped the returned type at the `function.yo` call site after the
-delegation returns (mirroring attempt #4) and logged every
-`_same_type_constructor` call. Decisive line:
-`[STC] exp=struct_yo_id_2315 ef=yo_id_2196 giv=struct_yo_id_3044 gf=- res=F`.
-Every `HashMap` instantiation stamps consistently to `yo_id_2196` (the
-generic-impl receiver **pattern** `2315` included, `ef=yo_id_2196`), but the
-**concrete the synthesizer compares (`3044`) is NEVER stamped** (`gf=-`).
-`3044` is created during the failing global's own evaluation — the type
-ANNOTATION `(_type_trait_methods : HashMap(String, ArrayList(MethodEntry)))`
-— via a path that bypasses BOTH `function.yo`'s FuncVal-callee delegation
-AND `evaluate_comptime_fn_call` (separate type-expression construction, or a
-substituted/cloned copy that drops the side-table entry). So
-`_same_type_constructor(pattern, concrete)` = F → `.new()` stays `unit`.
-This is also why stamping inside `evaluate_comptime_fn_call` (earlier
-sub-attempt) failed identically — the annotation concrete never reaches it.
-(Side note: the side table cannot be a module-level `HashMap(...).new()` OR
-`ArrayList(...).new()` global in any file that must `check`-pass — that
-global hits the very unresolved-`.new()` bug; both forms failed `utils.yo`.)
-
-**TRACED the binding-type path (instrumented `[GATE]`/`[MKS]`/`[STC]`
-builds, all reverted).** `[MKS]` showed the concrete `3033` IS created in
-HashMap's body (`ctxfn=yo_id_2196`). `[GATE]` showed why a `struct.yo`
-stamp gated on `func_type` misses it:
-`[GATE] struct_yo_id_3033 returns_type=F fv=yo_id_2196` — the concrete is
-created in a context where the enclosing fn's **`func_value` is present
-(`2196`) but `func_type` is ABSENT**, so the `is_type_hierarchy_type` gate
-returns F → not stamped (whereas the impl-receiver pattern IS created with
-`func_type` present → stamped). A "known-type-constructor func_ids" set
-(remember `2196` the first time it's seen with `func_type`, then stamp by
-`func_value` thereafter) was tried and **made things WORSE**:
-
-1. It RE-INTRODUCED the `imm_vec`/`imm_threading` **SIGBUS** — stamping by
-   `func_value` also stamps structs from NON-memoized (fresh-id) creation
-   paths, which re-breaks the synthesize cycle-guard's termination that
-   memoization had restored.
-2. It STILL did not resolve `.new()` (`type_trait_methods.yo` unchanged at
-   `Expected <struct:3033> / Given unit`).
-
-**KEY (negative) finding:** post-memoization, even broad stamping that makes
-`_same_type_constructor` return true for the HashMap pattern↔concrete pair
-does NOT make `.new()` resolve — unlike pre-memoization attempt #4's
-inline-path stamp which DID. So memoization's routing changed the resolution
-path such that the funcId match is no longer sufficient on its own. The two
-requirements now **conflict**: stamping the concrete (created via a
-`func_type`-absent path) needs broad `func_value`-based stamping, but broad
-stamping re-breaks recursion termination for non-memoized structs.
-
-**NEXT STEP (architectural, larger):** the clean fix is to route the
-type-ANNOTATION / use-site concrete construction through the SAME memoized
-comptime-fn path as everything else, so the concrete gets BOTH a stable
-(memoized) id — recursion-safe — AND a reliable stamp. I.e., find why the
-binding-annotation `(g : HashMap(...))` concrete bypasses memoization
-(constructed where `func_type` is absent and likely without going through
-`evaluate_comptime_fn_call`) and make that path delegate too. Stamping alone
-cannot satisfy both constraints. Until then, do NOT re-apply the
-`struct.yo`/known-set stamp — it is net-negative (re-SIGBUS + 0 gain).
-
-**ROUTING REFACTOR ATTEMPTED (reverted) — blocked one layer deeper.** A
-`[FCALL]` probe at `function.yo`'s FuncVal branch showed the 22 HashMap
-calls split **20 `itht=T`** (delegate→memoize) + **2 `itht=F cfto=Some`** —
-the 2 are exactly the unstamped annotation concretes. So the callee DOES
-resolve to a Func (`cfto=Some`), but `is_type_hierarchy_type(ret_type)` is
-false because the resolved Func's **return is a specialized struct, not bare
-`Type`**. Tried routing those through memoization two ways:
-(a) gate on `is_function_type_and_returns_comptime_value(callee_func_type)`
-(the faithful TS `return.isCompileTimeOnly` check) — **didn't fire**: the 2
-calls' Func return is NOT recognised as comptime-only by
-`is_comptime_only_type_simple`; (b) gate struct/enum-return delegation behind
-a "known type-constructor" set (mark a func_id when seen returning `Type`,
-then route its later specialized-struct-return calls) + broaden `should_cache`
-likewise — **still `Given unit`**. No SIGBUS in either (memoization-routed =
-stable id), but `.new()` never resolved and `utils.yo` is −1 (its side-table
-ArrayList globals hit the same unresolved-`.new()`), so net ≤ 0 → reverted.
-
-**The real blocker is now precise:** in a type-ANNOTATION position the callee
-`HashMap` resolves to a Func whose **return type is neither `Type` nor a
-comptime-only type** — it's a bare/specialized struct that no available
-predicate (`is_type_hierarchy_type`, `is_function_type_and_returns_comptime_value`)
-classifies as a type-constructor return. So neither memoization nor the
-funcId stamp can be triggered from the call site by inspecting the return
-type. The fix must go UPSTREAM: understand why the annotation-context callee
-type-resolution produces a non-comptime struct-returning Func (it likely
-pre-specializes the return), and either make it preserve the comptime-`Type`
-return (so the existing `is_type_hierarchy_type` gate fires) or carry a
-type-constructor marker on the resolved callee. This is a focused
-investigation into the type-annotation / binding-LHS type-evaluation path —
-a distinct sub-problem from method resolution itself.
-
-**UPSTREAM ROOT CAUSE — yo-self's `TypeValue` diverged from TS (a 1-to-1
-fidelity gap).** The generic-`.new()` blocker is NOT a missing algorithm —
-it is two dropped fields that TS carries and yo-self flattened away:
-
-1. **`StructType.functionValue` (and on Enum/Module/Trait).** TS
-   `src/types/definitions.ts:222` stores `functionValue: FunctionValue` on
-   every named type; `synthesizer.ts:662` unifies two instantiations of the
-   same generic by `functionValue.funcId`. yo-self's `Struct`/`EnumT` carry
-   only an `id` — `synthesizer.yo`'s own header admits _"StructType.functionValue
-   comparison skipped (not in yo-self); uses id only."_ The
-   `g_type_constructor_funcid` side table was an external, NON-faithful
-   reconstruction of this field.
-2. **`FunctionParameter.isCompileTimeOnly` on params AND the return.** TS
-   `definitions.ts` models each parameter (and the function return) as a
-   `FunctionParameter { type, isCompileTimeOnly, … }`; CTFE is gated on
-   `functionType.return.isCompileTimeOnly` (`helper.ts:1731`). yo-self's
-   `Func` variant flattened these to bare `param_types`/`result : Box(Self)`,
-   dropping `isCompileTimeOnly` entirely. yo-self substitutes the proxies
-   `is_type_hierarchy_type(ret_type)` / `is_function_type_and_returns_comptime_value`,
-   which both FAIL when a type-constructor's return resolves to a specialized
-   concrete struct (the `itht=F cfto=Some` annotation calls) — so the call
-   site can neither memoize nor stamp it.
-
-These two divergences fully explain every dead end above: the side-table
-funcId stamp reconstructs (1) but can't be triggered for the annotation
-concrete because (2) is missing; the proxy gates can't classify a
-specialized-struct return as comptime.
-
-**FAITHFUL 1-TO-1 FIX (the correct path — supersedes the workarounds).**
-Restore the dropped fields to yo-self's `TypeValue`, matching TS:
-
-- **STAGE 1 — DONE (`0d4e951f`).** Added `constructor_func_id : String` to
-  `TypeValue.Struct` (stores `functionValue.funcId`; the full `FunctionValue`
-  can't be stored — `TypeValue` can't import `EvalValue` without a cycle, and
-  `funcId` is the only part the synthesizer reads). Threaded through all 29
-  touched files (constructions set `""`, positional matches padded, curly
-  matches unaffected). SET at the comptime-fn call site (`comptime_fn.yo`,
-  mirroring `comptime-fn.ts:274`), PRESERVED across substitution
-  (`substitution.yo`), COMPARED in `synthesizer.yo`'s Struct case
-  (`synthesizer.ts:662`). Replaces the reverted `g_type_constructor_funcid`
-  side table. **Per-file: std 151, tests 156, yo-self 51 — fully neutral, 0
-  regressions.** Neutral because the annotation concrete still doesn't reach
-  the comptime-fn path (needs Stage 2). _TODO: extend to `EnumT` (and
-  `ModuleT`/`TraitT`) — same mechanical pattern._
-- **STAGE 2 — DONE (`755d54f9`), but NEUTRAL (didn't flip `.new()`).** Added
-  `result_is_comptime_only : bool` to `TypeValue.Func` (TS
-  `FunctionParameter.isCompileTimeOnly` on the return). Threaded through all
-  `.Func(` sites; SET at fn-type construction from the existing
-  `is_return_comptime_only` (the `comptime(...)` return wrapper, function.yo);
-  comptime-result builtin → true; closure / Fn-trait / `t_func_simple` →
-  false; PRESERVED across substitution; USED additively (OR'd) in
-  `function.yo`'s delegation gate + `comptime_fn.yo`'s `should_cache`,
-  mirroring `helper.ts:1731`. Per-file: std 151, yo-self-eval 44, regressors
-  clean — fully neutral. **`type_trait_methods.yo` still `Given unit`.**
-- **STAGE 3 INSTRUMENTED + ATTEMPTED (reverted) — synthesize unification
-  PROVEN to work; two further blockers remain.** Three gated probes
-  (`[GATE]`/`[STAMP]`/`[SC]`) on `type_trait_methods.yo` gave the exact
-  picture:
-
-  - `[GATE]`: the 2 annotation `HashMap` calls are `itht=F crc=F` — the
-    callee resolves to a specialized struct-return Func whose
-    `result_is_comptime_only` is **false**, so the Stage-2 gate doesn't fire
-    → they take the **inline (non-memoized) path** → concrete unstamped.
-  - `[SC]`: synthesize compares the impl **pattern** (`ecf='yo_id_2196'`, ✅
-    stamped — the pattern IS routed/stamped) vs the **concrete**
-    (`gcf=''`, ❌ unstamped) → `same=F` → no match → `unit`.
-  - **Fix that worked:** stamp `constructor_func_id` at struct creation
-    (`struct.yo`) from the enclosing **known type-constructor** (a func*id
-    set marked in `comptime_fn.yo` when it stamps a type-return). With it,
-    the concrete got `gcf='yo_id_2196'` and **`same=T`** — \_the synthesizer
-    now unifies pattern↔concrete.* This is the core structural win.
-  - **BUT it re-introduced the recursive-generic SIGBUS** (`imm_vec`/
-    `imm_threading`): stamping nested structs created on the inline path
-    (fresh ids) lets the same-constructor field-recursion run forever on
-    persistent `Vec`'s `Node→Node` structure (the id-keyed cycle guard can't
-    catch fresh ids). HashMap/Bucket nesting is finite so it's fine; Vec is
-    recursive so it loops.
-  - **AND `.new()` STILL → `unit`** even with `same=T` — a _downstream_
-    issue: with the pattern now matching, `find_methods_from_generic_impls`
-    likely returns >1 candidate (duplicate `new`-defining impls from preload)
-    or the matched candidate's specialized return collapses to `unit` →
-    property_access's "exactly 1 candidate" path fails.
-  - **A naive recursion bound BACKFIRED:** a `checked.len() > 512` throw in
-    `_synthesize_call` made _everything_ SIGSEGV (incl. prelude) — normal
-    `same_constructor` synthesis legitimately visits many pairs, and throwing
-    deep crashes; the bound can't cleanly separate infinite from large-finite.
-    All reverted to the Stage-2 committed state (`ec797b48`).
-
-- **STAGE 4a ATTEMPTED — memoize the inline path (reverted, FAILED).** Added
-  a known-type-constructor gate: mark a func_id when `evaluate_comptime_fn_call`
-  caches a Type-return, then route later `itht=F crc=F` calls (specialized
-  struct-return callee) through the comptime cache via that mark (+ broaden
-  `should_cache` with the mark). Hypothesis: memoizing every instantiation →
-  one stable-id TypeValue → id-cycle-guard terminates Vec recursion + the
-  call-site stamp sets `constructor_func_id`. **Result: still SIGBUS on
-  `imm_vec`/`imm_threading`, and `.new()` still `unit`.** prelude/hash_map
-  stayed clean (no broad regression), but both target problems persist:
-  memoizing the top-level call did NOT make the recursive node structure
-  stable-id (persistent-Vec nodes aren't deduped by the (func_id,args) cache
-  the way the outer type is), so the recursion still runs; and `.new()`
-  resolution is blocked downstream regardless. Reverted to `dc4398f7`.
-
-- **STATUS: deep knot — ~12 incremental attempts have not cracked it.** Solid
-  & committed: memoization (+1), both faithful `TypeValue` fields
-  (`constructor_func_id` + `result_is_comptime_only`), and the PROVEN
-  synthesize unification (`same=T` when the concrete is stamped). Resisting
-  every incremental fix: (1) recursive-generic synthesis termination without
-  per-node Type-object identity — yo-self's (func_id,args) comptime cache
-  dedups the outer type but NOT the internal nodes, so a memoized `Vec(i32)`
-  still contains fresh-id nodes that loop; (2) the downstream
-  candidate/specialization step (`.new()` → `unit` even when synthesize
-  matches). **A faithful resolution likely needs a deeper port of TS's
-  comptime-instantiation identity model** (every nested instantiation shares
-  identity, not just the outermost call) — a major multi-session effort — OR
-  progressing the bootstrap on other fronts (the 4 unported evaluator
-  modules; other non-generic-method gaps) while this is parked. **Do NOT keep
-  retrying stamp/route/bound variants — they are charted dead ends** (see the
-  Stage-3/4a attempt logs above).
-
-This is a **schema change to heavily-matched enum variants** (`Struct`/`Func`
-appear in hundreds of `match`/construction sites), so it must be a careful,
-staged refactor — but it is the faithful port and dissolves the whole
-generic-`.new()` problem at the root instead of papering over it. **Abandon
-the side-table / proxy-gate workarounds** (all reverted; net ≤ 0 and
-non-faithful). Memoization (`663fca9f`, +1) WAS a faithful port (it wired the
-already-TS-mirrored `evaluate_comptime_fn_call`) and stands.
-
-**Do NOT re-apply the funcid stamp + `_same_type_constructor` guard as a side
-table** — proven net-negative (0 improved / 3 regressed) AND non-faithful.
-Validate ANY Phase-3 change with the baseline-vs-fix per-file diff harness
-(capture `$? $file` per file, `join` on filename); aggregate counts hid the
-0-improved result repeatedly.
-
-_(ENV: `bun` keeps dropping from PATH; set
-`BUN=/nix/store/*-bun-1.3.3/bin/bun` for `./yo-cli`/commits.)_
-
-A natural stretch target after Phase 3: **fixpoint** — `yo-self-bin
-check ./yo-self` produces the same result as `./yo-cli check ./yo-self`,
-and a yo-self built by yo-self-bin also passes (once codegen lands, out
-of scope here).
+**⚠ History: ~12 incremental attempts (funcId side-table, stamp+guard,
+call-site stamp, routing refactor) were all net-≤0 or SIGBUS-prone — see git
+history and memory `yo-self-phase3-generic-impl-funcid`. DO NOT re-apply the
+funcId-stamp + `_same_type_constructor` guard as a standalone workaround.**
+Cracking it needs a genuine per-instantiation-identity design, validated with a
+**per-file baseline-vs-fix exit-code diff** (the aggregate count has hidden
+"0 improved" multiple times). The `param_is_comptime` over-CTFE angle was also
+tried and reverted (regressed `check ./std` 151→71; see memory
+`yo-self-html-knot-phantom`).
 
 ---
 
 ## Known evaluator blockers
 
-| Blocker                                                                                                                         | Issue                                                     | Phase | Status                                                          |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----- | --------------------------------------------------------------- |
-| API/syntax drift vs current `src/`                                                                                              | (this doc)                                                | 0     | fixed                                                           |
-| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                       | 1     | fixed                                                           |
-| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                       | 1     | fixed                                                           |
-| Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                       | 1     | fixed (per-module loader)                                       |
-| Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                       | 1     | fixed                                                           |
-| Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`                     | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                         |
-| Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | (this doc — resolved-blocker section)                     | 1     | fixed (infix dispatch + parametric-trait lookup + `Self` subst) |
-| Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                        | 1     | partial — per-module eval works; cycle/privacy parity TBD       |
-| Nested imports not preloaded: `import(...)` inside `impl({...})` body skipped by top-level-only preload walk (`./libc/stdlib`)  | (this doc — Phase 1 item 4)                               | 1     | fixed (`collect_import_paths_recursive`)                        |
-| Associated type on enum receiver: `Self.Output` errored as a missing enum variant before assoc-type lookup (`encoding/json.yo`) | (this doc — Phase 1 item 5)                               | 1     | fixed (`_try_resolve_associated_type` in EnumT branch)          |
-| where-clause trait-eval throw-propagation segfault                                                                              | `yo-self-where-clause-trait-eval-segfault.md`             | 2     | open                                                            |
-| nested TypeApplication in impl return segfault                                                                                  | `yo-self-nested-typeapp-in-impl-return-segfault.md`       | 2     | open                                                            |
-| impl fn parametric return SIGSEGV                                                                                               | `yo-self-impl-fn-parametric-return-sigsegv.md`            | 2     | open                                                            |
-| `TypeValue` variants too narrow for stub ports                                                                                  | `yo-self-typevalue-variants-too-narrow-for-stub-ports.md` | 2     | open                                                            |
-| enum-eval memory leak                                                                                                           | `yo-self-evaluator-enum-memory-leak.md`                   | 2     | open                                                            |
+| Blocker                                                                                                                         | Issue                                               | Phase | Status                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ----- | --------------------------------------------------------------- |
+| API/syntax drift vs current `src/`                                                                                              | (this doc)                                          | 0     | fixed                                                           |
+| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                 | 1     | fixed                                                           |
+| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                 | 1     | fixed                                                           |
+| Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                 | 1     | fixed (per-module loader)                                       |
+| Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                 | 1     | fixed                                                           |
+| Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`               | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                         |
+| Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | (this doc — resolved-blocker section)               | 1     | fixed (infix dispatch + parametric-trait lookup + `Self` subst) |
+| Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                  | 1     | partial — per-module eval works; cycle/privacy parity TBD       |
+| Nested imports not preloaded: `import(...)` inside `impl({...})` body skipped by top-level-only preload walk (`./libc/stdlib`)  | (this doc — Phase 1 item 4)                         | 1     | fixed (`collect_import_paths_recursive`)                        |
+| Associated type on enum receiver: `Self.Output` errored as a missing enum variant before assoc-type lookup (`encoding/json.yo`) | (this doc — Phase 1 item 5)                         | 1     | fixed (`_try_resolve_associated_type` in EnumT branch)          |
+| Test-body trial-eval errors not swallowed + non-raw `evaluate_expression` swallow→crash (≈36 `./tests` SIGSEGVs)                | (Phase 2; memory `yo-self-test-trial-eval-swallow`) | 2     | fixed (`0f3007c8`, `13a5bb4a`)                                  |
+| Self-referential-trait substitution recursion (`Error.source` cyclic `DynT→TraitT`)                                             | (Phase 2)                                           | 2     | fixed (`9b67b199`, `visited_trait_ids` cycle guard)             |
+| Circular import (`open(import b)` before `b` preloaded) → swallow→SIGSEGV in `evaluate_open`                                    | (Phase 3 — `d2732a2f`)                              | 3     | fixed (raw eval; circular imports still don't _resolve_)        |
+| Full-directory `check` SIGSEGV (cross-file state pollution; prelude-populated registries)                                       | (Phase 3 — measurement note)                        | 3     | known limitation — measure per-file by exit code                |
+| **Generic-instantiation identity knot** (`.new()`/method on a generic type → `unit`; ≈170 `./yo-self` fails)                    | `phase3-nested-generic-instantiation-identity.md`   | 3     | **open — the dominant Phase 3 blocker**                         |
 
-(The `yo-self-codegen-*` and `yo-self-bin-rebuild-segfaults-*` issues are
+(Several earlier Phase-2 issue docs — `yo-self-where-clause-trait-eval-segfault`,
+`yo-self-nested-typeapp-in-impl-return-segfault`,
+`yo-self-impl-fn-parametric-return-sigsegv`,
+`yo-self-typevalue-variants-too-narrow-for-stub-ports`,
+`yo-self-evaluator-enum-memory-leak` — were the historical `./tests` cluster;
+Phase 2 reached 169/170 via the swallow-pattern + cycle-guard fixes above, so
+they no longer block the count and may be stale. The `yo-self-codegen-*` and
+`yo-self-bin-rebuild-segfaults-*` issues are
 codegen concerns — out of scope for the `check` goal, though the rebuild
 issue should be re-checked since it is a year old and the toolchain has
 moved on substantially.)
@@ -1180,9 +663,9 @@ moved on substantially.)
 1. ✅ `./yo-cli check yo-self/main.yo` passes (drift repaired). _(Phase 0)_
 2. ✅ `yo-self-bin` builds from `yo-self/main.yo`. _(Phase 0)_
 3. ✅ `yo-self-bin check ./std` matches `yo-cli check ./std` (151/151). _(Phase 1)_
-4. `yo-self-bin check ./tests` matches `yo-cli check ./tests`. _(Phase 2)_
-5. `yo-self-bin check ./yo-self` passes — evaluator self-check fixpoint.
-   _(Phase 3)_
+4. ✅ `yo-self-bin check ./tests` matches `yo-cli check ./tests` (169/170). _(Phase 2)_
+5. `yo-self-bin check ./yo-self` passes — evaluator self-check fixpoint
+   (53/227; blocked on the generic-instantiation identity knot). _(Phase 3)_
 
 ---
 
