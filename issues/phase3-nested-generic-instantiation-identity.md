@@ -123,3 +123,37 @@ state pollution, entangled with prelude-populated registries — a harness
 limitation, not an evaluator bug). Measure **per-file by exit code**; single
 files and subdirs check fine. circular_deps SIGSEGV was fixed separately
 (`d2732a2f`).
+
+## ★ UNIFYING ROOT (2026): yo-self skips definition-time body type-checking
+
+Tracing the flowability + contracts ports revealed they share the knot's root.
+**TS `evaluate_function_type` (`function-type.ts:223-224, 486-499`) evaluates the
+function body at DEFINITION time in type-check mode** — `isExecuting: false`,
+`isValidatingFunctionDefinition: true` — then runs return-type, `ref(T)`-flow
+(`isFlowableExpr`), and contract checks on the evaluated body. **yo-self's
+`evaluate_function_type` does NOT evaluate the body at all** (only closures get a
+definition-time body eval, via `create_function_body_evaluation_context`).
+
+Consequences (all the same root):
+
+- **flowability** return-flow check (`is_flowable_expr` on the body's return
+  expr) has nothing to hook into at definition → cannot be activated.
+- **contracts** `wrap_function_body_with_contracts` transforms the
+  definition-time body → no hook.
+- **the Phase-3 knot**: because there's no definition-time (type-check-only)
+  body pass, body evaluation only happens at CALL time (FN-REG-BODY), where it
+  _executes_ (`is_executing` true) → over-CTFE of runtime ops (`String.from`
+  byte-copy, `HashMap.new` malloc) and the nested-instantiation `i32`/`usize` /
+  `Self`→`unit` failures.
+
+**The faithful root fix:** port `evaluate_function_type`'s definition-time body
+evaluation (TS `function-type.ts`) — evaluate the body with `is_executing=false`
+
+- `is_validating_function_definition=true`, then run the return-type / flow /
+  contract checks on it. This is the 1-to-1 port that unblocks flowability,
+  contracts, AND removes the over-CTFE pressure on the knot. It is large and
+  high-risk (it newly type-checks ALL fn bodies, with abstract type params — e.g.
+  `sizeof(Bucket(K,V))` with abstract `K,V` must defer, not error), so it needs a
+  staged effort with the per-file baseline-vs-fix diff harness. This is the single
+  highest-leverage faithful divergence to close; flowability/contracts/knot are
+  facets of it.
