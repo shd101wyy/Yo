@@ -37,7 +37,7 @@ open(import("std/fmt"));
 { is_struct_type } :: import("../../types/guards.yo");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 /// Walk down a `.`-chain to its leftmost root atom (or any non-`.` expr).
 /// Mirrors the TS `while((exprIsFunctionCallOf(rootExpr, ".")))` walk.
 walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
@@ -143,8 +143,14 @@ evaluate_open :: (
       );
     });
   });
-  // Recursively evaluate the argument via the dispatcher seam.
-  evaluated := evaluate_expression(arg_expr, env, ctx);
+  // Recursively evaluate the argument via the dispatcher seam. Use the
+  // exn-threading (raw) evaluator so a failure evaluating the argument — most
+  // importantly a failed `import("…")` (e.g. an unsupported circular import
+  // whose module isn't preloaded yet) — PROPAGATES to the caller's handler
+  // instead of being swallowed by the non-raw wrapper (which prints + returns
+  // an `err` placeholder and lets evaluation continue into a downstream crash).
+  // Mirrors TS `evaluateOpen` calling the propagating `evaluateExpression`.
+  evaluated := evaluate_expression_raw(arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     arg_info_opt,
