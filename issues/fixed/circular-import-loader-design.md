@@ -1,3 +1,14 @@
+# RESOLVED (commit 85480c76) — tests 155→163
+
+Implemented demand-driven loading (module_loader.yo loading-registry +
+main.yo `demand_load_module`/`_load_module_at_abs` + import.yo
+`_build_module_val_from_env` export). +8 resolvable cycles now pass; the 4
+remaining fixtures (circular_b, circular_error_a/b, circular_open_b) error
+identically to TS (export requested before declared across the cycle — genuinely
+unresolvable). 0 regressions / 0 SIGSEGV: yo-self 227/227, std 151/151.
+
+---
+
 # Circular-import support in the yo-self `check` loader (design)
 
 ## Status
