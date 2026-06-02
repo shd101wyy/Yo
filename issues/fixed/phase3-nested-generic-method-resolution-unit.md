@@ -1,3 +1,17 @@
+# RESOLVED (commit e3936a98)
+
+**Fixed.** Comptime-fn cache collision: `_ctfe_args_equal`'s concrete branch used
+lenient `are_types_compatible` (TS uses `requireExactMatch=true`), and
+`compatibility.yo`'s struct comparison was name-only while all yo-self structs
+have empty names — so `ME` and `Bucket` compared equal and `(?*)(Bucket)` hit a
+cached `(?*)(ME)`. Fix: concrete cache branch → `are_types_compatible_exact`;
+struct comparison under `require_exact` → structural (field labels + recursive
+field types, cycle-guarded). **check ./yo-self 57→227/227 (COMPLETE), std
+151/151, tests 155/182, 0 regressions / 0 SIGSEGV.** Full investigation
+(5 eliminated theories → exact root) retained below.
+
+---
+
 # Phase 3 blocker: `.new()` on a doubly-nested generic with RC inner type → "Given unit"
 
 ## Status
