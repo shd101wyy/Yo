@@ -74,6 +74,41 @@ non-concrete (`UnknownVal`) argument instead of passing vacuously. Fixing C
 BEFORE B would expose the true count of arithmetic-dependent test failures
 (currently hidden), so C is a prerequisite measurement tool for B.
 
+### Bug C root cause + why the obvious fix is BLOCKED (attempted, reverted)
+
+`comptime_assert.yo` is ALREADY 1-to-1 with TS:
+- The *executing* path (`is_executing == true`) is STRICT — `is_bool_val(arg)`
+  rejects `UnknownVal` (matches TS `comptime-assert.ts:78` `isBooleanValue`).
+- The *non-executing* path is LENIENT — accepts `UnknownVal` (matches TS lines
+  42-46). This leniency is intentional and correct.
+
+The vacuous pass is NOT a comptime_assert bug. It's that yo-self evaluates ALL
+module-level exprs with `ctx.is_executing == false`, so module-level
+`comptime_assert` takes the lenient path. TS evaluates module-level exprs with
+`isExecuting: true` (`index.ts:194`, `Evaluator.evaluateProgram` — for the main
+module AND every module loaded via `loadModule`), so TS takes the strict path
+and correctly fails a false module-level assertion.
+
+ATTEMPTED FIX (reverted): set `ctx.is_executing = true` at the
+`evaluate_anonymous_module_begin_exprs` call sites in `main.yo` (prelude,
+demand-loaded imports, top-level check). Result: CATASTROPHIC — `is_executing`
+is too broad a flag. It makes EVERY module-level expr "execute", but yo-self's
+module-level evaluator is built to CHECK, not EXECUTE:
+- Full version (incl. prelude): even a trivial file fails — the prelude's own
+  module-level code hits Bug B (`Previous: Expr, Current: unit`) and breaks the
+  cached prelude env, so all files fail.
+- Top-level-only version (prelude left lenient): a trivial
+  `main :: (fn()->i32)(0); export main;` STILL fails with
+  `paren-less function and operator calls are not supported` — `export main`
+  (and other module-level forms) are not execution-ready under `is_executing`.
+
+CONCLUSION: Bug C's faithful fix requires the module-level evaluator to be
+EXECUTION-READY (a Phase-5+/codegen-semantics concern, not evaluator-only
+Phase 3) AND Bug B fixed first. Do NOT re-attempt the `is_executing` flip in
+isolation — it is not a targeted fix. The narrow, safe path is: fix B
+(comptime arithmetic folding) first; C becomes observable/measurable only once
+module-level execution is viable.
+
 ## Affected test
 
 `tests/comptime_ref.test.yo` (and any test that genuinely depends on a comptime
