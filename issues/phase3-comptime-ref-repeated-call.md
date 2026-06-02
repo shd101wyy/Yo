@@ -51,3 +51,41 @@ mutated/consumed `n` binding and the 2nd call reuses it instead of binding the
 fresh arg. The fix is to bind a FRESH `comptime(ref)` parameter per call (not
 reuse stale state). Repro is fast (3 lines, no prelude noise beyond
 comptime_assert).
+
+## CORRECTION (deeper instrumentation) — NOT a mis-bind; stale body re-eval
+
+Instrumented the FuncVal param binding (`function.yo` ~1234) on `bump(5)` then
+`bump(0)`:
+
+```
+DBG NBIND n = 5 is_ct=T     (1st call — correct)
+DBG NBIND n = 0 is_ct=T     (2nd call — ALSO correct)
+```
+
+So the `comptime(ref(n))` parameter IS bound to the fresh, correct arg on BOTH
+calls (`5`, then `0`). The earlier "mis-binds on the second call" framing is
+WRONG. The 2nd call's _body evaluation_ (`n = n + usize(1); n`) returns
+`UnknownVal` despite `n` being correctly bound to `0`.
+
+Structural note: in `function.yo`'s FuncVal arm, the comptime gate
+(`is_th || rico || all_args_types`) and the over-CTFE skip (`!is_th && !rico`)
+are jointly exhaustive, so the inline **body-exec path is effectively DEAD CODE** —
+a comptime-only-return fn like `bump` (`-> comptime(usize)`, `rico=true`) takes
+the comptime gate → `evaluate_comptime_fn_call`, which re-evaluates the SAME body
+AST nodes each call. `comptime_fn.yo`'s header explicitly assumes "No cloneExpr
+needed (Yo uses ExprInfoTable — AST re-evaluation is safe)" — but TS DOES
+`cloneExpr` the body per comptime call. The prime remaining suspect is that the
+ExprInfoTable retains the FIRST call's node values (n=5→6), so the SECOND call's
+re-eval of the same nodes is stale/inconsistent → `UnknownVal`.
+
+UNRESOLVED CONTRADICTION (needs more tracing): `bump(usize(5))` ALONE returns `6`
+(works), which means it does NOT take the `!rico` skip — yet the
+`evaluate_comptime_fn_call` arg-trace showed no `bump` call with a `usize` arg
+reaching its tail. So either (a) `bump` reaches `evaluate_comptime_fn_call` but
+early-returns before the trace point, or (b) `comptime_assert` evaluates its
+argument via a distinct comptime-forcing path that handles `bump` outside
+`function.yo`'s gate. The next effort must first pin WHICH path `bump` takes
+(instrument `comptime_assert`'s arg evaluation + `evaluate_comptime_fn_call`'s
+entry, not just its tail), then address the body-AST re-eval staleness — most
+likely by cloning the comptime fn body per call (matching TS `cloneExpr`) or
+clearing the body's ExprInfo before re-evaluation. NOT a param-binding fix.
