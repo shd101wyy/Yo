@@ -55,7 +55,7 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_some_type } :: import("../../types/guards.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -1203,12 +1203,39 @@ evaluate_function_call :: (
             );
             arg_info.value = Option(EvalValue).Some(omitted_val);
           });
-          is_ct := match(arg_info.value,.Some(_) => true,.None => false);
+          // comptime_string → str/String value coercion. When a
+          // `comptime_string` literal (e.g. `"hi"`) is bound to a concrete
+          // runtime string parameter (`str`, `String`, …), bind it under the
+          // DECLARED parameter type with a runtime value, NOT under its raw
+          // `comptime_string` type. Otherwise in-body method dispatch resolves
+          // against `comptime_string` (`comptime_string.len() -> comptime_int
+          // -> i32`) instead of the declared runtime type (`str.len() ->
+          // usize`) — the source of the spurious "Cannot unify i32 and usize"
+          // when CTFE-evaluating `String.from("hi")`. The comptime value cannot
+          // stand in for the runtime `str` struct (its `.bytes` Slice has no
+          // comptime representation), so we bind a runtime value of the
+          // declared type. This is the FuncVal-call counterpart of the
+          // comptime→runtime conversion `helper.ts:504-568` performs.
+          //
+          // Narrow guard — only comptime_string args against a concrete,
+          // non-comptime-string, non-`SomeT` declared param. This avoids
+          // touching comptime type-parameter args (e.g.
+          // `(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`), which must keep
+          // their `Type` value so `*(T)` resolves.
+          bind_decl_pt := match(fv_param_types.get(pi),.Some(t) => t,.None => t_unit());
+          (bind_ty : TypeValue) = arg_info.ty;
+          (bind_val : Option(EvalValue)) = arg_info.value;
+          (is_ct : bool) = match(arg_info.value,.Some(_) => true,.None => false);
+          if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(bind_decl_pt)))) && (!(is_comptime_string_type(bind_decl_pt))), {
+            bind_ty = bind_decl_pt;
+            bind_val = Option(EvalValue).Some(create_unknown_val(bind_decl_pt));
+            is_ct = false;
+          });
           var_opt := add_variable_to_env(
             fresh_env,
             pname,
-            arg_info.ty,
-            arg_info.value,
+            bind_ty,
+            bind_val,
             is_ct,
             false,
             false,
