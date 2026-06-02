@@ -273,3 +273,40 @@ or field-evaluation difference when `V = ArrayList(<object/RC>)`, NOT in
 `constructor_func_id` at all. The fix is to make the concrete instantiation's
 field structure match the pattern's (correct substitution/layout), so the
 synthesize aligns `Bucket` with `Bucket` and binds `V = ArrayList(ME)` cleanly.
+
+## ★★★★ CONCRETE ROOT (field-path instrumented): HashMap.data pointee collapses Bucket→ME
+
+Instrumenting the synthesizer's struct field-unify loop + the pointer case on the
+ME repro gives the exact field path:
+
+```
+DBG SF-ENTER struct_2350(cfid=yo_id_2188) VS struct_2364(cfid=yo_id_2188)   (HashMap vs HashMap, same ctor)
+DBG PTR exp_pointee=u8 giv_pointee=u8                                        (field[0] ctrl : ?*(u8)  — OK)
+DBG PTR exp_pointee=<struct_2195>  giv_pointee=<struct_2357>                 (field[1] data  — MISMATCH)
+            = Bucket(K,V)              = ME
+```
+
+So `HashMap`'s `data : ?*(Bucket(K, V))` field, in the CONCRETE instantiation
+`HashMap(String, ArrayList(ME))`, has pointee **`ME`** instead of
+`Bucket(String, ArrayList(ME))`. The nested **`Bucket(K,V)` instantiation
+collapsed to `ME`** (the innermost element of the `V = ArrayList(ME)` type arg)
+when the value type is an object/RC. With `V = i32` the pointee is the correct
+`Bucket(String, i32)`, so it matches and `.new` resolves.
+
+So the bug is NOT in the synthesizer, NOT stamping, NOT method resolution — it is
+in **constructing `HashMap(String, ArrayList(ME))`**: evaluating the field type
+`?*(Bucket(K, V))` with `K=String, V=ArrayList(ME)` yields `?*(ME)`. The nested
+generic `Bucket(K,V)` field resolves to the innermost RC element `ME` instead of
+`Bucket(String, ArrayList(ME))`.
+
+### Next step (now exact)
+
+Instrument HashMap's data-field-type construction (the comptime_fn body eval of
+`object(... data : ?*(Bucket(K, V)) ...)` with `V=ArrayList(ME)`) to see where
+`Bucket(K, V)` → `ME`. Likely suspects: (a) a comptime_fn cache collision for
+`Bucket(...)` keyed on `(func_id, arg_values)` where the RC arg `ArrayList(ME)`
+mis-compares (`_ctfe_args_equal`) and returns a wrong cached value; (b) a
+substitution/self-type confusion between HashMap's `data` field and ArrayList's
+own `data : ?*(ME)` field (both named `data`, both `?*(...)`), so `V`'s inner
+pointee leaks into HashMap's `data`. Repro: `HashMap(String, ArrayList(ME)).new()`;
+discriminator: `ArrayList(i32)` works, `ArrayList(ME)`/`ArrayList(String)` collapse.
