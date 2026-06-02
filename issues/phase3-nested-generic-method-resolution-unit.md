@@ -126,3 +126,55 @@ i32 vs String/ME instantiations of the nested `ArrayList(...)` AND the outer
 `HashMap(...)`, and find where the RC-nested outer instantiation loses its
 stamp — likely a non-memoized construction path for the outer HashMap when a
 type-argument is itself a freshly-built nested instantiation.
+
+## PRECISE PIN (instrumented `try_match_generic_impl` + synthesizer struct case)
+
+Traced end-to-end on `HashMap(String, ArrayList(ME)).new()`:
+
+1. `.new` is a static method on `TypeVal(<HashMap struct>)`. property_access's
+   struct branch calls `find_methods_from_generic_impls(<HashMap struct>, "new")`.
+2. For the i32 receiver (`struct_2363`) the HashMap impl entry MATCHES (returns 1
+   method) → `.new` resolves → works.
+3. For the ME/String receiver (`struct_2364`) the SAME impl entry's
+   `try_match_generic_impl` **fails**: its `synthesize_types(impl_pattern,
+HashMap(String, ArrayList(RC)))` recurses into fields and throws at
+   `synthesizer.yo:1319`:
+   ```
+   DBG STRUCT-MISMATCH exp=#struct_2195/cfid=yo_id_2182  giv=#struct_2357/cfid=  (empty!)   (×20)
+   ```
+   So `find_methods` returns 0 → property_access falls to the registry-by-id
+   lookup (`type_id_or_empty(struct_2364)`, miss) → `.new` = NONE → the no-method
+   call path returns `unit`.
+
+**The exact root: `struct_2357` (a NESTED field struct of
+`HashMap(.., ArrayList(RC))`'s representation) has an EMPTY `constructor_func_id`
+and an empty `name`.** The impl pattern's corresponding field (`struct_2195`)
+carries `cfid=yo_id_2182`. `same_constructor` is false (one cfid empty) → the
+synthesizer throws "incompatible struct types" → the impl match fails. With an
+`i32` element the analogous nested field IS stamped, so the match succeeds.
+
+So the construction of `HashMap(K,V)` with a type-argument that is itself a
+freshly-built nested instantiation (`ArrayList(String)`, `ArrayList(ME)`) leaves
+one nested field struct **unstamped**, whereas a primitive element (`i32`) does
+not. This is the same "unstamped nested instantiation" the (resolved) i32/usize
+doc described, now proven to be the cause of the `.new → unit` method-resolution
+miss (NOT the cause of the String.from i32/usize, which was comptime_string).
+
+### Fix options (next focused effort)
+
+1. **Stamp the nested field at construction** — find where `HashMap`'s type
+   constructor builds its field structs (comptime_fn.yo / type construction) and
+   why an RC-nested type-arg yields an unstamped nested field; stamp it with the
+   right `constructor_func_id`. This is the faithful fix but is the SIGBUS-prone
+   stamping path (cycle-guard keys on stable ids; net-≤0 ×8 historically) — needs
+   careful per-file measurement.
+2. **Synthesizer leniency (workaround)** — at synthesizer.yo:1319, when one side's
+   `constructor_func_id` is EMPTY and field labels + count match, recurse into
+   fields instead of throwing. Bounded + testable, but risks reintroducing
+   field-misalignment for genuinely-different same-shaped structs; measure
+   per-file (yo-self 57, std 151, tests 155 baseline; watch imm_vec/imm_threading
+   for SIGBUS).
+
+Both need the per-file baseline-vs-fix diff harness. The 1-line repro
+`HashMap(String, ArrayList(ME)).new()` + the `struct_2195/cfid=yo_id_2182` vs
+`struct_2357/cfid=∅` evidence are the precise handles to work from.
