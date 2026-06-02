@@ -1006,6 +1006,22 @@ evaluate_function_call :: (
           ),
           .None => ArrayList(TypeValue).new()
         );
+        // Per-parameter `ref` flags, parallel to `fv_param_types`. A
+        // `comptime(ref(n))` / `inout(n)` parameter must be bound as
+        // REASSIGNABLE so the callee body's `n = ...` mutation is accepted
+        // (and, for comptime refs, propagates back via the binding-update
+        // path). Mirrors TS `helper.ts:581` (`isReassignable: parameter.isRef`).
+        // Previously hardcoded `false`, which made `n = ...` inside a
+        // `comptime(ref(n))` body throw "Cannot reassign n".
+        fv_param_is_ref := match(
+          callee_info_opt,
+          .Some(ci) => match(
+            ci.ty,
+            .Func({ param_is_ref : pir }) => pir,
+            _ => ArrayList(bool).new()
+          ),
+          .None => ArrayList(bool).new()
+        );
         (n_required_reg : usize) = n_p;
         if(fv_defaults.len() == n_p, {
           (nrr : usize) = usize(0);
@@ -1231,13 +1247,14 @@ evaluate_function_call :: (
             bind_val = Option(EvalValue).Some(create_unknown_val(bind_decl_pt));
             is_ct = false;
           });
+          p_is_ref := match(fv_param_is_ref.get(pi),.Some(b) => b,.None => false);
           var_opt := add_variable_to_env(
             fresh_env,
             pname,
             bind_ty,
             bind_val,
             is_ct,
-            false,
+            p_is_ref,
             false,
             false,
             synthetic_token(pname, env.module_path)
