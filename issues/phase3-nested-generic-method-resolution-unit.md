@@ -178,3 +178,28 @@ miss (NOT the cause of the String.from i32/usize, which was comptime_string).
 Both need the per-file baseline-vs-fix diff harness. The 1-line repro
 `HashMap(String, ArrayList(ME)).new()` + the `struct_2195/cfid=yo_id_2182` vs
 `struct_2357/cfid=∅` evidence are the precise handles to work from.
+
+## Tried + REJECTED: synthesizer leniency (option 2)
+
+Implemented the leniency at synthesizer.yo:1318 — `same_constructor` also true when
+one cfid is empty AND field shapes match. Two gates tried:
+
+- **field-labels equal**: did NOT trigger (struct_2195/2357 are anonymous — empty
+  name AND no matching labels), so the repro stayed failing.
+- **field-types count equal** (`one_cfid_empty && exp.field_types.len ==
+giv.field_types.len > 0`): the isolated repro `HashMap(String, ArrayList(ME)).new()`
+  PASSED, but the full per-file measurement was a **regression**: yo-self stayed
+  57/227 (net 0 files flipped) AND introduced **2 NEW SIGSEGVs** — the count-only
+  gate makes the synthesizer recurse into structs that shouldn't unify, and on
+  recursive types the cycle-guard blows up (the imm_vec/imm_threading SIGBUS the
+  memory warns about). Reverted.
+
+**Conclusion: option 2 (synthesizer leniency) is a dead end** — same net-≤0/SIGBUS
+trap as the prior ~8 attempts. The ONLY viable path is **option 1: stamp the
+nested field `struct_2357` at construction** so it carries the real
+`constructor_func_id` (matching `struct_2195`'s `yo_id_2182`). The next effort
+must trace `HashMap`'s type constructor (comptime_fn.yo / the nested-field build
+path) to find why an RC-nested type-argument yields an unstamped nested field,
+and stamp it there — NOT in the synthesizer. Repro:
+`HashMap(String, ArrayList(ME)).new()`; evidence: `struct_2195/cfid=yo_id_2182`
+(pattern, stamped) vs `struct_2357/cfid=∅` (concrete, unstamped).
