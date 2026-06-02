@@ -230,3 +230,46 @@ type_arguments, so (b) needs the construction to populate type_arguments too.
 with full per-file validation budget**, tracing where the use-site builds the
 nested field inline vs the pattern's stamped path — not a quick synthesizer or
 blanket-stamp change (both proven to regress/SIGBUS).
+
+## ★★★ STAMPING PREMISE DISPROVEN — it's a field-MISALIGNMENT, not unstamped identity
+
+Instrumenting struct construction (`struct.yo:159` + `comptime_fn.yo:721` stamp)
+on the ME repro identified the two mismatched structs by SOURCE:
+
+- `struct_2195` (cfid `yo_id_2182`) = **`Bucket(K,V)`** = `hash_map.yo:24`
+  `struct(key : K, value : V)` (2 fields). It IS stamped
+  (`DBG STAMP id=struct_2195 -> cfid=yo_id_2182`).
+- `struct_2357` = **`ME`** = `src/tests/fixme.yo:3` `object(name : String, kind :
+i32)` (2 fields). It is NEVER offered to the stamping block — and that is
+  CORRECT: `ME` is a plain non-generic object, like `String`/`struct_2052`; it
+  SHOULD carry an empty `constructor_func_id`.
+
+**So the synthesizer is comparing `Bucket(K,V)` against `ME`** — two unrelated
+2-field structs at the same recursion position. That is a **field-MISALIGNMENT**
+in how `HashMap(String, ArrayList(ME))` is structured vs the `HashMap(K,V)`
+pattern (object/RC element triggers it; `i32` does not), NOT an unstamped-nested-
+instantiation problem.
+
+**Consequences for the prior theories (all now refuted):**
+
+- The "stamp the nested field" fix is based on a WRONG premise — `struct_2357`
+  (`ME`) must stay unstamped. Stamping it would be incorrect.
+- The synthesizer-leniency SIGSEGV'd precisely because it forced
+  `Bucket(K,V) ≡ ME` (same field count) and then recursed two incompatible
+  structures.
+- The `i32` case works because `ArrayList(i32)`'s layout aligns with the pattern;
+  the object element `ME` (and `String`, an RC newtype) makes the concrete
+  HashMap's field structure diverge so a `Bucket(K,V)` position meets `ME`.
+
+### Real next step (corrected)
+
+Find WHY the impl-match `synthesize_types(HashMap(K,V) pattern,
+HashMap(String, ArrayList(<RC>)))` aligns a `Bucket(K,V)` field against `ME`.
+Instrument `synthesizer.yo`'s struct field-unify loop to print the FIELD PATH
+(which HashMap field → which sub-field …) that reaches the `Bucket` vs `ME`
+comparison, for the ME repro vs the i32 repro. The divergence is in the concrete
+instantiation's field LAYOUT for an object/RC value type — likely a substitution
+or field-evaluation difference when `V = ArrayList(<object/RC>)`, NOT in
+`constructor_func_id` at all. The fix is to make the concrete instantiation's
+field structure match the pattern's (correct substitution/layout), so the
+synthesize aligns `Bucket` with `Bucket` and binds `V = ArrayList(ME)` cleanly.
