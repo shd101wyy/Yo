@@ -310,3 +310,43 @@ substitution/self-type confusion between HashMap's `data` field and ArrayList's
 own `data : ?*(ME)` field (both named `data`, both `?*(...)`), so `V`'s inner
 pointee leaks into HashMap's `data`. Repro: `HashMap(String, ArrayList(ME)).new()`;
 discriminator: `ArrayList(i32)` works, `ArrayList(ME)`/`ArrayList(String)` collapse.
+
+## ★★★★★ EXACT ROOT (comptime-fn arg trace): `(?*)` gets ME instead of Bucket
+
+Instrumenting `evaluate_comptime_fn_call` (func id + arg types + result) on the ME
+repro gives the full picture. HashMap's `data` field is `?*(Bucket(K, V))` =
+`(?*)(Bucket(K, V))` (`?*` = prelude `(fn(comptime(T):Type)->Type)(Option(*(T)))`,
+`func=yo_id_1690`). The calls (in completion order):
+
+```
+L507  func=yo_id_1950 args=[ME(struct_2357)]                  -> ArrayList(ME)(struct_2359)
+L510  func=yo_id_2182 args=[String(2052), ArrayList(ME)(2359)] -> Bucket(struct_2369)   ✓ correct Bucket
+L511  func=yo_id_2188 args=[String(2052), ArrayList(ME)(2359)] -> HashMap(struct_2364)
+      func=yo_id_1690 args=[ME(struct_2357)]                  -> Option(*(ME))(enum_2362)  ✗  <-- data field
+```
+
+- The `Bucket(K,V)` constructor IS invoked correctly during HashMap's body eval
+  and returns `struct_2369` (a proper `Bucket(String, ArrayList(ME))`).
+- BUT `(?*)` (`func_1690`) — the operator wrapping the `data` field type — is
+  called with **`ME` (struct_2357)**, NOT `struct_2369`. There is NO
+  `(?*)(struct_2369)` call anywhere. So the `Bucket(K, V)` ARGUMENT EXPRESSION fed
+  to `(?*)` resolved to the innermost RC element `ME`, not the Bucket.
+- Pattern side is correct: `func_1690 args=[Bucket(struct_2195)] -> enum_2198`.
+- `i32` works because its element is a value type; the divergence is specific to
+  an RC/object innermost element (`ME`, `String`).
+
+So the EXACT bug: when evaluating `data : ?*(Bucket(K, V))` during the concrete
+`HashMap(String, ArrayList(ME))` body eval, the argument `Bucket(K, V)` passed to
+the `?*` operator evaluates to `ME` instead of `Bucket(String, ArrayList(ME))` —
+even though `Bucket(...)` is separately/also evaluated to the correct
+`struct_2369`. The wrong value (`ME` = the deeply-nested element of
+`V = ArrayList(ME)`) leaks into the `?*` argument.
+
+### Next step (final layer)
+
+Instrument the evaluation of the `?*`/`(?*)` call's ARGUMENT in the data-field
+context (or `Bucket(K, V)` as an argument expression) to see why it yields `ME`.
+Likely an ExprInfo/value aliasing or arg-evaluation bug where a nested generic
+application used as a call argument picks up the innermost type of a sibling/RC
+type argument. The fix makes `Bucket(K, V)` (as the `?*` argument) resolve to the
+already-computed `struct_2369`. Repro: `HashMap(String, ArrayList(ME)).new()`.
