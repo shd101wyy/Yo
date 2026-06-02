@@ -89,3 +89,42 @@ argument via a distinct comptime-forcing path that handles `bump` outside
 entry, not just its tail), then address the body-AST re-eval staleness — most
 likely by cloning the comptime fn body per call (matching TS `cloneExpr`) or
 clearing the body's ExprInfo before re-evaluation. NOT a param-binding fix.
+
+## PINNING (more instrumentation) — bump reaches CFN with correct args but never completes it
+
+Instrumented `evaluate_comptime_fn_call` (CFN-entry after arg collection,
+cache-hit, and tail) on `bump(5)` then `bump(0)`:
+
+```
+DBG CFN func=yo_id_1992 arg0=5     (bump's 1st call — reaches CFN with the correct usize arg)
+DBG CFN func=yo_id_1992 arg0=0     (bump's 2nd call — reaches CFN with the correct usize arg)
+```
+
+- **bump DOES reach `evaluate_comptime_fn_call`** (`func=yo_id_1992`) with the
+  correct `usize` arg (`5`, then `0`) on BOTH calls. (Earlier "never reaches CFN"
+  was a tracing artifact — the tail wasn't reached.)
+- **NO cache-hit** for either call (no `DBG CFHIT`), so `bump(0)` does NOT collide
+  with `bump(5)`'s cache.
+- **NEITHER call logs the tail `DBG CFRET`** — not even `bump(5)`, which produces
+  the correct `6`. And there is NO early `return(` between the cache lookup and
+  the tail (verified by scanning the source). So `evaluate_comptime_fn_call` for
+  `bump` does not return through its own tail.
+
+CONCLUSION (the real shape, still not fully cracked): `bump` enters
+`evaluate_comptime_fn_call` correctly, but the body-eval path
+(`evaluate_begin_expression` at ~line 618) does not return control to the
+function's tail — it either unwinds via the exception/control-flow mechanism, or
+`comptime_assert`'s argument evaluation drives `bump` in a pass whose result is
+produced/consumed elsewhere (a two-pass or re-entrant flow), so the single
+`evaluate_comptime_fn_call` frame never completes normally. The 1st-vs-2nd-call
+asymmetry (both reach CFN with correct args; 1st yields 6, 2nd yields UnknownVal)
+must come from state accumulated during the 1st call's body eval that the 2nd
+call's body eval re-reads (still consistent with ExprInfoTable / comptime-body
+re-eval staleness — the omitted `cloneExpr`).
+
+NEXT: trace the BODY-EVAL itself for `bump` — instrument `evaluate_begin_expression`
+and the assignment (`n = n + usize(1)`) + return (`n`) node evaluations across the
+two calls, and check whether the 2nd call's body nodes return stale ExprInfo from
+the 1st. If so, the fix is to clone the comptime fn body per call (or clear its
+ExprInfo subtree before re-eval), matching TS `cloneExpr`. This is the deepest
+open thread; it needs body-node-level tracing, not call-level.
