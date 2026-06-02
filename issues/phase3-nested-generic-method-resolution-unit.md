@@ -93,3 +93,36 @@ This is distinct from `phase3-nested-generic-instantiation-identity.md` (the
 "i32 vs usize" knot, RESOLVED) — that was a synthesize/binding bug; this is a
 METHOD-RESOLUTION bug. But both involve nested generic instantiations with RC
 inner types, so a shared identity root is plausible.
+
+## Refinement (instrumented `try_match_generic_impl`)
+
+Breadcrumbing `try_match_generic_impl`'s synthesize attempt (impl.yo:317) shows
+**no `HashMap(K,V)` pattern is ever tried** for the `.new` lookup — the only
+generic-impl TRY patterns are builtin-type impls (`Array(T,0)`, `Slice(T)`,
+`*(T)`, `ComptimeList(T)`, `iso(T)`) against the receiver structs. So `.new`
+resolution does **NOT** go through generic-impl matching at all; it goes through
+the **type-trait-methods registry lookup by type id** (`property_access.yo`'s
+`get_type_trait_methods_by_name(type_id_or_empty(type_val_inner), "new")`).
+
+So the narrowed root: `HashMap(String, ArrayList(i32))` carries the
+`constructor_func_id` (or struct id) under which `HashMap`'s `.new` is
+registered, but `HashMap(String, ArrayList(String|ME))` carries a **different /
+unstamped** id, so the registry lookup misses. The nested-RC value type argument
+(`ArrayList(String)`, `ArrayList(ME)`) causes the outer `HashMap` instantiation
+to be built via a path that does NOT stamp the matching `constructor_func_id`
+(cf. the `ret=unit` type-constructor calls seen at `function.yo`'s FuncVal gate —
+nested constructors returning unit/unstamped).
+
+**This reconnects to the genuinely-hard nested-instantiation identity problem**
+(see `phase3-nested-generic-instantiation-identity.md` "Why it's hard" + memory
+`yo-self-phase3-generic-impl-funcid`): per-instantiation `constructor_func_id`
+stamping for nested generics is SIGBUS-prone (the cycle-guard keys on stable ids)
+and was net-≤0 across ~8 attempts. The NEW, sharper handle is that it now
+manifests as a **method-registry lookup miss** (`.new` → unit) rather than a
+synthesize mismatch, and the precise discriminator is
+`HashMap(.., ArrayList(<RC>))` vs `HashMap(.., ArrayList(i32))`. The next effort
+should: instrument `type_id_or_empty` / the struct `constructor_func_id` for the
+i32 vs String/ME instantiations of the nested `ArrayList(...)` AND the outer
+`HashMap(...)`, and find where the RC-nested outer instantiation loses its
+stamp — likely a non-memoized construction path for the outer HashMap when a
+type-argument is itself a freshly-built nested instantiation.
