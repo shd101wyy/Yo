@@ -2,14 +2,23 @@
 
 ## Status
 
-Open — the **dominant Phase 3 blocker** (`check ./yo-self` = 53/227; **170 of
-172 fails** are this one bug, via the shared global
-`type_trait_methods.yo:130` `(_type_trait_methods : HashMap(String,
-ArrayList(MethodEntry))) = HashMap(...).new()`). This doc records the **clean
-minimal repro** isolated this session — far simpler than the HashMap cases that
-all prior ~8 attempts worked on (see memory `yo-self-phase3-generic-impl-funcid`
-for the full attempt history; **do not re-try funcId-stamp+guard alone — net-≤0
-×4+ and SIGBUS-prone**).
+**RESOLVED (2026, commits `ebca49a3` + `9b678519`).** Two faithful `function.yo`
+fixes cleared this blocker — **+6 files, 0 regressions / 560 files**: `check
+./yo-self` 53/227 → **57/227**, `check ./std` 150/151 → **151/151** (html.yo),
+`check ./tests` 154/182 → **155/182**. `_s := String.from("hi")` and the
+`M(String).make` repro now check OK. The fix was NOT the nested-generic-identity
+/ `struct_2052` memoization theory this doc originally pursued (that was a dead
+end — see the ★★ ROOT CAUSE CORRECTED section). The real fixes:
+
+1. **comptime_string→str param coercion** — `function.yo`'s FuncVal binding bound
+   the param under the RAW comptime arg type instead of the DECLARED `str` type,
+   so `slice.len()` dispatched `comptime_string.len()→comptime_int→i32`.
+2. **don't execute runtime-return fn bodies at call time** (helper.ts:1731) — the
+   call site yields `UnknownVal(returnType)`; only comptime-only returns execute.
+   This stopped the over-CTFE of `str.len()`/`malloc(sizeof(T)*cap)` on unknowns
+   that produced the follow-on `usize vs unit` cascade.
+
+Historical (pre-resolution) analysis retained below for context.
 
 ## Minimal reproducer (no HashMap)
 
