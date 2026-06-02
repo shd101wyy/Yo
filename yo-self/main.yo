@@ -30,13 +30,22 @@ open(import("std/fmt"));
 { Environment, clone_env } :: import("./env.yo");
 // Cached prelude env — populated on first check, reused thereafter.
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
+// Demand-driven module loader state (set per `check_single_file` run). The
+// import handler `ctx.load_module` has a fixed `(path) -> LoadModuleResult`
+// signature with no `io`/`exn`, so the loading context is stashed here for the
+// on-demand load path. This enables CIRCULAR imports: a module is registered as
+// "loading" (with its live env) before its body runs, so a cyclic import reads
+// its partial exports instead of failing "module not preloaded".
+(g_loader_io : Option(Io)) = Option(Io).None;
+(g_loader_std_path : Option(String)) = Option(String).None;
+(g_loader_exn : Option(Exception)) = Option(Exception).None;
 { EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
-{ resolve_module_path, ModuleResolveResult } :: import("./evaluator/exprs/import.yo");
-{ clear_module_cache, module_cache_has, register_module, load_module_from_cache } :: import("./evaluator/module_loader.yo");
+{ resolve_module_path, ModuleResolveResult, _build_module_val_from_env } :: import("./evaluator/exprs/import.yo");
+{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env } :: import("./evaluator/module_loader.yo");
 { EvalValue } :: import("./value.yo");
-{ compile_module_to_c, compile_test_body_to_c, extract_import_path, collect_import_paths_recursive, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
+{ compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -325,105 +334,67 @@ collect_module_deps :: (
 /// `base_dir` is the directory of the *importing* file, used to resolve
 /// relative paths — and chosen so the resolved `file://` key matches the
 /// one `evaluate_import` will compute for the same import.
-preload_module_tree :: (
-  fn(
-    import_path : str,
-    base_dir : str,
-    std_path : str,
-    visited : ArrayList(String),
-    io : Io,
-    exn : Exception
-  ) -> unit
-)({
-  // Resolve to a concrete file:// abs path (same resolver evaluate_import uses).
-  abs := match(
-    resolve_module_path(import_path, base_dir, std_path),
-    .Found(p) => p,
-    // Not-found / ambiguous deps are left unregistered; the later
-    // evaluate_import call surfaces the proper diagnostic.
-    .NotFound(_) => return(()),
-    .Ambiguous(_) => return(())
-  );
-  // The prelude is injected directly into every env — never preloaded.
+// Function-pointer slot for the demand loader. `demand_load_module` and
+// `_load_module_at_abs` are mutually recursive (the loader sets
+// `ctx.load_module` to itself for nested imports) and yo has no forward refs,
+// so the loader is wired through this slot (set in the init IIFE below).
+(g_demand_loader : Option((fn(path : String) -> LoadModuleResult))) =
+  Option((fn(path : String) -> LoadModuleResult)).None;
+/// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
+/// register its exports. Registers it as "loading" (with its live env) BEFORE
+/// evaluating, so a circular import resolves to its partial exports. Uses the
+/// loader io / std_path / exn stashed by `check_single_file`.
+_load_module_at_abs :: (fn(abs : String) -> unit)({
   if(abs.ends_with(String.from("prelude.yo")), {
     return(());
   });
-  // Dedup: skip if already cached or currently being preloaded (cycles).
   if(module_cache_has(abs.as_str()), {
     return(());
   });
-  (iv : usize) = usize(0);
-  (already : bool) = false;
-  while((iv < visited.len()) && !(already), {
-    match(
-      visited.get(iv),
-      .Some(v) => if(v.as_str() == abs.as_str(), {
-        already = true;
-      }),
-      .None => ()
-    );
-    iv = (iv + usize(1));
-  });
-  if(already, {
-    return(());
-  });
-  visited.push(abs.clone());
-  // Strip `file://` to get the filesystem path.
+  io := match(g_loader_io,.Some(i) => i,.None => return(()));
+  std_path := match(g_loader_std_path,.Some(s) => s,.None => String.from(""));
+  exn := match(g_loader_exn,.Some(e) => e,.None => return(()));
   fs_path := abs.replace(String.from("file://"), String.from(""));
-  mod_dir := match(
-    Path.new(String.from(fs_path.as_str())).parent(),
-    .Some(p) => p.to_string(),
-    .None => String.from(".")
-  );
-  // Read + parse the module.
   src_bytes := io.await(read_file(Path.new(String.from(fs_path.as_str())), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, abs.clone(), exn);
-  // Post-order: preload this module's own dependencies first.
-  // Collect imports recursively so nested imports (inside `impl({...})`
-  // / module / begin bodies, e.g. std/env.yo's `env :: impl({ {getenv,
-  // setenv} :: import("./libc/stdlib"); ... })`) are also preloaded.
-  child_imports := ArrayList(String).new();
-  (ni : usize) = mod_exprs.len();
-  (di : usize) = usize(0);
-  while(di < ni, {
-    match(
-      mod_exprs.get(di),
-      .None => (),
-      .Some(e) => collect_import_paths_recursive(e, child_imports)
-    );
-    di = (di + usize(1));
-  });
-  (nci : usize) = child_imports.len();
-  (ci : usize) = usize(0);
-  while(ci < nci, {
-    match(
-      child_imports.get(ci),
-      .None => (),
-      .Some(child) => {
-        recur(child.as_str(), mod_dir.as_str(), std_path, visited, io, exn);
-      }
-    );
-    ci = (ci + usize(1));
-  });
-  // Evaluate this module in isolation against a fresh clone of the
-  // cached prelude env, with its own imports resolving via the cache.
   env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(abs.clone())));
   env.module_path = abs.clone();
-  ctx := eval_context_new(String.from(std_path), abs.clone());
-  ctx.load_module = Option((fn(path : String) -> LoadModuleResult)).Some(load_module_from_cache);
+  ctx := eval_context_new(String.from(std_path.as_str()), abs.clone());
+  ctx.load_module = g_demand_loader;
   register_evaluate_expression();
-  result := evaluate_anonymous_module_begin_exprs(
-    mod_exprs,
-    env,
-    ctx,
-    false,
-    false,
-    exn
-  );
-  // Register this module's exports under its resolved path.
+  register_loading(abs.clone(), env);
+  result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, exn);
+  unregister_loading(abs.as_str());
   register_module(abs.clone(), result.module_value);
 });
+/// Demand-driven `ctx.load_module`. `path` is the resolved `file://` abs path
+/// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
+/// (cycle) -> partial exports from the module's live env; else load on demand.
+demand_load_module :: (fn(path : String) -> LoadModuleResult)({
+  if(module_cache_has(path.as_str()), {
+    return(load_module_from_cache(path));
+  });
+  match(
+    loading_env(path.as_str()),
+    .Some(env) => {
+      return(
+        LoadModuleResult(
+          module_value : _build_module_val_from_env(env),
+          module_error : Option(String).None
+        )
+      );
+    },
+    .None => ()
+  );
+  _load_module_at_abs(path.clone());
+  load_module_from_cache(path)
+});
+// Wire the slot (breaks the mutual-recursion forward ref).
+_demand_loader_init := (fn() -> bool)({
+  g_demand_loader = Option((fn(path : String) -> LoadModuleResult)).Some(demand_load_module);
+  true
+})();
 /// Recursive helper for `collect_check_files` — walks a directory
 /// tree appending each `.yo` file path to `out`.
 _walk_check_dir :: (
@@ -566,59 +537,29 @@ check_single_file :: (
     prelude_path := `${std_path.as_str()}/prelude.yo`;
     _pre := recur(prelude_path, std_path.clone(), io, exn);
   });
-  input_base_dir := match(
-    Path.new(String.from(input_path.as_str())).parent(),
-    .None => String.from("."),
-    .Some(p) => p.to_string()
+  // ---------------------------------------------------------------------------
+  // Demand-driven module loading (supports circular imports). Stash the loader
+  // context (io / std_path / exn) for `demand_load_module`, register THIS file
+  // as "loading" under its resolved file:// abs path BEFORE evaluating its body
+  // (so a dependency that imports it back resolves to its partial exports), wire
+  // `ctx.load_module` to the demand loader, then evaluate. Imports load on
+  // demand during evaluation — no post-order pre-pass (cannot resolve cycles).
+  // ---------------------------------------------------------------------------
+  g_loader_io = Option(Io).Some(io);
+  g_loader_std_path = Option(String).Some(std_path.clone());
+  g_loader_exn = Option(Exception).Some(local_exn);
+  entry_abs := match(
+    resolve_module_path(input_path.as_str(), ".", std_path.as_str()),
+    .Found(p) => p,
+    .NotFound(_) => input_path.clone(),
+    .Ambiguous(_) => input_path.clone()
   );
-  // ---------------------------------------------------------------------------
-  // Pre-evaluate this file's imports so each `import("…")` resolves to
-  // exactly that module's exports (per-module isolation). Registered in
-  // the module-loader cache keyed by resolved file:// path.
-  // ---------------------------------------------------------------------------
-  preload_visited := ArrayList(String).new();
-  // Collect imports recursively so nested imports (inside `impl({...})`
-  // / module / begin bodies) are preloaded too — see
-  // collect_import_paths_recursive.
-  entry_imports := ArrayList(String).new();
-  (nip : usize) = exprs.len();
-  (iip : usize) = usize(0);
-  while(iip < nip, {
-    match(
-      exprs.get(iip),
-      .None => (),
-      .Some(e) => collect_import_paths_recursive(e, entry_imports)
-    );
-    iip = (iip + usize(1));
-  });
-  (nei : usize) = entry_imports.len();
-  (iei : usize) = usize(0);
-  while(iei < nei, {
-    match(
-      entry_imports.get(iei),
-      .None => (),
-      .Some(imp_path) => {
-        preload_module_tree(
-          imp_path.as_str(),
-          input_base_dir.as_str(),
-          std_path.as_str(),
-          preload_visited,
-          io,
-          local_exn
-        );
-      }
-    );
-    iei = (iei + usize(1));
-  });
-  // ---------------------------------------------------------------------------
-  // Evaluate this file's own declarations against a clone of the prelude
-  // env, with `ctx.load_module` wired to the per-module cache.
-  // ---------------------------------------------------------------------------
-  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(input_path.clone())));
-  env.module_path = input_path.clone();
-  ctx := eval_context_new(std_path.clone(), input_path.clone());
-  ctx.load_module = Option((fn(path : String) -> LoadModuleResult)).Some(load_module_from_cache);
+  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
+  env.module_path = entry_abs.clone();
+  ctx := eval_context_new(std_path.clone(), entry_abs.clone());
+  ctx.load_module = g_demand_loader;
   register_evaluate_expression();
+  register_loading(entry_abs.clone(), env);
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   _r := evaluate_anonymous_module_begin_exprs(
     exprs,
@@ -628,6 +569,7 @@ check_single_file :: (
     false,
     local_exn
   );
+  unregister_loading(entry_abs.as_str());
   println(`check: ${input_path} — evaluator OK`);
   true
 });
