@@ -67,14 +67,35 @@ identifier, isn't found, and returns the soft fallback `UnknownVal(t_unit())`
 ### Gap 2 — associated-type return (`Self.Output`) not resolved
 Comparisons work because they return a concrete `bool`. Arithmetic returns
 `comptime(Self.Output)` (an associated-type projection; see `ComptimeAdd` =
-`(+) : (fn(... ) -> comptime(Self.Output))`). The existing dispatch can't infer
-that return type — this is exactly the *"routing them through generic trait
-dispatch would lose the return type (`Failed to infer the function call return
-type`)"* note at `function.yo:327-329`, i.e. a prior attempt hit this wall.
-`Self.Output` must resolve to the impl's `Output : usize` binding. yo-self has
-associated-type resolution machinery (see memory
-`yo-self-assoc-type-enum-receiver`); it needs to be applied on the operator
-method's return type.
+`(+) : (fn(... ) -> comptime(Self.Output))`). With Gap 1 fixed (operator routed
+to method dispatch), the return type comes back as the bare SomeT `Output`
+instead of `usize` → `n = n + usize(1)` fails `Incompatible types: Given Output`.
+
+PRECISE MECHANISM (measured via probe, 2026-06):
+- `usize`'s type id is **`__yo_t_usize`** — NOT empty. (The `impl.yo:1184`
+  "primitive types produce an empty id" comment is misleading for the numeric
+  builtins; they DO get ids and DO register trait methods.)
+- Under `__yo_t_usize`, the trait-method registry has **23** entries named
+  `Output` (every trait with an `Output` assoc type that `usize` impls: Add,
+  Sub, Mul, Div, Index, …). So a naive `get_type_trait_methods_by_name(usize_id,
+  "Output")` is AMBIGUOUS — it can't tell which `Output` belongs to `ComptimeAdd`.
+- The resolved `+` `MethodEntry` carries `source_trait_id` (the `ComptimeAdd`
+  trait id). The fix must resolve `Self.Output` to the `Output` registry entry
+  **whose `source_trait_id` matches the operator method's `source_trait_id`** —
+  i.e. disambiguate by trait, not just by name.
+- `evaluate_function_return_type_again` (`types/function.yo:3483`) only calls
+  `get_value_of_some_type_from_env`, which resolves SomeTs against env variables
+  — it does NOT consult the trait-method registry. So the binding either has to
+  be (a) injected into `callee_env` (bind `Output` → the matched impl's Output
+  type) before return-type eval, mirroring how TS binds impl associated types
+  during method resolution, or (b) resolved post-hoc in the operator dispatch
+  using the method's `source_trait_id`.
+The faithful approach is (a): when a trait method is resolved for a receiver,
+bind that impl's associated types into the method's callee env (this is what TS
+does and it generalizes beyond operators). yo-self has assoc-type machinery
+(`property_access.yo:_try_resolve_associated_type`, keyed by type id) but it is
+only invoked on the EnumT property-access branch and is name-only (no
+`source_trait_id` disambiguation).
 
 ### Gap 3 — comptime-over-runtime overload priority is UNPORTED
 `grep` of `yo-self/evaluator/calls/helper.yo` finds NO equivalent of
