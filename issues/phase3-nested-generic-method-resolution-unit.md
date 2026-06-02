@@ -203,3 +203,30 @@ path) to find why an RC-nested type-argument yields an unstamped nested field,
 and stamp it there — NOT in the synthesizer. Repro:
 `HashMap(String, ArrayList(ME)).new()`; evidence: `struct_2195/cfid=yo_id_2182`
 (pattern, stamped) vs `struct_2357/cfid=∅` (concrete, unstamped).
+
+## Construction-path trace (stamping origin)
+
+- `struct(...)` (`evaluator/types/struct.yo:159-169`) ALWAYS builds with empty
+  `constructor_func_id` + empty `type_arguments` ("set later at the comptime-fn
+  call site").
+- `evaluate_comptime_fn_call` (`comptime_fn.yo:717-731`) stamps ONLY the outer
+  returned struct (sets cfid = the constructor func id + type_arguments), NOT
+  nested field structs.
+- `substitute()` (`substitution.yo:239`) PRESERVES cfid AND the struct id.
+
+Therefore `struct_2357` (id ≠ the pattern's `struct_2195`, empty cfid) was
+**freshly built inline and never routed through `evaluate_comptime_fn_call`'s
+stamping**, while the impl pattern's equivalent field WAS stamped (`yo_id_2182`).
+The asymmetry to resolve: why does the impl pattern's nested field get stamped
+but the use-site instantiation's equivalent field gets built inline+unstamped for
+an RC type-arg (and NOT for `i32`)? A blanket "stamp all nested structs" is wrong
+— genuinely-anonymous structs (e.g. `String`/`struct_2052`) correctly carry empty
+cfid. The fix needs to either (a) route the use-site nested-field construction
+through the same memoized/stamped path the pattern used, or (b) match by
+`type_arguments` when cfid is empty — but `struct_2357` also has empty
+type_arguments, so (b) needs the construction to populate type_arguments too.
+
+**This is the hard core (net-≤0 ×8, SIGBUS-prone). It needs a dedicated effort
+with full per-file validation budget**, tracing where the use-site builds the
+nested field inline vs the pattern's stamped path — not a quick synthesizer or
+blanket-stamp change (both proven to regress/SIGBUS).
