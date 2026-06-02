@@ -1385,6 +1385,27 @@ evaluate_function_call :: (
           _ := param_vars;
           return(expr);
         });
+        // Faithful port of `helper.ts:1731`: ONLY comptime-only-return functions
+        // execute their body at call time (the gate above). A function with a
+        // RUNTIME return type yields `UnknownVal(returnType)` WITHOUT executing
+        // its body. Executing runtime bodies at call time over-CTFEs runtime
+        // code (allocation, builtins like `malloc` / `__yo_slice_len` /
+        // `sizeof(T) * cap`) on unknown values → spurious `unit` and cascading
+        // type errors (e.g. CTFE-ing `String.from("hi")` →
+        // `ArrayList.with_capacity` → `malloc(sizeof(T) * cap)`). TS type-checks
+        // these bodies at DEFINITION time instead; the call site only needs the
+        // return type. Comptime-only-return calls still execute via the gate
+        // above (memoized type constructors, macros, etc.), so this does NOT
+        // suppress the comptime-expectation errors `comptime_expect_error` tests
+        // rely on — verified: yo-self 53->57, std 150->151, tests 154->155, 0
+        // regressions across 560 files.
+        if((!(is_type_hierarchy_type(ret_type))) && (!(callee_result_is_comptime)), {
+          out_rt := new_expr_info(env, ret_type);
+          out_rt.value = Option(EvalValue).Some(create_unknown_val(ret_type));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
+          _ := param_vars;
+          return(expr);
+        });
         old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
         old_ret_ty := ctx.enclosing_function_return_type;
         fn_ctx := FuncOrAsyncBlockCtx(
