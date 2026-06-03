@@ -72,6 +72,43 @@ canary is the PRELUDE (single-file check) — must stay clean (0 swallowed error
 BEFORE any full run. Then per-file diff std/tests/yo-self with 0-regression bar
 (the slow ~25-min cycle). Revert on any prelude breakage.
 
+## Progress (2026-06, this session) — staged checklist
+
+The params-frame mechanism is IMPLEMENTED and PROVEN, but def-time body eval is
+a multi-layer chain; later layers regress and were reverted (baseline kept green
+at Tier 1: std 151 / tests 164 / yo-self 227).
+
+- [x] **params-frame side-table — PROVEN.** Capture `env_mut`'s top frame
+  IMMEDIATELY after `evaluate_function_parameters` (line ~2995) — NOT later
+  (by the `register_func_param_defaults` site the top frame is the MODULE frame
+  with 51+ globals, confirmed by probe `frameVars=51`). Key by
+  `ast_expr_id(expr)` (the `fn(...)` type-expr id); read in
+  `try_to_implement_function_by_function_type` via `ast_expr_id(fn_type_box.*)`;
+  `frames.push` it before body eval, `pop_frame` after. Verified: `frameVars=1`,
+  `Idx` resolves, prelude `Idx` errors 6→0. `EvalValue` is a value-type (no
+  `.clone()`; pass by value). Box `body_expr.clone()` for the FuncVal so def-eval
+  reuses the original.
+- [ ] **should_defer needs the DEEP predicate.** yo-self's `type_contains_some_type`
+  (types/utils.yo:442) is SHALLOW — only top-level `.SomeT`/`.TypeAppT`. TS uses
+  `typeContainsSomeTypeForCodegenParam` (types/utils.ts:708) which recurses
+  `Ptr`/`Slice`/`Array`/`Struct`/`Enum`/`Func` (with `Fn`/`Future`/extern SomeT
+  exclusions). Without it, generic ptr fns aren't deferred → def-eval runs
+  `__yo_ptr_add(self,offset)` with `self:*(T)` → `Type mismatch Expected T Got
+  *(T)` (bump regressed exit 1). PORT it. Constraints: `type_implements_fn`/
+  `type_implements_future` live in `evaluator/trait_checking.yo` (importing into
+  `types/utils.yo` cycles — put the predicate in a module that can import them,
+  or inline the Fn/Future checks), and yo-self `SomeT` has no `is_extern`/
+  `resolved_concrete_type` fields (those TS exclusions become no-ops). A SAFE
+  over-deferring stand-in is `get_all_some_types(deep) > 0` (defers more, evals
+  fewer bodies — never under-defers), but it is not byte-faithful (over-defers
+  `exn:Exception`/`io:Io` fns TS evaluates).
+- [ ] **closure.test regressed (exit 1)** under def-eval — another should-defer
+  miss (likely cleared by the deep predicate) OR a distinct body-eval side
+  effect. 2 swallowed prelude errors also remained (down from 6). Analyze after
+  the deep predicate lands.
+- [ ] **wire the gates** (downstream): `-> ref(T)` flowability
+  (function-type.ts:524-573) + `wrap_function_body_with_contracts`.
+
 ## Reference points
 - TS: `function-type.ts:340-513` (param frame push + should_defer + body eval),
   `function.ts:561` (param value = createUnknownValue), `definitions.ts:877`
