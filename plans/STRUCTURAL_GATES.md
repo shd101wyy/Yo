@@ -64,6 +64,48 @@ constraints + type_implements_send). Broader: touches impl registration + Send
 derivation + where-clause enforcement, and the standalone-negative positive
 cases must keep working.
 
+## ⚠️ COMMON ROOT (discovered 2026-06): `comptime_expect_error` is DISABLED
+
+ALL 5 gate tests (and the flowability tests `ref_flowability`/`slice_flowability`)
+wrap the expected rejection in `comptime_expect_error(...)`. But yo-self's
+`evaluate_comptime_expect_error` (builtins/comptime_expect_error.yo) has its
+inner exception handler REMOVED (header comment lines 9-14: disabled because the
+TS codegen building yo-self-bin "cannot pass given bindings via exn_x — the
+unwind handler cannot access outer function parameters"). It evaluates the arg
+with the NON-RAW `evaluate_expression` (which catches+prints+swallows any error)
+and then ALWAYS throws "Expected compile error, but the expression was evaluated
+successfully". So it can NEVER detect an error → every `comptime_expect_error`
+case fails regardless of whether the underlying gate fires.
+
+**This is the gating prerequisite for the whole cluster.** No gate test can flip
+green until `comptime_expect_error` actually CATCHES the arg's error. Fix:
+evaluate the arg via `evaluate_expression_raw` (which DOES take an `exn`) wrapped
+in a LOCAL unwinding `Exception` — the pattern `try_populate_expr_info_table`
+(main.yo) uses successfully (`Exception(throw : ((_e) -> unwind(...)))`), which
+compiles fine, sidestepping the codegen limitation that disabled the original
+handler. If the raw eval throws → caught → error occurred → return unit; else →
+throw "evaluated successfully". This is the documented trial-eval-swallow fix
+(memory `yo-self-test-trial-eval-swallow`).
+
+## Progress (2026-06)
+
+- [x] **Eval-time pragma registration** (pragma.ts:113-116) — committed
+  (d1ac577d). yo-self had NO `register_file_pragma` callers (only the
+  SkipPrelude pre-scan), so `AllowUnsafe` was never registered and
+  `is_implicitly_unsafe_capable_file` was globally false. Added `evaluate_pragma`
+  + the `pragma(...)` dispatch in `_expr.yo`.
+- [x] **Phase-C raw-pointer-type gate** (pointer.ts:75-86) — committed. `*(T)`
+  in safe code now rejected; prelude (pragma'd) exempt. std 151→151, tests
+  164→164, 0 regressions. Does NOT flip a test yet (blocked by the
+  comptime_expect_error common root above).
+- [ ] **Fix `comptime_expect_error`** (the common root) — local unwinding exn +
+  raw eval. PREREQUISITE for flipping any gate/flowability test.
+- [ ] **Address-of `&(x)` gate** + **pointer-cast `*(U)(p)` gate** (safe_code has
+  these cases too; _expr.ts:1237 etc.).
+- [ ] **Extern-call-requires-unsafe gate** (extern_unsafe_wrap — a SEPARATE gate
+  from the raw-ptr-type one; calling an `extern "c"` fn without `unsafe(...)`).
+- [ ] **Cluster B** (negative-impl registry + Send/where-clause).
+
 ## Recommended order
 
 1. **Cluster A first** — 2 tests, ~2 small contained gate ports, low risk,
