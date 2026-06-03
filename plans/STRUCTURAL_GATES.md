@@ -114,8 +114,18 @@ throw "evaluated successfully". This is the documented trial-eval-swallow fix
       DETECTS errors. tests 164→165 (`ref_return` flipped), std/yo-self 0 regressions.
       Detection is no longer the blocker; each remaining test now just needs its
       underlying gate to FIRE.
-- [ ] **Address-of `&(x)` gate** + **pointer-cast `*(U)(p)` gate** (safe_code has
-      these cases too; \_expr.ts:1237 etc.).
+- [x] **safe_code_structural_gates — DONE** (commit 8cd68d48). Ported the
+      Phase-C address-of `&(x)` gate (ptr_fns.yo `evaluate_address_call`,
+      ptr-fns.ts:45-61): `&(expr)` in safe code → reject. This was the LAST
+      missing gate — its other cases (raw-ptr types d1ac577d, unsafe/asm/extern/
+      c_include already ported, Send-pragma e0d7fda9) fired already. The two
+      `&+` and `*(U)(p)`-cast cases both open with `p := &(x)`, so address-of
+      fires first (matching TS eval order). tests 167→168, 0 regressions.
+      **Faithfulness follow-up:** the standalone `&+`/`&-`/`&/` pointer-arith
+      gate (\_expr.ts:1237) + the inner `__yo_ptr_add/_sub/_diff` builtin gate
+      are NOT ported — yo-self `_expr.yo` has no `&+` dispatch branch (routes
+      through the prelude `&+` impl), so it needs a new dispatch branch. Dead in
+      safe code now that `&(x)` is gated, but worth porting for parity.
 - [ ] **Extern-call-requires-unsafe gate** (extern_unsafe_wrap — a SEPARATE gate
       from the raw-ptr-type one; calling an `extern "c"` fn without `unsafe(...)`).
       ⚠️ **CORRECTION (2026-06): this test is BEHIND THE DEF-EVAL WALL, not a cheap
