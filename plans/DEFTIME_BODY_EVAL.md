@@ -88,7 +88,25 @@ at Tier 1: std 151 / tests 164 / yo-self 227).
   `Idx` resolves, prelude `Idx` errors 6→0. `EvalValue` is a value-type (no
   `.clone()`; pass by value). Box `body_expr.clone()` for the FuncVal so def-eval
   reuses the original.
-- [ ] **should_defer needs the DEEP predicate.** yo-self's `type_contains_some_type`
+- [x] **`type_contains_some_type_for_codegen_param` — PORTED (proven, reverted).**
+  1:1 port of `typeContainsSomeTypeForCodegenParam` (utils.ts:708) added to
+  `evaluator/trait_checking.yo` (so it can use `type_implements_fn`/`future`
+  without a `types/utils.yo` cycle); recurses Array/Slice/Pointer/Iso/Tuple/
+  Struct(excl. Fn-typed fields)/Enum/Union/Module/Func, `TypeAppT`→true; SomeT
+  excl. via `type_implements_fn`/`future` (yo-self `SomeT` has no `is_extern`/
+  `resolved_concrete_type` → those exclusions are no-ops). Built clean; wired
+  into `should_defer`. Reduced prelude swallowed errors 6→4 — but did NOT clear
+  the regression.
+- [ ] **4TH LAYER (deeper): generic-call unification in type-check mode.** With
+  the deep predicate deferring generic fns, def-eval of a CONCRETE fn whose body
+  CALLS a generic fn still fails: `str` ctor (prelude.yo:5832
+  `Self(bytes : __yo_slice_new(ptr, length))`) → `Type mismatch for "ptr":
+  Expected *(T) Got *(u8)` — `__yo_slice_new`'s `T` is NOT unified to `u8` in
+  def-time type-check mode (`is_executing=false`). So the generic-call
+  resolution path isn't robust in def-eval mode. This is NOT a should_defer
+  miss — it's the evaluator's call machinery behaving differently under
+  type-check mode. bump/closure/comptime_ref/sysinfo all still regress (exit 1).
+- [ ] (was) **should_defer needs the DEEP predicate.** yo-self's `type_contains_some_type`
   (types/utils.yo:442) is SHALLOW — only top-level `.SomeT`/`.TypeAppT`. TS uses
   `typeContainsSomeTypeForCodegenParam` (types/utils.ts:708) which recurses
   `Ptr`/`Slice`/`Array`/`Struct`/`Enum`/`Func` (with `Fn`/`Future`/extern SomeT
