@@ -168,6 +168,39 @@ throw "evaluated successfully". This is the documented trial-eval-swallow fix
     (negative detection + marker-only + Send-requires-pragma). A focused
     feature-sized effort, not a one-liner.
 
+## sync/mutex — precise blocker (investigated 2026-06)
+
+`Bad :: Mutex(NonSendObj)` must reject because `Mutex :: (fn(comptime(T) :
+Type, where(T <: Send)) -> comptime(Type))` and `NonSendObj :: object(...)` is
+not Send. This fires at MODULE level (not behind the def-eval wall) — tractable
+in principle — but it is NOT a simple "call the existing function" wiring:
+
+- The validation fns ARE ported: `validate_concrete_type_constraints` +
+  `apply_where_clause_constraints` (function.yo:1229-1495), and
+  `type_implements_send` / `type_implements_trait_bool` (trait_checking.yo:685).
+- BUT `apply_where_clause_constraints` operates on constraint **AST exprs**
+  (it re-evaluates `lhs_expr`/`trait_expr`), and the `Func` TypeValue variant
+  stores only **evaluated** `where_types : ArrayList(TypeValue)` — the original
+  `where(T <: Send)` exprs are collected locally in
+  `evaluate_function_type` (function.yo:2583-2604, into `where_clause_exprs`)
+  and DISCARDED after `prepare_where_clause_variables` runs. The general call
+  path (helper.yo:1425) also discards `where_types` (`_ := wt;`).
+- **The constraint is NOT lost, though** — `prepare_where_clause_variables`
+  encodes it as the `comptime(T)` param's `SomeT.required_trait_types = [Send]`
+  (function.yo:3396-3410 reads these back into `where_types`). So the faithful,
+  representation-matching fix is: **at the comptime-fn binding step** (where a
+  concrete type arg binds to a `comptime(T)` SomeT param — `calls/comptime_fn.yo`
+  / `builtins/comptime_fn.yo:295`), check the bound concrete type against that
+  param's `required_trait_types` via `type_implements_trait_bool`, throwing the
+  ported error (function.yo:1381 "does not implement required trait").
+- **Risk (why deferred): Send-derivation completeness.** This adds a reject on
+  the HOT comptime-type-constructor call path. If any type that SHOULD be Send
+  is not derived as Send by `type_implements_send` (auto-derive gaps), valid
+  std/tests code using `Mutex(T)`/`Arc(T)`/etc. starts wrongly rejecting →
+  broad regressions. MUST validate per-file across std(151)/tests/yo-self and
+  revert on ANY regression. Scope before implementing: audit
+  `type_implements_send` auto-derive against the std types passed to Mutex/Arc.
+
 ## Recommended order
 
 1. **Cluster A first** — 2 tests, ~2 small contained gate ports, low risk,
