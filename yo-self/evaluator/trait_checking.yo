@@ -279,6 +279,96 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
   )
 );
 // ---------------------------------------------------------------------------
+// type_implements_send_builtin / type_implements_acyclic_builtin
+// ---------------------------------------------------------------------------
+/// Tag-only fast path for the Send / Acyclic marker traits on PRIMITIVE leaves.
+///
+/// In TS every type carries a `.trait` field listing its auto-derived markers,
+/// so a bare `i32`/`bool` resolves Send via `targetType.trait.fields`. yo-self
+/// instead stores auto-derive results in a registry keyed by NOMINAL type id
+/// (`g_type_trait_registry`), which cannot hold primitives (they have no id),
+/// and — like the existing Comptime/Runtime builtins — relies on a tag-only fast
+/// path for primitive leaves. Without this, `type_implements_send(i32)` was
+/// false, so `_all_fields_implement_send` failed for any value struct with a
+/// primitive field, and `where(T <: Send)` over-rejected primitives directly
+/// (e.g. `Channel(bool)`).
+///
+/// Returns `Some(true)` for unconditionally-Send/Acyclic value & comptime-data
+/// leaves; `.None` for nominal (Struct/EnumT/Union — defer to the auto-derive
+/// registry) and structural/conditional types (Iso/Dyn/Pointer/Func — defer to
+/// generic-impl matching / where-constraints).
+type_implements_send_builtin :: (fn(ty : TypeValue) -> Option(bool))(
+  match(
+    ty,
+    // Scalar value primitives — trivially movable across threads.
+    .Unit => Option(bool).Some(true),
+    .BoolT => Option(bool).Some(true),
+    .Usize => Option(bool).Some(true),
+    .Isize => Option(bool).Some(true),
+    .Int(_, _) => Option(bool).Some(true),
+    .Float(_) => Option(bool).Some(true),
+    .CChar => Option(bool).Some(true),
+    .CShort => Option(bool).Some(true),
+    .CUShort => Option(bool).Some(true),
+    .CInt => Option(bool).Some(true),
+    .CUInt => Option(bool).Some(true),
+    .CLong => Option(bool).Some(true),
+    .CULong => Option(bool).Some(true),
+    .CLongLong => Option(bool).Some(true),
+    .CULongLong => Option(bool).Some(true),
+    .CLongDouble => Option(bool).Some(true),
+    // Comptime data + type-level values — immutable, Send.
+    .ComptimeInt => Option(bool).Some(true),
+    .ComptimeFloat => Option(bool).Some(true),
+    .ComptimeString => Option(bool).Some(true),
+    .ComptimeListT(_) => Option(bool).Some(true),
+    .ExprT => Option(bool).Some(true),
+    .TypeUni(_) => Option(bool).Some(true),
+    .ModuleT(_, _, _, _) => Option(bool).Some(true),
+    .TraitT(name : _) => Option(bool).Some(true),
+    .FnTraitT(base_name : _) => Option(bool).Some(true),
+    .FutureTraitT(base_name : _) => Option(bool).Some(true),
+    // Nominal / structural / conditional — defer to registry / generic impls.
+    _ => Option(bool).None
+  )
+);
+/// Tag-only fast path for the Acyclic marker on primitive leaves. Same leaf set
+/// as Send: scalars and comptime-data values cannot form RC cycles. Nominal and
+/// reference-bearing types defer to the auto-derive registry (which uses
+/// `can_type_form_rc_cycle`).
+type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
+  match(
+    ty,
+    .Unit => Option(bool).Some(true),
+    .BoolT => Option(bool).Some(true),
+    .Usize => Option(bool).Some(true),
+    .Isize => Option(bool).Some(true),
+    .Int(_, _) => Option(bool).Some(true),
+    .Float(_) => Option(bool).Some(true),
+    .CChar => Option(bool).Some(true),
+    .CShort => Option(bool).Some(true),
+    .CUShort => Option(bool).Some(true),
+    .CInt => Option(bool).Some(true),
+    .CUInt => Option(bool).Some(true),
+    .CLong => Option(bool).Some(true),
+    .CULong => Option(bool).Some(true),
+    .CLongLong => Option(bool).Some(true),
+    .CULongLong => Option(bool).Some(true),
+    .CLongDouble => Option(bool).Some(true),
+    .ComptimeInt => Option(bool).Some(true),
+    .ComptimeFloat => Option(bool).Some(true),
+    .ComptimeString => Option(bool).Some(true),
+    .ComptimeListT(_) => Option(bool).Some(true),
+    .ExprT => Option(bool).Some(true),
+    .TypeUni(_) => Option(bool).Some(true),
+    .ModuleT(_, _, _, _) => Option(bool).Some(true),
+    .TraitT(name : _) => Option(bool).Some(true),
+    .FnTraitT(base_name : _) => Option(bool).Some(true),
+    .FutureTraitT(base_name : _) => Option(bool).Some(true),
+    _ => Option(bool).None
+  )
+);
+// ---------------------------------------------------------------------------
 // Phase 3 stubs
 // ---------------------------------------------------------------------------
 /// Checks if any registered generic impl matches the (target, trait_ty) pair.
@@ -366,6 +456,42 @@ type_implements_trait :: (
       if(_trait_type_id(trait_type) == _trait_type_id(rt), {
         match(
           type_implements_runtime_builtin(target),
+          .Some(b) => {
+            return(TraitCheckResult(implemented : b, env : env));
+          },
+          .None => ()
+        );
+      });
+    }
+  );
+  // 2a. Send builtin fast path (primitive leaves). yo-self stores auto-derived
+  // markers in a nominal-id registry that can't hold primitives; this tag-only
+  // path recognizes Send for value/comptime-data leaves so primitive fields
+  // (and bare primitives) satisfy `where(T <: Send)`. Mirrors the Comptime/
+  // Runtime builtins above (TS carries this on every type's `.trait`).
+  match(
+    get_trait_type_from_env(env, String.from("Send")),
+    .None => (),
+    .Some(st) => {
+      if(_trait_type_id(trait_type) == _trait_type_id(st), {
+        match(
+          type_implements_send_builtin(target),
+          .Some(b) => {
+            return(TraitCheckResult(implemented : b, env : env));
+          },
+          .None => ()
+        );
+      });
+    }
+  );
+  // 2b. Acyclic builtin fast path (primitive leaves) — same rationale as Send.
+  match(
+    get_trait_type_from_env(env, String.from("Acyclic")),
+    .None => (),
+    .Some(at) => {
+      if(_trait_type_id(trait_type) == _trait_type_id(at), {
+        match(
+          type_implements_acyclic_builtin(target),
           .Some(b) => {
             return(TraitCheckResult(implemented : b, env : env));
           },
