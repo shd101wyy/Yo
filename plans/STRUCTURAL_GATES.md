@@ -432,6 +432,59 @@ instantiation/stamping path; validate per-file. This is a yo-self bug fix, NOT a
 TS fix (no TS bug) and NOT a where-plumbing issue (plumbing works). The Send
 rejection of `Mutex(NonSendObj)` is already confirmed correct.
 
+### TRAIT-RE-DERIVATION TRACE (2026-06) — BEDROCK ROOT: trait values are NAMELESS
+
+Instrumented `auto_derive_traits_for_struct_type` (AUTODERIVE),
+`type_implements_comptime_builtin` (CTB-STRUCT), and `type_implements_trait`
+step 4 (REG-CHK), all with the where-enforcement plumbing live. For
+`struct_yo_id_34` (= `Range(comptime_int)`, the `Idx` of `ComptimeIndex`):
+
+- `AUTODERIVE id=struct_yo_id_34 comptime=true` — Comptime auto-derive DOES run.
+- `CTB-STRUCT id=struct_yo_id_34 is_ref=false` — value struct;
+  `type_implements_comptime_builtin` returns `.None` (correctly falls through, no
+  early return). So Comptime IS registered (auto-derive gates on `!is_ref`, and
+  it's a value struct).
+- **`REG-CHK` did NOT fire for struct_34** — and it's guarded by
+  `trait_name == "Comptime"`. So `_trait_type_name(trait_type)` returns EMPTY,
+  and step-4's `if(!type_id.is_empty() && !trait_name.is_empty())` guard
+  (trait_checking.yo:359) is false → **the registry lookup is SKIPPED entirely**
+  → returns false, despite Comptime being registered for struct_34.
+
+**Bedrock root:** yo-self creates ALL trait values with an EMPTY name
+(`trait_name_str := String.from("")`, types/trait.yo:1097) — the name from the
+`Comptime :: trait(...)` binding is never stamped onto the `TraitT`. Same for
+structs (all render `<struct:id>`). So `_trait_type_name` is always empty, and
+the name-keyed auto-derive registry (`g_type_trait_registry`, keyed
+`(type_id, trait_NAME)`, trait_checking.yo:69) is a DEAD PATH at lookup. It's
+latent because primitives/objects resolve via the builtin fast-paths (steps 1-2)
+and `Type.impls` is vacuous; only value-struct auto-derived markers (Range's
+Comptime) need the registry — and that only surfaces once where-enforcement is
+wired.
+
+**This is also a yo-self↔TS architectural DIVERGENCE.** TS `typeImplementsTrait`
+step 4 (trait-checking.ts:395-430) does NOT use a name-keyed registry — it
+iterates `targetType.trait.fields` (the derived traits carried ON the struct)
+and matches by `areTypesCompatible` (id/structural), never by name. The yo-self
+name-keyed `g_type_trait_registry` is a deliberate, documented simplification
+("folded from trait_registry.yo", trait_checking.yo:58-67) whose lookup premise
+("TS compares traits by name", :150) is inaccurate AND broken (names empty).
+
+**Fix options (a design decision — foundational, NOT gate-sized):**
+
+1. **Stamp type names from `::` bindings** (most faithful: TS effectively names
+   types). Broad blast radius — rendering (`<struct:id>`→`Range`), comparisons.
+2. **Resolve marker-trait names by id in step 4**: auto-derive only registers a
+   FIXED marker set (Send/Comptime/Acyclic/Runtime/Rc/Dispose); map `trait_type`
+   → canonical name by comparing its id against the env marker traits (the way
+   steps 1-2 already match Comptime/Runtime). Surgical; makes the existing
+   name-keyed registry correct for markers without broad name-stamping.
+3. **Port TS's `struct.trait.fields` + type-compat approach** (largest;
+   structs/enums would carry their derived traits as trait-value fields).
+
+Recommended next: option 2 (smallest, contained) — then re-apply the where
+plumbing and validate per-file. The whole chain is now resolved end-to-end;
+this is the single remaining link.
+
 **True fix scope:** persist the subject→bound constraint structure on the Func
 TypeValue / a func*id side-table at definition time (the where-EXPRS side-table
 from attempt #1 IS such storage and works), THEN fix the call-time \_application*
