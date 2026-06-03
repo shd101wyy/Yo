@@ -391,15 +391,46 @@ so yo-self enters the concrete-validate path and rejects. The enforcement scope
 is otherwise identical (primitive counts match) — only these 2-3 struct cases
 diverge.
 
-**Remaining work to land the gate:** find the specific yo-self calls that bind a
-struct to a `where(T <: Comptime)` param at the comptime-type-ctor fast-path
-(function.yo:1446) where TS leaves it generic — trace `func_id` + the LHS
-resolution for the `concrete=<struct_yo_id_34>` case. Likely yo-self over-eagerly
-concretizes a still-generic type param in `fresh_env`, OR the fast-path applies
-where-checks for a call TS routes through a generic-specialization path. Once
-yo-self matches TS (don't concrete-validate those generic cases), the Send
-rejection (already correct) lands sync/mutex. This is yo-self-internals
-debugging, NOT a TS fix and NOT a where-plumbing issue.
+### OVER-CONCRETIZATION TRACE (2026-06) — TRUE ROOT FOUND, revises (b)→(a)
+
+Re-instrumented with the constraint string + LHS resolution + path tags. Result
+(`check ./tests/sync/mutex.test.yo`, traces stderr):
+
+- The over-rejection is `constraint="Idx <: Comptime" concrete=<struct:struct_yo_id_34>
+impl=false` and `<struct_yo_id_37> impl=false` — `Idx` is `ComptimeIndex`'s
+  index-type param.
+- TS's trace for the SAME `Comptime` constraint checks `Range(usize) impl=true`
+  and `RangeInclusive(usize) impl=true`. **`struct_34`/`_37` ARE
+  yo-self's `Range(usize)`/`RangeInclusive(usize)` instantiations** (used as the
+  `Idx` of `ComptimeIndex` for slice indexing). So this is NOT case (b)
+  (over-broad scope) — TS performs the identical check. It is **case (a): yo-self
+  derives `Range`/`RangeInclusive` instantiations as NON-Comptime where TS derives
+  them Comptime.**
+- Two corroborating symptoms of the same root: yo-self renders these structs with
+  EMPTY NAMES (`<struct:struct_yo_id_34>`) vs TS's `Range(usize)`; and zero
+  `WHERE-LHS` hits (the validate came via `apply_single_trait_constraint`'s
+  atom-lookup path, function.yo:1411, finding `Idx` bound to the concrete
+  range-struct).
+
+**TRUE ROOT (a real yo-self correctness bug, currently latent):** trait markers
+(`Comptime`/`Send`/`Acyclic`/`Runtime`) are auto-derived at struct DEFINITION time
+(`auto_derive_traits_for_struct_type`, called from `evaluate_struct_type`) with the
+generic `SomeT` field types, and are NOT re-derived when a generic struct is
+INSTANTIATED with concrete args via a comptime type-constructor (`Range(usize)`).
+At definition `Range`'s fields are `SomeT(T)` (unconstrained → not Comptime), so
+`Comptime` is never registered; after `T→usize` the marker is never re-derived.
+TS derives `Comptime` for the concrete instantiation. The empty struct name is the
+same gap (the instantiation isn't fully stamped with name + re-derived markers).
+
+**Fix scope (newly precise, but a new sub-feature):** when a comptime
+type-constructor produces a struct instantiation (the `constructor_func_id` /
+`type_arguments` stamping path in `evaluate_comptime_fn_call` / the synthesizer),
+re-run `auto_derive_traits_for_struct_type` against the now-CONCRETE field types
+(and set the proper name). Then re-apply the where-enforcement plumbing (attempts
+#1/#2, confirmed correct for the Send case). Risk: touches the hot comptime-fn
+instantiation/stamping path; validate per-file. This is a yo-self bug fix, NOT a
+TS fix (no TS bug) and NOT a where-plumbing issue (plumbing works). The Send
+rejection of `Mutex(NonSendObj)` is already confirmed correct.
 
 **True fix scope:** persist the subject→bound constraint structure on the Func
 TypeValue / a func*id side-table at definition time (the where-EXPRS side-table
