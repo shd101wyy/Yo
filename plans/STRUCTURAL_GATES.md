@@ -328,9 +328,45 @@ the Func — neither in `where_types` (empty) nor recoverable from
 `forall_params`. So BOTH paths (re-eval exprs; read forall SomeT bounds) are
 blocked.
 
+### Targeted DIAGNOSTIC (2026-06) — root cause isolated
+
+Re-applied attempt #2's wiring but put `validate_concrete_type_constraints` in
+**trace-and-continue** mode (eprintln the `(rhs, tv, concrete, impl)` tuple,
+suppress all throws) so ONE `check ./tests/sync/mutex.test.yo` captured every
+constraint check. Findings (decisive):
+
+1. **The `(id : comptime_string)` was a RED HERRING — purely cosmetic.** BOTH
+   `Send` and `Comptime` marker traits `type_to_string` as `(id : comptime_string)`
+   (marker-trait rendering, no name). The traits resolve CORRECTLY; there is NO
+   RHS mis-resolution. (Attempt #2's diagnosis was wrong on the mechanism.)
+2. **The Mutex case WORKS:** trace shows
+   `rhs=Send tv=(id : comptime_string) concrete=<struct_yo_id_2012=NonSendObj> impl=false`
+   — enforcement would correctly REJECT `Mutex(NonSendObj)`. The plumbing
+   (side-table + call-site application + `type_implements_trait_bool`) is sound.
+3. **The REAL regression source: `where(T <: Comptime)`.** 67 such constraints
+   in std (`ComptimeAdd`, `ComptimeIndex`, the comptime operator/index traits,
+   prelude:258-350+). Trace: `rhs=Comptime` yields `impl=true` for primitives
+   (i32, usize, f64, comptime_int, comptime_string, Expr, bool, …) but
+   `impl=false` for user structs (`struct_yo_id_34`, `_37`). So call-time
+   enforcement of these pervasive constraints REJECTS struct args, aborting
+   before the Send check matters → arc/basic/imm_list/… regressed.
+
+So enforcement is NOT blocked by plumbing or Send-derivation. It is blocked by
+ONE of: (a) yo-self's `type_implements_trait_bool(<struct>, Comptime)` returns
+false where TS's `typeImplementsTrait` returns true (a Comptime auto-derive
+parity gap — `_all_fields_implement_comptime`, utils.yo:143), OR (b) yo-self's
+comptime-type-ctor call routing (`all_args_are_types` etc., function.yo:1446)
+fires where-enforcement on calls TS would NOT re-check (over-broad scope vs TS's
+single general-path application at helper.ts:1494). Distinguishing (a) vs (b)
+needs a TS-side trace of whether `ComptimeIndex`/`ComptimeAdd` re-apply
+`where(T <: Comptime)` for these same structs and what `typeImplementsTrait`
+returns there. NEXT STEP if resumed: instrument the TS `validateConcreteType
+Constraints` (function.ts:1500-1599) on the same fixture and compare the
+`(rhs, concrete, implemented)` tuples to the yo-self trace above.
+
 **True fix scope:** persist the subject→bound constraint structure on the Func
-TypeValue / a func_id side-table at definition time (the where-EXPRS side-table
-from attempt #1 IS such storage and works), THEN fix the call-time _application_
+TypeValue / a func*id side-table at definition time (the where-EXPRS side-table
+from attempt #1 IS such storage and works), THEN fix the call-time \_application*
 so it resolves the RHS trait correctly (the attempt-#2 bug: re-evaluating the
 RHS expr in the bound call env yields a wrong trait `tv` that prints
 `(id : comptime_string)`). Fixing that resolution is the real remaining work —
