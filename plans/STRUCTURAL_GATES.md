@@ -107,7 +107,29 @@ throw "evaluated successfully". This is the documented trial-eval-swallow fix
   these cases too; _expr.ts:1237 etc.).
 - [ ] **Extern-call-requires-unsafe gate** (extern_unsafe_wrap — a SEPARATE gate
   from the raw-ptr-type one; calling an `extern "c"` fn without `unsafe(...)`).
-- [ ] **Cluster B** (negative-impl registry + Send/where-clause).
+- [ ] **Cluster B** — bigger than "a conflict gate" (investigated 2026-06).
+  `negative_impl.test.yo` (NO pragma) needs a MULTI-GATE cluster, because its
+  `comptime_expect_error` cases each error via a DIFFERENT gate:
+  - **negative-impl detection** (impl.ts:827-866): recognize `impl(T, !(Trait))`,
+    register it, and do NOT error on standalone marker negatives
+    (`impl(MySendStruct, !(Send()))` must succeed). yo-self currently silently
+    accepts `!(Send())` as a no-op (verified) — close, but no registry.
+  - **marker-only check** (impl.ts:3000-3015): `!(Trait-with-methods)` → reject.
+    Handles the `!(Clone)` and `!(MyHandler)` cases.
+  - **the conflict case** `impl(X, Send()); impl(X, !(Send))` errors in TS via the
+    **Send-requires-pragma gate** — `impl(..., Send())` manually requires
+    `pragma(Pragma.AllowUnsafe)` + a `// SAFETY:` comment (verified by running TS
+    on a bare `impl(X, Send())` → "Manual 'impl(..., Send())' requires
+    pragma..."). yo-self lacks this gate entirely. (The positive↔negative
+    conflict gate at impl.ts:2827 `hasNegativeImpl` only catches negative-THEN-
+    positive; the test is positive-then-negative, so the Send-pragma gate is
+    what fires.)
+  - `Type.impls(..., Send) == false` asserts are `comptime_assert` → vacuous
+    (lenient) → don't strictly require the negative registry to be consulted.
+  `thread_safety` + `sync/mutex` are the same Send family (conflict +
+  `Mutex(T)`'s `where(T <: Send)`). Net: negative_impl ≈ 3 faithful gate ports
+  (negative detection + marker-only + Send-requires-pragma). A focused
+  feature-sized effort, not a one-liner.
 
 ## Recommended order
 
