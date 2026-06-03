@@ -52,7 +52,8 @@ open(import("std/string"));
 } :: import("./type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type } :: import("../../types/guards.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -205,6 +206,35 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
       g_impl_registry_entry_lists.push(new_list);
     }
   );
+});
+// ---------------------------------------------------------------------------
+// Negative-impl registry (Phase N THREAD_SAFETY). A negative impl
+// `impl(T, !(Trait))` declares that T does NOT implement Trait, overriding
+// auto-derive. Keyed by "typeId:traitId". 1-to-1 with impl.ts:269-293
+// (`negativeImplRegistry`). Generic negative impls (forall) are out of scope
+// here — they only feed vacuous `comptime_assert`s in the tests.
+// ---------------------------------------------------------------------------
+(g_negative_impl_registry : ArrayList(String)) = ArrayList(String).new();
+has_negative_impl :: (fn(type_id : str, trait_id : str) -> bool)({
+  key := `${type_id}:${trait_id}`;
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < g_negative_impl_registry.len()) && !(found), {
+    match(
+      g_negative_impl_registry.get(i),
+      .Some(k) => if(k.as_str() == key.as_str(), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+register_negative_impl :: (fn(type_id : str, trait_id : str) -> unit)({
+  if(!(has_negative_impl(type_id, trait_id)), {
+    ___ := g_negative_impl_registry.push(`${type_id}:${trait_id}`);
+  });
 });
 // Mirrors `tryMatchGenericImpl` in impl.ts — uses `synthesize_types` to
 // unify the receiver type pattern against the concrete type.
@@ -1084,6 +1114,85 @@ evaluate_module_value :: (
         // field-type-by-label to typecheck.
         (method_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
         (current_trait_ty : Option(TypeValue)) = Option(TypeValue).None;
+        // Phase N (THREAD_SAFETY): negative trait impl `impl(T, !(Trait))`.
+        // Marker-only (the trait must have no methods) + register, so positive
+        // impls / `Type.impls` see the override. Mirrors impl.ts:827-866 (detect)
+        // + 3000-3026 (marker-check + register). The existing trait-constructor
+        // handling below is a no-op for `!(...)` (its head `!` is not a trait and
+        // its arg isn't a colon-pair), so no skip is needed.
+        is_negative_field := ast_expr_is_fn_call_of(field_expr, "!",.Some(usize(1)));
+        if(is_negative_field, {
+          neg_inner := match(
+            field_expr,
+            .FnCall(_, _, na, _, _) => match(na.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
+            .Atom(_, _) => make_err_expr()
+          );
+          neg_head := match(neg_inner,.FnCall(_, fbn, _, _, _) => fbn.*,.Atom(_, _) => neg_inner);
+          match(
+            _try_lookup_trait_type(neg_head, local_env, ctx, exn),
+            .Some(neg_trait_ty) => {
+              has_method := match(
+                neg_trait_ty,
+                .TraitT(_, _, _, ftys, _, _, _, _) => {
+                  (mi : usize) = usize(0);
+                  (hm : bool) = false;
+                  while((mi < ftys.len()) && !(hm), {
+                    match(
+                      ftys.get(mi),
+                      .Some(ft) => if(is_function_type(ft), {
+                        hm = true;
+                      }),
+                      .None => ()
+                    );
+                    mi = (mi + usize(1));
+                  });
+                  hm
+                },
+                _ => false
+              );
+              if(has_method, {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(field_expr),
+                      `Cannot use '!(...)' — negative impls are only allowed for marker traits (traits without methods).`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              });
+              if(receiver_type_id != String.from(""), {
+                register_negative_impl(receiver_type_id.as_str(), get_trait_key(neg_trait_ty).as_str());
+              });
+            },
+            .None => ()
+          );
+        });
+        // Phase A (THREAD_SAFETY): a manual `impl(T, Send())` / `impl(T, Acyclic())`
+        // requires `pragma(Pragma.AllowUnsafe)`. Mirrors impl.ts:2907-2928.
+        if((!(is_negative_field)) && (ast_expr_is_fn_call(field_expr) && !(ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2))))), {
+          pos_trait_name := match(
+            field_expr,
+            .FnCall(_, pfb, _, _, _) => ast_expr_token(pfb.*).value,
+            .Atom(_, _) => String.new()
+          );
+          if((pos_trait_name.as_str() == "Send") || (pos_trait_name.as_str() == "Acyclic"), {
+            if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(field_expr).module_path.clone()))), {
+              suffix := if(pos_trait_name.as_str() == "Send", String.from("send across threads"), String.from("declare Acyclic"));
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(field_expr),
+                    `Manual 'impl(..., ${pos_trait_name.as_str()}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix.as_str()}.`,
+                    false,
+                    .None
+                  )
+                )
+              );
+            });
+          });
+        });
         if(ast_expr_is_fn_call(field_expr) && ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2))), {
           // Direct colon pair: add it directly.
           method_exprs.push(field_expr);
