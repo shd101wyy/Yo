@@ -364,6 +364,43 @@ returns there. NEXT STEP if resumed: instrument the TS `validateConcreteType
 Constraints` (function.ts:1500-1599) on the same fixture and compare the
 `(rhs, concrete, implemented)` tuples to the yo-self trace above.
 
+### TS-SIDE TRACE (2026-06) — SETTLED: it's (b), and there is NO TS bug
+
+Instrumented TS `validateConcreteTypeConstraints` (function.ts:1572) with the
+same tuple trace and ran `./yo-cli check ./tests/sync/mutex.test.yo` (./yo-cli
+runs `bun run src/yo-cli.ts` — TS source directly, no build). Comparison to the
+yo-self trace:
+
+- `Send` vs `NonSendObj`: TS `impl=false` — MATCHES yo-self. Send works in both.
+- `Comptime` vs primitives (comptime_int/usize/i32/…/Range/Expr): TS `impl=true`,
+  same counts as yo-self. MATCHES.
+- **`Comptime` vs USER STRUCTS: TS NEVER checks them.** Every TS `Comptime` line
+  is against a primitive/Range/Expr; there is NO `Comptime concrete=<struct>`
+  line. yo-self has 2-3 EXTRA `Comptime concrete=<struct_yo_id_34/_37> impl=false`
+  checks that TS does not perform → that's the over-rejection.
+- TS trait names render correctly (`Comptime`, `Send`, `ComptimeNegate`); the
+  yo-self `(id : comptime_string)` is purely a `type_to_string` cosmetic gap.
+
+**Conclusion: case (b). NO TypeScript-side bug** — TS is correct & self-consistent
+(only checks `Comptime` against types that satisfy it; the LHS for the struct
+cases evidently stays a generic `SomeT` in TS so `validateConcreteTypeConstraints`
+is never reached, taking the SomeT branch of `parseWhereClauseConstraints`
+instead). yo-self's divergence: at the comptime-type-ctor call site the
+constrained type-param RESOLVES TO A CONCRETE STRUCT where TS keeps it a `SomeT`,
+so yo-self enters the concrete-validate path and rejects. The enforcement scope
+is otherwise identical (primitive counts match) — only these 2-3 struct cases
+diverge.
+
+**Remaining work to land the gate:** find the specific yo-self calls that bind a
+struct to a `where(T <: Comptime)` param at the comptime-type-ctor fast-path
+(function.yo:1446) where TS leaves it generic — trace `func_id` + the LHS
+resolution for the `concrete=<struct_yo_id_34>` case. Likely yo-self over-eagerly
+concretizes a still-generic type param in `fresh_env`, OR the fast-path applies
+where-checks for a call TS routes through a generic-specialization path. Once
+yo-self matches TS (don't concrete-validate those generic cases), the Send
+rejection (already correct) lands sync/mutex. This is yo-self-internals
+debugging, NOT a TS fix and NOT a where-plumbing issue.
+
 **True fix scope:** persist the subject→bound constraint structure on the Func
 TypeValue / a func*id side-table at definition time (the where-EXPRS side-table
 from attempt #1 IS such storage and works), THEN fix the call-time \_application*
