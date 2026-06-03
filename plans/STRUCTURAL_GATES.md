@@ -246,6 +246,39 @@ but the work is plumbing the constraint-subject linkage into
 bound arg, throwing function.yo:1381's "does not implement required trait").
 Deferred pending that dedicated integration — NOT blocked by Send derivation.
 
+### Implementation ATTEMPT + REVERT (2026-06)
+
+Tried the side-table approach: a func*id-keyed `g_where_clause_exprs_registry`
+(function_value.yo) populated in `evaluate_function_type` (keyed by the `fn(...)`
+type-expr id) and re-keyed to the FuncVal id in
+`try_to_implement_function_by_function_type` (function_type.yo) via
+`copy_where_clause_exprs` — exactly mirroring the existing
+`register_func_param_defaults`/`copy_func_param_defaults` infrastructure (this
+re-key was NECESSARY: the FuncVal id the call site sees is `random_id()`'s bare
+`yo_id_N`, NOT anonymous_function.yo's `fn*<id>`— verified via trace). Then in`evaluate_comptime_fn_call`, `get_where_clause_exprs(func_id)`+`apply_where_clause_constraints(exprs, callee_env, ctx, exn)`.
+
+**Result: REVERTED.** The side-table wiring worked (the registry hit at call
+time), but **blindly re-applying `apply_where_clause_constraints` at every
+comptime-fn call breaks pervasively**: it fired on prelude where-clauses (e.g.
+`where(K <: (Eq, Hash, Send))`) and the RHS mis-resolved — error
+`Type <struct:...> does not implement required trait (id : comptime_string)`
+and `Expected trait type for right-hand side of where clause constraint`. Root:
+`apply_where_clause_constraints` / `parse_where_clause_constraints` were built
+for DEFINITION-time eval (type-vars are SomeTs); re-running them at call-time in
+`callee_env` (type-vars bound to concrete values) changes the LHS/RHS evaluation
+semantics. ALL positive where-bearing tests (arc, imm_list, imm_map, basic,
+thread_safety, channel) regressed to errors.
+
+**TS does NOT apply it blindly.** `applyWhereClauseConstraints` is called at
+GUARDED points in `helper.ts`: line 1374-1404 only when _all_ where-clause LHS
+types are forall params already bound in `calleeEnv`, and re-applied at
+1494-1507 after arg processing. The faithful fix is to port those GUARDED call
+sites into yo-self's general call path (`helper.yo`, which currently discards
+`where_types` at :1425) with TS's exact conditions — a substantial, careful
+change to the hot path, NOT the side-table + blind re-eval I tried. The
+side-table is the right storage mechanism; the missing piece is replicating
+TS's _when-to-apply_ guards. Deferred as a dedicated effort.
+
 ## Recommended order
 
 1. **Cluster A first** — 2 tests, ~2 small contained gate ports, low risk,
