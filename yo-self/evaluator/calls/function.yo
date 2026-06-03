@@ -39,7 +39,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { get_func_param_defaults } :: import("../types/function.yo");
 { t_unit, t_type, t_comptime_int } :: import("../../types/creators.yo");
-{ TokenKind } :: import("../../token.yo");
+{ TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, type_of_eval_value, is_type_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 {
@@ -56,6 +56,9 @@ open(import("std/string"));
   VarArgEntry
 } :: import("../context.yo");
 { is_type_hierarchy_type, is_comptime_string_type, is_some_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ get_all_some_types } :: import("../../types/utils.yo");
+{ type_id_or_empty, get_type_trait_methods_by_name } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -78,7 +81,7 @@ open(import("std/string"));
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments } :: import("./helper.yo");
-{ create_unknown_val } :: import("../../value.yo");
+{ create_unknown_val, is_unknown_val } :: import("../../value.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -313,33 +316,31 @@ evaluate_function_call :: (
   // ------------------------------------------------------------------
   // Infix comparison operator → trait-method dispatch.
   //
-  // Mirrors TS `function.ts` (the `stringIsOperator(functionName) &&
-  // expr.isInfix` branch), but restricted to the COMPARISON operators
-  // (`==`/`!=`/`<`/`<=`/`>`/`>=`). These resolve to a trait method on the
-  // receiver (lhs) type via the registry and return `bool`/`comptime(bool)`;
-  // without dispatch they fall into the unbound-operator-name soft fallback
-  // (which yields `unit`), so `||`/`&&` operands and `bool` bindings reject
-  // `a == b` (e.g. `(platform == Platform.Macos) || ...` in
-  // std/sys/socket.yo).
+  // Mirrors TS `function.ts:452` (`stringIsOperator(functionName) &&
+  // expr.isInfix`). An infix operator resolves to a trait method on the
+  // receiver (lhs) type via the registry. Use the lexer's
+  // `string_is_operator` predicate (port of `stringIsOperator`) — NOT a
+  // hardcoded operator list.
   //
-  // Arithmetic/bitwise operators are deliberately NOT routed here: the
-  // bootstrap already evaluates them through a separate concrete path
-  // (so `usize * usize` etc. keep their inferred result type); routing
-  // them through generic trait dispatch would lose the return type
-  // (`Failed to infer the function call return type`).
+  // We split by the RESOLVED METHOD's return shape, not by operator name:
+  //   - Bool-returning operators (comparison `==`/`<`/…): the method return
+  //     carries no SomeT. Route ALWAYS — without dispatch they soft-fallback
+  //     to `unit`, so `||`/`&&` operands and `bool` bindings reject `a == b`
+  //     (e.g. `(platform == Platform.Macos) || …`). Works for runtime AND
+  //     comptime operands.
+  //   - Associated-type-returning operators (arithmetic/bitwise `+`/`*`/…
+  //     return `comptime(Self.Output)`): route ONLY when the first operand
+  //     is a concrete COMPTIME value. RUNTIME arithmetic (e.g. `i32 + i32`
+  //     in a closure body) is already handled by the bootstrap's concrete
+  //     numeric path; routing it through generic trait dispatch + CTFE
+  //     would loop / not terminate. Gating on a comptime operand confines
+  //     this branch to the case the concrete path gets wrong (comptime
+  //     arithmetic → `unit`), leaving runtime arithmetic untouched.
   // ------------------------------------------------------------------
   is_infix_call := match(expr,.FnCall(_, _, _, inf, _) => inf,.Atom(_, _) => false);
   op_name := match(func_expr,.Atom(_, ftok) => ftok.value, _ => String.new());
-  op_is_comparison := cond(
-    (op_name.as_str() == "==") => true,
-    (op_name.as_str() == "!=") => true,
-    (op_name.as_str() == "<") => true,
-    (op_name.as_str() == "<=") => true,
-    (op_name.as_str() == ">") => true,
-    (op_name.as_str() == ">=") => true,
-    true => false
-  );
-  if((is_infix_call && op_is_comparison) && (args.len() >= usize(1)), {
+  op_is_operator := string_is_operator(op_name.as_str());
+  if((is_infix_call && op_is_operator) && (args.len() >= usize(1)), {
     first_arg := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     // Evaluate the first operand with `expected_type` cleared — the
     // operand type must come from the operand itself, not from the
@@ -348,10 +349,14 @@ evaluate_function_call :: (
     ctx.expected_type = Option(ExpectedTypeCtx).None;
     evaluated_first := evaluate_expression_raw(first_arg, env, ctx, exn);
     ctx.expected_type = saved_et;
-    receiver_ty := match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_first)),
-      .Some(ri) => ri.ty,
-      .None => t_unit()
+    first_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_first));
+    receiver_ty := match(first_info_opt,.Some(ri) => ri.ty,.None => t_unit());
+    // Concrete compile-time operand? (a known value that is not an
+    // `UnknownVal` runtime placeholder).
+    first_is_comptime := match(
+      first_info_opt,
+      .Some(ri) => match(ri.value,.Some(v) => !(is_unknown_val(v)),.None => false),
+      .None => false
     );
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
@@ -362,24 +367,102 @@ evaluate_function_call :: (
         .Some(m) => m,
         .None => return(expr)
       );
-      call_result_op := try_to_call_function_with_arguments(
-        first_m.value,
-        first_m.ty,
-        expr,
-        func_expr,
-        args,
-        env,
-        ctx,
-        true,
-        false,
-        false,
-        exn
-      );
-      out_op := new_expr_info(call_result_op.caller_env, call_result_op.return_type);
-      out_op.value = Option(EvalValue).Some(create_unknown_val(call_result_op.return_type));
-      out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
-      return(expr);
+      // Classify by the method's return shape: an associated-type return
+      // (contains a SomeT, e.g. `comptime(Self.Output)`) marks arithmetic;
+      // a SomeT-free return (e.g. `bool`) marks comparison.
+      m_ret_op := match(first_m.ty,.Func({ result : _rb }) => _rb.*, _ => t_unit());
+      op_ret_has_some := (get_all_some_types(m_ret_op).len() > usize(0));
+      should_route := ((!(op_ret_has_some)) || first_is_comptime);
+      if(should_route, {
+        // Associated-type return pre-hint: `try_to_call_function_with_arguments`
+        // validates the return type and throws "Failed to infer the function
+        // call return type" when an `Output` SomeT isn't bound in the call env
+        // (e.g. a module-level comptime arithmetic use where no outer expected
+        // type supplies it). Hint with the receiver type so the call's
+        // synthesize step binds `Self`/`Output` before validation (numeric
+        // arithmetic traits all set `Output = Self`).
+        saved_op_et := ctx.expected_type;
+        if(op_ret_has_some && ctx.expected_type.is_none(), {
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : receiver_ty, env : env));
+        });
+        call_result_op := try_to_call_function_with_arguments(
+          first_m.value,
+          first_m.ty,
+          expr,
+          func_expr,
+          args,
+          env,
+          ctx,
+          true,
+          false,
+          false,
+          exn
+        );
+        ctx.expected_type = saved_op_et;
+        // Resolve an associated-type return (`comptime(Self.Output)`) that came
+        // back as a bare SomeT (`Output`) because the impl's associated-type
+        // binding isn't in the callee env. TS resolves it by the receiver's
+        // trait impl matching the operator's trait id (env.ts:1970). yo-self's
+        // registry records `source_trait_id` as "" for direct-on-type trait
+        // impls, so we approximate SOUNDLY: adopt the receiver's registered
+        // associated types of this name only when they UNANIMOUSLY agree (they
+        // do for every numeric type — all of `usize`'s `Output` entries are
+        // `usize`). Diverging → leave unresolved (no wrong resolution).
+        resolved_ret := call_result_op.return_type;
+        if(is_some_type(resolved_ret), {
+          assoc_nm := match(resolved_ret,.SomeT(name : nm) => nm, _ => String.new());
+          recv_id := type_id_or_empty(receiver_ty);
+          if((assoc_nm.len() > usize(0)) && (recv_id.len() > usize(0)), {
+            assoc_entries := get_type_trait_methods_by_name(recv_id, assoc_nm);
+            (agreed : Option(TypeValue)) = Option(TypeValue).None;
+            (diverged : bool) = false;
+            (ai : usize) = usize(0);
+            while((ai < assoc_entries.len()) && !(diverged), {
+              match(
+                assoc_entries.get(ai),
+                .Some(ae) => match(
+                  ae.value,
+                  .Some(av) => match(
+                    av,
+                    .TypeVal(tb) => {
+                      cand_ty := tb.*;
+                      match(
+                        agreed,
+                        .None => {
+                          agreed = Option(TypeValue).Some(cand_ty);
+                        },
+                        .Some(prev) => {
+                          if(type_to_string(prev).as_str() != type_to_string(cand_ty).as_str(), {
+                            diverged = true;
+                          });
+                        }
+                      );
+                    },
+                    _ => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
+              );
+              ai = (ai + usize(1));
+            });
+            if(!(diverged), {
+              match(
+                agreed,
+                .Some(a) => {
+                  resolved_ret = a;
+                },
+                .None => ()
+              );
+            });
+          });
+        });
+        out_op := new_expr_info(call_result_op.caller_env, resolved_ret);
+        out_op.value = Option(EvalValue).Some(create_unknown_val(resolved_ret));
+        out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
+        return(expr);
+      });
     });
   });
   // Evaluate the callee.
