@@ -66,6 +66,7 @@ open(import("std/fmt"));
   BF_TYPEOF,
   BF_SIZEOF,
   BF_UNSAFE,
+  BF_PRAGMA,
   BF_REQUIRES,
   BF_ENSURES,
   BF_INVARIANT,
@@ -315,6 +316,7 @@ open(import("std/fmt"));
 } :: import("../builtins/rc_fns.yo");
 { evaluate_size_of } :: import("../builtins/sizeof.yo");
 { evaluate_unsafe } :: import("../builtins/unsafe.yo");
+{ evaluate_pragma } :: import("../builtins/pragma.yo");
 {
   evaluate_requires,
   evaluate_ensures,
@@ -582,6 +584,8 @@ _evaluate_expression :: (
           evaluate_size_of(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_UNSAFE,.None) =>
           evaluate_unsafe(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_PRAGMA,.None) =>
+          evaluate_pragma(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_REQUIRES,.None) =>
           evaluate_requires(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_ENSURES,.None) =>

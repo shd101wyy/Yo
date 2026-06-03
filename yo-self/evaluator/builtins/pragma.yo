@@ -19,8 +19,15 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_fn_call_of, BF_PRAGMA } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, BF_PRAGMA } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
+{ new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../../value.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ register_file_pragma } :: import("../memory_safety.yo");
+{ Exception } :: import("std/error");
 // Pragma kinds use the prelude's `Pragma` enum (auto-loaded), not a separate
 // internal type — yo-self is self-hosted, so the compiler reuses the
 // language's own `Pragma`. (TS keeps a distinct `Pragma` in
@@ -127,4 +134,40 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   });
   found
 });
-export(pre_scan_for_skip_prelude, recognize_pragma_arg);
+/// Eval-time `pragma(...)` handler. Registers the file-level pragma so
+/// `is_implicitly_unsafe_capable_file` (and the Phase-C raw-pointer /
+/// `unsafe(...)` gates) can see it. Mirrors the registration part of
+/// `evaluatePragma` (`src/evaluator/builtins/pragma.ts:113-116`); yo-self uses
+/// the syntactic `recognize_pragma_arg` (the `Pragma.X` shape) rather than
+/// fully evaluating the arg. Returns the expr annotated with a unit result.
+evaluate_pragma :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  arg_opt := match(
+    expr,
+    .FnCall(_, _, args, _, _) => args.get(usize(0)),
+    .Atom(_, _) => Option(AstExpr).None
+  );
+  match(
+    arg_opt,
+    .Some(arg) => match(
+      recognize_pragma_arg(arg),
+      .Some(kind) => {
+        tok := ast_expr_token(expr);
+        register_file_pragma(tok.module_path.clone(), kind);
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  out := new_expr_info(env, t_unit());
+  out.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+export(pre_scan_for_skip_prelude, recognize_pragma_arg, evaluate_pragma);
