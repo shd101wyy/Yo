@@ -211,6 +211,41 @@ in principle — but it is NOT a simple "call the existing function" wiring:
   revert on ANY regression. Scope before implementing: audit
   `type_implements_send` auto-derive against the std types passed to Mutex/Arc.
 
+### Send-derivation AUDIT — conclusion (2026-06)
+
+Audited before attempting the fix. **Send-derivation is NOT the blocker; the
+where-clause subject→bound plumbing is.** Findings:
+
+1. **`where(... Send)` is pervasive** — `*(T)`/`Array`/`Slice`/`Arc` Send impls
+   (prelude:5500-7631) and especially `std/imm/map.yo` puts
+   `where(K <: (Eq, Hash, Send), V <: Send)` on _dozens_ of functions. So
+   enforcement touches a wide surface, not just Mutex.
+2. **But the realistic regression surface during `check` is SMALL.** yo-self's
+   `check` does not evaluate fn bodies, so the where-clause only ever fires at
+   MODULE-LEVEL concrete type-constructor instantiations. A sweep of std found
+   essentially NONE at module level (all `Arc(...)`/`Mutex(...)`/imm-map calls
+   live inside fn bodies; `Type.impls(X, Send)` ground-truth asserts in
+   `tests/basic.test.yo:263-285` are inside `test{}`/`comptime_assert` →
+   not-evaluated/vacuous). So Send auto-derive completeness is unlikely to bite
+   during `check`.
+3. **The real blocker is representation.** `evaluate_comptime_fn_call`
+   (calls/comptime_fn.yo:310) collects a FLAT `all_arg_vals` and never
+   cross-references constraints. The Func type's `where_types` is a flat trait
+   list with **no subject** (definitions.yo:81). The subject→bound info DOES
+   exist on the type-var's `SomeT.required_trait_types` (set by
+   `prepare_where_clause_variables`, function.yo:399-405), but
+   `evaluate_comptime_fn_call` doesn't map each comptime type-param's SomeT to
+   its bound arg value. Faithful enforcement therefore needs the param↔SomeT↔arg
+   linkage threaded through the comptime-call path (and ideally the general call
+   path too) — a **feature-sized integration**, not a surgical gate add.
+
+**Verdict:** safe on risk (Send-derivation adequate, small check-time surface),
+but the work is plumbing the constraint-subject linkage into
+`evaluate_comptime_fn_call` (call each comptime type-param's
+`SomeT.required_trait_types` through `type_implements_trait_bool` against the
+bound arg, throwing function.yo:1381's "does not implement required trait").
+Deferred pending that dedicated integration — NOT blocked by Send derivation.
+
 ## Recommended order
 
 1. **Cluster A first** — 2 tests, ~2 small contained gate ports, low risk,
