@@ -279,6 +279,66 @@ change to the hot path, NOT the side-table + blind re-eval I tried. The
 side-table is the right storage mechanism; the missing piece is replicating
 TS's _when-to-apply_ guards. Deferred as a dedicated effort.
 
+### Implementation ATTEMPT #2 — faithful call-site placement (2026-06)
+
+Re-did it faithfully per the above: placed the re-application at the comptime
+type-constructor call site in `calls/function.yo` (inside the
+`is_type_hierarchy_type || callee_result_is_comptime || all_args_are_types`
+routing block, just before `evaluate_comptime_fn_call`), using `fresh_env`
+(which DOES have all params bound — forall at :1236, regular at :1281+, so
+`T → NonSendObj` is bound there), AND setting **`ctx.is_evaluating_function_type
+= true`** around the call — the exact context flag TS sets at helper.ts:1399/1503
+and the one attempt #1 omitted. Side-table re-keyed to the FuncVal id as before.
+
+**Result: REVERTED — same failure.** The flag had ZERO effect on the error:
+`Type <struct:struct_yo_id_34> does not implement required trait
+(id : comptime_string)` still fired pervasively (struct_34 is early-prelude; ALL
+of arc/basic/imm_list/imm_map/thread_safety/channel regressed). Diagnosis: the
+error is thrown at function.yo:1382 AFTER `is_trait_type(tv)` returned TRUE
+(else it throws at :1355) — so `tv` IS a trait, but `type_to_string(tv)` prints
+`(id : comptime_string)`. I.e. re-evaluating the constraint RHS expr via
+`evaluate_expression_raw` at the bound call-time env produces a WRONG trait
+TypeValue for many functions. **The blocker is not placement and not the
+context flag — it is that `apply_where_clause_constraints` /
+`validate_concrete_type_constraints` mis-resolve the constraint RHS when
+re-evaluated at call time.** That is a porting bug in those routines'
+call-time evaluation semantics, needing dedicated tracing (which fn, which
+constraint, why `tv` prints `(id : comptime_string)`).
+
+**Better next path (avoids RHS re-eval entirely):** don't re-evaluate the where
+EXPRS at all. The constraint bounds are ALREADY evaluated and stored on the
+type-var's `SomeT.required_trait_types` (function.yo:399-405; read back into
+`Func.where_types` at function.yo:3396 by iterating `forall_params`). So at the
+comptime call site, iterate the callee `Func`'s forall/type params; for each
+whose type is a `SomeT` with `required_trait_types`, look up the bound concrete
+value in `fresh_env` by the param label and call
+`type_implements_trait_bool(concrete, trait)` directly — no expr re-eval, no
+RHS mis-resolution.
+
+**…but that assumption is FALSE (verified statically 2026-06).** A
+`comptime(T) : Type` param (Mutex uses `comptime`, NOT `forall`) is added to the
+ENV as a fresh `SomeT` (`t_some_t(info.name, frame_level)`, function.yo:2543-2570)
+and tracked in `pre_added_indices` — it is NOT pushed into `forall_params`.
+`prepare_where_clause_variables` then attaches `Send` to THAT env SomeT's
+`required_trait_types`, which is a DEFINITION-TIME env binding, gone by call
+time. And `Func.where_types` is collected by iterating `forall_params`
+(function.yo:3396), so for a `comptime(T)` param it is likely EMPTY. Net: for
+comptime type-constructors, the subject→bound linkage is persisted NOWHERE on
+the Func — neither in `where_types` (empty) nor recoverable from
+`forall_params`. So BOTH paths (re-eval exprs; read forall SomeT bounds) are
+blocked.
+
+**True fix scope:** persist the subject→bound constraint structure on the Func
+TypeValue / a func_id side-table at definition time (the where-EXPRS side-table
+from attempt #1 IS such storage and works), THEN fix the call-time _application_
+so it resolves the RHS trait correctly (the attempt-#2 bug: re-evaluating the
+RHS expr in the bound call env yields a wrong trait `tv` that prints
+`(id : comptime_string)`). Fixing that resolution is the real remaining work —
+it needs tracing which fn/constraint produces the bad `tv` and why
+`evaluate_expression_raw` of the RHS atom (e.g. `Send`) returns a mis-typed
+trait at call time. Feature-sized + needs debugging; deferred. Tree stays green
+at tests=168.
+
 ## Recommended order
 
 1. **Cluster A first** — 2 tests, ~2 small contained gate ports, low risk,
