@@ -485,6 +485,38 @@ Recommended next: option 2 (smallest, contained) — then re-apply the where
 plumbing and validate per-file. The whole chain is now resolved end-to-end;
 this is the single remaining link.
 
+### IMPLEMENTATION (2026-06) — two fixes landed; one derivation layer remains
+
+- **Option 2 — DONE** (commit 0519e25b): `_resolve_registered_trait_name` maps a
+  nameless marker trait → its registry name by matching id against env Send/
+  Comptime/Acyclic/Runtime/Rc; step-4 registry lookup now works for value
+  structs. std 151, tests 168, yo-self 337/338, 0 regressions.
+- **Send/Acyclic builtin fast-paths — DONE** (commit b4080e8b):
+  `type_implements_send_builtin` / `type_implements_acyclic_builtin` recognize
+  primitive/comptime-data leaves as Send/Acyclic (yo-self primitives have no id
+  for the registry and TS carries this on every type's `.trait`). Wired as steps
+  2a/2b. std 151, tests 168, yo-self 337/338, 0 regressions.
+
+With BOTH fixes + the where-plumbing re-applied, **`sync/mutex` rejects
+`Mutex(NonSendObj)` correctly (exit 0) and `sync/channel` passes** (the Send
+builtin fixed `Channel(bool)`). But **`imm_map` regresses**: `where(T <: Send)`
+on `struct_yo_id_2967` (in `std/imm/string`) returns false. Diagnosis (SEND-
+FIELD-FAIL trace fired ZERO times): `_all_fields_implement_send` was never called
+with a failing field for struct_2967 → its `auto_derive` never ran with concrete
+fields → **its Send marker was never registered**. This is the
+generic-instantiation **trait-re-derivation gap** (same bedrock item): a struct
+instantiation created via a path (comptime-fn stamping comptime_fn.yo:733 /
+substitution) that does NOT re-run `auto_derive_traits_for_struct_type` against
+the now-concrete fields. (Range happened to work because its body eval had
+concrete fields; this instantiation didn't.)
+
+**The plumbing is held back** (can't ship the imm_map regression). The remaining
+fix = re-run `auto_derive_traits_for_struct_type` (with concrete field types) at
+the generic-instantiation/stamping site so markers register under the
+instantiation's id. Then re-apply the plumbing (validated: only imm_map blocks)
+and validate per-file. Net once landed: tests 168→169 (sync/mutex), no
+regressions.
+
 **True fix scope:** persist the subject→bound constraint structure on the Func
 TypeValue / a func*id side-table at definition time (the where-EXPRS side-table
 from attempt #1 IS such storage and works), THEN fix the call-time \_application*
