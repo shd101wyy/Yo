@@ -88,13 +88,18 @@ structure).
 > - **circular_deps (4)** — `circular_b`, `circular_error_a/b`, `circular_open_b`:
 >   genuinely unresolvable import cycles; **error identically to the TS
 >   reference**, so not a yo-self defect.
-> - **flowability (2+)** — `ref_flowability`, `slice_flowability` (and the
->   `comptime_expect_error` arms of `ref_return`/`ref_local_binding`): the
->   `comptime_expect_error(...)` rejection never fires because the flowability
->   CALL SITES are unwired. `is_flowable_expr` + `FlowOptions` ARE ported
->   (`yo-self/types/flowability.yo`, 334 lines — note: ported to the std-types
->   dir, not `evaluator/types/`), but `assignment.yo`/`initialization_assignment.yo`/
->   `begin.yo`/`function_type.yo` don't call it. Wiring those is the work.
+> - **flowability (2+)** — `ref_flowability`, `slice_flowability`, `ref_*`: the
+>   `comptime_expect_error(...)` rejection never fires. `is_flowable_expr` +
+>   `FlowOptions` ARE ported (`yo-self/types/flowability.yo`, 334 lines — note:
+>   in the std-types dir, not `evaluator/types/`), BUT the call sites can't run:
+>   TS enforces `-> ref(T)` flowability in `function-type.ts:524-573` AFTER
+>   evaluating the function body at DEFINITION time. yo-self's
+>   `calls/function_type.yo` is a partial port that does NOT evaluate the body
+>   at definition (the **def-time fn-body-eval wall**, memory
+>   `yo-self-defeval-wall` — a prior attempt regressed 53→3 and must not be
+>   re-attempted incrementally). So flowability is BLOCKED on def-time body
+>   eval, not merely on wiring `is_flowable_expr`. This is a hard prerequisite,
+>   shared with the contracts cluster.
 > - **comptime arithmetic — ✅ Tier 1 done (cf6219f0)** — `comptime_ref` now
 >   passes (`n + usize(1)` types as `usize`, not `unit`). Tier 1 = correct
 >   typing (operator → trait dispatch via `string_is_operator`, gated on
