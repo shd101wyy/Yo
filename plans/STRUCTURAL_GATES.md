@@ -98,8 +98,11 @@ throw "evaluated successfully". This is the documented trial-eval-swallow fix
   in safe code now rejected; prelude (pragma'd) exempt. std 151→151, tests
   164→164, 0 regressions. Does NOT flip a test yet (blocked by the
   comptime_expect_error common root above).
-- [ ] **Fix `comptime_expect_error`** (the common root) — local unwinding exn +
-  raw eval. PREREQUISITE for flipping any gate/flowability test.
+- [x] **Fixed `comptime_expect_error`** (the common root) — committed 2bc49fe5
+  (local unwinding exn + `evaluate_expression_raw`, clones the arg). It now
+  DETECTS errors. tests 164→165 (`ref_return` flipped), std/yo-self 0 regressions.
+  Detection is no longer the blocker; each remaining test now just needs its
+  underlying gate to FIRE.
 - [ ] **Address-of `&(x)` gate** + **pointer-cast `*(U)(p)` gate** (safe_code has
   these cases too; _expr.ts:1237 etc.).
 - [ ] **Extern-call-requires-unsafe gate** (extern_unsafe_wrap — a SEPARATE gate
