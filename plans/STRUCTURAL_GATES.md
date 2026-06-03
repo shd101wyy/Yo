@@ -129,6 +129,13 @@ throw "evaluated successfully". This is the documented trial-eval-swallow fix
       "codegen-only"). So this needs (a) the Func-variant `is_extern` field AND (b)
       def-time body eval. Reclassified: WALL-BLOCKED. The earlier "NOT behind the
       wall" claim at the top of this doc is wrong for any gate in a fn body.
+- [x] **thread_safety — DONE** (commit 516ecf61). Ported the Phase-H
+      `Iso(Arc(T))` ban (iso.yo `evaluate_iso_type_call`: child is_atomic_object +
+      has `*` deref field → reject) and `Arc(Iso(T))` ban (struct.yo
+      `evaluate_struct_type`: atomic-rc struct whose `*` field is_iso_type →
+      reject). Both predicates were already ported; only the call-site checks were
+      missing. thread_safety's earlier `impl(ConflictType, Send())` case already
+      fired via the Send-pragma gate from e0d7fda9. tests 166→167, 0 regressions.
 - [x] **Cluster B negative_impl — DONE** (commit e0d7fda9). Ported the 3-gate
       cluster into impl.yo: negative-impl registry (g_negative_impl_registry +
       has_negative_impl/register_negative_impl), negative detection + marker-only
