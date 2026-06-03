@@ -157,6 +157,57 @@ _trait_type_name :: (fn(ty : TypeValue) -> String)(
     _ => String.from("")
   )
 );
+/// Resolve the registry name for an auto-derived marker trait by identity.
+///
+/// yo-self trait TypeValues carry an EMPTY `name` field (the name from a
+/// `Name :: trait(...)` binding is never stamped onto the value), so
+/// `_trait_type_name` returns "" for them and the name-keyed auto-derive
+/// registry (`g_type_trait_registry`, keyed by trait NAME) can't be queried via
+/// the value's own name. Auto-derive only ever registers a FIXED marker set
+/// (Send / Comptime / Acyclic / Runtime / Rc — see callers of
+/// `register_type_trait` in `evaluator/types/utils.yo`), so we recover the
+/// registry name by comparing `trait_type`'s id against each marker trait
+/// resolved from `env` (the same id-comparison steps 1-2 already use for the
+/// Comptime/Runtime fast paths). Returns "" when `trait_type` is not one of the
+/// registered markers (non-markers have no registry entries anyway).
+///
+/// Faithfulness note: TS attaches derived traits as fields on the type
+/// (`targetType.trait.fields`) and matches by `areTypesCompatible`, so it never
+/// needs the name. yo-self's name-keyed registry is a documented simplification
+/// (folded from `trait_registry.yo`); this resolver makes that lookup correct
+/// without re-architecting to the TS field-carrying model.
+_resolve_registered_trait_name :: (fn(trait_type : TypeValue, env : Environment) -> String)({
+  // Prefer the value's own name if one is ever present (future-proofing for
+  // type-name stamping); otherwise fall back to marker-id resolution.
+  nm := _trait_type_name(trait_type);
+  if(!(nm.is_empty()), {
+    return(nm);
+  });
+  tid := _trait_type_id(trait_type);
+  if(tid.is_empty(), {
+    return(String.from(""));
+  });
+  markers := ArrayList(String).new();
+  ___m0 := markers.push(String.from("Send"));
+  ___m1 := markers.push(String.from("Comptime"));
+  ___m2 := markers.push(String.from("Acyclic"));
+  ___m3 := markers.push(String.from("Runtime"));
+  ___m4 := markers.push(String.from("Rc"));
+  (i : usize) = usize(0);
+  (found : String) = String.from("");
+  while((i < markers.len()) && found.is_empty(), {
+    marker := match(markers.get(i),.Some(m) => m,.None => String.from(""));
+    match(
+      get_trait_type_from_env(env, String.from(marker.as_str())),
+      .Some(mt) => if(_trait_type_id(mt) == tid, {
+        found = String.from(marker.as_str());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// Extract the unique structural ID from a struct/enum/union TypeValue.
 /// Returns "" for non-nominal types.
 ///
@@ -354,8 +405,10 @@ type_implements_trait :: (
     return(TraitCheckResult(implemented : true, env : env));
   });
   // 4. Direct trait field match — check global auto-derive registry.
+  // The registry is keyed by trait NAME, but yo-self trait values are nameless,
+  // so resolve the marker name by identity against the env marker traits.
   type_id := _type_id_for_trait_check(target);
-  trait_name := _trait_type_name(trait_type);
+  trait_name := _resolve_registered_trait_name(trait_type, env);
   if(!(type_id.is_empty()) && !(trait_name.is_empty()), {
     if(is_type_registered_as_trait(type_id, trait_name.as_str()), {
       return(TraitCheckResult(implemented : true, env : env));
