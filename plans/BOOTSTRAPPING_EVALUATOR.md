@@ -72,7 +72,7 @@ structure).
 | `./yo-cli check yo-self/main.yo`         | green           | —                                              |
 | `./yo-cli compile yo-self/main.yo`       | builds          | —                                              |
 | `yo-self-bin check ./std` (per-file)     | **complete**    | **151 / 151** (matches TS)                     |
-| `yo-self-bin check ./tests` (per-file)   | **complete**    | **163 / 182** (19 fail — feature-gap clusters) |
+| `yo-self-bin check ./tests` (per-file)   | **complete**    | **164 / 182** (18 fail — feature-gap clusters) |
 | `yo-self-bin check ./yo-self` (per-file) | **complete**    | **227 / 227** (self-check fixpoint reached)    |
 | `yo-self-bin check ./yo-self/codegen`    | deferred        | out of Phase 3 scope (a later bootstrap phase) |
 
@@ -90,16 +90,17 @@ structure).
 >   reference**, so not a yo-self defect.
 > - **flowability (2+)** — `ref_flowability`, `slice_flowability` (and the
 >   `comptime_expect_error` arms of `ref_return`/`ref_local_binding`): the
->   `comptime_expect_error(...)` rejection never fires because
->   **`types/flowability.ts` is NOT PORTED** (the only TS evaluator file with no
->   `yo-self/` counterpart — see `plans/EVALUATOR_PORT_REVIEW.md`). `isFlowableExpr`
->   / slice-flowability analysis is absent. NOTE: flowability also leans on
->   definition-time fn-body eval (memory `yo-self-defeval-wall`), so this is not
->   a drop-in file port.
-> - **comptime arithmetic (1)** — `comptime_ref`: `n + usize(1)` folds to `unit`
->   (operator not routed to trait dispatch + `Self.Output` unresolved). See
->   `plans/COMPTIME_ARITHMETIC_FOLDING.md` (Tier 1/2) and
->   `issues/phase3-comptime-arithmetic-not-folded.md`.
+>   `comptime_expect_error(...)` rejection never fires because the flowability
+>   CALL SITES are unwired. `is_flowable_expr` + `FlowOptions` ARE ported
+>   (`yo-self/types/flowability.yo`, 334 lines — note: ported to the std-types
+>   dir, not `evaluator/types/`), but `assignment.yo`/`initialization_assignment.yo`/
+>   `begin.yo`/`function_type.yo` don't call it. Wiring those is the work.
+> - **comptime arithmetic — ✅ Tier 1 done (cf6219f0)** — `comptime_ref` now
+>   passes (`n + usize(1)` types as `usize`, not `unit`). Tier 1 = correct
+>   typing (operator → trait dispatch via `string_is_operator`, gated on
+>   comptime operand; `Self.Output` resolved via receiver registry). Tier 2
+>   (actual value folding `5+1=6` via `evaluate_comptime_fn_call`) still open —
+>   see `plans/COMPTIME_ARITHMETIC_FOLDING.md`.
 > - **ref-type eval (subset of ref_*)** — `ref_return`: `Failed to evaluate type
 >   expression: ref(i32)`; `ref_local_binding`: destructuring on `i32`. Distinct
 >   ref-type/destructuring gaps, not flowability.

@@ -150,11 +150,17 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `types/enum.ts` → `types/enum.yo`
 - ⬜ `types/expr-synthesizer.ts` → `types/expr_synthesizer.yo`
 - ⬜ `types/field.ts` → `types/field.yo`
-- ⚠️ `types/flowability.ts` → **NOT PORTED** — no `types/flowability.yo` exists.
-  This is the ONLY TS evaluator file with no yo-self counterpart (confirmed by
-  full scan). Slice/raw-pointer flowability analysis (`isFlowableExpr`, used by
-  `assignment.ts` / `begin.ts`) is therefore absent. Port it during the review,
-  or document why it's deferred (e.g. RC/slice safety is a later phase).
+- ⚠️ `types/flowability.ts` → **PORTED to the WRONG path** as
+  `yo-self/types/flowability.yo` (not `yo-self/evaluator/types/flowability.yo`).
+  The function `is_flowable_expr` + `FlowOptions` exist (334 lines). My earlier
+  "NOT PORTED" claim was wrong — it was a path-mapping miss (the file lives in
+  the std-types dir, not the evaluator-types dir). The REAL gap: the **call
+  sites are unwired** — TS calls `isFlowableExpr` from `assignment.ts`,
+  `initialization-assignment.ts`, `begin.ts`, `function-type.ts`,
+  `anonymous-function.ts`, but the yo-self counterparts don't, so the
+  flowability rejection never fires (→ `ref_flowability`/`slice_flowability`
+  `comptime_expect_error` tests fail). Wire the call sites + (optionally) move
+  the file to the 1-to-1 path.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
@@ -234,5 +240,6 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 
 - Total TS evaluator files: **130**
 - Reviewed: **0** ✅ / **0** ⚠️ / **130** ⬜
-- Pre-flagged before review even starts: **3** ⚠️ (`calls/function.yo`,
-  `builtins/comptime_assert.yo`, and `types/flowability.ts` NOT PORTED).
+- Pre-flagged before review even starts: **3** ⚠️ (`calls/function.yo` —
+  Tier 1 operator-dispatch landed (cf6219f0); `builtins/comptime_assert.yo`;
+  `types/flowability.ts` — ported to wrong path, call-sites unwired).
