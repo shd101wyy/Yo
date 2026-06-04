@@ -74,7 +74,9 @@ extraction of TS state, not new logic:
 
 ## Checklist — 130 TS files → yo-self
 
-Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
+Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note) ·
+🔧 issue found AND fixed (faithful port landed) · ⏸️ partially audited, a known
+gap is deferred on a larger feature (see note)
 
 ### evaluator/ (root)
 
@@ -117,7 +119,11 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 
 ### evaluator/exprs/
 
-- ⬜ `exprs/_expr.ts` → `exprs/_expr.yo`
+- ⏸️ `exprs/_expr.ts` → `exprs/_expr.yo` — safe-code-gate audit: the `&+`/`&-`/`&/`
+  pointer-arithmetic gate (`_expr.ts:1237-1255`) is UNPORTED, but blocked on a
+  larger gap — yo-self `_expr.yo` has no `&+` operator-dispatch branch (routes
+  through the prelude impl), so the gate has nowhere to attach. Deferred with the
+  ptr-arith dispatch work, not a standalone insertion. (Otherwise unreviewed.)
 - 🔧 `exprs/assignment.ts` → `exprs/assignment.yo` — **fixed a missing gate**: the
   Phase-O atomic-object-field-write ban (`assignment.ts:793-803`) had no yo-self
   equivalent. Ported `getRootExprOfFieldAccess` + `getAtomicObjectRootType`
@@ -125,7 +131,12 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
   property/index-LHS branch. Faithful 1:1; reject-case is mostly def-eval-wall-
   blocked (fn-body assignments aren't evaluated by `check`) so 0 aggregate test
   delta, but the divergence is closed.
-- ⬜ `exprs/begin.ts` → `exprs/begin.yo`
+- ⏸️ `exprs/begin.ts` → `exprs/begin.yo` — safe-code-gate audit: the raw-ptr
+  return-flowability gate (`begin.ts:1268`) is UNPORTED but belongs to the
+  slice/ref-flowability cluster (needs `isFlowableExpr` +
+  `typeRepresentationContainsRawPtr` + fn-body eval = the deferred def-eval-wall
+  feature; cf. wall-blocked ref_flowability/slice_flowability tests). Not a
+  standalone gate. (Otherwise unreviewed.)
 - 🔧 `exprs/binding.ts` → `exprs/binding.yo` — **fixed a structural divergence**:
   `is_valid_variable_name` was defined in BOTH `binding.yo` (live; 11 importers)
   and `evaluator/utils.yo` (TS-faithful; only a test imported it). TS defines
@@ -172,7 +183,10 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `calls/closure-type.ts` → `calls/closure_type.yo`
 - ⬜ `calls/comptime-fn.ts` → `calls/comptime_fn.yo`
 - ⬜ `calls/comptime-list-type.ts` → `calls/comptime_list_type.yo`
-- ⬜ `calls/function-type.ts` → `calls/function_type.yo`
+- ⏸️ `calls/function-type.ts` → `calls/function_type.yo` — safe-code-gate audit:
+  the raw-ptr return-flowability gate (`function-type.ts:535-560`) is UNPORTED but
+  belongs to the slice/ref-flowability cluster (deferred def-eval-wall feature),
+  not a standalone gate. (Otherwise unreviewed.)
 - ⬜ `calls/function.ts` → `calls/function.yo` ⚠️ operator dispatch (see Known divergences)
 - ⬜ `calls/helper.ts` → `calls/helper.yo`
 - ⬜ `calls/index-trait.ts` → `calls/index_trait.yo`
@@ -223,7 +237,10 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 
 ### evaluator/values/
 
-- ⬜ `values/anonymous-function.ts` → `values/anonymous_function.yo`
+- ⏸️ `values/anonymous-function.ts` → `values/anonymous_function.yo` — safe-code-gate
+  audit: the raw-ptr return-flowability gate (`anonymous-function.ts:954-975`) is
+  UNPORTED but belongs to the slice/ref-flowability cluster (deferred
+  def-eval-wall feature), not a standalone gate. (Otherwise unreviewed.)
 - ⬜ `values/anonymous-module.ts` → `values/anonymous_module.yo`
 - ⬜ `values/anonymous-struct.ts` → `values/anonymous_struct.yo`
 - ⬜ `values/array.ts` → `values/array.yo`
@@ -244,7 +261,12 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `builtins/and-or.ts` → `builtins/and_or.yo`
 - ⬜ `builtins/array-fns.ts` → `builtins/array_fns.yo`
 - ⬜ `builtins/as.ts` → `builtins/as.yo`
-- ⬜ `builtins/asm.ts` → `builtins/asm.yo`
+- ⏸️ `builtins/asm.ts` → `builtins/asm.yo` — safe-code-gate audit: the
+  `asm(...)`/`global_asm(...)` privilege gates (`asm.ts:510,786`) are N/A —
+  yo-self `asm.yo` is a documented Phase-3 STUB (both `evaluate_asm` and
+  `evaluate_global_asm` throw "not yet implemented"), so asm is already
+  unavailable to everyone. The gate becomes relevant only when asm is
+  implemented. (Otherwise unreviewed.)
 - ⬜ `builtins/build.ts` → `builtins/build.yo`
 - ⬜ `builtins/comptime-assert.ts` → `builtins/comptime_assert.yo` ⚠️ (see Known divergences — Bug C)
 - ⬜ `builtins/comptime-bool-fns.ts` → `builtins/comptime_bool_fns.yo`
