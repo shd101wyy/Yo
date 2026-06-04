@@ -307,10 +307,12 @@ gap is deferred on a larger feature (see note)
 ## Progress
 
 - Total TS evaluator files: **130**
-- Reviewed: **1** ✅ (`memory-safety.ts`) / **1** ⚠️ (`ctfe-analysis.ts`) / **128** ⬜
-- Pre-flagged before review even starts: **3** ⚠️ (`calls/function.yo` —
-  Tier 1 operator-dispatch landed (cf6219f0); `builtins/comptime_assert.yo`;
-  `types/flowability.ts` — ported to wrong path, call-sites unwired).
+- **ALL 130 reviewed** (Session-2 full sweep, see below). Rough tally: ~40 CLEAN,
+  ~30 MINOR, ~40 DIVERGENCE (of which ~25 are documented Phase-3 deferrals and
+  ~15 are tractable behavioral-fix candidates — prioritized backlog below).
+  5 fixed this session (🔧 assignment, binding, c_include, extern, property_access).
+- Pre-flagged earlier: `calls/function.yo` — Tier 1 operator-dispatch landed
+  (cf6219f0); `types/flowability.ts` — ported to wrong path, call-sites unwired.
 
 ## Session review log (2026-06)
 
@@ -332,3 +334,82 @@ extra ~15), then the `builtins/*` (small, self-contained, fast to clear), then
 the larger `calls/`/`types/` cores. The trait-membership re-port + Send/Acyclic
 builtin audit done earlier this session effectively reviewed the core of
 `trait_checking.yo`.
+
+## Session 2 — FULL 130-file sweep results (2026-06)
+
+Reviewed every TS↔yo-self file pair via parallel review agents against the 6
+criteria. Verdict legend: CLEAN = faithful 1-to-1 (modulo documented
+language-forced/intentionally-stripped-error-detail differences); MINOR = small
+structural/cosmetic delta, no behavioral impact for valid programs; DIVERGENCE =
+real behavioral gap (may be a documented Phase-3 deferral — noted).
+
+**CLEAN (faithful):** alignof, and_or, as, comptime_bool_fns, comptime_expect_error,
+comptime_print, downcast, gc, sizeof, typeid, unsafe, va_start, var_fns,
+values/{array,boolean,comptime_list,float,integer}, exprs/{exists,expr,runtime,test,typeof},
+calls/{comptime_list_type,iso,pointer_type}, types/{closure,comptime_list,field,newtype,
+proofs,slice,union,validation}, async/await_analysis_types, shared/suspension_analysis_types,
+effects/effect_analysis_types, memory_safety.
+
+**MINOR (no behavioral impact):** array_fns, comptime_index_fns (computeComptimeStringIndex
+relocated to calls/index_trait.yo — present, not missing), comptime_list_fns, consume,
+expr_fns, gensym, process, ptr_fns, quote, rc, the, comptime_assert (type-mismatch text
+hardcoded "unknown"), exprs/{cond,destructuring_assignment,recur,subtype_of},
+calls/{numeric_type,type,comptime_fn}, types/{concrete_trait,synthesizer,tuple,object},
+values/{anonymous_module,clone_value,string,tuple}, evaluator/{utils,context,index},
+async/await_analysis, shared/suspension_analysis.
+
+**DIVERGENCE — documented/intentional Phase-3 deferrals (large features, NOT quick fixes):**
+
+- `calls/function.yo`, `calls/helper.yo` — no overload resolution / partial application /
+  extern-c call-site gate / macro expansion (function.yo); CTFE not executed, non-Func
+  soft-fallback→unit, no variadics/RC-ownership/where-clause/io-builtin special-casing (helper.yo).
+- `calls/function_type.yo` — `check_deferred_generic_return_type` is a no-op stub; body never
+  evaluated at definition time → ALL definition-time gates missing (the def-eval-wall root).
+- `values/impl.yo` (4 throws vs TS 32), `types/utils.yo` (~88% unported — RC gen), `types/function.yo`
+  (no requires/ensures + zone-order; HKT where stub), `types/record.yo` + `calls/record_type.yo`
+  (pre-refactor module-type port), `calls/trait_type.yo` (no where-clause gate / constraint storage),
+  `values/dyn.yo` + `types/dyn.yo` (missing trait-satisfaction + fn-name-conflict/reserved gates),
+  `builtins/{contracts,build,drop,dup,derive,derive_rule}.yo`, `exprs/import.yo` (dep resolution),
+  `exprs/identifer_and_operator.yo` (unbound→UnknownVal soft fallback — known bootstrap crutch),
+  `utils/closure.yo` (capture validation/move/ARC stubs), `types/array.yo` + `calls/array_type.yo`
+  (`Array(T,_)` unknown-length inference rejected).
+
+**DIVERGENCE — real behavioral gaps that are TRACTABLE FIX CANDIDATES (prioritized backlog):**
+
+1. **Migration-mangled error strings** (a3510d20 keyword-sub corrupted literals: `return type`→
+   `return(type`, `while loop`→`while(loop`, etc.) in helper.yo:352, closure_type.yo:232,
+   fn_trait.yo:112/130, function.yo:985/3071/3087/3099/3168/3183/3235/3253/3273/3297/3313,
+   cond.yo:676, while.yo:475, match.yo:857/2237, types/utils.yo:157, comptime_fn.yo:334/351.
+   **Mechanical, safe, faithful — fix as one batch.** (Cosmetic: 0 check-pass impact.)
+2. **`trait_checking.yo` missing step-0 negative-impl gate** — `has_negative_impl` EXISTS in
+   values/impl.yo:218 but is never imported/called by `type_implements_trait`. A type with a
+   registered `impl(T,!(Trait))` still reports implemented. Surgical (import+call at step 0) but
+   touches the hot trait path — validate carefully (the where-plumbing saga showed sensitivity).
+3. **`values/char.yo`** missing two throws (unknown-escape `\X`; invalid char-literal length) —
+   silently accepts malformed char literals. Small, faithful.
+4. **`exprs/match.yo`** entire GADT subsystem missing — **explains the baseline `gadts.test.yo`
+   fail.** Large (port getGadtRefinedExpectedType/isGadtBranchReachable + 6 call sites).
+5. **`exprs/unwind.yo`** rejects no-arg `unwind()` (TS allows 0 or 1 args; the 0-arg unit path is
+   missing) + has an extra non-TS given-handler gate. Medium.
+6. **`builtins/comptime_numeric_fns.yo`** `checkOverflow` absent → silently clamps instead of
+   throwing on comptime integer overflow; no fn-name validation throw; i64 not bigint. Behavioral.
+7. **`builtins/comptime_string_fns.yo`** result type derived from value TAG not value.type →
+   `length(x)`/`eq(...)` on unknown-valued operands get `comptime_string` instead of
+   `comptime_int`/`bool`. Behavioral (wrong static type).
+8. **`builtins/macro_expand.yo`** error swallow-vs-rethrow inverted (benign non-expandable errors
+   abort the loop; assertion-error rethrow lost) — uses outer exn handler.
+9. **`builtins/panic.yo`** ignores `expectedType` priority + `isRef`→ptr wrapping.
+10. **`builtins/impl_constraint.yo`** `Concrete(T)` extraction + single-Concrete gate dropped
+    (relies on `is_concrete_trait_type` stub). **`builtins/type_fns.yo`** `can_form_rc_cycle`
+    stub returns false; `get_info` missing Function/Trait/Dyn/SomeType variants.
+11. **`builtins/rc_fns.yo`** `iso_extract` returns `Option(T)` instead of Phase-H `T`.
+12. **`types/enum.yo`** GADT enums hard-rejected ("not yet implemented") vs fully implemented in TS.
+13. **`types/struct.yo`** atomic-object Send-enforcement gate missing (`type_implements_send` exists,
+    uncalled); **`exprs/open.yo`** has an extra non-TS implicit-var gate + extra ModuleVal branch.
+14. **`effects/effect_analysis.yo`** ports a PRE-EXPLICIT*EFFECTS version (`has_effect_in_spread*`+
+full`is*transitive_effect_call*` that current TS stubbed out) — detects transitive effects TS
+    no longer does. Should be re-synced to the gutted current TS.
+
+Most are def-eval-wall-blocked (fn-body gates) so 0 aggregate `check` delta, but each is a real
+faithfulness divergence. Fix order: #1 (mechanical) → #3/#5/#9/#11 (small surgical) → #2/#10/#13
+(careful, hot paths) → #4/#6/#7/#12 (medium features) → #8/#14 (semantics re-sync).
