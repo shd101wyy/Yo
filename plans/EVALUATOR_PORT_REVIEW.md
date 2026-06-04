@@ -279,6 +279,22 @@ gap is deferred on a larger feature (see note)
   order knot→def-time-body-eval→flowability; the knot is resolved but def-time
   body eval itself remains the broad blocker — trial-eval-bounding does NOT
   contain its shared-state side-effects). Do NOT re-attempt as a localized add.
+  **SECOND ATTEMPT (2026-06, ref-only narrowing) — refined finding:** gating
+  def-time eval to CONCRETE `result_is_ref` functions only (dropping the pervasive
+  raw-ptr branch) IS prelude-safe (prelude's 3 `-> ref(` fns are all generic →
+  deferred), and the GATE LOGIC IS CORRECT — `ref_flowability`'s ref-return
+  negatives (bad_local_return etc.) correctly flip to errors; the test then fails
+  only further down at the binding-site case (`ref(r) := <non-flowable>`, needs a
+  separate initialization_assignment gate). BUT def-time-evaluating a real concrete
+  ref function in `std/string/string.yo` HARD-CRASHES (EXIT 133 — abort/SIGTRAP,
+  not a catchable error). The trial-eval swallow catches `exn.throw` but CANNOT
+  catch hard crashes (stack overflow / abort). So def-time body eval hits
+  UNCATCHABLE crashes on real std code even when narrowed. CONCLUSION (now
+  evidence-backed twice): the gate (param-flag plumbing + ref-return flowability
+  check) is correct and ready, but def-time body eval requires the evaluator's
+  body-evaluation to be made ROBUST for definition-time use (no hard crashes on
+  arbitrary bodies) — a genuine foundational rework of evaluator robustness, not a
+  gate/wiring add. The flowability gates are ready to wire the moment that lands.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
