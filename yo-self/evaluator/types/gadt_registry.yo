@@ -1,0 +1,107 @@
+//! gadt_registry — side-table for GADT (generalized algebraic data type) enum
+//! metadata. yo-self-only module (no 1-to-1 TS file), mirroring the established
+//! registry-module pattern (trait_registry, generic_impl_registry, …) and the
+//! `g_recursive_type_refs` side-table precedent in `calls/comptime_fn.yo`.
+//!
+//! WHY a side-table: TS stores GADT info as fields on the type values —
+//! `EnumVariant.gadtReturnTypeArgs`, `EnumType.{typeConstructorArgs, isGadt}`
+//! (src/types/definitions.ts). yo-self's `EnumT` (definitions.yo) is a
+//! 7-positional-field TypeValue variant with NO `EnumVariant` struct (variants
+//! are parallel ArrayLists). Adding fields to `EnumT` would mean editing every
+//! positional `.EnumT(...)` constructor/pattern across ~35 files, so — exactly
+//! as for `recursiveTypeRef` — the metadata lives here, keyed by the enum's id.
+//!
+//! Two tables:
+//!   * variant-args (per DEFINITION, keyed by enum id): each variant's evaluated
+//!     `-> recur(T…)` type args, parallel to the enum's variant order. An empty
+//!     inner list marks a NON-GADT variant (no `-> recur(...)`), matching TS's
+//!     `EnumVariant.gadtReturnTypeArgs === undefined`.
+//!   * type-constructor-args (per INSTANTIATION, keyed by enum id): the concrete
+//!     type args the enum was instantiated with (TS `EnumType.typeConstructorArgs`).
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/definitions.yo");
+// ---------------------------------------------------------------------------
+// Per-definition variant args  (mirrors EnumVariant.gadtReturnTypeArgs)
+// ---------------------------------------------------------------------------
+GadtEntry :: object(
+  /// The enum type's `id` — the lookup key.
+  enum_id : String,
+  /// Per-variant type-arg lists, parallel to the enum's variant order.
+  /// An empty inner list means that variant is non-GADT.
+  variant_args : ArrayList(ArrayList(TypeValue))
+);
+(g_gadt_entries : ArrayList(GadtEntry)) = ArrayList(GadtEntry).new();
+/// Record a GADT enum's per-variant return-type args. `enum_id` marks the enum
+/// as a GADT (`EnumType.isGadt = true`). Mutated via `push`, never reassigned.
+register_gadt_enum :: (
+  fn(enum_id : str, variant_args : ArrayList(ArrayList(TypeValue))) -> unit
+)({
+  ___ := g_gadt_entries.push(GadtEntry(enum_id : String.from(enum_id), variant_args : variant_args));
+});
+/// Look up a GADT enum's per-variant args by id, if registered.
+get_gadt_variant_args :: (
+  fn(enum_id : str) -> Option(ArrayList(ArrayList(TypeValue)))
+)({
+  (i : usize) = usize(0);
+  n := g_gadt_entries.len();
+  (found : Option(ArrayList(ArrayList(TypeValue)))) = Option(ArrayList(ArrayList(TypeValue))).None;
+  while((i < n) && match(found,.None => true,.Some(_) => false), {
+    match(
+      g_gadt_entries.get(i),
+      .Some(e) => if(e.enum_id.as_str() == enum_id, {
+        found = Option(ArrayList(ArrayList(TypeValue))).Some(e.variant_args);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True if the enum id is registered as a GADT (mirrors `EnumType.isGadt`).
+is_gadt_enum :: (fn(enum_id : str) -> bool)(
+  match(get_gadt_variant_args(enum_id),.Some(_) => true,.None => false)
+);
+// ---------------------------------------------------------------------------
+// Per-instantiation type-constructor args  (mirrors EnumType.typeConstructorArgs)
+// ---------------------------------------------------------------------------
+GadtTcaEntry :: object(
+  enum_id : String,
+  type_constructor_args : ArrayList(TypeValue)
+);
+(g_gadt_tca_entries : ArrayList(GadtTcaEntry)) = ArrayList(GadtTcaEntry).new();
+/// Record the type-constructor args for an instantiated GADT enum.
+register_gadt_type_constructor_args :: (
+  fn(enum_id : str, tca : ArrayList(TypeValue)) -> unit
+)({
+  ___ := g_gadt_tca_entries.push(GadtTcaEntry(enum_id : String.from(enum_id), type_constructor_args : tca));
+});
+/// Look up the type-constructor args for an instantiated GADT enum, if any.
+get_gadt_type_constructor_args :: (
+  fn(enum_id : str) -> Option(ArrayList(TypeValue))
+)({
+  (i : usize) = usize(0);
+  n := g_gadt_tca_entries.len();
+  (found : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
+  while((i < n) && match(found,.None => true,.Some(_) => false), {
+    match(
+      g_gadt_tca_entries.get(i),
+      .Some(e) => if(e.enum_id.as_str() == enum_id, {
+        found = Option(ArrayList(TypeValue)).Some(e.type_constructor_args);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+export(
+  GadtEntry,
+  register_gadt_enum,
+  get_gadt_variant_args,
+  is_gadt_enum,
+  GadtTcaEntry,
+  register_gadt_type_constructor_args,
+  get_gadt_type_constructor_args
+);

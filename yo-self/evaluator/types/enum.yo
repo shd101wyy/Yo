@@ -28,7 +28,8 @@ open(import("std/fmt"));
   make_err_expr,
   BK_ENUM,
   BK_ASSIGN,
-  BK_CONST
+  BK_CONST,
+  BF_RECUR
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -46,6 +47,7 @@ open(import("std/fmt"));
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_enum_type } :: import("./utils.yo");
+{ register_gadt_enum } :: import("./gadt_registry.yo");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -211,6 +213,11 @@ evaluate_enum_type :: (
   variant_fields := ArrayList(ArrayList(TypeValue)).new();
   variant_field_labels := ArrayList(ArrayList(String)).new();
   variant_discriminants := ArrayList(i64).new();
+  // GADT: per-variant `-> recur(T…)` return-type args, parallel to variant
+  // order. An empty inner list marks a non-GADT variant. `any_gadt` mirrors
+  // `EnumType.isGadt`. Recorded in the gadt_registry side-table at the end.
+  all_variant_gadt_args := ArrayList(ArrayList(TypeValue)).new();
+  (any_gadt : bool) = false;
   // Track the next auto-assigned discriminant.
   (next_discriminant : i64) = i64(0);
   args := _fn_call_args(expr);
@@ -218,8 +225,11 @@ evaluate_enum_type :: (
   while(i < args.len(), {
     enum_arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // -------------------------------------------------------------------
-    // GADT detection (not yet implemented in Phase 1 bootstrap).
-    // Detect: `Variant -> recur(T)` or `(Variant -> recur(T)) = disc`.
+    // GADT detection. Detect `Variant -> recur(T…)` or
+    // `(Variant -> recur(T…)) = disc`, capture the `recur(...)` return-type
+    // expression in `gadt_ret`, and rewrite `enum_arg` to the bare variant so
+    // the normal variant-building `cond` below runs unchanged. Mirrors
+    // `enum.ts:61-85`.
     // -------------------------------------------------------------------
     is_gadt_arrow := ast_expr_is_fn_call_of(enum_arg, "->", Option(usize).Some(usize(2)));
     is_gadt_eq_arrow := if(ast_expr_is_fn_call_of(enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
@@ -227,17 +237,32 @@ evaluate_enum_type :: (
       lhs_eq := match(eq_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
       ast_expr_is_fn_call_of(lhs_eq, "->", Option(usize).Some(usize(2)))
     }, false);
-    if(is_gadt_arrow || is_gadt_eq_arrow, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(enum_arg),
-            String.from("GADT enum not yet implemented in self-hosted compiler"),
-            false,
-            .None
-          )
-        )
-      );
+    (gadt_ret : Option(AstExpr)) = Option(AstExpr).None;
+    if(is_gadt_arrow, {
+      arrow_args := _fn_call_args(enum_arg);
+      gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
+      enum_arg = match(arrow_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    }, {
+      if(is_gadt_eq_arrow, {
+        eq_args := _fn_call_args(enum_arg);
+        arrow_e := match(eq_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+        arrow_args := _fn_call_args(arrow_e);
+        gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
+        arrow_lhs := match(arrow_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+        eq_disc := match(eq_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+        // Reconstruct the `=` node stripped of the `->` wrapper (mirrors TS's
+        // `{...outerFnCall, args:[arrow.args[0], outer.args[1]]}`).
+        enum_arg = match(
+          enum_arg,
+          .FnCall(fid, ffunc, _, finfix, ftok) => {
+            new_args := ArrayList(AstExpr).new();
+            new_args.push(arrow_lhs);
+            new_args.push(eq_disc);
+            AstExpr.FnCall(fid, ffunc, new_args, finfix, ftok)
+          },
+          .Atom(_, _) => enum_arg
+        );
+      });
     });
     // -------------------------------------------------------------------
     // Atom variant with discriminant: `VariantName = value`
@@ -455,7 +480,68 @@ evaluate_enum_type :: (
         next_discriminant = (disc + i64(1));
       }
     );
+    // GADT: evaluate the `-> recur(T…)` return-type args for the variant just
+    // built and record them parallel to variant order (mirrors enum.ts:313-366).
+    // A non-GADT variant records an empty list. `ctx.self_type` is still the
+    // preliminary enum type, so self-referential return args resolve.
+    match(
+      gadt_ret,
+      .Some(gre) => {
+        if(!(ast_expr_is_fn_call_of(gre, BF_RECUR, Option(usize).None)), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(gre),
+                `Expected recur(...) for GADT return type, got:\n${ast_expr_to_string(gre)}`,
+                false,
+                .None
+              )
+            )
+          );
+        });
+        recur_args := _fn_call_args(gre);
+        this_variant_args := ArrayList(TypeValue).new();
+        (gi : usize) = usize(0);
+        while(gi < recur_args.len(), {
+          ra := match(recur_args.get(gi),.Some(a) => a,.None => make_err_expr());
+          evaluated_ra := evaluate_expression_raw(ra, env, ctx, exn);
+          ra_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ra));
+          ra_info := match(ra_info_opt,.Some(ii) => ii,.None => new_expr_info(env, TypeValue.Unit));
+          if(!(is_type_value(ra_info.value)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(ra),
+                  `Expected type for GADT return type argument, got ${ast_expr_to_string(ra)}`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
+          ra_ty := match(
+            ra_info.value,
+            .Some(v) => match(v,.TypeVal(inner) => inner.*, _ => TypeValue.Unit),
+            .None => TypeValue.Unit
+          );
+          this_variant_args.push(ra_ty);
+          gi = (gi + usize(1));
+        });
+        all_variant_gadt_args.push(this_variant_args);
+        any_gadt = true;
+      },
+      .None => {
+        ___ := all_variant_gadt_args.push(ArrayList(TypeValue).new());
+      }
+    );
     i = (i + usize(1));
+  });
+  // GADT: record per-variant return-type args in the side-table (marks this
+  // enum id as a GADT). Mirrors `enumType.isGadt = true` + per-variant
+  // `gadtReturnTypeArgs` (enum.ts:364-365). typeConstructorArgs (enum.ts:369-391)
+  // is populated by the caller/match path.
+  if(any_gadt, {
+    register_gadt_enum(enum_id.as_str(), all_variant_gadt_args);
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
