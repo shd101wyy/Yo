@@ -46,8 +46,8 @@ open(import("std/fmt"));
 } :: import("../../types/utils.yo");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ TokenKind } :: import("../../token.yo");
 { evaluate_expression } :: import("./expr.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Return type
 // ---------------------------------------------------------------------------
@@ -59,24 +59,6 @@ BindingResult :: object(
   variable_expr : AstExpr,
   /// The plain string name of the variable being declared.
   variable_name : String
-);
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-/// Return `true` if `expr` is either:
-///   * an Atom whose token kind is Identifier, or
-///   * any expression whose token kind is Operator.
-///
-/// Mirrors `isValidVariableName` in `src/evaluator/utils.ts`.
-is_valid_variable_name :: (fn(expr : AstExpr) -> bool)(
-  match(
-    expr,
-    .Atom(_, tok) => (
-      (tok.kind == TokenKind.Identifier) ||
-        (tok.kind == TokenKind.Operator)
-    ),
-    .FnCall(_, _, _, _, tok) => (tok.kind == TokenKind.Operator)
-  )
 );
 // ---------------------------------------------------------------------------
 // evaluate_binding
@@ -375,4 +357,4 @@ evaluate_binding :: (
     variable_name : variable_name
   )
 });
-export(BindingResult, evaluate_binding, is_valid_variable_name);
+export(BindingResult, evaluate_binding);

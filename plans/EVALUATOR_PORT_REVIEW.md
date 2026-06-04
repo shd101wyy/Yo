@@ -126,7 +126,14 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
   blocked (fn-body assignments aren't evaluated by `check`) so 0 aggregate test
   delta, but the divergence is closed.
 - ⬜ `exprs/begin.ts` → `exprs/begin.yo`
-- ⬜ `exprs/binding.ts` → `exprs/binding.yo`
+- 🔧 `exprs/binding.ts` → `exprs/binding.yo` — **fixed a structural divergence**:
+  `is_valid_variable_name` was defined in BOTH `binding.yo` (live; 11 importers)
+  and `evaluator/utils.yo` (TS-faithful; only a test imported it). TS defines
+  `isValidVariableName` once in `utils.ts` and all 13 modules import it from
+  there. Removed the `binding.yo` copy, repointed all 11 importers (+ the test)
+  to `../utils.yo`, dropped it from `binding.yo`'s export and removed the now-
+  unused `TokenKind` import. The two copies were behaviorally identical, so 0
+  test delta; the duplicate is gone and the structure now matches TS.
 - ⬜ `exprs/c-include.ts` → `exprs/c_include.yo`
 - ⬜ `exprs/cond.ts` → `exprs/cond.yo`
 - ⬜ `exprs/destructuring-assignment.ts` → `exprs/destructuring_assignment.yo`
