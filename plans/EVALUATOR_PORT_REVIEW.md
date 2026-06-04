@@ -118,7 +118,13 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 ### evaluator/exprs/
 
 - ⬜ `exprs/_expr.ts` → `exprs/_expr.yo`
-- ⬜ `exprs/assignment.ts` → `exprs/assignment.yo`
+- 🔧 `exprs/assignment.ts` → `exprs/assignment.yo` — **fixed a missing gate**: the
+  Phase-O atomic-object-field-write ban (`assignment.ts:793-803`) had no yo-self
+  equivalent. Ported `getRootExprOfFieldAccess` + `getAtomicObjectRootType`
+  (`utils.ts:22-59`) as file-local helpers and wired the gate at the start of the
+  property/index-LHS branch. Faithful 1:1; reject-case is mostly def-eval-wall-
+  blocked (fn-body assignments aren't evaluated by `check`) so 0 aggregate test
+  delta, but the divergence is closed.
 - ⬜ `exprs/begin.ts` → `exprs/begin.yo`
 - ⬜ `exprs/binding.ts` → `exprs/binding.yo`
 - ⬜ `exprs/c-include.ts` → `exprs/c_include.yo`

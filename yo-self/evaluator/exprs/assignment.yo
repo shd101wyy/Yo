@@ -28,7 +28,8 @@ open(import("std/string"));
   BK_ASSIGN,
   BK_COND,
   BK_MATCH,
-  BK_BEGIN
+  BK_BEGIN,
+  BF_DOT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -65,9 +66,15 @@ open(import("std/string"));
 {
   is_comptime_int_type,
   is_comptime_float_type,
-  is_comptime_string_type
+  is_comptime_string_type,
+  is_atomic_object_type,
+  is_some_type
 } :: import("../../types/guards.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{
+  convert_comptime_type_to_runtime_type,
+  get_value_of_some_type_from_env
+} :: import("../../types/env_lookup.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -200,6 +207,56 @@ make_variable_with_value :: (
   )
 );
 // ---------------------------------------------------------------------------
+// get_root_expr_of_field_access
+// ---------------------------------------------------------------------------
+/// Walk a chained field/index access down to its root atom.
+/// For `a.b.c`, returns the `a` atom. For a bare atom `x`, returns it
+/// unchanged. Mirrors `getRootExprOfFieldAccess` in `src/evaluator/utils.ts`.
+get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
+  if(
+    (ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT,.None)) && (match(expr,.FnCall(_, _, args, _, _) => args.len(),.Atom(_, _) => usize(0)) >= usize(2)),
+    recur(match(expr,.FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => expr),.Atom(_, _) => expr)),
+    expr
+  )
+);
+// ---------------------------------------------------------------------------
+// get_atomic_object_root_type
+// ---------------------------------------------------------------------------
+/// Phase O (THREAD_SAFETY): if a field-access expression's root has
+/// `atomic object` type, writes through it are forbidden in safe code.
+/// Returns the root type if it's an atomic object, `None` otherwise.
+/// Resolves SomeType (e.g. `Self`) to concrete types before checking.
+/// Mirrors `getAtomicObjectRootType` in `src/evaluator/utils.ts`.
+get_atomic_object_root_type :: (
+  fn(root_expr : AstExpr, env : Environment) -> Option(TypeValue)
+)({
+  if(!(ast_expr_is_atom(root_expr)), {
+    return(Option(TypeValue).None);
+  });
+  var_name := ast_expr_token(root_expr).value;
+  if(var_name.is_empty(), {
+    return(Option(TypeValue).None);
+  });
+  variables := get_variables_from_env(env, String.from(var_name.as_str()));
+  if(variables.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  (root_type : TypeValue) = match(
+    variables.get(variables.len() - usize(1)),
+    .Some(v) => v.ty,
+    .None => return(Option(TypeValue).None)
+  );
+  // Resolve SomeType (e.g. Self) to its concrete type.
+  if(is_some_type(root_type), {
+    root_type = get_value_of_some_type_from_env(env, root_type);
+  });
+  if(
+    is_atomic_object_type(root_type),
+    Option(TypeValue).Some(root_type),
+    Option(TypeValue).None
+  )
+});
+// ---------------------------------------------------------------------------
 // evaluate_assignment
 // ---------------------------------------------------------------------------
 /// Evaluate an `=` assignment expression.
@@ -253,6 +310,26 @@ evaluate_assignment :: (
   // `src/evaluator/exprs/assignment.ts`).
   // -----------------------------------------------------------------------
   if(!(is_atom_lhs || is_typed_binding_lhs), {
+    // Phase O: Forbid writing through atomic-object fields in safe code.
+    if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).module_path.clone()))), {
+      root_expr := get_root_expr_of_field_access(lhs);
+      match(
+        get_atomic_object_root_type(root_expr, env),
+        .Some(atomic_obj_type) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(lhs),
+                `Cannot write to field of atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`,
+                false,
+                .None
+              )
+            )
+          );
+        },
+        .None => ()
+      );
+    });
     // Step 1 — Evaluate LHS with is_lhs_of_assignment = true
     saved_expected := ctx.expected_type;
     saved_is_lhs := ctx.is_lhs_of_assignment;
