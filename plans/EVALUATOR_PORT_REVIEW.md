@@ -244,6 +244,24 @@ gap is deferred on a larger feature (see note)
   "knot" prerequisite for def-time body eval is now RESOLVED, so this is more
   tractable than the original 53→3 attempt — but it still touches the hot
   function-definition path and must be validated with strict revert-on-regression.
+  **DEEPER BLOCKER FOUND (2026-06, attempting the narrow approach): the narrow gate
+  is INFEASIBLE as-is and would GUARANTEE regressions.** `is_flowable_expr` decides
+  flowability almost entirely from `Variable.is_ref` and `Variable.is_parameter`
+  (flowability.yo R1/R1'' branches). But `add_variable_to_env` (env.yo, the
+  universal binding path) HARDCODES `is_ref : false` and `is_parameter : false`,
+  and a repo-wide grep confirms NO Variable construction anywhere sets either flag
+  `true` (the call-time param binding at calls/function.yo:1365 passes `p_is_ref`
+  as the `is_reassignable` arg, NOT is_ref). So those two checks in is_flowable_expr
+  are effectively DEAD — they always return false → is_flowable_expr would reject
+  EVERY ref/param-rooted return, including the legitimate ref/slice-returning
+  functions in std/yo-self → wiring the gate regresses rather than fixes.
+  PREREQUISITE (before any flowability gate): plumb `is_ref` (from the Func type's
+  `param_is_ref`) and `is_parameter` onto param Variables at binding time. That
+  means extending `add_variable_to_env` (or adding a param-specific binder) — a
+  change to the universal binding path with broad blast radius. So the true work
+  order is: (1) param-flag plumbing (is_ref/is_parameter) → (2) def-time body eval
+  (narrow, trial-eval-bounded) → (3) the flowability gates + closure-capture gate.
+  This is a genuine multi-part feature, NOT a localized wiring/gate add. Deferred.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
