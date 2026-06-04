@@ -35,7 +35,7 @@ open(import("std/fmt"));
 }
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -1603,6 +1603,10 @@ parse_where_clause_constraints :: (
     rhs_expr := match(c_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
     // Resolve LHS
     (some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
+    // HKT: set when the LHS is a TypeApplication `F(A)` (where-clause over a
+    // higher-kinded constructor application). Recorded via the dedicated
+    // type-application constraint table instead of a SomeT's constraint list.
+    (type_app_lhs : Option(TypeValue)) = Option(TypeValue).None;
     (is_concrete_type : bool) = false;
     (skip_constraint : bool) = false;
     if(ast_expr_is_atom(lhs_expr), {
@@ -1722,26 +1726,23 @@ parse_where_clause_constraints :: (
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
       env_mut.input_string = lhs_info.env.input_string;
       lhs_tv := match(lhs_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
-      // HKT TypeApplication case (stub — not yet implemented)
+      // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
+      // type-application constraint table (mirrors function.ts:1265-1348 +
+      // addWhereClauseConstraintForTypeApplication). The RHS trait parsing
+      // below is shared; the recording branches on `type_app_lhs`. A
+      // TypeApplication is NOT concrete (its head is an abstract type-param),
+      // so it must NOT fall into the concrete-type validation branch.
       if(is_type_application_type(lhs_tv), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(lhs_expr),
-              String.from("HKT TypeApplication where clause not yet implemented (Phase 3)"),
-              false,
-              .None
-            )
-          )
-        );
-      });
-      if(is_some_type(lhs_tv), {
-        some_ty_opt =.Some(lhs_tv);
+        type_app_lhs = Option(TypeValue).Some(lhs_tv);
       }, {
-        // Concrete type — use outer exn (hard failure).
-        // The given/using soft-failure pattern generates incomplete C calls.
-        validate_concrete_type_constraints(lhs_tv, rhs_expr, constraint_expr, env_mut, ctx, exn);
-        skip_constraint = true;
+        if(is_some_type(lhs_tv), {
+          some_ty_opt =.Some(lhs_tv);
+        }, {
+          // Concrete type — use outer exn (hard failure).
+          // The given/using soft-failure pattern generates incomplete C calls.
+          validate_concrete_type_constraints(lhs_tv, rhs_expr, constraint_expr, env_mut, ctx, exn);
+          skip_constraint = true;
+        });
       });
     });
     if(skip_constraint, {
@@ -1750,9 +1751,14 @@ parse_where_clause_constraints :: (
     some_ty := match(
       some_ty_opt,
       .Some(t) => t,
-      .None => {
-        continue;
-      }
+      .None => match(
+        type_app_lhs,
+        // TypeApplication LHS: `some_ty` is unused on this path; bind a dummy.
+        .Some(_) => t_unit(),
+        .None => {
+          continue;
+        }
+      )
     );
     // Parse RHS trait(s): single or tuple
     rhs_trait_exprs := ArrayList(AstExpr).new();
@@ -1861,8 +1867,17 @@ parse_where_clause_constraints :: (
           )
         );
       });
-      // Add constraint directly to SomeT's ArrayList
-      _add_where_clause_constraint(some_ty, trait_ty2, is_neg);
+      // Record the constraint: TypeApplication LHS → the dedicated
+      // type-application table; otherwise directly on the SomeT's ArrayList.
+      match(
+        type_app_lhs,
+        .Some(ta_lhs) => {
+          add_where_clause_constraint_for_type_application(env_mut, ta_lhs, trait_ty2, is_neg);
+        },
+        .None => {
+          _add_where_clause_constraint(some_ty, trait_ty2, is_neg);
+        }
+      );
     });
   });
   pending_traits
