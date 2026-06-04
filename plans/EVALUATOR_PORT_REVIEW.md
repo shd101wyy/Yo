@@ -262,6 +262,23 @@ gap is deferred on a larger feature (see note)
   order is: (1) param-flag plumbing (is_ref/is_parameter) → (2) def-time body eval
   (narrow, trial-eval-bounded) → (3) the flowability gates + closure-capture gate.
   This is a genuine multi-part feature, NOT a localized wiring/gate add. Deferred.
+  **EMPIRICALLY CONFIRMED (2026-06, attempted faithfully): def-time body eval
+  CATASTROPHICALLY regresses — std 0/151, tests 0/182, yo-self 0/339 (even the
+  prelude fails to load).** Implemented step (1) (a new `add_parameter_to_env`
+  setting is_ref/is_parameter — safe, additive) + step (2) NARROWLY: in
+  `try_to_implement_function_by_function_type`, gated to CONCRETE (no forall / no
+  SomeT param / no SomeT-Self) functions whose return is `ref` or carries a raw
+  ptr (~8 files), building a fresh captures+params env and trial-evaluating the
+  body with a swallowing Exception (errors → skip). Even so, evaluating those
+  bodies at definition time during PRELUDE load corrupts shared state
+  (ctx.expr_info_table / registries) and/or crashes, taking down ALL 672 files —
+  matching (worse than) the documented 53→3 wall. Reverted with zero net change.
+  CONCLUSION: the flowability cluster cannot be ported incrementally on top of the
+  current evaluator. It requires the def-eval wall to be solved as a dedicated
+  FOUNDATIONAL effort first (the prior `yo-self-defeval-wall` finding: prereq
+  order knot→def-time-body-eval→flowability; the knot is resolved but def-time
+  body eval itself remains the broad blocker — trial-eval-bounding does NOT
+  contain its shared-state side-effects). Do NOT re-attempt as a localized add.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
