@@ -517,6 +517,40 @@ instantiation's id. Then re-apply the plumbing (validated: only imm_map blocks)
 and validate per-file. Net once landed: tests 168→169 (sync/mutex), no
 regressions.
 
+### THREE DERIVATION FIXES LANDED + PLUMBING VERDICT (2026-06)
+
+Three foundational trait-checking fixes committed (all validated clean in
+isolation: std 151/151, tests 168, yo-self 337/338, 0 regressions):
+
+1. **option 2** (0519e25b) — `_resolve_registered_trait_name` resolves nameless
+   marker traits by id; registry lookup works for value structs.
+2. **Send/Acyclic builtins** (b4080e8b) — primitive/comptime-data leaves recognized.
+3. **on-demand re-derivation** (dfba72d8) — `type_implements_trait` step 4b
+   recomputes auto-derived markers from a type's CONCRETE fields when the
+   registry misses (handles generic instantiations + EnumT + `*(T)`), self-
+   recursing via `recur`, guarded against cycles.
+
+**Plumbing verdict — REVERTED (massive regression).** With all 3 fixes + the
+where-plumbing re-applied, `sync/mutex` rejects `Mutex(NonSendObj)` ✓ and
+`sync/channel`/`imm_map` pass — BUT a full per-file run showed **~150 yo-self/
+files + 2 std (encoding/html\*) + tests/derive_clone_complex REGRESS**. Enabling
+`where(...)` enforcement across yo-self's pervasively-generic code (every
+ArrayList/HashMap/Option/imm-list use carries `where(T <: Send)` etc.) surfaces
+a huge derivation surface the 3 fixes don't fully cover, AND the step-4b
+on-demand cycle guard returns FALSE on a recursive in-progress type (e.g.
+`ListNode(_next : Option(Self))`) where auto_derive's `send_derivation_in_progress`
+returns TRUE optimistically — so legitimately-Send recursive types get rejected.
+
+**Conclusion: where-clause enforcement is NOT landable for sync/mutex without
+comprehensive Send/Comptime derivation parity** (the audit's pervasive-where(Send)
+risk, fully materialized — ~150-file regression surface). The 3 derivation fixes
+are kept (genuine correctness improvements + prerequisites). Remaining for
+sync/mutex: (a) make the step-4b cycle guard OPTIMISTIC (return true for the
+in-progress type, mirroring `send_derivation_in_progress`); (b) close the rest of
+the derivation surface that 150 yo-self files exercise; then re-apply plumbing
+and validate. This is a dedicated comprehensive-derivation effort, not a small
+add. Plumbing reverted; tree green at tests 168.
+
 **True fix scope:** persist the subject→bound constraint structure on the Func
 TypeValue / a func*id side-table at definition time (the where-EXPRS side-table
 from attempt #1 IS such storage and works), THEN fix the call-time \_application*
