@@ -219,6 +219,31 @@ gap is deferred on a larger feature (see note)
   flowability rejection never fires (→ `ref_flowability`/`slice_flowability`
   `comptime_expect_error` tests fail). Wire the call sites + (optionally) move
   the file to the 1-to-1 path.
+  **CORRECTION (2026-06, after investigation): this is NOT a "wire the call sites"
+  job — it is the def-eval wall.** `is_flowable_expr` reads the return expr's
+  `ExprInfo` (`_info(ctx, expr)` → `info.variable_name` / `info.env` /
+  `control_flow`), so the return expr must be EVALUATED before the gate can run.
+  The gates fire at function-DEFINITION time (function-type.ts:524-573,
+  anonymous-function.ts:954-975, begin.ts:1268) where TS calls
+  `evaluateBeginExpression` on the body first; yo-self's
+  `try_to_implement_function_by_function_type` deliberately does NOT evaluate the
+  body (the def-eval wall — memory `yo-self-defeval-wall`: a broad def-time
+  body-eval attempt regressed 53→3, "don't re-attempt incrementally"). All 5
+  failing tests are `comptime_expect_error(<fn definition>)` whose bodies must be
+  evaluated to trigger the gate, and they split into TWO clusters:
+  (a) function-return flowability — ref_flowability, slice_flowability,
+  ref_return_labeled (function_type.yo ref/raw-ptr-return gate); (b) closure
+  capture validation — ref_closure_capture, ref_local_binding
+  (anonymous_function.yo / utils/closure.yo `validate_capture_trait_requirements`,
+  currently a no-op stub). RECOMMENDED APPROACH (dedicated effort, NOT a quick
+  win): a NARROW, trial-eval-BOUNDED def-time body eval — evaluate the body ONLY
+  when the return type is ref or contains a raw ptr (~8 module-level files carry
+  such returns, so small blast radius), wrap the body-eval in a swallowing
+  Exception so a non-evaluable body just SKIPS the flowability check (never
+  regresses), and only the `is_flowable_expr` rejection propagates. The Phase-3
+  "knot" prerequisite for def-time body eval is now RESOLVED, so this is more
+  tractable than the original 53→3 attempt — but it still touches the hot
+  function-definition path and must be validated with strict revert-on-regression.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
