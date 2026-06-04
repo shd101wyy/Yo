@@ -295,6 +295,25 @@ gap is deferred on a larger feature (see note)
   body-evaluation to be made ROBUST for definition-time use (no hard crashes on
   arbitrary bodies) — a genuine foundational rework of evaluator robustness, not a
   gate/wiring add. The flowability gates are ready to wire the moment that lands.
+  **ROOT CAUSE of the hard crash (pinpointed):** the std/string/string.yo crasher
+  is `project : (fn(ref(self) : Self, pos : usize) -> ref(u8))(match(self._bytes, …))`
+  — a METHOD. Def-time eval binds `self` as UnknownVal; the body's
+  `match(self._bytes,…)`/indexing on an unknown `self` hits an evaluator path that
+  HARD-ABORTS (property-access/match/index are not robust to UnknownVal at def
+  time). All 4 std files with `-> ref(` are such impl methods; the failing test
+  functions are STANDALONE (no self). **MITIGATION/BREAKTHROUGH:** defer ALL
+  methods (defer when `ctx.self_type.is_some()`, not only SomeT) → excludes every
+  std ref method from def-time eval (no std crash) while standalone test functions
+  (self_type=None) still evaluate. This makes standalone-ref def-time eval
+  tractable. **REMAINING to flip the 5 tests (each needs MULTIPLE gates):**
+  ref_flowability = ref-return gate (works) + binding-site `ref(r):=<non-flowable>`
+  gate in initialization_assignment.yo; ref_return_labeled = a double-ref
+  RETURN-TYPE rejection (NOT flowability — body is `panic`, which is flowable);
+  slice_flowability = the raw-ptr-representation gate (pervasive/crash-prone);
+  ref_closure_capture / ref_local_binding = closure-capture `is_ref` rejection in
+  anonymous_function.yo (needs the in-body closure def-time-evaluated too). Residual
+  regression risk: standalone ref fns in PASSING tests (ref_return, ref_params)
+  must not be wrongly rejected/crash → is_flowable_expr correctness must hold.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
