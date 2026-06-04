@@ -219,9 +219,13 @@ _ondemand_guard_contains :: (fn(key : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < g_ondemand_marker_guard.len()) && !(found), {
-    match(g_ondemand_marker_guard.get(i),.Some(k) => if(k.as_str() == key.as_str(), {
-      found = true;
-    }),.None => ());
+    match(
+      g_ondemand_marker_guard.get(i),
+      .Some(k) => if(k.as_str() == key.as_str(), {
+        found = true;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   found
@@ -1193,6 +1197,142 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
+// type_contains_some_type_for_codegen_param
+// ---------------------------------------------------------------------------
+/// Deep recursion: does `ty` contain a SomeType in a codegen-relevant position?
+///
+/// 1:1 port of `typeContainsSomeTypeForCodegenParam` (`src/types/utils.ts:708`).
+/// Lives here (not `types/utils.yo`) so it can use `type_implements_fn` /
+/// `type_implements_future` without a `types/utils` import cycle.
+///
+/// STAGED for def-time body evaluation (see plans/DEFTIME_BODY_EVAL.md): this is
+/// the DEEP predicate `should_defer` needs — yo-self's shallow
+/// `type_contains_some_type` (types/utils.yo) only checks top-level
+/// `SomeT`/`TypeAppT`, so generic ptr/slice/struct fns aren't deferred. NOT YET
+/// CONSUMED (body-eval wiring is the remaining multi-layer work); exported for
+/// that wiring. The `checked_ids` arg is the cycle guard (TS `checkedTypes`),
+/// keyed by nominal type id. yo-self `SomeT` has no `is_extern` /
+/// `resolved_concrete_type`, so those TS exclusions are no-ops here.
+type_contains_some_type_for_codegen_param :: (
+  fn(ty : TypeValue, checked_ids : ArrayList(String)) -> bool
+)({
+  // Cycle guard on nominal type id (mirrors TS `checkedTypes.includes(type)`).
+  nominal_id := match(
+    ty,
+    .Struct({ id : sid }) => sid,
+    .EnumT(eid, _, _, _, _, _, _) => eid,
+    .Union(uname, _, _) => uname,
+    _ => String.from("")
+  );
+  if(!(nominal_id.is_empty()), {
+    (seen : bool) = false;
+    (ci : usize) = usize(0);
+    while((ci < checked_ids.len()) && !(seen), {
+      match(
+        checked_ids.get(ci),
+        .Some(k) => if(k.as_str() == nominal_id.as_str(), {
+          seen = true;
+        }),
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+    if(seen, {
+      return(false);
+    });
+    _push := checked_ids.push(String.from(nominal_id.as_str()));
+  });
+  if(is_some_type(ty), {
+    // SomeType: TS excludes extern + resolved-concrete (no-ops in yo-self) and
+    // Fn/Future-trait SomeTypes; otherwise it IS a codegen SomeType.
+    if(type_implements_fn(ty), {
+      return(false);
+    });
+    if(type_implements_future(ty), {
+      return(false);
+    });
+    return(true);
+  });
+  match(
+    ty,
+    .Array(element, _) => recur(element.*, checked_ids),
+    .Slice(element) => recur(element.*, checked_ids),
+    .Pointer(pointee) => recur(pointee.*, checked_ids),
+    .Tuple(_, field_types) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < field_types.len()) && !(found), {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(recur(ft, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    },
+    // Struct: skip Fn-typed fields (TS `field.type.tag !== Function`); yo-self
+    // has no `isEffectParam` so that exclusion is a no-op.
+    .Struct({ field_types : field_types }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < field_types.len()) && !(found), {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if((!(is_function_type(ft))) && recur(ft, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    },
+    .EnumT(_, _, _, variant_fields, _, _, _) => {
+      (found : bool) = false;
+      (vi : usize) = usize(0);
+      while((vi < variant_fields.len()) && !(found), {
+        vf := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        (vj : usize) = usize(0);
+        while((vj < vf.len()) && !(found), {
+          ft := match(vf.get(vj),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, checked_ids), {
+            found = true;
+          });
+          vj = (vj + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    .Union(_, _, field_types) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < field_types.len()) && !(found), {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(recur(ft, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    },
+    .Func({ forall_labels : forall_labels, param_types : param_types, result : result_box }) => {
+      (found : bool) = (forall_labels.len() > usize(0));
+      (i : usize) = usize(0);
+      while((i < param_types.len()) && !(found), {
+        pt := match(param_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(recur(pt, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      if(!(found), {
+        found = recur(result_box.*, checked_ids);
+      });
+      found
+    },
+    .TypeAppT(constructor : _) => true,
+    _ => false
+  )
+});
+// ---------------------------------------------------------------------------
 // extract_future_trait_from_type
 // ---------------------------------------------------------------------------
 /// Extract FutureTraitT from a type.
@@ -1408,6 +1548,7 @@ export(type_implements_send, type_implements_dispose, type_implements_acyclic);
 export(type_implements_fn);
 export(extract_fn_trait_from_type);
 export(type_implements_future);
+export(type_contains_some_type_for_codegen_param);
 export(extract_future_trait_from_type);
 export(type_is_comptime_only_full, type_is_runtime_only);
 export(validate_type_availability);
