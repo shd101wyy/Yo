@@ -50,6 +50,7 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { evaluate_expression } :: import("./expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -473,6 +474,25 @@ evaluate_property_access :: (
       obj_ty_deref,
       .Some(ot) => {
         if(is_pointer_type(ot), {
+          // Memory-safety gate: pointer dereference requires `unsafe(...)`.
+          // Files under std/ and yo-self/ are implicitly unsafe-capable.
+          // Mirrors `property-access.ts:298-310`.
+          if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())))), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(property_expr),
+                  `Pointer dereference requires 'unsafe(...)'.
+
+Wrap as: unsafe(${ast_expr_to_string(object_expr)}.*)
+
+Raw pointer operations may dereference invalid memory.`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
           base_ty_deref := match(ot,.Pointer(pt) => pt.*, _ => t_unit());
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(

@@ -145,7 +145,13 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `exprs/initialization-assignment.ts` → `exprs/initialization_assignment.yo`
 - ⬜ `exprs/match.ts` → `exprs/match.yo`
 - ⬜ `exprs/open.ts` → `exprs/open.yo`
-- ⬜ `exprs/property-access.ts` → `exprs/property_access.yo`
+- 🔧 `exprs/property-access.ts` → `exprs/property_access.yo` — **fixed a missing
+  gate**: the `.*` pointer-dereference memory-safety gate (`property-access.ts:
+292-310` — `isPtrType && !unsafeContext && !isImplicitlyUnsafeCapableFile` →
+  "Pointer dereference requires 'unsafe(...)'") had no yo-self equivalent; the
+  `.Pointer` branch dereferenced unconditionally. Ported the gate at the top of
+  the `is_pointer_type(ot)` branch. std/yo-self exempt via the pragma file check;
+  faithful 1:1 (def-eval-wall-blocked in fn bodies → 0 aggregate delta).
 - ⬜ `exprs/recur.ts` → `exprs/recur.yo`
 - ⬜ `exprs/runtime.ts` → `exprs/runtime.yo`
 - ⬜ `exprs/subtype-of.ts` → `exprs/subtype_of.yo`
