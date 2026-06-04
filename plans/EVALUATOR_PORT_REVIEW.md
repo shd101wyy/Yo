@@ -30,7 +30,7 @@ A file is **Reviewed ✅** only when ALL of the following hold:
    function is present. No silently-omitted helpers, no `TODO`/stub bodies that
    `return None`/`unit` where TS does real work.
 4. **No wrong hardcoded logic.** No hand-rolled enumerations where TS calls a
-   shared predicate. *Concrete example that prompted this doc:* the infix
+   shared predicate. _Concrete example that prompted this doc:_ the infix
    operator dispatch in `calls/function.yo` hardcoded a list of comparison
    operators (`== != < …`) instead of calling `string_is_operator(...)` (the
    port of TS `stringIsOperator`). Hardcoded lists drift from the lexer's real
@@ -77,29 +77,46 @@ extraction of TS state, not new logic:
 Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 
 ### evaluator/ (root)
+
 - ⬜ `context.ts` → `evaluator/context.yo`
 - ⬜ `index.ts` → `evaluator/index.yo`
-- ⬜ `memory-safety.ts` → `evaluator/memory_safety.yo`
+- ✅ `memory-safety.ts` → `evaluator/memory_safety.yo` — reviewed clean. All 6
+  present functions 1-to-1. Two language-forced divergences, both documented in
+  the header: `PragmaKind` union → reuses the language `Pragma` enum (self-host);
+  `Map<string,Set>` → `ArrayList(PragmaEntry)`. One omission: `recordExternCallSite`
+  (a `YO_EXTERN_WRAP_DUMP_FILE` migration tool needing a process-exit hook) —
+  documented, not eval-correctness.
 - ⬜ `trait-checking.ts` → `evaluator/trait_checking.yo`
 - ⬜ `utils.ts` → `evaluator/utils.yo`
 - ⬜ `utils/closure.ts` → `evaluator/utils/closure.yo`
 
 ### evaluator/async/
+
 - ⬜ `async/await-analysis-types.ts` → `async/await_analysis_types.yo`
 - ⬜ `async/await-analysis.ts` → `async/await_analysis.yo`
 
 ### evaluator/shared/
+
 - ⬜ `shared/suspension-analysis-types.ts` → `shared/suspension_analysis_types.yo`
 - ⬜ `shared/suspension-analysis.ts` → `shared/suspension_analysis.yo`
 
 ### evaluator/ctfe/
-- ⬜ `ctfe/ctfe-analysis.ts` → `ctfe/ctfe_analysis.yo`
+
+- ⚠️ `ctfe/ctfe-analysis.ts` → `ctfe/ctfe_analysis.yo` — DOCUMENTED STUB (18L vs
+  213L). `createComptimeFunctionType` + `analyzeCtfeCapability` are NOT extracted
+  into this module; the equivalent logic runs INLINE in `calls/comptime_fn.yo` +
+  `calls/function.yo` (per the file's own header). Structural divergence (module
+  organization), not necessarily behavioral. Extraction-to-module deferred —
+  refactoring working, regression-prone comptime logic purely for tree-parity is
+  low-reward; revisit if/when comptime_fn is otherwise touched.
 
 ### evaluator/effects/
+
 - ⬜ `effects/effect-analysis-types.ts` → `effects/effect_analysis_types.yo`
 - ⬜ `effects/effect-analysis.ts` → `effects/effect_analysis.yo`
 
 ### evaluator/exprs/
+
 - ⬜ `exprs/_expr.ts` → `exprs/_expr.yo`
 - ⬜ `exprs/assignment.ts` → `exprs/assignment.yo`
 - ⬜ `exprs/begin.ts` → `exprs/begin.yo`
@@ -125,12 +142,13 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `exprs/while.ts` → `exprs/while.yo`
 
 ### evaluator/calls/
+
 - ⬜ `calls/array-type.ts` → `calls/array_type.yo`
 - ⬜ `calls/closure-type.ts` → `calls/closure_type.yo`
 - ⬜ `calls/comptime-fn.ts` → `calls/comptime_fn.yo`
 - ⬜ `calls/comptime-list-type.ts` → `calls/comptime_list_type.yo`
 - ⬜ `calls/function-type.ts` → `calls/function_type.yo`
-- ⬜ `calls/function.ts` → `calls/function.yo`  ⚠️ operator dispatch (see Known divergences)
+- ⬜ `calls/function.ts` → `calls/function.yo` ⚠️ operator dispatch (see Known divergences)
 - ⬜ `calls/helper.ts` → `calls/helper.yo`
 - ⬜ `calls/index-trait.ts` → `calls/index_trait.yo`
 - ⬜ `calls/iso.ts` → `calls/iso.yo`
@@ -142,6 +160,7 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `calls/type.ts` → `calls/type.yo`
 
 ### evaluator/types/
+
 - ⬜ `types/array.ts` → `types/array.yo`
 - ⬜ `types/closure.ts` → `types/closure.yo`
 - ⬜ `types/comptime-list.ts` → `types/comptime_list.yo`
@@ -178,6 +197,7 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `types/validation.ts` → `types/validation.yo`
 
 ### evaluator/values/
+
 - ⬜ `values/anonymous-function.ts` → `values/anonymous_function.yo`
 - ⬜ `values/anonymous-module.ts` → `values/anonymous_module.yo`
 - ⬜ `values/anonymous-struct.ts` → `values/anonymous_struct.yo`
@@ -194,13 +214,14 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 - ⬜ `values/tuple.ts` → `values/tuple.yo`
 
 ### evaluator/builtins/
+
 - ⬜ `builtins/alignof.ts` → `builtins/alignof.yo`
 - ⬜ `builtins/and-or.ts` → `builtins/and_or.yo`
 - ⬜ `builtins/array-fns.ts` → `builtins/array_fns.yo`
 - ⬜ `builtins/as.ts` → `builtins/as.yo`
 - ⬜ `builtins/asm.ts` → `builtins/asm.yo`
 - ⬜ `builtins/build.ts` → `builtins/build.yo`
-- ⬜ `builtins/comptime-assert.ts` → `builtins/comptime_assert.yo`  ⚠️ (see Known divergences — Bug C)
+- ⬜ `builtins/comptime-assert.ts` → `builtins/comptime_assert.yo` ⚠️ (see Known divergences — Bug C)
 - ⬜ `builtins/comptime-bool-fns.ts` → `builtins/comptime_bool_fns.yo`
 - ⬜ `builtins/comptime-expect-error.ts` → `builtins/comptime_expect_error.yo`
 - ⬜ `builtins/comptime-fn.ts` → `builtins/comptime_fn.yo`
@@ -239,7 +260,28 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
 ## Progress
 
 - Total TS evaluator files: **130**
-- Reviewed: **0** ✅ / **0** ⚠️ / **130** ⬜
+- Reviewed: **1** ✅ (`memory-safety.ts`) / **1** ⚠️ (`ctfe-analysis.ts`) / **128** ⬜
 - Pre-flagged before review even starts: **3** ⚠️ (`calls/function.yo` —
   Tier 1 operator-dispatch landed (cf6219f0); `builtins/comptime_assert.yo`;
   `types/flowability.ts` — ported to wrong path, call-sites unwired).
+
+## Session review log (2026-06)
+
+**Methodology established:** per file — diff function inventories (TS vs yo-self),
+read both, check the 6 criteria, mark ✅/⚠️, fix behavioral divergences (validate
+per-file), document structural/justified ones.
+
+**Findings:**
+
+- `memory-safety.ts` → ✅ clean (see checklist).
+- `ctfe-analysis.ts` → ⚠️ documented stub (logic inline in comptime_fn.yo).
+- **Repo cleanliness:** removed 22 stray git-tracked `*.yo-E` files (stale
+  `sed -iE` backups; commit b6b59d25). They tripped the stub-marker scan and are
+  unreferenced/never-built.
+
+**High-signal next targets** (from the inventory scan): `evaluator/utils.yo`
+(1264L vs TS 106L — yo-self folded much in; verify the 4 TS fns + audit the
+extra ~15), then the `builtins/*` (small, self-contained, fast to clear), then
+the larger `calls/`/`types/` cores. The trait-membership re-port + Send/Acyclic
+builtin audit done earlier this session effectively reviewed the core of
+`trait_checking.yo`.
