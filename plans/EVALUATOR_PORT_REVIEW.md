@@ -134,12 +134,18 @@ Legend: ⬜ not reviewed · ✅ reviewed clean · ⚠️ issues found (see note)
   to `../utils.yo`, dropped it from `binding.yo`'s export and removed the now-
   unused `TokenKind` import. The two copies were behaviorally identical, so 0
   test delta; the duplicate is gone and the structure now matches TS.
-- ⬜ `exprs/c-include.ts` → `exprs/c_include.yo`
+- 🔧 `exprs/c-include.ts` → `exprs/c_include.yo` — **fixed a missing gate**: the
+  Phase-C privilege gate (`c-include.ts:46-66` — `c_include(...)` is FFI, only
+  pragma-AllowUnsafe files may use it) was absent. Ported after the shape check.
+  Fires at MODULE level (declaration eval), so NOT def-eval-wall-blocked.
 - ⬜ `exprs/cond.ts` → `exprs/cond.yo`
 - ⬜ `exprs/destructuring-assignment.ts` → `exprs/destructuring_assignment.yo`
 - ⬜ `exprs/exists.ts` → `exprs/exists.yo`
 - ⬜ `exprs/expr.ts` → `exprs/expr.yo`
-- ⬜ `exprs/extern.ts` → `exprs/extern.yo`
+- 🔧 `exprs/extern.ts` → `exprs/extern.yo` — **fixed a missing gate**: the Phase-C
+  privilege gate (`extern.ts:46-66` — `extern(...)` FFI declarations require
+  pragma AllowUnsafe) was absent. Ported after the shape check. Fires at MODULE
+  level, so NOT def-eval-wall-blocked.
 - ⬜ `exprs/identifer-and-operator.ts` → `exprs/identifer_and_operator.yo`
 - ⬜ `exprs/import.ts` → `exprs/import.yo`
 - ⬜ `exprs/initialization-assignment.ts` → `exprs/initialization_assignment.yo`
