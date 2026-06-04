@@ -128,6 +128,10 @@ AssocTypeCheckResult :: struct(
 /// Recursion guard to prevent infinite loops when checking trait implementations.
 /// Mirrors `traitCheckRecursionGuard: Set<string>` in TypeScript.
 (g_trait_check_recursion_guard : ArrayList(String)) = ArrayList(String).new();
+/// On-demand marker re-derivation guard (step 4b): prevents infinite recursion
+/// when recomputing an auto-derived marker from a self-referential type's fields
+/// (e.g. `ListNode(_next : Option(Self))`). Keyed by `${type_id}:${trait_id}`.
+(g_ondemand_marker_guard : ArrayList(String)) = ArrayList(String).new();
 /// Send derivation in-progress set.
 /// Mirrors `sendDerivationInProgress: Set<string>` in TypeScript.
 (g_send_derivation_in_progress : ArrayList(String)) = ArrayList(String).new();
@@ -204,6 +208,20 @@ _resolve_registered_trait_name :: (fn(trait_type : TypeValue, env : Environment)
       }),
       .None => ()
     );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True if the on-demand re-derivation guard currently holds `key`
+/// (`${type_id}:${trait_id}`). Used by step 4b to break cycles on
+/// self-referential types.
+_ondemand_guard_contains :: (fn(key : String) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < g_ondemand_marker_guard.len()) && !(found), {
+    match(g_ondemand_marker_guard.get(i),.Some(k) => if(k.as_str() == key.as_str(), {
+      found = true;
+    }),.None => ());
     i = (i + usize(1));
   });
   found
@@ -538,6 +556,101 @@ type_implements_trait :: (
   if(!(type_id.is_empty()) && !(trait_name.is_empty()), {
     if(is_type_registered_as_trait(type_id, trait_name.as_str()), {
       return(TraitCheckResult(implemented : true, env : env));
+    });
+  });
+  // 4b. On-demand re-derivation fallback for auto-derived markers.
+  //
+  // A nominal type created via GENERIC INSTANTIATION (comptime-fn stamping /
+  // substitution) may not have had `auto_derive_traits_for_struct_type` run with
+  // its CONCRETE field types, so the name-keyed registry has no entry. Recompute
+  // the marker on demand from the type's current fields, mirroring auto_derive's
+  // rules. This is path-independent (unlike re-running auto_derive at one
+  // instantiation site). Only the auto-derived markers (Send/Comptime/Acyclic/
+  // Runtime) are recomputable this way; the field check recurses through
+  // `type_implements_trait` (so it picks up the same builtins / registry /
+  // generic-impls), guarded against self-referential cycles.
+  if((!(trait_name.is_empty())) && !(_ondemand_guard_contains(`${type_id}:${_trait_type_id(trait_type)}`)), {
+    tn := trait_name.as_str();
+    marker_relevant := ((((tn == "Send") || (tn == "Comptime")) || (tn == "Acyclic")) || (tn == "Runtime"));
+    if(marker_relevant, {
+      // Determine the field types to check (None = marker not recomputable here).
+      (fields_opt : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
+      (direct_true : bool) = false;
+      match(
+        target,
+        .Struct({ field_types : fts, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => cond(
+          // Runtime: objects always; value structs need all fields Runtime.
+          (tn == "Runtime") => if(is_ref, {
+            direct_true = true;
+          }, {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          // Send: value structs + atomic objects need all fields Send; non-atomic
+          // objects never auto-derive Send (leave to impls — fall through).
+          (tn == "Send") => if(!(is_ref && !(is_atomic)), {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          // Comptime: objects never; value structs need all fields Comptime.
+          (tn == "Comptime") => if(!(is_ref), {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          // Acyclic: value structs need all fields Acyclic; objects defer to the
+          // registry (their Acyclic uses can_type_form_rc_cycle at definition).
+          (tn == "Acyclic") => if(!(is_ref), {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          true => ()
+        ),
+        // Enums are value types: all (flattened) variant field types must hold.
+        .EnumT({ variant_fields : vfs }) => {
+          flat := ArrayList(TypeValue).new();
+          (vi : usize) = usize(0);
+          while(vi < vfs.len(), {
+            vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+            (vj : usize) = usize(0);
+            while(vj < vf.len(), {
+              _pf := flat.push(match(vf.get(vj),.Some(t) => t,.None => TypeValue.Unit));
+              vj = (vj + usize(1));
+            });
+            vi = (vi + usize(1));
+          });
+          fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+        },
+        // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
+        // `impl(forall(T), where(T <: Send), *(T), Send())`).
+        .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
+          pfields := ArrayList(TypeValue).new();
+          _pp := pfields.push(pointee_box.*);
+          fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
+        }),
+        _ => ()
+      );
+      if(direct_true, {
+        return(TraitCheckResult(implemented : true, env : env));
+      });
+      match(
+        fields_opt,
+        .Some(fields) => {
+          guard_key2 := `${type_id}:${_trait_type_id(trait_type)}`;
+          _gpush := g_ondemand_marker_guard.push(guard_key2);
+          (all_pass : bool) = true;
+          (fi : usize) = usize(0);
+          while((fi < fields.len()) && all_pass, {
+            fty := match(fields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            // Self-recurse via `recur` (yo-self cannot reference the enclosing
+            // function by name inside its own body).
+            if(!(recur(fty, trait_type, env).implemented), {
+              all_pass = false;
+            });
+            fi = (fi + usize(1));
+          });
+          _gpop := g_ondemand_marker_guard.remove(g_ondemand_marker_guard.len() - usize(1), usize(1));
+          if(all_pass, {
+            return(TraitCheckResult(implemented : true, env : env));
+          });
+        },
+        .None => ()
+      );
     });
   });
   // 5. DynType: check required traits and selfConstraints.
