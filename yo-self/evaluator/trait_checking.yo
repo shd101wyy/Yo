@@ -310,74 +310,51 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
 /// leaves; `.None` for nominal (Struct/EnumT/Union — defer to the auto-derive
 /// registry) and structural/conditional types (Iso/Dyn/Pointer/Func — defer to
 /// generic-impl matching / where-constraints).
+/// Returns Some(true) for EXACTLY the primitives the prelude declares
+/// `impl(<prim>, Send())` for: `unit, void, bool, i8..i64, u8..u64, f32, f64,
+/// isize, usize, char`. yo-self can't register these via the type-id-keyed
+/// auto-derive registry (primitives have no id), and unlike TS — which carries
+/// the impl on the type's `.trait` — there's no per-type slot, so this builtin
+/// encodes the prelude's primitive Send impls. NOT comptime_int/float/string
+/// (those have only `impl(_, Acyclic())`, no Send), NOT other C scalar types,
+/// NOT type-level values — none of which the prelude marks Send. `.None` =
+/// defer to the registry / generic impls (nominal types, `*(T)`, etc.).
 type_implements_send_builtin :: (fn(ty : TypeValue) -> Option(bool))(
   match(
     ty,
-    // Scalar value primitives — trivially movable across threads.
     .Unit => Option(bool).Some(true),
+    .Void => Option(bool).Some(true),
     .BoolT => Option(bool).Some(true),
     .Usize => Option(bool).Some(true),
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
     .CChar => Option(bool).Some(true),
-    .CShort => Option(bool).Some(true),
-    .CUShort => Option(bool).Some(true),
-    .CInt => Option(bool).Some(true),
-    .CUInt => Option(bool).Some(true),
-    .CLong => Option(bool).Some(true),
-    .CULong => Option(bool).Some(true),
-    .CLongLong => Option(bool).Some(true),
-    .CULongLong => Option(bool).Some(true),
-    .CLongDouble => Option(bool).Some(true),
-    // Comptime data + type-level values — immutable, Send.
-    .ComptimeInt => Option(bool).Some(true),
-    .ComptimeFloat => Option(bool).Some(true),
-    .ComptimeString => Option(bool).Some(true),
-    .ComptimeListT(_) => Option(bool).Some(true),
-    .ExprT => Option(bool).Some(true),
-    .TypeUni(_) => Option(bool).Some(true),
-    .ModuleT(_, _, _, _) => Option(bool).Some(true),
-    .TraitT(name : _) => Option(bool).Some(true),
-    .FnTraitT(base_name : _) => Option(bool).Some(true),
-    .FutureTraitT(base_name : _) => Option(bool).Some(true),
-    // Nominal / structural / conditional — defer to registry / generic impls.
+    // Everything else defers (incl. comptime_*, other C types, type-level —
+    // the prelude declares no `impl(_, Send())` for those).
     _ => Option(bool).None
   )
 );
-/// Tag-only fast path for the Acyclic marker on primitive leaves. Same leaf set
-/// as Send: scalars and comptime-data values cannot form RC cycles. Nominal and
-/// reference-bearing types defer to the auto-derive registry (which uses
-/// `can_type_form_rc_cycle`).
+/// Returns Some(true) for EXACTLY the primitives the prelude declares
+/// `impl(<prim>, Acyclic())` for: the Send set PLUS `comptime_int,
+/// comptime_float, comptime_string, Expr` (comptime data + Expr are acyclic but
+/// NOT Send). NOT other C scalar types, NOT type-level values. Same rationale as
+/// the Send builtin (encodes the prelude's primitive Acyclic impls).
 type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
   match(
     ty,
     .Unit => Option(bool).Some(true),
+    .Void => Option(bool).Some(true),
     .BoolT => Option(bool).Some(true),
     .Usize => Option(bool).Some(true),
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
     .CChar => Option(bool).Some(true),
-    .CShort => Option(bool).Some(true),
-    .CUShort => Option(bool).Some(true),
-    .CInt => Option(bool).Some(true),
-    .CUInt => Option(bool).Some(true),
-    .CLong => Option(bool).Some(true),
-    .CULong => Option(bool).Some(true),
-    .CLongLong => Option(bool).Some(true),
-    .CULongLong => Option(bool).Some(true),
-    .CLongDouble => Option(bool).Some(true),
     .ComptimeInt => Option(bool).Some(true),
     .ComptimeFloat => Option(bool).Some(true),
     .ComptimeString => Option(bool).Some(true),
-    .ComptimeListT(_) => Option(bool).Some(true),
     .ExprT => Option(bool).Some(true),
-    .TypeUni(_) => Option(bool).Some(true),
-    .ModuleT(_, _, _, _) => Option(bool).Some(true),
-    .TraitT(name : _) => Option(bool).Some(true),
-    .FnTraitT(base_name : _) => Option(bool).Some(true),
-    .FutureTraitT(base_name : _) => Option(bool).Some(true),
     _ => Option(bool).None
   )
 );
