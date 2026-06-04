@@ -38,7 +38,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { get_func_param_defaults } :: import("../types/function.yo");
-{ t_unit, t_type, t_comptime_int } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_comptime_int, t_type_app } :: import("../../types/creators.yo");
 { TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, type_of_eval_value, is_type_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
@@ -553,29 +553,74 @@ evaluate_function_call :: (
               }
             )
           },
-          // SomeT / DynT — check if they wrap a FnTrait (e.g. Impl(Fn(...) -> T)).
-          .SomeT(_, _, _, _, _, _, _, _, _, _) => {
-            fn_trait_opt := extract_fn_trait_from_type(func_type);
+          // SomeT — three cases: (1) HKT kind-annotated type constructor F(A…)
+          // → build a TypeApplication; (2) wraps a FnTrait (Impl(Fn(...) -> T))
+          // → closure; (3) neither → error.
+          .SomeT(_, _, _, _, _, _, _, _, _, kind_fn_opt) =>
             match(
-              fn_trait_opt,
-              .Some(fn_trait) => {
-                result_opt := try_to_implement_closure_by_fn_module_type(
-                  expr,
-                  fn_trait,
-                  func_type,
-                  callee_env,
-                  ctx,
-                  exn
-                );
+              kind_fn_opt,
+              // (1) HKT: applying a kind-annotated type constructor `F(A…)`.
+              // Evaluate each arg to a TypeValue and produce a TypeApplication.
+              // Mirrors `function.ts:1248-1328`.
+              .Some(_) => {
+                ta_args := ArrayList(TypeValue).new();
+                (tai : usize) = usize(0);
+                while(tai < args.len(), {
+                  ta_arg_expr := match(args.get(tai),.Some(a) => a,.None => make_err_expr());
+                  ta_evaled := evaluate_expression_raw(ta_arg_expr, env, ctx, exn);
+                  ta_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(ta_evaled));
+                  ta_info := match(ta_info_opt,.Some(ii) => ii,.None => new_expr_info(env, t_unit()));
+                  ta_ty := match(
+                    ta_info.value,
+                    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+                    .None => TypeValue.Unit
+                  );
+                  ta_args.push(ta_ty);
+                  tai = (tai + usize(1));
+                });
+                type_app := t_type_app(func_type, ta_args);
+                out_ta := new_expr_info(env, t_type());
+                out_ta.value = Option(EvalValue).Some(EvalValue.TypeVal(box(type_app)));
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ta);
+                expr
+              },
+              .None => {
+                fn_trait_opt := extract_fn_trait_from_type(func_type);
                 match(
-                  result_opt,
-                  .Some(e) => e,
+                  fn_trait_opt,
+                  .Some(fn_trait) => {
+                    result_opt := try_to_implement_closure_by_fn_module_type(
+                      expr,
+                      fn_trait,
+                      func_type,
+                      callee_env,
+                      ctx,
+                      exn
+                    );
+                    match(
+                      result_opt,
+                      .Some(e) => e,
+                      .None => {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              tok,
+                              String.from("evaluate_function_call: SomeT closure creation failed"),
+                              false,
+                              .None
+                            )
+                          )
+                        );
+                        make_err_expr()
+                      }
+                    )
+                  },
                   .None => {
                     exn.throw(
                       dyn(
                         format_error_message(
                           tok,
-                          String.from("evaluate_function_call: SomeT closure creation failed"),
+                          String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)"),
                           false,
                           .None
                         )
@@ -584,22 +629,8 @@ evaluate_function_call :: (
                     make_err_expr()
                   }
                 )
-              },
-              .None => {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      tok,
-                      String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)"),
-                      false,
-                      .None
-                    )
-                  )
-                );
-                make_err_expr()
               }
-            )
-          },
+            ),
           .DynT(_, _, _, _) => {
             fn_trait_opt := extract_fn_trait_from_type(func_type);
             match(
