@@ -65,27 +65,49 @@ open(import("std/string"));
 // at the same construction sites (callers in `evaluator/types/utils.yo`)
 // and queried by `type_implements_trait` step 4 below.
 // ---------------------------------------------------------------------------
-/// Maps type id → list of trait names auto-derived for that type.
-(g_type_trait_registry : HashMap(String, ArrayList(String))) =
-  HashMap(String, ArrayList(String)).new();
-/// Register that the type with `type_id` auto-derives the trait named `trait_name`.
+/// Maps type id → list of trait TYPE VALUES the type implements (auto-derived).
+///
+/// FAITHFUL to TS: TS attaches the derived traits as fields on the type
+/// (`receiverType.trait.fields`, each field's `assignedValue` is the trait VALUE;
+/// `attachTraitToReceiverType`, utils.ts:1268) and `typeImplementsTrait` matches
+/// them by `areTypesCompatible` — by trait IDENTITY, never by name. yo-self
+/// stores the same trait VALUES in a type-id-keyed side-table (the `Func`/struct
+/// TypeValue can't carry the field without a definitions↔env-style coupling; the
+/// side-table is the documented yo-self pattern) and matches via
+/// `are_types_compatible`. This supersedes the earlier name-keyed registry, which
+/// was unqueryable because yo-self trait values are nameless.
+(g_type_trait_registry : HashMap(String, ArrayList(TypeValue))) =
+  HashMap(String, ArrayList(TypeValue)).new();
+/// Register that the type `type_id` auto-derives the marker trait named
+/// `trait_name`, resolved to its canonical env trait VALUE (mirrors TS pushing
+/// the trait value onto `receiverType.trait.fields`). If the trait isn't in
+/// scope yet (rare — e.g. a struct defined before the marker trait), skip
+/// silently, exactly as TS `attachTraitToReceiverType` skips via try/catch.
 /// Called during struct/enum/union construction by `evaluator/types/utils.yo`.
-register_type_trait :: (fn(type_id : String, trait_name : str) -> unit)({
+register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment) -> unit)({
   match(
-    g_type_trait_registry.get(type_id),
-    .Some(list) => {
-      _push := list.push(String.from(trait_name));
+    get_trait_type_from_env(env, String.from(trait_name)),
+    .Some(trait_ty) => {
+      match(
+        g_type_trait_registry.get(type_id),
+        .Some(list) => {
+          _push := list.push(trait_ty);
+        },
+        .None => {
+          new_list := ArrayList(TypeValue).new();
+          _push2 := new_list.push(trait_ty);
+          _set := g_type_trait_registry.set(type_id, new_list);
+        }
+      );
     },
-    .None => {
-      new_list := ArrayList(String).new();
-      _push2 := new_list.push(String.from(trait_name));
-      _set := g_type_trait_registry.set(type_id, new_list);
-    }
+    .None => ()
   );
 });
-/// Check whether `type_id` is registered as implementing the trait named `trait_name`.
+/// Check whether `type_id` is registered as implementing `query_trait`, matched
+/// by `are_types_compatible` (mirrors TS `typeImplementsTrait`'s
+/// `areTypesCompatible` over `targetType.trait.fields` — identity, not name).
 /// Called from `type_implements_trait` step 4 below.
-is_type_registered_as_trait :: (fn(type_id : String, trait_name : str) -> bool)(
+is_type_registered_as_trait :: (fn(type_id : String, query_trait : TypeValue, env : Environment) -> bool)(
   match(
     g_type_trait_registry.get(type_id),
     .None => false,
@@ -94,8 +116,8 @@ is_type_registered_as_trait :: (fn(type_id : String, trait_name : str) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && !(found), {
-        name := match(list.get(i),.Some(n2) => n2,.None => String.from(""));
-        if(name.as_str() == trait_name, {
+        reg := match(list.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(are_types_compatible(query_trait, reg), {
           found = true;
         });
         i = (i + usize(1));
@@ -150,43 +172,12 @@ _trait_type_id :: (fn(ty : TypeValue) -> String)(
     _ => String.from("")
   )
 );
-/// Extract the name string from a trait TypeValue.
-/// Used for registry lookup — TypeScript compares traits by name, not ID.
-_trait_type_name :: (fn(ty : TypeValue) -> String)(
-  match(
-    ty,
-    .TraitT(name, _, _, _, _, _, _, _) => name,
-    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
-    .FutureTraitT(base_name, _, _, _, _) => base_name,
-    _ => String.from("")
-  )
-);
-/// Resolve the registry name for an auto-derived marker trait by identity.
-///
-/// yo-self trait TypeValues carry an EMPTY `name` field (the name from a
-/// `Name :: trait(...)` binding is never stamped onto the value), so
-/// `_trait_type_name` returns "" for them and the name-keyed auto-derive
-/// registry (`g_type_trait_registry`, keyed by trait NAME) can't be queried via
-/// the value's own name. Auto-derive only ever registers a FIXED marker set
-/// (Send / Comptime / Acyclic / Runtime / Rc — see callers of
-/// `register_type_trait` in `evaluator/types/utils.yo`), so we recover the
-/// registry name by comparing `trait_type`'s id against each marker trait
-/// resolved from `env` (the same id-comparison steps 1-2 already use for the
-/// Comptime/Runtime fast paths). Returns "" when `trait_type` is not one of the
-/// registered markers (non-markers have no registry entries anyway).
-///
-/// Faithfulness note: TS attaches derived traits as fields on the type
-/// (`targetType.trait.fields`) and matches by `areTypesCompatible`, so it never
-/// needs the name. yo-self's name-keyed registry is a documented simplification
-/// (folded from `trait_registry.yo`); this resolver makes that lookup correct
-/// without re-architecting to the TS field-carrying model.
-_resolve_registered_trait_name :: (fn(trait_type : TypeValue, env : Environment) -> String)({
-  // Prefer the value's own name if one is ever present (future-proofing for
-  // type-name stamping); otherwise fall back to marker-id resolution.
-  nm := _trait_type_name(trait_type);
-  if(!(nm.is_empty()), {
-    return(nm);
-  });
+/// Identify which auto-derived MARKER trait `trait_type` is, by comparing its id
+/// against the fixed env marker set (Send/Comptime/Acyclic/Runtime/Rc); returns
+/// the marker name, or "" if it isn't one. Used by the step-4b on-demand
+/// re-derivation, which selects per-marker field rules. (The registry lookup
+/// itself matches by trait VALUE, not name — see `is_type_registered_as_trait`.)
+_marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
   tid := _trait_type_id(trait_type);
   if(tid.is_empty(), {
     return(String.from(""));
@@ -552,13 +543,13 @@ type_implements_trait :: (
     });
     return(TraitCheckResult(implemented : true, env : env));
   });
-  // 4. Direct trait field match — check global auto-derive registry.
-  // The registry is keyed by trait NAME, but yo-self trait values are nameless,
-  // so resolve the marker name by identity against the env marker traits.
+  // 4. Direct trait field match — the auto-derive registry stores the type's
+  // derived trait VALUES; match `trait_type` against them by identity
+  // (`are_types_compatible`), faithful to TS `typeImplementsTrait` over
+  // `targetType.trait.fields`. No name lookup (yo-self trait values are nameless).
   type_id := _type_id_for_trait_check(target);
-  trait_name := _resolve_registered_trait_name(trait_type, env);
-  if(!(type_id.is_empty()) && !(trait_name.is_empty()), {
-    if(is_type_registered_as_trait(type_id, trait_name.as_str()), {
+  if(!(type_id.is_empty()), {
+    if(is_type_registered_as_trait(type_id, trait_type, env), {
       return(TraitCheckResult(implemented : true, env : env));
     });
   });
@@ -573,8 +564,9 @@ type_implements_trait :: (
   // Runtime) are recomputable this way; the field check recurses through
   // `type_implements_trait` (so it picks up the same builtins / registry /
   // generic-impls), guarded against self-referential cycles.
-  if((!(trait_name.is_empty())) && !(_ondemand_guard_contains(`${type_id}:${_trait_type_id(trait_type)}`)), {
-    tn := trait_name.as_str();
+  marker_name := _marker_name_of(trait_type, env);
+  if((!(marker_name.is_empty())) && !(_ondemand_guard_contains(`${type_id}:${_trait_type_id(trait_type)}`)), {
+    tn := marker_name.as_str();
     marker_relevant := ((((tn == "Send") || (tn == "Comptime")) || (tn == "Acyclic")) || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).
