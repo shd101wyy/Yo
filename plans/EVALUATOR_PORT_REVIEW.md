@@ -240,13 +240,44 @@ gap is deferred on a larger feature (see note)
     were shortcut during the port. Root cause: `Func` TypeValue dropped TS's
     `parametersFrame`, so generic params (`T`/`Self`/`Idx`) are unbound at
     def-time; plus trait-field type eval, comptime reflection (`__yo_type_*`,
-    `fields.get`), and unification under `is_executing=false`. **Active first
-    lever:** consume the params-frame (infra 95945b1f/8d700447) — register the
-    bound-type-param frame in `evaluate_function_type`, push it into the def-time
-    body-eval env. Swallow-protected, so each fix reduces the surface WITHOUT
-    regressing `check`. See memory `yo-self-check-masks-porting-gaps` — green
-    `check` never proved faithful porting (it doesn't eval fn bodies), which is how
-    these body-level shortcuts rode unnoticed.
+    `fields.get`), and unification under `is_executing=false`. Each fix is
+    swallow-protected (reduces the surface WITHOUT regressing `check`). See memory
+    `yo-self-check-masks-porting-gaps` — green `check` never proved faithful
+    porting (it doesn't eval fn bodies), which is how these body-level shortcuts
+    rode unnoticed.
+  - **DRAIN PROGRESS (2026-06, ~60%+ drained, each commit zero-regression
+    std 151/0 · tests 171/11 · yo-self 228/0):**
+    - `2b91e5e4` — **the real lever**: bind comptime-type params (`comptime(T):Type`)
+      as `TypeVal(SomeT)` (not `create_unknown_val`) in `_build_def_time_body_env`,
+      mirroring function.yo:1169 + deep Self defer-check. Cleared the TWO biggest
+      categories (element-typevar ~3000 AND trait-field ~5000 as free collateral).
+      NOTE: the earlier "params-frame" idea was a measured **no-op** (non-deferred
+      fns have no free type params; the manual `create_unknown_val` binding shadowed
+      the frame's correct SomeT) — reverted. Don't re-attempt it.
+    - `269adc88` — while-gate excludes `UnknownVal` from "comptime-known" (yo-self
+      `Some(UnknownVal)` ≡ TS `undefined`); drains the comptime-while category.
+    - `e6e79dc2` — `check --exclude <path>` (TS + yo-self) → validate via
+      single-process dir-checks (`check ./std`; `check ./yo-self --exclude
+  yo-self/tests`) ≈ 5 min vs ≈ 40 min per-file (prelude evaluated once per dir).
+      Method that works: location-tagged swallow diagnostic (print body location
+      BEFORE eval, not in the handler — can't capture `body`) → pin the throwing
+      functions → root-cause → fix → measure category drop. DON'T guess the lever.
+  - **REMAINING TAIL (harder — graceful-unknown across multi-step chains):**
+    comptime **reflection-on-unknown** (~30: `fname :: v.fields.get(fi).name` in the
+    `__derive_eq`/derive rules — at def-time `T` is an unknown `SomeT`, so the
+    `Type.get_enum_variants(T)` → `.get` → `.fields` → `.get` → `.name` chain drops
+    its type and the `::` binding throws "Failed to evaluate" at
+    initialization_assignment.yo:384, which is FAITHFUL — TS throws identically when
+    rhsType is undefined, so the gap is UPSTREAM: TS's reflection chain yields
+    _typed_ unknowns. `__derive_eq` is correctly NOT deferred (param type `Type`
+    isn't a some-type; TS doesn't defer it either) — so this is genuinely a
+    reflection-robustness fix, not a defer fix. Fixing it faithfully = making the
+    reflection builtins (`type_fns.yo` get_info/get_enum_variants + comptime-list
+    `.get` + property-access `.fields`/`.name`/`.len`) return TYPED `UnknownVal` on
+    an unknown reflected type — a multi-builtin change on hot comptime paths (used
+    in real call-time reflection too), so it warrants its own focused effort with
+    careful revert-on-regression, NOT a quick wire. Plus the unification/type-mismatch
+    family (~70, same `is_executing=false` graceful-unknown character).
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
