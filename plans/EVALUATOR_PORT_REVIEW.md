@@ -394,18 +394,23 @@ AstExpr)`) pattern for enums in the codebase. The init-assignment ref-binding
   `__dup`s the pointee into a VALUE then assigns it to the pointer-typed binding
   (invalid C), AND the `__dup` is a clone (so it wouldn't even be no-clone). Works
   for scalar elements (indexable_runtime passes) but not enum elements. See
-  issues/ref-binding-from-project-enum-codegen.md. So OPTION 2 (borrowing
-  traversal) is doubly out (won't compile + clones). **OPTION 1 (parser-time flag
-  propagation) is now the recommended path** — set a "subtree contains
-  ref-binding / ref-capturing closure" bit as the parser CONSTRUCTS each node
-  (free, no runtime traversal, no clone, no ref/borrow codegen), stored in a
-  node-id side-table; the def-time-eval trigger reads it cheaply. That avoids the
-  buggy ref/borrow machinery entirely but is a parser change (yo-self/parser.yo +
-  TS parser.ts for faithfulness). NET: the flowability cluster sits atop THREE
-  distinct foundational bugs in under-exercised machinery — unwind-buffer overflow
-  (issues/unwind-value-buffer-overflow.md, worked around), def-time-eval
-  robustness, and ref-binding-from-ref-call codegen — making it a dedicated
-  codegen+evaluator hardening project, not incremental gate-wiring.
+  issues/ref-binding-from-project-enum-codegen.md.
+  **✅ RESOLVED (2026-06) — OPTION 2 (borrowing traversal) is now UNBLOCKED, and
+  OPTION 1 (parser-time flags) is NO LONGER needed.** Both foundational codegen
+  bugs were fixed TS-first (per the faithful-porting directive):
+  (1) the unwind-buffer overflow — `__yo_unwind_value` is now a union sized to the
+  largest unwound value (commit cb4a4a4a, issues/fixed/unwind-value-buffer-overflow.md);
+  (2) the ref-binding-from-project clone — the evaluator no longer inserts a dup for
+  `ref(name) :=` borrows (commit 8179d57a, issues/fixed/ref-binding-from-project-enum-codegen.md).
+  `ref(child) := kids.project(i)` on `ArrayList(Enum)` now binds the element pointer
+  directly (no deref/`__dup`), verified + regression-tested. So a faithful
+  non-cloning AST traversal `fn(ref(e) : AstExpr)` recursing via `project` IS now
+  possible (AstExpr is an enum). The remaining flowability work (binding-site /
+  closure / slice gates) builds on the already-landed unconditional def-time body
+  eval (784cb67a) — NOT a parser change. Of the three originally-cited foundational
+  bugs, two are now fixed and the third (def-time-eval robustness) is handled by the
+  swallowing trial-eval wrapper. The cluster is now incremental gate-wiring +
+  porting the init-assignment ref-binding check, no longer a foundational project.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
