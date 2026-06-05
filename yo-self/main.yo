@@ -456,21 +456,45 @@ _walk_check_dir :: (
 collect_check_files :: (
   fn(
     path_str : String,
+    excludes : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> ArrayList(String)
 )({
-  out := ArrayList(String).new();
+  raw := ArrayList(String).new();
   meta := io.await(metadata(Path.new(path_str.clone()), io), IoExn(io : io, exn : exn));
   cond(
     meta.is_file() => {
       if(path_str.ends_with(String.from(".yo")) || path_str.ends_with(String.from(".test.yo")), {
-        out.push(path_str.clone());
+        raw.push(path_str.clone());
       });
     },
-    meta.is_dir() => _walk_check_dir(path_str, out, io, exn),
+    meta.is_dir() => _walk_check_dir(path_str, raw, io, exn),
     true => ()
   );
+  // Drop any collected path that contains an `--exclude` path as a substring
+  // (so `--exclude yo-self/tests` skips that whole subtree from a directory
+  // check). Mirrors the exclude filter in `collectCheckFiles` (src/yo-cli.ts);
+  // yo-self lacks `path.resolve`, so this uses path-segment containment on the
+  // collected absolute paths rather than resolved-prefix matching.
+  out := ArrayList(String).new();
+  (ri : usize) = usize(0);
+  while(ri < raw.len(), {
+    fp := match(raw.get(ri),.Some(p) => p,.None => String.from(""));
+    (skip : bool) = false;
+    (ei : usize) = usize(0);
+    while((ei < excludes.len()) && !(skip), {
+      ex := match(excludes.get(ei),.Some(e) => e,.None => String.from(""));
+      if(!(ex.is_empty()) && fp.contains(ex), {
+        skip = true;
+      });
+      ei = (ei + usize(1));
+    });
+    if(!(skip), {
+      out.push(fp);
+    });
+    ri = (ri + usize(1));
+  });
   out
 });
 /// Run the evaluator against a single `.yo` file. Returns `true` on
@@ -594,7 +618,24 @@ run_check :: (
     exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
   });
   target_path := argv(usize(2));
-  files := collect_check_files(target_path.clone(), io, exn);
+  // Parse `--exclude <path>` flags (repeatable) from argv after the target.
+  excludes := ArrayList(String).new();
+  (ai : usize) = usize(3);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    if(a.as_str() == "--exclude", {
+      next_i := (ai + usize(1));
+      if(next_i < argv.len(), {
+        excludes.push(argv(next_i));
+        ai = (ai + usize(2));
+      }, {
+        ai = (ai + usize(1));
+      });
+    }, {
+      ai = (ai + usize(1));
+    });
+  });
+  files := collect_check_files(target_path.clone(), excludes, io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
