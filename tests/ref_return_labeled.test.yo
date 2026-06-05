@@ -1,34 +1,41 @@
-/// Parser-level coverage for the labeled-ref-return forms.
+/// Parser-level coverage for labeled ref/comptime return-slot forms.
 ///
-/// All three spellings should produce a function type with
-/// `isReturnTypeRef` set:
-///   1. `-> ref(T)`                — unlabeled (original)
-///   2. `-> (name : ref(T))`       — labeled, ref on type (original)
-///   3. `-> (ref(name) : T)`       — labeled, ref on label (new)
+/// A modifier on a LABELED return slot goes on the LABEL, never on the
+/// type — consistent with the parameter convention (`ref(name) : T`).
 ///
-/// And `-> (ref(name) : ref(T))` (double-ref) should be rejected
-/// with a "pick one form" diagnostic.
+/// Valid:
+///   (1) `-> ref(T)`           — unlabeled (modifier on the sole type)
+///   (2) `-> (ref(name) : T)`  — labeled, ref on the label
 ///
-/// Bodies use `panic("...")` (which has type Never and widens to
-/// any return type) so each declaration exercises the return-slot
-/// PARSE without depending on the body-type story. If the labeled
-/// form regressed, the declaration would fail with the previous
-/// "Expected a valid variable name for return label" error well
-/// before the body-type check runs.
+/// Rejected:
+///   (3) `-> (name : ref(T))`       — ref on the type when labeled
+///   (4) `-> (ref(name) : ref(T))`  — ref on both (double-ref)
+///   (5) `-> (name : comptime(T))`  — comptime on the type when labeled
+///
+/// Bodies use `panic("...")` (type Never, widens to any return type) so
+/// each declaration exercises the return-slot PARSE without depending on
+/// the body-type story. For the rejected cases the diagnostic fires while
+/// evaluating the function TYPE, before the body is ever evaluated.
 pragma(Pragma.AllowUnsafe);
-// ── (1) `-> ref(T)` — unlabeled, original form. ─────────────────
+// ── (1) `-> ref(T)` — unlabeled, valid. ─────────────────────────
 get_unlabeled :: (fn(ref(p) : i32) -> ref(i32))(panic("unreachable"));
-// ── (2) `-> (name : ref(T))` — labeled, ref on type. ────────────
-get_label_then_ref :: (fn(ref(p) : i32) -> (result : ref(i32)))(panic("unreachable"));
-// ── (3) `-> (ref(name) : T)` — labeled, ref on label (new). ─────
+// ── (2) `-> (ref(name) : T)` — labeled, ref on label, valid. ────
 get_ref_then_label :: (fn(ref(p) : i32) -> (ref(result) : i32))(panic("unreachable"));
-// ── (4) Double-ref is rejected with the pick-one diagnostic. ────
+// ── (3) `-> (name : ref(T))` — ref on the type is REJECTED. ─────
+comptime_expect_error(
+  bad_label_then_ref :: (fn(ref(p) : i32) -> (result : ref(i32)))(panic("unreachable"))
+);
+// ── (4) Double-ref `(ref(name) : ref(T))` is REJECTED. ──────────
 comptime_expect_error(
   bad_double_ref :: (fn(ref(p) : i32) -> (ref(result) : ref(i32)))(panic("unreachable"))
 );
-test("labeled-ref-return: all three forms type-check (parse-level guardrail)", {
-  // The mere fact that this test runs means the four declarations
-  // above all evaluated successfully (cases 1-3) or were correctly
-  // rejected (case 4). No runtime work needed.
+// ── (5) `-> (name : comptime(T))` — comptime on the type REJECTED. ─
+comptime_expect_error(
+  bad_label_then_comptime :: (fn() -> (result : comptime(i32)))(panic("unreachable"))
+);
+test("labeled ref/comptime return forms: modifier-on-label rule enforced", {
+  // The mere fact that this test runs means the valid declarations (1-2)
+  // evaluated successfully and the invalid ones (3-5) were correctly
+  // rejected. No runtime work needed.
   assert(true, "declarations type-check");
 });

@@ -3048,6 +3048,20 @@ evaluate_function_type :: (
           )
         );
       });
+      // Forbid `(ref(name) : ref(T))` — `ref` appears twice for the same
+      // return slot. Pick one form, not both. Mirrors function.ts:2396-2406.
+      if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(return_type_expr),
+              String.from("Cannot use 'ref' on both the label and the type of a return slot. Pick one: '-> (ref(name) : T)' or '-> (name : ref(T))'."),
+              false,
+              .None
+            )
+          )
+        );
+      });
       rl_expr = match(r_ref_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
       is_return_type_ref = true;
     });
@@ -3112,6 +3126,35 @@ evaluate_function_type :: (
           format_error_message(
             ast_expr_token(rl_expr),
             `To define a macro function, please use "unquote" for the return type, not "quote".`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    // In a labeled return slot, a `ref`/`comptime` modifier goes on the LABEL,
+    // never on the TYPE. Reject `-> (name : ref(T))` / `-> (name : comptime(T))`;
+    // use `-> (ref(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
+    // `-> ref(T)` / `-> comptime(T)`). The `(ref(name) : ref(T))` double-ref
+    // case is caught above with a more specific message. Mirrors function.ts.
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(return_type_expr),
+            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (ref(name) : T)' (or unlabeled '-> ref(T)'), not '-> (name : ref(T))'."),
+            false,
+            .None
+          )
+        )
+      );
+    });
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_COMPTIME, Option(usize).None), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(return_type_expr),
+            String.from("In a labeled return slot, 'comptime' goes on the label, not the type. Use '-> (comptime(name) : T)' (or unlabeled '-> comptime(T)'), not '-> (name : comptime(T))'."),
             false,
             .None
           )

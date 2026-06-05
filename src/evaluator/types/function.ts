@@ -2413,6 +2413,31 @@ export function evaluateFunctionType({
       isReturnTypeRef = true;
       returnLabelExpr = returnLabelExpr.args[0]!;
     }
+    // In a labeled return slot, a `ref`/`comptime` modifier goes on the LABEL,
+    // never on the TYPE. `-> (name : ref(T))` / `-> (name : comptime(T))` are
+    // rejected; use `-> (ref(name) : T)` / `-> (comptime(name) : T)` (or the
+    // unlabeled `-> ref(T)` / `-> comptime(T)`). This keeps return-slot labels
+    // consistent with the parameter convention (`ref(name) : T`). The
+    // `(ref(name) : ref(T))` double-ref case is caught above with a more
+    // specific message.
+    if (
+      exprIsFunctionCall(returnTypeExpr) &&
+      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
+    ) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (ref(name) : T)' (or unlabeled '-> ref(T)'), not '-> (name : ref(T))'.`,
+      });
+    }
+    if (
+      exprIsFunctionCall(returnTypeExpr) &&
+      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.comptime)
+    ) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `In a labeled return slot, 'comptime' goes on the label, not the type. Use '-> (comptime(name) : T)' (or unlabeled '-> comptime(T)'), not '-> (name : comptime(T))'.`,
+      });
+    }
     if (!isValidVariableName(returnLabelExpr)) {
       throw formatErrorMessage({
         token: returnLabelExpr.token,
