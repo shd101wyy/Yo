@@ -31,7 +31,7 @@ open(import("std/string"));
 { Environment } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_bool_type, is_unit_type } :: import("../../types/guards.yo");
@@ -220,6 +220,13 @@ evaluate_while :: (
   });
   // Snapshot the condition value before any potential mutation below.
   condition_value := cond_info.value;
+  // A condition is comptime-KNOWN only if it has a value that is NOT an
+  // `UnknownVal`. yo-self represents "type known, value unknown" as
+  // `Some(UnknownVal)` (where TS uses `$.value === undefined`); a bare
+  // `condition_value.is_some()` would wrongly treat such a runtime-unknown
+  // condition (e.g. `i < lhs.len()` on an unknown param, evaluated at
+  // definition time) as comptime-known and mis-fire the modifier gate below.
+  cond_is_comptime_known := match(condition_value,.Some(cv) => !(is_unknown_val(cv)),.None => false);
   // Enforce comptime() modifier semantics:
   // With comptime(): condition MUST be compile-time known; error if runtime.
   if(is_comptime_modifier && condition_value.is_none(), {
@@ -237,7 +244,7 @@ evaluate_while :: (
   // Without comptime(): if condition happens to be compile-time known, it must
   // be a literal `true`/`false` atom (not a comptime-only variable that can
   // never change inside a runtime loop).
-  if(!(is_comptime_modifier) && condition_value.is_some(), {
+  if(!(is_comptime_modifier) && cond_is_comptime_known, {
     (is_literal_bool : bool) = false;
     if(ast_expr_is_atom_of(inner_cond_expr, "true") || ast_expr_is_atom_of(inner_cond_expr, "false"), {
       is_literal_bool = true;
