@@ -208,6 +208,29 @@ gap is deferred on a larger feature (see note)
 - ⬜ `types/enum.ts` → `types/enum.yo`
 - ⬜ `types/expr-synthesizer.ts` → `types/expr_synthesizer.yo`
 - ⬜ `types/field.ts` → `types/field.yo`
+- ✅ **DEF-EVAL WALL CROSSED FAITHFULLY (2026-06, commit 784cb67a).** The
+  entire "trigger" debate below (narrow gate / parser-time flags / option 1 vs
+  option 2 / non-cloning traversal) is SUPERSEDED. Root realization: **TS has no
+  trigger at all.** `function-type.ts:499` calls `evaluateBeginExpression` on the
+  body UNCONDITIONALLY for every non-generic function; the only deferral is
+  `shouldDeferBodyEvaluation` (`:445-451` = `forall>0 || any param
+typeContainsSomeTypeForCodegenParam || SelfType typeContainsSomeType`). The
+  flowability _check_ (`isFlowableExpr`, `:524`) is a SEPARATE gate keyed on
+  `return.isRef`. yo-self's `needs_flow_ft` had conflated "eval body" with "check
+  flow" AND invented extra deferrals (all methods, all non-ref-returns) — none in
+  TS. Fix = faithful 1-to-1 port: `should_defer_ft` mirrors
+  `shouldDeferBodyEvaluation`; eval all non-deferred bodies; run `is_flowable_expr`
+  only when `result_is_ref`. NO new mechanism, NO parser change, NO borrowing
+  traversal. The historical OOM was from RETAINING both body copies
+  (`box(body_expr.clone())`); here the original is boxed once and the trial-eval
+  clone is transient (1x peak, matching TS shared refs). Validated zero-regression
+  (per-file `check`): std 151/0→151/0, tests 168/14→**170/12** (gadts +
+  higher_kinded_types now pass under `check`), yo-self 228/0→228/0. The
+  binding-site / closure-capture / slice gates now have their foundation: bodies
+  are evaluated, so porting `init-assignment.ts` ref-binding check etc. will fire
+  naturally. The two codegen bugs (unwind-buffer, ref-binding-from-project) are
+  separate real TS bugs to fix TS-first-then-port (user directive 2026-06), and do
+  NOT block this evaluator-only work.
 - ⚠️ `types/flowability.ts` → **PORTED to the WRONG path** as
   `yo-self/types/flowability.yo` (not `yo-self/evaluator/types/flowability.yo`).
   The function `is_flowable_expr` + `FlowOptions` exist (334 lines). My earlier
