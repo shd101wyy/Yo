@@ -29,10 +29,14 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, add_variable_to_env, add_parameter_to_env, synthetic_token } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, create_unknown_val } :: import("../../value.yo");
+{ is_some_type } :: import("../../types/guards.yo");
+{ is_flowable_expr, flow_options_default } :: import("../../types/flowability.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ ast_expr_to_string } :: import("../../expr.yo");
 {
   EvalContext,
   FuncOrAsyncBlockCtx,
@@ -167,6 +171,85 @@ create_function_body_evaluation_context :: (
     specialized_fn_caches : ctx.specialized_fn_caches
   )
 });
+/// Trial-evaluate a function body at definition time, swallowing any eval
+/// error (mirrors the def-time `evaluateBeginExpression` in
+/// `function-type.ts:499`, made non-fatal). On success the evaluated body is
+/// pushed to `out`; on error the swallowing `Exception` unwinds THIS helper
+/// (returning unit, `out` stays empty). IMPORTANT: the swallow handler unwinds
+/// `()` (unit) — NOT a large value — because `unwind(v)` memcpys `v` into the
+/// fixed 64-byte `__yo_unwind_value` buffer (codegen), so unwinding a large
+/// enum like `Option(AstExpr)` would overflow it. The evaluated body therefore
+/// rides out via the `out` param, not the unwind value.
+_trial_eval_fn_body :: (
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  ___ := out.push(evaluated);
+});
+/// Build a fresh definition-time evaluation env for a function body: captures
+/// (re-derived from `caller_env` so other top-level names resolve) + a frame
+/// with the parameters bound (with `is_ref`/`is_parameter` set so the
+/// flow-soundness check recognises them). Mirrors how TS `evaluateFunctionType`
+/// binds params into the env threaded to the body eval (function.ts:711-713).
+_build_def_time_body_env :: (
+  fn(
+    caller_env : Environment,
+    param_labels : ArrayList(String),
+    param_types : ArrayList(TypeValue),
+    param_is_ref : ArrayList(bool)
+  ) -> Environment
+)({
+  module_path := caller_env.module_path;
+  fresh_env := Environment.new(module_path);
+  (cap_fi : usize) = usize(0);
+  while(cap_fi < caller_env.frames.len(), {
+    match(
+      caller_env.frames.get(cap_fi),
+      .Some(cap_frame) => {
+        (cap_vi : usize) = usize(0);
+        while(cap_vi < cap_frame.variables.len(), {
+          match(
+            cap_frame.variables.get(cap_vi),
+            .Some(cv) => {
+              if(!(cv.name.as_str() == "__recur_fn"), {
+                cap_value := match(cv.value,.Some(actual) => Option(EvalValue).Some(actual),.None => Option(EvalValue).None);
+                is_ct := match(cap_value,.Some(_) => true,.None => false);
+                ___ := add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, false, false, false, synthetic_token(cv.name, module_path));
+              });
+            },
+            .None => ()
+          );
+          cap_vi = (cap_vi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    cap_fi = (cap_fi + usize(1));
+  });
+  ___fr := fresh_env.push_frame(false);
+  (pi : usize) = usize(0);
+  while(pi < param_labels.len(), {
+    pn := match(param_labels.get(pi),.Some(n) => n,.None => String.from(""));
+    pt := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
+    p_ref := match(param_is_ref.get(pi),.Some(b) => b,.None => false);
+    ___ := add_parameter_to_env(
+      fresh_env,
+      pn,
+      pt,
+      Option(EvalValue).Some(create_unknown_val(pt)),
+      false,
+      p_ref,
+      false,
+      false,
+      p_ref,
+      true,
+      synthetic_token(pn, module_path)
+    );
+    pi = (pi + usize(1));
+  });
+  fresh_env
+});
 /// Register a function body expression against a function type, producing a
 /// typed `FuncVal`.
 ///
@@ -194,7 +277,7 @@ try_to_implement_function_by_function_type :: (
 )(
   match(
     function_type,
-    .Func({ forall_labels, param_labels, param_types, implicit_labels, result : result_box }) => {
+    .Func({ forall_labels, param_labels, param_types, implicit_labels, result : result_box, param_is_ref, result_is_ref }) => {
       tok := ast_expr_token(expr);
       // Extract the function body from args[0] of the outer call expression.
       args := match(
@@ -277,9 +360,40 @@ try_to_implement_function_by_function_type :: (
         cap_fi = (cap_fi + usize(1));
       });
       fn_val_id := random_id(caller_env.module_path);
+      // Phase B flowability (ITERATOR_REDESIGN): a CONCRETE STANDALONE function
+      // whose return slot is `-> ref(T)` must return a ref-yielding expression
+      // rooted in one of its `ref` parameters. Decide here — BEFORE building the
+      // FuncVal — whether the def-time flow check will run, so we only clone the
+      // (potentially large) body for the rare ref-returning standalone functions
+      // rather than for every function definition (cloning every body OOMs on
+      // large codegen files). Generic (forall / SomeT-param) and METHOD bodies
+      // (any self_type set) defer — methods' ref-returns are genuinely flowable
+      // and their def-time eval is expensive; the negatives to catch are all
+      // standalone (self_type = None). Mirrors `shouldDeferBodyEvaluation` +
+      // `function-type.ts:524-540`. The raw-ptr-representation (slice) case is
+      // NOT included here.
+      (any_some_param_ft : bool) = false;
+      (spi : usize) = usize(0);
+      while((spi < param_types.len()) && (!(any_some_param_ft)), {
+        match(
+          param_types.get(spi),
+          .Some(pt) => if(is_some_type(pt), {
+            any_some_param_ft = true;
+          }),
+          .None => ()
+        );
+        spi = (spi + usize(1));
+      });
+      self_is_set_ft := match(ctx.self_type,.Some(_) => true,.None => false);
+      needs_flow_ft := ((((forall_labels.len() == usize(0)) && (!(any_some_param_ft))) && (!(self_is_set_ft))) && result_is_ref);
+      (flow_body : Option(AstExpr)) = if(
+        needs_flow_ft,
+        Option(AstExpr).Some(body_expr.clone()),
+        Option(AstExpr).None
+      );
       func_val := EvalValue.FuncVal(
-        forall_labels,
-        param_labels,
+        forall_labels.clone(),
+        param_labels.clone(),
         param_type_names,
         implicit_labels,
         box(body_expr),
@@ -306,6 +420,46 @@ try_to_implement_function_by_function_type :: (
       info := new_expr_info(caller_env, function_type);
       info.value = Option(EvalValue).Some(func_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+      // Run the def-time flow check iff we decided to above (flow_body set).
+      match(
+        flow_body,
+        .Some(fb) => {
+          flow_env := _build_def_time_body_env(caller_env, param_labels, param_types, param_is_ref);
+          flow_fv := EvalValue.FuncVal(
+            ArrayList(String).new(),
+            ArrayList(String).new(),
+            ArrayList(String).new(),
+            ArrayList(String).new(),
+            box(make_err_expr()),
+            ArrayList(String).new(),
+            ArrayList(TypeValue).new(),
+            ArrayList(EvalValue).new(),
+            random_id(caller_env.module_path)
+          );
+          flow_ctx := create_function_body_evaluation_context(function_type, flow_fv, flow_env, ctx);
+          flow_out := ArrayList(AstExpr).new();
+          _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
+          match(
+            flow_out.get(usize(0)),
+            .Some(eb) => {
+              if(!(is_flowable_expr(eb, flow_ctx, flow_options_default())), {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(eb),
+                      `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${ast_expr_to_string(eb)}`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
       expr
     },
     _ => {
