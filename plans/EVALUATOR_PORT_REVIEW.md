@@ -314,6 +314,24 @@ gap is deferred on a larger feature (see note)
   anonymous_function.yo (needs the in-body closure def-time-evaluated too). Residual
   regression risk: standalone ref fns in PASSING tests (ref_return, ref_params)
   must not be wrongly rejected/crash → is_flowable_expr correctness must hold.
+  **✅ DEF-EVAL WALL CROSSED for standalone ref functions (commit b08bc947, 0
+  regression: std 151 / tests 170 / yo-self 338).** The catastrophic crashes were
+  root-caused to a CODEGEN bug — `unwind(v)` memcpys `v` into a fixed 64-byte
+  `__yo_unwind_value` buffer (functions/generation.ts:1793), overflowing for large
+  values (see issues/unwind-value-buffer-overflow.md). Worked around by having the
+  trial-eval helper unwind `()` (unit, like test.yo) + return the body via an
+  out-param. Def-time body eval now runs safely for CONCRETE STANDALONE ref
+  functions, with two safety bounds: (1) defer ALL methods (self_type set —
+  expensive + their ref-returns are flowable anyway); (2) clone the body ONLY when
+  the gate fires (cloning every body OOM'd large codegen files). The ref-return
+  flowability gate (function-type.ts:524-540) is wired + correct (catches
+  ref_flowability's early ref-return negatives; ref_return/ref_params not
+  false-rejected). REMAINING to fully flip the 5 tests: (a) binding-site gate for
+  `ref(r) := <non-flowable>` (needs def-time-evaluating unit-returning bodies — a
+  WIDER surface, the next foundational step); (b) slice raw-ptr-representation gate;
+  (c) closure-capture is_ref gate (anonymous_function.yo, + in-body closure eval);
+  (d) double-ref RETURN-TYPE rejection (ref_return_labeled, not flowability). Each
+  builds on the now-working def-time-eval foundation.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
