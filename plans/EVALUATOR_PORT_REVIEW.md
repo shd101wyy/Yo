@@ -351,6 +351,22 @@ AstExpr)`) pattern for enums in the codebase. The init-assignment ref-binding
   cheap flag lookup — not a per-definition body re-scan. That + porting the
   init-assignment ref-binding handling is the next foundational sub-task for gates
   (a)/(c). The ref-return foundation (committed) is unaffected.
+  **BEDROCK (2026-06, investigating the cheap-flags sub-task):** the flags can't be
+  computed cheaply because yo-self has NO non-cloning AST read traversal.
+  `ArrayList.get : (fn(self, index) -> Option(T))` returns `T` BY VALUE — for
+  `AstExpr` that is a full deep clone — so every existing by-value AST predicate
+  (expr_traversal.yo) deep-clones each visited node (fine occasionally, OOM if run
+  per-function-definition). HOWEVER the borrowing primitives needed to build a
+  cheap traversal DO exist: `ArrayList.index` returns `*(Output)` and `project`
+  returns `ref(T)` (element access without clone), and `ref`-params for non-Self
+  types work (error.yo:168 `fn(ref(error) : YoError)`). So the true foundational
+  sub-task is: **build a non-cloning borrowing AST traversal primitive**
+  (`fn(ref(e) : AstExpr) -> bool` recursing via `index`/`project` instead of
+  `get`), then use it for the body-feature flags (ref-binding / ref-capturing
+  closure / slice-source) feeding gates (a)/(c)/slice. This is a NEW mechanism the
+  codebase lacks (ref-of-enum matching + ref-recursion), not a 1-to-1 port — its
+  own focused effort. Did NOT build it at session tail (rabbit-hole risk). The
+  ref-return def-time-eval foundation (b08bc947) stands and is unaffected.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
