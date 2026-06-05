@@ -208,209 +208,45 @@ gap is deferred on a larger feature (see note)
 - ⬜ `types/enum.ts` → `types/enum.yo`
 - ⬜ `types/expr-synthesizer.ts` → `types/expr_synthesizer.yo`
 - ⬜ `types/field.ts` → `types/field.yo`
-- ✅ **DEF-EVAL WALL CROSSED FAITHFULLY (2026-06, commit 784cb67a).** The
-  entire "trigger" debate below (narrow gate / parser-time flags / option 1 vs
-  option 2 / non-cloning traversal) is SUPERSEDED. Root realization: **TS has no
-  trigger at all.** `function-type.ts:499` calls `evaluateBeginExpression` on the
-  body UNCONDITIONALLY for every non-generic function; the only deferral is
-  `shouldDeferBodyEvaluation` (`:445-451` = `forall>0 || any param
-typeContainsSomeTypeForCodegenParam || SelfType typeContainsSomeType`). The
-  flowability _check_ (`isFlowableExpr`, `:524`) is a SEPARATE gate keyed on
-  `return.isRef`. yo-self's `needs_flow_ft` had conflated "eval body" with "check
-  flow" AND invented extra deferrals (all methods, all non-ref-returns) — none in
-  TS. Fix = faithful 1-to-1 port: `should_defer_ft` mirrors
-  `shouldDeferBodyEvaluation`; eval all non-deferred bodies; run `is_flowable_expr`
-  only when `result_is_ref`. NO new mechanism, NO parser change, NO borrowing
-  traversal. The historical OOM was from RETAINING both body copies
-  (`box(body_expr.clone())`); here the original is boxed once and the trial-eval
-  clone is transient (1x peak, matching TS shared refs). Validated zero-regression
-  (per-file `check`): std 151/0→151/0, tests 168/14→**170/12** (gadts +
-  higher_kinded_types now pass under `check`), yo-self 228/0→228/0. The
-  binding-site / closure-capture / slice gates now have their foundation: bodies
-  are evaluated, so porting `init-assignment.ts` ref-binding check etc. will fire
-  naturally. The two codegen bugs (unwind-buffer, ref-binding-from-project) are
-  separate real TS bugs to fix TS-first-then-port (user directive 2026-06), and do
-  NOT block this evaluator-only work.
-- ⚠️ `types/flowability.ts` → **PORTED to the WRONG path** as
-  `yo-self/types/flowability.yo` (not `yo-self/evaluator/types/flowability.yo`).
-  The function `is_flowable_expr` + `FlowOptions` exist (334 lines). My earlier
-  "NOT PORTED" claim was wrong — it was a path-mapping miss (the file lives in
-  the std-types dir, not the evaluator-types dir). The REAL gap: the **call
-  sites are unwired** — TS calls `isFlowableExpr` from `assignment.ts`,
-  `initialization-assignment.ts`, `begin.ts`, `function-type.ts`,
-  `anonymous-function.ts`, but the yo-self counterparts don't, so the
-  flowability rejection never fires (→ `ref_flowability`/`slice_flowability`
-  `comptime_expect_error` tests fail). Wire the call sites + (optionally) move
-  the file to the 1-to-1 path.
-  **CORRECTION (2026-06, after investigation): this is NOT a "wire the call sites"
-  job — it is the def-eval wall.** `is_flowable_expr` reads the return expr's
-  `ExprInfo` (`_info(ctx, expr)` → `info.variable_name` / `info.env` /
-  `control_flow`), so the return expr must be EVALUATED before the gate can run.
-  The gates fire at function-DEFINITION time (function-type.ts:524-573,
-  anonymous-function.ts:954-975, begin.ts:1268) where TS calls
-  `evaluateBeginExpression` on the body first; yo-self's
-  `try_to_implement_function_by_function_type` deliberately does NOT evaluate the
-  body (the def-eval wall — memory `yo-self-defeval-wall`: a broad def-time
-  body-eval attempt regressed 53→3, "don't re-attempt incrementally"). All 5
-  failing tests are `comptime_expect_error(<fn definition>)` whose bodies must be
-  evaluated to trigger the gate, and they split into TWO clusters:
-  (a) function-return flowability — ref_flowability, slice_flowability,
-  ref_return_labeled (function_type.yo ref/raw-ptr-return gate); (b) closure
-  capture validation — ref_closure_capture, ref_local_binding
-  (anonymous_function.yo / utils/closure.yo `validate_capture_trait_requirements`,
-  currently a no-op stub). RECOMMENDED APPROACH (dedicated effort, NOT a quick
-  win): a NARROW, trial-eval-BOUNDED def-time body eval — evaluate the body ONLY
-  when the return type is ref or contains a raw ptr (~8 module-level files carry
-  such returns, so small blast radius), wrap the body-eval in a swallowing
-  Exception so a non-evaluable body just SKIPS the flowability check (never
-  regresses), and only the `is_flowable_expr` rejection propagates. The Phase-3
-  "knot" prerequisite for def-time body eval is now RESOLVED, so this is more
-  tractable than the original 53→3 attempt — but it still touches the hot
-  function-definition path and must be validated with strict revert-on-regression.
-  **DEEPER BLOCKER FOUND (2026-06, attempting the narrow approach): the narrow gate
-  is INFEASIBLE as-is and would GUARANTEE regressions.** `is_flowable_expr` decides
-  flowability almost entirely from `Variable.is_ref` and `Variable.is_parameter`
-  (flowability.yo R1/R1'' branches). But `add_variable_to_env` (env.yo, the
-  universal binding path) HARDCODES `is_ref : false` and `is_parameter : false`,
-  and a repo-wide grep confirms NO Variable construction anywhere sets either flag
-  `true` (the call-time param binding at calls/function.yo:1365 passes `p_is_ref`
-  as the `is_reassignable` arg, NOT is_ref). So those two checks in is_flowable_expr
-  are effectively DEAD — they always return false → is_flowable_expr would reject
-  EVERY ref/param-rooted return, including the legitimate ref/slice-returning
-  functions in std/yo-self → wiring the gate regresses rather than fixes.
-  PREREQUISITE (before any flowability gate): plumb `is_ref` (from the Func type's
-  `param_is_ref`) and `is_parameter` onto param Variables at binding time. That
-  means extending `add_variable_to_env` (or adding a param-specific binder) — a
-  change to the universal binding path with broad blast radius. So the true work
-  order is: (1) param-flag plumbing (is_ref/is_parameter) → (2) def-time body eval
-  (narrow, trial-eval-bounded) → (3) the flowability gates + closure-capture gate.
-  This is a genuine multi-part feature, NOT a localized wiring/gate add. Deferred.
-  **EMPIRICALLY CONFIRMED (2026-06, attempted faithfully): def-time body eval
-  CATASTROPHICALLY regresses — std 0/151, tests 0/182, yo-self 0/339 (even the
-  prelude fails to load).** Implemented step (1) (a new `add_parameter_to_env`
-  setting is_ref/is_parameter — safe, additive) + step (2) NARROWLY: in
-  `try_to_implement_function_by_function_type`, gated to CONCRETE (no forall / no
-  SomeT param / no SomeT-Self) functions whose return is `ref` or carries a raw
-  ptr (~8 files), building a fresh captures+params env and trial-evaluating the
-  body with a swallowing Exception (errors → skip). Even so, evaluating those
-  bodies at definition time during PRELUDE load corrupts shared state
-  (ctx.expr_info_table / registries) and/or crashes, taking down ALL 672 files —
-  matching (worse than) the documented 53→3 wall. Reverted with zero net change.
-  CONCLUSION: the flowability cluster cannot be ported incrementally on top of the
-  current evaluator. It requires the def-eval wall to be solved as a dedicated
-  FOUNDATIONAL effort first (the prior `yo-self-defeval-wall` finding: prereq
-  order knot→def-time-body-eval→flowability; the knot is resolved but def-time
-  body eval itself remains the broad blocker — trial-eval-bounding does NOT
-  contain its shared-state side-effects). Do NOT re-attempt as a localized add.
-  **SECOND ATTEMPT (2026-06, ref-only narrowing) — refined finding:** gating
-  def-time eval to CONCRETE `result_is_ref` functions only (dropping the pervasive
-  raw-ptr branch) IS prelude-safe (prelude's 3 `-> ref(` fns are all generic →
-  deferred), and the GATE LOGIC IS CORRECT — `ref_flowability`'s ref-return
-  negatives (bad_local_return etc.) correctly flip to errors; the test then fails
-  only further down at the binding-site case (`ref(r) := <non-flowable>`, needs a
-  separate initialization_assignment gate). BUT def-time-evaluating a real concrete
-  ref function in `std/string/string.yo` HARD-CRASHES (EXIT 133 — abort/SIGTRAP,
-  not a catchable error). The trial-eval swallow catches `exn.throw` but CANNOT
-  catch hard crashes (stack overflow / abort). So def-time body eval hits
-  UNCATCHABLE crashes on real std code even when narrowed. CONCLUSION (now
-  evidence-backed twice): the gate (param-flag plumbing + ref-return flowability
-  check) is correct and ready, but def-time body eval requires the evaluator's
-  body-evaluation to be made ROBUST for definition-time use (no hard crashes on
-  arbitrary bodies) — a genuine foundational rework of evaluator robustness, not a
-  gate/wiring add. The flowability gates are ready to wire the moment that lands.
-  **ROOT CAUSE of the hard crash (pinpointed):** the std/string/string.yo crasher
-  is `project : (fn(ref(self) : Self, pos : usize) -> ref(u8))(match(self._bytes, …))`
-  — a METHOD. Def-time eval binds `self` as UnknownVal; the body's
-  `match(self._bytes,…)`/indexing on an unknown `self` hits an evaluator path that
-  HARD-ABORTS (property-access/match/index are not robust to UnknownVal at def
-  time). All 4 std files with `-> ref(` are such impl methods; the failing test
-  functions are STANDALONE (no self). **MITIGATION/BREAKTHROUGH:** defer ALL
-  methods (defer when `ctx.self_type.is_some()`, not only SomeT) → excludes every
-  std ref method from def-time eval (no std crash) while standalone test functions
-  (self_type=None) still evaluate. This makes standalone-ref def-time eval
-  tractable. **REMAINING to flip the 5 tests (each needs MULTIPLE gates):**
-  ref_flowability = ref-return gate (works) + binding-site `ref(r):=<non-flowable>`
-  gate in initialization_assignment.yo; ref_return_labeled = a double-ref
-  RETURN-TYPE rejection (NOT flowability — body is `panic`, which is flowable);
-  slice_flowability = the raw-ptr-representation gate (pervasive/crash-prone);
-  ref_closure_capture / ref_local_binding = closure-capture `is_ref` rejection in
-  anonymous_function.yo (needs the in-body closure def-time-evaluated too). Residual
-  regression risk: standalone ref fns in PASSING tests (ref_return, ref_params)
-  must not be wrongly rejected/crash → is_flowable_expr correctness must hold.
-  **✅ DEF-EVAL WALL CROSSED for standalone ref functions (commit b08bc947, 0
-  regression: std 151 / tests 170 / yo-self 338).** The catastrophic crashes were
-  root-caused to a CODEGEN bug — `unwind(v)` memcpys `v` into a fixed 64-byte
-  `__yo_unwind_value` buffer (functions/generation.ts:1793), overflowing for large
-  values (see issues/unwind-value-buffer-overflow.md). Worked around by having the
-  trial-eval helper unwind `()` (unit, like test.yo) + return the body via an
-  out-param. Def-time body eval now runs safely for CONCRETE STANDALONE ref
-  functions, with two safety bounds: (1) defer ALL methods (self_type set —
-  expensive + their ref-returns are flowable anyway); (2) clone the body ONLY when
-  the gate fires (cloning every body OOM'd large codegen files). The ref-return
-  flowability gate (function-type.ts:524-540) is wired + correct (catches
-  ref_flowability's early ref-return negatives; ref_return/ref_params not
-  false-rejected). REMAINING to fully flip the 5 tests: (a) binding-site gate for
-  `ref(r) := <non-flowable>` (needs def-time-evaluating unit-returning bodies — a
-  WIDER surface, the next foundational step); (b) slice raw-ptr-representation gate;
-  (c) closure-capture is_ref gate (anonymous_function.yo, + in-body closure eval);
-  (d) double-ref RETURN-TYPE rejection (ref_return_labeled, not flowability). Each
-  builds on the now-working def-time-eval foundation.
-  **TRIGGER OBSTACLE found pursuing (a) — the binding-site gate (2026-06):** unlike
-  the ref-return gate (whose trigger `result_is_ref` is read cheaply from the
-  function TYPE), gates (a)/(c) must def-time-evaluate functions selected by a
-  BODY property (body contains a `ref(name) :=` binding / a closure capturing a
-  ref). Deciding that per-function-definition requires inspecting `body_expr`, but
-  yo-self has no cheap way: the AST-shape predicates (expr_traversal.yo) take
-  `AstExpr` BY VALUE (consume it — `while.yo:81`/`helper.yo:1075` pass the body and
-  recurse via `args.get`, which copies), and the only way to both inspect AND keep
-  `body_expr` for the FuncVal is `body_expr.clone()` — the exact deep-clone-per-
-  function that OOM'd large codegen files. There is no shared-borrow (`fn(ref(e) :
-AstExpr)`) pattern for enums in the codebase. The init-assignment ref-binding
-  detection + flowability check (init-assignment.ts:103-181) is also entirely
-  UNPORTED in initialization_assignment.yo (a prerequisite for (a)). CLEAN PATH:
-  compute the needed "body contains ref-binding / ref-capturing closure" flags
-  ONCE during parsing or function-TYPE evaluation (when the body AST is already
-  walked) and store them in a func-id side-table, so the def-time-eval trigger is a
-  cheap flag lookup — not a per-definition body re-scan. That + porting the
-  init-assignment ref-binding handling is the next foundational sub-task for gates
-  (a)/(c). The ref-return foundation (committed) is unaffected.
-  **BEDROCK (2026-06, investigating the cheap-flags sub-task):** the flags can't be
-  computed cheaply because yo-self has NO non-cloning AST read traversal.
-  `ArrayList.get : (fn(self, index) -> Option(T))` returns `T` BY VALUE — for
-  `AstExpr` that is a full deep clone — so every existing by-value AST predicate
-  (expr_traversal.yo) deep-clones each visited node (fine occasionally, OOM if run
-  per-function-definition). HOWEVER the borrowing primitives needed to build a
-  cheap traversal DO exist: `ArrayList.index` returns `*(Output)` and `project`
-  returns `ref(T)` (element access without clone), and `ref`-params for non-Self
-  types work (error.yo:168 `fn(ref(error) : YoError)`). So the true foundational
-  sub-task is: **build a non-cloning borrowing AST traversal primitive**
-  (`fn(ref(e) : AstExpr) -> bool` recursing via `index`/`project` instead of
-  `get`), then use it for the body-feature flags (ref-binding / ref-capturing
-  closure / slice-source) feeding gates (a)/(c)/slice. This is a NEW mechanism the
-  codebase lacks (ref-of-enum matching + ref-recursion), not a 1-to-1 port — its
-  own focused effort. The ref-return def-time-eval foundation (b08bc947) stands.
-  **ATTEMPTED the borrowing traversal (2026-06) → BLOCKED by ANOTHER codegen bug:**
-  `ref(child) := kids.project(i)` on `ArrayList(Enum)` mis-codegens — it derefs +
-  `__dup`s the pointee into a VALUE then assigns it to the pointer-typed binding
-  (invalid C), AND the `__dup` is a clone (so it wouldn't even be no-clone). Works
-  for scalar elements (indexable_runtime passes) but not enum elements. See
-  issues/ref-binding-from-project-enum-codegen.md.
-  **✅ RESOLVED (2026-06) — OPTION 2 (borrowing traversal) is now UNBLOCKED, and
-  OPTION 1 (parser-time flags) is NO LONGER needed.** Both foundational codegen
-  bugs were fixed TS-first (per the faithful-porting directive):
-  (1) the unwind-buffer overflow — `__yo_unwind_value` is now a union sized to the
-  largest unwound value (commit cb4a4a4a, issues/fixed/unwind-value-buffer-overflow.md);
-  (2) the ref-binding-from-project clone — the evaluator no longer inserts a dup for
-  `ref(name) :=` borrows (commit 8179d57a, issues/fixed/ref-binding-from-project-enum-codegen.md).
-  `ref(child) := kids.project(i)` on `ArrayList(Enum)` now binds the element pointer
-  directly (no deref/`__dup`), verified + regression-tested. So a faithful
-  non-cloning AST traversal `fn(ref(e) : AstExpr)` recursing via `project` IS now
-  possible (AstExpr is an enum). The remaining flowability work (binding-site /
-  closure / slice gates) builds on the already-landed unconditional def-time body
-  eval (784cb67a) — NOT a parser change. Of the three originally-cited foundational
-  bugs, two are now fixed and the third (def-time-eval robustness) is handled by the
-  swallowing trial-eval wrapper. The cluster is now incremental gate-wiring +
-  porting the init-assignment ref-binding check, no longer a foundational project.
+- ⏸️ `types/flowability.ts` → `yo-self/types/flowability.yo` (note: lives in the
+  std-types dir, not `evaluator/types/`). `is_flowable_expr` + `FlowOptions`
+  present (~334L). This entry is the home of the **def-eval wall / flowability
+  cluster** work. The full blow-by-blow history is in memory
+  `yo-self-defeval-wall` + the `issues/` docs; current state (2026-06):
+  - **Def-eval wall crossed (784cb67a).** Def-time body eval now runs
+    unconditionally for non-generic functions (faithful to `function-type.ts:499`),
+    made safe by a SWALLOWING trial-eval wrapper (`_trial_eval_fn_body`). The
+    flowability _check_ is gated on `result_is_ref` (`function-type.ts:524`).
+    Validated std 151/0, tests 171/11, yo-self 228/0.
+  - **Two codegen bugs fixed TS-first** (per faithful-porting directive), both now
+    in `issues/fixed/`: unwind-buffer overflow (cb4a4a4a) and
+    ref-binding-from-project clone (8179d57a).
+  - **Return-slot modifier rule landed (44d74823).** Labeled returns carry
+    `ref`/`comptime` on the LABEL, not the type — flips `ref_return_labeled`
+    (tests 170→171). A RETURN-POSITION/type gate, checked OUTSIDE the body eval.
+  - **Gates split two ways (KEY finding).** Return-position/type gates are
+    reachable and work; **in-body** gates (binding-site `ref(r) := <non-flowable>`,
+    closure-capture, slice-in-body) are **SWALLOW-BLOCKED** — their rejections are
+    eaten by the trial-eval wrapper, so the 7 remaining `comptime_expect_error`
+    tests don't surface (ref_flowability, ref_local_binding, ref_closure_capture,
+    slice_flowability, algebraic_effects, extern_unsafe_wrap, sync/mutex). The
+    binding-site gate is ported (8090ecc1) but inert until the swallow is removed.
+  - **Surfacing them is NOT incremental.** Measured the swallow gap surface
+    (log-and-swallow diagnostic over std+tests) = **104 DISTINCT incidental
+    failure categories** during def-time body eval in type-check mode
+    (`issues/def-time-body-eval-swallow-surface.md`). Un-swallowing would propagate
+    all 104 → massive regression. So surfacing the in-body gates = the **def-eval
+    robustness project**: faithfully completing the def-time body-eval paths that
+    were shortcut during the port. Root cause: `Func` TypeValue dropped TS's
+    `parametersFrame`, so generic params (`T`/`Self`/`Idx`) are unbound at
+    def-time; plus trait-field type eval, comptime reflection (`__yo_type_*`,
+    `fields.get`), and unification under `is_executing=false`. **Active first
+    lever:** consume the params-frame (infra 95945b1f/8d700447) — register the
+    bound-type-param frame in `evaluate_function_type`, push it into the def-time
+    body-eval env. Swallow-protected, so each fix reduces the surface WITHOUT
+    regressing `check`. See memory `yo-self-check-masks-porting-gaps` — green
+    `check` never proved faithful porting (it doesn't eval fn bodies), which is how
+    these body-level shortcuts rode unnoticed.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
@@ -555,8 +391,10 @@ async/await_analysis, shared/suspension_analysis.
 - `calls/function.yo`, `calls/helper.yo` — no overload resolution / partial application /
   extern-c call-site gate / macro expansion (function.yo); CTFE not executed, non-Func
   soft-fallback→unit, no variadics/RC-ownership/where-clause/io-builtin special-casing (helper.yo).
-- `calls/function_type.yo` — `check_deferred_generic_return_type` is a no-op stub; body never
-  evaluated at definition time → ALL definition-time gates missing (the def-eval-wall root).
+- `calls/function_type.yo` — `check_deferred_generic_return_type` is a no-op stub.
+  (UPDATE 2026-06: def-time body eval is now LIVE via 784cb67a — see the
+  `types/flowability.yo` entry — but errors are swallowed, so in-body
+  definition-time gates still don't surface. No longer "the def-eval-wall root".)
 - `values/impl.yo` (4 throws vs TS 32), `types/utils.yo` (~88% unported — RC gen), `types/function.yo`
   (no requires/ensures + zone-order; HKT where stub), `types/record.yo` + `calls/record_type.yo`
   (pre-refactor module-type port), `calls/trait_type.yo` (no where-clause gate / constraint storage),
