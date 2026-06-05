@@ -332,6 +332,25 @@ gap is deferred on a larger feature (see note)
   (c) closure-capture is_ref gate (anonymous_function.yo, + in-body closure eval);
   (d) double-ref RETURN-TYPE rejection (ref_return_labeled, not flowability). Each
   builds on the now-working def-time-eval foundation.
+  **TRIGGER OBSTACLE found pursuing (a) — the binding-site gate (2026-06):** unlike
+  the ref-return gate (whose trigger `result_is_ref` is read cheaply from the
+  function TYPE), gates (a)/(c) must def-time-evaluate functions selected by a
+  BODY property (body contains a `ref(name) :=` binding / a closure capturing a
+  ref). Deciding that per-function-definition requires inspecting `body_expr`, but
+  yo-self has no cheap way: the AST-shape predicates (expr_traversal.yo) take
+  `AstExpr` BY VALUE (consume it — `while.yo:81`/`helper.yo:1075` pass the body and
+  recurse via `args.get`, which copies), and the only way to both inspect AND keep
+  `body_expr` for the FuncVal is `body_expr.clone()` — the exact deep-clone-per-
+  function that OOM'd large codegen files. There is no shared-borrow (`fn(ref(e) :
+AstExpr)`) pattern for enums in the codebase. The init-assignment ref-binding
+  detection + flowability check (init-assignment.ts:103-181) is also entirely
+  UNPORTED in initialization_assignment.yo (a prerequisite for (a)). CLEAN PATH:
+  compute the needed "body contains ref-binding / ref-capturing closure" flags
+  ONCE during parsing or function-TYPE evaluation (when the body AST is already
+  walked) and store them in a func-id side-table, so the def-time-eval trigger is a
+  cheap flag lookup — not a per-definition body re-scan. That + porting the
+  init-assignment ref-binding handling is the next foundational sub-task for gates
+  (a)/(c). The ref-return foundation (committed) is unaffected.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
