@@ -29,8 +29,10 @@ open(import("std/string"));
   BK_COLON,
   BK_CONST,
   BK_INIT_ASSIGN,
-  BK_GIVEN
+  BK_GIVEN,
+  BK_REF
 } :: import("../../expr.yo");
+{ is_flowable_expr, FlowOptions } :: import("../../types/flowability.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -150,6 +152,47 @@ evaluate_initialization_assignment :: (
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
+  // Detect `ref(name) := expr;` — a second-class reference (borrow) binding.
+  // The bound name aliases the ref-yielding RHS. Mirrors
+  // `initialization-assignment.ts` (the `BuiltinKeywords.ref` unwrap).
+  (is_ref_binding : bool) = false;
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_REF,.None), {
+    if(is_const || ctx.force_compile_time_bindings, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            String.from("'ref(name) :=' cannot be used with '::' or in a compile-time-only context — borrows are runtime constructs."),
+            false,
+            .None
+          )
+        )
+      );
+    });
+    n_ref_args := match(
+      lhs,
+      .FnCall(_, _, rargs, _, _) => rargs.len(),
+      .Atom(_, _) => usize(0)
+    );
+    if(n_ref_args != usize(1), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            `Expected one argument for 'ref' in a local binding, got ${n_ref_args.to_string()}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    is_ref_binding = true;
+    actual_lhs = match(
+      lhs,
+      .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+  });
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN,.None), {
     n_given_args := match(
       lhs,
@@ -245,6 +288,32 @@ evaluate_initialization_assignment :: (
   );
   // Disallow implicit variables as the RHS of non-given assignment.
   throw_expr_is_implicit_variable_error(rhs, env, ctx, exn);
+  // Flowability check on the RHS of `ref(name) := expr;`. The RHS must be a
+  // ref-yielding expression that roots back to a `ref`-bound parameter (or any
+  // same-function local — the borrow is bounded by the enclosing block).
+  // Otherwise the binding would hand out a reference into storage that doesn't
+  // outlive the call frame. Mirrors `initialization-assignment.ts` (the
+  // `isFlowableExpr(rhs, { allowSameFrameLocal: true })` check).
+  if(is_ref_binding, {
+    ref_flow_opts := FlowOptions(
+      allow_same_frame_local : true,
+      allow_parameter_source : false,
+      allow_comptime_source : false,
+      max_local_frame_level : Option(usize).None
+    );
+    if(!(is_flowable_expr(rhs, ctx, ref_flow_opts)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(rhs),
+            `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+  });
   // --------------------------------------------------------------------------
   // Branch: atom LHS vs destructuring LHS
   // --------------------------------------------------------------------------
@@ -254,8 +323,12 @@ evaluate_initialization_assignment :: (
     // -------------------------------------------------------------------
     // Check if the RHS variable has been consumed (moved).
     require_expr_not_consumed(rhs, env, ctx, exn);
-    // Insert dup (Phase 2w: stub, no-op).
-    set_expr_as_needs_to_call_dup(rhs, ctx);
+    // Insert dup (Phase 2w: stub, no-op) — but NOT for a `ref(name) :=` borrow.
+    // A ref-binding aliases the RHS rather than owning it, so no clone is
+    // inserted. Mirrors the `!isRefBinding` gate in `initialization-assignment.ts`.
+    if(!(is_ref_binding), {
+      set_expr_as_needs_to_call_dup(rhs, ctx);
+    });
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
