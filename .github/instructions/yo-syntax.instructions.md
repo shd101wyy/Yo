@@ -611,6 +611,19 @@ greet :: (fn() -> str)("hello");
 
 See `plans/SLICE_FLOWABILITY.md` and `tests/slice_flowability.test.yo`.
 
+### Return-slot modifier placement: on the label, not the type
+
+In a **labeled** return slot, a `ref`/`comptime` modifier attaches to the **label**, mirroring the parameter convention (`ref(name) : T`). Unlabeled returns put the modifier on the sole type expression.
+
+| Form                                            | Verdict                                      |
+| ----------------------------------------------- | -------------------------------------------- |
+| `-> ref(T)`, `-> comptime(T)`                   | ✅ valid (unlabeled)                         |
+| `-> (ref(name) : T)`, `-> (comptime(name) : T)` | ✅ valid (modifier on the label)             |
+| `-> (name : ref(T))`, `-> (name : comptime(T))` | ❌ rejected — move the modifier to the label |
+| `-> (ref(name) : ref(T))`                       | ❌ rejected (double-ref — "pick one")        |
+
+Enforced at function-type evaluation (`src/evaluator/types/function.ts`, in the labeled-return branch, after label-side modifier processing) and the yo-self port (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_labeled.test.yo`.
+
 ### Signed-integer overflow is defined (wrap-around)
 
 Yo passes `-fwrapv` to clang/gcc/zig by default, so signed-integer overflow is two's-complement wrap-around, not UB. `x := i32(2147483647); y := (x + i32(1));` evaluates to `i32(-2147483648)`, not silent miscompilation. Opt-out: `--cflags='-fno-wrapv'`.
