@@ -58,6 +58,24 @@ it robust enough to un-swallow = faithfully completing the def-time evaluation
 that TS does natively — a sustained project tackled by root category (biggest
 lever: generic-param resolution at def-time), not a quick gate-wire.
 
+## Progress (2026-06, commit 2b91e5e4)
+
+**~60% of the surface drained — option (A) is underway and tractable.** The
+single largest category ("expected type for element, got T", field.yo:293) was
+root-caused (via a location-tagged swallow diagnostic) to PRELUDE comptime
+type-constructor functions (Box/Arc/IterPair/IterSkip/IterZip) whose
+`comptime(T):Type` params were bound as `create_unknown_val(Type)` (unknown
+VALUE) instead of `TypeVal(SomeT)` (type value) in `_build_def_time_body_env`.
+Fix: bind `is_type_0` params as `create_type_value(t_some_t(...))` (mirrors
+function.yo:1169) + flipped should_defer's Self check to the deep predicate.
+MEASURED: element-typevar category 14→0; TOTAL swallows roughly halved
+(array_list 85→26, hash_map 87→25, string 122→63). Zero regression (std 151/0,
+tests 171/11, yo-self 228/0). The remaining categories (trait-field eval,
+unification, comptime reflection) are the next draining targets; once the surface
+is near-empty, un-swallowing becomes safe and the 7 in-body gate tests surface.
+LESSON: don't guess the lever — two hypotheses (params-frame, deep-Self-alone)
+were ~no-ops; the location diagnostic found the real one.
+
 ## Options
 
 - **(A) Faithful robustness push** — close the gap categories (params-frame
