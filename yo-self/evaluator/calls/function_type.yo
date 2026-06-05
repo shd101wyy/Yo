@@ -33,7 +33,8 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 { is_flowable_expr, flow_options_default } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ast_expr_to_string } :: import("../../expr.yo");
@@ -360,34 +361,36 @@ try_to_implement_function_by_function_type :: (
         cap_fi = (cap_fi + usize(1));
       });
       fn_val_id := random_id(caller_env.module_path);
-      // Phase B flowability (ITERATOR_REDESIGN): a CONCRETE STANDALONE function
-      // whose return slot is `-> ref(T)` must return a ref-yielding expression
-      // rooted in one of its `ref` parameters. Decide here — BEFORE building the
-      // FuncVal — whether the def-time flow check will run, so we only clone the
-      // (potentially large) body for the rare ref-returning standalone functions
-      // rather than for every function definition (cloning every body OOMs on
-      // large codegen files). Generic (forall / SomeT-param) and METHOD bodies
-      // (any self_type set) defer — methods' ref-returns are genuinely flowable
-      // and their def-time eval is expensive; the negatives to catch are all
-      // standalone (self_type = None). Mirrors `shouldDeferBodyEvaluation` +
-      // `function-type.ts:524-540`. The raw-ptr-representation (slice) case is
-      // NOT included here.
+      // Faithful port of `shouldDeferBodyEvaluation` (function-type.ts:445-451):
+      // defer body evaluation ONLY for functions that depend on generic type
+      // variables — `forall` parameters, any parameter whose type contains a
+      // some-type in codegen-relevant position, or a generic `Self`. Every other
+      // (concrete) function has its body evaluated UNCONDITIONALLY at definition
+      // time, exactly as TS does at function-type.ts:499. This is the def-time
+      // body eval; the flowability *check* (is_flowable_expr) is a separate gate
+      // applied only when `result_is_ref` (function-type.ts:524), below.
+      //
+      // We still need a copy of the body for the trial eval because the evaluator
+      // consumes its `expr` argument and the original `body_expr` must be moved
+      // into the FuncVal. The original is boxed into the FuncVal (retained once);
+      // the clone is transient (consumed by the eval, freed at scope end) — so
+      // peak retention is 1x, matching TS's shared-reference model.
       (any_some_param_ft : bool) = false;
       (spi : usize) = usize(0);
       while((spi < param_types.len()) && (!(any_some_param_ft)), {
         match(
           param_types.get(spi),
-          .Some(pt) => if(is_some_type(pt), {
+          .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
             any_some_param_ft = true;
           }),
           .None => ()
         );
         spi = (spi + usize(1));
       });
-      self_is_set_ft := match(ctx.self_type,.Some(_) => true,.None => false);
-      needs_flow_ft := ((((forall_labels.len() == usize(0)) && (!(any_some_param_ft))) && (!(self_is_set_ft))) && result_is_ref);
+      self_has_some_ft := match(ctx.self_type,.Some(st) => type_contains_some_type(st),.None => false);
+      should_defer_ft := (((forall_labels.len() > usize(0)) || any_some_param_ft) || self_has_some_ft);
       (flow_body : Option(AstExpr)) = if(
-        needs_flow_ft,
+        !(should_defer_ft),
         Option(AstExpr).Some(body_expr.clone()),
         Option(AstExpr).None
       );
@@ -420,7 +423,11 @@ try_to_implement_function_by_function_type :: (
       info := new_expr_info(caller_env, function_type);
       info.value = Option(EvalValue).Some(func_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-      // Run the def-time flow check iff we decided to above (flow_body set).
+      // Def-time body evaluation (function-type.ts:499) for every non-deferred
+      // (concrete) function. The flowability *check* on the evaluated final
+      // expression runs only for `-> ref(T)` returns (function-type.ts:524) —
+      // gated by `result_is_ref` so that ordinary functions are merely evaluated,
+      // not rejected.
       match(
         flow_body,
         .Some(fb) => {
@@ -439,24 +446,26 @@ try_to_implement_function_by_function_type :: (
           flow_ctx := create_function_body_evaluation_context(function_type, flow_fv, flow_env, ctx);
           flow_out := ArrayList(AstExpr).new();
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
-          match(
-            flow_out.get(usize(0)),
-            .Some(eb) => {
-              if(!(is_flowable_expr(eb, flow_ctx, flow_options_default())), {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(eb),
-                      `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${ast_expr_to_string(eb)}`,
-                      false,
-                      .None
+          if(result_is_ref, {
+            match(
+              flow_out.get(usize(0)),
+              .Some(eb) => {
+                if(!(is_flowable_expr(eb, flow_ctx, flow_options_default())), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(eb),
+                        `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${ast_expr_to_string(eb)}`,
+                        false,
+                        .None
+                      )
                     )
-                  )
-                );
-              });
-            },
-            .None => ()
-          );
+                  );
+                });
+              },
+              .None => ()
+            );
+          });
         },
         .None => ()
       );
