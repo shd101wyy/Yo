@@ -217,7 +217,16 @@ Define handlers inside the function that uses them:
     // Insert dup
     // NOTE: For destructuring in `else` block, we don't insert dup there.
     //       Because for simplicity destructuring uses borrowing, not owning.
-    setExprAsNeedsToCallDup(rhs, { ...context });
+    // A `ref(name) := <ref-yielding expr>` binding (isRefBinding) aliases the
+    // RHS rather than owning it: the C-level result is a pointer (`T*`) and the
+    // bound name borrows it. Inserting a dup here would deref + clone the
+    // pointee into a value and assign it to the pointer-typed binding —
+    // producing invalid C (value assigned to `T*`) for non-trivially-copyable
+    // element types (enums/structs), and defeating the borrow even when it
+    // compiled. So skip the dup for ref-bindings (scalars never dup anyway).
+    if (!isRefBinding) {
+      setExprAsNeedsToCallDup(rhs, { ...context });
+    }
     if (rhs.$?.env) {
       env = rhs.$?.env;
     }
