@@ -365,8 +365,24 @@ AstExpr)`) pattern for enums in the codebase. The init-assignment ref-binding
   `get`), then use it for the body-feature flags (ref-binding / ref-capturing
   closure / slice-source) feeding gates (a)/(c)/slice. This is a NEW mechanism the
   codebase lacks (ref-of-enum matching + ref-recursion), not a 1-to-1 port — its
-  own focused effort. Did NOT build it at session tail (rabbit-hole risk). The
-  ref-return def-time-eval foundation (b08bc947) stands and is unaffected.
+  own focused effort. The ref-return def-time-eval foundation (b08bc947) stands.
+  **ATTEMPTED the borrowing traversal (2026-06) → BLOCKED by ANOTHER codegen bug:**
+  `ref(child) := kids.project(i)` on `ArrayList(Enum)` mis-codegens — it derefs +
+  `__dup`s the pointee into a VALUE then assigns it to the pointer-typed binding
+  (invalid C), AND the `__dup` is a clone (so it wouldn't even be no-clone). Works
+  for scalar elements (indexable_runtime passes) but not enum elements. See
+  issues/ref-binding-from-project-enum-codegen.md. So OPTION 2 (borrowing
+  traversal) is doubly out (won't compile + clones). **OPTION 1 (parser-time flag
+  propagation) is now the recommended path** — set a "subtree contains
+  ref-binding / ref-capturing closure" bit as the parser CONSTRUCTS each node
+  (free, no runtime traversal, no clone, no ref/borrow codegen), stored in a
+  node-id side-table; the def-time-eval trigger reads it cheaply. That avoids the
+  buggy ref/borrow machinery entirely but is a parser change (yo-self/parser.yo +
+  TS parser.ts for faithfulness). NET: the flowability cluster sits atop THREE
+  distinct foundational bugs in under-exercised machinery — unwind-buffer overflow
+  (issues/unwind-value-buffer-overflow.md, worked around), def-time-eval
+  robustness, and ref-binding-from-ref-call codegen — making it a dedicated
+  codegen+evaluator hardening project, not incremental gate-wiring.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
