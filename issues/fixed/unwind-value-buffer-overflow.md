@@ -1,5 +1,38 @@
 # Codegen bug: `__yo_unwind_value` is a fixed 64-byte buffer — `unwind(large_value)` overflows it
 
+## ✅ FIXED (TS codegen)
+
+Fixed in `src/codegen/functions/generation.ts`: the `__yo_unwind_value` buffer is
+now sized via a **union** to the largest unwound value in the program.
+
+- A pre-pass `collectUnwindValueCTypes` (run in `generateAllFunctions` before the
+  GC-runtime emit) walks every function body, finds each `unwind(value)` whose
+  argument is non-unit, and records the value's C type string in
+  `context.unwindValueCTypes`.
+- A shared `emitUnwindValueBuffer` emits, when that set is non-empty:
+  ```c
+  static _Thread_local _Alignas(16) union {
+      char __pad[64];          // 64-byte floor (parity with the old default)
+      T0 __m0; T1 __m1; ...    // one member per distinct unwound value type
+  } __yo_unwind_value_storage;
+  #define __yo_unwind_value ((char*)&__yo_unwind_value_storage)
+  ```
+  With no unwound values it falls back to the plain `char[64]`. The `#define`
+  yields the same `char*` shape, so every `memcpy(__yo_unwind_value, …)` site is
+  unchanged (verified: no `&__yo_unwind_value` / `sizeof(__yo_unwind_value)` uses
+  exist).
+
+**Verified:** the 80-byte (`10 × i64`) unwind repro EXIT 133 (old) → runs `got
+a=1 j=10` EXIT 0 (new); `tests/algebraic_effects.test.yo` 71→72 (added regression
+test "ctl unwind of a value larger than 64 bytes"), still all green.
+
+**yo-self port: N/A (not yet ported).** `yo-self/codegen/functions/generation.yo`
+is a 221-line partial stub; the effects/unwind-buffer emission path
+(`__yo_unwind_value`, `_unw_val` memcpy) has NOT been ported to yo-self at all.
+There is no buggy counterpart to fix — the 1-to-1 mapping is preserved by
+absence. **When that codegen path is eventually ported, it must emit the
+union-sized buffer (this fix), not the old `char[64]`.**
+
 ## Summary
 
 The generated C uses a **fixed-size 64-byte thread-local buffer** to pass the

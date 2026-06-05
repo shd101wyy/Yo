@@ -30,6 +30,11 @@ export interface FunctionGenerationContext extends CodeGenContext {
     { type: FunctionType; cName: string; cInclude?: string }
   >;
   currentFunctionName: string;
+  // C type strings of every non-unit `unwind(value)` argument in the program,
+  // collected by a pre-pass (collectUnwindValueCTypes) before the unwind-value
+  // buffer is declared. The buffer is sized (via a union) to fit the largest of
+  // these so `unwind` of a value bigger than 64 bytes does not overflow it.
+  unwindValueCTypes?: Set<string>;
   currentFunctionType?: FunctionType; // Type of the current function being generated
   currentClosureCaptures?: string[]; // Variables captured by current closure function
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables

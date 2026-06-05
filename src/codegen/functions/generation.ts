@@ -230,6 +230,84 @@ function bodyHasUnwind(expr: Expr): boolean {
 }
 
 /**
+ * Walk an expression tree and collect the C type string of every non-unit
+ * `unwind(value)` argument into `into`. The unwind value is memcpy'd into the
+ * thread-local `__yo_unwind_value` buffer at the unwind site and read back at
+ * the handler-installation site; the buffer must therefore be large enough for
+ * the biggest such value. This pre-pass feeds `emitUnwindValueBuffer`.
+ */
+function collectUnwindValueCTypesFromExpr(
+  expr: Expr,
+  context: FunctionGenerationContext,
+  into: Set<string>
+): void {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) {
+    const args = (expr as FnCallExpr).args;
+    if (args.length > 0) {
+      const argType = args[0]!.$?.type;
+      if (argType && !isUnitType(argType)) {
+        into.add(getTypeString(argType, context));
+      }
+    }
+  }
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of (expr as FnCallExpr).args) {
+      collectUnwindValueCTypesFromExpr(arg, context, into);
+    }
+    collectUnwindValueCTypesFromExpr((expr as FnCallExpr).func, context, into);
+  }
+}
+
+/**
+ * Populate `context.unwindValueCTypes` from every function body in the program.
+ * MUST run before the unwind-value buffer is declared (i.e. before
+ * `generateAtomicGCRuntimeFunctions`), because the buffer declaration string is
+ * fixed at emit time and is assembled into the declarations section ahead of all
+ * function bodies.
+ */
+function collectUnwindValueCTypes(context: FunctionGenerationContext): void {
+  const into = new Set<string>();
+  for (const funcId in context.functions) {
+    const body = context.functions[funcId]!.value.body;
+    if (body) {
+      collectUnwindValueCTypesFromExpr(body, context, into);
+    }
+  }
+  context.unwindValueCTypes = into;
+}
+
+/**
+ * Emit the thread-local `__yo_unwind_value` buffer declaration. When the program
+ * unwinds one or more non-unit values, the buffer is a `union` sized to fit the
+ * largest of them (plus a 64-byte floor for parity with the historical default);
+ * `__yo_unwind_value` is then a `#define` yielding the union's address as a
+ * `char*`, which the existing `memcpy(__yo_unwind_value, ...)` sites use
+ * unchanged. With no unwound values, falls back to the plain 64-byte buffer.
+ *
+ * Fixes the latent overflow where `unwind(value)` with `sizeof(value) > 64`
+ * overflowed the fixed `char[64]` buffer (FORTIFY `__memcpy_chk` → SIGTRAP).
+ */
+function emitUnwindValueBuffer(context: FunctionGenerationContext): void {
+  const types = context.unwindValueCTypes;
+  if (!types || types.size === 0) {
+    context.emitter.emitDeclarationLine(
+      `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
+    );
+    return;
+  }
+  const members = [...types].map((t, i) => `    ${t} __m${i};`).join("\n");
+  context.emitter.emitDeclarationLine(
+    `// Thread-local buffer for unwind value storage, sized (via a union) to the\n` +
+      `// largest unwound value in the program so 'unwind(v)' never overflows it.\n` +
+      `static _Thread_local _Alignas(16) union {\n` +
+      `    char __pad[64];\n` +
+      `${members}\n` +
+      `} __yo_unwind_value_storage;\n` +
+      `#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)`
+  );
+}
+
+/**
  * If the body returns a single parameter via `return(<atom>)`, return
  * that parameter name. Otherwise return undefined. Used by the
  * `isEffectRecordMember` stub generator to emit `return <param>;` for
@@ -313,6 +391,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       context.usesAsync ?? false
     );
   }
+
+  // Pre-pass: collect the C types of all non-unit `unwind(value)` arguments so
+  // the `__yo_unwind_value` buffer (declared inside the GC runtime emit below)
+  // can be sized to the largest of them. Must run before that emit.
+  collectUnwindValueCTypes(context);
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
@@ -1789,9 +1872,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
   emitter.emitDeclarationLine(
     `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection`
   );
-  emitter.emitDeclarationLine(
-    `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
-  );
+  emitUnwindValueBuffer(context);
 
   // No-op GC functions so references elsewhere compile
   emitter.emitLine(`// No-op GC stubs — no types form reference cycles
@@ -1898,9 +1979,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
   emitter.emitDeclarationLine(
     `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection`
   );
-  emitter.emitDeclarationLine(
-    `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
-  );
+  emitUnwindValueBuffer(context);
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
 static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
 static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
