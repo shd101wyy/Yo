@@ -31,9 +31,9 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, add_parameter_to_env, synthetic_token } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ t_unit, t_some_t } :: import("../../types/creators.yo");
+{ is_type_0 } :: import("../../types/guards.yo");
+{ EvalValue, create_unknown_val, create_type_value } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 { is_flowable_expr, flow_options_default } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -229,16 +229,30 @@ _build_def_time_body_env :: (
     cap_fi = (cap_fi + usize(1));
   });
   ___fr := fresh_env.push_frame(false);
+  // Frame level of the just-pushed parameter frame (for SomeT binding below).
+  pf_level := (fresh_env.frames.len() - usize(1));
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
     pn := match(param_labels.get(pi),.Some(n) => n,.None => String.from(""));
     pt := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
     p_ref := match(param_is_ref.get(pi),.Some(b) => b,.None => false);
+    // A comptime TYPE parameter (`comptime(T) : Type`) must be bound as a
+    // `TypeVal(SomeT(name))` type value — NOT `create_unknown_val(Type)` (an
+    // unknown VALUE) — so the body can use it as a type (e.g. a type-constructor
+    // body `struct(_0 : A, _1 : B)`). Otherwise `A` is a non-type value and
+    // field/element-type eval throws "expected type for element, got A"
+    // (field.yo:293) — the dominant def-time-eval swallow category. Mirrors the
+    // SomeT binding in evaluate_function_parameters (function.yo:1169).
+    pv := if(
+      is_type_0(pt),
+      create_type_value(t_some_t(pn, pf_level)),
+      create_unknown_val(pt)
+    );
     ___ := add_parameter_to_env(
       fresh_env,
       pn,
       pt,
-      Option(EvalValue).Some(create_unknown_val(pt)),
+      Option(EvalValue).Some(pv),
       false,
       p_ref,
       false,
@@ -387,7 +401,14 @@ try_to_implement_function_by_function_type :: (
         );
         spi = (spi + usize(1));
       });
-      self_has_some_ft := match(ctx.self_type,.Some(st) => type_contains_some_type(st),.None => false);
+      // DEEP some-type check on Self (mirrors TS `typeContainsSomeType`, which
+      // recurses into struct/enum/tuple/ptr/slice args). yo-self's plain
+      // `type_contains_some_type` is SHALLOW (top-level SomeT/TypeAppT only), so
+      // a generic-impl method's `Self = ArrayList(T)` (a Struct CONTAINING a
+      // SomeT) was NOT detected → the method was wrongly NOT deferred → its body
+      // was def-time-evaluated with `T` unbound → "expected type for element,
+      // got T" (field.yo:293). Use the deep predicate so such methods defer.
+      self_has_some_ft := match(ctx.self_type,.Some(st) => type_contains_some_type_for_codegen_param(st, ArrayList(String).new()),.None => false);
       should_defer_ft := (((forall_labels.len() > usize(0)) || any_some_param_ft) || self_has_some_ft);
       (flow_body : Option(AstExpr)) = if(
         !(should_defer_ft),
