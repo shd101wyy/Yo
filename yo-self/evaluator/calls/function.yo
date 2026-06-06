@@ -55,7 +55,7 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_some_type, is_array_type, is_slice_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_slice_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name } :: import("../values/type_trait_methods.yo");
@@ -251,6 +251,259 @@ _static_dot_receiver_self_type :: (
     ),
     .None => Option(TypeValue).None
   )
+});
+/// Trial-call one Call-overload candidate with CLONED exprs and a swallowing
+/// exception. On success pushes `true` into `ok_out`; a throw unwinds before
+/// the push, leaving `ok_out` empty (the `_trial_eval_fn_body` pattern).
+/// The `try_to_call_function_with_arguments` path only type-checks (CTFE
+/// execution lives in the FuncVal arm of `evaluate_function_call`), so
+/// trials are side-effect-free — mirroring TS's checking phase
+/// (`skipSpecialization`/`skipCtfeExecution`, function.ts:807-836).
+_trial_call_overload_candidate :: (
+  fn(
+    fn_val : EvalValue,
+    fn_ty : TypeValue,
+    call_expr : AstExpr,
+    func_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    callee_env : Environment,
+    ctx : EvalContext,
+    ok_out : ArrayList(bool)
+  ) -> unit
+)({
+  trial_exn := Exception(throw : ((_err) -> unwind(())));
+  cloned_args := ArrayList(AstExpr).new();
+  (ci : usize) = usize(0);
+  while(ci < args.len(), {
+    match(
+      args.get(ci),
+      .Some(a) => {
+        cloned_args.push(a.clone());
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  _ := try_to_call_function_with_arguments(
+    Option(EvalValue).Some(fn_val),
+    fn_ty,
+    call_expr.clone(),
+    func_expr,
+    cloned_args,
+    callee_env,
+    ctx,
+    false,
+    true,
+    true,
+    trial_exn
+  );
+  ___ := ok_out.push(true);
+});
+/// ModuleT/Call overload dispatch — mirrors TS `function.ts:527-573` (the
+/// `isSourceNamespaceType` candidate expansion) + the checking phase at
+/// `:807` and the comptime-param tiebreak at `:1664`. When the callee
+/// evaluated to a source-namespace struct value (an `impl({...})` operator
+/// module like `(!)`/`(-)`/`(~)`) whose `Call` field holds the overload
+/// candidates, trial-call each candidate and OVERWRITE the callee's
+/// ExprInfo with the winner (its Func type + FuncVal) — the ordinary
+/// FuncVal arm of `evaluate_function_call` then performs the real call,
+/// comptime folding included. No-op for non-source-namespace callees.
+/// Deviation from TS (documented): when several candidates survive the
+/// tiebreak TS throws "Ambiguous call"; yo-self takes the first survivor
+/// (the prelude operator modules order the runtime overload first).
+_try_expand_call_overload :: (
+  fn(
+    evaluated_callee : AstExpr,
+    call_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext
+  ) -> unit
+)({
+  info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee)),
+    .Some(i) => i,
+    .None => {
+      return(());
+    }
+  );
+  // Type side: a source-namespace struct with a `Call` field.
+  sns_parts := match(
+    info.ty,
+    .Struct({ field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
+      s_sns => Option(usize).Some(usize(0)),
+      true => Option(usize).None
+    ),
+    _ => Option(usize).None
+  );
+  if(sns_parts.is_none(), {
+    return(());
+  });
+  s_fls := match(info.ty,.Struct({ field_labels : f }) => f, _ => ArrayList(String).new());
+  s_fts := match(info.ty,.Struct({ field_types : t }) => t, _ => ArrayList(TypeValue).new());
+  (call_idx : Option(usize)) = Option(usize).None;
+  (li : usize) = usize(0);
+  while((li < s_fls.len()) && call_idx.is_none(), {
+    match(
+      s_fls.get(li),
+      .Some(l) => if(l.as_str() == "Call", {
+        call_idx = Option(usize).Some(li);
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  ci2 := match(
+    call_idx,
+    .Some(i) => i,
+    .None => {
+      return(());
+    }
+  );
+  call_field_ty := match(s_fts.get(ci2),.Some(t) => t,.None => t_unit());
+  // Value side: the paired StructVal's `Call` entry (TS reads the type
+  // field's `assignedValue`; yo-self's split keeps it on the value).
+  call_val := match(
+    info.value,
+    .Some(v) => match(
+      v,
+      .StructVal(_, v_names, v_vals) => {
+        (vidx : Option(usize)) = Option(usize).None;
+        (vi : usize) = usize(0);
+        while((vi < v_names.len()) && vidx.is_none(), {
+          match(
+            v_names.get(vi),
+            .Some(n) => if(n.as_str() == "Call", {
+              vidx = Option(usize).Some(vi);
+            }),
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        match(
+          vidx,
+          .Some(vix) => match(
+            v_vals.get(vix),
+            .Some(cv) => Option(EvalValue).Some(cv),
+            .None => Option(EvalValue).None
+          ),
+          .None => Option(EvalValue).None
+        )
+      },
+      _ => Option(EvalValue).None
+    ),
+    .None => Option(EvalValue).None
+  );
+  call_v := match(
+    call_val,
+    .Some(cv) => cv,
+    .None => {
+      return(());
+    }
+  );
+  // Candidates: a tuple of functions, or a single function
+  // (TS function.ts:541-555).
+  cand_vals := ArrayList(EvalValue).new();
+  match(
+    call_v,
+    .TupleVal(tfs) => {
+      (ti : usize) = usize(0);
+      while(ti < tfs.len(), {
+        match(
+          tfs.get(ti),
+          .Some(tv) => {
+            cand_vals.push(tv);
+          },
+          .None => ()
+        );
+        ti = (ti + usize(1));
+      });
+    },
+    _ => {
+      cand_vals.push(call_v);
+    }
+  );
+  cand_tys := ArrayList(TypeValue).new();
+  match(
+    call_field_ty,
+    .Tuple(_, t_tys) => {
+      (ty_i : usize) = usize(0);
+      while(ty_i < t_tys.len(), {
+        match(
+          t_tys.get(ty_i),
+          .Some(tt) => {
+            cand_tys.push(tt);
+          },
+          .None => ()
+        );
+        ty_i = (ty_i + usize(1));
+      });
+    },
+    _ => {
+      cand_tys.push(call_field_ty);
+    }
+  );
+  if(cand_vals.len() != cand_tys.len(), {
+    return(());
+  });
+  func_expr := match(call_expr,.FnCall(_, fb, _, _, _) => fb.*, _ => evaluated_callee);
+  // Trial each candidate; collect the indices that type-check.
+  successes := ArrayList(usize).new();
+  (cand_i : usize) = usize(0);
+  while(cand_i < cand_vals.len(), {
+    cv2 := match(cand_vals.get(cand_i),.Some(v) => v,.None => EvalValue.UnitVal);
+    ct2 := match(cand_tys.get(cand_i),.Some(t) => t,.None => t_unit());
+    ok_out := ArrayList(bool).new();
+    _trial_call_overload_candidate(cv2, ct2, call_expr, func_expr, args, env, ctx, ok_out);
+    if(ok_out.len() > usize(0), {
+      successes.push(cand_i);
+    });
+    cand_i = (cand_i + usize(1));
+  });
+  if(successes.len() == usize(0), {
+    return(());
+  });
+  // Tiebreak (TS function.ts:1664-1681): among multiple matches prefer the
+  // single candidate with comptime parameter types, if exactly one exists.
+  (winner_idx : usize) = match(successes.get(usize(0)),.Some(i) => i,.None => usize(0));
+  if(successes.len() > usize(1), {
+    comptime_hits := ArrayList(usize).new();
+    (si : usize) = usize(0);
+    while(si < successes.len(), {
+      sidx := match(successes.get(si),.Some(i) => i,.None => usize(0));
+      sty := match(cand_tys.get(sidx),.Some(t) => t,.None => t_unit());
+      has_ct_param := match(
+        sty,
+        .Func({ param_types : s_pts }) => {
+          (found_ct : bool) = false;
+          (pi2 : usize) = usize(0);
+          while((pi2 < s_pts.len()) && !(found_ct), {
+            pt2 := match(s_pts.get(pi2),.Some(p) => p,.None => t_unit());
+            if((is_comptime_int_type(pt2) || is_comptime_float_type(pt2)) || is_comptime_string_type(pt2), {
+              found_ct = true;
+            });
+            pi2 = (pi2 + usize(1));
+          });
+          found_ct
+        },
+        _ => false
+      );
+      if(has_ct_param, {
+        comptime_hits.push(sidx);
+      });
+      si = (si + usize(1));
+    });
+    if(comptime_hits.len() == usize(1), {
+      winner_idx = match(comptime_hits.get(usize(0)),.Some(i) => i,.None => winner_idx);
+    });
+  });
+  winner_val := match(cand_vals.get(winner_idx),.Some(v) => v,.None => EvalValue.UnitVal);
+  winner_ty := match(cand_tys.get(winner_idx),.Some(t) => t,.None => t_unit());
+  // Overwrite the callee's ExprInfo with the winner so the FuncVal arm of
+  // `evaluate_function_call` performs the real call.
+  out := new_expr_info(info.env, winner_ty);
+  out.value = Option(EvalValue).Some(winner_val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated_callee), out);
 });
 /// arguments, and returning the annotated expression.
 ///
@@ -454,6 +707,11 @@ evaluate_function_call :: (
   });
   // Evaluate the callee.
   evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, exn);
+  // Call-overload expansion: when the callee is a source-namespace struct
+  // (an `impl({...})` operator module), select the winning `Call` candidate
+  // and overwrite the callee's ExprInfo so the FuncVal arm below performs
+  // the real call. No-op otherwise. See `_try_expand_call_overload`.
+  _try_expand_call_overload(evaluated_callee, expr, args, env, ctx);
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
   callee_value_raw := match(
     callee_info_opt,

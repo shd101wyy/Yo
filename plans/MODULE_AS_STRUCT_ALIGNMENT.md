@@ -49,4 +49,4 @@ read TS `assignedValue` read the paired `StructVal` instead.
 - [x] B. Producers switched
 - [x] C. Consumers migrated (ModuleT/ModuleVal deleted)
 - [x] D. Zero-regression validation (std 151/151, yo-self 228/228, tests 171-11 identical)
-- [ ] E. Call-overload dispatch
+- [x] E. Call-overload dispatch
