@@ -27,6 +27,7 @@ open(import("std/string"));
   is_u8_type,
   is_char_type
 } :: import("./guards.yo");
+{ type_to_string } :: import("./string.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, get_variables_from_env } :: import("../env.yo");
 // ---------------------------------------------------------------------------
@@ -87,6 +88,22 @@ _some_name :: (fn(ty : TypeValue) -> String)(
       negative_trait_levels : _
     ) => n,
     _ => String.from("")
+  )
+);
+/// Extract the `frame_level` field from a `SomeT`; `.None` on mismatch.
+_some_frame_level :: (fn(ty : TypeValue) -> Option(usize))(
+  match(
+    ty,
+    .SomeT(
+      id : _,
+      name : _,
+      frame_level : fl,
+      required_trait_types : _,
+      required_trait_levels : _,
+      negative_trait_types : _,
+      negative_trait_levels : _
+    ) => Option(usize).Some(fl),
+    _ => Option(usize).None
   )
 );
 /// True if `id` already appears in `visited_ids`.
@@ -154,6 +171,37 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
         .None => Option(TypeValue).None
       )
   )
+});
+/// TS fallback (env-lookup.ts:170-200): after `synthesize_types` replaces a
+/// SomeType's binding with a concrete type, the self-referential marker
+/// (`T = SomeT(T)`) that `_was_self_bound` looks for no longer exists. Verify
+/// ownership instead via the SomeType's definition frame level: if the
+/// variable named `name` at `env.frames[frame_level]` holds a concrete
+/// TypeVal equal to what the normal name-search found, the binding is FOR
+/// this SomeType (definition frame level + name is unique). TS compares with
+/// object identity (`defTypeVal.value === someTypeValue.value`); yo-self's
+/// value-type stand-in is rendered-type equality.
+_def_frame_confirms_binding :: (
+  fn(env : Environment, some_ty : TypeValue, resolved_tv : TypeValue) -> bool
+)({
+  fl := match(
+    _some_frame_level(some_ty),
+    .Some(l) => l,
+    .None => {
+      return(false);
+    }
+  );
+  def_tv := match(
+    _lookup_by_frame(env, fl, _some_name(some_ty)),
+    .Some(t) => t,
+    .None => {
+      return(false);
+    }
+  );
+  if(is_some_type(def_tv), {
+    return(false);
+  });
+  type_to_string(def_tv).as_str() == type_to_string(resolved_tv).as_str()
 });
 /// Search the env for a variable of `name` that was ever bound to a TypeVal
 /// whose `id` matches `id_to_find`.  Used to distinguish unbound type variables
@@ -314,7 +362,15 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           },
                           // Concrete type
                           true => {
-                            was_bound := _was_self_bound(env, cur_name, cur_id);
+                            (was_bound : bool) = _was_self_bound(env, cur_name, cur_id);
+                            // TS fallback (env-lookup.ts:170-200): the
+                            // self-referential marker is gone once
+                            // `synthesize_types` rebinds the variable to the
+                            // concrete type — confirm ownership via the
+                            // SomeType's definition frame level instead.
+                            if(!(was_bound), {
+                              was_bound = _def_frame_confirms_binding(env, current, resolved_tv);
+                            });
                             cond(
                               (!(was_bound)) => {
                                 result = current;

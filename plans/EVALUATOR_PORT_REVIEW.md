@@ -246,22 +246,19 @@ gap is deferred on a larger feature (see note)
     porting (it doesn't eval fn bodies), which is how these body-level shortcuts
     rode unnoticed.
   - **DRAIN PROGRESS (2026-06, ~60%+ drained, each commit zero-regression
-    std 151/0 · tests 171/11 · yo-self 228/0):**
-    - `2b91e5e4` — **the real lever**: bind comptime-type params (`comptime(T):Type`)
-      as `TypeVal(SomeT)` (not `create_unknown_val`) in `_build_def_time_body_env`,
-      mirroring function.yo:1169 + deep Self defer-check. Cleared the TWO biggest
-      categories (element-typevar ~3000 AND trait-field ~5000 as free collateral).
-      NOTE: the earlier "params-frame" idea was a measured **no-op** (non-deferred
-      fns have no free type params; the manual `create_unknown_val` binding shadowed
-      the frame's correct SomeT) — reverted. Don't re-attempt it.
-    - `269adc88` — while-gate excludes `UnknownVal` from "comptime-known" (yo-self
-      `Some(UnknownVal)` ≡ TS `undefined`); drains the comptime-while category.
-    - `e6e79dc2` — `check --exclude <path>` (TS + yo-self) → validate via
-      single-process dir-checks (`check ./std`; `check ./yo-self --exclude
+    std 151/0 · tests 171/11 · yo-self 228/0):** - `2b91e5e4` — **the real lever**: bind comptime-type params (`comptime(T):Type`)
+    as `TypeVal(SomeT)` (not `create_unknown_val`) in `_build_def_time_body_env`,
+    mirroring function.yo:1169 + deep Self defer-check. Cleared the TWO biggest
+    categories (element-typevar ~3000 AND trait-field ~5000 as free collateral).
+    NOTE: the earlier "params-frame" idea was a measured **no-op** (non-deferred
+    fns have no free type params; the manual `create_unknown_val` binding shadowed
+    the frame's correct SomeT) — reverted. Don't re-attempt it. - `269adc88` — while-gate excludes `UnknownVal` from "comptime-known" (yo-self
+    `Some(UnknownVal)` ≡ TS `undefined`); drains the comptime-while category. - `e6e79dc2` — `check --exclude <path>` (TS + yo-self) → validate via
+    single-process dir-checks (`check ./std`; `check ./yo-self --exclude
 yo-self/tests`) ≈ 5 min vs ≈ 40 min per-file (prelude evaluated once per dir).
-      Method that works: location-tagged swallow diagnostic (print body location
-      BEFORE eval, not in the handler — can't capture `body`) → pin the throwing
-      functions → root-cause → fix → measure category drop. DON'T guess the lever.
+    Method that works: location-tagged swallow diagnostic (print body location
+    BEFORE eval, not in the handler — can't capture `body`) → pin the throwing
+    functions → root-cause → fix → measure category drop. DON'T guess the lever.
   - **✅ REFLECTION-ON-UNKNOWN ROOT-CAUSED + FIXED (two faithful-port fixes,
     zero regression — std 151/151, yo-self 228/228, tests 171 pass/11 fail
     identical set):** the prior analysis above ("make reflection builtins return
@@ -269,35 +266,57 @@ yo-self/tests`) ≈ 5 min vs ≈ 40 min per-file (prelude evaluated once per dir
     the actual chain with a fixme-propagating `_trial_eval_fn_body` + the
     type-revealing probe trick (`(comptime(x) : bool) = rhs;` — the mismatch
     error prints the RHS's real type) showed `Type.get_enum_variants(T)` itself
-    returned `unit`, with two stacked root causes:
-    1. **`TypeUni` had no id** in `type_id_or_empty`
-       (`values/type_trait_methods.yo`) → the prelude's `impl(Type, get_info :
+    returned `unit`, with two stacked root causes: 1. **`TypeUni` had no id** in `type_id_or_empty`
+    (`values/type_trait_methods.yo`) → the prelude's `impl(Type, get_info :
 ...)` registration was SILENTLY SKIPPED (impl.yo skips empty-id
-       registration) and lookups early-returned `[]` → every `Type.*` method
-       soft-fell to `unit` under check — even at module level with concrete
-       args (derives only worked because executing CTFE resolves via the
-       env-level qualified binding). TS has no such gap: `createTypeHierarchy`
-       (creators.ts:1030) is a cached singleton with `id: "Type(${level})"` and
-       a trait slot. Fix: `.TypeUni(level) => "Type(" + level + ")"`.
-    2. **`find_methods_from_generic_impls` returned RAW method types**
-       (`self : ComptimeList(T)`) where TS returns SPECIALIZED ones
-       (`reEvaluateFunctionType`, impl.ts:1484). Call-time SomeT synthesis
-       can't compensate — the registered `T`'s frame level is stale at the
-       call site (same root as `_substitute_self_in_method_ty`). Minimal
-       module-level repro: `comptime_list("a","b").get(usize(0))` — TS
-       resolves `comptime_string`, yo-self threw "Expected ComptimeList(T)".
-       Fix: build a `Substitution` of each forall `(name, frame_level)` →
-       matched binding, return `substitute(s, ftype)`.
-       After both: the full `__derive_eq` enum-branch chain
-       (`Type.get_enum_variants(T)` → `.get` → `.fields` → `.get` → `.name`)
-       def-evaluates with a PROPAGATING exception — fully typed, no swallow.
-       See `issues/yo-self-typeuni-id-impl-on-type-dispatch.md`.
-  - **REMAINING TAIL:** the unification/type-mismatch family (~70, the
-    `is_executing=false` graceful-unknown character), e.g. the prelude-load
-    noise print `Expected *(T) / Got *(u8)` (prelude.yo:5832,
-    `str.from_raw_parts` def-eval calling the generic EXTERN builtin
-    `__yo_slice_new` — extern-generic call-time unification under type-check
-    mode). Also catalogued: the `ComptimeIndex` call form `zlist(usize(0))`
+    registration) and lookups early-returned `[]` → every `Type.*` method
+    soft-fell to `unit` under check — even at module level with concrete
+    args (derives only worked because executing CTFE resolves via the
+    env-level qualified binding). TS has no such gap: `createTypeHierarchy`
+    (creators.ts:1030) is a cached singleton with `id: "Type(${level})"` and
+    a trait slot. Fix: `.TypeUni(level) => "Type(" + level + ")"`. 2. **`find_methods_from_generic_impls` returned RAW method types**
+    (`self : ComptimeList(T)`) where TS returns SPECIALIZED ones
+    (`reEvaluateFunctionType`, impl.ts:1484). Call-time SomeT synthesis
+    can't compensate — the registered `T`'s frame level is stale at the
+    call site (same root as `_substitute_self_in_method_ty`). Minimal
+    module-level repro: `comptime_list("a","b").get(usize(0))` — TS
+    resolves `comptime_string`, yo-self threw "Expected ComptimeList(T)".
+    Fix: build a `Substitution` of each forall `(name, frame_level)` →
+    matched binding, return `substitute(s, ftype)`.
+    After both: the full `__derive_eq` enum-branch chain
+    (`Type.get_enum_variants(T)` → `.get` → `.fields` → `.get` → `.name`)
+    def-evaluates with a PROPAGATING exception — fully typed, no swallow.
+    See `issues/yo-self-typeuni-id-impl-on-type-dispatch.md`.
+  - **✅ UNIFICATION-FAMILY HEAD ROOT-CAUSED + FIXED (three faithful-port
+    fixes, zero regression — std 151/151, yo-self 228/228, tests 171/11
+    identical set):** generic call-time unification failed on the TYPE-ONLY
+    call path (extern builtins / `functionToCall.value == undefined`) — even
+    at module level: `extern("C", zid : (fn(forall(T), x : T) -> T));
+unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
+    structural root: TS builds the callee env as
+    `pushEnvFrame(functionType.env)` (helper.ts:1009) — extending the
+    definition env whose forall frame holds the intact self-binding
+    `T := SomeT(T)` that TS ownership-verification
+    (`thisSomeTypeWasBound`, env-lookup.ts:141-167) looks for. yo-self's
+    flattened `Func` carries no env → callee_env is fresh → the marker never
+    existed → `synthesize_types`' fresh concrete binding was DISCARDED by
+    `_was_self_bound`. Fixes: (1) `calls/helper.yo` Step 6 recreates the
+    marker (self-bind each forall label's SomeT, extracted from param/return
+    types, beneath the `UnknownVal` call binding); (2)
+    `evaluate_function_parameter_type_again`/`..return..` now resolve SomeTs
+    at ANY structural depth (`_resolve_some_types_deep`: `get_all_some_types`
+    → env-resolve → `substitute`) mirroring TS's type-EXPRESSION
+    re-evaluation, so `*(T)` → `*(u8)`; (3) ported TS's definitionFrameLevel
+    fallback (env-lookup.ts:170-200) as `_def_frame_confirms_binding`.
+    Verified: the per-prelude-load noise print `Expected *(T) / Got *(u8)`
+    (prelude.yo:5832, `str.from_raw_parts` def-eval) is GONE. NOTE fix #3
+    alone was a measured no-op (frame levels are meaningless in a fresh
+    callee env) — the marker (#1) is the load-bearing piece. See
+    `issues/yo-self-extern-generic-unification.md` (incl. why a dedicated
+    regression test is not addable today).
+  - **REMAINING TAIL:** re-measure the def-eval swallow surface (the
+    reflection + unification heads are fixed; remaining categories unknown).
+    Also catalogued: the `ComptimeIndex` call form `zlist(usize(0))`
     soft-falls to `unit` under check (separate dispatch path from `.get`).
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`

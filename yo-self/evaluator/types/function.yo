@@ -49,9 +49,11 @@ open(import("std/fmt"));
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
-  type_contains_some_type
+  type_contains_some_type,
+  get_all_some_types
 }
 :: import("../../types/utils.yo");
+{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
   convert_comptime_type_to_runtime_type,
@@ -3510,14 +3512,55 @@ evaluate_function_type :: (
 // ---------------------------------------------------------------------------
 // evaluate_function_parameter_type_again
 // ---------------------------------------------------------------------------
+/// Resolve every SomeT inside `ty` (at any structural depth) from `env`,
+/// substituting the ones that resolve to concrete types. TS re-evaluates the
+/// stored type EXPRESSION in the callee env, which resolves type variables at
+/// any nesting level (`*(T)` → `*(u8)`); yo-self's `TypeValue.Func` keeps
+/// only pre-evaluated TypeValues, so the equivalent is: collect the SomeTs,
+/// resolve each via `get_value_of_some_type_from_env`, and `substitute`.
+/// A bare-SomeT input keeps the direct single-lookup path (identical result,
+/// no list allocation).
+_resolve_some_types_deep :: (
+  fn(ty : TypeValue, env : Environment) -> TypeValue
+)({
+  if(is_some_type(ty), {
+    return(get_value_of_some_type_from_env(env, ty));
+  });
+  some_types := get_all_some_types(ty);
+  if(some_types.len() == usize(0), {
+    return(ty);
+  });
+  s := subst_new();
+  (bound_any : bool) = false;
+  (sti : usize) = usize(0);
+  while(sti < some_types.len(), {
+    st := match(some_types.get(sti),.Some(t) => t,.None => t_unit());
+    resolved := get_value_of_some_type_from_env(env, st);
+    if(!(is_some_type(resolved)), {
+      match(
+        st,
+        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _) => {
+          subst_add(s, st_name, st_lvl, resolved);
+          bound_any = true;
+        },
+        _ => ()
+      );
+    });
+    sti = (sti + usize(1));
+  });
+  cond(
+    bound_any => substitute(s, ty),
+    true => ty
+  )
+});
 /// Re-evaluate (resolve) a function parameter's type at call site.
 ///
 /// In TypeScript, this re-evaluates the stored type expression (`.exprs.typeExpr`)
 /// to resolve any generic type variables that have been bound since the function
 /// was defined.  In Yo, `TypeValue.Func` stores only the pre-evaluated types
 /// (not the original expressions), so we resolve the type by walking the callee
-/// env with `get_value_of_some_type_from_env`.  This handles the common case of
-/// a SomeT parameter being resolved to a concrete type at call time.
+/// env — at ANY structural depth (`_resolve_some_types_deep`), matching the
+/// expression re-evaluation's behavior for shapes like `*(T)` / `Slice(T)`.
 ///
 /// Input:
 ///   `param_type`  — pre-evaluated parameter type from `TypeValue.Func.param_types[i]`
@@ -3533,7 +3576,7 @@ evaluate_function_parameter_type_again :: (
     _ctx : EvalContext
   ) -> TypeValue
 )(
-  get_value_of_some_type_from_env(callee_env, param_type)
+  _resolve_some_types_deep(param_type, callee_env)
 );
 // ---------------------------------------------------------------------------
 // evaluate_function_return_type_again
@@ -3557,7 +3600,7 @@ evaluate_function_return_type_again :: (
     _ctx : EvalContext
   ) -> TypeValue
 )(
-  get_value_of_some_type_from_env(callee_env, return_type)
+  _resolve_some_types_deep(return_type, callee_env)
 );
 // ---------------------------------------------------------------------------
 // Exports
