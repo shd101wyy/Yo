@@ -1,9 +1,10 @@
-// Full __derive_eq enum-branch reflection chain under def-eval.
-zprobe_reflect :: (fn(comptime(T) : Type) -> comptime(comptime_string))({
-  zvariants :: Type.get_enum_variants(T);
-  zv :: zvariants.get(usize(0));
-  zfname :: zv.fields.get(usize(0)).name;
-  zfname
-});
+// Variadic extern arg-count probe (module level — errors not swallowed).
+// Pre-fix: "Argument count mismatch: expected 2 arguments, got 4".
+pragma(Pragma.AllowUnsafe);
+extern(
+  "C",
+  zvar_probe : (fn(zfmt : *(char), zn : usize, ...) -> int)
+);
+zr := unsafe(zvar_probe(*(char)("x"), usize(0), u8(1), u8(2)));
 main :: (fn() -> unit)(());
 export(main);

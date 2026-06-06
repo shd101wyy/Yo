@@ -1420,7 +1420,7 @@ try_to_call_function_with_arguments :: (
   tok := ast_expr_token(expr);
   match(
     func_type,
-    .Func({ forall_labels : fl, forall_types : ft, param_labels : pl, param_types : pt, implicit_labels : il, implicit_types : it, implicit_spreads : ispr, where_types : wt, result : ret_b }) => {
+    .Func({ forall_labels : fl, forall_types : ft, param_labels : pl, param_types : pt, implicit_labels : il, implicit_types : it, implicit_spreads : ispr, where_types : wt, result : ret_b, has_variadic : fn_has_variadic }) => {
       _ := ispr;
       _ := wt;
       // ----------------------------------------------------------------
@@ -1504,7 +1504,10 @@ try_to_call_function_with_arguments :: (
         });
         n_required = nr;
       });
-      if((n_args < n_required) || (n_args > n_params), {
+      // Variadic functions (C-style `...` externs like `snprintf`) accept any
+      // number of extra arguments — TS skips the count check entirely for
+      // them (`if (!functionType.variadicParameter)`, helper.ts:965).
+      if((!(fn_has_variadic)) && ((n_args < n_required) || (n_args > n_params)), {
         (count_msg : String) = `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`;
         if(n_required != n_params, {
           count_msg = `Argument count mismatch: expected ${n_required.to_string()}..${n_params.to_string()} arguments, got ${n_args.to_string()}`;

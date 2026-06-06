@@ -104,7 +104,15 @@ TypeValue :: enum(
     /// True when the return type was declared `-> ref(T)` (a by-reference
     /// return borrow). Mirrors `FunctionType.return.isRef`. Used by
     /// `is_flowable_expr` to require the return expression be flowable.
-    result_is_ref : bool
+    result_is_ref : bool,
+    /// True when the parameter list ends with a `...` variadic marker
+    /// (C-style variadic externs like `snprintf`). Mirrors
+    /// `FunctionType.variadicParameter` in `src/types/definitions.ts`
+    /// (yo-self restores just the presence bit; the variadic parameter's
+    /// optional type annotation is not yet carried). The call-site
+    /// argument-count check is skipped when set (TS helper.ts:965
+    /// `if (!functionType.variadicParameter)`).
+    has_variadic : bool
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition (mirrors `StructType.id`

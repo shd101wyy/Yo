@@ -372,7 +372,10 @@ evaluate_comptime_fn :: (
     // result_is_comptime_only — this builds the comptime-result form
     ArrayList(bool).new(),
     // param_is_ref
-    false // result_is_ref
+    false,
+    // result_is_ref
+    // has_variadic — preserve the original's flag.
+    match(func_type,.Func({ has_variadic : hv }) => hv, _ => false)
   );
   // Extract body_box and captures from the FuncVal.
   body_box := match(arg_val,.FuncVal(_, _, _, _, bb, _, _, _, _) => bb, _ => box(make_err_expr()));
