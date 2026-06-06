@@ -314,10 +314,31 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     callee env) — the marker (#1) is the load-bearing piece. See
     `issues/yo-self-extern-generic-unification.md` (incl. why a dedicated
     regression test is not addable today).
-  - **REMAINING TAIL:** re-measure the def-eval swallow surface (the
-    reflection + unification heads are fixed; remaining categories unknown).
-    Also catalogued: the `ComptimeIndex` call form `zlist(usize(0))`
-    soft-falls to `unit` under check (separate dispatch path from `.get`).
+  - **✅ FAMILY-1 DRAIN (commit 6922a067, zero regression):** three more
+    fixes + a std bug they exposed. (a) Step-6 self-bound markers extended
+    to ALL signature SomeTs (`Impl(...)`-sugar vars hit the same
+    discarded-binding mechanism; non-forall SomeTs need marker + a second
+    updatable self-binding) — "Type mismatch for parameter" 121→0 in std.
+    (b) Infix arithmetic routed UNCONDITIONALLY (TS function.ts:452); the
+    old concrete-comptime-only gate predated the specialization/unification
+    fixes — drains the `usize vs unit` flood. (c) CTFE execution gate:
+    never execute a comptime body with an `UnknownVal` arg → return
+    `UnknownVal(return_type)` (TS outcome — its runtime-unknowns are
+    `undefined` and throw at comptime-fn.ts:78); without it, recursive
+    prelude comptime fns (`__yo_comptime_fold_range`, `__sN`) recursed
+    forever under def-eval. (d) **std bug**: `HashMap.keys()/values()`
+    never advanced under manual `it.next()` (wrapped-`_inner` delegation
+    advanced a COPY; `for(...)` masked it) — hung
+    `enrich_captured_variables` on a 1-entry map; restructured to direct
+    ctrl-byte scans + manual-next() regression tests.
+    Measured: prelude swallows 21→11, std 620→356 raw.
+  - **REMAINING TAIL:** re-measure post-family-1; next heads were
+    enum-variant-infer (58), unify-residue (49), arg-count (43),
+    bool-arg (34), `&+` ptr-arith (~15, known unported branch), casts on
+    unit (~17). New inert category to investigate: "Frame level is
+    different for different cases" (5 prelude + 12 std). Also catalogued:
+    the `ComptimeIndex` call form `zlist(usize(0))` soft-falls to `unit`
+    under check (separate dispatch path from `.get`).
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
