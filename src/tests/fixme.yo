@@ -1,6 +1,9 @@
-// Repro: ?*(T) (nullable pointer) in fn return type fails to evaluate.
-pragma(Pragma.AllowUnsafe);
-
-opt_ptr :: (fn(x : usize) -> ?*(u8))(
-  ?*(u8)(unsafe(transmute(x, *(u8))))
-);
+// Full __derive_eq enum-branch reflection chain under def-eval.
+zprobe_reflect :: (fn(comptime(T) : Type) -> comptime(comptime_string))({
+  zvariants :: Type.get_enum_variants(T);
+  zv :: zvariants.get(usize(0));
+  zfname :: zv.fields.get(usize(0)).name;
+  zfname
+});
+main :: (fn() -> unit)(());
+export(main);

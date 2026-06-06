@@ -567,9 +567,30 @@ find_methods_from_generic_impls :: (
             .None => TypeValue.Unit
           );
           fvalue := entry.field_values.get(fi);
+          // Specialize the method TYPE with the impl's forall bindings —
+          // mirrors TS `reEvaluateFunctionType` in `findMethodsFromGenericImpls`
+          // (impl.ts:1484): the returned candidate's param/return types must
+          // be concrete (e.g. `self : ComptimeList(comptime_string)`, not
+          // `ComptimeList(T)`) so the call-site parameter check compares
+          // concrete types directly instead of relying on call-time SomeT
+          // synthesis, whose frame levels are stale at the call site — the
+          // same reason `_substitute_self_in_method_ty` exists.
+          spec_s := subst_new();
+          (sb_i : usize) = usize(0);
+          while(sb_i < entry.forall_names.len(), {
+            sb_name := match(entry.forall_names.get(sb_i),.Some(n) => n,.None => String.from(""));
+            sb_some := match(entry.forall_some_types.get(sb_i),.Some(s2) => s2,.None => t_unit());
+            sb_ty := match(match_bindings.get(sb_i),.Some(t) => t,.None => t_unit());
+            match(
+              sb_some,
+              .SomeT(_, _, lvl, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
+              _ => ()
+            );
+            sb_i = (sb_i + usize(1));
+          });
           results.push(
             MethodCandidate(
-              method_type : ftype,
+              method_type : substitute(spec_s, ftype),
               method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings),
               source_trait_id : entry.trait_key.clone()
             )

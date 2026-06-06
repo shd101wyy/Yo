@@ -258,26 +258,47 @@ gap is deferred on a larger feature (see note)
       `Some(UnknownVal)` ≡ TS `undefined`); drains the comptime-while category.
     - `e6e79dc2` — `check --exclude <path>` (TS + yo-self) → validate via
       single-process dir-checks (`check ./std`; `check ./yo-self --exclude
-  yo-self/tests`) ≈ 5 min vs ≈ 40 min per-file (prelude evaluated once per dir).
+yo-self/tests`) ≈ 5 min vs ≈ 40 min per-file (prelude evaluated once per dir).
       Method that works: location-tagged swallow diagnostic (print body location
       BEFORE eval, not in the handler — can't capture `body`) → pin the throwing
       functions → root-cause → fix → measure category drop. DON'T guess the lever.
-  - **REMAINING TAIL (harder — graceful-unknown across multi-step chains):**
-    comptime **reflection-on-unknown** (~30: `fname :: v.fields.get(fi).name` in the
-    `__derive_eq`/derive rules — at def-time `T` is an unknown `SomeT`, so the
-    `Type.get_enum_variants(T)` → `.get` → `.fields` → `.get` → `.name` chain drops
-    its type and the `::` binding throws "Failed to evaluate" at
-    initialization_assignment.yo:384, which is FAITHFUL — TS throws identically when
-    rhsType is undefined, so the gap is UPSTREAM: TS's reflection chain yields
-    _typed_ unknowns. `__derive_eq` is correctly NOT deferred (param type `Type`
-    isn't a some-type; TS doesn't defer it either) — so this is genuinely a
-    reflection-robustness fix, not a defer fix. Fixing it faithfully = making the
-    reflection builtins (`type_fns.yo` get_info/get_enum_variants + comptime-list
-    `.get` + property-access `.fields`/`.name`/`.len`) return TYPED `UnknownVal` on
-    an unknown reflected type — a multi-builtin change on hot comptime paths (used
-    in real call-time reflection too), so it warrants its own focused effort with
-    careful revert-on-regression, NOT a quick wire. Plus the unification/type-mismatch
-    family (~70, same `is_executing=false` graceful-unknown character).
+  - **✅ REFLECTION-ON-UNKNOWN ROOT-CAUSED + FIXED (two faithful-port fixes,
+    zero regression — std 151/151, yo-self 228/228, tests 171 pass/11 fail
+    identical set):** the prior analysis above ("make reflection builtins return
+    typed UnknownVal") was WRONG — the builtins were already robust. Bisecting
+    the actual chain with a fixme-propagating `_trial_eval_fn_body` + the
+    type-revealing probe trick (`(comptime(x) : bool) = rhs;` — the mismatch
+    error prints the RHS's real type) showed `Type.get_enum_variants(T)` itself
+    returned `unit`, with two stacked root causes:
+    1. **`TypeUni` had no id** in `type_id_or_empty`
+       (`values/type_trait_methods.yo`) → the prelude's `impl(Type, get_info :
+...)` registration was SILENTLY SKIPPED (impl.yo skips empty-id
+       registration) and lookups early-returned `[]` → every `Type.*` method
+       soft-fell to `unit` under check — even at module level with concrete
+       args (derives only worked because executing CTFE resolves via the
+       env-level qualified binding). TS has no such gap: `createTypeHierarchy`
+       (creators.ts:1030) is a cached singleton with `id: "Type(${level})"` and
+       a trait slot. Fix: `.TypeUni(level) => "Type(" + level + ")"`.
+    2. **`find_methods_from_generic_impls` returned RAW method types**
+       (`self : ComptimeList(T)`) where TS returns SPECIALIZED ones
+       (`reEvaluateFunctionType`, impl.ts:1484). Call-time SomeT synthesis
+       can't compensate — the registered `T`'s frame level is stale at the
+       call site (same root as `_substitute_self_in_method_ty`). Minimal
+       module-level repro: `comptime_list("a","b").get(usize(0))` — TS
+       resolves `comptime_string`, yo-self threw "Expected ComptimeList(T)".
+       Fix: build a `Substitution` of each forall `(name, frame_level)` →
+       matched binding, return `substitute(s, ftype)`.
+       After both: the full `__derive_eq` enum-branch chain
+       (`Type.get_enum_variants(T)` → `.get` → `.fields` → `.get` → `.name`)
+       def-evaluates with a PROPAGATING exception — fully typed, no swallow.
+       See `issues/yo-self-typeuni-id-impl-on-type-dispatch.md`.
+  - **REMAINING TAIL:** the unification/type-mismatch family (~70, the
+    `is_executing=false` graceful-unknown character), e.g. the prelude-load
+    noise print `Expected *(T) / Got *(u8)` (prelude.yo:5832,
+    `str.from_raw_parts` def-eval calling the generic EXTERN builtin
+    `__yo_slice_new` — extern-generic call-time unification under type-check
+    mode). Also catalogued: the `ComptimeIndex` call form `zlist(usize(0))`
+    soft-falls to `unit` under check (separate dispatch path from `.get`).
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`

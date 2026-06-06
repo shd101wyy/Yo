@@ -90,6 +90,13 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     .CLongLong => String.from("__yo_t_c_longlong"),
     .CULongLong => String.from("__yo_t_c_ulonglong"),
     .CLongDouble => String.from("__yo_t_c_longdouble"),
+    // The type universe (`Type`). Mirrors TS `createTypeHierarchy`, which
+    // gives the cached singleton `id: "Type(${level})"` (creators.ts:1030)
+    // and a trait slot — so `impl(Type, get_info : ...)` registers and
+    // `Type.get_info(...)` dispatch resolves. Without this id the prelude's
+    // `impl(Type, ...)` registration was silently skipped and every
+    // `Type.*` reflection method soft-fell to `unit` under check.
+    .TypeUni(level) => ((String.from("Type(") + level.to_string()) + String.from(")")),
     _ => String.from("")
   )
 );
