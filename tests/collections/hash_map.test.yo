@@ -531,3 +531,57 @@ test("HashMap values - yields all values", {
   });
   assert(val_sum == i32(60));
 });
+// Manual `it.next()` loops over keys()/values(). The wrapped-`_inner`
+// delegation form of these iterators never advanced `_index` under manual
+// iteration (a field method call on `ref(self)` advanced a COPY), yielding
+// the first element forever — `for(...)` masked it. Includes re-set keys
+// (the update path) since capture-usage promotion in the self-hosted
+// evaluator re-sets the same key repeatedly.
+test("HashMap keys - manual next() iteration terminates", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(1), i32(11));
+  map.set(i32(2), i32(20));
+  it := map.keys();
+  key_sum := i32(0);
+  steps := i32(0);
+  more := true;
+  while(more && (steps < i32(10)), {
+    match(
+      it.next(),
+      .None => {
+        more = false;
+      },
+      .Some(k) => {
+        key_sum = (key_sum + k);
+        steps = (steps + i32(1));
+      }
+    );
+  });
+  assert(steps == i32(2), "keys() must terminate after yielding each key once");
+  assert(key_sum == i32(3));
+});
+test("HashMap values - manual next() iteration terminates", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(1), i32(11));
+  map.set(i32(2), i32(20));
+  it := map.values();
+  val_sum := i32(0);
+  steps := i32(0);
+  more := true;
+  while(more && (steps < i32(10)), {
+    match(
+      it.next(),
+      .None => {
+        more = false;
+      },
+      .Some(v) => {
+        val_sum = (val_sum + v);
+        steps = (steps + i32(1));
+      }
+    );
+  });
+  assert(steps == i32(2), "values() must terminate after yielding each value once");
+  assert(val_sum == i32(31));
+});

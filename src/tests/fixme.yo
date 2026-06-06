@@ -1,5 +1,9 @@
-pragma(Pragma.AllowUnsafe);
-// Module-level extern-generic unification: "abc".ptr() -> __yo_slice_ptr(forall(T), slice : Slice(T)).
-zp := unsafe("abc".ptr());
+// Full __derive_eq enum-branch reflection chain under def-eval.
+zprobe_reflect :: (fn(comptime(T) : Type) -> comptime(comptime_string))({
+  zvariants :: Type.get_enum_variants(T);
+  zv :: zvariants.get(usize(0));
+  zfname :: zv.fields.get(usize(0)).name;
+  zfname
+});
 main :: (fn() -> unit)(());
 export(main);

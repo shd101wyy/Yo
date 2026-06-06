@@ -1566,68 +1566,88 @@ try_to_call_function_with_arguments :: (
       //         them from an explicit forall(…) argument).
       // ----------------------------------------------------------------
       n_forall := fl.len();
+      // Self-bound markers (TS structural mirror): TS's callee env EXTENDS
+      // the function type's definition env (`pushEnvFrame(functionType.env)`,
+      // helper.ts:1009), whose frames still hold the self-binding
+      // `T := SomeT(T)` for EVERY type variable the signature introduced —
+      // explicit `forall` labels AND implicit ones (`Impl(...)` sugar). That
+      // intact marker is what lets `getValueOfSomeTypeFromEnv` accept the
+      // concrete rebinding `synthesizeTypes` later writes over the LAST
+      // binding (env-lookup.ts:141-167, `thisSomeTypeWasBound`). yo-self's
+      // callee_env is built FRESH (the flattened `Func` TypeValue carries no
+      // definition env), so the markers must be recreated here, for every
+      // distinct SomeT in the signature:
+      //   - forall labels: marker only — the `UnknownVal` call binding added
+      //     by the loop below stays LAST (it is what `_bind_some_type`
+      //     updates), with the marker intact beneath it.
+      //   - non-forall SomeTs (`Impl(...)`): marker + a SECOND self-binding.
+      //     `_bind_some_type` updates the second; the first survives as the
+      //     ownership marker. Skipped when the name is already bound in
+      //     callee_env (e.g. an enclosing impl's type param arriving through
+      //     the FuncVal captures — self-binding would shadow the real value).
+      sig_some_types := get_all_some_types(func_type);
+      {
+        (seen_st_ids : ArrayList(String)) = ArrayList(String).new();
+        (sg_i : usize) = usize(0);
+        while(sg_i < sig_some_types.len(), {
+          sg_st := match(sig_some_types.get(sg_i),.Some(t) => t,.None => t_unit());
+          sg_id := match(sg_st,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+          sg_nm := match(sg_st,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+          (sg_dup : bool) = false;
+          (sd_i : usize) = usize(0);
+          while((sd_i < seen_st_ids.len()) && !(sg_dup), {
+            if(match(seen_st_ids.get(sd_i),.Some(s) => (s == sg_id),.None => false), {
+              sg_dup = true;
+            });
+            sd_i = (sd_i + usize(1));
+          });
+          if((!(sg_dup)) && (sg_nm.len() > usize(0)), {
+            seen_st_ids.push(sg_id);
+            (sg_is_forall : bool) = false;
+            (sf_i : usize) = usize(0);
+            while((sf_i < n_forall) && !(sg_is_forall), {
+              if(match(fl.get(sf_i),.Some(l) => (l == sg_nm),.None => false), {
+                sg_is_forall = true;
+              });
+              sf_i = (sf_i + usize(1));
+            });
+            sg_already_bound := (get_variables_from_env(callee_env, sg_nm).len() > usize(0));
+            if(sg_is_forall || !(sg_already_bound), {
+              _ := add_variable_to_env(
+                callee_env,
+                sg_nm,
+                t_type(),
+                Option(EvalValue).Some(create_type_value(sg_st)),
+                true,
+                false,
+                false,
+                false,
+                synthetic_token(sg_nm, callee_env.module_path)
+              );
+            });
+            if((!(sg_is_forall)) && !(sg_already_bound), {
+              // The updatable second binding for non-forall SomeTs.
+              _ := add_variable_to_env(
+                callee_env,
+                sg_nm,
+                t_type(),
+                Option(EvalValue).Some(create_type_value(sg_st)),
+                true,
+                false,
+                false,
+                false,
+                synthetic_token(sg_nm, callee_env.module_path)
+              );
+            });
+          });
+          sg_i = (sg_i + usize(1));
+        });
+      };
       (fpi : usize) = usize(0);
       while(fpi < n_forall, {
         flabel := match(fl.get(fpi),.Some(l) => l,.None => String.from(""));
         ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
-        // Self-bound marker (TS structural mirror): TS's callee env EXTENDS
-        // the function type's definition env (`pushEnvFrame(functionType.env)`,
-        // helper.ts:1009), whose forall frame still holds the self-binding
-        // `T := SomeT(T)` created at function-type evaluation. That intact
-        // marker is what lets `getValueOfSomeTypeFromEnv` accept the concrete
-        // rebinding `synthesizeTypes` later writes over the call-frame
-        // variable (env-lookup.ts:141-167, `thisSomeTypeWasBound`). yo-self's
-        // callee_env is built FRESH (the flattened `Func` TypeValue carries no
-        // definition env), so the marker must be recreated here: find this
-        // forall label's SomeT in the parameter/return types and self-bind it
-        // BENEATH the call binding added below (the call binding stays last,
-        // so name lookups and `_bind_some_type`'s update still target it).
-        (marker_some : Option(TypeValue)) = Option(TypeValue).None;
-        (mk_pi : usize) = usize(0);
-        while((mk_pi < pt.len()) && marker_some.is_none(), {
-          mk_pt := match(pt.get(mk_pi),.Some(t) => t,.None => t_unit());
-          mk_sts := get_all_some_types(mk_pt);
-          (mk_si : usize) = usize(0);
-          while((mk_si < mk_sts.len()) && marker_some.is_none(), {
-            mk_st := match(mk_sts.get(mk_si),.Some(t) => t,.None => t_unit());
-            mk_nm := match(mk_st,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
-            if(mk_nm == flabel, {
-              marker_some = Option(TypeValue).Some(mk_st);
-            });
-            mk_si = (mk_si + usize(1));
-          });
-          mk_pi = (mk_pi + usize(1));
-        });
-        if(marker_some.is_none(), {
-          mk_ret_sts := get_all_some_types(ret_b.*);
-          (mk_ri : usize) = usize(0);
-          while((mk_ri < mk_ret_sts.len()) && marker_some.is_none(), {
-            mk_st2 := match(mk_ret_sts.get(mk_ri),.Some(t) => t,.None => t_unit());
-            mk_nm2 := match(mk_st2,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
-            if(mk_nm2 == flabel, {
-              marker_some = Option(TypeValue).Some(mk_st2);
-            });
-            mk_ri = (mk_ri + usize(1));
-          });
-        });
-        match(
-          marker_some,
-          .Some(mst) => {
-            _ := add_variable_to_env(
-              callee_env,
-              flabel,
-              t_type(),
-              Option(EvalValue).Some(create_type_value(mst)),
-              true,
-              false,
-              false,
-              false,
-              synthetic_token(flabel, callee_env.module_path)
-            );
-          },
-          .None => ()
-        );
         (forall_val : EvalValue) = EvalValue.UnknownVal(box(ftype_inner));
         // If caller supplied explicit forall(…) args, try to resolve.
         match(

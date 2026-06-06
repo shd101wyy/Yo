@@ -81,7 +81,7 @@ open(import("std/string"));
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments } :: import("./helper.yo");
-{ create_unknown_val, is_unknown_val } :: import("../../value.yo");
+{ create_unknown_val } :: import("../../value.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -322,20 +322,16 @@ evaluate_function_call :: (
   // `string_is_operator` predicate (port of `stringIsOperator`) — NOT a
   // hardcoded operator list.
   //
-  // We split by the RESOLVED METHOD's return shape, not by operator name:
-  //   - Bool-returning operators (comparison `==`/`<`/…): the method return
-  //     carries no SomeT. Route ALWAYS — without dispatch they soft-fallback
-  //     to `unit`, so `||`/`&&` operands and `bool` bindings reject `a == b`
-  //     (e.g. `(platform == Platform.Macos) || …`). Works for runtime AND
-  //     comptime operands.
-  //   - Associated-type-returning operators (arithmetic/bitwise `+`/`*`/…
-  //     return `comptime(Self.Output)`): route ONLY when the first operand
-  //     is a concrete COMPTIME value. RUNTIME arithmetic (e.g. `i32 + i32`
-  //     in a closure body) is already handled by the bootstrap's concrete
-  //     numeric path; routing it through generic trait dispatch + CTFE
-  //     would loop / not terminate. Gating on a comptime operand confines
-  //     this branch to the case the concrete path gets wrong (comptime
-  //     arithmetic → `unit`), leaving runtime arithmetic untouched.
+  // Route ALWAYS — TS has no operand gating (`function.ts:452`). An earlier
+  // bootstrap gate routed arithmetic/bitwise operators (associated-type
+  // returns like `comptime(Self.Output)`) only for concrete COMPTIME first
+  // operands, because dispatch on runtime/unknown operands looped — a
+  // symptom of the since-fixed generic-impl method-type specialization and
+  // type-only-call unification gaps. With those fixed, an unknown operand
+  // resolves the operator method normally and the extern builtin call
+  // returns a typed UnknownVal (e.g. `char_index + usize(1)` under def-eval
+  // → UnknownVal(usize), not the `unit` soft-fallthrough that poisoned every
+  // downstream binding).
   // ------------------------------------------------------------------
   is_infix_call := match(expr,.FnCall(_, _, _, inf, _) => inf,.Atom(_, _) => false);
   op_name := match(func_expr,.Atom(_, ftok) => ftok.value, _ => String.new());
@@ -351,13 +347,6 @@ evaluate_function_call :: (
     ctx.expected_type = saved_et;
     first_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_first));
     receiver_ty := match(first_info_opt,.Some(ri) => ri.ty,.None => t_unit());
-    // Concrete compile-time operand? (a known value that is not an
-    // `UnknownVal` runtime placeholder).
-    first_is_comptime := match(
-      first_info_opt,
-      .Some(ri) => match(ri.value,.Some(v) => !(is_unknown_val(v)),.None => false),
-      .None => false
-    );
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
     op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
@@ -372,97 +361,94 @@ evaluate_function_call :: (
       // a SomeT-free return (e.g. `bool`) marks comparison.
       m_ret_op := match(first_m.ty,.Func({ result : _rb }) => _rb.*, _ => t_unit());
       op_ret_has_some := (get_all_some_types(m_ret_op).len() > usize(0));
-      should_route := ((!(op_ret_has_some)) || first_is_comptime);
-      if(should_route, {
-        // Associated-type return pre-hint: `try_to_call_function_with_arguments`
-        // validates the return type and throws "Failed to infer the function
-        // call return type" when an `Output` SomeT isn't bound in the call env
-        // (e.g. a module-level comptime arithmetic use where no outer expected
-        // type supplies it). Hint with the receiver type so the call's
-        // synthesize step binds `Self`/`Output` before validation (numeric
-        // arithmetic traits all set `Output = Self`).
-        saved_op_et := ctx.expected_type;
-        if(op_ret_has_some && ctx.expected_type.is_none(), {
-          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : receiver_ty, env : env));
-        });
-        call_result_op := try_to_call_function_with_arguments(
-          first_m.value,
-          first_m.ty,
-          expr,
-          func_expr,
-          args,
-          env,
-          ctx,
-          true,
-          false,
-          false,
-          exn
-        );
-        ctx.expected_type = saved_op_et;
-        // Resolve an associated-type return (`comptime(Self.Output)`) that came
-        // back as a bare SomeT (`Output`) because the impl's associated-type
-        // binding isn't in the callee env. TS resolves it by the receiver's
-        // trait impl matching the operator's trait id (env.ts:1970). yo-self's
-        // registry records `source_trait_id` as "" for direct-on-type trait
-        // impls, so we approximate SOUNDLY: adopt the receiver's registered
-        // associated types of this name only when they UNANIMOUSLY agree (they
-        // do for every numeric type — all of `usize`'s `Output` entries are
-        // `usize`). Diverging → leave unresolved (no wrong resolution).
-        resolved_ret := call_result_op.return_type;
-        if(is_some_type(resolved_ret), {
-          assoc_nm := match(resolved_ret,.SomeT(name : nm) => nm, _ => String.new());
-          recv_id := type_id_or_empty(receiver_ty);
-          if((assoc_nm.len() > usize(0)) && (recv_id.len() > usize(0)), {
-            assoc_entries := get_type_trait_methods_by_name(recv_id, assoc_nm);
-            (agreed : Option(TypeValue)) = Option(TypeValue).None;
-            (diverged : bool) = false;
-            (ai : usize) = usize(0);
-            while((ai < assoc_entries.len()) && !(diverged), {
-              match(
-                assoc_entries.get(ai),
-                .Some(ae) => match(
-                  ae.value,
-                  .Some(av) => match(
-                    av,
-                    .TypeVal(tb) => {
-                      cand_ty := tb.*;
-                      match(
-                        agreed,
-                        .None => {
-                          agreed = Option(TypeValue).Some(cand_ty);
-                        },
-                        .Some(prev) => {
-                          if(type_to_string(prev).as_str() != type_to_string(cand_ty).as_str(), {
-                            diverged = true;
-                          });
-                        }
-                      );
-                    },
-                    _ => ()
-                  ),
-                  .None => ()
+      // Associated-type return pre-hint: `try_to_call_function_with_arguments`
+      // validates the return type and throws "Failed to infer the function
+      // call return type" when an `Output` SomeT isn't bound in the call env
+      // (e.g. a module-level comptime arithmetic use where no outer expected
+      // type supplies it). Hint with the receiver type so the call's
+      // synthesize step binds `Self`/`Output` before validation (numeric
+      // arithmetic traits all set `Output = Self`).
+      saved_op_et := ctx.expected_type;
+      if(op_ret_has_some && ctx.expected_type.is_none(), {
+        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : receiver_ty, env : env));
+      });
+      call_result_op := try_to_call_function_with_arguments(
+        first_m.value,
+        first_m.ty,
+        expr,
+        func_expr,
+        args,
+        env,
+        ctx,
+        true,
+        false,
+        false,
+        exn
+      );
+      ctx.expected_type = saved_op_et;
+      // Resolve an associated-type return (`comptime(Self.Output)`) that came
+      // back as a bare SomeT (`Output`) because the impl's associated-type
+      // binding isn't in the callee env. TS resolves it by the receiver's
+      // trait impl matching the operator's trait id (env.ts:1970). yo-self's
+      // registry records `source_trait_id` as "" for direct-on-type trait
+      // impls, so we approximate SOUNDLY: adopt the receiver's registered
+      // associated types of this name only when they UNANIMOUSLY agree (they
+      // do for every numeric type — all of `usize`'s `Output` entries are
+      // `usize`). Diverging → leave unresolved (no wrong resolution).
+      resolved_ret := call_result_op.return_type;
+      if(is_some_type(resolved_ret), {
+        assoc_nm := match(resolved_ret,.SomeT(name : nm) => nm, _ => String.new());
+        recv_id := type_id_or_empty(receiver_ty);
+        if((assoc_nm.len() > usize(0)) && (recv_id.len() > usize(0)), {
+          assoc_entries := get_type_trait_methods_by_name(recv_id, assoc_nm);
+          (agreed : Option(TypeValue)) = Option(TypeValue).None;
+          (diverged : bool) = false;
+          (ai : usize) = usize(0);
+          while((ai < assoc_entries.len()) && !(diverged), {
+            match(
+              assoc_entries.get(ai),
+              .Some(ae) => match(
+                ae.value,
+                .Some(av) => match(
+                  av,
+                  .TypeVal(tb) => {
+                    cand_ty := tb.*;
+                    match(
+                      agreed,
+                      .None => {
+                        agreed = Option(TypeValue).Some(cand_ty);
+                      },
+                      .Some(prev) => {
+                        if(type_to_string(prev).as_str() != type_to_string(cand_ty).as_str(), {
+                          diverged = true;
+                        });
+                      }
+                    );
+                  },
+                  _ => ()
                 ),
                 .None => ()
-              );
-              ai = (ai + usize(1));
-            });
-            if(!(diverged), {
-              match(
-                agreed,
-                .Some(a) => {
-                  resolved_ret = a;
-                },
-                .None => ()
-              );
-            });
+              ),
+              .None => ()
+            );
+            ai = (ai + usize(1));
+          });
+          if(!(diverged), {
+            match(
+              agreed,
+              .Some(a) => {
+                resolved_ret = a;
+              },
+              .None => ()
+            );
           });
         });
-        out_op := new_expr_info(call_result_op.caller_env, resolved_ret);
-        out_op.value = Option(EvalValue).Some(create_unknown_val(resolved_ret));
-        out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
-        return(expr);
       });
+      out_op := new_expr_info(call_result_op.caller_env, resolved_ret);
+      out_op.value = Option(EvalValue).Some(create_unknown_val(resolved_ret));
+      out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
+      return(expr);
     });
   });
   // Evaluate the callee.

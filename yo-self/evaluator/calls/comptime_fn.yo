@@ -30,6 +30,7 @@ open(import("std/string"));
   EvalValue,
   eval_value_eq,
   is_type_val,
+  is_unknown_val,
   create_unknown_val,
   register_enum_cfid
 } :: import("../../value.yo");
@@ -440,6 +441,42 @@ evaluate_comptime_fn_call :: (
           false,
           .None
         )
+      )
+    );
+  });
+  // Execution gate for unknown arguments. TS never executes a comptime body
+  // when an argument is a runtime unknown: its runtime-unknowns are
+  // `undefined` and throw at the collect step above (comptime-fn.ts:78).
+  // yo-self represents runtime-unknowns as `UnknownVal` (value.yo), which
+  // passes that check — so an unknown-arg CTFE body would execute, and a
+  // RECURSIVE comptime fn (e.g. `__yo_comptime_fold_range`, `__sN`) recurses
+  // forever: the unknown termination cond evaluates both branches, and the
+  // growing accumulator argument never matches the in-progress cache entry.
+  // Return `UnknownVal(return_type)` without executing — the same result
+  // TS's checking phase produces (`skipCtfeExecution`, helper.ts:1735);
+  // yo-self's `UnknownVal` also covers TS's type-known `UnknownValue` case,
+  // for which an unknown result of the declared return type is the correct
+  // non-executing outcome.
+  (any_arg_unknown : bool) = false;
+  {
+    (uai : usize) = usize(0);
+    while((uai < all_arg_vals.len()) && !(any_arg_unknown), {
+      match(
+        all_arg_vals.get(uai),
+        .Some(v) => if(is_unknown_val(v), {
+          any_arg_unknown = true;
+        }),
+        .None => ()
+      );
+      uai = (uai + usize(1));
+    });
+  };
+  if(any_arg_unknown, {
+    return(
+      ComptimeFnCallResult(
+        value : create_unknown_val(return_type),
+        caller_env : caller_env,
+        callee_env : callee_env
       )
     );
   });
