@@ -55,7 +55,7 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_some_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_some_type, is_array_type, is_slice_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name } :: import("../values/type_trait_methods.yo");
@@ -72,6 +72,7 @@ open(import("std/string"));
   try_to_implement_trait_with_arguments_by_trait_type
 } :: import("./trait_type.yo");
 { try_to_implement_array_by_array_type } :: import("./array_type.yo");
+{ has_index_impl, try_to_call_with_index_trait } :: import("./index_trait.yo");
 { try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime_list_type.yo");
 {
   is_convertible_numeric_type,
@@ -1593,6 +1594,28 @@ evaluate_function_call :: (
           .Some(ci) => ci.ty,
           .None => t_unit()
         );
+        // Index-trait dispatch — mirrors TS `function.ts:1392-1411`: a
+        // value-call `x(i)` whose callee type is Array/Slice or has an
+        // Index impl routes through the Index trait. UnknownVal-valued
+        // callees (def-time body evaluation) land in this arm; without
+        // the route, `s.bytes(i)` / `data(i)` on unknown values soft-fell
+        // to `unit` and poisoned every expression built on the element.
+        if((is_array_type(callee_ty) || is_slice_type(callee_ty))
+        || has_index_impl(callee_ty, args, callee_env, ctx), {
+          idx_result_rt := try_to_call_with_index_trait(
+            expr,
+            callee_ty,
+            callee_value,
+            args,
+            callee_env,
+            ctx,
+            exn
+          );
+          out_idx_rt := new_expr_info(idx_result_rt.caller_env, idx_result_rt.ty);
+          out_idx_rt.value = idx_result_rt.value;
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
+          return(expr);
+        });
         call_result_rt := try_to_call_function_with_arguments(
           Option(EvalValue).None,
           callee_ty,
@@ -1670,6 +1693,29 @@ evaluate_function_call :: (
             .Some(ci) => ci.ty,
             .None => t_unit()
           );
+          // Index-trait dispatch — mirrors TS `function.ts:1392-1411`: a
+          // value-call `x(i)` whose callee type is Array/Slice or has an
+          // Index impl routes through the Index trait. This is the path for
+          // UNKNOWN receivers under def-time body evaluation (concrete
+          // comptime indexing resolves earlier); without it, `s.bytes(i)` /
+          // `data(i)` on unknown values soft-fell to `unit` and poisoned
+          // every expression built on the element.
+          if((is_array_type(callee_ty_none) || is_slice_type(callee_ty_none))
+          || has_index_impl(callee_ty_none, args, callee_env, ctx), {
+            idx_result := try_to_call_with_index_trait(
+              expr,
+              callee_ty_none,
+              callee_value,
+              args,
+              callee_env,
+              ctx,
+              exn
+            );
+            out_idx := new_expr_info(idx_result.caller_env, idx_result.ty);
+            out_idx.value = idx_result.value;
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
+            return(expr);
+          });
           call_result_none := try_to_call_function_with_arguments(
             Option(EvalValue).None,
             callee_ty_none,

@@ -717,7 +717,8 @@ _try_comptime_array_slice_index :: (
         array_val,
         slice_val,
         value_type,
-        caller_env
+        caller_env,
+        exn
       )
     );
   });
@@ -727,7 +728,8 @@ _try_comptime_array_slice_index :: (
     array_val,
     slice_val,
     value_type,
-    caller_env
+    caller_env,
+    exn
   )
 });
 // ---------------------------------------------------------------------------
@@ -927,7 +929,8 @@ _try_comptime_string_index :: (
     arg_val,
     arg_expr,
     rc.is_range,
-    rc.is_inclusive
+    rc.is_inclusive,
+    exn
   );
   result_ty := TypeValue.ComptimeString;
   ptr_result_ty := t_ptr(result_ty);
@@ -1028,7 +1031,8 @@ try_to_call_with_index_trait :: (
       slice_val,
       value_type,
       caller_env,
-      ctx
+      ctx,
+      exn
     );
     match(
       ct_result,
@@ -1048,7 +1052,7 @@ try_to_call_with_index_trait :: (
         raw.substring(usize(1), rn - usize(1)),
         String.new()
       );
-      result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx);
+      result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx, exn);
       return(result);
     },
     .None => ()
