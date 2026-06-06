@@ -254,7 +254,6 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .BreakVal => true,
     .ContinueVal => true,
     .TypeVal(_) => true,
-    .ModuleVal(_, _) => true,
     // Phase 2h variants
     .TupleVal(_) => true,
     .ArrayVal(_) => true,
@@ -375,7 +374,6 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .BreakVal => t_unit(),
     .ContinueVal => t_unit(),
     .TypeVal(_) => t_type(),
-    .ModuleVal(_, _) => t_unit(),
     // Phase 2h variants
     .TupleVal(_) => t_unit(),
     .ArrayVal(_) => t_unit(),
@@ -4080,9 +4078,9 @@ handle_impl_form :: (
 ///
 /// Iterates `exprs`, evaluating each one through `g_eval_fn`. When an
 /// `export(name1, name2, …)` call is encountered the named variables are
-/// looked up in `env` and appended to the result `ModuleVal`.
+/// looked up in `env` and appended to the result source-namespace StructVal.
 ///
-/// Returns `Some(ModuleVal(names, values))` on success, or `None` if
+/// Returns a source-namespace `StructVal` on success, or `None` if
 /// `g_eval_fn` is not set or any expression fails to evaluate.
 evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Option(EvalValue))({
   names := ArrayList(String).new();
@@ -4213,7 +4211,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Op
     i = (i + usize(1));
   });
   cond(
-    ok =>.Some(.ModuleVal(names, values)),
+    ok =>.Some(.StructVal(`source_namespace_${random_id(env.module_path)}`, names, values)),
     true => Option(EvalValue).None
   )
 });
@@ -4909,7 +4907,8 @@ handle_struct_def :: (
                     false,
                     is_newtype,
                     String.from(""),
-                    ArrayList(TypeValue).new()
+                    ArrayList(TypeValue).new(),
+                    false
                   )
                 )
               ),
@@ -7158,7 +7157,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                           match(
                                             rhs_res.value,
                                             // Destructure a ModuleVal
-                                            .ModuleVal(mnames, mvals) => {
+                                            .StructVal(_, mnames, mvals) => {
                                               (di : usize) = usize(0);
                                               dn := lhs_args.len();
                                               (dok : bool) = true;
@@ -7293,7 +7292,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     .Some(mod_res) =>
                       match(
                         mod_res.value,
-                        .ModuleVal(mnames, mvals) => {
+                        .StructVal(_, mnames, mvals) => {
                           (oi : usize) = usize(0);
                           on := mnames.len();
                           while(oi < on, {

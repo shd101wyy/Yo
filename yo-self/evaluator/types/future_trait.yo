@@ -49,7 +49,7 @@ _future_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> String)(
   match(
     effect_type,
-    .ModuleT(_, name, _, _) => name,
+    .Struct({ name, is_source_namespace : fl_sns }) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
     .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
     _ => ast_expr_to_string(effect_expr)
   )

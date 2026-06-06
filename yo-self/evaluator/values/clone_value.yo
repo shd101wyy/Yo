@@ -81,17 +81,6 @@ clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
       });
       EvalValue.StructVal(ty_name : tname, field_names : fnames, field_values : new_fvals)
     },
-    // ModuleVal — recursively clone values
-    .ModuleVal(names : nms, values : vals) => {
-      new_vals := ArrayList(EvalValue).new();
-      i := usize(0);
-      while(i < vals.len(), {
-        elem := match(vals.get(i),.Some(e) => e,.None => EvalValue.UnitVal);
-        new_vals.push(recur(elem, preserve_pointer_refs));
-        i = (i + usize(1));
-      });
-      EvalValue.ModuleVal(names : nms, values : new_vals)
-    },
     // TupleVal — recursively clone fields
     .TupleVal(fields : flds) => {
       new_fields := ArrayList(EvalValue).new();

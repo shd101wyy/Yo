@@ -667,7 +667,25 @@ evaluate_function_call :: (
           // ----------------------------------------------------------------
           // Struct construction: StructType(field1: v1, field2: v2, ...).
           // ----------------------------------------------------------------
-          .Struct({ id : struct_id, name : struct_name, field_labels : struct_field_labels, field_types : struct_field_types, is_reference_semantics : is_ref }) => {
+          .Struct({ id : struct_id, name : struct_name, field_labels : struct_field_labels, field_types : struct_field_types, is_reference_semantics : is_ref, is_source_namespace : callee_is_sns }) => {
+            // Source-namespace struct (record type / anonymous module):
+            // `RecordType(field: value, ...)` routes to the record-type
+            // implementation, NOT struct construction. TS dispatches on
+            // SourceNamespaceType before plain structs (record-type.ts).
+            if(callee_is_sns, {
+              result_m := try_to_implement_module_with_arguments_by_module_type(
+                func_expr,
+                func_type,
+                args,
+                callee_env,
+                ctx,
+                exn
+              );
+              out_m := new_expr_info(result_m.caller_env, type_of_eval_value(result_m.module_value));
+              out_m.value = Option(EvalValue).Some(result_m.module_value);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
+              return(expr);
+            });
             fields := match(
               get_struct_fields(struct_id),
               .Some(f) => f,
@@ -896,23 +914,6 @@ evaluate_function_call :: (
             out_u.value = Option(EvalValue).None;
             out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_u);
-            expr
-          },
-          // ----------------------------------------------------------------
-          // Module implementation: ModuleType(fn1: impl1, fn2: impl2, ...).
-          // ----------------------------------------------------------------
-          .ModuleT(_, _, _, _) => {
-            result_m := try_to_implement_module_with_arguments_by_module_type(
-              func_expr,
-              func_type,
-              args,
-              callee_env,
-              ctx,
-              exn
-            );
-            out_m := new_expr_info(result_m.caller_env, type_of_eval_value(result_m.module_value));
-            out_m.value = Option(EvalValue).Some(result_m.module_value);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
             expr
           },
           // ----------------------------------------------------------------

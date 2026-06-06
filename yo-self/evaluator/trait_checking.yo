@@ -251,8 +251,10 @@ _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
 type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
   match(
     ty,
-    // Object types (reference semantics) — always runtime, never comptime.
-    .Struct({ is_reference_semantics : is_ref }) => cond(
+    // Source-namespace structs (modules) — always comptime. Object types
+    // (reference semantics) — always runtime, never comptime.
+    .Struct({ is_reference_semantics : is_ref, is_source_namespace : t_sns }) => cond(
+      t_sns => Option(bool).Some(true),
       is_ref => Option(bool).Some(false),
       true => Option(bool).None
     ),
@@ -261,7 +263,6 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .ComptimeFloat => Option(bool).Some(true),
     .ComptimeString => Option(bool).Some(true),
     .TypeUni(_) => Option(bool).Some(true),
-    .ModuleT(_, _, _, _) => Option(bool).Some(true),
     .TraitT(name : _) => Option(bool).Some(true),
     .FnTraitT(base_name : _) => Option(bool).Some(true),
     .FutureTraitT(base_name : _) => Option(bool).Some(true),

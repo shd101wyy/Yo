@@ -105,10 +105,6 @@ collect_evidence_from_record_ :: (
               )
             );
           },
-          .ModuleT(_, _, nested_labels, nested_types) => {
-            nested_path := copy_path_with_label_(path_prefix, field_label);
-            recur(implicit_label, nested_labels, nested_types, nested_path, result);
-          },
           .Struct({ field_labels : nested_labels, field_types : nested_types }) => {
             nested_path := copy_path_with_label_(path_prefix, field_label);
             recur(implicit_label, nested_labels, nested_types, nested_path, result);
@@ -195,9 +191,6 @@ get_evidence_parameters :: (fn(function_type : TypeValue) -> ArrayList(EvidenceP
       implicits.get(i),
       .Some(implicit) => match(
         implicit.type_value,
-        .ModuleT(_, _, labels, types) => {
-          collect_evidence_from_record_(implicit.label, labels, types, ArrayList(String).new(), result);
-        },
         .Struct({ field_labels : labels, field_types : types }) => {
           collect_evidence_from_record_(implicit.label, labels, types, ArrayList(String).new(), result);
         },
@@ -466,21 +459,6 @@ type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
       found
     },
     .TraitT(_, _, _, _, _, _, _, _) => false,
-    .ModuleT(_, _, _, module_field_types) => {
-      i := usize(0);
-      found := false;
-      while((i < module_field_types.len()) && (!(found)), {
-        match(
-          module_field_types.get(i),
-          .Some(child) => {
-            found = recur(child);
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      found
-    },
     .EffectsRowT(_, implicit_types) => {
       i := usize(0);
       found := false;

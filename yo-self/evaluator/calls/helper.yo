@@ -141,62 +141,65 @@ _module_type_contains_ctl_field :: (
 )(
   match(
     module_type,
-    .ModuleT(_, _, field_labels, field_types) => {
-      n := field_types.len();
-      (fi : usize) = usize(0);
-      (found : bool) = false;
-      while((fi < n) && (!(found)), {
-        field_ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
-        (field_val_opt : Option(EvalValue)) = match(
-          module_val,
-          .None => Option(EvalValue).None,
-          .Some(mv) => match(
-            mv,
-            .ModuleVal(_, vals) => match(
-              vals.get(fi),
-              .Some(v) => Option(EvalValue).Some(v),
-              .None => Option(EvalValue).None
-            ),
-            _ => Option(EvalValue).None
-          )
-        );
-        // Check if field is a Func type and value is a control function
-        is_func_field := match(field_ty,.Func({ result : _ }) => true, _ => false);
-        if(is_func_field, {
-          match(
-            field_val_opt,
-            .Some(fv) => match(
-              fv,
-              .FuncVal(_, _, _, _, _, _, _, _, fid) => {
-                if(is_control_fn(fid.as_str()), {
-                  found = true;
-                });
-              },
-              _ => ()
-            ),
-            .None => ()
-          );
-        });
-        // Recurse into nested module fields
-        is_module_field := match(field_ty,.ModuleT(_, _, _, _) => true, _ => false);
-        if(is_module_field && (!(found)), {
-          (inner_module_val_opt : Option(EvalValue)) = match(
-            field_val_opt,
+    .Struct({ field_labels : field_labels, field_types : field_types, is_source_namespace : m_sns }) => cond(
+      !(m_sns) => false,
+      true => {
+        n := field_types.len();
+        (fi : usize) = usize(0);
+        (found : bool) = false;
+        while((fi < n) && (!(found)), {
+          field_ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          (field_val_opt : Option(EvalValue)) = match(
+            module_val,
             .None => Option(EvalValue).None,
-            .Some(fv) => match(
-              fv,
-              .ModuleVal(_, _) => Option(EvalValue).Some(fv),
+            .Some(mv) => match(
+              mv,
+              .StructVal(_, _, vals) => match(
+                vals.get(fi),
+                .Some(v) => Option(EvalValue).Some(v),
+                .None => Option(EvalValue).None
+              ),
               _ => Option(EvalValue).None
             )
           );
-          if(recur(field_ty, inner_module_val_opt), {
-            found = true;
+          // Check if field is a Func type and value is a control function
+          is_func_field := match(field_ty,.Func({ result : _ }) => true, _ => false);
+          if(is_func_field, {
+            match(
+              field_val_opt,
+              .Some(fv) => match(
+                fv,
+                .FuncVal(_, _, _, _, _, _, _, _, fid) => {
+                  if(is_control_fn(fid.as_str()), {
+                    found = true;
+                  });
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
           });
+          // Recurse into nested module fields
+          is_module_field := match(field_ty,.Struct({ is_source_namespace : f_sns }) => f_sns, _ => false);
+          if(is_module_field && (!(found)), {
+            (inner_module_val_opt : Option(EvalValue)) = match(
+              field_val_opt,
+              .None => Option(EvalValue).None,
+              .Some(fv) => match(
+                fv,
+                .StructVal(_, _, _) => Option(EvalValue).Some(fv),
+                _ => Option(EvalValue).None
+              )
+            );
+            if(recur(field_ty, inner_module_val_opt), {
+              found = true;
+            });
+          });
+          fi = (fi + usize(1));
         });
-        fi = (fi + usize(1));
-      });
-      found
-    },
+        found
+      }
+    ),
     _ => false
   )
 );
@@ -2087,7 +2090,7 @@ try_to_call_function_with_arguments :: (
     },
     _ => {
       // Soft fallback: when the callee's type isn't `.Func(...)` (e.g.
-      // it's a `ModuleT` from an `impl({...})` operator binding like
+      // it's a source-namespace struct from an `impl({...})` operator binding like
       // `(-) :: impl({ Call :: (neg, comptime_neg); })`, or a `SomeT`
       // that hasn't been resolved to a Func yet), return a placeholder
       // `FuncCallResult` with `t_unit()` return instead of aborting

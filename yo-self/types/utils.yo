@@ -396,8 +396,6 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .IsoT(child : child) => recur(child.*, depth + u32(1)),
       // SomeT — conservatively true (unresolved generic)
       .SomeT(required_trait_types : _) => true,
-      // Module — false (modules don't own references)
-      .ModuleT(id : _, name : _, field_labels : _, field_types : _) => false,
       // Function — false (functions are not reference types)
       .Func({ result : _ }) => false,
       // Everything else — false
@@ -523,13 +521,6 @@ _collect_some_types_into :: (
           .None => ()
         );
         vi = (vi + usize(1));
-      });
-    },
-    .ModuleT(_, _, _, field_types : ftys) => {
-      (i : usize) = usize(0);
-      while(i < ftys.len(), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
-        i = (i + usize(1));
       });
     },
     _ => ()

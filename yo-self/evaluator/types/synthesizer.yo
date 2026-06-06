@@ -190,7 +190,6 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
     .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _) => id,
-    .ModuleT(id, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     _ => type_to_string_key(ty)
   )
@@ -508,25 +507,6 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
       res
     },
     .TraitT(_, _, _, field_types, _, _, _, _) => {
-      (res : bool) = false;
-      i := usize(0);
-      while((i < field_types.len()) && !(res), {
-        ft := match(
-          field_types.get(i),
-          .Some(t) => t,
-          .None => {
-            i = field_types.len();
-            break;
-          }
-        );
-        if(recur(some_type_id, ft, visited, exn), {
-          res = true;
-        });
-        i = (i + usize(1));
-      });
-      res
-    },
-    .ModuleT(_, _, _, field_types) => {
       (res : bool) = false;
       i := usize(0);
       while((i < field_types.len()) && !(res), {
@@ -1431,11 +1411,11 @@ _synthesize_types_impl :: (
   });
   // Case: Module + Module (same constructor)
   if(is_module_type(expected_ty) && is_module_type(given_ty), {
-    exp_mod_id := match(expected_ty,.ModuleT(id, _, _, _) => id, _ => ``);
-    giv_mod_id := match(given_ty,.ModuleT(id, _, _, _) => id, _ => ``);
+    exp_mod_id := match(expected_ty,.Struct({ id : m_id }) => m_id, _ => ``);
+    giv_mod_id := match(given_ty,.Struct({ id : g_id }) => g_id, _ => ``);
     if(exp_mod_id == giv_mod_id, {
-      exp_ft := match(expected_ty,.ModuleT(_, _, _, fts) => fts, _ => ArrayList(TypeValue).new());
-      giv_ft := match(given_ty,.ModuleT(_, _, _, fts) => fts, _ => ArrayList(TypeValue).new());
+      exp_ft := match(expected_ty,.Struct({ field_types : e_fts }) => e_fts, _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty,.Struct({ field_types : g_fts }) => g_fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {

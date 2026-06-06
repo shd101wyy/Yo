@@ -132,7 +132,28 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
         `fn(${forall_prefix}${body}) -> ${recur(ret.*, _d + usize(1))}${using_suffix}`
       },
-      .Struct({ id, name }) => if(name.len() > usize(0), name, `<struct:${id}>`),
+      .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
+        // Source-namespace structs (anonymous modules / imports) keep the
+        // legacy `module (...)` rendering for error-message continuity.
+        s_sns => {
+          if(s_fls.len() == usize(0), {
+            return(`module ${name}`);
+          });
+          body := String.from("");
+          i := usize(0);
+          while(i < s_fls.len(), {
+            if(i > usize(0), {
+              body = `${body}, `;
+            });
+            fl := match(s_fls.get(i),.Some(s) => s,.None => `""`);
+            ft := match(s_fts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+            body = `${body}${fl} : ${ft}`;
+            i = (i + usize(1));
+          });
+          `module ${name}(${body})`
+        },
+        true => if(name.len() > usize(0), name, `<struct:${id}>`)
+      ),
       .EnumT(id, name, _, _, _, _, _) => if(name.len() > usize(0), name, `<enum:${id}>`),
       .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
       .TraitT(name : n, field_labels : fls, field_types : fts) => {
@@ -151,23 +172,6 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           i = (i + usize(1));
         });
         `${n}(${body})`
-      },
-      .ModuleT(name : n, field_labels : fls, field_types : fts) => {
-        if(fls.len() == usize(0), {
-          return(`module ${n}`);
-        });
-        body := String.from("");
-        i := usize(0);
-        while(i < fls.len(), {
-          if(i > usize(0), {
-            body = `${body}, `;
-          });
-          fl := match(fls.get(i),.Some(s) => s,.None => `""`);
-          ft := match(fts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
-          body = `${body}${fl} : ${ft}`;
-          i = (i + usize(1));
-        });
-        `module ${n}(${body})`
       },
       .SomeT(name : n, required_trait_types : rts, negative_trait_types : nts) => {
         if((rts.len() == usize(0)) && (nts.len() == usize(0)), {

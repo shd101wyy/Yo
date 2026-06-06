@@ -48,7 +48,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { EvalValue } :: import("../../value.yo");
 /// Extract the unique `id` string from a `TypeValue` variant that
-/// carries one (Struct / EnumT / TraitT / ModuleT / SomeT). Returns
+/// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
 /// meaningless for them, mirroring TS's early-return-`[]` path when
 /// the type has no `.trait`. Lives here (rather than on env.yo or
@@ -61,7 +61,6 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _) => id,
-    .ModuleT(id, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     // Primitive types get stable synthetic ids so `impl(usize, ...)`,
     // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods

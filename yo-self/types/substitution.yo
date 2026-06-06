@@ -142,7 +142,8 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       // across substitution.
       .Func(fls, new_fts, pls, new_pts, ils, new_its, isp, new_wts, box(recur(s, ret.*)), rico, pir, rir, hv)
     },
-    // TraitT / ModuleT — recurse into field types.
+    // TraitT — recurse into field types. (Source-namespace structs go
+    // through the Struct arm above.)
     .TraitT(
       name : n,
       assoc_type_names : atns,
@@ -172,16 +173,6 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           .TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons)
         }
       ),
-    .ModuleT(id : mid, name : n, field_labels : fls, field_types : fts) => {
-      new_fts := ArrayList(TypeValue).new();
-      i := usize(0);
-      while(i < fts.len(), {
-        elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-        new_fts.push(recur(s, elem));
-        i = (i + usize(1));
-      });
-      .ModuleT(mid, n, fls, new_fts)
-    },
     // SomeT — check substitution first; if not found, recurse into constraints.
     .SomeT(
       id : orig_id,
@@ -217,7 +208,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       )
     },
     // Struct / Enum / Union — recurse into field types.
-    .Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs }) => {
+    .Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns }) => {
       new_types := ArrayList(TypeValue).new();
       i := usize(0);
       while(i < types.len(), {
@@ -237,7 +228,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       });
       // Preserve constructor_func_id across substitution so the
       // type-constructor identity travels with specialized instantiations.
-      .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs)
+      .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns)
     },
     // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
     .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs) => {

@@ -109,13 +109,6 @@ EvalValue :: enum(
   /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
   /// `field_names` and `field_values` are parallel arrays in field-declaration order.
   StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self)),
-  /// A module value produced by evaluating a module body (Phase 3m).
-  ///
-  /// `names` and `values` are parallel arrays of exported identifiers and
-  /// their compile-time values, in export-statement order. When a module
-  /// exports a runtime variable the corresponding `values` entry is
-  /// `VarRef(name)` (comptime value unknown).
-  ModuleVal(names : ArrayList(String), values : ArrayList(Self)),
   // Phase 2h — remaining value types from src/value.ts ----------------------
   /// An anonymous tuple value.
   ///
@@ -310,67 +303,6 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                 sf_i = (sf_i + usize(1));
               });
               sf_ok
-            }
-          ),
-        _ => false
-      ),
-    .ModuleVal(an, av) =>
-      match(
-        b,
-        .ModuleVal(bn, bv) =>
-          cond(
-            (an.len() != bn.len()) => false,
-            (av.len() != bv.len()) => false,
-            true => {
-              n_m := an.len();
-              (m_i : usize) = usize(0);
-              (m_ok : bool) = true;
-              while((m_i < n_m) && m_ok, {
-                match(
-                  an.get(m_i),
-                  .Some(an_s) =>
-                    match(
-                      bn.get(m_i),
-                      .Some(bn_s) => {
-                        cond(
-                          (!(an_s.as_str() == bn_s.as_str())) => {
-                            m_ok = false;
-                          },
-                          true => ()
-                        );
-                      },
-                      .None => {
-                        m_ok = false;
-                      }
-                    ),
-                  .None => {
-                    m_ok = false;
-                  }
-                );
-                match(
-                  av.get(m_i),
-                  .Some(av_v) =>
-                    match(
-                      bv.get(m_i),
-                      .Some(bv_v) => {
-                        cond(
-                          (!(recur(av_v, bv_v))) => {
-                            m_ok = false;
-                          },
-                          true => ()
-                        );
-                      },
-                      .None => {
-                        m_ok = false;
-                      }
-                    ),
-                  .None => {
-                    m_ok = false;
-                  }
-                );
-                m_i = (m_i + usize(1));
-              });
-              m_ok
             }
           ),
         _ => false
@@ -722,37 +654,6 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       });
       `${ty_name}(${parts_sv})`
     },
-    .ModuleVal(names, values) => {
-      parts_mv := String.from("");
-      (mvi : usize) = usize(0);
-      n_mv := names.len();
-      while(mvi < n_mv, {
-        cond(
-          (mvi > usize(0)) => {
-            parts_mv = `${parts_mv}, `;
-          },
-          true => ()
-        );
-        match(
-          names.get(mvi),
-          .Some(mn) => {
-            match(
-              values.get(mvi),
-              .Some(mv_v) => {
-                mvvs := recur(mv_v);
-                parts_mv = `${parts_mv}${mn}: ${mvvs}`;
-              },
-              .None => {
-                parts_mv = `${parts_mv}${mn}`;
-              }
-            );
-          },
-          .None => ()
-        );
-        mvi = (mvi + usize(1));
-      });
-      `module(${parts_mv})`
-    },
     .TupleVal(fields) => {
       n_tup := fields.len();
       cond(
@@ -940,7 +841,11 @@ is_break_val :: (fn(v : EvalValue) -> bool)(match(v,.BreakVal => true, _ => fals
 is_continue_val :: (fn(v : EvalValue) -> bool)(match(v,.ContinueVal => true, _ => false));
 is_type_val :: (fn(v : EvalValue) -> bool)(match(v,.TypeVal(_) => true, _ => false));
 is_struct_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(_, _, _) => true, _ => false));
-is_module_val :: (fn(v : EvalValue) -> bool)(match(v,.ModuleVal(_, _) => true, _ => false));
+/// True for source-namespace struct values (anonymous modules / imports).
+/// TS has no module value kind — modules are StructValues with a
+/// source-namespace type (plans/MODULE_AS_STRUCT_ALIGNMENT.md); the
+/// generated `source_namespace_` ty_name prefix is the value-side marker.
+is_module_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
 is_tuple_val :: (fn(v : EvalValue) -> bool)(match(v,.TupleVal(_) => true, _ => false));
 is_array_val :: (fn(v : EvalValue) -> bool)(match(v,.ArrayVal(_) => true, _ => false));
 is_slice_val :: (fn(v : EvalValue) -> bool)(match(v,.SliceVal(_, _, _) => true, _ => false));
@@ -1027,9 +932,9 @@ create_type_value :: (fn(ty : TypeValue) -> EvalValue)(
 );
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
-/// Mirrors the contract of "ModuleValue.type" / "StructValue.type" in
-/// `src/value.ts`: yo-self's `ModuleVal` does not currently carry a parallel
-/// type list, so handlers like `evaluate_open` recover per-field types by
+/// Mirrors the contract of "StructValue.type" in `src/value.ts`: yo-self
+/// values do not carry a parallel type reference, so handlers like
+/// `evaluate_open` recover per-field types by
 /// inspecting each exported value. The mapping is deliberately conservative:
 /// for value variants whose type is not directly recoverable we fall back to
 /// `t_unit()`, which matches the production behavior of treating such fields
@@ -1044,7 +949,14 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .StrLit(_) => t_comptime_string(),
     .TypeVal(_) => t_type(),
     .StructVal(name, labels, vals) => {
-      // Reconstruct a Struct type from parallel field info.
+      // Reconstruct a Struct type from parallel field info. Source-namespace
+      // struct values (anonymous modules / imports — TS `SourceNamespaceType`)
+      // carry their generated `source_namespace_<id>` as `ty_name`; recover
+      // the `is_source_namespace` flag from that marker (the producer puts
+      // the id in the type's ID slot and leaves the name empty — mirror that
+      // here). Name-prefix detection is the stand-in for TS's `value.type`
+      // back-reference (yo-self values don't carry their type).
+      is_sns := name.starts_with(`source_namespace_`);
       tys := ArrayList(TypeValue).new();
       i := usize(0);
       while(i < vals.len(), {
@@ -1055,20 +967,10 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
         );
         i = (i + usize(1));
       });
-      .Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new())
-    },
-    .ModuleVal(names, vals) => {
-      tys := ArrayList(TypeValue).new();
-      i := usize(0);
-      while(i < vals.len(), {
-        match(
-          vals.get(i),
-          .Some(fv) => tys.push(recur(fv)),
-          .None => tys.push(t_unit())
-        );
-        i = (i + usize(1));
-      });
-      .ModuleT(String.from(""), String.from(""), names, tys)
+      cond(
+        is_sns =>.Struct(name, String.from(""), labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), true),
+        true =>.Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
+      )
     },
     .UnknownVal(ty) => ty.*,
     _ => t_unit()

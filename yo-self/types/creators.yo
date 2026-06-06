@@ -122,11 +122,13 @@ t_module :: (
     field_types : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .ModuleT(String.from(""), name, field_labels, field_types)
+  // Source-namespace STRUCT — TS has no module type (SourceNamespaceType,
+  // src/types/definitions.ts:514). plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+  .Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 /// Create a named module type with no fields.
 t_module_simple :: (fn(name : String) -> TypeValue)(
-  .ModuleT(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new())
+  .Struct(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for Phase 2f variants
@@ -275,11 +277,12 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Array(_, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
     .Func({ result : _ }) => TypeTag.TFunction,
-    .Struct({ id : _ }) => TypeTag.TStruct,
+    // Source-namespace structs keep the TModule tag (yo-self TypeTag is
+    // internal; TS has no module tag at all).
+    .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
     .EnumT(_, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,
     .TraitT(name : _) => TypeTag.TTrait,
-    .ModuleT(_, _, _, _) => TypeTag.TModule,
     .SomeT(name : _) => TypeTag.TSomeType,
     .ExprT => TypeTag.TExpr,
     .ComptimeListT(_) => TypeTag.TComptimeList,

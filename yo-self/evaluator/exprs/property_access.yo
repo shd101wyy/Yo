@@ -849,12 +849,12 @@ Raw pointer operations may dereference invalid memory.`,
       prop_name_mt := ast_expr_token(property_expr).value;
       mt_labels := match(
         type_val_inner,
-        .ModuleT(_, _, labels, _) => labels,
+        .Struct({ field_labels : labels }) => labels,
         _ => ArrayList(String).new()
       );
       mt_types := match(
         type_val_inner,
-        .ModuleT(_, _, _, types) => types,
+        .Struct({ field_types : types }) => types,
         _ => ArrayList(TypeValue).new()
       );
       fidx_mt := find_first_field_index(mt_labels, prop_name_mt.as_str());
@@ -1279,12 +1279,12 @@ Raw pointer operations may dereference invalid memory.`,
         mod_label := ast_expr_token(property_expr).value;
         mod_labels_rt := match(
           base_ty,
-          .ModuleT(_, _, labels, _) => labels,
+          .Struct({ field_labels : labels }) => labels,
           _ => ArrayList(String).new()
         );
         mod_types_rt := match(
           base_ty,
-          .ModuleT(_, _, _, types) => types,
+          .Struct({ field_types : types }) => types,
           _ => ArrayList(TypeValue).new()
         );
         mod_fidx := find_first_field_index(mod_labels_rt, mod_label.as_str());
@@ -1329,7 +1329,7 @@ Raw pointer operations may dereference invalid memory.`,
                   .UnknownVal(_) => {
                     out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
                   },
-                  .ModuleVal(_, mvals) => {
+                  .StructVal(_, _, mvals) => {
                     match(
                       mvals.get(fi_mod),
                       .Some(mfv) => {

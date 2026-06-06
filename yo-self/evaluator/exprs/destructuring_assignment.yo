@@ -82,7 +82,6 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
   match(
     v,
     .StructVal(_, _, field_values) => field_values.get(index),
-    .ModuleVal(_, values) => values.get(index),
     .EnumVal(_, fields) => fields.get(index),
     .TupleVal(fields) => fields.get(index),
     _ => Option(EvalValue).None
@@ -120,7 +119,7 @@ _find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Optio
 ///   - `seen_labels: ArrayList(String)` + `runtime_destructurings` replace
 ///     `destructuredRhsFields: Record<string, RuntimeDestructuring>`
 ///   - ExprInfo is recorded via `ctx.expr_info_table` instead of `expr.$`
-///   - No `rhsValue.isLoading` check (not in yo-self ModuleVal)
+///   - No `rhsValue.isLoading` check (not carried on yo-self struct values)
 handle_member_destructuring :: (
   fn(
     lhs_func : AstExpr,
@@ -594,14 +593,12 @@ evaluate_destructuring_assignment :: (
       rhs_type,
       .Struct({ field_labels : fl }) => Option(ArrayList(String)).Some(fl),
       .Union(_, fl, _) => Option(ArrayList(String)).Some(fl),
-      .ModuleT(_, _, fl, _) => Option(ArrayList(String)).Some(fl),
       _ => Option(ArrayList(String)).None
     );
     field_types_opt := match(
       rhs_type,
       .Struct({ field_types : ft }) => Option(ArrayList(TypeValue)).Some(ft),
       .Union(_, _, ft) => Option(ArrayList(TypeValue)).Some(ft),
-      .ModuleT(_, _, _, ft) => Option(ArrayList(TypeValue)).Some(ft),
       _ => Option(ArrayList(TypeValue)).None
     );
     field_labels := match(field_labels_opt,.Some(l) => l,.None => ArrayList(String).new());

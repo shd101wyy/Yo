@@ -70,11 +70,16 @@ is_trait_type :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
+/// True for source-namespace structs (anonymous modules / imports).
+/// Mirrors TS `isSourceNamespaceType` (guards.ts:191) — TS has no module
+/// type; the legacy name is kept for the existing call sites.
 is_module_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.ModuleT(_, _, _, _) => true, _ => false)
+  match(t,.Struct({ is_source_namespace : sns }) => sns, _ => false)
 );
+/// Mirrors TS `isStructType` (guards.ts:161): EXCLUDES source-namespace
+/// structs, exactly as TS does.
 is_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct({ id : _ }) => true, _ => false)
+  match(t,.Struct({ is_source_namespace : sns }) => !(sns), _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)
@@ -250,7 +255,9 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
     .ComptimeFloat => true,
     .ComptimeString => true,
     .TypeUni(_) => true,
-    .ModuleT(_, _, _, _) => true,
+    // Source-namespace structs (anonymous modules / imports) are
+    // comptime-only; ordinary structs are not.
+    .Struct({ is_source_namespace : sns2 }) => sns2,
     .TraitT(name : _) => true,
     .FnTraitT(base_name : _) => true,
     .FutureTraitT(base_name : _) => true,

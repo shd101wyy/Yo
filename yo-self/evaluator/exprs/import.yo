@@ -32,6 +32,7 @@ open(import("std/string"));
 { cwd } :: import("std/env");
 { access, F_OK } :: import("std/libc/unistd");
 { evaluate_expression } :: import("./expr.yo");
+{ random_id } :: import("../../utils.yo");
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
@@ -180,7 +181,8 @@ _resolve_dependency_entry_point :: (fn(dep_root : String, dep_name : String) -> 
 // ---------------------------------------------------------------------------
 // _build_module_val_from_env
 // ---------------------------------------------------------------------------
-/// Build a `ModuleVal` whose fields are all comptime-known bindings currently
+/// Build a source-namespace `StructVal` (TS: imports are StructValues,
+/// evaluator/index.ts:49) whose fields are all comptime-known bindings currently
 /// visible in `env`. Used as a fallback when no real module loader is
 /// registered: in `run_check`'s flatten-eval pipeline all dep exprs run in the
 /// same shared env, so the names declared in any imported module are already
@@ -226,7 +228,7 @@ _build_module_val_from_env :: (fn(env : Environment) -> EvalValue)({
     );
     fi = (fi + usize(1));
   });
-  EvalValue.ModuleVal(names, values)
+  EvalValue.StructVal(`source_namespace_${random_id(env.module_path)}`, names, values)
 });
 // ---------------------------------------------------------------------------
 // evaluate_import
