@@ -8,15 +8,14 @@
 //! For runtime values: looks up the index method and returns UnknownVal.
 //!
 //! Phase 3u simplifications:
-//!   - _find_all_index_methods: only checks TraitT direct fields (no generic impls)
 //!   - _check_range_type: uses struct name heuristic (no CTFE resolution)
 //!   - Custom type ComptimeIndex: not yet implemented (Phase 4)
-//!   - has_index_impl: returns true for Array/Slice, false otherwise
+//!   - has_index_impl: Array/Slice fast path + trait-field/registry method lookup
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_receiver_methods_by_name_from_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_slice } :: import("../../types/creators.yo");
 { is_array_type, is_slice_type, is_pointer_type, is_trait_type } :: import("../../types/guards.yo");
@@ -166,13 +165,14 @@ _extract_range_indices :: (
 // ---------------------------------------------------------------------------
 // _find_all_index_methods
 // ---------------------------------------------------------------------------
-/// Find all `index` methods on a concrete type.
-///
-/// Phase 3u simplification: only checks TraitT direct fields.
-/// No generic impl registry (not yet ported to yo-self).
+/// Find all `index` methods on a concrete type: TraitT receivers expose them
+/// as direct trait fields; struct/object receivers resolve through the
+/// trait-methods registry + generic-impl fallback (the yo-self mirror of TS
+/// `concreteType.trait.fields`).
 _find_all_index_methods :: (
   fn(
-    concrete_type : TypeValue
+    concrete_type : TypeValue,
+    env : Environment
   ) -> ArrayList(_IndexMethodEntry)
 )({
   result := ArrayList(_IndexMethodEntry).new();
@@ -211,6 +211,35 @@ _find_all_index_methods :: (
     },
     _ => ()
   );
+  // Registry lookup for non-trait receivers (structs/objects like
+  // `ArrayList(u8)`): TS reads `concreteType.trait.fields` directly
+  // (index-trait.ts:76-90); yo-self's trait-methods registry + generic-impl
+  // fallback is the mirror of that slot. Post method-type specialization,
+  // generic-impl candidates arrive concrete (e.g.
+  // `index : fn(self : *(ArrayList(u8)), idx : usize) -> *(u8)`). Without
+  // this, `x(i)` on a struct receiver with an unknown value soft-fell to
+  // `unit` under def-eval, poisoning every comparison built on it.
+  if(result.len() == usize(0), {
+    reg_methods := get_receiver_methods_by_name_from_env(env, String.from("index"), concrete_type, false);
+    (ri : usize) = usize(0);
+    while(ri < reg_methods.len(), {
+      match(
+        reg_methods.get(ri),
+        .Some(m) => {
+          if(match(m.ty,.Func({ result : _ }) => true, _ => false), {
+            result.push(
+              _IndexMethodEntry(
+                method_type : m.ty,
+                method_value : m.value
+              )
+            );
+          });
+        },
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+  });
   result
 });
 // ---------------------------------------------------------------------------
@@ -221,10 +250,11 @@ _find_all_index_methods :: (
 _find_index_method :: (
   fn(
     concrete_type : TypeValue,
-    arg_type : TypeValue
+    arg_type : TypeValue,
+    env : Environment
   ) -> Option(_IndexMethodEntry)
 )({
-  methods := _find_all_index_methods(concrete_type);
+  methods := _find_all_index_methods(concrete_type, env);
   n := methods.len();
   (i : usize) = usize(0);
   (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
@@ -1069,7 +1099,7 @@ try_to_call_with_index_trait :: (
   });
   // For custom types: find the index method via trait lookup
   arg_type := arg_info.ty;
-  method_opt := _find_index_method(value_type, arg_type);
+  method_opt := _find_index_method(value_type, arg_type, caller_env);
   method := match(
     method_opt,
     .Some(m) => m,
@@ -1117,8 +1147,8 @@ try_to_call_with_index_trait :: (
 // ---------------------------------------------------------------------------
 /// Check if a type has any matching Index impl for a given set of argument expressions.
 ///
-/// Phase 3u: Returns true for Array/Slice (fast path). Returns false for custom
-/// types (no generic impl registry in yo-self yet).
+/// Array/Slice fast path; custom types resolve `index` methods through the
+/// trait-field scan + trait-methods registry (generic-impl fallback included).
 ///
 /// Mirrors `hasIndexImpl` in `src/evaluator/calls/index-trait.ts`.
 has_index_impl :: (
@@ -1129,7 +1159,6 @@ has_index_impl :: (
     ctx : EvalContext
   ) -> bool
 )({
-  _ := caller_env;
   _ := ctx;
   if(arg_exprs.len() != usize(1), {
     return(false);
@@ -1138,8 +1167,8 @@ has_index_impl :: (
   if(is_array_type(concrete_type) || is_slice_type(concrete_type), {
     return(true);
   });
-  // Check for trait-direct methods (Phase 3u: no generic impls)
-  methods := _find_all_index_methods(concrete_type);
+  // Trait-field + registry/generic-impl method lookup.
+  methods := _find_all_index_methods(concrete_type, caller_env);
   methods.len() > usize(0)
 });
 export(try_to_call_with_index_trait);

@@ -1,10 +1,8 @@
-// Variadic extern arg-count probe (module level — errors not swallowed).
-// Pre-fix: "Argument count mismatch: expected 2 arguments, got 4".
-pragma(Pragma.AllowUnsafe);
-extern(
-  "C",
-  zvar_probe : (fn(zfmt : *(char), zn : usize, ...) -> int)
-);
-zr := unsafe(zvar_probe(*(char)("x"), usize(0), u8(1), u8(2)));
+open(import("std/collections/array_list"));
+zfn :: (fn(zd : ArrayList(u8), zi : usize) -> unit)({
+  zr := zd(zi);
+  (comptime(zvx) : i64) = zr;
+  ()
+});
 main :: (fn() -> unit)(());
 export(main);

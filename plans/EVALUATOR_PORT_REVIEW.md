@@ -332,13 +332,34 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     `enrich_captured_variables` on a 1-entry map; restructured to direct
     ctrl-byte scans + manual-next() regression tests.
     Measured: prelude swallows 21→11, std 620→356 raw.
-  - **REMAINING TAIL:** re-measure post-family-1; next heads were
-    enum-variant-infer (58), unify-residue (49), arg-count (43),
-    bool-arg (34), `&+` ptr-arith (~15, known unported branch), casts on
-    unit (~17). New inert category to investigate: "Frame level is
-    different for different cases" (5 prelude + 12 std). Also catalogued:
-    the `ComptimeIndex` call form `zlist(usize(0))` soft-falls to `unit`
-    under check (separate dispatch path from `.get`).
+  - **✅ ROUND-3 DRAIN (3 more fixes):** (a) return-arg expected type —
+    `return(.Variant)` evaluated its arg with `expected_type = None` (a
+    documented Phase-3 stub in begin.yo); TS passes the enclosing return
+    type (begin.ts:1148-1163) — "Failed to infer enum variant type" 58→0.
+    (b) variadic `Func` flag restored — flattened `Func` dropped TS's
+    `variadicParameter`; `has_variadic` computed but DIED UNCONSUMED in
+    `FuncParamsResult`. Restored as a Func field + TS's count-check guard
+    (helper.ts:965) — snprintf-style "Argument count mismatch" 43→0, and
+    module-level variadic extern calls flip reject→accept (TS parity).
+    (c) index-trait registry lookup — `_find_all_index_methods` scanned
+    only TraitT fields (stale "no generic impl registry" premise);
+    `x(i)` on a struct receiver (ArrayList) with unknown value soft-fell
+    to unit (TS: u8), poisoning every comparison built on it (32×
+    "Expected bool for and/or argument"). Now consults
+    `get_receiver_methods_by_name_from_env` (the TS
+    `concreteType.trait.fields` mirror).
+  - **⚠️ PINNED, UNPORTED FEATURE — ModuleT/Call overload dispatch:**
+    `(!)`/`(-)`/`(~)` are prelude overload impl-modules
+    (`Call :: (not, comptime_not)`); calling them soft-falls (the
+    `-(IntLit)` fold at function.yo:284 is the only workaround, per its
+    own comment). `!(x)` on an unknown bool → unit (TS: bool) — ~11+
+    swallows + every unary-operator use under def-eval. Feature-sized:
+    TS's checking-phase overload machinery (function.ts:807).
+  - **REMAINING TAIL:** unify-residue (49), incompatible (27), `&+`
+    ptr-arith (~15, known unported branch), casts on unit (~17), "Frame
+    level is different for different cases" (5 prelude + 12 std, inert,
+    uninvestigated). The `ComptimeIndex` call form `zlist(usize(0))`
+    soft-falls (likely related to the Call/comptime-index dispatch gaps).
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
