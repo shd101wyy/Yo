@@ -282,10 +282,39 @@ evaluate_begin_expression :: (
             .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
-          // Pass the function-body's expected return type when available.
-          // (Full synthesize_types support is Phase 3; we pass None here.)
+          // Pass the function-body's return type as the expected type for the
+          // return argument — mirrors TS begin.ts:1148-1163: for a
+          // FunctionBody context, `expectedType = { type:
+          // functionType.return.type, env }`; for async blocks / other
+          // contexts, keep the current expected type. Without this,
+          // `return(.Variant(...))` shorthand throws "Failed to infer enum
+          // variant type" at definition-time body evaluation (this was the
+          // single largest def-eval swallow category, 58× in std).
           old_expected := ctx.expected_type;
-          ctx.expected_type = Option(ExpectedTypeCtx).None;
+          ret_expected := match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .Some(fb_ctx) => match(
+              fb_ctx.kind,
+              .FunctionBody => match(
+                fb_ctx.func_type,
+                .Some(ft) => match(
+                  ft,
+                  .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box.*),
+                  _ => Option(TypeValue).None
+                ),
+                .None => Option(TypeValue).None
+              ),
+              _ => Option(TypeValue).None
+            ),
+            .None => Option(TypeValue).None
+          );
+          match(
+            ret_expected,
+            .Some(rt) => {
+              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt, env : env));
+            },
+            .None => ()
+          );
           evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, exn);
           ctx.expected_type = old_expected;
           ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg));
