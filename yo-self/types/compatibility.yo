@@ -223,6 +223,49 @@ _compat_impl :: (
     });
     return(true);
   });
+  // --- DynType (actual) vs SomeType (expected) ------------------------------
+  // The mirror of the rule above, for the (actual, expected) arg order used
+  // by `_filter_receiver_methods` (`are_types_compatible(receiver, pointee)`):
+  // a `Dyn(Trait)` RECEIVER must satisfy a `Self`-constrained pointee `*(Self)`
+  // so the filter flags `needs_pointer_conversion` and the call site addresses
+  // it. Maps to TS `areTypesCompatible(expected=SomeType, given=Dyn)`
+  // (compatibility.ts:662-684) — yo-self's actual≈given. Without it, a dyn
+  // method call (`value.print()` on `value : Dyn(TestDyn)`, self : `*(Self)`)
+  // synthesized `*(Self)` vs the bare `dyn(...)` arg and failed the
+  // tag-mismatch guard (tests/dyn.test.yo).
+  if(is_dyn_type(actual) && is_some_type(expected), {
+    erts := match(
+      expected,
+      .SomeT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    adrtt := match(
+      actual,
+      .DynT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    i := usize(0);
+    while(i < erts.len(), {
+      req := match(erts.get(i),.Some(v) => v,.None => TypeValue.Unit);
+      satisfied := false;
+      j := usize(0);
+      while(j < adrtt.len(), {
+        dt := match(adrtt.get(j),.Some(v) => v,.None => TypeValue.Unit);
+        if(recur(req, dt, false, visited), {
+          satisfied = true;
+        });
+        if(satisfied, {
+          break;
+        });
+        j = (j + usize(1));
+      });
+      if(!(satisfied), {
+        return(false);
+      });
+      i = (i + usize(1));
+    });
+    return(true);
+  });
   // --- Tag mismatch ---------------------------------------------------------
   if(type_value_tag(actual) != type_value_tag(expected), {
     return(false);

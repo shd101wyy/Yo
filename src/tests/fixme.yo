@@ -1,5 +1,11 @@
-takes_option_of_ref :: (fn(p : Option(ref(i32))) -> i32)(i32(0));
-
+pragma(Pragma.AllowUnsafe);
+TestDyn :: trait(
+  print : (fn(self : *(Self)) -> unit),
+  return_i32 : (fn(self : *(Self)) -> i32)
+);
+use_test_dyn :: (fn(value : Dyn(TestDyn)) -> i32)({
+  value.print();
+  return(value.return_i32());
+});
 main :: (fn() -> i32)(i32(0));
-
 export(main);

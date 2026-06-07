@@ -84,3 +84,28 @@ where(T <: Send), ...)`): the per-type and generic-impl field loops
 Result: std 151/151, tests/ 170/182 under propagation (dyn + gadts the
 only genuine remaining heads; http/hkt were flakes/now pass). Zero
 regression in the committed gate.
+
+## Update — dyn + gadts fixed (2026-06-08), tests/ propagation effectively complete
+
+- **dyn.test.yo** — `value.print()` on `value : Dyn(TestDyn)` with self
+  `*(Self)` synthesized `*(Self)` vs the bare `dyn(...)` arg → tag
+  mismatch. Root: `_filter_receiver_methods` calls
+  `are_types_compatible(receiver, pointee)` = `(Dyn, Self)`, but
+  compatibility only had the `is_some_type(actual) && is_dyn_type(expected)`
+  direction; the (actual=Dyn, expected=SomeT) direction was missing, so the
+  filter never flagged `needs_pointer_conversion` and the receiver wasn't
+  `&`-wrapped. Added the mirror direction (TS areTypesCompatible
+  expected=SomeType/given=Dyn, compatibility.ts:662-684).
+- **gadts.test.yo** — `eval_int_only` matching `Value(i32)` with only
+  IntVal+PairVal reported BoolVal missing. The match exhaustiveness scan
+  didn't skip GADT-unreachable variants. Ported `isGadtBranchReachable`
+  (match.ts:117) as `_is_gadt_branch_reachable` and applied it in the
+  exhaustiveness loop. The GADT type-constructor-args side table
+  (`register_gadt_type_constructor_args`) was never populated — added the
+  extraction at enum-build time (enum.ts:369-391: read the constructor
+  fn's comptime Type-universe params from the env), keyed by the enum id.
+
+Final tests/ propagation: **170/182**, remaining 12 = the 11 known-blocked
+(flowability port ×4, circular-by-design ×4, algebraic_effects, mutex,
+extern_unsafe_wrap) + occasional macro-dispatch heap-corruption flakes.
+No genuine evaluator gaps remain in tests/ under propagation.

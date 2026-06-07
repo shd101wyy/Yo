@@ -49,11 +49,13 @@ open(import("std/string"));
   is_comptime_int_type,
   is_comptime_float_type,
   is_comptime_string_type,
-  is_function_type_and_returns_comptime_value
+  is_function_type_and_returns_comptime_value,
+  is_some_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
+{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 {
@@ -964,6 +966,48 @@ evaluate_primitive_match :: (
 /// Evaluate a `match(...)` expression.
 ///
 /// Mirrors `evaluateMatch` in `src/evaluator/exprs/match.ts`.
+/// GADT branch reachability — mirrors `isGadtBranchReachable`
+/// (src/evaluator/exprs/match.ts:117). A variant is UNREACHABLE when the
+/// enum is instantiated with concrete type args that don't match the
+/// variant's `-> recur(...)` return-type args (e.g. `Value(i32).BoolVal`
+/// is unreachable because `BoolVal -> recur(bool)` and `bool != i32`).
+/// Non-GADT enums and SomeT (unrefined) instantiation args make every
+/// branch reachable. `variant_idx` indexes the enum's variant order.
+_is_gadt_branch_reachable :: (
+  fn(enum_id : str, variant_idx : usize) -> bool
+)({
+  vargs_opt := get_gadt_variant_args(enum_id);
+  tca_opt := get_gadt_type_constructor_args(enum_id);
+  match(
+    vargs_opt,
+    .None => true,
+    .Some(all_vargs) => match(
+      tca_opt,
+      .None => true,
+      .Some(tca) => {
+        gra := match(all_vargs.get(variant_idx),.Some(g) => g,.None => ArrayList(TypeValue).new());
+        // Empty return-args list = non-GADT variant → always reachable.
+        if(gra.len() == usize(0), {
+          return(true);
+        });
+        (reachable : bool) = true;
+        (k : usize) = usize(0);
+        while((k < tca.len()) && reachable, {
+          tk := match(tca.get(k),.Some(t) => t,.None => TypeValue.Unit);
+          gk := match(gra.get(k),.Some(g) => g,.None => TypeValue.Unit);
+          // Skip unrefined (SomeT) instantiation args — TS `!isSomeType(tca)`.
+          if(!(is_some_type(tk)), {
+            if(!(are_types_compatible(tk, gk)), {
+              reachable = false;
+            });
+          });
+          k = (k + usize(1));
+        });
+        reachable
+      }
+    )
+  )
+});
 evaluate_match :: (
   fn(
     expr : AstExpr,
@@ -1084,6 +1128,7 @@ evaluate_match :: (
     return(expr);
   });
   // Extract enum type fields
+  en_id := match(matched_type,.EnumT(eid, _, _, _, _, _, _) => eid, _ => String.new());
   en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _) => n, _ => String.new());
   en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
   en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
@@ -2008,7 +2053,10 @@ Supported patterns:
         match(
           en_vnames.get(vn_i),
           .Some(vname) => {
-            if(!(contains_str_in_list(checked_variant_names, vname.as_str())), {
+            // GADT-unreachable variants (e.g. BoolVal when matching
+            // Value(i32)) need not be covered — mirrors TS skipping them
+            // in the exhaustiveness scan (match.ts:1169).
+            if((!(contains_str_in_list(checked_variant_names, vname.as_str()))) && _is_gadt_branch_reachable(en_id.as_str(), vn_i), {
               missing_em.push(vname);
             });
           },

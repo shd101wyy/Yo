@@ -32,12 +32,12 @@ open(import("std/fmt"));
   BF_RECUR
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final } :: import("../../types/creators.yo");
-{ is_comptime_int_type } :: import("../../types/guards.yo");
+{ is_comptime_int_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -48,7 +48,7 @@ open(import("std/fmt"));
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_enum_type } :: import("./utils.yo");
-{ register_gadt_enum } :: import("./gadt_registry.yo");
+{ register_gadt_enum, register_gadt_type_constructor_args } :: import("./gadt_registry.yo");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -586,6 +586,74 @@ evaluate_enum_type :: (
   // is populated by the caller/match path.
   if(any_gadt, {
     register_gadt_enum(enum_id.as_str(), all_variant_gadt_args);
+    // typeConstructorArgs (enum.ts:369-391): when a GADT enum is built
+    // inside its type-constructor fn body (`Value(i32)` → `enum(...)`),
+    // record the concrete type args the constructor was called with —
+    // read from the env via the fn type's comptime (Type-universe) params.
+    // The match exhaustiveness check uses these to skip GADT-unreachable
+    // variants (tests/gadts.test.yo `eval_int_only` on `Value(i32)`).
+    match(
+      ctx.is_evaluating_function_body_or_async_block,
+      .Some(fab) => if(match(fab.kind,.FunctionBody => true, _ => false), {
+        match(
+          fab.func_type,
+          .Some(ft) => match(
+            ft,
+            .Func({ param_labels : fc_plabels, param_types : fc_ptypes }) => {
+              tca := ArrayList(TypeValue).new();
+              (tci : usize) = usize(0);
+              n_tcp := fc_plabels.len();
+              while(tci < n_tcp, {
+                p_lbl := match(fc_plabels.get(tci),.Some(l) => l,.None => String.from(""));
+                p_ty := match(fc_ptypes.get(tci),.Some(t) => t,.None => TypeValue.Unit);
+                // Comptime type param ≈ declared type is the `Type` universe.
+                if(is_type_0(p_ty), {
+                  vars := get_variables_from_env(env, p_lbl);
+                  if(vars.len() > usize(0), {
+                    match(
+                      vars.get(vars.len() - usize(1)),
+                      .Some(lastv) => match(
+                        lastv.value,
+                        .Some(vv) => match(
+                          vv,
+                          .TypeVal(tvb) => {
+                            _t := tca.push(tvb.*);
+                          },
+                          _ => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                });
+                tci = (tci + usize(1));
+              });
+              // Only register when every comptime param resolved to a type
+              // (mirrors TS `typeArgs.length === comptimeParams.length`).
+              n_comptime := usize(0);
+              (cti : usize) = usize(0);
+              while(cti < fc_ptypes.len(), {
+                match(
+                  fc_ptypes.get(cti),
+                  .Some(pt) => if(is_type_0(pt), {
+                    n_comptime = (n_comptime + usize(1));
+                  }),
+                  .None => ()
+                );
+                cti = (cti + usize(1));
+              });
+              if((tca.len() > usize(0)) && (tca.len() == n_comptime), {
+                register_gadt_type_constructor_args(enum_id.as_str(), tca);
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
