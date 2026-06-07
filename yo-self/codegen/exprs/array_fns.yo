@@ -269,7 +269,7 @@ generate_yo_array_fill :: (
               call_gen_expr(fill_value_arg, ctx, indent),
               .None => String.from("/* ERROR: __yo_array_fill failed to generate fill value */"),
               .Some(fill_value_code) => {
-                length := match(array_ty,.Array(_, n) => n, _ => usize(0));
+                length := match(array_ty,.Array(_, n, _) => n, _ => usize(0));
                 temp_var_name := array_fill_temp_var_name(call_expr, ctx);
                 index_var_name := array_fill_index_var_name(call_expr, ctx);
                 line_decl := String.from(indent.as_str());

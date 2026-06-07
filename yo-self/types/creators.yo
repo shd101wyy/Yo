@@ -67,7 +67,14 @@ t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
 t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
 t_slice :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element)));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
-  .Array(box(element), length)
+  .Array(box(element), length, String.from(""))
+);
+/// Array type whose LENGTH is an unresolved forall variable (`Array(T, U)`
+/// with `U : usize` in a forall list). `length` is a placeholder 0; the
+/// synthesizer binds `length_var` to the concrete count during matching
+/// (mirrors TS ArrayType.length being an UnknownValue with variableName).
+t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
+  .Array(box(element), usize(0), length_var)
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
@@ -274,7 +281,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .TypeUni(_) => TypeTag.TType,
     .Pointer(_) => TypeTag.TPtr,
     .Slice(_) => TypeTag.TSlice,
-    .Array(_, _) => TypeTag.TArray,
+    .Array(_, _, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
     .Func({ result : _ }) => TypeTag.TFunction,
     // Source-namespace structs keep the TModule tag (yo-self TypeTag is
@@ -329,6 +336,7 @@ export(
   t_ptr,
   t_slice,
   t_array,
+  t_array_var,
   t_func_simple,
   t_trait,
   t_trait_simple,

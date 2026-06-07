@@ -270,6 +270,13 @@ _resolve_one_forall_binding :: (
         !(is_some_type(b.*)) => Option(TypeValue).Some(b.*),
         true => Option(TypeValue).None
       ),
+      // VALUE-level forall (`forall(U : usize)` array lengths): the
+      // synthesizer binds the variable to an IntLit. Represent the
+      // binding by the variable's declared type (usize) — KNOWN GAP:
+      // method types that mention `U` in a LENGTH position would need a
+      // value substitution, which `substitute()` cannot express; current
+      // std impls (e.g. Array fill) don't, they only use `T`/`Self`.
+      .IntLit(_) => Option(TypeValue).Some(last_nvar.ty),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -298,7 +305,7 @@ _root_shape_class :: (fn(t : TypeValue) -> i32)(
       (en_name.len() == usize(0)) => i32(0),
       true => i32(2)
     ),
-    .Array(_, _) => i32(3),
+    .Array(_, _, _) => i32(3),
     .Slice(_) => i32(4),
     .Pointer(_) => i32(5),
     .Tuple(_, _) => i32(6),

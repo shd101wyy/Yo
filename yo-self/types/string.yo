@@ -62,7 +62,10 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
       ),
       .Pointer(inner) => `*(${recur(inner.*, _d + usize(1))})`,
       .Slice(inner) => `Slice(${recur(inner.*, _d + usize(1))})`,
-      .Array(inner, n) => `Array(${recur(inner.*, _d + usize(1))}, ${n})`,
+      .Array(inner, n, lv) => cond(
+        (lv.len() > usize(0)) => `Array(${recur(inner.*, _d + usize(1))}, ${lv})`,
+        true => `Array(${recur(inner.*, _d + usize(1))}, ${n})`
+      ),
       .Tuple(labels, types) => {
         body := String.from("");
         n := types.len();

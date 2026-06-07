@@ -276,7 +276,7 @@ t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
 t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
 t_slice :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element)));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
-  .Array(box(element), length)
+  .Array(box(element), length, String.from(""))
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
@@ -455,7 +455,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .TypeUni(_) => TypeTag.TType,
     .Pointer(_) => TypeTag.TPtr,
     .Slice(_) => TypeTag.TSlice,
-    .Array(_, _) => TypeTag.TArray,
+    .Array(_, _, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
     .Func({ result : _ }) => TypeTag.TFunction,
     .Struct({ id : _ }) => TypeTag.TStruct,
@@ -512,7 +512,7 @@ is_slice_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Slice(_) => true, _ => false)
 );
 is_array_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Array(_, _) => true, _ => false)
+  match(t,.Array(_, _, _) => true, _ => false)
 );
 is_function_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Func({ result : _ }) => true, _ => false)

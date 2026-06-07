@@ -57,7 +57,13 @@ TypeValue :: enum(
   // Compound types ---------------------------------------------------------
   Pointer(pointee : Box(Self)),
   Slice(element : Box(Self)),
-  Array(element : Box(Self), length : usize),
+  /// `length_var` mirrors the VALUE-ness of TS `ArrayType.length: Value`:
+  /// "" = `length` is the concrete element count; non-empty = the length is
+  /// an unresolved forall VARIABLE of that name (e.g. the `U` in
+  /// `impl(forall(T : Type, U : usize), Array(T, U), ...)`) and `length`
+  /// is a meaningless placeholder. TS stores an UnknownValue carrying
+  /// `variableName` and binds it during synthesis (synthesizer.ts:884).
+  Array(element : Box(Self), length : usize, length_var : String),
   /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
   /// field (empty `String` means positional). `field_types(i)` is the type.
   Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),

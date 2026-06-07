@@ -30,7 +30,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ type_value_tag, t_effects_row } :: import("../../types/creators.yo");
+{ type_value_tag, t_effects_row, t_usize } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_pointer_type } :: import("../../types/guards.yo");
 { TypeTag } :: import("../../types/tags.yo");
 {
@@ -408,7 +408,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
       });
       res
     },
-    .Array(elem, _) => recur(some_type_id, elem.*, visited, exn),
+    .Array(elem, _, _) => recur(some_type_id, elem.*, visited, exn),
     .Slice(elem) => recur(some_type_id, elem.*, visited, exn),
     .ComptimeListT(child) => recur(some_type_id, child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
@@ -1497,12 +1497,45 @@ _synthesize_types_impl :: (
   });
   // Case: Array + Array
   if(is_array_type(expected_ty) && is_array_type(given_ty), {
-    exp_elem := match(expected_ty,.Array(e, _) => e.*, _ => TypeValue.Unit);
-    giv_elem := match(given_ty,.Array(e, _) => e.*, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty,.Array(e, _, _) => e.*, _ => TypeValue.Unit);
+    giv_elem := match(given_ty,.Array(e, _, _) => e.*, _ => TypeValue.Unit);
     res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
-    // Array length synthesis skipped (yo-self Array uses a static usize, not an UnknownValue)
+    // Array LENGTH synthesis (mirrors TS synthesizer.ts:884-940): when the
+    // EXPECTED length is an unresolved forall variable and the GIVEN length
+    // is concrete, bind the variable in the expected env to the concrete
+    // count so `_resolve_one_forall_binding` sees `U := <n>`.
+    exp_lvar := match(expected_ty,.Array(_, _, lv) => lv, _ => String.from(""));
+    giv_len := match(given_ty,.Array(_, n, _) => n, _ => usize(0));
+    giv_lvar := match(given_ty,.Array(_, _, lv) => lv, _ => String.from(""));
+    if((exp_lvar.len() > usize(0)) && (giv_lvar.len() == usize(0)), {
+      lvar_vars := get_variables_from_env(ee, exp_lvar);
+      if(lvar_vars.len() > usize(0), {
+        match(
+          lvar_vars.get(lvar_vars.len() - usize(1)),
+          .Some(lvar_var) => {
+            lvar_var.value = Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string()));
+          },
+          .None => ()
+        );
+      }, {
+        ___ := add_variable_to_env(
+          ee,
+          exp_lvar.clone(),
+          t_usize(),
+          Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string())),
+          true,
+          false,
+          false,
+          false,
+          synthetic_token(exp_lvar, ee.module_path)
+        );
+      });
+    });
+    // Concrete-vs-concrete mismatched lengths fail compatibility later
+    // (compatibility.yo's Array arm); synthesis itself stays permissive,
+    // matching TS (which only binds, never rejects lengths here).
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: Slice + Slice

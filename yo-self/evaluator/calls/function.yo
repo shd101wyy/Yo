@@ -1243,7 +1243,7 @@ evaluate_function_call :: (
           // ----------------------------------------------------------------
           // Array construction: ArrayType(elem1, elem2, ...).
           // ----------------------------------------------------------------
-          .Array(_, _) =>
+          .Array(_, _, _) =>
             try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, exn),
           // ----------------------------------------------------------------
           // Slice construction (routed to array handler).
@@ -1807,6 +1807,20 @@ evaluate_function_call :: (
           );
           ct_func_type := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
           ct_func_value := match(callee_value,.Some(v) => v,.None => EvalValue.UnitVal);
+          // Bind `Self` to the static dot-receiver for the CTFE route too —
+          // previously only the inline-body path did this, so a
+          // comptime-returning generic-impl METHOD (e.g. Array's
+          // `fill : (fn(comptime(val) : T) -> comptime(Self))`) executed
+          // with the CALLER's stale ctx.self_type ("__yo_array_fill expects
+          // an ArrayType, got i8" inside i8's ToString impl).
+          old_self_ty_ct := ctx.self_type;
+          match(
+            _static_dot_receiver_self_type(func_expr, ctx),
+            .Some(st_ct) => {
+              ctx.self_type = Option(TypeValue).Some(st_ct);
+            },
+            .None => ()
+          );
           // Macro expansion must fully evaluate the body to produce the
           // expanded code: clear the validation/analysis flags so CTFE
           // actually executes instead of short-circuiting to UnknownVal
@@ -1835,6 +1849,7 @@ evaluate_function_call :: (
             ctx.is_analyzing_ctfe_capability = mac_old_analyzing;
             ctx.is_executing = mac_old_executing;
           });
+          ctx.self_type = old_self_ty_ct;
           // Macro call with an `unquote(...)` return: the CTFE result is the
           // expansion (an Expr value). Evaluate the expanded expression in
           // the caller env and store its info as this call's info — the

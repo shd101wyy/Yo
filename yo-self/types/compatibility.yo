@@ -265,9 +265,17 @@ _compat_impl :: (
       .Slice(einner) => recur(ainner.*, einner.*, require_exact, visited),
       _ => false
     ),
-    .Array(ainner, alen) => match(
+    .Array(ainner, alen, alvar) => match(
       expected,
-      .Array(einner, elen) => ((alen == elen) && recur(ainner.*, einner.*, require_exact, visited)),
+      .Array(einner, elen, elvar) => {
+        // Variable-length arrays (forall `U : usize` patterns) are
+        // length-compatible with anything; concrete lengths must match.
+        len_ok := cond(
+          ((alvar.len() > usize(0)) || (elvar.len() > usize(0))) => true,
+          true => (alen == elen)
+        );
+        len_ok && recur(ainner.*, einner.*, require_exact, visited)
+      },
       _ => false
     ),
     .Tuple(alabels, atypes) => match(

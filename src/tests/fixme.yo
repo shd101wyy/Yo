@@ -1,37 +1,8 @@
-{ String } :: import("std/string");
-{ println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-ZV :: enum(
-  ZBoxed(b : Box(String)),
-  ZPlain(n : usize)
-);
-derive(ZV, Clone);
-main :: (fn() -> unit)({
-  args := ArrayList(String).new();
-  (zk : usize) = usize(0);
-  while(zk < usize(50), {
-    zs := String.from("item");
-    zs.push_string(`#${zk}`);
-    args.push(zs);
-    zk = (zk + usize(1));
-  });
-  out := ArrayList(ZV).new();
-  (zr : usize) = usize(0);
-  while(zr < usize(20000), {
-    (ai : usize) = usize(0);
-    while(ai < args.len(), {
-      ae := match(args.get(ai),.Some(a) => a,.None => String.new());
-      if((ai % usize(2)) == usize(0), {
-        out.push(ZV.ZBoxed(b : Box(String)(ae.clone())));
-        ai = (ai + usize(1));
-        continue;
-      });
-      out.push(ZV.ZPlain(n : ae.len()));
-      ai = (ai + usize(1));
-    });
-    out.clear();
-    zr = (zr + usize(1));
-  });
-  println(`done ${out.len()}`);
+zfn :: (fn(zc : u8) -> u8)({
+  zbuf := Array(u8, usize(2)).fill(0);
+  zbuf(0) = zc;
+  (zb : u8) = zbuf(0);
+  zb
 });
+main :: (fn() -> unit)(());
 export(main);
