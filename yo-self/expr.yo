@@ -285,6 +285,48 @@ AstExpr :: enum(
   FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), is_infix : bool, token : Token)
 );
 derive(AstExpr, Clone);
+/// Global expression-id counter — moved here from parser.yo so SYNTHESIZED
+/// nodes (gensym, quote expansions, fresh-id clones below) can mint ids
+/// from the SAME sequence as parsed nodes. In TS, per-node eval data lives
+/// on the object (`expr.$`) so object identity is the key; yo-self keys
+/// the ExprInfo table by this id — every distinct evaluated node MUST have
+/// a distinct id or table writes drop values other holders still use.
+(g_next_global_expr_id : usize) = usize(0);
+/// Mint a fresh ExprId (parser nodes and synthesized nodes share the
+/// sequence).
+alloc_global_expr_id :: (fn() -> ExprId)({
+  id := g_next_global_expr_id;
+  g_next_global_expr_id = (g_next_global_expr_id + usize(1));
+  id
+});
+/// Deep-clone an expression giving every node a FRESH id — the faithful
+/// mirror of TS `cloneExpr` (expr.ts:513), which creates new objects and
+/// therefore new `$` slots. The derived `AstExpr` Clone keeps ids, so a
+/// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
+/// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs,
+/// macro templates/expansions, and quoted-argument binding.
+clone_expr_fresh_ids :: (fn(e : AstExpr) -> AstExpr)(
+  match(
+    e,
+    .Atom(_, tok) => AstExpr.Atom(alloc_global_expr_id(), tok.clone()),
+    .FnCall(_, func_box, args, is_infix, tok) => {
+      new_args := ArrayList(AstExpr).new();
+      (ci : usize) = usize(0);
+      n := args.len();
+      while(ci < n, {
+        match(
+          args.get(ci),
+          .Some(a) => {
+            new_args.push(recur(a));
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      AstExpr.FnCall(alloc_global_expr_id(), box(recur(func_box.*)), new_args, is_infix, tok.clone())
+    }
+  )
+);
 /// Build a placeholder Atom expression used as a fallback in error paths.
 make_err_expr :: (fn() -> AstExpr)(
   .Atom(
@@ -822,3 +864,4 @@ export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
+export(alloc_global_expr_id, clone_expr_fresh_ids);

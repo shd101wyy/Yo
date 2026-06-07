@@ -25,6 +25,7 @@ open(import("std/string"));
 { t_unit, t_some_t } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
+{ macro_return_is_unquote } :: import("../types/function.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 {
   EvalValue,
@@ -356,6 +357,50 @@ evaluate_comptime_fn_call :: (
   // During CTFE capability analysis, return an UnknownVal immediately without
   // executing the body. This prevents infinite recursion in the analysis pass.
   if(ctx.is_analyzing_ctfe_capability, {
+    return(
+      ComptimeFnCallResult(
+        value : create_unknown_val(return_type),
+        caller_env : caller_env,
+        callee_env : callee_env
+      )
+    );
+  });
+  // During the function-call CHECKING phase (overload trial dry-runs),
+  // never execute CTFE — return an UnknownVal of the declared return type.
+  // Mirrors TS `skipCtfeExecution` + `isInFunctionCallCheckingPhase`
+  // (function.ts:822-831 sets both on every dry-run; helper.ts:1735 then
+  // skips execution): trials are TYPE checks only. Without this, each
+  // overload dry-run re-evaluated its cloned arg exprs INCLUDING macro
+  // expansion + CTFE, going exponential in nested operator-call chains
+  // (std/glob.yo never finished a single check).
+  // During the function-call CHECKING phase (overload trial dry-runs),
+  // skip execution ONLY for non-type CTFE functions — mirrors TS
+  // function.ts:1843 `isInFunctionCallCheckingPhase && isNonTypeCtfeFunction`
+  // where isNonTypeCtfeFunction = comptime-only return AND NOT an unquote
+  // macro AND NOT a type-returning constructor AND no forall params
+  // (function.ts:782-789, "prevents exponential blowup when checking
+  // recursive CTFE functions"; type constructors MUST still execute so the
+  // trial can resolve argument types). Without any gate, each overload
+  // dry-run re-evaluated cloned arg exprs including nested CTFE —
+  // exponential in nested operator chains (std/glob.yo never finished).
+  ctfe_gate_result_is_comptime := match(
+    function_type,
+    .Func({ result_is_comptime_only : g_rico }) => g_rico,
+    _ => false
+  );
+  ctfe_gate_forall_n := match(
+    function_type,
+    .Func({ forall_labels : g_fls }) => g_fls.len(),
+    _ => usize(0)
+  );
+  if((
+    (
+      (ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime) &&
+        (!(is_type_hierarchy_type(return_type)))
+    ) &&
+      (!(macro_return_is_unquote(func_id_str.as_str())))
+  ) &&
+    (ctfe_gate_forall_n == usize(0)), {
     return(
       ComptimeFnCallResult(
         value : create_unknown_val(return_type),

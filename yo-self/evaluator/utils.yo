@@ -647,6 +647,14 @@ merge_and_check_envs :: (
   if(bodies.len() == usize(0), {
     return(env);
   });
+  // Zero-frame env guard: `frames.len() - 1` UNDERFLOWS to 2^64-1 and the
+  // per-frame loop below spins (effectively) forever calling
+  // `frames.get(i)` → `.None` → continue (std/glob.yo never finished one
+  // check). TS's `for (let i = 0; i <= envs.length - 1; ...)` simply does
+  // not run when the env has no frames — mirror that.
+  if(env.frames.len() == usize(0), {
+    return(env);
+  });
   max_frame_level := (env.frames.len() - usize(1));
   // Collect case environments from the expr_info_table.
   case_envs := ArrayList(Environment).new();

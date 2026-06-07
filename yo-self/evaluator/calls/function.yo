@@ -19,6 +19,7 @@ open(import("std/string"));
   ast_expr_token,
   ast_expr_id,
   make_err_expr,
+  clone_expr_fresh_ids,
   ast_expr_is_fn_call_of,
   BF_DOT
 } :: import("../../expr.yo");
@@ -37,8 +38,9 @@ open(import("std/string"));
   get_type_trait_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ get_func_param_defaults } :: import("../types/function.yo");
-{ t_unit, t_type, t_comptime_int, t_type_app } :: import("../../types/creators.yo");
+{ get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote } :: import("../types/function.yo");
+{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+{ t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
 { TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, type_of_eval_value, is_type_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
@@ -73,6 +75,10 @@ open(import("std/string"));
 } :: import("./trait_type.yo");
 { try_to_implement_array_by_array_type } :: import("./array_type.yo");
 { has_index_impl, try_to_call_with_index_trait } :: import("./index_trait.yo");
+/// Master switch for macro-call dispatch in the FuncVal arm — see the
+/// comment at its use site. Flipped to `true` by the def-eval propagation
+/// experiment patch.
+MACRO_DISPATCH_ENABLED :: false;
 { try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime_list_type.yo");
 {
   is_convertible_numeric_type,
@@ -272,13 +278,16 @@ _trial_call_overload_candidate :: (
   ) -> unit
 )({
   trial_exn := Exception(throw : ((_err) -> unwind(())));
+  // FRESH-ID clones — TS trials use cloneExpr precisely so the dry-run
+  // writes fresh `$` slots instead of polluting the real expr's eval data;
+  // an id-preserving clone would overwrite the real ExprInfo entries.
   cloned_args := ArrayList(AstExpr).new();
   (ci : usize) = usize(0);
   while(ci < args.len(), {
     match(
       args.get(ci),
       .Some(a) => {
-        cloned_args.push(a.clone());
+        cloned_args.push(clone_expr_fresh_ids(a));
       },
       .None => ()
     );
@@ -287,7 +296,7 @@ _trial_call_overload_candidate :: (
   _ := try_to_call_function_with_arguments(
     Option(EvalValue).Some(fn_val),
     fn_ty,
-    call_expr.clone(),
+    clone_expr_fresh_ids(call_expr),
     func_expr,
     cloned_args,
     callee_env,
@@ -448,6 +457,16 @@ _try_expand_call_overload :: (
   });
   func_expr := match(call_expr,.FnCall(_, fb, _, _, _) => fb.*, _ => evaluated_callee);
   // Trial each candidate; collect the indices that type-check.
+  // The trials run under is_in_function_call_checking_phase so NESTED
+  // comptime/macro calls short-circuit to UnknownVal instead of executing
+  // (TS function.ts:822-831 sets isInFunctionCallCheckingPhase +
+  // skipCtfeExecution on each dry-run). Without this, every trial
+  // re-evaluated its cloned arg exprs INCLUDING macro expansion and CTFE —
+  // exponential in nested operator-call chains (std/glob.yo never
+  // finished). Restored HERE (not inside the helper) because the trial's
+  // swallow handler unwinds past the helper's own tail on failure.
+  old_checking_ph := ctx.is_in_function_call_checking_phase;
+  ctx.is_in_function_call_checking_phase = true;
   successes := ArrayList(usize).new();
   (cand_i : usize) = usize(0);
   while(cand_i < cand_vals.len(), {
@@ -460,6 +479,7 @@ _try_expand_call_overload :: (
     });
     cand_i = (cand_i + usize(1));
   });
+  ctx.is_in_function_call_checking_phase = old_checking_ph;
   if(successes.len() == usize(0), {
     return(());
   });
@@ -1408,31 +1428,58 @@ evaluate_function_call :: (
         // Number of regular args actually supplied (the rest of `n_a` are
         // evidence args, which follow the regulars in `evaled_arg_infos`).
         n_supplied_reg := if(n_a >= n_ev, n_a - n_ev, n_a);
+        // Macro-call detection (quoted params / unquote return), looked up
+        // from the macro registry keyed by this FuncVal's id (registered at
+        // fn-type evaluation, re-keyed by
+        // `try_to_implement_function_by_function_type`). Mirrors TS
+        // `parameter.isQuote` / `functionType.return.isUnquote`.
+        // Macro DISPATCH is part of the def-eval propagation experiment
+        // layer, NOT enabled in committed builds: executing macro bodies
+        // intermittently corrupts the heap (allocator SIGTRAPs at innocent
+        // sites; ~50%% on heavy files) — the underlying Rc/copy issue is
+        // tracked in issues/codegen-continue-in-while-heap-corruption.md
+        // and issues/yo-self-macro-dispatch-corruption.md. The REGISTRY
+        // (quoted params / unquote returns) stays populated so the
+        // experiment patch only has to flip this constant.
+        fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.as_str()));
         // Evaluate all arguments.
         evaled_arg_infos := ArrayList(ExprInfo).new();
         (ai : usize) = usize(0);
         while(ai < n_a, {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
-          evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
-          arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
-          arg_info := match(
-            arg_info_opt,
-            .Some(i) => i,
-            .None => {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(arg_expr),
-                    String.from("evaluate_function_call: arg not evaluated"),
-                    false,
-                    .None
+          // Quoted parameter: bind the raw argument AST as an `Expr` value
+          // WITHOUT evaluating it (TS helper.ts:350 — "This is for macro
+          // function, no need to evaluate the argExpr"). if/else rather
+          // than an early `continue` — the continue shape in this loop
+          // coincided with intermittent malloc SIGTRAPs (heap corruption
+          // bisected to this file); the branch shape is equivalent and
+          // avoids the skipped loop tail.
+          if(fv_is_macro && is_param_quoted(func_id_fv.as_str(), ai), {
+            q_info := new_expr_info(env, t_expr_t());
+            q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(box(clone_expr_fresh_ids(arg_expr))));
+            _push_q := evaled_arg_infos.push(q_info);
+          }, {
+            evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
+            arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
+            arg_info := match(
+              arg_info_opt,
+              .Some(i) => i,
+              .None => {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(arg_expr),
+                      String.from("evaluate_function_call: arg not evaluated"),
+                      false,
+                      .None
+                    )
                   )
-                )
-              );
-              new_expr_info(env, t_unit())
-            }
-          );
-          _push_arg := evaled_arg_infos.push(arg_info);
+                );
+                new_expr_info(env, t_unit())
+              }
+            );
+            _push_arg := evaled_arg_infos.push(arg_info);
+          });
           ai = (ai + usize(1));
         });
         // Build a fresh environment for the function body.
@@ -1496,6 +1543,11 @@ evaluate_function_call :: (
         );
         // Infer forall type params from argument types.
         n_forall := forall_names.len();
+        // Record the (name -> bound type) pairs so the declared return
+        // type's forall SomeTs can be substituted after binding (see the
+        // runtime-return path below).
+        fa_bound_names := ArrayList(String).new();
+        fa_bound_types := ArrayList(TypeValue).new();
         (fa_i : usize) = usize(0);
         while(fa_i < n_forall, {
           fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
@@ -1521,6 +1573,8 @@ evaluate_function_call :: (
                 false,
                 synthetic_token(fa_name, env.module_path)
               );
+              fa_bound_names.push(fa_name.clone());
+              fa_bound_types.push(arg_info.ty);
               fa_bound = true;
             });
             ptn_i = (ptn_i + usize(1));
@@ -1531,6 +1585,8 @@ evaluate_function_call :: (
             match(
               recv_type_args.get(fa_i),
               .Some(rta) => {
+                fa_bound_names.push(fa_name.clone());
+                fa_bound_types.push(rta.clone());
                 _add_forall_rt := add_variable_to_env(
                   fresh_env,
                   fa_name,
@@ -1720,7 +1776,12 @@ evaluate_function_call :: (
             ok
           }
         );
-        if((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || all_args_are_types, {
+        // Macro calls (quoted params / unquote return) must execute their
+        // body to produce the expansion, so they route through the comptime
+        // path regardless of the declared return type (TS function.ts:1932
+        // `isMacroCall` always calls tryToCallFunctionWithArguments with an
+        // executing context).
+        if(((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || all_args_are_types) || fv_is_macro, {
           ct_arg_entries := ArrayList(ArgEntry).new();
           (ct_ai : usize) = usize(0);
           while(ct_ai < evaled_arg_infos.len(), {
@@ -1746,6 +1807,19 @@ evaluate_function_call :: (
           );
           ct_func_type := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
           ct_func_value := match(callee_value,.Some(v) => v,.None => EvalValue.UnitVal);
+          // Macro expansion must fully evaluate the body to produce the
+          // expanded code: clear the validation/analysis flags so CTFE
+          // actually executes instead of short-circuiting to UnknownVal
+          // (TS function.ts:1956-1964 — `isValidatingFunctionDefinition:
+          // false, isAnalyzingCtfeCapability: false, isExecuting: true`).
+          mac_old_validating := ctx.is_validating_function_definition;
+          mac_old_analyzing := ctx.is_analyzing_ctfe_capability;
+          mac_old_executing := ctx.is_executing;
+          if(fv_is_macro, {
+            ctx.is_validating_function_definition = false;
+            ctx.is_analyzing_ctfe_capability = false;
+            ctx.is_executing = true;
+          });
           ct_result := evaluate_comptime_fn_call(
             Option(AstExpr).Some(func_expr),
             ct_func_type,
@@ -1756,6 +1830,48 @@ evaluate_function_call :: (
             ctx,
             exn
           );
+          if(fv_is_macro, {
+            ctx.is_validating_function_definition = mac_old_validating;
+            ctx.is_analyzing_ctfe_capability = mac_old_analyzing;
+            ctx.is_executing = mac_old_executing;
+          });
+          // Macro call with an `unquote(...)` return: the CTFE result is the
+          // expansion (an Expr value). Evaluate the expanded expression in
+          // the caller env and store its info as this call's info — the
+          // expansion's type/value ARE the call's type/value
+          // (TS function.ts:1976-2005).
+          if(macro_return_is_unquote(func_id_fv.as_str()), {
+            match(
+              ct_result.value,
+              .ExprVal(expanded_box) => {
+                // FRESH-ID CLONE of the expansion before evaluating — the
+                // CTFE result still references the tree, and id-preserving
+                // copies alias ExprInfo-table entries (see the
+                // template-clone comment in builtins/quote.yo).
+                expanded_expr := evaluate_expression_raw(clone_expr_fresh_ids(expanded_box.*), ct_result.caller_env, ctx, exn);
+                exp_info := match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr)),
+                  .Some(i) => i,
+                  .None => new_expr_info(ct_result.caller_env, ret_type)
+                );
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), exp_info);
+                _ := param_vars;
+                return(expr);
+              },
+              _ => {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      tok,
+                      String.from("Expected macro function to return an Expr value."),
+                      false,
+                      .None
+                    )
+                  )
+                );
+              }
+            );
+          });
           out_ct := new_expr_info(ct_result.caller_env, ret_type);
           out_ct.value = Option(EvalValue).Some(ct_result.value);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
@@ -1777,8 +1893,50 @@ evaluate_function_call :: (
         // rely on — verified: yo-self 53->57, std 150->151, tests 154->155, 0
         // regressions across 560 files.
         if((!(is_type_hierarchy_type(ret_type))) && (!(callee_result_is_comptime)), {
-          out_rt := new_expr_info(env, ret_type);
-          out_rt.value = Option(EvalValue).Some(create_unknown_val(ret_type));
+          // Resolve forall SomeTs in the declared return type using the
+          // forall bindings just inferred from the call arguments — keyed
+          // by NAME against the SomeT occurrences in the return type, each
+          // with ITS OWN recorded frame level. (The levels are the callee's
+          // definition-site levels, which a fresh call env cannot confirm,
+          // so the env-lookup resolver returns them unresolved; TS instead
+          // re-evaluates the return type EXPRESSION in the callee env,
+          // helper.ts:1282 — a plain name lookup.) E.g. `(bit_not) ::
+          // (fn(forall(_Self), self : _Self, ...) -> _Self)` called with
+          // `self : u32` must return u32, not the abstract `_Self` SomeT.
+          (resolved_ret : TypeValue) = ret_type;
+          if(fa_bound_names.len() > usize(0), {
+            ret_somes := get_all_some_types(ret_type);
+            if(ret_somes.len() > usize(0), {
+              s_ret := subst_new();
+              (s_ret_any : bool) = false;
+              (rsi : usize) = usize(0);
+              while(rsi < ret_somes.len(), {
+                rst := match(ret_somes.get(rsi),.Some(t) => t,.None => t_unit());
+                match(
+                  rst,
+                  .SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _) => {
+                    (bni : usize) = usize(0);
+                    while(bni < fa_bound_names.len(), {
+                      bn := match(fa_bound_names.get(bni),.Some(x) => x,.None => String.from(""));
+                      if(bn.as_str() == rst_name.as_str(), {
+                        bt := match(fa_bound_types.get(bni),.Some(t) => t,.None => t_unit());
+                        subst_add(s_ret, rst_name.clone(), rst_lvl, bt);
+                        s_ret_any = true;
+                      });
+                      bni = (bni + usize(1));
+                    });
+                  },
+                  _ => ()
+                );
+                rsi = (rsi + usize(1));
+              });
+              if(s_ret_any, {
+                resolved_ret = substitute(s_ret, ret_type);
+              });
+            });
+          });
+          out_rt := new_expr_info(env, resolved_ret);
+          out_rt.value = Option(EvalValue).Some(create_unknown_val(resolved_ret));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
           _ := param_vars;
           return(expr);

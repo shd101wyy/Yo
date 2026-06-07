@@ -497,10 +497,57 @@ ${rhs_str}`,
         )
       );
     });
+    // typeName stamping at `::` binding — mirrors TS
+    // initialization-assignment.ts:343-367: `str :: newtype(...)` names the
+    // struct "str", `Color :: enum(...)` names the enum, etc. TS mutates
+    // the shared type object in place; yo-self TypeValues are value-typed,
+    // so rebuild the TypeVal with the binding name filled (only when the
+    // current name is empty) before storing. Without this, name-keyed
+    // checks — e.g. panic's `typeName === "str"` (panic.ts:88) — can never
+    // match; under propagated def-eval the prelude's `assert` failed on it
+    // and cascaded across 96 std files.
+    stamped_rhs_value_opt := match(
+      rhs_value_opt,
+      .Some(rv) => match(
+        rv,
+        .TypeVal(tv_box) => {
+          binding_name := String.from(ast_expr_token(actual_lhs).value.as_str());
+          stamped_ty := match(
+            tv_box.*,
+            .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
+              (st_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
+              ),
+              true => Option(TypeValue).None
+            ),
+            .EnumT(en_id, en_name, en_vns, en_vfs, en_sel, en_vfl, en_vd) => cond(
+              (en_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd)
+              ),
+              true => Option(TypeValue).None
+            ),
+            .Union(un_name, un_fls, un_fts) => cond(
+              (un_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.Union(binding_name, un_fls, un_fts)
+              ),
+              true => Option(TypeValue).None
+            ),
+            _ => Option(TypeValue).None
+          );
+          match(
+            stamped_ty,
+            .Some(new_ty) => Option(EvalValue).Some(EvalValue.TypeVal(box(new_ty))),
+            .None => rhs_value_opt
+          )
+        },
+        _ => rhs_value_opt
+      ),
+      .None => rhs_value_opt
+    );
     // Determine the value to store.
     lhs_value_opt := cond(
       effective_is_compile_time_only => match(
-        rhs_value_opt,
+        stamped_rhs_value_opt,
         .Some(rv) => Option(EvalValue).Some(clone_value(rv, true)),
         .None => Option(EvalValue).Some(create_unknown_val(lhs_type))
       ),

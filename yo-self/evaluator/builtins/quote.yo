@@ -19,6 +19,7 @@ open(import("std/collections/array_list"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
+  clone_expr_fresh_ids,
   BK_QUOTE
 } :: import("../../expr.yo");
 {
@@ -149,9 +150,12 @@ process_unquotes_in_expr :: (
         if(is_unknown_val(val), {
           return(expr);
         });
+        // FRESH-ID CLONE of the spliced AST — `eb.*` alone embeds the
+        // env-bound ExprVal's nodes (and their ExprInfo keys) into the
+        // expansion; see the template-clone comment in `evaluate_quote`.
         inner_expr := match(
           val,
-          .ExprVal(eb) => eb.*,
+          .ExprVal(eb) => clone_expr_fresh_ids(eb.*),
           _ => {
             exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"), false,.None)));
             make_err_expr()
@@ -230,7 +234,7 @@ process_unquotes_in_expr :: (
                                   .None => (),
                                   .Some(elem) => {
                                     if(is_expr_val(elem), {
-                                      inner_node := match(elem,.ExprVal(eb) => eb.*, _ => arg);
+                                      inner_node := match(elem,.ExprVal(eb) => clone_expr_fresh_ids(eb.*), _ => arg);
                                       new_args.push(inner_node);
                                     }, {
                                       new_args.push(arg);
@@ -283,8 +287,15 @@ evaluate_quote :: (
       return(expr);
     }
   );
-  // Process unquotes inside the quoted expression.
-  quoted := process_unquotes_in_expr(arg, env, ctx, exn);
+  // Process unquotes inside a FRESH-ID CLONE of the quoted template. The
+  // template is part of the macro fn's body AST and is expanded on EVERY
+  // call; a derived (id-preserving) clone makes every expansion share
+  // ExprInfo-table keys with the template AND with every other expansion
+  // of the same macro — table writes then drop values other holders still
+  // reference (intermittent allocator SIGTRAPs). TS's cloneExpr creates
+  // new objects (fresh `$` slots); `clone_expr_fresh_ids` is its faithful
+  // mirror under the id-keyed table.
+  quoted := process_unquotes_in_expr(clone_expr_fresh_ids(arg), env, ctx, exn);
   // Wrap result in ExprVal and register ExprInfo.
   val := EvalValue.ExprVal(box(quoted));
   out_info := new_expr_info(env, t_expr_t());

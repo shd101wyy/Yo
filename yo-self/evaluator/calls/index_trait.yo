@@ -264,7 +264,7 @@ _find_index_method :: (
       .Some(m) => {
         match(
           m.method_type,
-          .Func({ param_types, result : result_box }) => {
+          .Func({ param_types, result : result_box, param_is_ref }) => {
             if(param_types.len() == usize(2), {
               p0_opt := param_types.get(usize(0));
               p1_opt := param_types.get(usize(1));
@@ -275,10 +275,20 @@ _find_index_method :: (
                     p1_opt,
                     .Some(p1) => {
                       ret_ty := result_box.*;
+                      // self must be a pointer type OR a `ref` parameter —
+                      // both `(self : *(Self), ...)` and the modern
+                      // `(ref(self) : Self, ...)` shape are accepted
+                      // (TS index-trait.ts:153 `!isPtrType(selfParam.type)
+                      // && !selfParam.isRef`).
                       p0_is_ptr := is_pointer_type(p0);
+                      p0_is_ref := match(
+                        param_is_ref.get(usize(0)),
+                        .Some(b) => b,
+                        .None => false
+                      );
                       p1_compatible := are_types_compatible(p1, arg_type);
                       ret_is_ptr := is_pointer_type(ret_ty);
-                      if((p0_is_ptr && p1_compatible) && ret_is_ptr, {
+                      if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
                         found = Option(_IndexMethodEntry).Some(m);
                       });
                     },

@@ -340,6 +340,37 @@ collect_module_deps :: (
 // so the loader is wired through this slot (set in the init IIFE below).
 (g_demand_loader : Option((fn(path : String) -> LoadModuleResult))) =
   Option((fn(path : String) -> LoadModuleResult)).None;
+/// Evaluate a module's top-level exprs, catching any evaluator error
+/// locally so the caller can unregister the currently-loading entry
+/// before re-throwing. Success: pushes the module value to `out`.
+/// Failure: the handler PRINTS the error (handlers cannot capture
+/// outer runtime vars, and an unwound String loses its Rc storage)
+/// and unwinds — `out` stays empty, which is the caller's signal.
+_eval_module_exprs_capturing_error :: (
+  fn(
+    mod_exprs : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(EvalValue)
+  ) -> bool
+)({
+  // Same handler shape as `check_single_file`'s top-level handler:
+  // print the error, unwind a bool. Handlers cannot reference outer
+  // runtime variables (locals OR module globals), and an unwound String
+  // loses its Rc storage — printing here is the only way to preserve
+  // the message.
+  local_exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`check: error in: ${err.to_string()}`);
+        unwind(false)
+      }
+    )
+  );
+  result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, local_exn);
+  ___ := out.push(result.module_value);
+  true
+});
 /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
 /// register its exports. Registers it as "loading" (with its live env) BEFORE
 /// evaluating, so a circular import resolves to its partial exports. Uses the
@@ -364,9 +395,23 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   ctx.load_module = g_demand_loader;
   register_evaluate_expression();
   register_loading(abs.clone(), env);
-  result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, exn);
+  out_vals := ArrayList(EvalValue).new();
+  _ := _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals);
+  // ALWAYS unregister — a leaked currently-loading entry poisons every
+  // LATER check that imports this module: `demand_load_module` then
+  // returns partial exports from the dead env (hangs/crashes; see
+  // issues/yo-self-dir-check-state-corruption-after-failure.md).
   unregister_loading(abs.as_str());
-  register_module(abs.clone(), result.module_value);
+  match(
+    out_vals.get(usize(0)),
+    .Some(mv) => {
+      register_module(abs.clone(), mv);
+    },
+    .None => {
+      // Root-cause detail printed by the helper's handler.
+      exn.throw(dyn(`Failed to evaluate module "${abs.as_str()}"`));
+    }
+  );
 });
 /// Demand-driven `ctx.load_module`. `path` is the resolved `file://` abs path
 /// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
@@ -585,15 +630,16 @@ check_single_file :: (
   register_evaluate_expression();
   register_loading(entry_abs.clone(), env);
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
-  _r := evaluate_anonymous_module_begin_exprs(
-    exprs,
-    env,
-    ctx,
-    false,
-    false,
-    local_exn
-  );
+  out_vals_cf := ArrayList(EvalValue).new();
+  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf);
+  // ALWAYS unregister, error or not — a leaked currently-loading entry
+  // poisons every LATER file in a directory check (see
+  // issues/yo-self-dir-check-state-corruption-after-failure.md).
   unregister_loading(entry_abs.as_str());
+  if(out_vals_cf.len() == usize(0), {
+    // Root-cause detail printed by the helper's handler.
+    return(false);
+  });
   println(`check: ${input_path} — evaluator OK`);
   true
 });

@@ -70,6 +70,12 @@ evaluate_address_call :: (
     );
   });
   // Adjust expected type: if expected is a pointer, use the pointee type.
+  // Build a FRESH ExpectedTypeCtx (mirrors TS ptr-fns.ts:69
+  // `{...expectedType, type: childType}`) — ExpectedTypeCtx is an
+  // `object` (reference semantics), so mutating an alias of the current
+  // one would corrupt the EXPECTED TYPE captured by enclosing
+  // expressions (e.g. a match arm's `et.ty` became the pointee, making
+  // `.None => panic(...)` arms fail "Expected u8, Actual *(u8)").
   old_expected := ctx.expected_type;
   match(
     ctx.expected_type,
@@ -77,9 +83,9 @@ evaluate_address_call :: (
       match(
         ectx.ty,
         .Pointer(pointee_box) => {
-          (new_ectx : ExpectedTypeCtx) = ectx;
-          new_ectx.ty = pointee_box.*;
-          ctx.expected_type = Option(ExpectedTypeCtx).Some(new_ectx);
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(
+            ExpectedTypeCtx(ty : pointee_box.*, env : ectx.env)
+          );
         },
         _ => ()
       );

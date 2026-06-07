@@ -447,10 +447,28 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
 );
 /// Internal helper: recursively collect all SomeT instances from `ty` into `acc`.
 /// Phase 3: no cycle detection (safe for acyclic TypeValue trees).
+/// True iff `id` is already in `visited` (linear scan; visited lists are tiny).
+_id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
+  (i : usize) = usize(0);
+  n := visited.len();
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      visited.get(i),
+      .Some(v) => if(v == id, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 _collect_some_types_into :: (
   fn(
     ty : TypeValue,
-    acc : ArrayList(TypeValue)
+    acc : ArrayList(TypeValue),
+    visited_ids : ArrayList(String)
   ) -> unit
 )(
   match(
@@ -459,54 +477,72 @@ _collect_some_types_into :: (
       acc.push(ty);
     },
     .TypeAppT(constructor : con, args : args_list) => {
-      recur(con.*, acc);
+      recur(con.*, acc, visited_ids);
       (i : usize) = usize(0);
       n := args_list.len();
       while(i < n, {
-        match(args_list.get(i),.Some(a) => recur(a, acc),.None => ());
+        match(args_list.get(i),.Some(a) => recur(a, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
     },
     .Array(element : el, _) => {
-      recur(el.*, acc);
+      recur(el.*, acc, visited_ids);
     },
     .Slice(element : el) => {
-      recur(el.*, acc);
+      recur(el.*, acc, visited_ids);
     },
     .Pointer(pointee : pt) => {
-      recur(pt.*, acc);
+      recur(pt.*, acc, visited_ids);
     },
     .IsoT(child : ch) => {
-      recur(ch.*, acc);
+      recur(ch.*, acc, visited_ids);
     },
     .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
+        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
       (j : usize) = usize(0);
       while(j < ptys.len(), {
-        match(ptys.get(j),.Some(pt) => recur(pt, acc),.None => ());
+        match(ptys.get(j),.Some(pt) => recur(pt, acc, visited_ids),.None => ());
         j = (j + usize(1));
       });
-      recur(res.*, acc);
+      recur(res.*, acc, visited_ids);
     },
     .Tuple(_, field_types : ftys) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
+        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
     },
-    .Struct({ field_types : ftys }) => {
+    .Struct({ id : st_id, field_types : ftys }) => {
+      // Cycle guard — recursive struct types (e.g. a branch node whose
+      // children point back at the same struct) form a CYCLIC TypeValue
+      // graph; an unguarded field walk recurses forever (pure-SIGSEGV,
+      // no message). Same class of bug as `substitute()`'s
+      // `visited_trait_ids` guard.
+      if(_id_already_visited(visited_ids, st_id), {
+        return(());
+      });
+      if(st_id.len() > usize(0), {
+        visited_ids.push(st_id.clone());
+      });
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
+        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
     },
-    .EnumT(_, _, _, variant_fields : vfs, _, _, _) => {
+    .EnumT(en_id, _, _, vfs, _, _, _) => {
+      // Cycle guard — see the Struct arm above.
+      if(_id_already_visited(visited_ids, en_id), {
+        return(());
+      });
+      if(en_id.len() > usize(0), {
+        visited_ids.push(en_id.clone());
+      });
       (vi : usize) = usize(0);
       while(vi < vfs.len(), {
         match(
@@ -514,7 +550,7 @@ _collect_some_types_into :: (
           .Some(field_list) => {
             (fi : usize) = usize(0);
             while(fi < field_list.len(), {
-              match(field_list.get(fi),.Some(ft) => recur(ft, acc),.None => ());
+              match(field_list.get(fi),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
               fi = (fi + usize(1));
             });
           },
@@ -532,7 +568,8 @@ _collect_some_types_into :: (
 /// Mirrors `getAllSomeTypes` in `src/types/utils.ts`.
 get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   acc := ArrayList(TypeValue).new();
-  _collect_some_types_into(ty, acc);
+  visited_ids := ArrayList(String).new();
+  _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
 // ---------------------------------------------------------------------------

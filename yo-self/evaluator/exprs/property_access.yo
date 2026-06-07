@@ -51,7 +51,7 @@ open(import("std/string"));
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
 { find_methods_from_generic_impls, MethodCandidate }
@@ -277,7 +277,11 @@ evaluate_property_access :: (
         true => false
       );
       if(is_kind, {
-        evaluated := evaluate_expression(obj_expr, env, ctx);
+        // RAW so an inner error PROPAGATES — the non-raw wrapper
+        // catches + prints + CONTINUES with a missing ExprInfo, and the
+        // caller then proceeds on corrupted state (the SIGTRAP-in-malloc
+        // crash class; see yo-self-test-trial-eval-swallow memory).
+        evaluated := evaluate_expression_raw(obj_expr, env, ctx, exn);
         return(evaluated);
       });
     });
@@ -451,7 +455,8 @@ evaluate_property_access :: (
   // property result, not the object itself).
   old_expected_type := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
-  object_expr = evaluate_expression(object_expr, env, ctx);
+  // RAW — see the comment at the `is_kind` early-return above.
+  object_expr = evaluate_expression_raw(object_expr, env, ctx, exn);
   ctx.expected_type = old_expected_type;
   // Update env from the evaluated object's ExprInfo.
   obj_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr));
@@ -607,6 +612,69 @@ Raw pointer operations may dereference invalid memory.`,
             return(expr);
           });
         });
+      });
+      // Generic-impl fallback for non-struct TYPE receivers (Array/Slice/
+      // primitives whose impls are generic) — `Array(u8, 2).fill` resolves
+      // through the inherent generic impl `impl(forall(T, U), Array(T, U),
+      // fill : ...)`, which lives in the generic-impl registry, not the
+      // id-keyed trait-methods registry (Array types have no id). Mirrors
+      // the struct branch's `findMethodsFromGenericImpls` lookup
+      // (property-access.ts:526-546); single candidate only — multiple
+      // candidates defer to function.yo's arg-type disambiguation.
+      pr_prop_name := ast_expr_token(property_expr).value;
+      generic_methods_pr := find_methods_from_generic_impls(type_val_inner, pr_prop_name, env);
+      if(generic_methods_pr.len() == usize(1), {
+        method_pr := match(
+          generic_methods_pr.get(usize(0)),
+          .Some(m) => m,
+          .None => {
+            return(expr);
+          }
+        );
+        out_gm_pr := new_expr_info(env, method_pr.method_type);
+        out_gm_pr.value = method_pr.method_value;
+        out_gm_pr.is_accessing_property = Option(bool).Some(true);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_pr);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_pr);
+        return(expr);
+      });
+    });
+    // --- TypeVal + working-trait associated-type fallback ------------------
+    // While an `impl(...)` trait constructor's fields are being evaluated,
+    // `Self.X` must resolve to fields already bound in the SAME trait entry
+    // (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`).
+    // Mirrors TS attaching the progressively-updated `workingTraitType` to
+    // `receiverType.trait` (trait-type.ts:151-203); yo-self TypeValues have
+    // value semantics (no trait slot), so the in-flight bindings live on
+    // the context (`current_impl_trait_field_*`). Scoped to literal `Self`
+    // receivers — the only spelling these in-impl references use — so
+    // unrelated TypeVal property accesses are untouched.
+    if((ast_expr_is_atom(property_expr) && ast_expr_is_atom(object_expr)) &&
+      (ast_expr_token(object_expr).value.as_str() == "Self"), {
+      wt_prop := ast_expr_token(property_expr).value;
+      n_wt := ctx.current_impl_trait_field_labels.len();
+      (wt_i : usize) = usize(0);
+      while(wt_i < n_wt, {
+        wt_lbl := match(ctx.current_impl_trait_field_labels.get(wt_i),.Some(l) => l,.None => String.from(""));
+        if(wt_lbl == wt_prop, {
+          match(
+            ctx.current_impl_trait_field_types.get(wt_i),
+            .Some(wt_ty) => {
+              // Entries are associated TYPES (`Output : u8`); the info's
+              // own type is the plain meta type — walking the type graph
+              // (type_of_eval_value) crashes on CYCLIC recursive types
+              // like JsonValue.
+              out_wt := new_expr_info(env, t_type());
+              out_wt.value = Option(EvalValue).Some(create_type_value(wt_ty));
+              out_wt.is_accessing_property = Option(bool).Some(true);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wt);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_wt);
+              return(expr);
+            },
+            .None => ()
+          );
+        });
+        wt_i = (wt_i + usize(1));
       });
     });
     // --- TypeVal + EnumT --------------------------------------------------

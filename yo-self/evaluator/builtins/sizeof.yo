@@ -22,7 +22,7 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize } :: import("../../types/creators.yo");
 { get_size_of_type } :: import("../../types/utils.yo");
@@ -102,7 +102,13 @@ evaluate_size_of :: (
       out_info.value =.Some(EvalValue.IntLit(bytes.to_string()));
     },
     .None => {
-      // Unknown size: leave out_info.value as .None (runtime unknown)
+      // Unknown size (e.g. `sizeof(T)` with T a SomeT at def-eval): TS
+      // returns `createUnknownValue(usize)` (sizeof.ts:58-63) — a
+      // comptime-acceptable typed unknown — NOT a value-less runtime
+      // result. Leaving `.None` here made `type_size :: sizeof(T)` reject
+      // with "Expected compile-time value" and cascaded 64 std files
+      // through the failing allocator.yo import.
+      out_info.value =.Some(create_unknown_val(t_usize()));
     }
   );
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

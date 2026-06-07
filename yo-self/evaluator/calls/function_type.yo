@@ -23,7 +23,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ copy_func_param_defaults } :: import("../types/function.yo");
+{ copy_func_param_defaults, copy_macro_registration } :: import("../types/function.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -31,7 +31,7 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, add_parameter_to_env, synthetic_token } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_ptr } :: import("../../types/creators.yo");
 { is_type_0 } :: import("../../types/guards.yo");
 { EvalValue, create_unknown_val, create_type_value } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
@@ -118,9 +118,18 @@ create_function_body_evaluation_context :: (
     )
   );
   // Extract the return type from function_type for expected_type.
+  // For `-> ref(T)` functions the body produces a place expression
+  // (`*(T)` at the C ABI) — set the body's expected type to `*(T)` so
+  // unification across `match`/`cond` arms agrees on the pointer shape
+  // (e.g. `match(opt, .Some(b) => &(b(i)), .None => panic(...))`).
+  // Mirrors TS function-type.ts `bodyExpectedType = return.isRef ?
+  // createPtrType(return.type) : return.type`.
   return_type := match(
     function_type,
-    .Func({ result : ret_box }) => ret_box.*,
+    .Func({ result : ret_box, result_is_ref : ret_is_ref }) => cond(
+      ret_is_ref => t_ptr(ret_box.*),
+      true => ret_box.*
+    ),
     _ => t_unit()
   );
   // Build the new EvalContext with overrides (mirrors `{ ...context, overrides }` in TS).
@@ -169,6 +178,8 @@ create_function_body_evaluation_context :: (
     // Shared mutable tables — same instance as parent so results are visible
     expr_info_table : ctx.expr_info_table,
     comptime_fn_caches : ctx.comptime_fn_caches,
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
     specialized_fn_caches : ctx.specialized_fn_caches
   )
 });
@@ -435,6 +446,7 @@ try_to_implement_function_by_function_type :: (
         expr,
         .FnCall(_, fn_type_box, _, _, _) => {
           copy_func_param_defaults(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
+          copy_macro_registration(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );

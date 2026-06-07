@@ -156,6 +156,28 @@ is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
     .None => false
   )
 );
+/// Copy a macro registration (quoted param indices + unquote-return flag)
+/// from `from_id` to `to_id`. Used to re-key from the `fn(...)`
+/// type-expression id (registered by `evaluate_function_type`) to the
+/// `FuncVal` id, which is what the call site has in hand — the same
+/// two-step as `copy_func_param_defaults` below. No-op when `from_id`
+/// has no entries.
+copy_macro_registration :: (fn(from_id : str, to_id : String) -> unit)({
+  match(
+    g_macro_quoted_param_indices.get(String.from(from_id)),
+    .Some(idxs) => {
+      ___ := g_macro_quoted_param_indices.set(to_id.clone(), idxs);
+    },
+    .None => ()
+  );
+  match(
+    g_macro_return_is_unquote.get(String.from(from_id)),
+    .Some(_) => {
+      ___ := g_macro_return_is_unquote.set(to_id.clone(), true);
+    },
+    .None => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // Optional-parameter side-table (default-argument support).
 //
@@ -3417,6 +3439,7 @@ evaluate_function_type :: (
   });
   (ppi : usize) = usize(0);
   param_defaults := ArrayList(Option(EvalValue)).new();
+  quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
     pp := match(
       params_result.params.get(ppi),
@@ -3430,6 +3453,9 @@ evaluate_function_type :: (
     param_types.push(pp.ty);
     param_is_ref.push(pp.is_ref);
     param_defaults.push(pp.default_value);
+    if(pp.is_quote, {
+      quoted_param_indices.push(ppi);
+    });
     ppi = (ppi + usize(1));
   });
   // Register the per-parameter default values keyed by this `fn(...)`
@@ -3437,6 +3463,16 @@ evaluate_function_type :: (
   // re-keys them under the FuncVal id so call-site arg matching can treat
   // trailing defaulted params as optional. (See the side-table above.)
   register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
+  // Register macro-ness (quoted param indices + unquote return), keyed by
+  // this `fn(...)` type-expression id and re-keyed under the FuncVal id by
+  // `try_to_implement_function_by_function_type` (same two-step as the
+  // defaults table). Mirrors TS storing `parameter.isQuote` /
+  // `return.isUnquote` directly on FunctionType — yo-self's TypeValue.Func
+  // does not carry these flags, so they live in the macro registry above.
+  register_macro_quoted_params(ast_expr_id(expr).to_string(), quoted_param_indices);
+  if(is_return_unquote, {
+    register_macro_return_is_unquote(ast_expr_id(expr).to_string());
+  });
   (ipi : usize) = usize(0);
   while(ipi < params_result.implicit_params.len(), {
     ip := match(
@@ -3621,7 +3657,8 @@ export(
   get_macro_quoted_param_indices,
   macro_return_is_unquote,
   is_macro_fn,
-  is_param_quoted
+  is_param_quoted,
+  copy_macro_registration
 );
 export(
   register_func_param_defaults,

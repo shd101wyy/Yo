@@ -89,6 +89,11 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     .CLongLong => String.from("__yo_t_c_longlong"),
     .CULongLong => String.from("__yo_t_c_ulonglong"),
     .CLongDouble => String.from("__yo_t_c_longdouble"),
+    /// The Expr reflection type. Mirrors the TS ExprType singleton carrying
+    /// a trait slot — `impl(Expr, is_atom : ...)` must register and
+    /// `expr.is_atom()` dispatch must resolve (same class of gap as the
+    /// TypeUni id below; without it every Expr method soft-fell to unit).
+    .ExprT => String.from("__yo_t_expr"),
     // The type universe (`Type`). Mirrors TS `createTypeHierarchy`, which
     // gives the cached singleton `id: "Type(${level})"` (creators.ts:1030)
     // and a trait slot — so `impl(Type, get_info : ...)` registers and

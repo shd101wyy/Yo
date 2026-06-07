@@ -248,6 +248,17 @@ EvalContext :: object(
   /// `value.yo` and `env.yo`.  Each entry holds the cached call results for
   /// one compile-time function.
   comptime_fn_caches : ArrayList(ComptimeFnCacheEntry),
+  /// Working-trait field bindings for the trait constructor CURRENTLY
+  /// being implemented inside an `impl(...)` block — parallel
+  /// label/value arrays. Mirrors TS attaching the progressively-updated
+  /// `workingTraitType` to `receiverType.trait` (trait-type.ts:151-203)
+  /// so `Self.X` resolves to fields already bound in the SAME trait
+  /// entry (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`);
+  /// yo-self TypeValues have value semantics (no trait slot), so the
+  /// in-flight bindings live on the context, consulted by
+  /// property_access's working-trait associated-type fallback.
+  current_impl_trait_field_labels : ArrayList(String),
+  current_impl_trait_field_types : ArrayList(TypeValue),
   /// Specialization cache — per-function buckets keyed by `func_id`.
   ///
   /// Stored here (rather than on `FuncVal`) to avoid FuncVal pattern-match
@@ -294,6 +305,8 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     doc_comment_lookup : Option(HashMap(String, String)).None,
     expr_info_table : expr_info_table_new(),
     comptime_fn_caches : ArrayList(ComptimeFnCacheEntry).new(),
+    current_impl_trait_field_labels : ArrayList(String).new(),
+    current_impl_trait_field_types : ArrayList(TypeValue).new(),
     specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry).new()
   )
 );
