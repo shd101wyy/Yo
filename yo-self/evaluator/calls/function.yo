@@ -725,8 +725,20 @@ evaluate_function_call :: (
       return(expr);
     });
   });
-  // Evaluate the callee.
+  // Evaluate the callee. Clear the ambient expected type UNLESS the callee
+  // is a property access (function.ts:252-260: enum-variant constructors
+  // like `.Some(x)` need expectedType to infer their enum; everything else
+  // must NOT see the call's expected type — a call-result callee like
+  // `zs.as_bytes()` in `f(zs.as_bytes()(0))` otherwise synthesizes its
+  // declared return against the OUTER expected, e.g.
+  // unify(ArrayList(u8), u8)).
+  callee_is_dot := ast_expr_is_fn_call_of(func_expr, ".", Option(usize).None);
+  callee_saved_expected := ctx.expected_type;
+  if(!(callee_is_dot), {
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
+  });
   evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, exn);
+  ctx.expected_type = callee_saved_expected;
   // Call-overload expansion: when the callee is a source-namespace struct
   // (an `impl({...})` operator module), select the winning `Call` candidate
   // and overwrite the callee's ExprInfo so the FuncVal arm below performs

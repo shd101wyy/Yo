@@ -1347,7 +1347,33 @@ _synthesize_types_impl :: (
     exp_enum_cf := lookup_enum_cfid(exp_enum_id);
     giv_enum_cf := lookup_enum_cfid(giv_enum_id);
     same_enum_ctor := ((exp_enum_cf.len() > usize(0)) && (exp_enum_cf.as_str() == giv_enum_cf.as_str()));
-    if((exp_enum_id != giv_enum_id) && !(same_enum_ctor), {
+    // Structural fallback when EITHER side lacks a recorded constructor id:
+    // enums minted on the fn-SPECIALIZATION path (`enum(...)` re-evaluated
+    // inside a specialized ctor body) bypass `evaluate_comptime_fn_call`'s
+    // cfid stamp, so an otherwise-identical Option/Result instantiation
+    // failed the id guard ("Cannot unify incompatible enum types" with one
+    // empty cfid, std/encoding/json.yo). Identical variant-name lists →
+    // proceed to the per-variant field unification below, which does the
+    // real checking.
+    (same_variants : bool) = false;
+    if((exp_enum_cf.len() == usize(0)) || (giv_enum_cf.len() == usize(0)), {
+      exp_vn := match(expected_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+      giv_vn := match(given_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+      if(exp_vn.len() == giv_vn.len(), {
+        (vni : usize) = usize(0);
+        (vn_ok : bool) = (exp_vn.len() > usize(0));
+        while((vni < exp_vn.len()) && vn_ok, {
+          evn := match(exp_vn.get(vni),.Some(x) => x,.None => String.from(""));
+          gvn := match(giv_vn.get(vni),.Some(x) => x,.None => String.from("?"));
+          if(!(evn == gvn), {
+            vn_ok = false;
+          });
+          vni = (vni + usize(1));
+        });
+        same_variants = vn_ok;
+      });
+    });
+    if(((exp_enum_id != giv_enum_id) && !(same_enum_ctor)) && !(same_variants), {
       exn.throw(
         dyn(
           format_error_message(
