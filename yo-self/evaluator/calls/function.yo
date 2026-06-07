@@ -38,7 +38,7 @@ open(import("std/string"));
   get_type_trait_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote } :: import("../types/function.yo");
+{ get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
 { TokenKind, string_is_operator } :: import("../../token.yo");
@@ -1984,6 +1984,18 @@ evaluate_function_call :: (
               });
             });
           });
+          // Then resolve any REMAINING SomeTs from the callee env — an
+          // instantiation method's type params (ArrayList(JsonValue)'s
+          // `T` in `get`'s `?(T)`) are bound as CAPTURES, not foralls;
+          // without this the unresolved `T` was later looked up by NAME
+          // in whatever env was current and picked up stale bindings
+          // (a double-wrapped `Option(Option(JsonValue))` in
+          // std/encoding/json.yo's `at`). Mirrors TS's Step 9
+          // `evaluateFunctionReturnTypeAgain(returnType, calleeEnv)` —
+          // already ported on the helper.yo path (helper.yo:1811); this
+          // inline FuncVal arm is yo-self's second call path and needs
+          // the same resolution.
+          resolved_ret = evaluate_function_return_type_again(resolved_ret, fresh_env, ctx);
           out_rt := new_expr_info(env, resolved_ret);
           out_rt.value = Option(EvalValue).Some(create_unknown_val(resolved_ret));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);

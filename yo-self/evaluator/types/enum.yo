@@ -36,6 +36,7 @@ open(import("std/fmt"));
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ t_unit, register_enum_final } :: import("../../types/creators.yo");
 { is_comptime_int_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
@@ -171,6 +172,44 @@ _evaluate_discriminant :: (
 // ---------------------------------------------------------------------------
 // evaluate_enum_type
 // ---------------------------------------------------------------------------
+/// Replace the empty-variant `Self` shell (matched by enum id + 0
+/// variants) with `final_ty` anywhere inside `t`. One-level rebuild over
+/// the standard type containers; the inserted `final_ty` itself still
+/// carries shells one level deeper — those resolve via the enum-final
+/// registry at use sites (types/creators.yo resolve_enum_shell).
+_patch_self_shell :: (
+  fn(t : TypeValue, shell_id : str, final_ty : TypeValue) -> TypeValue
+)(
+  match(
+    t,
+    .EnumT(eid, _, vns, _, _, _, _) => cond(
+      ((eid.as_str() == shell_id) && (vns.len() == usize(0))) => final_ty,
+      true => t
+    ),
+    .Pointer(inner) =>.Pointer(box(recur(inner.*, shell_id, final_ty))),
+    .Slice(el) =>.Slice(box(recur(el.*, shell_id, final_ty))),
+    .Array(el, n, lv) =>.Array(box(recur(el.*, shell_id, final_ty)), n, lv),
+    .ComptimeListT(el) =>.ComptimeListT(box(recur(el.*, shell_id, final_ty))),
+    .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => {
+      new_fts := ArrayList(TypeValue).new();
+      (i : usize) = usize(0);
+      while(i < field_types.len(), {
+        ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
+        new_fts.push(recur(ft, shell_id, final_ty));
+        i = (i + usize(1));
+      });
+      new_tas := ArrayList(TypeValue).new();
+      (j : usize) = usize(0);
+      while(j < type_arguments.len(), {
+        ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
+        new_tas.push(recur(ta, shell_id, final_ty));
+        j = (j + usize(1));
+      });
+      .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
+    },
+    _ => t
+  )
+);
 evaluate_enum_type :: (
   fn(
     expr : AstExpr,
@@ -194,9 +233,14 @@ evaluate_enum_type :: (
   });
   enum_id := `enum_${random_id(env.module_path)}`;
   // Preliminary EnumT (empty variants) used as SelfType during field evaluation
-  // so self-referential variants like `Some(Self)` work.
+  // so self-referential variants like `Some(Self)` work. The shell carries a
+  // DISTINCT id: sharing the final's id made EXACT type comparison — the
+  // CTFE cache key — conflate `Option(shell)` with `Option(final)`, so
+  // def-time instantiations that captured the empty shell were returned
+  // for post-definition lookups of the real enum (std/encoding/json.yo).
+  shell_id := `${enum_id}__self_shell`;
   prelim_ty := TypeValue.EnumT(
-    String.from(enum_id.as_str()),
+    String.from(shell_id.as_str()),
     String.from(""),
     ArrayList(String).new(),
     ArrayList(ArrayList(TypeValue)).new(),
@@ -548,8 +592,9 @@ evaluate_enum_type :: (
   auto_derive_traits_for_enum_type(String.from(enum_id.as_str()), variant_fields, env);
   // Restore SelfType.
   ctx.self_type = old_self_type;
-  // Build final EnumT.
-  enum_ty := TypeValue.EnumT(
+  // Build the final EnumT in two steps: an UNPATCHED pre-final used as the
+  // replacement target, then the real final with shell-patched fields.
+  pre_final_ty := TypeValue.EnumT(
     String.from(enum_id.as_str()),
     String.from(""),
     variant_names,
@@ -558,6 +603,40 @@ evaluate_enum_type :: (
     variant_field_labels,
     variant_discriminants
   );
+  // Patch the SELF SHELL out of the variant fields: during field
+  // evaluation `Self` was the empty prelim (same id), and instantiations
+  // like `ArrayList(Self)` captured it — `.Array(items)` bindings then
+  // carried ArrayList(<0-variant shell>) and downstream dispatch/unify
+  // failed (std/encoding/json.yo's `at`). Replace one level here; deeper
+  // self-nesting resolves through the enum-final registry
+  // (resolve_enum_shell). TS needs no patch — its Self IS the same
+  // mutable object.
+  patched_fields := ArrayList(ArrayList(TypeValue)).new();
+  (pf_i : usize) = usize(0);
+  while(pf_i < variant_fields.len(), {
+    vf_list := match(variant_fields.get(pf_i),.Some(l) => l,.None => ArrayList(TypeValue).new());
+    new_list := ArrayList(TypeValue).new();
+    (pf_j : usize) = usize(0);
+    while(pf_j < vf_list.len(), {
+      ft := match(vf_list.get(pf_j),.Some(t) => t,.None => t_unit());
+      new_list.push(_patch_self_shell(ft, shell_id.as_str(), pre_final_ty));
+      pf_j = (pf_j + usize(1));
+    });
+    patched_fields.push(new_list);
+    pf_i = (pf_i + usize(1));
+  });
+  enum_ty := TypeValue.EnumT(
+    String.from(enum_id.as_str()),
+    String.from(""),
+    variant_names,
+    patched_fields,
+    Option(String).None,
+    variant_field_labels,
+    variant_discriminants
+  );
+  // Record the finalized form under the SHELL's id so leaked shells can
+  // be resolved at use sites — see resolve_enum_shell.
+  register_enum_final(String.from(shell_id.as_str()), enum_ty);
   enum_val := create_type_value(enum_ty);
   meta_ty := type_of_type(enum_ty);
   out_info := new_expr_info(env, meta_ty);

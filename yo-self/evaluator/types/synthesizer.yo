@@ -30,7 +30,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ type_value_tag, t_effects_row, t_usize } :: import("../../types/creators.yo");
+{ type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_pointer_type } :: import("../../types/guards.yo");
 { TypeTag } :: import("../../types/tags.yo");
 {
@@ -310,7 +310,7 @@ can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> boo
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
 /// Mirrors `occursCheck` in TypeScript.
-_occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(String), exn : Exception) -> bool)({
+_occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeValue, visited : ArrayList(String), exn : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
   (found_visited : bool) = false;
@@ -351,7 +351,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, ft, visited, exn), {
+        if(recur(some_type_id, some_type_name, ft, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
@@ -380,7 +380,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
               break;
             }
           );
-          if(recur(some_type_id, ft, visited, exn), {
+          if(recur(some_type_id, some_type_name, ft, visited, exn), {
             res = true;
           });
           fi = (fi + usize(1));
@@ -401,20 +401,48 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, ft, visited, exn), {
+        if(recur(some_type_id, some_type_name, ft, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
       });
       res
     },
-    .Array(elem, _, _) => recur(some_type_id, elem.*, visited, exn),
-    .Slice(elem) => recur(some_type_id, elem.*, visited, exn),
-    .ComptimeListT(child) => recur(some_type_id, child.*, visited, exn),
+    .Array(elem, _, _) => recur(some_type_id, some_type_name, elem.*, visited, exn),
+    .Slice(elem) => recur(some_type_id, some_type_name, elem.*, visited, exn),
+    .ComptimeListT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
-    .IsoT(child) => recur(some_type_id, child.*, visited, exn),
-    .Func({ param_types, implicit_types, result }) => {
+    .IsoT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
+    .Func({ forall_labels, param_types, implicit_types, result }) => {
+      // A forall declared by this Func's OWN signature SHADOWS the
+      // searched variable: occurrences inside its params/return are
+      // bound (alpha-renameable), not free occurrences. TS gets this
+      // implicitly — each fn-type evaluation mints fresh SomeType ids,
+      // so an embedded method signature never shares ids with the
+      // call's foralls — but yo-self's value-typed struct copies
+      // preserve ids: an `IoExn` struct embedding `Io.await :
+      // fn(forall(T, E), …)` made `E := IoExn` a false infinite type
+      // (std/http/client.yo). Within a Func that declares forall "E",
+      // any SomeT named "E" lexically IS that inner forall, so
+      // name-based shadowing is sound.
+      {
+        (sfi : usize) = usize(0);
+        while(sfi < forall_labels.len(), {
+          fl := match(
+            forall_labels.get(sfi),
+            .Some(l) => l,
+            .None => {
+              sfi = forall_labels.len();
+              break;
+            }
+          );
+          if(fl == some_type_name, {
+            return(false);
+          });
+          sfi = (sfi + usize(1));
+        });
+      };
       (res : bool) = false;
       i := usize(0);
       while((i < param_types.len()) && !(res), {
@@ -426,20 +454,20 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, pt, visited, exn), {
+        if(recur(some_type_id, some_type_name, pt, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
       });
       if(!(res), {
-        if(recur(some_type_id, result.*, visited, exn), {
+        if(recur(some_type_id, some_type_name, result.*, visited, exn), {
           res = true;
         });
       });
       res
     },
     .FutureTraitT(_, out_box, _, ets, _) => {
-      if(recur(some_type_id, out_box.*, visited, exn), {
+      if(recur(some_type_id, some_type_name, out_box.*, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -453,7 +481,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, et, visited, exn), {
+        if(recur(some_type_id, some_type_name, et, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
@@ -472,20 +500,20 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, pt, visited, exn), {
+        if(recur(some_type_id, some_type_name, pt, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
       });
       if(!(res), {
-        if(recur(some_type_id, call_result.*, visited, exn), {
+        if(recur(some_type_id, some_type_name, call_result.*, visited, exn), {
           res = true;
         });
       });
       res
     },
     .TypeAppT(constructor, args) => {
-      if(recur(some_type_id, constructor.*, visited, exn), {
+      if(recur(some_type_id, some_type_name, constructor.*, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -499,7 +527,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, arg, visited, exn), {
+        if(recur(some_type_id, some_type_name, arg, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
@@ -518,7 +546,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, ft, visited, exn), {
+        if(recur(some_type_id, some_type_name, ft, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
@@ -537,7 +565,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(
             break;
           }
         );
-        if(recur(some_type_id, ft, visited, exn), {
+        if(recur(some_type_id, some_type_name, ft, visited, exn), {
           res = true;
         });
         i = (i + usize(1));
@@ -1157,12 +1185,12 @@ _synthesize_types_impl :: (
       // Occurs check
       {
         visited := ArrayList(String).new();
-        if(_occurs_check(exp_id2, given_ty, visited, exn), {
+        if(_occurs_check(exp_id2, exp_name, given_ty, visited, exn), {
           exn.throw(
             dyn(
               format_error_message(
                 synthetic_token(exp_name, ee.module_path),
-                `Cannot unify type variable "${exp_name}" because it would create an infinite type.`,
+                `Cannot unify type variable "${exp_name}" with type "${type_to_string(given_ty)}" because it would create an infinite type.`,
                 false,
                 Option(ErrorKind).None
               )
@@ -1224,12 +1252,12 @@ _synthesize_types_impl :: (
       // Occurs check
       {
         visited := ArrayList(String).new();
-        if(_occurs_check(giv_id2, expected_ty, visited, exn), {
+        if(_occurs_check(giv_id2, giv_name, expected_ty, visited, exn), {
           exn.throw(
             dyn(
               format_error_message(
                 synthetic_token(giv_name, ge.module_path),
-                `Cannot unify type variable "${giv_name}" because it would create an infinite type.`,
+                `Cannot unify type variable "${giv_name}" with type "${type_to_string(expected_ty)}" because it would create an infinite type.`,
                 false,
                 Option(ErrorKind).None
               )
@@ -1339,8 +1367,12 @@ _synthesize_types_impl :: (
   });
   // Case: Enum + Enum
   if(is_enum_type(expected_ty) && is_enum_type(given_ty), {
-    exp_enum_id := match(expected_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
-    giv_enum_id := match(given_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
+    // Swap empty-variant `Self` shells for their finalized forms (same id;
+    // see resolve_enum_shell) before any guard looks at variants.
+    exp_en_ty := resolve_enum_shell(expected_ty);
+    giv_en_ty := resolve_enum_shell(given_ty);
+    exp_enum_id := match(exp_en_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
+    giv_enum_id := match(giv_en_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
     // Two instantiations of the same generic enum share a constructor_func_id
     // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
     // constructor → unify variant fields. Mirrors the struct same_constructor.
@@ -1357,8 +1389,8 @@ _synthesize_types_impl :: (
     // real checking.
     (same_variants : bool) = false;
     if((exp_enum_cf.len() == usize(0)) || (giv_enum_cf.len() == usize(0)), {
-      exp_vn := match(expected_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-      giv_vn := match(given_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+      exp_vn := match(exp_en_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+      giv_vn := match(giv_en_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
       if(exp_vn.len() == giv_vn.len(), {
         (vni : usize) = usize(0);
         (vn_ok : bool) = (exp_vn.len() > usize(0));
@@ -1378,15 +1410,15 @@ _synthesize_types_impl :: (
         dyn(
           format_error_message(
             synthetic_token(String.from("enum"), ee.module_path),
-            `Cannot unify incompatible enum types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`,
+            `Cannot unify incompatible enum types: "${type_to_string(exp_en_ty)}" and "${type_to_string(giv_en_ty)}"`,
             false,
             Option(ErrorKind).None
           )
         )
       );
     }, {
-      exp_vf := match(expected_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      giv_vf := match(given_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      exp_vf := match(exp_en_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      giv_vf := match(giv_en_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
       n_v := exp_vf.len();
       (vi : usize) = usize(0);
       while(vi < n_v, {

@@ -301,6 +301,52 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .FutureTraitT(base_name : _) => TypeTag.TTrait
   )
 );
+// Enum finalization side-table: `enum_id -> finalized EnumT`. During an
+// enum's own definition, `Self` is bound to a PRELIMINARY empty-variant
+// shell (enum.yo). TS mutates one object in place, so anything that
+// captured `Self` sees the populated fields later;
+// yo-self TypeValues are value-typed snapshots, so leaked shells keep 0
+// variants forever (e.g. `ArrayList(Self)` instantiations CACHED with the
+// shell element — "Cannot unify incompatible enum types" with a 0-variant
+// side, std/encoding/json.yo). The registry lets use sites swap a shell
+// for its final form BY ID — the faithful value-semantics mirror of TS's
+// object identity.
+EnumFinalEntry :: struct(enum_id : String, ty : TypeValue);
+(g_enum_finals : ArrayList(EnumFinalEntry)) = ArrayList(EnumFinalEntry).new();
+register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
+  if(enum_id.len() > usize(0), {
+    _ := g_enum_finals.push(EnumFinalEntry(enum_id : enum_id, ty : ty));
+  });
+});
+/// Resolve an empty-variant EnumT shell to its finalized form (no-op for
+/// non-enums, populated enums, and unknown ids).
+resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .EnumT(eid, _, vns, _, _, _, _) => {
+      if(vns.len() > usize(0), {
+        return(t);
+      });
+      (i : usize) = usize(0);
+      n := g_enum_finals.len();
+      (r : Option(TypeValue)) = Option(TypeValue).None;
+      while((i < n) && r.is_none(), {
+        match(
+          g_enum_finals.get(i),
+          .Some(e) => if(e.enum_id.as_str() == eid.as_str(), {
+            r = Option(TypeValue).Some(e.ty);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(r,.Some(f) => f,.None => t)
+    },
+    _ => t
+  )
+);
+
+export(register_enum_final, resolve_enum_shell);
 export(
   generate_some_type_id,
   t_unit,

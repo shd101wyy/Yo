@@ -43,7 +43,7 @@ open(import("std/string"));
   is_type_value
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0 } :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -348,7 +348,11 @@ evaluate_property_access :: (
         });
         variant_name_1 := ast_expr_token(prop_expr_1).value;
         match(
-          exp_ctx_1.ty,
+          // Resolve an in-definition Self shell (enum.yo) so the variant
+          // lookup sees the finalized enum (`.Table(...)` shorthand where
+          // the expected `T` came from an `ArrayList(Self)` instantiation,
+          // std/encoding/toml.yo).
+          resolve_enum_shell(exp_ctx_1.ty),
           .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1) => {
             // Find the variant.
             fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.as_str());
@@ -694,7 +698,8 @@ Raw pointer operations may dereference invalid memory.`,
       });
       variant_name_tv := ast_expr_token(property_expr).value;
       match(
-        type_val_inner,
+        // Same Self-shell resolution as the shorthand path above.
+        resolve_enum_shell(type_val_inner),
         .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs) => {
           fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.as_str());
           match(

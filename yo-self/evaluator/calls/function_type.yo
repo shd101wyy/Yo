@@ -48,6 +48,7 @@ open(import("std/string"));
   ImplConcreteTypeInfo
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
+{ get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Check if a generic function body returns a type incompatible with the
@@ -209,7 +210,17 @@ _build_def_time_body_env :: (
     caller_env : Environment,
     param_labels : ArrayList(String),
     param_types : ArrayList(TypeValue),
-    param_is_ref : ArrayList(bool)
+    param_is_ref : ArrayList(bool),
+    // The signature's evaluated result type — scanned (with param_types)
+    // for the SIGNATURE's own SomeT objects so comptime type params bind
+    // the SAME SomeT identity the signature mentions. Minting fresh
+    // SomeTs here gave the body's `ZPair(K, V)` a different CTFE cache
+    // key than the signature's `*(ZPair(K, V))` → two struct
+    // instantiations → match-arm unification failure (std/imm/map.yo
+    // `_alloc_pairs`). TS has no such split: the def-time body eval
+    // reuses the fn-type evaluation env, so the body sees the same
+    // SomeType objects (function-type.ts:499).
+    result_type : TypeValue
   ) -> Environment
 )({
   module_path := caller_env.module_path;
@@ -246,6 +257,41 @@ _build_def_time_body_env :: (
   ___fr := fresh_env.push_frame(false);
   // Frame level of the just-pushed parameter frame (for SomeT binding below).
   pf_level := (fresh_env.frames.len() - usize(1));
+  // Collect the signature's SomeTs (from param types + result type) so a
+  // comptime type param can be bound to the SAME SomeT object the other
+  // signature types reference (see doc comment on result_type above).
+  sig_some_ts := ArrayList(TypeValue).new();
+  {
+    (sci : usize) = usize(0);
+    while(sci < param_types.len(), {
+      spt := match(param_types.get(sci),.Some(t) => t,.None => t_unit());
+      found := get_all_some_types(spt);
+      (sfi : usize) = usize(0);
+      while(sfi < found.len(), {
+        match(
+          found.get(sfi),
+          .Some(st) => {
+            _ := sig_some_ts.push(st);
+          },
+          .None => ()
+        );
+        sfi = (sfi + usize(1));
+      });
+      sci = (sci + usize(1));
+    });
+    found_r := get_all_some_types(result_type);
+    (sri : usize) = usize(0);
+    while(sri < found_r.len(), {
+      match(
+        found_r.get(sri),
+        .Some(st) => {
+          _ := sig_some_ts.push(st);
+        },
+        .None => ()
+      );
+      sri = (sri + usize(1));
+    });
+  };
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
     pn := match(param_labels.get(pi),.Some(n) => n,.None => String.from(""));
@@ -258,11 +304,31 @@ _build_def_time_body_env :: (
     // field/element-type eval throws "expected type for element, got A"
     // (field.yo:293) — the dominant def-time-eval swallow category. Mirrors the
     // SomeT binding in evaluate_function_parameters (function.yo:1169).
-    pv := if(
-      is_type_0(pt),
-      create_type_value(t_some_t(pn, pf_level)),
-      create_unknown_val(pt)
-    );
+    pv := if(is_type_0(pt), {
+      // Prefer the signature's own SomeT for this name; mint only when
+      // the signature never mentions the param.
+      (sig_match : Option(TypeValue)) = Option(TypeValue).None;
+      (smi : usize) = usize(0);
+      while((smi < sig_some_ts.len()) && sig_match.is_none(), {
+        match(
+          sig_some_ts.get(smi),
+          .Some(st) => match(
+            st,
+            .SomeT(_, st_name, _, _, _, _, _, _, _, _) => if(st_name == pn, {
+              sig_match = Option(TypeValue).Some(st);
+            }),
+            _ => ()
+          ),
+          .None => ()
+        );
+        smi = (smi + usize(1));
+      });
+      match(
+        sig_match,
+        .Some(st) => create_type_value(st),
+        .None => create_type_value(t_some_t(pn, pf_level))
+      )
+    }, create_unknown_val(pt));
     ___ := add_parameter_to_env(
       fresh_env,
       pn,
@@ -468,7 +534,7 @@ try_to_implement_function_by_function_type :: (
       match(
         flow_body,
         .Some(fb) => {
-          flow_env := _build_def_time_body_env(caller_env, param_labels, param_types, param_is_ref);
+          flow_env := _build_def_time_body_env(caller_env, param_labels, param_types, param_is_ref, result_box.*);
           flow_fv := EvalValue.FuncVal(
             ArrayList(String).new(),
             ArrayList(String).new(),

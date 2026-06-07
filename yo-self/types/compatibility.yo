@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
-{ type_value_tag } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -380,11 +380,71 @@ _compat_impl :: (
       ),
       _ => false
     ),
-    .EnumT(_, aname, _, _, _, _, _) => match(
-      expected,
-      // Same empty-name wildcard rule as the Struct arm above
-      // ("TomlValue" vs a ""-named reconstruction of the same enum).
-      .EnumT(_, ename, _, _, _, _, _) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+    .EnumT(_, _, _, _, _, _, _) => match(
+      // Resolve empty-variant Self shells (enum.yo) to their finalized
+      // forms before comparing — pointer/exact children otherwise see a
+      // 0-variant shell vs the real enum (`*(JsonValue)` vs
+      // `*(<enum:..__self_shell>)`, std/encoding/json.yo).
+      resolve_enum_shell(actual),
+      .EnumT(aid, aname, avns, avfs, _, avls, _) => match(
+        resolve_enum_shell(expected),
+        // Non-exact keeps the empty-name wildcard rule ("TomlValue" vs a
+        // ""-named reconstruction of the same enum). Under `require_exact`
+        // (cache identity), name-only is unsound for the same reason as the
+        // Struct arm: all yo-self enums carry an empty name, so e.g. the
+        // CTFE cache key `Option(JsonValue)` matched a stale `Option(T)`
+        // entry and returned `Option(Option(T))` (std/encoding/json.yo).
+        // Mirror TS compatibility.ts:344-399: equal ids → true; otherwise
+        // compare variant names, field labels, and field types exactly,
+        // with the same cycle guard as the Struct arm.
+        .EnumT(eid, ename, evns, evfs, _, evls, _) => cond(
+          !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+          (aid.as_str() == eid.as_str()) => true,
+          (avns.len() != evns.len()) => false,
+          true => {
+            vkey := ((aid.clone() + String.from("=>")) + eid);
+            cond(
+              _visited_contains(visited, vkey) => true,
+              true => {
+                visited.push(vkey);
+                (ok : bool) = true;
+                (vi : usize) = usize(0);
+                while((vi < avns.len()) && ok, {
+                  avn := match(avns.get(vi),.Some(v) => v,.None => ``);
+                  evn := match(evns.get(vi),.Some(v) => v,.None => ``);
+                  if(avn != evn, {
+                    ok = false;
+                  });
+                  if(ok, {
+                    afl := match(avfs.get(vi),.Some(v) => v,.None => ArrayList(TypeValue).new());
+                    efl := match(evfs.get(vi),.Some(v) => v,.None => ArrayList(TypeValue).new());
+                    all := match(avls.get(vi),.Some(v) => v,.None => ArrayList(String).new());
+                    ell := match(evls.get(vi),.Some(v) => v,.None => ArrayList(String).new());
+                    if(afl.len() != efl.len(), {
+                      ok = false;
+                    }, {
+                      (fi : usize) = usize(0);
+                      while((fi < afl.len()) && ok, {
+                        at := match(afl.get(fi),.Some(v) => v,.None => TypeValue.Unit);
+                        et := match(efl.get(fi),.Some(v) => v,.None => TypeValue.Unit);
+                        al := match(all.get(fi),.Some(v) => v,.None => ``);
+                        el := match(ell.get(fi),.Some(v) => v,.None => ``);
+                        if((al != el) || !(recur(at, et, true, visited)), {
+                          ok = false;
+                        });
+                        fi = (fi + usize(1));
+                      });
+                    });
+                  });
+                  vi = (vi + usize(1));
+                });
+                ok
+              }
+            )
+          }
+        ),
+        _ => false
+      ),
       _ => false
     ),
     .Union(aname, _, _) => match(
