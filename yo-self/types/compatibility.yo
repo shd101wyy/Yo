@@ -347,7 +347,12 @@ _compat_impl :: (
     .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes }) => match(
       expected,
       .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes }) => cond(
-        !(require_exact) => (aname == ename),
+        // Lenient: name equality, with EMPTY names as wildcards — types
+        // reconstructed from values (type_of_eval_value) and pre-stamping
+        // instantiations carry "" while `::`-bound types are now STAMPED
+        // ("ArgParser" vs ""), and the mixed pair must stay compatible
+        // (previously everything was "" so this never arose).
+        !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
         (aid.as_str() == eid.as_str()) => true,
         (alabels.len() != elabels.len()) => false,
         true => {
@@ -377,12 +382,14 @@ _compat_impl :: (
     ),
     .EnumT(_, aname, _, _, _, _, _) => match(
       expected,
-      .EnumT(_, ename, _, _, _, _, _) => (aname == ename),
+      // Same empty-name wildcard rule as the Struct arm above
+      // ("TomlValue" vs a ""-named reconstruction of the same enum).
+      .EnumT(_, ename, _, _, _, _, _) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
       _ => false
     ),
     .Union(aname, _, _) => match(
       expected,
-      .Union(ename, _, _) => (aname == ename),
+      .Union(ename, _, _) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
       _ => false
     ),
     // TraitT: nominal comparison; FnTraitT/FutureTraitT: structural

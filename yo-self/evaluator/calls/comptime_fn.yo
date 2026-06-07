@@ -8,7 +8,7 @@
 //! CTFE by inserting a temporary `UnknownVal` placeholder to break cycles.
 //!
 //! Key differences from the TypeScript version:
-//!   - The per-function cache lives in `ctx.comptime_fn_caches` (not on
+//!   - The per-function cache lives in `g_comptime_fn_caches` (not on
 //!     `FuncVal.calledComptimeFunctionCaches`) to avoid circular imports.
 //!   - No `cloneExpr` needed (Yo uses ExprInfoTable — AST re-evaluation is safe).
 //!   - No `comptimeRef` in the return (skipped for Phase 3a).
@@ -49,6 +49,20 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Global CTFE cache.
+//
+// TS stores per-function CTFE caches ON the FunctionValue
+// (`calledComptimeFunctionCaches`) — one GLOBAL cache per function
+// identity, shared by every module. yo-self previously kept them on the
+// EvalContext, but the demand loader creates a FRESH context per imported
+// module, so each module minted its OWN `ArrayList(u8)` instantiation
+// (different struct ids) and cross-module unification failed
+// ("Cannot unify <struct:A> and <struct:B>" for the same written type —
+// the std/glob `as_bytes()` vs local `ArrayList(u8)` param family).
+// A module-level global keyed by func_id is the faithful equivalent.
+// ---------------------------------------------------------------------------
+(g_comptime_fn_caches : ArrayList(ComptimeFnCacheEntry)) = ArrayList(ComptimeFnCacheEntry).new();
 // Internal helper: compare two EvalValues for CTFE cache lookup.
 //
 // For TypeVal arguments:
@@ -121,7 +135,7 @@ _ctfe_args_equal :: (
 RecursiveTypeRef :: object(
   /// The placeholder `SomeT`'s `id` — the lookup key.
   some_id : String,
-  /// The type-constructor function's `func_id` (→ `ctx.comptime_fn_caches`).
+  /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
   func_id : String,
   /// The argument values of the in-progress instantiation (for exact match).
   arg_values : ArrayList(EvalValue)
@@ -215,10 +229,10 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
   (bucket_opt : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
   {
     (ci : usize) = usize(0);
-    n_c := ctx.comptime_fn_caches.len();
+    n_c := g_comptime_fn_caches.len();
     while((ci < n_c) && match(bucket_opt,.None => true,.Some(_) => false), {
       match(
-        ctx.comptime_fn_caches.get(ci),
+        g_comptime_fn_caches.get(ci),
         .Some(e) => if(e.func_id.as_str() == rref.func_id.as_str(), {
           bucket_opt = Option(ComptimeFnCacheEntry).Some(e);
         }),
@@ -563,14 +577,14 @@ evaluate_comptime_fn_call :: (
     }
   );
   should_cache := ((is_type_hierarchy_type(return_type) || func_result_is_comptime) || all_args_are_types);
-  // Find or create the cache bucket for this func_id in ctx.comptime_fn_caches.
+  // Find or create the cache bucket for this func_id in g_comptime_fn_caches.
   (entry_idx_opt : Option(usize)) = Option(usize).None;
   {
     (ci : usize) = usize(0);
-    n_c := ctx.comptime_fn_caches.len();
+    n_c := g_comptime_fn_caches.len();
     while((ci < n_c) && match(entry_idx_opt,.None => true,.Some(_) => false), {
       match(
-        ctx.comptime_fn_caches.get(ci),
+        g_comptime_fn_caches.get(ci),
         .Some(e) => if(e.func_id.as_str() == func_id_str.as_str(), {
           entry_idx_opt = Option(usize).Some(ci);
         }),
@@ -586,8 +600,8 @@ evaluate_comptime_fn_call :: (
         func_id : func_id_str,
         caches : ArrayList(CalledComptimeFnCache).new()
       );
-      _ := ctx.comptime_fn_caches.push(new_entry);
-      entry_idx_opt = Option(usize).Some(ctx.comptime_fn_caches.len() - usize(1));
+      _ := g_comptime_fn_caches.push(new_entry);
+      entry_idx_opt = Option(usize).Some(g_comptime_fn_caches.len() - usize(1));
     },
     .Some(_) => ()
   );
@@ -596,7 +610,7 @@ evaluate_comptime_fn_call :: (
   cached_result := Option(EvalValue).None;
   if(should_cache, {
     match(
-      ctx.comptime_fn_caches.get(the_entry_idx),
+      g_comptime_fn_caches.get(the_entry_idx),
       .Some(entry) => {
         (cfi : usize) = usize(0);
         n_cc := entry.caches.len();
@@ -661,14 +675,14 @@ evaluate_comptime_fn_call :: (
     value : _recursive_placeholder(return_type, func_id_str, all_arg_vals)
   );
   match(
-    ctx.comptime_fn_caches.get(the_entry_idx),
+    g_comptime_fn_caches.get(the_entry_idx),
     .Some(entry) => {
       _ := entry.caches.push(temp_cache);
     },
     .None => ()
   );
   temp_cache_index := match(
-    ctx.comptime_fn_caches.get(the_entry_idx),
+    g_comptime_fn_caches.get(the_entry_idx),
     .Some(entry) => (entry.caches.len() - usize(1)),
     .None => usize(0)
   );
@@ -720,7 +734,7 @@ evaluate_comptime_fn_call :: (
     .None => {
       // Remove the temp cache entry to avoid leaving a stale placeholder.
       match(
-        ctx.comptime_fn_caches.get(the_entry_idx),
+        g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
           _ := entry.caches.remove(temp_cache_index, usize(1));
         },
@@ -745,7 +759,7 @@ evaluate_comptime_fn_call :: (
     .None => {
       // Remove the temp cache entry.
       match(
-        ctx.comptime_fn_caches.get(the_entry_idx),
+        g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
           _ := entry.caches.remove(temp_cache_index, usize(1));
         },
@@ -831,7 +845,7 @@ evaluate_comptime_fn_call :: (
       value : final_return_value
     );
     match(
-      ctx.comptime_fn_caches.get(the_entry_idx),
+      g_comptime_fn_caches.get(the_entry_idx),
       .Some(entry) => {
         // ArrayList has no in-place element assignment; replace the temp
         // placeholder by removing it and pushing the finalized entry.
@@ -844,7 +858,7 @@ evaluate_comptime_fn_call :: (
     );
   }, {
     match(
-      ctx.comptime_fn_caches.get(the_entry_idx),
+      g_comptime_fn_caches.get(the_entry_idx),
       .Some(entry) => {
         _ := entry.caches.remove(temp_cache_index, usize(1));
       },

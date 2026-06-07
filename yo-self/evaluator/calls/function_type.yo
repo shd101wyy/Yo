@@ -227,7 +227,11 @@ _build_def_time_body_env :: (
               if(!(cv.name.as_str() == "__recur_fn"), {
                 cap_value := match(cv.value,.Some(actual) => Option(EvalValue).Some(actual),.None => Option(EvalValue).None);
                 is_ct := match(cap_value,.Some(_) => true,.None => false);
-                ___ := add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, false, false, false, synthetic_token(cv.name, module_path));
+                // Carry `is_reassignable` — module globals (`(x : T) = v;`)
+                // ARE reassignable from fn bodies; rebinding them read-only
+                // made std/log.yo's `_global_level = level` def-eval fail
+                // "Cannot reassign".
+                ___ := add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
               });
             },
             .None => ()

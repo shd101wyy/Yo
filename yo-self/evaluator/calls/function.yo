@@ -1459,7 +1459,29 @@ evaluate_function_call :: (
             q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(box(clone_expr_fresh_ids(arg_expr))));
             _push_q := evaled_arg_infos.push(q_info);
           }, {
+            // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
+            // (helper.ts:330) — leaving the caller's expected type in place
+            // leaked e.g. a single-expr fn body's expected `bool` into the
+            // first argument, so `zimpl(zp.as_bytes(), ...)` synthesized
+            // unify(ArrayList(u8), bool) and the whole module failed.
+            arg_saved_expected := ctx.expected_type;
+            ctx.expected_type = match(
+              fv_param_types.get(ai),
+              .Some(apt) => cond(
+                // Skip Type params (constructor args) AND unresolved
+                // SomeTs — TS passes the SPECIALIZED parameterType
+                // (helper.ts:330); when yo-self only has the generic
+                // declared type, an abstract expected mis-resolves
+                // enum-variant shorthands (".Table(...)" looked up in
+                // SomeT-T → "variant not found").
+                is_type_hierarchy_type(apt) => Option(ExpectedTypeCtx).None,
+                is_some_type(apt) => Option(ExpectedTypeCtx).None,
+                true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env))
+              ),
+              .None => Option(ExpectedTypeCtx).None
+            );
             evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
+            ctx.expected_type = arg_saved_expected;
             arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
             arg_info := match(
               arg_info_opt,

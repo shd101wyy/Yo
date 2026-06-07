@@ -36,6 +36,11 @@ open(import("std/string"));
 /// `{ moduleValue: ModuleValue; moduleError: Error | undefined }` in the TS source.
 LoadModuleResult :: object(
   module_value : EvalValue,
+  /// The source-namespace STRUCT TYPE with real member field types.
+  /// `type_of_eval_value(module_value)` cannot reconstruct these (FuncVal
+  /// values carry no type — every imported fn member arrived unit-typed,
+  /// so `mod.f(x)` calls typed unit). `.Unit` when unknown (cycle path).
+  module_type : TypeValue,
   module_error : Option(String)
 );
 // ---------------------------------------------------------------------------

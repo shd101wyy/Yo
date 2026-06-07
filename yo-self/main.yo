@@ -45,6 +45,7 @@ open(import("std/fmt"));
 { resolve_module_path, ModuleResolveResult, _build_module_val_from_env } :: import("./evaluator/exprs/import.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env } :: import("./evaluator/module_loader.yo");
 { EvalValue } :: import("./value.yo");
+{ TypeValue } :: import("./types/definitions.yo");
 { compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 // Temporary C source path used during compilation.
@@ -351,7 +352,8 @@ _eval_module_exprs_capturing_error :: (
     mod_exprs : ArrayList(AstExpr),
     env : Environment,
     ctx : EvalContext,
-    out : ArrayList(EvalValue)
+    out : ArrayList(EvalValue),
+    out_tys : ArrayList(TypeValue)
   ) -> bool
 )({
   // Same handler shape as `check_single_file`'s top-level handler:
@@ -369,6 +371,7 @@ _eval_module_exprs_capturing_error :: (
   );
   result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, local_exn);
   ___ := out.push(result.module_value);
+  ___t := out_tys.push(result.module_type);
   true
 });
 /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
@@ -396,7 +399,8 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   register_evaluate_expression();
   register_loading(abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
-  _ := _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals);
+  out_tys := ArrayList(TypeValue).new();
+  _ := _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
   // ALWAYS unregister — a leaked currently-loading entry poisons every
   // LATER check that imports this module: `demand_load_module` then
   // returns partial exports from the dead env (hangs/crashes; see
@@ -405,7 +409,8 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      register_module(abs.clone(), mv);
+      reg_ty := match(out_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+      register_module(abs.clone(), mv, reg_ty);
     },
     .None => {
       // Root-cause detail printed by the helper's handler.
@@ -426,6 +431,7 @@ demand_load_module :: (fn(path : String) -> LoadModuleResult)({
       return(
         LoadModuleResult(
           module_value : _build_module_val_from_env(env),
+          module_type : TypeValue.Unit,
           module_error : Option(String).None
         )
       );
@@ -631,7 +637,8 @@ check_single_file :: (
   register_loading(entry_abs.clone(), env);
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   out_vals_cf := ArrayList(EvalValue).new();
-  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf);
+  out_tys_cf := ArrayList(TypeValue).new();
+  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf, out_tys_cf);
   // ALWAYS unregister, error or not — a leaked currently-loading entry
   // poisons every LATER file in a directory check (see
   // issues/yo-self-dir-check-state-corruption-after-failure.md).

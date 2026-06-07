@@ -27,6 +27,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../value.yo");
+{ TypeValue } :: import("../types/definitions.yo");
 { Environment } :: import("../env.yo");
 { LoadModuleResult } :: import("./context.yo");
 // ---------------------------------------------------------------------------
@@ -81,11 +82,13 @@ loading_env :: (fn(path : str) -> Option(Environment))({
 // type (`EvalValue`) simple and avoid extra trait requirements.
 (g_module_cache_keys : ArrayList(String)) = ArrayList(String).new();
 (g_module_cache_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+(g_module_cache_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
 /// Reset the cache. Call between independent `check` runs so module
 /// values from a previous file don't leak into the next.
 clear_module_cache :: (fn() -> unit)({
   g_module_cache_keys = ArrayList(String).new();
   g_module_cache_vals = ArrayList(EvalValue).new();
+  g_module_cache_types = ArrayList(TypeValue).new();
   g_loading_keys = ArrayList(String).new();
   g_loading_envs = ArrayList(Environment).new();
   ()
@@ -115,10 +118,11 @@ module_cache_has :: (fn(path : str) -> bool)(
 /// wins; callers guard with `module_cache_has` so this is a no-op on
 /// re-registration (a duplicate push would still be harmless because
 /// `_module_cache_index` returns the first match).
-register_module :: (fn(path : String, module_value : EvalValue) -> unit)({
+register_module :: (fn(path : String, module_value : EvalValue, module_type : TypeValue) -> unit)({
   if(!(module_cache_has(path.as_str())), {
     g_module_cache_keys.push(path);
     g_module_cache_vals.push(module_value);
+    g_module_cache_types.push(module_type);
   });
 });
 /// Pure lookup used as `ctx.load_module`. On a hit, returns the cached
@@ -133,10 +137,16 @@ load_module_from_cache :: (fn(path : String) -> LoadModuleResult)(
         .Some(v) => v,
         .None => EvalValue.UnitVal
       ),
+      module_type : match(
+        g_module_cache_types.get(i),
+        .Some(t) => t,
+        .None => TypeValue.Unit
+      ),
       module_error : Option(String).None
     ),
     .None => LoadModuleResult(
       module_value : EvalValue.UnitVal,
+      module_type : TypeValue.Unit,
       module_error : Option(String).Some(`module not preloaded: ${path}`)
     )
   )

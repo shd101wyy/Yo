@@ -425,6 +425,7 @@ evaluate_import :: (
     .Some(load_fn) => load_fn(String.from(module_abs_path.as_str())),
     .None => LoadModuleResult(
       module_value : _build_module_val_from_env(env),
+      module_type : TypeValue.Unit,
       module_error :.None
     )
   );
@@ -447,11 +448,17 @@ evaluate_import :: (
   );
   // Record the result.
   mod_val := load_result.module_value;
-  // Use the value-derived module type so downstream destructurers
-  // (`{ X } :: import("…")`) see a ModuleT and proceed; otherwise the
-  // unit-typed shape would trip the "Destructuring assignment not
-  // supported for the right-hand type: unit" error.
-  out_info := new_expr_info(env, type_of_eval_value(mod_val));
+  // Prefer the CACHED namespace struct type (real member field types —
+  // fn members especially, whose FuncVal values carry no type, so the
+  // value-derived reconstruction makes every imported fn unit-typed and
+  // every `mod.f(x)` call unit). Fall back to the value-derived type for
+  // the cycle path, which has no recorded type.
+  mod_ty := match(
+    load_result.module_type,
+    .Unit => type_of_eval_value(mod_val),
+    _ => load_result.module_type
+  );
+  out_info := new_expr_info(env, mod_ty);
   out_info.value =.Some(mod_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
