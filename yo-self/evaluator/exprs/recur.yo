@@ -177,9 +177,13 @@ evaluate_recur :: (
       // skipCtfeExecution
       exn
     );
-    // Pop the frame that tryToCallFunctionWithArguments pushed.
+    // NOTE: TS's call site does `env = popEnvFrame(callerEnv)` because TS's
+    // tryToCallFunctionWithArguments pushes a frame on the CALLER env;
+    // yo-self's port pushes frames only on the callee/specialized envs, so
+    // popping here removed the INNERMOST CALLER FRAME — a 3-arg while's
+    // loop frame lost its variables and the step expression failed
+    // "Variable i not found" (std/regex/compiler.yo's Sequence walk).
     caller_env := call_result.caller_env;
-    caller_env.pop_frame();
     // Build an UnknownVal for the return type.
     //
     // TODO (Phase 3): extend UnknownVal with `variable_name` and `is_runtime_only`

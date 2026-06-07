@@ -64,3 +64,21 @@ Resume from attempt 3: build it, find the dispatch loop with breadcrumb
 prints on `evaluate_function_call` (callee name + depth counter), and add
 the TS-equivalent recursion guard (TS likely terminates via its
 specialization cache / `currentlySpecializingFunction` stack).
+
+## Related open heads (2026-06-07 evening survey)
+
+- **Call-result-receiver indexing inside operator calls**:
+  `zs.as_bytes()(usize(0)) != u8(47)` — the chained index types u8 in a
+  plain binding, but inside `!=`/`&&` the lhs synthesizes as the
+  ArrayList itself ("Cannot unify <struct:ArrayList> and u8") — the outer
+  application is lost in the operator's overload-dispatch path. Blocks
+  std/url/index.yo, std/http/client.yo, std/http/index.yo. Repro:
+  12-line fixme with String + as_bytes()(0) != u8(47).
+- **json**: "Cannot unify incompatible enum types: <enum:A> and <enum:B>"
+  — enum cross-module identity (same family as the struct identity; enum
+  ids differ between the module's own instantiation and the importer's).
+- **toml**: `.Table(...)` shorthand as a push() arg — needs the
+  SPECIALIZED method param type as expected (yo-self only has the generic
+  `T` at the FuncVal arm; TS re-evaluates parameter types per call).
+- **arg_parser**: `err_msg` scrutinee lookup fails after a deeply-nested
+  3-arg while (minimal repro attempts pass; needs the real file's nesting).
