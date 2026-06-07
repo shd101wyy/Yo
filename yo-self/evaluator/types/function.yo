@@ -227,6 +227,34 @@ copy_func_param_defaults :: (fn(from_id : str, to_id : String) -> unit)({
     .None => ()
   );
 });
+/// Variadic-parameter side table: `fn(...)`-type-expression id (then the
+/// FuncVal id via the same two-step as the defaults) → the variadic
+/// parameter's NAME and TYPE. TS stores `FunctionType.variadicParameter`
+/// on the type itself; yo-self's `TypeValue.Func` only keeps the
+/// `has_variadic` presence bit, which loses the binding name the
+/// def-time body evaluation must bring into scope (`...(quote(elems))`
+/// in std/collections/array_list.yo's `array_list` macro — `elems` was
+/// unresolved in the body).
+VariadicParamEntry :: struct(label : String, ty : TypeValue);
+(g_func_variadic_params : HashMap(String, VariadicParamEntry)) =
+  HashMap(String, VariadicParamEntry).new();
+register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeValue) -> unit)({
+  if(label.as_str() != "...", {
+    ___ := g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
+  });
+});
+copy_func_variadic_param :: (fn(from_id : str, to_id : String) -> unit)({
+  match(
+    g_func_variadic_params.get(String.from(from_id)),
+    .Some(entry) => {
+      ___ := g_func_variadic_params.set(to_id.clone(), entry);
+    },
+    .None => ()
+  );
+});
+get_func_variadic_param :: (fn(func_id : str) -> Option(VariadicParamEntry))(
+  g_func_variadic_params.get(String.from(func_id))
+);
 /// Return the per-parameter default values for `func_id`, or an empty
 /// list when none are registered (i.e. all parameters required).
 get_func_param_defaults :: (fn(func_id : str) -> ArrayList(Option(EvalValue)))(
@@ -3463,6 +3491,14 @@ evaluate_function_type :: (
   // re-keys them under the FuncVal id so call-site arg matching can treat
   // trailing defaulted params as optional. (See the side-table above.)
   register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
+  // Register the variadic parameter's name/type (see the side table above).
+  if(params_result.has_variadic, {
+    register_func_variadic_param(
+      ast_expr_id(expr).to_string(),
+      params_result.variadic_param.label.clone(),
+      params_result.variadic_param.ty
+    );
+  });
   // Register macro-ness (quoted param indices + unquote return), keyed by
   // this `fn(...)` type-expression id and re-keyed under the FuncVal id by
   // `try_to_implement_function_by_function_type` (same two-step as the
@@ -3663,5 +3699,9 @@ export(
 export(
   register_func_param_defaults,
   copy_func_param_defaults,
-  get_func_param_defaults
+  get_func_param_defaults,
+  register_func_variadic_param,
+  copy_func_variadic_param,
+  get_func_variadic_param,
+  VariadicParamEntry
 );

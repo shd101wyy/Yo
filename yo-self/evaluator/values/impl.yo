@@ -25,10 +25,15 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
   make_err_expr,
+  clone_expr_fresh_ids,
   BK_BEGIN,
   BK_FORALL,
   BK_COLON,
-  BK_IMPL_LOWER
+  BK_IMPL_LOWER,
+  BK_WHERE,
+  BK_FN,
+  BK_CTL,
+  BK_UNSAFE_FN
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -48,6 +53,7 @@ open(import("std/string"));
 {
   MethodEntry,
   register_type_trait_method,
+  get_type_trait_methods_by_name,
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -55,6 +61,7 @@ open(import("std/string"));
 { is_some_type, is_function_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+{ random_id } :: import("../../utils.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -916,6 +923,144 @@ _substitute_self_in_method_ty :: (
     .None => method_ty
   )
 );
+/// Trial-evaluate a fn-type head expression, swallowing any error (the
+/// pre-pass is best-effort — TS `tryCreateForwardShell` wraps its
+/// evaluateExpression in try/catch and returns null on failure,
+/// impl.ts:533-547). Returns the evaluated Func TypeValue, or `.None`.
+_trial_eval_fn_type_head :: (
+  fn(
+    fn_type_expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext
+  ) -> Option(TypeValue)
+)({
+  inner_exn := Exception(throw : ((_err) -> unwind(Option(TypeValue).None)));
+  evaluated := evaluate_expression_raw(fn_type_expr, env, ctx, inner_exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(fi) => match(
+      fi.value,
+      .Some(v) => match(
+        v,
+        .TypeVal(tvb) => if(
+          is_function_type(tvb.*),
+          Option(TypeValue).Some(tvb.*),
+          Option(TypeValue).None
+        ),
+        _ => Option(TypeValue).None
+      ),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+});
+/// Pre-pass helper: try to forward-declare a DIRECT function-typed impl
+/// field (`name : (fn(<sig>) -> R)(<body>)`) as a registry shell so that
+/// sibling fields in the same impl block can reference it during their
+/// def-time body evaluation (mutual recursion / forward calls). Returns
+/// `.None` for non-function-shaped fields and signature-eval failures,
+/// leaving them to the main pass. Mirrors `tryCreateForwardShell`
+/// (impl.ts:472); the shell entry is marked with
+/// `source_trait_id = "__forward_shell"` and is UPDATED IN PLACE by the
+/// main pass (MethodEntry is an object — reference semantics — so
+/// dispatch results already holding the entry see the real method),
+/// the value-semantics mirror of TS mutating the shell FunctionValue.
+_try_create_forward_shell :: (
+  fn(
+    field_expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    receiver_ty : TypeValue
+  ) -> Option(MethodEntry)
+)({
+  // Must be `name : value` with an atom label.
+  if(!(ast_expr_is_fn_call(field_expr) && ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2)))), {
+    return(Option(MethodEntry).None);
+  });
+  ca := match(
+    field_expr,
+    .FnCall(_, _, c, _, _) => c,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  label_e := match(ca.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+  val_e := match(ca.get(usize(1)),.Some(e) => e,.None => make_err_expr());
+  if(!(ast_expr_is_atom(label_e)), {
+    return(Option(MethodEntry).None);
+  });
+  // value must be `(fn(...) -> R)(body)` — a call with exactly one arg
+  // whose func slot is `->` applied to (fn|ctl|unsafe_fn head, R). Other
+  // shapes (lambdas, Impl(Fn(...))(...) etc.) are not forward-declarable.
+  if(!(ast_expr_is_fn_call(val_e)), {
+    return(Option(MethodEntry).None);
+  });
+  val_args := match(
+    val_e,
+    .FnCall(_, _, va, _, _) => va,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  if(val_args.len() != usize(1), {
+    return(Option(MethodEntry).None);
+  });
+  fn_type_e := match(
+    val_e,
+    .FnCall(_, fb, _, _, _) => fb.*,
+    .Atom(_, _) => make_err_expr()
+  );
+  if(!(ast_expr_is_fn_call(fn_type_e) && ast_expr_is_fn_call_of(fn_type_e, "->",.Some(usize(2)))), {
+    return(Option(MethodEntry).None);
+  });
+  fn_head_e := match(
+    fn_type_e,
+    .FnCall(_, _, fta, _, _) => match(fta.get(usize(0)),.Some(e) => e,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  head_ok := (ast_expr_is_fn_call(fn_head_e) && ((ast_expr_is_fn_call_of(fn_head_e, BK_FN,.None) || ast_expr_is_fn_call_of(fn_head_e, BK_CTL,.None)) || ast_expr_is_fn_call_of(fn_head_e, BK_UNSAFE_FN,.None)));
+  if(!(head_ok), {
+    return(Option(MethodEntry).None);
+  });
+  label := ast_expr_token(label_e).value.clone();
+  // Evaluate the function-type head only (best-effort, error-swallowed).
+  // Clear the ambient expected type around the trial — TS passes
+  // `expectedType: undefined` (impl.ts:541).
+  saved_exp := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  fn_ty_opt := _trial_eval_fn_type_head(clone_expr_fresh_ids(fn_type_e), env, ctx);
+  ctx.expected_type = saved_exp;
+  match(
+    fn_ty_opt,
+    .None => Option(MethodEntry).None,
+    .Some(fn_ty) => {
+      // Build the shell FuncVal: signature labels from the evaluated
+      // Func type + the UNEVALUATED body attached (TS shell carries
+      // `body: bodyExpr`, impl.ts:560-569).
+      body_e := match(val_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+      sh_foralls := match(fn_ty,.Func({ forall_labels : fl }) => fl.clone(), _ => ArrayList(String).new());
+      sh_params := match(fn_ty,.Func({ param_labels : pl }) => pl.clone(), _ => ArrayList(String).new());
+      sh_implicits := match(fn_ty,.Func({ implicit_labels : il }) => il.clone(), _ => ArrayList(String).new());
+      shell := EvalValue.FuncVal(
+        sh_foralls,
+        sh_params,
+        ArrayList(String).new(),
+        sh_implicits,
+        box(body_e),
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        ArrayList(EvalValue).new(),
+        `fn_${random_id(env.module_path)}_${label}`
+      );
+      Option(MethodEntry).Some(
+        MethodEntry(
+          label : label,
+          ty : fn_ty,
+          value : Option(EvalValue).Some(shell),
+          source_trait_id : String.from("__forward_shell"),
+          needs_pointer_conversion : false,
+          self_type : Option(TypeValue).None
+        )
+      )
+    }
+  )
+});
 evaluate_module_value :: (
   fn(
     expr : AstExpr,
@@ -1113,6 +1258,24 @@ evaluate_module_value :: (
             method_names.push(mname.clone());
             method_types.push(mfi.ty);
             method_values.push(mval);
+            // Bind the bare label so later sibling fields can reference
+            // it by name — alias fields like ComptimeList's
+            // `first : car` (std/prelude.yo) evaluated `car` as an
+            // unbound atom and registered `first` with type unit,
+            // making `types.first()` dispatch produce unit. Mirrors the
+            // per-type main pass (and TS impl.ts:773) binding each
+            // field into the impl env as it goes.
+            _gb := add_variable_to_env(
+              forall_env,
+              mname.clone(),
+              mfi.ty,
+              Option(EvalValue).Some(mval),
+              true,
+              false,
+              false,
+              false,
+              mname_tok
+            );
           }
         );
       });
@@ -1127,7 +1290,12 @@ evaluate_module_value :: (
       // registered immediately. Previously these fields were silently
       // skipped, so generic TRAIT impls registered no methods at all and
       // `x(i)` Index dispatch on `ArrayList(u8)` found nothing.
-      if(ast_expr_is_fn_call(mf_expr) && !(ast_expr_is_fn_call_of(mf_expr, BK_COLON,.Some(usize(2)))), {
+      // `where(...)` clauses may also appear AFTER the receiver
+      // (`impl(forall(T), Channel(T), where(T <: Send), ...)`); they are
+      // not fields — skip them like the pre-receiver skip above. (The
+      // identifier-not-found soft fallback used to make evaluating the
+      // bare `where` atom a silent no-op; with strict lookup it throws.)
+      if((ast_expr_is_fn_call(mf_expr) && !(ast_expr_is_fn_call_of(mf_expr, BK_COLON,.Some(usize(2))))) && !(ast_expr_is_fn_call_of(mf_expr, BK_WHERE,.None)), {
         trait_fn_expr2 := match(
           mf_expr,
           .FnCall(_, tfb, _, _, _) => tfb.*,
@@ -1358,6 +1526,34 @@ evaluate_module_value :: (
   // mirrors TS impl.ts:623 `env = pushEnvFrame(env)` so the per-field
   // BARE-label bindings below don't leak into the module scope.
   _ := local_env.push_frame(false);
+  // ============================================================
+  // Pre-pass: forward-declare DIRECT function-typed fields as
+  // registry shells so sibling bodies can forward-reference them
+  // (`caller` calling `callee` defined later in the same impl;
+  // mutual recursion). Mirrors TS impl.ts:626-650. The main pass
+  // below UPDATES each shell entry in place. Like TS, the shell is
+  // NOT bound as a local variable (it would shadow names inside
+  // sibling method bodies); forward refs go through `self.X`.
+  // ============================================================
+  if(receiver_type_id != String.from(""), {
+    (pre_sfi : usize) = usize(1);
+    while(pre_sfi < n_args, {
+      match(
+        args.get(pre_sfi),
+        .None => (),
+        .Some(pre_sfe) => {
+          match(
+            _try_create_forward_shell(pre_sfe, local_env, ctx, receiver_ty),
+            .Some(shell_entry) => {
+              register_type_trait_method(receiver_type_id, shell_entry);
+            },
+            .None => ()
+          );
+        }
+      );
+      pre_sfi = (pre_sfi + usize(1));
+    });
+  });
   // Process each field expression: `name : fn_def` or a trait constructor
   // like `Trait(name: fn_def, ...)` whose inner args are colon pairs.
   (field_idx : usize) = usize(1);
@@ -1458,8 +1654,9 @@ evaluate_module_value :: (
           // Direct colon pair: add it directly.
           method_exprs.push(field_expr);
         });
-        if(ast_expr_is_fn_call(field_expr) && !(ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2)))), {
+        if((ast_expr_is_fn_call(field_expr) && !(ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2))))) && !(ast_expr_is_fn_call_of(field_expr, BK_WHERE,.None)), {
           // Non-colon FnCall: treat as trait constructor, extract its colon-pair args.
+          // (`where(...)` args are skipped — see the generic loop above.)
           trait_inner_args := match(
             field_expr,
             .FnCall(_, _, tia, _, _) => tia,
@@ -1595,28 +1792,53 @@ evaluate_module_value :: (
                   // `getTypeTraitMethodsByNameFromEnv` early
                   // returning [] when the type has no trait slot).
                   if(receiver_type_id != String.from(""), {
-                    register_type_trait_method(
-                      receiver_type_id,
-                      MethodEntry(
-                        label : method_name.clone(),
-                        ty : fi.ty,
-                        value : Option(EvalValue).Some(method_val),
-                        // No source-trait-id for non-generic
-                        // impls yet — direct-on-type methods
-                        // don't carry a source-trait link in TS
-                        // either (TS uses the trait field's own
-                        // label === "" marker for impl-trait
-                        // values, not for direct methods).
-                        source_trait_id : String.from(""),
-                        needs_pointer_conversion : false,
-                        // Direct-on-type methods don't carry a
-                        // SelfType either (TS doesn't set it on
-                        // direct-method results; only the
-                        // SomeT / Dyn / TypeApp paths do, via
-                        // env.yo:get_receiver_methods_by_name_from_env).
-                        self_type : Option(TypeValue).None
-                      )
-                    );
+                    // If the pre-pass created a forward-decl shell for
+                    // this method, UPDATE it in place (MethodEntry is an
+                    // object — sibling dispatch results holding the entry
+                    // see the real method). Mirrors TS impl.ts:718-757
+                    // mutating the shell FunctionValue.
+                    (updated_shell : bool) = false;
+                    existing_entries := get_type_trait_methods_by_name(receiver_type_id, method_name);
+                    (sh_ei : usize) = usize(0);
+                    while((sh_ei < existing_entries.len()) && !(updated_shell), {
+                      match(
+                        existing_entries.get(sh_ei),
+                        .Some(ex_entry) => {
+                          if(ex_entry.source_trait_id.as_str() == "__forward_shell", {
+                            ex_entry.ty = fi.ty;
+                            ex_entry.value = Option(EvalValue).Some(method_val);
+                            ex_entry.source_trait_id = String.from("");
+                            updated_shell = true;
+                          });
+                        },
+                        .None => ()
+                      );
+                      sh_ei = (sh_ei + usize(1));
+                    });
+                    if(!(updated_shell), {
+                      register_type_trait_method(
+                        receiver_type_id,
+                        MethodEntry(
+                          label : method_name.clone(),
+                          ty : fi.ty,
+                          value : Option(EvalValue).Some(method_val),
+                          // No source-trait-id for non-generic
+                          // impls yet — direct-on-type methods
+                          // don't carry a source-trait link in TS
+                          // either (TS uses the trait field's own
+                          // label === "" marker for impl-trait
+                          // values, not for direct methods).
+                          source_trait_id : String.from(""),
+                          needs_pointer_conversion : false,
+                          // Direct-on-type methods don't carry a
+                          // SelfType either (TS doesn't set it on
+                          // direct-method results; only the
+                          // SomeT / Dyn / TypeApp paths do, via
+                          // env.yo:get_receiver_methods_by_name_from_env).
+                          self_type : Option(TypeValue).None
+                        )
+                      );
+                    });
                   });
                 }
               );

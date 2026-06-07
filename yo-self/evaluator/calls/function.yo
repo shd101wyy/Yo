@@ -20,6 +20,7 @@ open(import("std/string"));
   ast_expr_id,
   make_err_expr,
   clone_expr_fresh_ids,
+  alloc_global_expr_id,
   ast_expr_is_fn_call_of,
   BF_DOT
 } :: import("../../expr.yo");
@@ -41,7 +42,7 @@ open(import("std/string"));
 { get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
-{ TokenKind, string_is_operator } :: import("../../token.yo");
+{ Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, type_of_eval_value, is_type_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 {
@@ -88,7 +89,19 @@ MACRO_DISPATCH_ENABLED :: false;
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments } :: import("./helper.yo");
-{ create_unknown_val } :: import("../../value.yo");
+{ create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
+/// Named call-result unknown: promotes a Type-universe result to
+/// `TypeVal(SomeT)`. TS names every result UnknownValue (variableName is
+/// REQUIRED for Type-typed slots — createUnknownValue throws otherwise,
+/// value.ts:573-588), so a bare UnknownVal of type `Type` cannot reach a
+/// type-expecting builtin in TS; in yo-self `types.first()` on an unknown
+/// variadic ComptimeList(Type) did exactly that
+/// (tests/variadic_comptime.test.yo). Template-free name (hot path).
+_call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
+  nm := String.from("call_result_");
+  nm.push_str(random_id(env.module_path).as_str());
+  create_unknown_val_with_name(ty, nm)
+});
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -104,7 +117,11 @@ ReceiverMethodResult :: struct(
   // (e.g. `HashMap(K,V).new()`). Static methods take no implicit receiver
   // argument; the caller must NOT prepend `receiver_expr`. Mirrors TS
   // `function.ts:291` `isStaticMethodCall = isTypeValue(receiverValue)`.
-  is_static : bool
+  is_static : bool,
+  // The method entry's first parameter is `*(T)` and the receiver is a
+  // compatible value — the call site must wrap the receiver in `&(...)`.
+  // Mirrors TS function.ts:335 `method.needsPointerConversion`.
+  needs_pointer_conversion : bool
 );
 // ---------------------------------------------------------------------------
 // _try_find_receiver_method — when the callee is a property-access expression
@@ -212,7 +229,8 @@ _try_find_receiver_method :: (
       method_val_opt : first.value,
       method_ty : first.ty,
       receiver_expr : receiver_expr,
-      is_static : is_static
+      is_static : is_static,
+      needs_pointer_conversion : first.needs_pointer_conversion
     )
   )
 });
@@ -719,7 +737,7 @@ evaluate_function_call :: (
         });
       });
       out_op := new_expr_info(call_result_op.caller_env, resolved_ret);
-      out_op.value = Option(EvalValue).Some(create_unknown_val(resolved_ret));
+      out_op.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
       out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
       return(expr);
@@ -1997,7 +2015,7 @@ evaluate_function_call :: (
           // the same resolution.
           resolved_ret = evaluate_function_return_type_again(resolved_ret, fresh_env, ctx);
           out_rt := new_expr_info(env, resolved_ret);
-          out_rt.value = Option(EvalValue).Some(create_unknown_val(resolved_ret));
+          out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
           _ := param_vars;
           return(expr);
@@ -2109,7 +2127,7 @@ evaluate_function_call :: (
         );
         ret_type_rt := call_result_rt.return_type;
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
-        out_rt.value = Option(EvalValue).Some(create_unknown_val(ret_type_rt));
+        out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
         expr
@@ -2131,7 +2149,30 @@ evaluate_function_call :: (
         .Some(method_info) => {
           all_args := ArrayList(AstExpr).new();
           if(!(method_info.is_static), {
-            all_args.push(method_info.receiver_expr);
+            // When the method's self param is `*(T)` and the receiver is a
+            // compatible value, wrap the receiver in `&(...)` so the self
+            // argument type-checks (and codegen inserts the address-of).
+            // Mirrors TS function.ts:332-358 building `&(receiverArg)`.
+            if(method_info.needs_pointer_conversion, {
+              recv_tok := ast_expr_token(method_info.receiver_expr);
+              amp_atom := AstExpr.Atom(
+                alloc_global_expr_id(),
+                Token(
+                  kind : TokenKind.Identifier,
+                  value : String.from("&"),
+                  row : recv_tok.row,
+                  column : recv_tok.column,
+                  character : recv_tok.character,
+                  module_path : String.from(recv_tok.module_path.as_str()),
+                  input : String.from(recv_tok.input.as_str())
+                )
+              );
+              amp_args := ArrayList(AstExpr).new();
+              amp_args.push(method_info.receiver_expr);
+              all_args.push(AstExpr.FnCall(alloc_global_expr_id(), box(amp_atom), amp_args, false, recv_tok));
+            }, {
+              all_args.push(method_info.receiver_expr);
+            });
           });
           (ai : usize) = usize(0);
           while(ai < args.len(), {
@@ -2158,7 +2199,7 @@ evaluate_function_call :: (
             exn
           );
           out_m := new_expr_info(call_result_m.caller_env, call_result_m.return_type);
-          out_m.value = Option(EvalValue).Some(create_unknown_val(call_result_m.return_type));
+          out_m.value = Option(EvalValue).Some(_call_result_unknown(call_result_m.return_type, callee_env));
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
           expr
@@ -2209,7 +2250,7 @@ evaluate_function_call :: (
           );
           ret_type_none := call_result_none.return_type;
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
-          out_none.value = Option(EvalValue).Some(create_unknown_val(ret_type_none));
+          out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
           expr

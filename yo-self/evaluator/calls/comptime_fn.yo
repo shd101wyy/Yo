@@ -33,8 +33,10 @@ open(import("std/string"));
   is_type_val,
   is_unknown_val,
   create_unknown_val,
+  create_unknown_val_with_name,
   register_enum_cfid
 } :: import("../../value.yo");
+{ random_id } :: import("../../utils.yo");
 {
   EvalContext,
   ArgValues,
@@ -294,6 +296,21 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
   };
   Option(TypeValue).None
 });
+/// Named CTFE unknown: a CTFE short-circuit (analysis pass, unknown args,
+/// gate skips) that returns an unknown RESULT must promote Type-universe
+/// returns to `TypeVal(SomeT)` — TS passes a variableName at every such
+/// site ("ctfe_analysis_result_..." comptime-fn.ts:63, return.label
+/// comptime-fn.ts:191) and `createUnknownValue` THROWS on a nameless
+/// Type-typed slot, so a bare UnknownVal of type Type cannot exist in TS.
+/// Without this, `types.first()` on an unknown variadic ComptimeList(Type)
+/// produced a bare unknown that `__yo_are_types_compatible` rejects
+/// (tests/variadic_comptime.test.yo). Name built without a template
+/// string (hot path — template-string Rc corruption family).
+_ctfe_unknown :: (fn(return_type : TypeValue, env : Environment) -> EvalValue)({
+  nm := String.from("ctfe_result_");
+  nm.push_str(random_id(env.module_path).as_str());
+  create_unknown_val_with_name(return_type, nm)
+});
 /// Build the in-progress recursion placeholder for a type-constructor call.
 /// When the return is the `Type` universe (level 0) — i.e. a type constructor —
 /// the placeholder is a fresh `SomeT` LEAF (mirroring TS `createUnknownValue`
@@ -373,7 +390,7 @@ evaluate_comptime_fn_call :: (
   if(ctx.is_analyzing_ctfe_capability, {
     return(
       ComptimeFnCallResult(
-        value : create_unknown_val(return_type),
+        value : _ctfe_unknown(return_type, caller_env),
         caller_env : caller_env,
         callee_env : callee_env
       )
@@ -417,7 +434,7 @@ evaluate_comptime_fn_call :: (
     (ctfe_gate_forall_n == usize(0)), {
     return(
       ComptimeFnCallResult(
-        value : create_unknown_val(return_type),
+        value : _ctfe_unknown(return_type, caller_env),
         caller_env : caller_env,
         callee_env : callee_env
       )
@@ -533,7 +550,7 @@ evaluate_comptime_fn_call :: (
   if(any_arg_unknown, {
     return(
       ComptimeFnCallResult(
-        value : create_unknown_val(return_type),
+        value : _ctfe_unknown(return_type, caller_env),
         caller_env : caller_env,
         callee_env : callee_env
       )

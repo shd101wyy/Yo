@@ -101,9 +101,16 @@ process_unquotes_in_expr :: (
   match(
     expr,
     .FnCall(id, func_box, args, is_infix, tok) => {
-      // Case 1: func is `unquote` — evaluate the single argument and return
-      // the expression it contains.
-      if(_is_unquote(func_box.*), {
+      // Case 1: the NODE ITSELF is `unquote(x)` — evaluate the single
+      // argument and return the expression it contains. NOTE: the test is
+      // on `expr`, NOT on `func_box` — TS checks `exprIsAtomOf(func,
+      // unquote)` (quote.ts:46-50), i.e. the CALLEE ATOM; testing the
+      // callee with `_is_unquote` (is-the-callee-an-unquote-CALL) never
+      // matched, so unquotes were silently left UNSPLICED in every
+      // expansion and only "worked" when the unexpanded node happened to
+      // evaluate benignly (LHS `unquote(temp) := ...` did not —
+      // tests/try_macro.test.yo).
+      if(_is_unquote(expr), {
         if(!(args.len() == usize(1)), {
           return(expr);
         });
