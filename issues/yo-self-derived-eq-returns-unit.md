@@ -262,3 +262,62 @@ so land them together.
 
 Fixing this should unblock the bulk of `check ./yo-self` under
 propagation in one shot (≈190 files share this single root).
+
+## PARTIAL FIX implemented + saved (2026-06-08, fourth pass)
+
+Implemented the `.method()`-arm CTFE routing (saved as
+`plans/derived-eq-method-ctfe-partial-fix.patch.txt`, builds clean): in
+`evaluate_function_call`'s `.Some(method_info)` arm, when the method's
+return is comptime (`is_type_hierarchy_type(ret) || result_is_comptime_only`),
+route through `evaluate_comptime_fn_call` using `call_result_m.callee_env`
+(which `try_to_call` already populated with the params bound to their
+arg values — Step 9, helper.yo:537) + `call_result_m.arg_values`, and
+use its result value instead of `_call_result_unknown`. Paired with
+`ctx.is_executing = true` at the 4 main.yo module-program sites.
+
+This is CORRECT and NECESSARY — it makes `info.is_struct()` /
+`info.is_enum()` on a concrete `TypeInfo` execute and return concrete
+bools (verified: the prelude's `is_struct`/`is_enum` match-scrutinee
+errors are gone, and some calls now return concrete `false`).
+
+But it is INSUFFICIENT alone. Instrumenting the routed calls shows the
+derive machinery makes MANY comptime calls and only some get concrete
+args:
+
+```
+10  MARM-CTFE ret=bool   resultval=<unknown: bool>
+ 9  MARM-CTFE ret=Expr   resultval=<unknown: Expr>
+ 8  MARM-CTFE ret=usize  resultval=<unknown: usize>
+ 2  MARM-CTFE ret=bool   resultval=false              <- concrete (works)
+ ...
+```
+
+The `<unknown>` results are `evaluate_comptime_fn_call` hitting its
+`any_arg_unknown` gate (returns unknown without executing) because the
+ARGS arrive unknown. So the broader comptime-execution path still drops
+concrete values: the derive body runs via `evaluate_begin_expression`
+(call_registered_derive_rule) and its intermediate comptime bindings
+(`info :: …`, `variants :: …`, `eq_branches :: __yo_comptime_fold_range(…)`,
+`match_body.to_expr()`) don't thread concrete values to the next call.
+`__derive_eq` ends up returning `<unknown: unit>` → "derive rule must
+return comptime(Expr)".
+
+### Remaining scope (the real size of this)
+
+Making derived `==` work end-to-end requires the WHOLE comptime-execution
+path to run concretely under `check` once `is_executing=true`:
+
+- `.method()`-arm CTFE routing — DONE (patch above).
+- comptime begin-block bindings (`x :: <comptime call>`) must thread the
+  concrete value to subsequent expressions (this is where most of the
+  `<unknown>` args originate).
+- recursive comptime fns (`__yo_comptime_fold_range`, `__sN`) must
+  execute and terminate on concrete args.
+- `to_expr` / `comptime_string_to_expr`, `get_enum_variants`,
+  `map_variants`, `make_impl` must each return concrete results.
+
+This is the comptime-execution subsystem, not a single bug. Land the
+saved patch as the first piece, then drive the prelude green by fixing
+each `<unknown>`-producing comptime step in turn (prelude is the test;
+gate std/yo-self/tests after). is_executing=true + the patch must land
+together with the rest — partial application regresses std.
