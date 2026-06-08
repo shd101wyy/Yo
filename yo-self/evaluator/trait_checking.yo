@@ -49,6 +49,7 @@ open(import("std/string"));
 { YoError, ErrorKind, format_error_message } :: import("../error.yo");
 {
   find_matching_generic_impl,
+  find_matching_negative_generic_impl,
   set_type_implements_trait_fn,
   set_register_trait_value_fn,
   is_concrete_impl_being_registered,
@@ -456,13 +457,16 @@ type_implements_trait :: (
 )({
   (target : TypeValue) = target_type;
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
-  // has a registered concrete negative impl for this trait, it does NOT
-  // implement the trait regardless of auto-derive. Mirrors
-  // `trait-checking.ts:345-350`. Keys MUST match the registration site
-  // (impl.yo:1166): `type_id_or_empty` for the type, `get_trait_key` for the
-  // trait. (The generic-negative-impl branch, ts:351-358's
-  // findMatchingNegativeGenericImpl, is not yet ported in yo-self.)
+  // has a registered negative impl for this trait, it does NOT implement the
+  // trait regardless of auto-derive. Mirrors `trait-checking.ts:345-358`.
+  // Concrete negative impls are keyed `type_id_or_empty:get_trait_key`
+  // (registration site impl.yo). Generic negative impls
+  // (`impl(forall(T), Pattern, !(Trait))`) are matched structurally via
+  // `find_matching_negative_generic_impl` (TS findMatchingNegativeGenericImpl).
   if(has_negative_impl(type_id_or_empty(target).as_str(), get_trait_key(trait_type).as_str()), {
+    return(TraitCheckResult(implemented : false, env : env));
+  });
+  if(find_matching_negative_generic_impl(target, trait_type, env), {
     return(TraitCheckResult(implemented : false, env : env));
   });
   // 1. Comptime builtin fast path.

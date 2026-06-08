@@ -548,6 +548,48 @@ find_matching_generic_impl :: (
   });
   false
 });
+/// Negative generic impl registry. Mirrors TS `negativeGenericImplRegistry`
+/// (impl.ts:286): holds `impl(forall(...), Pattern, !(Trait))` entries (reusing
+/// `GenericImplEntry`, with empty field_* lists — negative impls carry no
+/// methods). Checked as step 0 of `type_implements_trait` so a matching negative
+/// generic impl overrides auto-derive (e.g. `impl(forall(T), Container(T),
+/// !(Send))` makes `Container(i32)` NOT `Send`).
+(g_negative_generic_impl_entries : ArrayList(GenericImplEntry)) =
+  ArrayList(GenericImplEntry).new();
+register_negative_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
+  _ := g_negative_generic_impl_entries.push(entry);
+});
+/// Returns true if some registered negative generic impl for `trait_type`
+/// matches `concrete_type`. Mirrors TS `findMatchingNegativeGenericImpl`
+/// (impl.ts:296): filter by trait key, then `try_match_generic_impl`.
+find_matching_negative_generic_impl :: (
+  fn(concrete_type : TypeValue, trait_type : TypeValue, env : Environment) -> bool
+)({
+  key := get_trait_key(trait_type);
+  if(key.is_empty(), {
+    return(false);
+  });
+  (n : usize) = g_negative_generic_impl_entries.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    entry := match(
+      g_negative_generic_impl_entries.get(i),
+      .Some(e) => e,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    if(entry.trait_key.as_str() == key.as_str(), {
+      if(try_match_generic_impl(concrete_type, entry, env).is_some(), {
+        found = true;
+      });
+    });
+    i = (i + usize(1));
+  });
+  found
+});
 /// A method (field) from a matched generic impl.
 ///
 /// `source_trait_id` carries the trait id whose generic-impl
@@ -1246,6 +1288,39 @@ evaluate_module_value :: (
     while(fj < n_args, {
       mf_expr := match(args.get(fj),.None => make_err_expr(),.Some(e) => e);
       fj = (fj + usize(1));
+      // Negative GENERIC impl: `impl(forall(...), Pattern, !(Trait))`. Register
+      // the negated trait into the negative-generic registry (reusing this
+      // impl's forall params + receiver pattern) so `Type.impls(Concrete, Trait)`
+      // returns false at trait-checking step 0. Mirrors TS impl.ts:3017-3024
+      // (`isGeneric` branch of negative-trait registration). The `!(...)` field
+      // then falls through the trait-constructor handling below as a no-op (its
+      // head `!` is not a trait), like the concrete negative path.
+      if(ast_expr_is_fn_call_of(mf_expr, "!",.Some(usize(1))), {
+        neg_inner := match(
+          mf_expr,
+          .FnCall(_, _, na, _, _) => match(na.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
+          .Atom(_, _) => make_err_expr()
+        );
+        neg_head := match(neg_inner,.FnCall(_, fbn, _, _, _) => fbn.*,.Atom(_, _) => neg_inner);
+        match(
+          _try_lookup_trait_type(neg_head, forall_env, ctx, exn),
+          .Some(neg_trait_ty) => {
+            neg_entry := GenericImplEntry(
+              get_trait_key(neg_trait_ty),
+              forall_names,
+              forall_some_types,
+              receiver_type_pattern,
+              neg_trait_ty,
+              ArrayList(String).new(),
+              ArrayList(TypeValue).new(),
+              ArrayList(EvalValue).new(),
+              forall_env
+            );
+            register_negative_generic_impl(neg_entry);
+          },
+          .None => ()
+        );
+      });
       if(ast_expr_is_fn_call(mf_expr) && ast_expr_is_fn_call_of(mf_expr, BK_COLON,.Some(usize(2))), {
         mf_colon_args := match(
           mf_expr,
@@ -1961,6 +2036,7 @@ export(GenericImplEntry, MethodCandidate);
 export(TypeImplementsTraitFn);
 export(set_type_implements_trait_fn, set_register_trait_value_fn, get_trait_key);
 export(register_generic_impl);
+export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);
 export(find_matching_generic_impl);
 export(find_methods_from_generic_impls);
