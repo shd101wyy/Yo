@@ -406,3 +406,61 @@ and the `::` binding's rhs value read.
   registering the derived ==). Each is a real, separate comptime-execution
   bug. Green prelude needs the whole series; treat as a dedicated
   multi-step effort, validating against the prelude with the gate after.
+
+## SIXTH PASS (2026-06-08) — core comptime machinery FIXED; derive now folds
+
+Major progress: drove the derive chain through SEVERAL more layers. The
+hard comptime-execution machinery now works end-to-end up to the final
+expr-construction. Fixes (all in `function.yo` + `main.yo`, saved in
+`plans/derived-eq-comptime-fix-wip.patch.txt`):
+
+5. **Comptime operator folding / comptime-method selection.** `n -
+usize(1)` in `__yo_comptime_fold_range` never folded → unknown fold
+   index → `variants.get(unknown)` → OOB. Two parts in the operator-
+   dispatch block: (a) among the operator methods returned for `-`
+   (`usize` has BOTH `Sub` and `ComptimeSub`), PREFER the comptime-
+   returning one — yo-self can't tell operands are comptime from the
+   receiver TYPE (both `usize`); (b) route the chosen comptime operator
+   through `evaluate_comptime_fn_call` (build a fresh env binding its
+   captures + params to the concrete arg values), instead of fabricating
+   an UnknownVal. Now `n - usize(1)` folds to a concrete index.
+6. **recur CTFE (`given_value` shortcut).** `evaluate_recur`'s normal
+   path delegates to `evaluate_function_call(expr, env, func_type,
+func_value, …)`, but evaluate*function_call did `* := given_value;`—
+DISCARDING it — and then evaluated the callee atom`recur`as an
+identifier → "Variable recur not found". Ported TS's`givenFunc`shortcut: when`given_value`is Some, use it as the callee (write its
+ExprInfo on`func_expr`) instead of evaluating the atom. Now `recur(…)`in`\_\_yo_comptime_fold_range` CTFE-executes the recursive call.
+
+RESULT: with fixes 1+2 (method-arm CTFE, fresh-env) + 5 + 6 + is*executing,
+the derive now executes fully through the fold — verified `eq_branches`
+and `match_body` are CONCRETE strings in the real pass
+(`"match(lhs,\n .AllowUnsafe => match(rhs, .AllowUnsafe => true, * =>
+false), … .NoContracts => …)"`). is_struct/is_enum/cond-selection/
+fold_range/recur/comptime-arithmetic/string-concat ALL work now.
+
+### Remaining (layer 9+): expr construction from the folded string
+
+`__derive_eq` still returns `<unknown: unit>` because the FINAL step —
+`ctx.make_impl(quote(Eq(...)( (==) : ((lhs,rhs) -> #(match_body.to_expr())) )))`
+— produces unknown. Instrumentation: the `to_expr`/`make_impl` calls
+reach my `.method()`-arm CTFE with UNKNOWN receivers
+(`a0=<unknown: comptime_string>` for to_expr, `<unknown: DeriveContext>`
+for make_impl) EVEN THOUGH the `match_body` binding is concrete. So the
+receiver value isn't threaded into the method-call CTFE here. The
+`to_expr` call sits inside an `unquote` (`#(...)`) within a `quote`, so
+the likely cause is that `process_unquotes_in_expr` evaluates the unquote
+in an env that doesn't carry the concrete `match_body` binding (env
+threading from the const binding into the quote/unquote eval). Next:
+trace the env passed to the unquote eval in `builtins/quote.yo`
+`process_unquotes_in_expr` and ensure it carries the enclosing comptime
+bindings. After that: `make_impl`'s quote construction, then registering
+the derived `==` impl.
+
+### Net state
+
+- COMMITTED green: fix-3 (match arm-selection dot).
+- SAVED (`plans/derived-eq-comptime-fix-wip.patch.txt`, builds clean):
+  fixes 1,2,5,6 + is_executing. The derive now executes through the fold;
+  blocked at quote/unquote receiver-env threading for to_expr/make_impl.
+  Needs is_executing=true (all-or-nothing for prelude) so stays in the
+  patch until the back-half (expr construction + registration) lands.
