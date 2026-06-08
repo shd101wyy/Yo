@@ -368,3 +368,41 @@ Saved progress: `plans/derived-eq-comptime-fix-wip.patch.txt` (all of
 1+2+3 together, builds clean). Fix (3) is standalone-committable (gated
 separately). 1+2 need is_executing=true (all-or-nothing for the prelude),
 so they stay in the patch until the series completes.
+
+## LAYER 4 detail (2026-06-08) — closure capture sees the binding as unknown
+
+Confirmed the layer-4 root: the fold lambda
+`(fn(acc, vi) -> …)({ v :: variants.get(vi); … })` captures `variants`
+in `function_type.yo`'s capture loop, and `FTCAP variants =
+<unknown: ComptimeList(VariantInfo)>` — i.e. at capture time the binding
+`variants :: Type.get_enum_variants(T)` holds UNKNOWN, even though the
+`match(info, .Enum(v) => v)` INSIDE get_enum_variants returns the concrete
+8-element list (verified — the match-result selection works after the
+fix-3 dot patch). So the method-CALL result (`Type.get_enum_variants(T)`)
+is not reaching the const binding `variants`, the same value-threading
+class as `info` — but here it stays unknown through capture.
+
+So layer 4 is really "comptime const-binding `x :: <comptime method
+call>` must store the method's concrete CTFE result". `get_info` happened
+to thread through (its body is a single `return(builtin)`); a method whose
+body is a begin-block ending in a match (`get_enum_variants`) does not.
+Likely the inline-FuncVal-arm / method-arm CTFE result for a begin-block
+body isn't captured into the call's ExprInfo value, OR the const-binding
+reads the call expr's value before the CTFE result is stored. Next:
+trace `Type.get_enum_variants(T)`'s call-result value (is it the inline
+arm or the .method() arm? does ct_result.value carry the 8-element list?)
+and the `::` binding's rhs value read.
+
+### Net state after this session
+
+- COMMITTED (green): fix-3 (comptime enum match arm-selection dot
+  mismatch) — standalone correctness fix.
+- SAVED (plans/derived-eq-comptime-fix-wip.patch.txt): fix-1 (.method()
+  CTFE routing) + fix-2 (fresh-env param binding) + is_executing=true.
+  Build clean; advance the derive through is_struct/is_enum/cond/match
+  destructure; blocked at layer 4 (closure capture / const-binding of a
+  comptime method-call result).
+- The chain has more layers after 4 (to_expr, make_impl macro expansion,
+  registering the derived ==). Each is a real, separate comptime-execution
+  bug. Green prelude needs the whole series; treat as a dedicated
+  multi-step effort, validating against the prelude with the gate after.
