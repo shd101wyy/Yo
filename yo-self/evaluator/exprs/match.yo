@@ -1008,6 +1008,24 @@ _is_gadt_branch_reachable :: (
     )
   )
 });
+/// Compare an EnumVal's stored variant name against a match-arm variant
+/// name, tolerating the leading-dot convention: constructed EnumVals store
+/// names WITH a leading dot (".Some", property_access.yo / eval.yo), while
+/// arm patterns yield the bare atom ("Some"). A plain `==` therefore never
+/// matched a CONCRETE enum scrutinee — dormant for runtime matches (unknown
+/// scrutinee skips these comparisons) but it made comptime enum reflection
+/// (`match(Type.get_info(T), .Enum(_) => …)`) always fall through to the
+/// wildcard, breaking derived `Eq`/etc.
+_variant_name_eq :: (fn(sv_vname : str, arm_name : str) -> bool)(
+  cond(
+    (sv_vname == arm_name) => true,
+    true => {
+      dotted := String.from(".");
+      dotted.push_str(arm_name);
+      sv_vname == dotted.as_str()
+    }
+  )
+);
 evaluate_match :: (
   fn(
     expr : AstExpr,
@@ -1286,7 +1304,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_fl),
+                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.as_str(), variant_name_fl)),
                 _ => true
               )
             )
@@ -1323,7 +1341,7 @@ evaluate_match :: (
           .Some(sv) => (
             is_enum_val(sv) && match(
               sv,
-              .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_fl),
+              .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.as_str(), variant_name_fl),
               _ => false
             )
           )
@@ -1424,7 +1442,7 @@ evaluate_match :: (
                 match(
                   sv,
                   .EnumVal(sv_vname, _) => {
-                    if((sv_vname.as_str() == variant_name_fl) || (variant_name_fl == "_"), {
+                    if(_variant_name_eq(sv_vname.as_str(), variant_name_fl) || (variant_name_fl == "_"), {
                       matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                     });
                   },
@@ -1535,7 +1553,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_wf),
+                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.as_str(), variant_name_wf)),
                 _ => true
               )
             )
@@ -1876,7 +1894,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_wf),
+                .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.as_str(), variant_name_wf),
                 _ => false
               )
             )
@@ -1957,7 +1975,7 @@ evaluate_match :: (
                   match(
                     sv,
                     .EnumVal(sv_vname, _) => {
-                      if((sv_vname.as_str() == variant_name_wf) || (variant_name_wf == "_"), {
+                      if(_variant_name_eq(sv_vname.as_str(), variant_name_wf) || (variant_name_wf == "_"), {
                         matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                       });
                     },

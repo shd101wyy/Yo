@@ -321,3 +321,50 @@ saved patch as the first piece, then drive the prelude green by fixing
 each `<unknown>`-producing comptime step in turn (prelude is the test;
 gate std/yo-self/tests after). is_executing=true + the patch must land
 together with the rest — partial application regresses std.
+
+## FIFTH PASS (2026-06-08) — full comptime-execution trace; 4 distinct bugs found
+
+Drove the chain layer by layer with is_executing=true (+ the saved
+.method() CTFE patch). The derive advances one layer per fix; the
+comptime-execution path has SEVERAL independent bugs in series. Full
+trace via instrumentation (`derive(Pragma, Eq(Pragma))`):
+
+1. **`.method()` arm never CTFE-executes** — FIXED (patch). Routed
+   comptime-returning method calls through evaluate_comptime_fn_call.
+2. **CTFE body env lacked concrete params** — FIXED (patch). try_to_call's
+   callee_env binds comptime params to UNKNOWNS (type-check pass); built a
+   fresh env binding the method's captures + params to the CONCRETE arg
+   values (mirroring the inline FuncVal arm) before CTFE. Verified:
+   `info.is_struct()` scrutinee is now the concrete `.Enum(...)`.
+3. **match variant-name dot mismatch** — FIXED (match.yo, STANDALONE —
+   independent of is_executing). EnumVals store variant names WITH a
+   leading dot (".Enum", per property_access.yo/eval.yo) but match arm
+   patterns yield the bare atom ("Enum"); the concrete-scrutinee
+   comparisons (`should_process_wf`, `matched_body_idx`, fieldless
+   equivalents) used `==`/`!=` directly, so a concrete comptime enum
+   scrutinee NEVER matched its arm and always fell through to wildcard.
+   Dormant for runtime matches (unknown scrutinee skips these). Added
+   `_variant_name_eq` and applied at all 6 sites. Verified: `is_enum` on
+   a concrete `.Enum` now returns true; `match(info, .Enum(v) => v)`
+   destructures `v` to the concrete 8-element variants list.
+4. **closure capture of comptime values** — NOT fixed (NEXT). The derive's
+   enum branch builds `eq_branches :: __yo_comptime_fold_range(vc, "",
+(fn(acc, vi) => { v :: variants.get(vi); … }))`. `variants` is the
+   concrete 8-element list and `vc`=8, but inside the fold the lambda's
+   CAPTURED `variants` is EMPTY → `variants.get(0)` "ComptimeList index
+   out of bounds (len=0)". So a comptime closure that captures a comptime
+   binding loses the binding's concrete value. Look at
+   `anonymous_function.yo` capture snapshot (cap_vals) + how captured
+   comptime values are restored at CTFE call time (the capture likely
+   stores VarRef/empty for a binding that has no value at lambda-CREATION
+   time but is bound by CTFE-execution time).
+
+After (4) there are likely more layers (`to_expr`/`comptime_string_to_expr`,
+`make_impl` macro expansion, registering the derived `==`). This is a
+genuine multi-bug subsystem; each fix is correct and advances the derive,
+but green prelude needs the whole series.
+
+Saved progress: `plans/derived-eq-comptime-fix-wip.patch.txt` (all of
+1+2+3 together, builds clean). Fix (3) is standalone-committable (gated
+separately). 1+2 need is_executing=true (all-or-nothing for the prelude),
+so they stay in the patch until the series completes.
