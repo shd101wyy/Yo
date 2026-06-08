@@ -117,3 +117,36 @@ object only in the combined context — to be root-caused next (instrument
 `evaluate_yo_type_impls`' unknown-return path + the trait-check result for the
 RegularPoint Send query). negative_impl remains blocked on the unported
 negative-generic-impl matcher (§3).
+
+## Update 2 — negative_impl + thread_safety CLOSED; atomic_object narrowed
+
+The trait-identity overhaul + the `findMatchingNegativeGenericImpl` port (both
+landed) closed **negative_impl AND thread_safety**. Gates: std 151/151,
+tests 170/182 (11 known-blocked + atomic_object), check ./yo-self 228/228.
+
+### atomic_object — remaining, precisely narrowed
+
+The only remaining failure. Line 64: module-level
+`comptime_assert(Type.impls(RegularPoint, Send) == false, …)`.
+`Type.impls(RegularPoint, Send)` evaluates to **unknown** (confirmed: both
+`comptime_assert(impls)` and `comptime_assert(!(impls))` fail).
+
+Root, via tracing `evaluate_yo_type_impls`: `Type.impls` is the prelude method
+`impls : (fn(comptime(self):Type, comptime(marker):Trait) -> comptime(bool))({
+return(__yo_type_impls(self, marker)) })`. The calls that reach the builtin show
+`arg0='self' arg1='marker'` (the method's param names). For `AtomicPoint`
+(asserted inside a `test(...)` block) `self` binds to `AtomicPoint` →
+`__yo_type_impls` returns a concrete bool. For the MODULE-LEVEL
+`Type.impls(RegularPoint, Send)` (line 64), the comptime method call does NOT
+bind `self`=RegularPoint / `marker`=Send — they stay unresolved
+(`self`→SomeType, `marker`→Type(1)) — so `__yo_type_impls` takes its
+TypeUni/unrecognized-trait short-circuit and returns `unknown`.
+
+So this is a **comptime-method-call argument-binding bug** (same class as the
+derive-chain comptime fixes): a `.method()` CTFE on a `Type` receiver at module
+level under `is_executing` fails to bind the call's concrete comptime args to the
+method's `comptime(...)` params. The marker-collision used to mask it (the
+nameless-trait match returned a concrete `true` regardless of the unknown).
+Next: instrument the `.method()`-arm CTFE binding in `calls/function.yo` for the
+module-level case (compare to the working test-block-context call) and bind the
+concrete receiver/args, mirroring TS's comptime method-call evaluation.
