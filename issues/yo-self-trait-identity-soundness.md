@@ -150,3 +150,20 @@ nameless-trait match returned a concrete `true` regardless of the unknown).
 Next: instrument the `.method()`-arm CTFE binding in `calls/function.yo` for the
 module-level case (compare to the working test-block-context call) and bind the
 concrete receiver/args, mirroring TS's comptime method-call evaluation.
+
+### atomic_object — sharper isolation (direct builtin works)
+
+`__yo_type_impls(RegularPoint, Send) == false` called DIRECTLY (bypassing the
+`Type.impls` method) PASSES — so RegularPoint and Send resolve correctly at
+module level. The unknown comes ONLY from the `impls` comptime-METHOD call not
+binding `self`=RegularPoint / `marker`=Send. And it reproduces ONLY in the
+`open(std/fmt)` + `atomic(object(...))` COMBINATION: `fmt`-only and `atomic`-only
+each pass; defining an atomic object + opening fmt together breaks the `impls`
+method-call CTFE binding for a subsequent plain-object query.
+
+So the bug is a comptime-method-call CTFE argument-binding (or CTFE-cache)
+interaction triggered by that combination — NOT trait resolution. Next:
+instrument the `.method()`-arm CTFE in `calls/function.yo` for the
+`Type.impls(RegularPoint, Send)` call in the fmt+atomic context (what does
+`self`/`marker` bind to? is a stale/colliding CTFE cache entry returned?), and
+compare to the working simple/atomic-only/fmt-only cases.
