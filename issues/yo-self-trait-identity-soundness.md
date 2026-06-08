@@ -87,3 +87,33 @@ These 3 tests are the only remaining failures of the def-eval / `is_executing`
 WIP after the derive-comptime chain + the worker-stack fix (std 151/151,
 tests 168/182 = 11 known + these 3, yo-self 228/228). They were already failing
 in the prior WIP — not a regression from the derive/stack work.
+
+## Update — overhaul implemented; reveals a THIRD cause for atomic_object/thread_safety
+
+The trait-identity overhaul (steps 1+2) is implemented:
+
+- `is_type_registered_as_trait` now compares by `_trait_type_id` (markers are
+  distinct by id; the nameless-trait name collision is gone).
+- concrete `impl(T, Trait(...))` now records the impl'd base trait into the
+  type's trait list via `register_type_trait_value` (routed through a function
+  pointer `g_register_trait_value_fn` to break the impl.yo ↔ trait_checking.yo
+  import cycle, installed in `_trait_checking_init`). `current_trait_ty` is the
+  base trait (via `_try_lookup_trait_type` on the constructor head), so its id
+  matches the query id.
+
+Result: the SIMPLE marker case is fixed (`RegularPoint` alone is correctly NOT
+`Send`) and positive method-trait queries resolve by id (`Type.impls(Dog,
+Greet)` true). std 151/151, tests 168/182 — regression-free.
+
+BUT atomic_object/thread_safety STILL fail, now for a different (previously
+masked) reason: in the `open(import("std/fmt"))` + `atomic(object(...))`
+context, `Type.impls(RegularPoint, Send)` evaluates to **unknown** (both
+`comptime_assert(impls)` and `comptime_assert(!(impls))` fail), so
+`impls == false` is not provably true. Neither alone (`fmt`-only or
+`atomic`-only) reproduces it. The name-collision used to return a (wrong)
+concrete `true` regardless, so this unknown was invisible. This is a THIRD,
+distinct bug — `Type.impls`/`Send` resolution yielding `unknown` for a plain
+object only in the combined context — to be root-caused next (instrument
+`evaluate_yo_type_impls`' unknown-return path + the trait-check result for the
+RegularPoint Send query). negative_impl remains blocked on the unported
+negative-generic-impl matcher (§3).

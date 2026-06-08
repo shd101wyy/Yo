@@ -50,6 +50,7 @@ open(import("std/string"));
 {
   find_matching_generic_impl,
   set_type_implements_trait_fn,
+  set_register_trait_value_fn,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
@@ -106,10 +107,46 @@ register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment
     .None => ()
   );
 });
+/// Register that `type_id` implements the trait VALUE `trait_ty` directly
+/// (mirrors TS pushing the impl'd trait onto `receiverType.trait.fields`). Used
+/// by impl.yo when a concrete `impl(T, SomeTrait(...))` is registered, so
+/// `Type.impls(T, SomeTrait)` resolves by id at step 4 — the base trait id
+/// `trait_ty` carries matches the id the query evaluates `SomeTrait` to.
+register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit)({
+  match(
+    g_type_trait_registry.get(type_id),
+    .Some(list) => {
+      _push := list.push(trait_ty);
+    },
+    .None => {
+      new_list := ArrayList(TypeValue).new();
+      _push2 := new_list.push(trait_ty);
+      _set := g_type_trait_registry.set(type_id, new_list);
+    }
+  );
+});
+/// Extract a trait's stable identity string: the `id` field for `TraitT`, the
+/// `base_name` for Fn/Future traits. Defined here (above its first use) because
+/// yo-self has no forward references.
+_trait_type_id :: (fn(ty : TypeValue) -> String)(
+  match(
+    ty,
+    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .FutureTraitT(base_name, _, _, _, _) => base_name,
+    _ => String.from("")
+  )
+);
 /// Check whether `type_id` is registered as implementing `query_trait`, matched
-/// by `are_types_compatible` (mirrors TS `typeImplementsTrait`'s
-/// `areTypesCompatible` over `targetType.trait.fields` — identity, not name).
-/// Called from `type_implements_trait` step 4 below.
+/// by trait `id` (mirrors TS `typeImplementsTrait`'s identity comparison —
+/// `expected.id === given.id`, compatibility.ts:543-549). The registry holds the
+/// type's auto-derived markers (each a distinct prelude `trait()` with a stable
+/// id) AND, since the trait-identity overhaul, the traits of its concrete impls
+/// (via `register_type_trait_value`, carrying the base trait id). All are looked
+/// up so the registered id and the query id match exactly. NOT
+/// `are_types_compatible`: yo-self's `TraitT` compatibility is name-based and
+/// every marker is nameless (empty name), so it would treat EVERY marker as
+/// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
 is_type_registered_as_trait :: (fn(type_id : String, query_trait : TypeValue, env : Environment) -> bool)(
   match(
     g_type_trait_registry.get(type_id),
@@ -118,9 +155,10 @@ is_type_registered_as_trait :: (fn(type_id : String, query_trait : TypeValue, en
       n := list.len();
       (i : usize) = usize(0);
       (found : bool) = false;
+      query_id := _trait_type_id(query_trait);
       while((i < n) && !(found), {
         reg := match(list.get(i),.Some(t) => t,.None => TypeValue.Unit);
-        if(are_types_compatible(query_trait, reg), {
+        if(query_id == _trait_type_id(reg), {
           found = true;
         });
         i = (i + usize(1));
@@ -166,15 +204,6 @@ AssocTypeCheckResult :: struct(
 /// Extract the nominal ID string from a trait TypeValue.
 /// Only `TraitT` has an explicit `id` field; `FnTraitT`/`FutureTraitT` use
 /// their `base_name` as a key (they cannot be the `Comptime`/`Runtime` traits).
-_trait_type_id :: (fn(ty : TypeValue) -> String)(
-  match(
-    ty,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
-    .FutureTraitT(base_name, _, _, _, _) => base_name,
-    _ => String.from("")
-  )
-);
 /// Identify which auto-derived MARKER trait `trait_type` is, by comparing its id
 /// against the fixed env marker set (Send/Comptime/Acyclic/Runtime/Rc); returns
 /// the marker name, or "" if it isn't one. Used by the step-4b on-demand
@@ -1518,6 +1547,7 @@ unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String
 // This breaks the circular dependency between the two modules.
 _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_fn(type_implements_trait_bool);
+  set_register_trait_value_fn(register_type_trait_value);
   true
 })();
 // ---------------------------------------------------------------------------
@@ -1539,4 +1569,4 @@ export(type_is_comptime_only_full, type_is_runtime_only);
 export(validate_type_availability);
 export(find_some_type_missing_comptime_constraint);
 export(mark_concrete_impl_being_registered, unmark_concrete_impl_being_registered);
-export(register_type_trait, is_type_registered_as_trait);
+export(register_type_trait, register_type_trait_value, is_type_registered_as_trait);

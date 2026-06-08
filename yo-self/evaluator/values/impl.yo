@@ -127,6 +127,17 @@ TypeImplementsTraitFn :: (fn(t : TypeValue, trait_type : TypeValue, env : Enviro
 set_type_implements_trait_fn :: (fn(f : TypeImplementsTraitFn) -> unit)({
   g_type_implements_trait_fn = Option(TypeImplementsTraitFn).Some(f);
 });
+/// Type of `register_type_trait_value` from trait_checking.yo. Records that a
+/// type implements a trait VALUE (by its base id) so `Type.impls(T, Trait)`
+/// resolves at trait-checking step 4. Routed via a function pointer to break the
+/// impl.yo ↔ trait_checking.yo import cycle (same pattern as above).
+RegisterTraitValueFn :: (fn(type_id : String, trait_ty : TypeValue) -> unit);
+(g_register_trait_value_fn : Option(RegisterTraitValueFn)) =
+  Option(RegisterTraitValueFn).None;
+/// Install the function pointer (called from trait_checking.yo init block).
+set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
+  g_register_trait_value_fn = Option(RegisterTraitValueFn).Some(f);
+});
 // ---------------------------------------------------------------------------
 // `currentlyRegisteringConcreteImpls` registry
 // ---------------------------------------------------------------------------
@@ -1674,6 +1685,23 @@ evaluate_module_value :: (
             .Atom(_, _) => make_err_expr()
           );
           current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env, ctx, exn);
+          // Record that this type implements the trait (by its base id) in the
+          // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
+          // trait-checking step 4 — mirroring TS pushing the impl'd trait onto
+          // `receiverType.trait.fields`. Without this, concrete method-trait
+          // satisfaction has no id-based path (it only ever worked via the
+          // now-removed nameless-trait name collision).
+          match(
+            current_trait_ty,
+            .Some(ctt) => if(receiver_type_id != String.from(""), {
+              match(
+                g_register_trait_value_fn,
+                .Some(rf) => rf(receiver_type_id.clone(), ctt),
+                .None => ()
+              );
+            }),
+            .None => ()
+          );
           (ti2 : usize) = usize(0);
           while(ti2 < trait_inner_args.len(), {
             match(
@@ -1931,7 +1959,7 @@ _impl_generic_impl_fallback_init := (fn() -> bool)({
 export(evaluate_module_value);
 export(GenericImplEntry, MethodCandidate);
 export(TypeImplementsTraitFn);
-export(set_type_implements_trait_fn, get_trait_key);
+export(set_type_implements_trait_fn, set_register_trait_value_fn, get_trait_key);
 export(register_generic_impl);
 export(try_match_generic_impl);
 export(find_matching_generic_impl);
