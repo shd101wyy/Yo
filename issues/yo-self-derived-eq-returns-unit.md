@@ -464,3 +464,30 @@ the derived `==` impl.
   blocked at quote/unquote receiver-env threading for to_expr/make_impl.
   Needs is_executing=true (all-or-nothing for prelude) so stays in the
   patch until the back-half (expr construction + registration) lands.
+
+### Layer-9 refinement (instrumented)
+
+Confirmed the back-half blocker is PERVASIVE, not just `to_expr`. Inside
+`make_impl`'s `quote(impl(... unquote(self.target) ... #(match_body.to_expr())
+...))`, `process_unquotes_in_expr` evaluates EVERY unquote arg to unknown:
+
+```
+UNQ (match_body.to_expr)()                  -> <unknown: Expr>
+UNQ (self.target)                           -> <unknown: Expr>
+UNQ (self.forall_params).comptime_unwrap()  -> <unknown: Expr>
+UNQ (field.name).to_expr()                  -> <unknown: Expr>
+```
+
+So the RECEIVERS (`self` = the DeriveContext, `match_body`, `field`)
+arrive unknown during the unquote evaluation even though their bindings
+are concrete. `process_unquotes_in_expr` (builtins/quote.yo) evaluates
+the unquote arg with NON-RAW `evaluate_expression` (the swallowing
+wrapper) in `env`. Two candidate roots to investigate next pass:
+(a) the `env` threaded into `process_unquotes_in_expr` doesn't carry the
+enclosing comptime bindings (so `self`/`match_body` lookups miss); and/or
+(b) the non-raw `evaluate_expression` swallows a CTFE failure and returns
+unknown — try `evaluate_expression_raw` there and see if the real value
+or a propagated error appears. Then make_impl's own quote construction
+and finally registering the derived `==` impl into the trait-method
+registry. The core machinery (arithmetic/recur/fold/string-concat) is
+done; this back-half is the last stretch.
