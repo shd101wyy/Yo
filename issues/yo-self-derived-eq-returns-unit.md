@@ -158,6 +158,45 @@ under CTFE (method-call arg binding in function.yo/helper.yo), surfacing
 through every reflection method (is_struct, is_enum, ...) the derive
 machinery calls.
 
+### DEFINITIVE root + exact fix location (2026-06-08, third pass)
+
+`try_to_call_function_with_arguments` (helper.yo) NEVER executes CTFE —
+its `return_value` is always `None` (documented at helper.yo:1400,
+"CTFE is not executed"). The `.method()` dispatch branch in
+`evaluate_function_call` (function.yo, the `.Some(method_info)` arm
+~line 2188-2202) calls it and then sets
+`out_m.value = _call_result_unknown(return_type)` — fabricating a fresh
+unknown and DISCARDING any computed value. So a `.method()` call on a
+comptime fn never runs the body: `info.is_struct()` on a concrete
+TypeInfo returns unknown-bool.
+
+The inline FuncVal arm and the operator-dispatch block in the same file
+DO route comptime-returning calls through `evaluate_comptime_fn_call`
+(the `is_type_hierarchy_type(ret_type) || callee_result_is_comptime ||
+fv_is_macro` gate). The `.method()` arm is the one that doesn't.
+
+TWO sub-cases to keep straight:
+
+- `enum == enum` with RUNTIME operands (the original repro, `k : ZK`
+  param): only needs the return TYPE to be bool, which is_executing=true
+  already delivers by registering the derived `==`. An unknown-BOOL
+  result value is correct there.
+- `info.is_struct()` with a CONCRETE comptime receiver (the prelude's
+  derive machinery): needs the actual CTFE VALUE, which requires the
+  `.method()` arm to execute comptime methods.
+
+EXACT FIX: in the `.Some(method_info)` arm of `evaluate_function_call`
+(function.yo ~2188), when `method_info.method_ty` is a comptime-returning
+Func (mirror the inline-arm gate: `is_type_hierarchy_type(ret) ||
+result_is_comptime_only`), route through `evaluate_comptime_fn_call`
+(build `ArgValues` from the evaluated `all_args`, set `ctx.self_type`
+from `_static_dot_receiver_self_type` / the receiver) and use its result
+value, instead of `try_to_call_function_with_arguments` +
+`_call_result_unknown`. Land together with `ctx.is_executing = true` at
+the 4 main.yo module-program sites. Validate against the prelude (it
+exercises the derive machinery heavily), then the std/yo-self/tests
+gates. HIGH regression surface — every `.method()` call routes here.
+
 NOTE: with `is_executing=false` (current committed state), NONE of this
 comptime machinery executes — `Type.get_info(ZK)` returns unknown
 WITHOUT running its body (no breadcrumb fires). Module-level comptime
