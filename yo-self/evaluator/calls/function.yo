@@ -61,7 +61,7 @@ open(import("std/string"));
 { is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_slice_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
-{ type_id_or_empty, get_type_trait_methods_by_name } :: import("../values/type_trait_methods.yo");
+{ type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -560,7 +560,6 @@ evaluate_function_call :: (
   ) -> AstExpr
 )({
   _ := given_type;
-  _ := given_value;
   tok := ast_expr_token(expr);
   // Decompose the call: func_expr = callee, args = argument list.
   func_expr := match(
@@ -736,8 +735,79 @@ evaluate_function_call :: (
           });
         });
       });
+      // CTFE-execute comptime-returning operators (e.g. ComptimeSub(usize)'s
+      // `(-)`, `__yo_comptime_usize_sub`). Like the `.method()` arm, the
+      // operator dispatch resolves only the return TYPE via `try_to_call`
+      // and otherwise fabricates an UnknownVal — fine for runtime operators,
+      // but a comptime operator needs its concrete VALUE (e.g. `n - usize(1)`
+      // in `__yo_comptime_fold_range` must fold to a concrete index, else
+      // `list.get(idx)` indexes with an unknown). Build a fresh env binding
+      // the operator method's captures + params to the CONCRETE arg values,
+      // then route through `evaluate_comptime_fn_call`.
+      // Prefer a comptime-returning operator method when one exists. A type
+      // like `usize` has BOTH `Sub` (runtime) and `ComptimeSub` (comptime);
+      // `get_receiver_methods_by_name_from_env` returns them in registration
+      // order and the runtime one often comes first. yo-self can't tell the
+      // operands are comptime from the receiver TYPE alone (both are `usize`),
+      // so select the comptime impl and let `evaluate_comptime_fn_call` fold
+      // when the operand VALUES are concrete (and return unknown when not —
+      // safe for runtime operands). Without this, `n - usize(1)` in
+      // `__yo_comptime_fold_range` never folded → unknown index → OOB.
+      (op_comptime_m : Option(MethodEntry)) = Option(MethodEntry).None;
+      {
+        (ocm_i : usize) = usize(0);
+        while((ocm_i < op_methods.len()) && op_comptime_m.is_none(), {
+          match(
+            op_methods.get(ocm_i),
+            .Some(ocm) => if(match(ocm.ty,.Func({ result_is_comptime_only : _r }) => _r, _ => false), {
+              op_comptime_m = Option(MethodEntry).Some(ocm);
+            }),
+            .None => ()
+          );
+          ocm_i = (ocm_i + usize(1));
+        });
+      };
+      op_eff_m := match(op_comptime_m,.Some(m) => m,.None => first_m);
+      op_is_comptime := match(op_eff_m.ty,.Func({ result_is_comptime_only : _orico }) => _orico, _ => false);
+      (op_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(resolved_ret) || op_is_comptime, {
+        op_fv := match(op_eff_m.value,.Some(v) => v,.None => EvalValue.UnitVal);
+        op_env := Environment.new(call_result_op.callee_env.module_path);
+        match(
+          op_fv,
+          .FuncVal(_, op_pnames, _, _, _, op_cnames, op_ctys, op_cvals, _) => {
+            (oci : usize) = usize(0);
+            while(oci < op_cnames.len(), {
+              ocn := match(op_cnames.get(oci),.Some(n) => n,.None => String.from(""));
+              oct := match(op_ctys.get(oci),.Some(t) => t,.None => t_unit());
+              ocv := match(op_cvals.get(oci),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
+              _oac := add_variable_to_env(op_env, ocn, oct, ocv, match(ocv,.Some(_) => true,.None => false), false, false, false, synthetic_token(ocn, op_env.module_path));
+              oci = (oci + usize(1));
+            });
+            _ofr := op_env.push_frame(false);
+            (opi : usize) = usize(0);
+            while(opi < op_pnames.len(), {
+              opn := match(op_pnames.get(opi),.Some(n) => n,.None => String.from(""));
+              oa := match(call_result_op.arg_values.args.get(opi),.Some(e) => e,.None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+              _oap := add_variable_to_env(op_env, opn, oa.arg_type, oa.value, match(oa.value,.Some(_) => true,.None => false), false, false, false, synthetic_token(opn, op_env.module_path));
+              opi = (opi + usize(1));
+            });
+          },
+          _ => ()
+        );
+        op_ctfe := evaluate_comptime_fn_call(
+          Option(AstExpr).Some(func_expr),
+          op_eff_m.ty,
+          op_fv,
+          call_result_op.arg_values,
+          call_result_op.caller_env,
+          op_env,
+          ctx,
+          exn
+        );
+        Option(EvalValue).Some(op_ctfe.value)
+      }, Option(EvalValue).Some(_call_result_unknown(resolved_ret, env)));
       out_op := new_expr_info(call_result_op.caller_env, resolved_ret);
-      out_op.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+      out_op.value = op_result_val;
       out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
       return(expr);
@@ -755,7 +825,22 @@ evaluate_function_call :: (
   if(!(callee_is_dot), {
     ctx.expected_type = Option(ExpectedTypeCtx).None;
   });
-  evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, exn);
+  // When the caller supplies the function value directly (`given_value`,
+  // e.g. `recur(...)` passes the enclosing function's value via
+  // `evaluate_recur`), use it as the callee instead of evaluating
+  // `func_expr` — the callee atom (`recur`) is not a bound variable and an
+  // identifier lookup would throw "Variable recur not found". Mirrors TS
+  // `evaluateFunctionCall`'s `givenFunc` shortcut (function.ts:234-237).
+  evaluated_callee := match(
+    given_value,
+    .Some(gv) => {
+      gc_info := new_expr_info(env, given_type);
+      gc_info.value = Option(EvalValue).Some(gv);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), gc_info);
+      func_expr
+    },
+    .None => evaluate_expression_raw(func_expr, env, ctx, exn)
+  );
   ctx.expected_type = callee_saved_expected;
   // Call-overload expansion: when the callee is a source-namespace struct
   // (an `impl({...})` operator module), select the winning `Call` candidate
@@ -2198,8 +2283,75 @@ evaluate_function_call :: (
             false,
             exn
           );
+          // CTFE-execute comptime-returning methods. `try_to_call...`
+          // resolves the return TYPE but never runs the body
+          // (return_value is always None), and the default below fabricates
+          // an UnknownVal — fine for runtime-returning methods (e.g. derived
+          // `==` on a runtime receiver), but a comptime method like
+          // `TypeInfo.is_struct` (`-> comptime(bool)`) needs its concrete
+          // VALUE (the derive machinery asserts on it). The inline FuncVal
+          // arm and the operator-dispatch block already route comptime calls
+          // through `evaluate_comptime_fn_call`; this is the `.method()` arm
+          // doing the same. Gated on a comptime return so runtime methods
+          // keep the cheap path. `evaluate_comptime_fn_call` itself returns
+          // an UnknownVal (without executing) when any arg is unknown, so a
+          // runtime receiver is handled safely.
+          m_ret_ty := match(method_info.method_ty,.Func({ result : _mrb }) => _mrb.*, _ => t_unit());
+          m_is_comptime := match(method_info.method_ty,.Func({ result_is_comptime_only : _mrico }) => _mrico, _ => false);
+          (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(m_ret_ty) || m_is_comptime, {
+            m_self_ty_saved := ctx.self_type;
+            match(
+              _static_dot_receiver_self_type(func_expr, ctx),
+              .Some(m_st) => {
+                ctx.self_type = Option(TypeValue).Some(m_st);
+              },
+              .None => ()
+            );
+            m_fv := match(method_info.method_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
+            // Build a body env binding the method's CAPTURES + its params to
+            // the CONCRETE evaluated arg values. `try_to_call`'s callee_env
+            // binds comptime params to UNKNOWNS (it is a type-checking pass,
+            // not execution), so passing it to the CTFE would leave `self`
+            // unknown in the body. Mirror the inline FuncVal arm, which binds
+            // params to `arg_info.value` in a fresh env before CTFE.
+            m_env := Environment.new(call_result_m.callee_env.module_path);
+            match(
+              m_fv,
+              .FuncVal(_, m_pnames, _, _, _, m_cnames, m_ctys, m_cvals, _) => {
+                (mci : usize) = usize(0);
+                while(mci < m_cnames.len(), {
+                  mcn := match(m_cnames.get(mci),.Some(n) => n,.None => String.from(""));
+                  mct := match(m_ctys.get(mci),.Some(t) => t,.None => t_unit());
+                  mcv := match(m_cvals.get(mci),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
+                  _mac := add_variable_to_env(m_env, mcn, mct, mcv, match(mcv,.Some(_) => true,.None => false), false, false, false, synthetic_token(mcn, m_env.module_path));
+                  mci = (mci + usize(1));
+                });
+                _mfr := m_env.push_frame(false);
+                (mpi : usize) = usize(0);
+                while(mpi < m_pnames.len(), {
+                  mpn := match(m_pnames.get(mpi),.Some(n) => n,.None => String.from(""));
+                  ma := match(call_result_m.arg_values.args.get(mpi),.Some(e) => e,.None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+                  _map := add_variable_to_env(m_env, mpn, ma.arg_type, ma.value, match(ma.value,.Some(_) => true,.None => false), false, false, false, synthetic_token(mpn, m_env.module_path));
+                  mpi = (mpi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            m_ctfe := evaluate_comptime_fn_call(
+              Option(AstExpr).Some(evaluated_callee),
+              method_info.method_ty,
+              m_fv,
+              call_result_m.arg_values,
+              call_result_m.caller_env,
+              m_env,
+              ctx,
+              exn
+            );
+            ctx.self_type = m_self_ty_saved;
+            Option(EvalValue).Some(m_ctfe.value)
+          }, Option(EvalValue).Some(_call_result_unknown(call_result_m.return_type, callee_env)));
           out_m := new_expr_info(call_result_m.caller_env, call_result_m.return_type);
-          out_m.value = Option(EvalValue).Some(_call_result_unknown(call_result_m.return_type, callee_env));
+          out_m.value = m_result_val;
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
           expr

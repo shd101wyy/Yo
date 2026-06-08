@@ -491,3 +491,158 @@ or a propagated error appears. Then make_impl's own quote construction
 and finally registering the derived `==` impl into the trait-method
 registry. The core machinery (arithmetic/recur/fold/string-concat) is
 done; this back-half is the last stretch.
+
+## SEVENTH PASS (2026-06-08) — faithful raw-eval port; back-half localized to derive-body env
+
+Faithful porting: `process_unquotes_in_expr` (builtins/quote.yo) used the
+SWALLOWING non-raw `evaluate_expression` for the unquote arg + the splice;
+TS `processUnquotesInExpr` uses the propagating `evaluateExpression`
+(quote.ts:47-53). Switched both to `evaluate_expression_raw` (in the WIP
+patch). Correct regardless, but it did NOT change the symptom — the
+unquote args are genuinely unknown, not a swallowed error.
+
+Localized the remaining blocker precisely. Inside `__derive_eq`'s enum
+branch the FOLD now produces a CONCRETE `match_body` string (verified —
+BINDX shows `match_body = "match(lhs,\n    .AllowUnsafe => …)"` in the
+real derive pass). But `ctx.make_impl(quote(… #(match_body.to_expr()) …))`
+still yields unknown. Instrumentation at the `.method()` arm (filtered to
+Expr-returning methods in prelude) shows EVERY make_impl/to_expr call has
+an UNKNOWN receiver AND `match_body` is unknown/absent in its `callee_env`
+— including the cached `receiver_expr` value. The receiver `ctx` is
+`__derive_eq`'s own param; an unknown `ctx` means these are the def-eval
+pass. NO make_impl/to_expr call is captured with a concrete receiver — so
+the REAL derive pass (call_registered_derive_rule, T=Pragma, ctx concrete,
+match_body concrete per BINDX) either does NOT reach make_impl, or its
+make_impl call's `callee_env` does not carry the concrete `match_body`/
+`ctx` bindings.
+
+So the back-half root is in the derive-rule body's REAL execution: the
+env that holds the concrete `match_body` (and `ctx`) binding is not the
+env threaded into the `ctx.make_impl(...)` / `match_body.to_expr()` call
+sites. Either `call_registered_derive_rule`'s `evaluate_begin_expression`
+doesn't thread each statement's env forward to the next (so the late
+`make_impl` statement runs in a pre-binding env), or the cond-branch body
+evaluation diverges. Earlier statements (`variants`→`vc`, `info`→cond
+condition) DO thread, so it is specific to the later branch-body
+statements / the `.method()`-receiver eval env.
+
+### Next pass
+
+Trace `call_registered_derive_rule` (builtins/derive.yo) +
+`evaluate_begin_expression`: confirm whether the real pass reaches the
+`make_impl` statement at all, and whether the env threaded to it carries
+`match_body`/`ctx`. Compare with TS `callRegisteredDeriveRule` /
+`evaluateBeginExpression` env threading. If the begin-block threads env
+correctly, the issue is the `.method()`-arm receiver eval using a stale
+`callee_env`; thread the post-binding env into the receiver/arg eval.
+
+### Net state
+
+- COMMITTED green: fix-3 (match arm-selection dot).
+- SAVED (`plans/derived-eq-comptime-fix-wip.patch.txt`, builds clean):
+  fixes 1,2,5,6 (function.yo) + is_executing (main.yo) + faithful
+  raw-eval in process_unquotes_in_expr (quote.yo). The derive executes
+  through the entire fold (concrete match_body); blocked at the
+  derive-body env threading for the make_impl/to_expr back-half, then
+  registering the derived `==`.
+
+---
+
+## ✅ RESOLVED — derive.test.yo green (2026-06-08, faithful-porting pass)
+
+The derive comptime chain is complete: `tests/derive.test.yo` and the
+struct/enum/generic Eq/Hash/Clone/Ord derives all pass under is_executing.
+Four FAITHFUL fixes (each matched against the TS source), in order of
+discovery:
+
+1. **String-literal escape decoding** (`evaluator/values/string.yo` +
+   `eval.yo`). yo-self stored the raw `StrLit` token verbatim — `"...\n..."`
+   kept the backslash-`n` as two chars — because it never ran TS's
+   `JSON.parse(token.value)` (`evaluateStringLiteral`, string.ts:12). Derive
+   rules concatenate `"match(lhs,\n    "` separators, so the generated source
+   carried literal `\n` and `generate_expr_from_code` choked ("paren-less
+   function and operator calls"). Fix: `decode_str_lit_escapes` (mirrors the
+   template-string escape table in lexer.yo, preserving yo-self's surrounding
+   quotes) applied at both StrLit-from-token sites. Also fixes `len()` /
+   `starts_with` char counts. Unblocked the enum-Eq derive + bootstrap_verification.
+
+2. **expected_type cleared around the derive mapper call**
+   (`builtins/type_fns.yo`, both `map_variants` and `join_fields`). TS's
+   shared `callMapperWithArg` evaluates `mapper(arg)` with
+   `expectedType: undefined` (type-fns.ts:1647). yo-self inlined the call but
+   left `ctx.expected_type` set, so the trait method's `bool` return type
+   leaked in and the mapper's `Expr` result failed "Cannot unify bool and Expr"
+   → swallowed → mapper returned no value ("mapper returned no value").
+   Fix: save/None/restore `ctx.expected_type` around both mapper calls.
+
+3. **forall param promotion to `TypeVal(SomeType)`** (`builtins/derive.yo`).
+   For `derive(forall(T1,T2), DRPair(T1,T2), …)` TS binds each forall param via
+   `createUnknownValue(createType0(), { variableName })`, which promotes a
+   Type-universe slot to a fresh `TypeVal(SomeType(name))` (so the target
+   expression instantiates a real struct). yo-self hardcoded
+   `UnknownVal(box(TypeUni(0)))`, so `DRPair(T1,T2)` couldn't build a struct →
+   "derive only works on struct and enum types". Fix: use the existing
+   `create_unknown_val_with_name(TypeUni(0), fp_name)`.
+
+Three fixes LANDED (escape decode, expected_type clear, forall promotion).
+
+### TraitT-by-id — ATTEMPTED then REVERTED (do not retry naively)
+
+A 4th fix — comparing `TraitT` by `id` instead of name (faithful to TS
+compatibility.ts:543-549) — was tried to resolve the marker collision below, but
+it REGRESSES positive trait matching (`Type.impls(Dog, Greet)` for
+`impl(Dog, Greet(...))` returned false). Root: the auto-derive registry
+(`g_type_trait_registry`, queried by `is_type_registered_as_trait`) holds BOTH
+(a) auto-derived markers (Send/Rc/Acyclic/Runtime/Comptime — nameless, each a
+distinct `trait()` id) and (b) user method-trait impls (e.g. Greet — registered
+as the CONCRETE trait whose id differs from the base `Greet` query, but whose
+NAME matches). So name-compare works for method traits but collides markers;
+id-compare works for markers but breaks method traits. The faithful fix is one
+of: (1) trait-id STABILITY — the concrete trait constructor inherits the base
+trait's id (markers stay distinct) → id-compare works for both; or (2) separate
+the registries (TS keeps markers on `targetType.trait`, method impls in a
+distinct concrete-impl registry). Both are deeper than a compatibility tweak.
+
+### Remaining (separate subsystems, NOT the derive chain)
+
+- **atomic_object / thread_safety** — Send still mis-resolves in the
+  `open(std/fmt)` + `atomic(object(...))` combination (neither alone repros;
+  random_id is a global counter so it's not an id collision — likely a
+  generic-impl-matching path that only the combination reaches). Send returns
+  true for a regular object only in that combined context.
+- **negative_impl** — `impl(forall(T), Container(T), !(Send))` is a NEGATIVE
+  GENERIC impl. yo-self only checks CONCRETE negative impls
+  (`has_negative_impl`); TS's `findMatchingNegativeGenericImpl`
+  (impl.ts:296) + the `negativeGenericImplRegistry` are unported
+  (trait_checking.yo:435 notes this). Needs the registry population at the
+  `impl(forall, Pattern, !(Trait))` site + a `try_match_generic_impl`-based
+  lookup in `type_implements_trait` step 0.
+
+---
+
+## ✅ `check ./yo-self` SIGSEGV under is_executing — FIXED (stack size)
+
+With `is_executing=true`, checking yo-self's own modules ran their MODULE-LEVEL
+derives on big enums — notably `tags.yo`'s `derive(TypeTag, Eq(TypeTag), Hash,
+Clone)` (TypeTag ≈46 variants). `__derive_eq`'s enum path runs
+`__yo_comptime_fold_range(46, …)`, whose body `f(recur(n-1, init, f), n-1)`
+recurses 46 levels deep via `recur` (NON-tail: `recur`'s result is consumed by
+`f`). yo-self's tree-walking evaluator recurses on the C stack, and each fold
+level drives ~7 nested evaluator functions with very large by-value frames
+(`ExprInfo`/`EvalContext`), so ≈**22 MB of C stack per fold level**.
+
+Diagnosis (deterministic, not flaky): a fieldless N-variant enum + `derive(Eq)`
+passes at N=44, SIGSEGVs at N=45. Instrumenting `main()` confirmed the worker
+thread genuinely got its requested stack (`pthread_attr_getstacksize` = the
+requested size, `pthread_create`=0, no fallback). At 1 GiB the limit was ~45
+levels; relinking with 4 GiB moved it to ~170 (N=100 ok, N=200 crash) and
+`tags.yo`/`value.yo`/`creators.yo`/codegen files all pass — proving it is pure
+stack exhaustion scaled by the per-level frame size, NOT heap corruption or
+infinite recursion.
+
+**Fix:** `src/codegen/functions/generation.ts` — bump the main worker-thread
+stack 1 GiB → 4 GiB. The stack is reserved lazily, so the larger size costs only
+address space. TCO does not apply (the fold is not tail-recursive, and the
+evaluator has no TCO). The deeper smell — ~22 MB/level evaluator frames — is left
+as a separate codegen concern (shrinking by-value `ExprInfo`/`EvalContext`
+locals would let the existing 1 GiB suffice).

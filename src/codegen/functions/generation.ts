@@ -922,7 +922,8 @@ static void* __yo_main_thread_entry(void* __yo_unused_arg) {
   return NULL;
 }
 
-// Main wrapper - runs program body on a 1 GiB-stack worker thread
+// Main wrapper - runs program body on a worker thread (default 1 GiB stack,
+// overridable via the YO_MAIN_STACK_MB env var)
 int main(int argc, char** argv) {
   // Store command-line arguments (plain globals, shared with the worker)
   __yo_argc = (int32_t)argc;
@@ -931,7 +932,22 @@ int main(int argc, char** argv) {
 
   pthread_attr_t __yo_main_attr;
   pthread_t __yo_main_tid;
+  // Default 1 GiB worker-thread stack (reserved lazily). Optimized builds
+  // (-O1+, e.g. --release) shrink frames ~100x via stack coloring, so 1 GiB is
+  // far more than enough there. UNOPTIMIZED (-O0) builds of deeply-recursive
+  // programs (notably the self-hosted compiler checking itself: a derive over a
+  // ~46-variant enum unrolls a compile-time fold ~46 levels deep, each with a
+  // multi-MB evaluator frame) can exceed it; raise it with YO_MAIN_STACK_MB
+  // (e.g. YO_MAIN_STACK_MB=4096) without recompiling. Kept modest by default so
+  // CI runners are not asked to reserve gigabytes.
   size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
+  {
+    const char* __yo_stack_mb = getenv("YO_MAIN_STACK_MB");
+    if (__yo_stack_mb != NULL) {
+      long __yo_mb = atol(__yo_stack_mb);
+      if (__yo_mb > 0) __yo_main_stack = (size_t)__yo_mb * 1024 * 1024;
+    }
+  }
   if (pthread_attr_init(&__yo_main_attr) == 0
       && pthread_attr_setstacksize(&__yo_main_attr, __yo_main_stack) == 0
       && pthread_create(&__yo_main_tid, &__yo_main_attr, __yo_main_thread_entry, NULL) == 0) {

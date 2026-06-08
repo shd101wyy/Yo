@@ -107,6 +107,7 @@ try_populate_expr_info_table :: (
   // any evaluator coverage gap (e.g. unported HKT/RC features in prelude).
   env := Environment.new(module_path);
   ctx := eval_context_new(resolve_std_path(), module_path);
+  ctx.is_executing = true;
   // Wire the proper expression-evaluator function pointer.
   register_evaluate_expression();
   // Drive the module body through the proper evaluator. We discard the
@@ -395,6 +396,7 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(abs.clone())));
   env.module_path = abs.clone();
   ctx := eval_context_new(String.from(std_path.as_str()), abs.clone());
+  ctx.is_executing = true;
   ctx.load_module = g_demand_loader;
   register_evaluate_expression();
   register_loading(abs.clone(), env);
@@ -588,6 +590,7 @@ check_single_file :: (
   if(is_prelude, {
     prelude_env := Environment.new(input_path.clone());
     prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
+    prelude_ctx.is_executing = true;
     register_evaluate_expression();
     println(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
     // keep_frame_at_end=true so the prelude's bindings survive into the
@@ -632,6 +635,7 @@ check_single_file :: (
   env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
   env.module_path = entry_abs.clone();
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
+  ctx.is_executing = true;
   ctx.load_module = g_demand_loader;
   register_evaluate_expression();
   register_loading(entry_abs.clone(), env);

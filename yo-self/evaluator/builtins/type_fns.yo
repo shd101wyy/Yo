@@ -1509,9 +1509,12 @@ evaluate_type_join_fields :: (
     call_code := (((mapper_name + String.from("(")) + fi_name) + String.from(")"));
     call_ast := generate_expr_from_code(call_code.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
+    old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
     call_result := evaluate_expression(call_ast, local_env, ctx);
     ctx.force_compile_time_bindings = old_force;
+    ctx.expected_type = old_expected;
     call_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
       .Some(i) => i,
@@ -1738,9 +1741,12 @@ evaluate_type_map_variants :: (
     call_code := (((mapper_name + String.from("(")) + vi_name) + String.from(")"));
     call_ast := generate_expr_from_code(call_code.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
+    old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
     call_result := evaluate_expression(call_ast, local_env, ctx);
     ctx.force_compile_time_bindings = old_force;
+    ctx.expected_type = old_expected;
     call_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
       .Some(i) => i,

@@ -128,6 +128,7 @@ open(import("std/fmt"));
 } :: import("../value.yo");
 { random_id } :: import("../utils.yo");
 { parse_raw_int, parse_raw_float } :: import("./utils.yo");
+{ decode_str_lit_escapes } :: import("./values/string.yo");
 {
   register_macro_quoted_params,
   register_macro_return_is_unquote,
@@ -342,7 +343,7 @@ eval_atom :: (fn(tok : Token, env : Environment) -> Option(EvalResult))(
     (tok.kind == TokenKind.Float) =>
       .Some(eval_result(.FloatLit(tok.value), t_comptime_float())),
     (tok.kind == TokenKind.StringLit) =>
-      .Some(eval_result(.StrLit(tok.value), t_comptime_string())),
+      .Some(eval_result(.StrLit(decode_str_lit_escapes(tok.value)), t_comptime_string())),
     (tok.kind == TokenKind.TemplateString) =>
       .Some(eval_result(.StrLit(tok.value), t_comptime_string())),
     (tok.kind == TokenKind.CharLit) =>

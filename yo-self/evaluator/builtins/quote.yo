@@ -41,7 +41,7 @@ open(import("std/collections/array_list"));
 { t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { is_expr_type, is_expr_list_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 // Constant string aliases for unquote/unquote_splicing builtin keyword names.
 BK_UNQUOTE :: "unquote";
@@ -121,7 +121,7 @@ process_unquotes_in_expr :: (
             return(expr);
           }
         );
-        eval_arg := evaluate_expression(arg, env, ctx);
+        eval_arg := evaluate_expression_raw(arg, env, ctx, exn);
         arg_info := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
           .Some(i) => i,
@@ -196,7 +196,7 @@ process_unquotes_in_expr :: (
                   }, match(splice_args.get(usize(0)),.Some(a) => a,.None => arg)),
                 .Atom(_, _) => arg
               );
-              eval_splice := evaluate_expression(splice_inner, env, ctx);
+              eval_splice := evaluate_expression_raw(splice_inner, env, ctx, exn);
               opt_splice_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_splice));
               match(
                 opt_splice_info,
