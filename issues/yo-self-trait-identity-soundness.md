@@ -167,3 +167,26 @@ instrument the `.method()`-arm CTFE in `calls/function.yo` for the
 `Type.impls(RegularPoint, Send)` call in the fmt+atomic context (what does
 `self`/`marker` bind to? is a stale/colliding CTFE cache entry returned?), and
 compare to the working simple/atomic-only/fmt-only cases.
+
+## ✅ RESOLVED — atomic_object closed (CTFE cache-collision fix)
+
+Root cause (final): an order-dependent **comptime-fn CTFE cache collision**.
+`Type.impls` is a comptime method, CTFE-cached keyed via
+`are_types_compatible_exact`. The exact `Struct` compare (compatibility.yo) falls
+to STRUCTURAL comparison (labels + field types) when ids differ, but did NOT
+check the semantics kind — so `AtomicPoint` (`atomic(object(x:i32,y:i32))`) and
+`RegularPoint` (`object(x:i32,y:i32)`) compared EQUAL. Thus
+`Type.impls(AtomicPoint, Send)` and `Type.impls(RegularPoint, Send)` shared one
+cache entry: whichever ran first poisoned the second (Atomic-first → Regular
+fails; Regular-first → Atomic fails; either alone passes; `__yo_type_impls`
+called directly always worked). The marker collision masked it before the
+overhaul.
+
+Fix: the exact `Struct` compare now requires `is_reference_semantics`,
+`is_atomic_rc`, AND `is_newtype` to match before the structural field compare —
+a value `struct`, a reference `object`, an `atomic object`, and a `newtype` with
+identical fields are DISTINCT types. Same unsoundness class as the
+hashmap_new cache-collision (name/structural compare is unsound for cache
+identity). All three tests (atomic_object, thread_safety, negative_impl) now
+pass: std 151/151, tests 171/182 (only the 11 genuinely-known-blocked remain),
+check ./yo-self pending.

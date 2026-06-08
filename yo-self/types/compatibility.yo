@@ -387,9 +387,9 @@ _compat_impl :: (
     // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
     // HashMap's `data` field to `?*(ME)`. Structural exact comparison
     // distinguishes them (e.g. labels `[key, value]` vs `[name, kind]`).
-    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes }) => match(
+    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew }) => match(
       expected,
-      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes }) => cond(
+      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew }) => cond(
         // Lenient: name equality, with EMPTY names as wildcards — types
         // reconstructed from values (type_of_eval_value) and pre-stamping
         // instantiations carry "" while `::`-bound types are now STAMPED
@@ -397,6 +397,14 @@ _compat_impl :: (
         // (previously everything was "" so this never arose).
         !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
         (aid.as_str() == eid.as_str()) => true,
+        // Exact, different ids → structural. But the SEMANTICS KIND must match
+        // first: a value `struct`, a reference `object`, an `atomic object`, and
+        // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the
+        // comptime-fn CTFE cache (keyed via `are_types_compatible_exact`) collides
+        // them — e.g. `Type.impls(AtomicPoint, Send)` and
+        // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
+        // entry, so the second query returns the first's result.
+        (((aref != eref) || (aatomic != eatomic)) || (anew != enew)) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           vkey := ((aid.clone() + String.from("=>")) + eid);
