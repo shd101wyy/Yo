@@ -79,5 +79,34 @@ the rejection must ALSO flag the global box (generalize `flag_flow_violation`
 into a `flag_safety_violation`) so it propagates through the def-time swallow,
 exactly like fix #1.
 
-`slice_flowability` (`make_dangling` returns `Option(Slice(i32))` over a local
-`list`) needs the analogous slice-into-local escape check at return position.
+### slice_flowability — return-position check IS portable, blocked by call-routing
+
+The slice/raw-ptr return check (function-type.ts:541-572, the `else if` branch of
+the `-> ref` check) ports cleanly into function_type.yo's flow-check block:
+`type_representation_contains_raw_ptr(return) && !result_is_comptime_only &&
+!is_implicitly_unsafe_capable_file(...)` → `is_flowable_expr(returnExpr,
+{allow_parameter_source: true, allow_comptime_source: true})`. Implemented and
+**swept clean on std (151/151)** — it correctly rejects `make_dangling`.
+
+BUT it cannot land faithfully yet: it false-rejects the POSITIVE
+`borrow_list_slice :: (fn(ref(list) : ArrayList(i32)) -> Option(Slice(i32)))(list.as_slice())`.
+Root cause is NOT the check — it's a call-routing gap. During def-time body
+eval, `list.as_slice()` (a runtime method, unknown receiver) is OVER-ROUTED to
+`evaluate_comptime_fn_call` (comptime_fn.yo), whose arg-collect step throws
+"Failed to call the function for compile-time. Some arguments are not
+compile-time evaluated correctly." (an arg's value is `.None`). TS hits the same
+throw at the same collect step (comptime-fn.ts:78) — the difference is TS does
+NOT route an unknown-receiver runtime method call there; it produces an unknown
+typed result via the type-checking path. The throw is swallowed → empty
+`flow_out` → the return check falls back to the raw body (no ExprInfo) →
+`is_flowable_expr` can't resolve the callee Func type → false reject. So the
+slice check turns a previously-swallowed routing error into a false rejection.
+
+**The real fix is the comptime-vs-runtime call-routing gate** (function.yo):
+route a runtime (non-comptime-only) call whose args contain runtime-unknowns to
+the type-checking path that yields an unknown result, instead of
+`evaluate_comptime_fn_call`. This is a central, broad change (it likely also
+removes many other def-time-swallowed "Failed to call for compile-time" errors).
+The yo-self-only unknown-arg gate (comptime_fn.yo:550, returns `UnknownVal` for
+`.Some(UnknownVal)` args) is a partial compensation but misses `.None` args. Once
+routing is faithful, the slice check lands and closes slice_flowability.
