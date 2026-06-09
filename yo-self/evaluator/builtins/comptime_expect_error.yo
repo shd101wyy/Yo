@@ -27,6 +27,7 @@ open(import("std/string"));
 { EvalValue, value_to_string } :: import("../../value.yo");
 { expr_info_table_get, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ set_propagate_def_time_errors } :: import("../../types/flowability.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
 /// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
@@ -75,7 +76,18 @@ evaluate_comptime_expect_error :: (
   // — so a partial/aborted eval doesn't pollute the original expr's ExprInfo); if
   // it throws a compile error, that's EXPECTED — set unit and return successfully.
   // Mirrors TS `comptime-expect-error.ts:23-42`.
-  if(_comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx), {
+  //
+  // Enable "propagate all def-time body-eval errors" mode for the duration of the
+  // argument eval: many rejected forms (e.g. an unwrapped `extern "c"` call) throw
+  // inside a function BODY, which `_trial_eval_fn_body` normally swallows at
+  // definition time (the def-eval wall). Without this, those errors never reach
+  // the catch below and `comptime_expect_error` wrongly reports success. The flag
+  // is cleared unconditionally on return (the helper's local-unwinding exn returns
+  // control here), so no other def-time eval is affected.
+  set_propagate_def_time_errors(true);
+  arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
+  set_propagate_def_time_errors(false);
+  if(arg_threw, {
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unit);

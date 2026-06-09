@@ -41,7 +41,8 @@ open(import("std/string"));
   FlowOptions,
   clear_flow_violation,
   flow_violation_pending,
-  flow_violation_message
+  flow_violation_message,
+  propagate_def_time_errors
 } :: import("../../types/flowability.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -602,6 +603,27 @@ try_to_implement_function_by_function_type :: (
             viol_msg := flow_violation_message();
             clear_flow_violation();
             exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg, false,.None)));
+          });
+          // comptime_expect_error propagation: when "propagate all def-time
+          // body-eval errors" mode is active (set only around a
+          // `comptime_expect_error` argument eval), a body whose trial-eval THREW
+          // — detected by an empty `flow_out`, since `_trial_eval_fn_body` pushes
+          // the evaluated body only on success — must NOT be silently swallowed.
+          // Re-raise via the real `exn` so the error reaches the
+          // `comptime_expect_error` catch (mirrors TS, whose def-time body eval
+          // propagates). The message is generic: `comptime_expect_error` discards
+          // it (TS catches `error` without inspecting it, comptime-expect-error.ts:33).
+          if(propagate_def_time_errors() && (flow_out.len() == usize(0)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(fb),
+                  String.from("Function body raised a compile-time error during definition-time evaluation."),
+                  false,
+                  .None
+                )
+              )
+            );
           });
           if(result_is_ref, {
             // The expr to flow-check is the trial-evaluated final body expr. But

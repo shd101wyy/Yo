@@ -83,6 +83,32 @@ flow_violation_pending :: (fn() -> bool)(
 flow_violation_message :: (fn() -> String)(
   match(g_flow_violation_msg.get(usize(0)),.Some(m) => m,.None => String.from(""))
 );
+/// "Propagate all def-time body-eval errors" mode. Normally `_trial_eval_fn_body`
+/// SWALLOWS any error thrown while evaluating a function body at definition time
+/// (the def-eval wall: it masks yo-self's own porting-gap false-positives so
+/// `check` stays green). But `comptime_expect_error(expr)` must OBSERVE such an
+/// error — TS uses a plain `try { evaluate(expr) } catch { ok }`
+/// (comptime-expect-error.ts:23-42) and the def-time body eval propagates there.
+/// While this flag is set (only around a `comptime_expect_error` argument eval),
+/// the def-time caller re-raises a swallowed body error via the real `exn` so it
+/// reaches the `comptime_expect_error` catch. The flag is a global box (not a
+/// ctx field) for the same reason as `g_flow_violation_box`: it must survive the
+/// child-context construction at each call frame, and yo-self forbids reassigning
+/// a module-level global from inside a closure. comptime_expect_error sets it
+/// false again deterministically (the eval's local-unwinding exn returns control
+/// to the caller, which clears it), so no non-expect-error path is affected.
+(g_propagate_def_time_errors_box : ArrayList(bool)) = ArrayList(bool).new();
+/// Enter/leave "propagate all def-time body-eval errors" mode.
+set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
+  g_propagate_def_time_errors_box.clear();
+  _ := g_propagate_def_time_errors_box.push(on);
+  ()
+});
+/// True iff def-time body-eval errors should propagate (set during a
+/// `comptime_expect_error` argument eval).
+propagate_def_time_errors :: (fn() -> bool)(
+  match(g_propagate_def_time_errors_box.get(usize(0)),.Some(v) => v,.None => false)
+);
 /// Options refining the base R1–R4 rule. Mirrors the TS options bag.
 FlowOptions :: object(
   /// Accept a same-frame (non-module) local — the `ref(name) := …` binding
@@ -418,5 +444,7 @@ export(
   flag_flow_violation,
   clear_flow_violation,
   flow_violation_pending,
-  flow_violation_message
+  flow_violation_message,
+  set_propagate_def_time_errors,
+  propagate_def_time_errors
 );
