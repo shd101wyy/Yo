@@ -124,16 +124,34 @@ comptime when every operand is present and not `UnknownVal`; otherwise yield
 promised). Now `list.as_slice()` evaluates at def-time without a swallowed throw.
 Validated zero-regression (std 151/151, yo-self 228/228, tests 172/182).
 
-**Layer 2 — REMAINING.** With layer 1, the slice return-check is reached and
-`flow_out` is populated (no swallow), but `is_flowable_expr` still returns false
-for the evaluated `list.as_slice()`. The failing point is R3 in flowability.yo:
-`callee_ty_opt := _info(ctx, call_func)` resolves to `.None` for the method-callee
-sub-expr `list.as_slice` (its ExprInfo carries no Func type), so R3 returns false
-at flowability.yo:307 before it can confirm the receiver `list` (a `ref` param) is
-flowable. Fix: ensure method-call evaluation records the resolved Func type in the
-callee sub-expr's ExprInfo (TS sets `call.func.$.value`/`.$.type` — flowability.yo's
-header comment assumes yo-self does too; for this method path it does not), or have
-R3 resolve the method's Func type from the receiver type + method name when the
-callee ExprInfo is absent. The slice return-check itself is implemented and
-std-clean — once layer 2 lands it closes slice_flowability. The slice check is
-reverted until then (it would false-reject the positive `borrow_list_slice`).
+**Layer 2 — REMAINING (two sub-layers).** Confirmed via the committed ref-path
+(no slice check needed): a `-> ref(i32)` function whose body is a ref-returning
+METHOD call rooted in a `ref` param — `(fn(ref(list) : ArrayList(i32)) -> ref(i32))(list.project(usize(0)))`
+(`ArrayList.project` is `fn(ref(self), pos) -> ref(T)`) — is accepted by TS but
+WRONGLY REJECTED by yo-self. So this is a pre-existing R3 bug, not slice-specific;
+ref_flowability never exercised a ref-returning _method_ call (only direct calls +
+field access), so it went unnoticed.
+
+- **2a. R3 method-callee type.** Instrumentation confirms R3 bails at
+  flowability.yo with `callee_ty_opt = None`: the method-callee sub-expr
+  `list.project` has no ExprInfo carrying its Func type. TS reads
+  `call.func.$.type`; yo-self never records it for the `.`/2 callee node.
+  ⚠️ DO NOT fix by writing the method Func type into the callee node's ExprInfo
+  (`expr_info_table_set(ast_expr_id(<func slot>), method_ty)`): that node's
+  ExprInfo means something else in yo-self (property/field-access info), and
+  overwriting it REGRESSED check ./std from 151 → 15 (136 files). The faithful
+  fix is a NON-destructive side-table: record `call-expr-id → resolved method
+Func type` during method dispatch (function.yo, where `method_info.method_ty`
+  is known) and have R3 read it for method calls, instead of `_info(call_func)`.
+
+- **2b. Reflection comptime gap (behind 2a).** Even with the method type
+  resolved, evaluating `list.project(...)`'s instantiation at def-time hits a
+  separate gap: `Type.get_enum_variants` / `Type.get_struct_fields` raise
+  `comptime_assert(info.is_enum(), …)` with "Variable \"info\" not found" /
+  "Expected bool value for comptime_assert, got (info.is_enum)()" — the
+  reflection builtins are evaluated with `info` unbound. This is an independent
+  comptime-reflection porting gap that must also be closed before
+  `slice_flowability` (and ref-returning-method-call ref returns) pass.
+
+The slice return-check itself is implemented and std-clean (layer-1 commit); it
+stays reverted until 2a + 2b land (it would false-reject `borrow_list_slice`).
