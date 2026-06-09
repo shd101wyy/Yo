@@ -60,21 +60,32 @@ structure).
 
 ---
 
-## Current state (updated 2026-06-02)
+## Current state (updated 2026-06-09)
 
 > **Phases 0–3 COMPLETE.** All defined `check`-milestone phases now match (or,
 > for tests, match-modulo-feature-gaps) the TS reference. Measure all directory
 > checks **per-file by exit code** — full-directory mode SIGSEGVs on cross-file
 > state pollution (a harness limitation, not an evaluator bug).
 
-| Milestone                                | Status          | Number                                         |
-| ---------------------------------------- | --------------- | ---------------------------------------------- |
-| `./yo-cli check yo-self/main.yo`         | green           | —                                              |
-| `./yo-cli compile yo-self/main.yo`       | builds          | —                                              |
-| `yo-self-bin check ./std` (per-file)     | **complete**    | **151 / 151** (matches TS)                     |
-| `yo-self-bin check ./tests` (per-file)   | **complete**    | **164 / 182** (18 fail — feature-gap clusters) |
-| `yo-self-bin check ./yo-self` (per-file) | **complete**    | **227 / 227** (self-check fixpoint reached)    |
-| `yo-self-bin check ./yo-self/codegen`    | deferred        | out of Phase 3 scope (a later bootstrap phase) |
+| Milestone                                | Status       | Number                                         |
+| ---------------------------------------- | ------------ | ---------------------------------------------- |
+| `./yo-cli check yo-self/main.yo`         | green        | —                                              |
+| `./yo-cli compile yo-self/main.yo`       | builds       | —                                              |
+| `yo-self-bin check ./std` (per-file)     | **complete** | **151 / 151** (matches TS)                     |
+| `yo-self-bin check ./tests` (per-file)   | **complete** | **172 / 182** (10 fail — feature-gap clusters) |
+| `yo-self-bin check ./yo-self` (per-file) | **complete** | **228 / 228** (self-check fixpoint reached)    |
+| `yo-self-bin check ./yo-self/codegen`    | deferred     | out of Phase 3 scope (a later bootstrap phase) |
+
+> **Def-eval-wall era (2026-06).** Since the table above was first written, the
+> def-time fn-body-eval wall was crossed (memory `yo-self-defeval-wall`,
+> `EVALUATOR_PORT_REVIEW.md` flowability entry): non-generic fn bodies are now
+> evaluated at definition time (faithful to `function-type.ts:499`), made safe by
+> a swallowing trial-eval wrapper. That surfaced — and this work has been closing
+> — the **in-body definition-time gates** (flowability, etc.) that `check` alone
+> never exercised. `tests` rose 164 → 172 over this era. The 10 remaining `tests`
+> fails: circular_deps ×4 (error identically to TS), algebraic_effects, sync/mutex,
+> extern_unsafe_wrap, and **3 flowability** (ref_local_binding, ref_closure_capture,
+> slice_flowability) — see the updated flowability note below.
 
 > **Phase 3 fixpoint reached (227/227).** The generic-instantiation identity
 > knot that dominated Phase 3 was resolved (comptime-fn cache collision —
@@ -85,35 +96,40 @@ structure).
 >
 > **`check ./tests` — the 19 remaining fails are feature-gap clusters, not port
 > drift** (per-file, 2026-06-02):
+>
 > - **circular_deps (4)** — `circular_b`, `circular_error_a/b`, `circular_open_b`:
 >   genuinely unresolvable import cycles; **error identically to the TS
 >   reference**, so not a yo-self defect.
-> - **flowability (2+)** — `ref_flowability`, `slice_flowability`, `ref_*`: the
->   `comptime_expect_error(...)` rejection never fires. `is_flowable_expr` +
->   `FlowOptions` ARE ported (`yo-self/types/flowability.yo`, 334 lines — note:
->   in the std-types dir, not `evaluator/types/`), BUT the call sites can't run:
->   TS enforces `-> ref(T)` flowability in `function-type.ts:524-573` AFTER
->   evaluating the function body at DEFINITION time. yo-self's
->   `calls/function_type.yo` is a partial port that does NOT evaluate the body
->   at definition (the **def-time fn-body-eval wall**, memory
->   `yo-self-defeval-wall` — a prior attempt regressed 53→3 and must not be
->   re-attempted incrementally). So flowability is BLOCKED on def-time body
->   eval, not merely on wiring `is_flowable_expr`. This is a hard prerequisite,
->   shared with the contracts cluster.
+> - **flowability — `ref_flowability` ✅ CLOSED (2026-06-09); 3 still failing.**
+>   The def-time fn-body-eval wall was crossed (memory `yo-self-defeval-wall`), so
+>   the call sites now run. `ref_flowability` was closed by three coordinated
+>   faithful fixes (commit `454b14ca`): (1) binding-site flow-violation re-raise
+>   through the capture-free trial-eval swallow (global flag-box + def-time-caller
+>   re-raise); (2) return-position fallback to the raw body when the trial eval was
+>   swallowed; (3) **cond.yo `isPtrRelaxedMatch`** (cond.ts:352) — a `*(T)`
+>   ref-return expected type accepts a cond arm yielding raw `T`. Plus the
+>   operator/comptime-routing gate (`a4977828`) and the R3 method-callee side-table
+>   (`308c854d`, fixes ref-returning _method_ calls in `-> ref` returns). **Still
+>   failing: `ref_local_binding`, `ref_closure_capture`** (need the ref-capture-
+>   escape check, blocked by yo-self deferring _closure_ body eval → no precise
+>   free-var set; `issues/yo-self-flowability-swallow.md`) **and `slice_flowability`**
+>   (a long tail of distinct positive-case gaps — first is `comptime_str`, blocked
+>   by recorded-`ExprInfo.env` aliasing + begin `pop_frame`;
+>   `issues/yo-self-recorded-env-aliasing.md`).
 > - **comptime arithmetic — ✅ Tier 1 done (cf6219f0)** — `comptime_ref` now
 >   passes (`n + usize(1)` types as `usize`, not `unit`). Tier 1 = correct
 >   typing (operator → trait dispatch via `string_is_operator`, gated on
 >   comptime operand; `Self.Output` resolved via receiver registry). Tier 2
 >   (actual value folding `5+1=6` via `evaluate_comptime_fn_call`) still open —
 >   see `plans/COMPTIME_ARITHMETIC_FOLDING.md`.
-> - **ref-type eval (subset of ref_*)** — `ref_return`: `Failed to evaluate type
->   expression: ref(i32)`; `ref_local_binding`: destructuring on `i32`. Distinct
+> - **ref-type eval (subset of ref\_\*)** — `ref_return`: `Failed to evaluate type
+expression: ref(i32)`; `ref_local_binding`: destructuring on `i32`. Distinct
 >   ref-type/destructuring gaps, not flowability.
 > - **structural gates (5)** — `safe_code_structural_gates`, `thread_safety`,
 >   `sync/mutex`, `negative_impl`, `extern_unsafe_wrap`.
 > - **type features (2)** — `gadts`, `higher_kinded_types` (`F(A)`).
 > - **effects (1)** — `algebraic_effects`.
-> Each cluster is a dedicated post-phase feature effort, tracked for the review.
+>   Each cluster is a dedicated post-phase feature effort, tracked for the review.
 >
 > **Evaluator port is file-complete EXCEPT one file:** every TS evaluator module
 > (`src/evaluator/**`, 130 files) has a `yo-self/` counterpart **except
@@ -658,22 +674,22 @@ tried and reverted (regressed `check ./std` 151→71; see memory
 
 ## Known evaluator blockers
 
-| Blocker                                                                                                                         | Issue                                               | Phase | Status                                                          |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ----- | --------------------------------------------------------------- |
-| API/syntax drift vs current `src/`                                                                                              | (this doc)                                          | 0     | fixed                                                           |
-| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                 | 1     | fixed                                                           |
-| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                 | 1     | fixed                                                           |
-| Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                 | 1     | fixed (per-module loader)                                       |
-| Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                 | 1     | fixed                                                           |
-| Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`               | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                         |
-| Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | (this doc — resolved-blocker section)               | 1     | fixed (infix dispatch + parametric-trait lookup + `Self` subst) |
-| Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                  | 1     | partial — per-module eval works; cycle/privacy parity TBD       |
-| Nested imports not preloaded: `import(...)` inside `impl({...})` body skipped by top-level-only preload walk (`./libc/stdlib`)  | (this doc — Phase 1 item 4)                         | 1     | fixed (`collect_import_paths_recursive`)                        |
-| Associated type on enum receiver: `Self.Output` errored as a missing enum variant before assoc-type lookup (`encoding/json.yo`) | (this doc — Phase 1 item 5)                         | 1     | fixed (`_try_resolve_associated_type` in EnumT branch)          |
-| Test-body trial-eval errors not swallowed + non-raw `evaluate_expression` swallow→crash (≈36 `./tests` SIGSEGVs)                | (Phase 2; memory `yo-self-test-trial-eval-swallow`) | 2     | fixed (`0f3007c8`, `13a5bb4a`)                                  |
-| Self-referential-trait substitution recursion (`Error.source` cyclic `DynT→TraitT`)                                             | (Phase 2)                                           | 2     | fixed (`9b67b199`, `visited_trait_ids` cycle guard)             |
-| Circular import (`open(import b)` before `b` preloaded) → swallow→SIGSEGV in `evaluate_open`                                    | (Phase 3 — `d2732a2f`)                              | 3     | fixed (raw eval; circular imports still don't _resolve_)        |
-| Full-directory `check` SIGSEGV (cross-file state pollution; prelude-populated registries)                                       | (Phase 3 — measurement note)                        | 3     | known limitation — measure per-file by exit code                |
+| Blocker                                                                                                                         | Issue                                                          | Phase | Status                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----- | --------------------------------------------------------------------- |
+| API/syntax drift vs current `src/`                                                                                              | (this doc)                                                     | 0     | fixed                                                                 |
+| Multi-file cached prelude lost all bindings (`pop_frame` at end of `evaluate_anonymous_module_begin_exprs`)                     | (commit `d9566b76`)                                            | 1     | fixed                                                                 |
+| `usize.MAX` / primitive-type impl fields (`type_id_or_empty` returned `""` for primitives; lookup branch was struct/union-only) | (commit `4cef2a17`)                                            | 1     | fixed                                                                 |
+| Whole-env module value: `import("…")` returned the entire env, breaking spread-export (`Element X already exported`)            | (commit `32307361`)                                            | 1     | fixed (per-module loader)                                             |
+| Relative `..` import resolved with `Path.join` (no `..` collapse) → wrong path                                                  | (commit `32307361`)                                            | 1     | fixed                                                                 |
+| Recursive evaluator stack overflow (yo-self needed `ulimit -s 65520`)                                                           | `yo-self-evaluator-stack-overflow.md`                          | 1     | fixed (1 GiB worker thread, `6aff3bd7`)                               |
+| Comptime operator-trait dispatch: `==`/`<`/… type as `unit` not `bool` (9 net/sys/http files)                                   | (this doc — resolved-blocker section)                          | 1     | fixed (infix dispatch + parametric-trait lookup + `Self` subst)       |
+| Cross-module isolation parity vs TS `module-manager.ts` (circular-import partial values, privacy)                               | (this doc / `BOOTSTRAPPING.md` §C)                             | 1     | partial — per-module eval works; cycle/privacy parity TBD             |
+| Nested imports not preloaded: `import(...)` inside `impl({...})` body skipped by top-level-only preload walk (`./libc/stdlib`)  | (this doc — Phase 1 item 4)                                    | 1     | fixed (`collect_import_paths_recursive`)                              |
+| Associated type on enum receiver: `Self.Output` errored as a missing enum variant before assoc-type lookup (`encoding/json.yo`) | (this doc — Phase 1 item 5)                                    | 1     | fixed (`_try_resolve_associated_type` in EnumT branch)                |
+| Test-body trial-eval errors not swallowed + non-raw `evaluate_expression` swallow→crash (≈36 `./tests` SIGSEGVs)                | (Phase 2; memory `yo-self-test-trial-eval-swallow`)            | 2     | fixed (`0f3007c8`, `13a5bb4a`)                                        |
+| Self-referential-trait substitution recursion (`Error.source` cyclic `DynT→TraitT`)                                             | (Phase 2)                                                      | 2     | fixed (`9b67b199`, `visited_trait_ids` cycle guard)                   |
+| Circular import (`open(import b)` before `b` preloaded) → swallow→SIGSEGV in `evaluate_open`                                    | (Phase 3 — `d2732a2f`)                                         | 3     | fixed (raw eval; circular imports still don't _resolve_)              |
+| Full-directory `check` SIGSEGV (cross-file state pollution; prelude-populated registries)                                       | (Phase 3 — measurement note)                                   | 3     | known limitation — measure per-file by exit code                      |
 | **Generic-instantiation identity knot** (`.new()`/method on a generic type → `unit`; ≈170 `./yo-self` fails)                    | `issues/fixed/phase3-nested-generic-method-resolution-unit.md` | 3     | **✅ fixed (`e3936a98`) — comptime-fn cache collision, not identity** |
 
 (Several earlier Phase-2 issue docs — `yo-self-where-clause-trait-eval-segfault`,
@@ -711,9 +727,18 @@ moved on substantially.)
 1. ✅ `./yo-cli check yo-self/main.yo` passes (drift repaired). _(Phase 0)_
 2. ✅ `yo-self-bin` builds from `yo-self/main.yo`. _(Phase 0)_
 3. ✅ `yo-self-bin check ./std` matches `yo-cli check ./std` (151/151). _(Phase 1)_
-4. ✅ `yo-self-bin check ./tests` matches `yo-cli check ./tests` (169/170). _(Phase 2)_
-5. `yo-self-bin check ./yo-self` passes — evaluator self-check fixpoint
-   (53/227; blocked on the generic-instantiation identity knot). _(Phase 3)_
+4. ✅ `yo-self-bin check ./tests` (172/182 as of 2026-06-09; the 10 remaining are
+   feature-gap clusters that error identically to / are wall-blocked vs TS). _(Phase 2)_
+5. ✅ `yo-self-bin check ./yo-self` passes (228/228) — evaluator self-check
+   fixpoint reached (the generic-instantiation identity knot was resolved as a
+   comptime-fn cache collision, `e3936a98`). _(Phase 3)_
+
+**Post-fixpoint work (def-eval era):** the active effort is now completing the
+**in-body definition-time gates** surfaced by crossing the def-eval wall — see
+`EVALUATOR_PORT_REVIEW.md` (flowability cluster) and the remaining `tests`
+clusters. ref_flowability closed 2026-06-09; ref-capture-escape and
+slice_flowability remain, each blocked on a distinct deeper gap (closure-body
+eval; recorded-env aliasing).
 
 ---
 

@@ -360,6 +360,36 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     level is different for different cases" (5 prelude + 12 std, inert,
     uninvestigated). The `ComptimeIndex` call form `zlist(usize(0))`
     soft-falls (likely related to the Call/comptime-index dispatch gaps).
+  - **✅ IN-BODY FLOWABILITY GATES — ref_flowability CLOSED (2026-06-09, zero
+    regression std 151 · yo-self 228 · tests 171→172).** Three coordinated
+    faithful fixes (commit `454b14ca`): (1) **binding-site flow-violation
+    propagation through the swallow** — the trial-eval handler is a capture-free
+    `->` effect handler (cannot close over a propagating `exn`), so the
+    binding-site (`ref(r) := <non-flowable>`) flags a global box
+    (`flag_flow_violation`, flowability.yo) before throwing; the throw is
+    swallowed; the def-time CALLER re-raises it via the real `exn` after
+    `_trial_eval_fn_body` returns (unconditionally — the fn may return any type).
+    (2) **return-position fallback** to the raw body when the swallowed eval left
+    `flow_out` empty. (3) **cond.yo `isPtrRelaxedMatch`** (port of cond.ts:352) —
+    when expected is `*(T)` and a cond arm yields raw `T`, accept it. Plus:
+    **operator/comptime-routing gate** (`a4977828`) — don't route an operator to
+    comptime folding when an operand is a runtime unknown (yields `UnknownVal`
+    instead of throwing "Failed to call for compile-time"); and the **R3
+    method-callee side-table** (`308c854d`) — `expr_info.yo`
+    `record_/lookup_method_callee_type` (ExprId→method Func type), recorded at
+    method resolution, read by flowability R3 as a fallback so a ref/slice-returning
+    METHOD call rooted in a `ref` param type-checks (writing the method type INTO
+    the `.method` node's ExprInfo is destructive — regressed std 151→15).
+  - **REMAINING in-body flowability (the other 2+ tests):** **ref_local_binding /
+    ref_closure_capture** need the ref-capture-escape check (anonymous-function.ts: 1082) which relies on the PRECISE free-var capture set — blocked by yo-self
+    deferring _closure_ body eval (`issues/yo-self-flowability-swallow.md`).
+    **slice_flowability** is a long tail of distinct positive-case gaps: the slice
+    return-check itself ports + is std-clean, but each positive hits its own gap —
+    the first, `comptime_str`, is blocked by a confirmed general bug: recorded
+    `ExprInfo.env` aliases the live env, and begin's in-place `pop_frame()` drops
+    begin-local bindings from it (`issues/yo-self-recorded-env-aliasing.md`).
+    Fixing that is a central begin/env change (env snapshot at record + non-aliasing
+    begin threading), in progress with full sweeps after each step.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
