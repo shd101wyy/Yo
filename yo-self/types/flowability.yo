@@ -38,6 +38,7 @@ open(import("std/string"));
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type }
 :: import("../expr_info.yo");
 { get_variables_from_env } :: import("../env.yo");
+{ is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
 { is_function_type } :: import("./guards.yo");
@@ -225,6 +226,17 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
         return(false);
       }
     );
+    // A `.`/2 whose receiver evaluates to a TYPE is a no-argument qualified
+    // variant constructor (`Option(str).None`), NOT a field projection — it
+    // carries no smuggled pointer, so it is flowable. Mirrors flowability.ts.
+    base_is_type := match(
+      _info(ctx, base),
+      .Some(bi) => match(bi.value,.Some(bv) => is_type_val(bv),.None => false),
+      .None => false
+    );
+    if(base_is_type, {
+      return(true);
+    });
     return(recur(base, ctx, opts));
   });
   // R4: `cond(arm1, arm2, …)` — every `=>` arm body must be flowable.
@@ -278,10 +290,30 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   // Enum/variant construction: `.Variant(args…)` — `call.func` is a `.`/1 call
   // or a `.`-typed atom. Flowable iff every arg whose representation carries a
-  // raw pointer is flowable.
+  // raw pointer is flowable. ALSO the QUALIFIED applied form `Enum.Variant(args)`
+  // (`Option(str).Some("a")`): `call.func` is a `.`/2 selector whose receiver
+  // evaluates to a TYPE. Its selector node carries no resolved constructor Func
+  // type, so the R3 path below can't resolve it; detect it here and check args.
+  // Mirrors flowability.ts.
+  is_qualified_variant_ctor := cond(
+    (ast_expr_is_fn_call(call_func) && ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(2)))) => {
+      qrecv := match(
+        call_func,
+        .FnCall(_, _, cf_args, _, _) => match(cf_args.get(usize(0)),.Some(r) => r,.None => make_err_expr()),
+        _ => make_err_expr()
+      );
+      match(
+        _info(ctx, qrecv),
+        .Some(qi) => match(qi.value,.Some(qv) => is_type_val(qv),.None => false),
+        .None => false
+      )
+    },
+    true => false
+  );
   is_variant_ctor := (
     (ast_expr_is_fn_call(call_func) && ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(1)))) ||
       (ast_expr_is_atom(call_func) && match(ast_expr_token(call_func).kind,.Dot => true, _ => false))
+      || is_qualified_variant_ctor
   );
   if(is_variant_ctor, {
     (i : usize) = usize(0);
