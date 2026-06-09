@@ -149,18 +149,24 @@ a ref-returning method call rooted in a `ref` param now type-checks flowable.
   does NOT occur with the clean side-table — `list.project(...)` resolves and
   evaluates fine. No independent reflection gap here.
 
-- **2c. Remaining positive-case eval gaps (the actual slice_flowability blocker).**
-  With 2a fixed + the slice return-check re-applied, slice_flowability advances
-  PAST `borrow_list_slice` (now accepted) but then false-rejects another POSITIVE:
-  `comptime_str :: (fn() -> str)({ s :: "world"; s })` — body `begin(s :: "world", s)`.
-  Its def-time eval is swallowed (empty `flow_out` → fallback to the raw body →
-  the raw `s` atom has no ExprInfo → R1 can't resolve it → reject). R1''' (a
-  comptime-bound name under `allow_comptime_source`) IS present (flowability.yo),
-  so this is again a body-eval-swallow gap, not a flowability-logic gap — likely a
-  `comptime_string → str` coercion at return (`"world"` is `comptime_string`, the
-  return slot is `str`). Each remaining slice positive (`forward_slice`, `greet`,
-  `slice_len`, the `SliceWrapper` struct-field cases) may hit its own such gap.
+- **2c. Remaining positive-case gaps (the actual slice_flowability blocker) — a
+  LONG TAIL of distinct issues, one per positive.** With 2a fixed + the slice
+  return-check re-applied, slice_flowability advances PAST `borrow_list_slice`
+  (now accepted) but then false-rejects the next POSITIVE, and each remaining
+  positive appears to hit its OWN distinct gap. First confirmed (instrumented):
+  `comptime_str :: (fn() -> str)({ s :: "world"; s })`. Its body does NOT throw
+  (no def-time swallow — verified), and the returned expr IS the bare atom `s`
+  (no coercion wrapper — verified `FLOW-ENTER tok=s is_atom=true`). R1 rejects it
+  at `R1-EARLY vars-empty name=s`: `get_variables_from_env(info.env, "s")` returns
+  EMPTY — the comptime-bound `s` (`s :: "world"`) is NOT present in the env
+  recorded on the returned `s` atom's `ExprInfo`. So this is an env-snapshot gap
+  for a `::` comptime-const binding in a def-time-evaluated begin body (the
+  recorded `info.env` predates / omits the `s` binding), NOT a swallow and NOT a
+  flowability-logic gap (R1''' for comptime-bound names is present and correct).
+  The other positives (`forward_slice`, `greet`, `slice_len`, the `SliceWrapper`
+  struct-field cases) likely each have a different root cause and need individual
+  investigation. slice_flowability is therefore a multi-fix effort, not one fix.
 
 The slice return-check itself is implemented and std-clean; it stays reverted
-until the 2c positive-case eval gaps are closed (else it false-rejects valid
-`str`/slice-returning functions whose bodies are swallowed at def-time).
+until the 2c positive-case gaps are closed (else it false-rejects valid
+`str`/slice-returning positives like `comptime_str`).
