@@ -501,16 +501,24 @@ evaluate_cond :: (
                       true => false
                     );
                     if(!(is_ptr_relaxed_match) && !(are_types_compatible(body_einfo.ty, et.ty)), {
-                      exn.throw(
-                        dyn(
-                          format_error_message(
-                            ast_expr_token(evaluated_case_body),
-                            `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_einfo.ty)}`,
-                            false,
-                            .None
+                      // Coerce the arm's comptime type to runtime and re-check
+                      // (e.g. a `comptime_string` literal arm against a `str`
+                      // expected return), mirroring the value-type unification
+                      // fallback below. TS's areTypesCompatible accepts this
+                      // directly; yo-self needs the explicit widening.
+                      runtime_arm_ty := convert_comptime_type_to_runtime_type(body_einfo.ty, body_einfo.env);
+                      if(!(are_types_compatible(runtime_arm_ty, et.ty)), {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              ast_expr_token(evaluated_case_body),
+                              `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_einfo.ty)}`,
+                              false,
+                              .None
+                            )
                           )
-                        )
-                      );
+                        );
+                      });
                     });
                   }
                 );
