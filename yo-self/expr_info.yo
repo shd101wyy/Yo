@@ -452,6 +452,33 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
 expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   table.data.get(id)
 );
+// ---------------------------------------------------------------------------
+// Method-call callee-type side-table.
+//
+// Maps a method-CALL expr id → the resolved method's `Func` type. Populated
+// during method dispatch (evaluator/calls/function.yo, where the resolved
+// `method_info.method_ty` is known) and read by the flowability R3 check
+// (types/flowability.yo) as a FALLBACK when the `.`/2 method-callee sub-expr
+// has no ExprInfo of its own. yo-self never annotates the callee node with the
+// method Func type, and writing it INTO that node's ExprInfo is destructive
+// (the node's ExprInfo means property/field-access info — doing so regressed
+// `check ./std` 151→15). This non-destructive side-table is the faithful
+// equivalent of TS reading `call.func.$.type`. Keyed by `ExprId` (globally
+// unique), so one process-wide table is safe. Mutated via `set` (the loader
+// makes fresh ctx-keyed ExprInfoTables per module, but this global side-table
+// is shared — harmless, ids never collide). See
+// issues/yo-self-flowability-swallow.md.
+// ---------------------------------------------------------------------------
+(g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
+/// Record the resolved method `Func` type for a method-call expr id.
+record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
+  _ := g_method_callee_types.set(call_id, ty);
+  ()
+});
+/// Look up the resolved method `Func` type for a method-call expr id, if any.
+lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
+  g_method_callee_types.get(call_id)
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
@@ -462,3 +489,4 @@ export(ComptimeRef);
 export(RuntimeDestructuring);
 export(ExprInfo, new_expr_info);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
+export(record_method_callee_type, lookup_method_callee_type);

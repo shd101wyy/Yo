@@ -28,7 +28,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  record_method_callee_type
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -2265,6 +2266,14 @@ evaluate_function_call :: (
         // (receiver value is a TypeValue, e.g. `HashMap(K,V).new()`) take no
         // implicit receiver arg (`[...args]`). Mirrors TS function.ts:301/319.
         .Some(method_info) => {
+          // Record the resolved method's Func type in the non-destructive
+          // method-callee side-table (keyed by this call's expr id) BEFORE the
+          // call is processed — the call may throw/be swallowed at def-time, but
+          // the flowability R3 check still needs the callee type to verify a
+          // ref/slice-returning method call rooted in a `ref` param. Mirrors TS
+          // reading `call.func.$.type`; writing it into the `.`/2 callee node's
+          // ExprInfo instead is destructive (regressed std 151→15).
+          record_method_callee_type(ast_expr_id(expr), method_info.method_ty);
           all_args := ArrayList(AstExpr).new();
           if(!(method_info.is_static), {
             // When the method's self param is `*(T)` and the receiver is a

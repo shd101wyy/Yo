@@ -35,7 +35,8 @@ open(import("std/string"));
   BF_UNSAFE,
   make_err_expr
 } :: import("../expr.yo");
-{ ExprInfo, expr_info_table_get, has_any_control_flow } :: import("../expr_info.yo");
+{ ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type }
+:: import("../expr_info.yo");
 { get_variables_from_env } :: import("../env.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
@@ -300,7 +301,15 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   // yo-self). The receiver of a method call (`call_func` args[0]) is the
   // implicit first argument.
   is_method_call := ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(2)));
-  callee_ty_opt := match(_info(ctx, call_func),.Some(inf) => Option(TypeValue).Some(inf.ty),.None => Option(TypeValue).None);
+  // The callee's Func type comes from its ExprInfo (set for direct calls). For
+  // a METHOD call the `.`/2 callee sub-expr has no Func-typed ExprInfo, so fall
+  // back to the method-callee side-table (keyed by this CALL's expr id,
+  // populated during method dispatch). Mirrors TS `call.func.$.type`.
+  callee_ty_opt := match(
+    _info(ctx, call_func),
+    .Some(inf) => Option(TypeValue).Some(inf.ty),
+    .None => lookup_method_callee_type(ast_expr_id(expr))
+  );
   callee_ty := match(
     callee_ty_opt,
     .Some(t) => t,
