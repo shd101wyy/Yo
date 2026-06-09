@@ -36,6 +36,7 @@ open(import("std/string"));
 {
   is_bool_type,
   is_some_type,
+  is_pointer_type,
   is_function_type_and_returns_comptime_value
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
@@ -483,7 +484,23 @@ evaluate_cond :: (
                   ctx.expected_type,
                   .None => (),
                   .Some(et) => {
-                    if(!(are_types_compatible(body_einfo.ty, et.ty)), {
+                    // For `-> ref(T)` enclosing functions the body's expected
+                    // type is lowered to `*(T)` (function_type.yo
+                    // `bodyExpectedType`). Cond arms that produce raw `T` (e.g.
+                    // a field projection `p.x` of a ref-bound parameter) are
+                    // flowable — codegen emits address-taking on the way out.
+                    // Accept the raw `T` form here; the flowability rule on the
+                    // return expression owns soundness. Mirrors TS cond.ts
+                    // `isPtrRelaxedMatch`.
+                    is_ptr_relaxed_match := cond(
+                      (is_pointer_type(et.ty) && !(is_pointer_type(body_einfo.ty))) => match(
+                        et.ty,
+                        .Pointer(child_box) => are_types_compatible(body_einfo.ty, child_box.*),
+                        _ => false
+                      ),
+                      true => false
+                    );
+                    if(!(is_ptr_relaxed_match) && !(are_types_compatible(body_einfo.ty, et.ty)), {
                       exn.throw(
                         dyn(
                           format_error_message(

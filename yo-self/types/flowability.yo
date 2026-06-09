@@ -42,6 +42,45 @@ open(import("std/string"));
 { is_function_type } :: import("./guards.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr }
 :: import("./utils.yo");
+/// A 1-element mutable box flagging that an error thrown during a swallowed
+/// def-time body eval is a deliberate flow-soundness REJECTION (a
+/// `ref(name) := …` non-flowable RHS), not an unported-feature eval error.
+/// `_trial_eval_fn_body`'s handler cannot capture the real outer `exn` (effect
+/// handlers are capture-free `->` functions), so instead: the binding-site
+/// flags the violation before throwing; the throw is swallowed as usual; then
+/// the def-time CALLER re-raises it via the real `exn` after the trial eval
+/// returns. TS reaches the same rejection because its def-time body eval
+/// propagates errors. An `ArrayList` mutated only inside the top-level
+/// `flag_/clear_` fns is used rather than a reassignable global, so yo-self can
+/// check this very source (which forbids reassigning a module-level global from
+/// inside a closure).
+(g_flow_violation_box : ArrayList(bool)) = ArrayList(bool).new();
+/// Parallel 1-element box holding the rejection's message, so the def-time
+/// caller re-raises the SAME diagnostic the swallowed throw would have.
+(g_flow_violation_msg : ArrayList(String)) = ArrayList(String).new();
+/// Mark that the error about to be thrown is a flow-soundness rejection,
+/// recording its message for the def-time re-raise.
+flag_flow_violation :: (fn(msg : String) -> unit)({
+  g_flow_violation_box.clear();
+  _ := g_flow_violation_box.push(true);
+  g_flow_violation_msg.clear();
+  _ := g_flow_violation_msg.push(msg);
+  ()
+});
+/// Reset the flag (called before each def-time body eval and after each catch).
+clear_flow_violation :: (fn() -> unit)({
+  g_flow_violation_box.clear();
+  g_flow_violation_msg.clear();
+  ()
+});
+/// True iff a flow-soundness rejection was flagged since the last reset.
+flow_violation_pending :: (fn() -> bool)(
+  match(g_flow_violation_box.get(usize(0)),.Some(v) => v,.None => false)
+);
+/// The flagged rejection's message (empty if none).
+flow_violation_message :: (fn() -> String)(
+  match(g_flow_violation_msg.get(usize(0)),.Some(m) => m,.None => String.from(""))
+);
 /// Options refining the base R1–R4 rule. Mirrors the TS options bag.
 FlowOptions :: object(
   /// Accept a same-frame (non-module) local — the `ref(name) := …` binding
@@ -331,4 +370,12 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   all_ok
 });
-export(FlowOptions, flow_options_default, is_flowable_expr);
+export(
+  FlowOptions,
+  flow_options_default,
+  is_flowable_expr,
+  flag_flow_violation,
+  clear_flow_violation,
+  flow_violation_pending,
+  flow_violation_message
+);

@@ -1,62 +1,83 @@
-# yo-self: flowability tests fail — flow violations swallowed by def-time trial-eval
+# yo-self: flowability tests — swallow + cond ptr-relaxed + ref-capture-escape
 
-## Summary
+## Status
 
-The 4 flowability tests (`ref_flowability`, `ref_local_binding`,
-`ref_closure_capture`, `slice_flowability`) fail under the `is_executing` build.
-They are `comptime_expect_error(...)` tests that expect a flow-soundness
-VIOLATION to be rejected, but yo-self does NOT reject them ("Expected compile
-error, but the expression was evaluated successfully").
+- `ref_flowability.test.yo` — **FIXED** (3 coordinated changes below).
+- `ref_local_binding.test.yo` — still failing: needs ref-capture-escape (below).
+- `ref_closure_capture.test.yo` — still failing: needs ref-capture-escape.
+- `slice_flowability.test.yo` — still failing: needs slice-escape-at-return.
 
-**The flowability port itself is NOT the problem.** `is_flowable_expr`
-(yo-self/types/flowability.yo, 334 lines) is a complete, faithful port of TS
-`isFlowableExpr` (flowability.ts) — verified case-by-case (R1 atom/binding flags,
-R2 `.field`, R3 function-call ref-return, R4 cond/match arms, `&+`/`&-`, variant
-ctors, slice-flowability options). The bug is that its rejections are
-**swallowed**.
+`is_flowable_expr` (yo-self/types/flowability.yo) is a complete, faithful port of
+`isFlowableExpr` — the failures were never in that function.
 
-## Root cause — the def-time trial-eval swallow hides flow violations
+## What `ref_flowability` needed (all three, together)
 
-`is_flowable_expr` is invoked at two sites; both throw a rejection that the
-def-time body eval swallows:
+The four `comptime_expect_error` cases plus two positives in this file exercised
+three independent gaps. None alone closed the file:
 
-1. **Return position** (`-> ref(T)` functions, function_type.yo). After
-   `_trial_eval_fn_body`, the flow check runs on `flow_out.get(0)` (the
-   trial-evaluated final body expr). For a `cond`/`match` body whose
-   non-flowable arm fails to unify with the `*(T)` return shape, the body eval
-   THROWS (arm type mismatch) and is swallowed → `flow_out` is EMPTY → the flow
-   check is skipped (`.None => ()`). FIX (verified working): fall back to the
-   raw body `fb` when `flow_out` is empty — `is_flowable_expr` is structural and
-   rejects the bad arm. (R3 `returns_value()` already worked: `flow_out` has the
-   call, `is_flowable_expr` returns false, the check throws via the outer `exn`.)
+### 1. Binding-site flow violation swallowed (Step B)
 
-2. **Binding site** (`ref(r) := expr` inside a function body,
-   initialization_assignment.yo:304). The binding-site flow check throws via the
-   threaded `exn` — but DURING def-time body eval that `exn` is
-   `_trial_eval_fn_body`'s `inner_exn = Exception(throw : (_err) -> unwind(()))`
-   (function_type.yo:199), which SWALLOWS it. So `ref(r) := returns_value()` is
-   not rejected.
+`ref(name) := <non-flowable>` inside a function body throws via the `exn`
+threaded into the body eval — which, during def-time trial eval, is
+`_trial_eval_fn_body`'s swallowing `inner_exn` (function_type.yo). So
+`bad_binding :: (fn() -> unit)({ ref(r) := returns_value(); })` was not rejected.
 
-In TS the def-time body eval PROPAGATES errors, so both violations reject
-naturally. yo-self SWALLOWS def-time body-eval errors (the "def-eval wall" — a
-deliberate divergence so a file's check doesn't crash on an unported-feature
-body in some unrelated function; prior propagating attempts regressed 53→3).
-That swallow ALSO eats the deliberate flow-soundness rejections.
+The swallow handler is a capture-free `->` effect handler — it **cannot** close
+over a propagating `exn` to re-raise (the language forbids `->` functions
+capturing outer runtime variables). Fix: the binding-site (init*assignment.yo)
+flags a global box (`flag_flow_violation(msg)` in flowability.yo) before throwing;
+the throw is swallowed as usual; then the def-time CALLER
+(function_type.yo, right after `_trial_eval_fn_body`) re-raises it via the real
+`exn` — UNCONDITIONALLY (not under `result_is_ref`, since the function may
+return any type). The message is carried in a parallel box so the re-raised
+diagnostic matches. An `ArrayList` box mutated only inside top-level
+`flag*/clear\_` fns is used (not a reassignable global) so yo-self can check its
+own source (which forbids reassigning a module-level global inside a closure).
 
-## Faithful fix (substantial, risky — focused follow-up)
+### 2. Return-position rejection skipped on swallowed body (Step A)
 
-Two coordinated changes:
+The `-> ref(T)` return flow check ran on `flow_out.get(0)` (the trial-evaluated
+final body expr) and `.None => ()` SKIPPED when `flow_out` was empty. A
+`cond`/`match` body whose bad arm fails to unify with `*(T)` throws during eval
+→ swallowed → empty `flow_out` → not rejected (`bad_cond_mixed_arms`). Fix: fall
+back to flow-check the raw body `fb` when `flow_out` is empty. `is_flowable_expr`
+is structural, so a genuinely non-flowable body is still rejected.
 
-- Return position: the `flow_out`-empty → fall-back-to-`fb` fix (low risk, but
-  must be sweep-validated against `-> ref(T)` functions whose body eval fails
-  for an UNPORTED reason — those would be wrongly rejected).
-- Binding site: propagate flow-soundness violations through the trial-eval
-  swallow while still swallowing unrelated eval errors. Options: (a) flow checks
-  set a distinguished `g_flow_violation` sentinel that `_trial_eval_fn_body`'s
-  `inner_exn` re-raises via a captured outer `exn`; (b) message-tag the
-  flow-violation errors and re-raise those in `inner_exn`. Both need care to not
-  re-raise unrelated swallowed errors.
+This fallback is sound ONLY together with fix #3 — otherwise a _valid_ cond body
+(`pick`) whose eval throws for an unrelated reason leaves an empty `flow_out`,
+and the raw-body flow check (no ExprInfo) mis-rejects it.
 
-Gate after: std 151/151, check ./yo-self 228/228, tests should reach 175/182
-(closing all 4 flowability tests), leaving 7 (circular_deps ×4,
-algebraic_effects, sync/mutex, extern_unsafe_wrap).
+### 3. cond arm type vs `*(T)` ref-return expected type (cond ptr-relaxed match)
+
+`pick :: (fn(ref(p) : Point, use_x : bool) -> ref(i32))(cond(use_x => p.x, true => p.y))`
+is valid in TS but yo-self threw `Incompatible type with expected type` while
+trial-evaluating the body: the arm `p.x` yields `i32`, but the body's expected
+type is lowered to `*(i32)` for `-> ref` returns. TS cond.ts has an
+`isPtrRelaxedMatch` (cond.ts:352-361): when expected is `*(T)` and the arm yields
+non-pointer `T` compatible with the pointee, accept it (codegen address-takes on
+the way out; the flowability rule owns soundness). yo-self's cond.yo arm-type
+check (the `Incompatible type with expected type` throw) lacked it. Ported it
+(single-expr `p.x` worked only because it skips the cond arm-check path).
+
+## Remaining: ref-capture-escape + slice-escape (the other 3 tests)
+
+`make_reader :: (fn(ref(x) : i32) -> Impl(Fn() -> i32))(() => x)` and
+`make_capturing_closure` must be rejected because a returned closure capturing a
+`ref`-bound name outlives the call frame. TS enforces this in
+`anonymous-function.ts:1078-1087`: iterate `context.capturedVariables` (the
+PRECISE free-variable set, populated during body eval) and throw if any captured
+variable `isRef`.
+
+**Architectural blocker:** yo-self DEFERS closure body eval and snapshots ALL
+visible outer variables coarsely into `cap_names` (anonymous_function.yo:431-468),
+not the precise free-var set. Checking `isRef` on `cap_names` would false-reject
+any closure merely created in a scope that has a ref binding. A faithful port
+needs the closure's actual free variables — either (a) evaluate closure bodies at
+def time, or (b) a static free-variable AST scan of the closure body intersected
+with outer ref-bound names. Both are substantial. Once the precise set exists,
+the rejection must ALSO flag the global box (generalize `flag_flow_violation`
+into a `flag_safety_violation`) so it propagates through the def-time swallow,
+exactly like fix #1.
+
+`slice_flowability` (`make_dangling` returns `Option(Slice(i32))` over a local
+`list`) needs the analogous slice-into-local escape check at return position.

@@ -32,7 +32,8 @@ open(import("std/string"));
   BK_GIVEN,
   BK_REF
 } :: import("../../expr.yo");
-{ is_flowable_expr, FlowOptions } :: import("../../types/flowability.yo");
+{ is_flowable_expr, FlowOptions, flag_flow_violation }
+:: import("../../types/flowability.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -302,16 +303,12 @@ evaluate_initialization_assignment :: (
       max_local_frame_level : Option(usize).None
     );
     if(!(is_flowable_expr(rhs, ctx, ref_flow_opts)), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(rhs),
-            `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
-            false,
-            .None
-          )
-        )
-      );
+      viol_msg := `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`;
+      // Flag the violation (recording its message) so that if this throw is
+      // swallowed by a def-time trial-eval, the def-time caller re-raises the
+      // same diagnostic via the real `exn` (function_type.yo).
+      flag_flow_violation(viol_msg);
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
     });
   });
   // --------------------------------------------------------------------------

@@ -35,7 +35,13 @@ open(import("std/string"));
 { is_type_0 } :: import("../../types/guards.yo");
 { EvalValue, create_unknown_val, create_type_value } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
-{ is_flowable_expr, flow_options_default } :: import("../../types/flowability.yo");
+{
+  is_flowable_expr,
+  flow_options_default,
+  clear_flow_violation,
+  flow_violation_pending,
+  flow_violation_message
+} :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ast_expr_to_string } :: import("../../expr.yo");
 {
@@ -196,6 +202,13 @@ create_function_body_evaluation_context :: (
 _trial_eval_fn_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
+  // Reset the flow-violation flag so a stale flag from an earlier (propagated,
+  // non-def-time) throw can't be mistaken for a violation in THIS body.
+  clear_flow_violation();
+  // The swallow handler is a capture-free `->` effect handler (it cannot close
+  // over a propagating `exn`), so it always swallows. A deliberate
+  // flow-soundness rejection sets `flow_violation_pending()` BEFORE throwing;
+  // the def-time caller re-raises it via the real `exn` after this returns.
   inner_exn := Exception(throw : ((_err) -> unwind(())));
   evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
   ___ := out.push(evaluated);
@@ -576,25 +589,43 @@ try_to_implement_function_by_function_type :: (
           flow_ctx := create_function_body_evaluation_context(function_type, flow_fv, flow_env, ctx);
           flow_out := ArrayList(AstExpr).new();
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
+          // Re-raise a flow-soundness rejection that the trial-eval swallowed
+          // (a `ref(name) := <non-flowable>` binding anywhere in the body). The
+          // handler is capture-free so it could not propagate it directly; the
+          // binding-site flagged it instead, and we re-throw it here via the
+          // real `exn`. Unconditional (NOT under `result_is_ref`) because the
+          // enclosing function may return any type — e.g. `fn() -> unit`.
+          if(flow_violation_pending(), {
+            viol_msg := flow_violation_message();
+            clear_flow_violation();
+            exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg, false,.None)));
+          });
           if(result_is_ref, {
-            match(
+            // The expr to flow-check is the trial-evaluated final body expr. But
+            // when the trial eval threw and was swallowed (e.g. a `cond`/`match`
+            // whose non-flowable arm fails to unify with the `*(T)` return
+            // shape), `flow_out` is empty — fall back to the raw body `fb`.
+            // `is_flowable_expr` is structural (it recurses into cond/match arms
+            // and `.field`/call shapes), so a non-flowable body is still
+            // rejected; TS reaches the same rejection because its body eval
+            // propagates that unification error.
+            eb := match(
               flow_out.get(usize(0)),
-              .Some(eb) => {
-                if(!(is_flowable_expr(eb, flow_ctx, flow_options_default())), {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(eb),
-                        `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${ast_expr_to_string(eb)}`,
-                        false,
-                        .None
-                      )
-                    )
-                  );
-                });
-              },
-              .None => ()
+              .Some(e) => e,
+              .None => fb
             );
+            if(!(is_flowable_expr(eb, flow_ctx, flow_options_default())), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(eb),
+                    `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${ast_expr_to_string(eb)}`,
+                    false,
+                    .None
+                  )
+                )
+              );
+            });
           });
         },
         .None => ()
