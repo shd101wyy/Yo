@@ -390,6 +390,22 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     begin-local bindings from it (`issues/yo-self-recorded-env-aliasing.md`).
     Fixing that is a central begin/env change (env snapshot at record + non-aliasing
     begin threading), in progress with full sweeps after each step.
+  - **✅ slice_flowability CLOSED (2026-06-10, tests 172→173, zero regression).**
+    The env-aliasing fix landed (f6fa7132 — `new_expr_info` snapshots env frames +
+    begin `pop_frame_nonmutating`), closing the `comptime_str` positive. Then the
+    slice long-tail resolved via 4 coordinated fixes: (1) **TS-first** fix to
+    `isFlowableExpr` for QUALIFIED variant ctors `Enum.Variant(args)` (commit
+    3fa201d6 — a genuine TS flowability false-positive; `./yo-cli check` rejected
+    yo-self/codegen/exprs/asm.yo too) + yo-self port (ac9734d2); (2) the in-body
+    slice/ref flow checks (return / explicit-return / assignment-escape, commit
+    6a681f82); (3) the env-aliasing fix above; (4) keystone — coerce a
+    `comptime_string` cond arm to runtime vs a `str` expected return (commit
+    5e67cd07), which let `assign_escape_slice`'s body def-evaluate past its cond so
+    the assignment-escape check fires (it was upstream-blocked by the cond
+    comptime-string swallow, NOT a frame-level bug). Restored asm.yo (yo-self
+    228/228). Flowability scorecard: **2/4 closed** (ref_flowability,
+    slice_flowability); ref_local_binding + ref_closure_capture remain
+    (ref-capture-escape, closure-body-eval blocked).
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - ⬜ `types/function.ts` → `types/function.yo`
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`

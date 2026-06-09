@@ -72,7 +72,7 @@ structure).
 | `./yo-cli check yo-self/main.yo`         | green        | —                                              |
 | `./yo-cli compile yo-self/main.yo`       | builds       | —                                              |
 | `yo-self-bin check ./std` (per-file)     | **complete** | **151 / 151** (matches TS)                     |
-| `yo-self-bin check ./tests` (per-file)   | **complete** | **172 / 182** (10 fail — feature-gap clusters) |
+| `yo-self-bin check ./tests` (per-file)   | **complete** | **173 / 182** (9 fail — feature-gap clusters)  |
 | `yo-self-bin check ./yo-self` (per-file) | **complete** | **228 / 228** (self-check fixpoint reached)    |
 | `yo-self-bin check ./yo-self/codegen`    | deferred     | out of Phase 3 scope (a later bootstrap phase) |
 
@@ -82,10 +82,12 @@ structure).
 > evaluated at definition time (faithful to `function-type.ts:499`), made safe by
 > a swallowing trial-eval wrapper. That surfaced — and this work has been closing
 > — the **in-body definition-time gates** (flowability, etc.) that `check` alone
-> never exercised. `tests` rose 164 → 172 over this era. The 10 remaining `tests`
+> never exercised. `tests` rose 164 → 173 over this era. The 9 remaining `tests`
 > fails: circular_deps ×4 (error identically to TS), algebraic_effects, sync/mutex,
-> extern_unsafe_wrap, and **3 flowability** (ref_local_binding, ref_closure_capture,
-> slice_flowability) — see the updated flowability note below.
+> extern_unsafe_wrap, and **2 flowability** (ref_local_binding, ref_closure_capture
+> — need the ref-capture-escape check, blocked by yo-self deferring _closure_ body
+> eval). **ref_flowability + slice_flowability are CLOSED** (2026-06-10); see the
+> flowability note below.
 
 > **Phase 3 fixpoint reached (227/227).** The generic-instantiation identity
 > knot that dominated Phase 3 was resolved (comptime-fn cache collision —
@@ -100,7 +102,17 @@ structure).
 > - **circular_deps (4)** — `circular_b`, `circular_error_a/b`, `circular_open_b`:
 >   genuinely unresolvable import cycles; **error identically to the TS
 >   reference**, so not a yo-self defect.
-> - **flowability — `ref_flowability` ✅ CLOSED (2026-06-09); 3 still failing.**
+> - **flowability — `ref_flowability` + `slice_flowability` ✅ CLOSED; 2 still failing.**
+>   slice*flowability closed 2026-06-10 via: (a) a TS-first fix to `isFlowableExpr`
+>   for QUALIFIED variant ctors `Enum.Variant(args)` (commit 3fa201d6 — a real TS
+>   false-positive; `./yo-cli check` rejected asm.yo too) + its yo-self port
+>   (ac9734d2); (b) the in-body slice/ref flow checks (return/explicit-return/
+>   assignment, commit 6a681f82); (c) the recorded-`ExprInfo.env` aliasing fix
+>   (f6fa7132); (d) the keystone — coercing a `comptime_string` cond arm to runtime
+>   vs a `str` expected return (commit 5e67cd07), which let `assign_escape_slice`'s
+>   body def-evaluate past its cond so the assignment-escape check fires. The 2
+>   remaining (`ref_local_binding`, `ref_closure_capture`) need the
+>   ref-capture-escape check, blocked by yo-self deferring *closure* body eval.
 >   The def-time fn-body-eval wall was crossed (memory `yo-self-defeval-wall`), so
 >   the call sites now run. `ref_flowability` was closed by three coordinated
 >   faithful fixes (commit `454b14ca`): (1) binding-site flow-violation re-raise
@@ -109,7 +121,7 @@ structure).
 >   swallowed; (3) **cond.yo `isPtrRelaxedMatch`** (cond.ts:352) — a `*(T)`
 >   ref-return expected type accepts a cond arm yielding raw `T`. Plus the
 >   operator/comptime-routing gate (`a4977828`) and the R3 method-callee side-table
->   (`308c854d`, fixes ref-returning _method_ calls in `-> ref` returns). **Still
+>   (`308c854d`, fixes ref-returning \_method* calls in `-> ref` returns). **Still
 >   failing: `ref_local_binding`, `ref_closure_capture`** (need the ref-capture-
 >   escape check, blocked by yo-self deferring _closure_ body eval → no precise
 >   free-var set; `issues/yo-self-flowability-swallow.md`) **and `slice_flowability`**
