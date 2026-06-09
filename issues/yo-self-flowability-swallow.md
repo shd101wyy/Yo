@@ -170,3 +170,38 @@ a ref-returning method call rooted in a `ref` param now type-checks flowable.
 The slice return-check itself is implemented and std-clean; it stays reverted
 until the 2c positive-case gaps are closed (else it false-rejects valid
 `str`/slice-returning positives like `comptime_str`).
+
+## 2026-06-10 — env-aliasing fix LANDED + in-body flow checks LANDED (pushed)
+
+- **Recorded-`ExprInfo.env` aliasing FIXED (commit f6fa7132).** The `comptime_str`
+  `vars-empty` root cause above was a general bug: `new_expr_info` stored the live
+  env by reference, and begin's in-place `pop_frame()` dropped begin-local
+  bindings from every recorded env. Fix: `new_expr_info` records `snapshot_env`
+  (shallow frames-list clone, shares `Frame` refs) + begin uses
+  `Environment.pop_frame_nonmutating()`. Validated std 151 / yo-self 228 /
+  tests 172. Closed `comptime_str`. See `issues/yo-self-recorded-env-aliasing.md`.
+- **In-body slice/ref flow checks LANDED (commit 6a681f82, faithful, MATCH TS).**
+  (1) slice/raw-ptr RETURN check (function_type.yo, else-branch of the ref check);
+  (2) explicit-`return(arg)` check (begin.yo — the function-body `is_flowable_expr`
+  vacuously accepts `return(...)`, so the arg is re-checked, begin.ts:1243);
+  (3) assignment-escape check (assignment.yo — `x = <raw-ptr-value>` with
+  `max_local_frame_level = target.frame_level`; flags `flag_flow_violation` so the
+  def-time swallow re-raises). Closed slice_flowability's `make_dangling`,
+  `make_wrapper`, `bad_explicit_ref_return`, `assign_escape_str`.
+- **⚠️ yo-self full-list 228→227 is FAITHFUL, not a regression.**
+  `yo-self/codegen/exprs/asm.yo`'s `explicit_register_constraint_`
+  (`(fn(reg : str) -> Option(str))(cond(... Option(str).Some("a") ...))`) is now
+  rejected — and **`./yo-cli check` (the TS reference) REJECTS IT TOO**. It is a
+  flowability FALSE-POSITIVE in BOTH TS and yo-self: `is_flowable_expr` R3 cannot
+  resolve a QUALIFIED variant constructor `Enum.Variant(args)` (`Option(str).Some`
+  is a `.`/2 selector with no Func-typed ExprInfo; only the `.Variant` / `.`-1
+  shorthand is recognised as a ctor). The faithful fix is to recognise qualified
+  variant ctors in **TS** `isFlowableExpr` first (then port) — making yo-self
+  accept it alone would DIVERGE from TS. Phase-3's evaluator-only metric excludes
+  codegen, so it is unaffected.
+- **Remaining slice_flowability blocker: `assign_escape_slice`.** Its body
+  (`inner := ArrayList(i32).new(); inner.push(7); inner_slice := match(inner.as_slice(), …); cur = inner_slice`)
+  appears to hit an UPSTREAM def-time-eval gap before reaching `cur = inner_slice`
+  (the assignment check / R1' frame-level branch never fires — no `R1FL` trace),
+  so the inner-local slice escape isn't caught. Blocked upstream (body eval), not
+  a frame-level bug. Next concrete step.
