@@ -38,13 +38,10 @@ open(import("std/string"));
 {
   is_flowable_expr,
   flow_options_default,
-  FlowOptions,
   clear_flow_violation,
   flow_violation_pending,
   flow_violation_message
 } :: import("../../types/flowability.yo");
-{ type_to_string } :: import("../../types/string.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ast_expr_to_string } :: import("../../expr.yo");
 {
@@ -57,7 +54,7 @@ open(import("std/string"));
   ImplConcreteTypeInfo
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
-{ get_all_some_types, type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
+{ get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Check if a generic function body returns a type incompatible with the
@@ -389,7 +386,7 @@ try_to_implement_function_by_function_type :: (
 )(
   match(
     function_type,
-    .Func({ forall_labels, param_labels, param_types, implicit_labels, result : result_box, param_is_ref, result_is_ref, result_is_comptime_only }) => {
+    .Func({ forall_labels, param_labels, param_types, implicit_labels, result : result_box, param_is_ref, result_is_ref }) => {
       tok := ast_expr_token(expr);
       // Extract the function body from args[0] of the outer call expression.
       args := match(
@@ -628,40 +625,6 @@ try_to_implement_function_by_function_type :: (
                   )
                 )
               );
-            });
-          }, {
-            // SLICE_FLOWABILITY.md Phase C — a value-typed return whose
-            // representation transitively carries a raw pointer (`Slice(T)`,
-            // `str`, a struct wrapping one) must root the returned value in
-            // caller-owned storage; otherwise the fat pointer points into the
-            // dying call frame. Mirrors function-type.ts:541-572. Slice options
-            // additionally accept a non-`ref` parameter (its storage outlives
-            // the call) and comptime/string-literal sources (static storage).
-            if((type_representation_contains_raw_ptr(result_box.*) && !(result_is_comptime_only))
-            && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
-              seb := match(
-                flow_out.get(usize(0)),
-                .Some(e) => e,
-                .None => fb
-              );
-              slice_flow_opts := FlowOptions(
-                allow_same_frame_local : false,
-                allow_parameter_source : true,
-                allow_comptime_source : true,
-                max_local_frame_level : Option(usize).None
-              );
-              if(!(is_flowable_expr(seb, flow_ctx, slice_flow_opts)), {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(seb),
-                      `Function returning '${type_to_string(result_box.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`,
-                      false,
-                      .None
-                    )
-                  )
-                );
-              });
             });
           });
         },

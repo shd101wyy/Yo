@@ -76,9 +76,6 @@ open(import("std/string"));
 } :: import("../../types/env_lookup.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_flowable_expr, FlowOptions, flag_flow_violation }
-:: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding } :: import("./binding.yo");
@@ -762,32 +759,6 @@ evaluate_assignment :: (
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
-  // Slice-flowability at the assignment boundary (assignment.ts:263-297). When
-  // the TARGET's type carries a raw pointer (Slice/str/aggregate-thereof; owned
-  // object types like String/ArrayList are excluded by the predicate), the RHS
-  // must be rooted in storage that OUTLIVES the target binding. `=` can target
-  // an outer-scope binding, so pass the target's `frame_level` as
-  // `max_local_frame_level`: a same-frame/local source is accepted only if its
-  // scope encloses the target's (level <= target). Parameters, comptime values
-  // and `ref`-bound names outlive the function and are always accepted; in
-  // privileged files an `unsafe(...)` wrap opts out (is_flowable_expr treats it
-  // as flowable). Mirrors the binding-site check, but `:=` is always innermost
-  // so only `=` reassignment can invert scope.
-  if(type_representation_contains_raw_ptr(variable.ty), {
-    assign_flow_opts := FlowOptions(
-      allow_same_frame_local : true,
-      allow_parameter_source : true,
-      allow_comptime_source : true,
-      max_local_frame_level : Option(usize).Some(variable.frame_level)
-    );
-    if(!(is_flowable_expr(rhs_evaled, ctx, assign_flow_opts)), {
-      viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(variable.ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}`;
-      // Flag the violation so a def-time trial-eval swallow re-raises it via the
-      // real `exn` (function_type.yo), mirroring the `ref(name) :=` binding-site.
-      flag_flow_violation(viol_msg);
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
-    });
-  });
   // Check control flow.
   if(has_any_control_flow(rhs_info.control_flow), {
     match(
