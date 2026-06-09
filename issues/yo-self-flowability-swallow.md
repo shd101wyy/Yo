@@ -115,11 +115,25 @@ call (`Slice(T)` / `Option(Slice(T)).Some`) is reached with the element forall
 for compile-time." TS never executes the body here, so it never reaches that
 constructor with an unbound `T`.
 
-**The real fix is the call-execution gate**: a runtime-return (non-comptime-only)
-call with an unknown/runtime receiver must yield `UnknownVal(return_type)` WITHOUT
-executing its body at def-time validation — matching TS. This is a central, broad
-change that likely also removes many other def-time-swallowed "Failed to call for
-compile-time" errors. The yo-self unknown-arg gate (comptime_fn.yo:550) is a
-partial compensation but only fires once inside the (wrongly-executed) body.
-Once the gate is faithful, the slice return-check (implemented, std-clean) lands
-and closes slice_flowability.
+**Layer 1 — FIXED (commit a4977828).** The throw came from the operator-dispatch
+path (function.yo) routing a comptime-returning operator method (`!=`, `<` inside
+`as_slice`'s bounds/null checks) through `evaluate_comptime_fn_call` even when an
+operand was a runtime unknown. Added an `op_operands_concrete` guard: only fold at
+comptime when every operand is present and not `UnknownVal`; otherwise yield
+`UnknownVal(resolved_ret)` directly (the behavior the surrounding comment already
+promised). Now `list.as_slice()` evaluates at def-time without a swallowed throw.
+Validated zero-regression (std 151/151, yo-self 228/228, tests 172/182).
+
+**Layer 2 — REMAINING.** With layer 1, the slice return-check is reached and
+`flow_out` is populated (no swallow), but `is_flowable_expr` still returns false
+for the evaluated `list.as_slice()`. The failing point is R3 in flowability.yo:
+`callee_ty_opt := _info(ctx, call_func)` resolves to `.None` for the method-callee
+sub-expr `list.as_slice` (its ExprInfo carries no Func type), so R3 returns false
+at flowability.yo:307 before it can confirm the receiver `list` (a `ref` param) is
+flowable. Fix: ensure method-call evaluation records the resolved Func type in the
+callee sub-expr's ExprInfo (TS sets `call.func.$.value`/`.$.type` — flowability.yo's
+header comment assumes yo-self does too; for this method path it does not), or have
+R3 resolve the method's Func type from the receiver type + method name when the
+callee ExprInfo is absent. The slice return-check itself is implemented and
+std-clean — once layer 2 lands it closes slice_flowability. The slice check is
+reverted until then (it would false-reject the positive `borrow_list_slice`).
