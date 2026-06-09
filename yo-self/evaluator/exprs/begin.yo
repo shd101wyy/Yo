@@ -54,6 +54,10 @@ open(import("std/string"));
 { is_some_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ is_flowable_expr, flow_options_default, FlowOptions }
+:: import("../../types/flowability.yo");
+{ type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
@@ -342,6 +346,66 @@ evaluate_begin_expression :: (
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg)),
             .Some(ri) => ri.env,
             .None => env
+          );
+          // Defense-in-depth flowability on the return ARGUMENT (begin.ts:
+          // 1243-1282). The function-body-level `is_flowable_expr` walk
+          // vacuously accepts `return(...)` (the return wrapper sets a
+          // control-flow flag → true), so the returned expression must be
+          // re-checked here for `-> ref(T)` returns and for value returns whose
+          // representation carries a raw pointer (Slice/str/struct-wrapping).
+          match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .Some(rfb_ctx) => match(
+              rfb_ctx.kind,
+              .FunctionBody => match(
+                rfb_ctx.func_type,
+                .Some(rft) => match(
+                  rft,
+                  .Func({ result : rfb, result_is_ref : rfr, result_is_comptime_only : rfco }) => {
+                    if(rfr, {
+                      if(!(is_flowable_expr(evaluated_ret_arg, ctx, flow_options_default())), {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              ast_expr_token(ret_arg),
+                              `'return(...)' from a function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
+                              false,
+                              .None
+                            )
+                          )
+                        );
+                      });
+                    }, {
+                      if((!(rfco) && type_representation_contains_raw_ptr(rfb.*))
+                      && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone()))), {
+                        ret_slice_opts := FlowOptions(
+                          allow_same_frame_local : false,
+                          allow_parameter_source : true,
+                          allow_comptime_source : true,
+                          max_local_frame_level : Option(usize).None
+                        );
+                        if(!(is_flowable_expr(evaluated_ret_arg, ctx, ret_slice_opts)), {
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(ret_arg),
+                                `'return(...)' from a function returning '${type_to_string(rfb.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
+                        });
+                      });
+                    });
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              ),
+              _ => ()
+            ),
+            .None => ()
           );
           out := new_expr_info(env, ret_info.ty);
           out.value = ret_info.value;
