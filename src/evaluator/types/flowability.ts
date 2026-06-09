@@ -50,7 +50,7 @@ import {
   typeMayProvideSliceSource,
   typeRepresentationContainsRawPtr,
 } from "../../types/utils";
-import { isFunctionValue } from "../../value";
+import { isFunctionValue, isTypeValue } from "../../value";
 import { getVariablesFromEnv } from "../../env";
 
 /**
@@ -215,6 +215,12 @@ export function isFlowableExpr(
   //     other shapes never appear in a return-position projection
   //     chain, so we ignore them here.
   if (exprIsFunctionCallOf(call, ".", 2)) {
+    // A `.`/2 whose receiver evaluates to a TYPE is a no-argument qualified
+    // variant constructor (`Option(str).None`), NOT a field projection. It
+    // carries no smuggled pointer, so it is flowable. Only a value receiver is
+    // a real field projection (`value.field`), flowable iff the base is.
+    const r2RecvValue = call.args[0]?.$?.value;
+    if (r2RecvValue && isTypeValue(r2RecvValue)) return true;
     return isFlowableExpr(call.args[0]!, options);
   }
 
@@ -280,10 +286,26 @@ export function isFlowableExpr(
   // argument whose own representation carries a raw pointer is flowable.
   // Tag-only and numeric args can't smuggle a dangling reference, so they
   // don't constrain flowability.
+  // The QUALIFIED form `Enum.Variant(args...)` parses as a call whose `call.func`
+  // is a `.`/2 access (`Option(str).Some`) — NOT the `.`/1 selector above. Its
+  // receiver (args[0]) evaluates to a TYPE value. The selector node carries no
+  // resolved constructor FunctionType, so the R3 path below cannot resolve the
+  // callee and would wrongly reject (e.g. `cond(... => Option(str).Some("a"))`
+  // returning a static-string Option). Treat it as a constructor: flowable iff
+  // every raw-pointer-carrying argument is flowable — the same rule as the
+  // shorthand `.Variant(args)` form.
+  const isQualifiedVariantCtor =
+    exprIsFunctionCall(call.func) &&
+    exprIsFunctionCallOf(call.func as FnCallExpr, ".", 2) &&
+    (() => {
+      const recvValue = (call.func as FnCallExpr).args[0]?.$?.value;
+      return !!recvValue && isTypeValue(recvValue);
+    })();
   const isVariantCtor =
     (exprIsFunctionCall(call.func) &&
       exprIsFunctionCallOf(call.func as FnCallExpr, ".", 1)) ||
-    (exprIsAtom(call.func) && call.func.token.type === TokenType.Dot);
+    (exprIsAtom(call.func) && call.func.token.type === TokenType.Dot) ||
+    isQualifiedVariantCtor;
   if (isVariantCtor) {
     for (const a of call.args) {
       const aType = a.$?.type;
