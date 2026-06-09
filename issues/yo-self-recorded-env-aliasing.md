@@ -71,3 +71,50 @@ retroactively mutate the env captured by already-evaluated sub-expressions).
 - NOT yet fixed: the fix is a central env-model change; deferred to a focused effort
   with std/yo-self/tests sweeps after each step (cf. the 151→15 regression a
   careless central ExprInfo change caused earlier this work).
+
+---
+
+## 2026-06-10 — IMPORTANT side-effect: env snapshot breaks cond/match arm frame-level check (likely root of flowability-gate false-positives)
+
+The `new_expr_info` env-snapshot fix (this issue's fix, `f6fa7132`) has a
+cross-cutting side-effect on cond/match arms, discovered while chasing
+slice_flowability's `assign_escape_slice`:
+
+- match.yo / cond.yo evaluate each arm body with a per-arm `env.push_frame(...)`
+  (e.g. match.yo:252,527), then `pop_frame()` after.
+- POST-snapshot, the arm body's recorded `info.env` is a snapshot taken DURING
+  the arm eval → it includes that per-arm frame (frames.len = outer + 1).
+- `merge_and_check_envs` (utils.yo:658, faithful port of TS `mergeAndCheckEnvs`)
+  sets `max_frame_level = env.frames.len()-1` from the OUTER env (arm frames
+  popped) and throws **"Frame level is different for different cases"** when
+  `case_env.frames.len()-1 != max_frame_level` — now true for EVERY arm (uniform
+  +1 offset).
+- PRE-snapshot, all arm `info.env`s ALIASED the live env, which at check time had
+  the arm frames popped → frames.len = outer → the check passed. The aliasing
+  masked the offset.
+- TS passes the same check because TS's arm-body `.$.env` sits at the OUTER frame
+  level (TS binds the arm pattern var without leaving an extra frame in `.$.env`).
+
+**This throw is SWALLOWED at def-time** (so `check ./std|tests|yo-self` stayed
+green — 151/172/228), but it ABORTS the body eval of any fn whose body contains a
+cond/match, BEFORE later statements run. Consequences observed:
+- `assign_escape_slice`: the inner `match(inner.as_slice(), .Some(sl)=>sl, .None=>seed)`
+  throws here → body aborts before `cur = inner_slice` → the assignment slice gate
+  never fires → not rejected.
+- **Likely the asm.yo / slice_flowability flowability-gate FALSE-POSITIVES too**:
+  a cond body (reg_to_constraint, mod-letter) hits this → swallowed → empty
+  `flow_out` → the return-position slice gate falls back to the raw body (no
+  ExprInfo) → `is_flowable_expr` can't resolve params/locals → false reject.
+  i.e. the symptoms being chased in `flowability.yo` may be DOWNSTREAM of this
+  env-snapshot side-effect, not flowability-logic bugs.
+
+**Faithful fix direction:** align yo-self's cond/match arm frame model with TS so
+arm-body recorded envs sit at the outer frame level (TS doesn't leave a per-arm
+frame in `.$.env`) — OR make the snapshot/`merge_and_check_envs` baseline
+consistent (compute `max_frame_level` from the case envs, which are uniformly
++1). The arm-local binding (`sl`) must remain visible in the recorded env for
+flowability R1, so the fix can't simply pop before recording. Validate with full
+std/yo-self/tests sweeps. CAUTION: this is a hot path (every cond/match) — a
+careless change risks broad regression. Coordinate with the in-flight
+`flowability.yo` qualified-variant-ctor work, since this is likely the shared
+root cause.
