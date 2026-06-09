@@ -129,29 +129,38 @@ Validated zero-regression (std 151/151, yo-self 228/228, tests 172/182).
 METHOD call rooted in a `ref` param — `(fn(ref(list) : ArrayList(i32)) -> ref(i32))(list.project(usize(0)))`
 (`ArrayList.project` is `fn(ref(self), pos) -> ref(T)`) — is accepted by TS but
 WRONGLY REJECTED by yo-self. So this is a pre-existing R3 bug, not slice-specific;
-ref_flowability never exercised a ref-returning _method_ call (only direct calls +
+ref*flowability never exercised a ref-returning \_method* call (only direct calls +
 field access), so it went unnoticed.
 
-- **2a. R3 method-callee type.** Instrumentation confirms R3 bails at
-  flowability.yo with `callee_ty_opt = None`: the method-callee sub-expr
-  `list.project` has no ExprInfo carrying its Func type. TS reads
-  `call.func.$.type`; yo-self never records it for the `.`/2 callee node.
-  ⚠️ DO NOT fix by writing the method Func type into the callee node's ExprInfo
-  (`expr_info_table_set(ast_expr_id(<func slot>), method_ty)`): that node's
-  ExprInfo means something else in yo-self (property/field-access info), and
-  overwriting it REGRESSED check ./std from 151 → 15 (136 files). The faithful
-  fix is a NON-destructive side-table: record `call-expr-id → resolved method
-Func type` during method dispatch (function.yo, where `method_info.method_ty`
-  is known) and have R3 read it for method calls, instead of `_info(call_func)`.
+- **2a. R3 method-callee type — FIXED (commit 308c854d).** R3 bailed at
+  flowability.yo with `callee_ty_opt = None`: the `.`/2 method-callee sub-expr
+  has no Func-typed ExprInfo. TS reads `call.func.$.type`. ⚠️ Writing the method
+  Func type INTO the callee node's ExprInfo regressed check ./std 151 → 15 (136
+  files) — that node's ExprInfo means property/field-access info. Fixed with a
+  NON-destructive side-table (expr*info.yo `record*/lookup_method_callee_type`,
+`ExprId → method Func type`), recorded at method RESOLUTION in function.yo
+(before the call is processed, since it may throw at def-time) and read by R3
+as a fallback. Validated zero-regression (std 151, yo-self 228, tests 172);
+a ref-returning method call rooted in a `ref` param now type-checks flowable.
 
-- **2b. Reflection comptime gap (behind 2a).** Even with the method type
-  resolved, evaluating `list.project(...)`'s instantiation at def-time hits a
-  separate gap: `Type.get_enum_variants` / `Type.get_struct_fields` raise
-  `comptime_assert(info.is_enum(), …)` with "Variable \"info\" not found" /
-  "Expected bool value for comptime_assert, got (info.is_enum)()" — the
-  reflection builtins are evaluated with `info` unbound. This is an independent
-  comptime-reflection porting gap that must also be closed before
-  `slice_flowability` (and ref-returning-method-call ref returns) pass.
+- **2b. Reflection comptime gap — WAS AN ARTIFACT.** The
+  `Type.get_enum_variants`/`get_struct_fields` "info not found" `comptime_assert`
+  error appeared only WITH the destructive 2a attempt (the 151→15 breakage). It
+  does NOT occur with the clean side-table — `list.project(...)` resolves and
+  evaluates fine. No independent reflection gap here.
 
-The slice return-check itself is implemented and std-clean (layer-1 commit); it
-stays reverted until 2a + 2b land (it would false-reject `borrow_list_slice`).
+- **2c. Remaining positive-case eval gaps (the actual slice_flowability blocker).**
+  With 2a fixed + the slice return-check re-applied, slice_flowability advances
+  PAST `borrow_list_slice` (now accepted) but then false-rejects another POSITIVE:
+  `comptime_str :: (fn() -> str)({ s :: "world"; s })` — body `begin(s :: "world", s)`.
+  Its def-time eval is swallowed (empty `flow_out` → fallback to the raw body →
+  the raw `s` atom has no ExprInfo → R1 can't resolve it → reject). R1''' (a
+  comptime-bound name under `allow_comptime_source`) IS present (flowability.yo),
+  so this is again a body-eval-swallow gap, not a flowability-logic gap — likely a
+  `comptime_string → str` coercion at return (`"world"` is `comptime_string`, the
+  return slot is `str`). Each remaining slice positive (`forward_slice`, `greet`,
+  `slice_len`, the `SliceWrapper` struct-field cases) may hit its own such gap.
+
+The slice return-check itself is implemented and std-clean; it stays reverted
+until the 2c positive-case eval gaps are closed (else it false-rejects valid
+`str`/slice-returning functions whose bodies are swallowed at def-time).
