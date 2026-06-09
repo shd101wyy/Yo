@@ -43,7 +43,7 @@ open(import("std/string"));
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
-{ EvalValue, type_of_eval_value, is_type_val } :: import("../../value.yo");
+{ EvalValue, type_of_eval_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 {
   EvalContext,
@@ -769,7 +769,40 @@ evaluate_function_call :: (
       };
       op_eff_m := match(op_comptime_m,.Some(m) => m,.None => first_m);
       op_is_comptime := match(op_eff_m.ty,.Func({ result_is_comptime_only : _orico }) => _orico, _ => false);
-      (op_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(resolved_ret) || op_is_comptime, {
+      // Only FOLD the operator at comptime when EVERY operand is a concrete
+      // value (present and not an `UnknownVal`). With a runtime-unknown operand
+      // (e.g. `idx < len` inside a runtime-return method body being evaluated at
+      // definition time, where the receiver is unknown), folding is impossible:
+      // `evaluate_comptime_fn_call`'s arg-collect step would throw "Failed to
+      // call the function for compile-time" on the `.None`/unknown operand. The
+      // surrounding comment promises "return unknown when [operands] not
+      // concrete — safe for runtime operands"; this gate realises that promise
+      // by yielding an `UnknownVal(resolved_ret)` directly instead of routing.
+      op_operands_concrete := {
+        (all_conc : bool) = true;
+        (oac_i : usize) = usize(0);
+        oac_n := call_result_op.arg_values.args.len();
+        while((oac_i < oac_n) && all_conc, {
+          match(
+            call_result_op.arg_values.args.get(oac_i),
+            .Some(ae) => match(
+              ae.value,
+              .Some(v) => if(is_unknown_val(v), {
+                all_conc = false;
+              }),
+              .None => {
+                all_conc = false;
+              }
+            ),
+            .None => {
+              all_conc = false;
+            }
+          );
+          oac_i = (oac_i + usize(1));
+        });
+        all_conc
+      };
+      (op_result_val : Option(EvalValue)) = if((is_type_hierarchy_type(resolved_ret) || op_is_comptime) && op_operands_concrete, {
         op_fv := match(op_eff_m.value,.Some(v) => v,.None => EvalValue.UnitVal);
         op_env := Environment.new(call_result_op.callee_env.module_path);
         match(
