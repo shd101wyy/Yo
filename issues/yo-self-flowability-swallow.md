@@ -102,11 +102,24 @@ typed result via the type-checking path. The throw is swallowed → empty
 `is_flowable_expr` can't resolve the callee Func type → false reject. So the
 slice check turns a previously-swallowed routing error into a false rejection.
 
-**The real fix is the comptime-vs-runtime call-routing gate** (function.yo):
-route a runtime (non-comptime-only) call whose args contain runtime-unknowns to
-the type-checking path that yields an unknown result, instead of
-`evaluate_comptime_fn_call`. This is a central, broad change (it likely also
-removes many other def-time-swallowed "Failed to call for compile-time" errors).
-The yo-self-only unknown-arg gate (comptime_fn.yo:550, returns `UnknownVal` for
-`.Some(UnknownVal)` args) is a partial compensation but misses `.None` args. Once
-routing is faithful, the slice check lands and closes slice_flowability.
+**Refined root cause:** the throw is not from routing `list.as_slice()` itself
+(its args aren't types and its return isn't a `Type`, so the function.yo:1921
+gate does NOT send it to comptime). It comes from yo-self INLINE-EXECUTING
+`as_slice`'s BODY at def-time with the unknown receiver — instead of yielding an
+unknown result for a runtime-return call (cf. the helper.ts:1731 "don't execute
+runtime-return fn bodies" rule, partially ported per
+[[yo-self-phase3-knot-real-root]]). Inside that executed body, a type-constructor
+call (`Slice(T)` / `Option(Slice(T)).Some`) is reached with the element forall
+`T` unbound → its forall arg value is `.None` → the comptime-fn collect step
+(comptime_fn.yo:467-505, which DOES include forall args) throws "Failed to call
+for compile-time." TS never executes the body here, so it never reaches that
+constructor with an unbound `T`.
+
+**The real fix is the call-execution gate**: a runtime-return (non-comptime-only)
+call with an unknown/runtime receiver must yield `UnknownVal(return_type)` WITHOUT
+executing its body at def-time validation — matching TS. This is a central, broad
+change that likely also removes many other def-time-swallowed "Failed to call for
+compile-time" errors. The yo-self unknown-arg gate (comptime_fn.yo:550) is a
+partial compensation but only fires once inside the (wrongly-executed) body.
+Once the gate is faithful, the slice return-check (implemented, std-clean) lands
+and closes slice_flowability.
