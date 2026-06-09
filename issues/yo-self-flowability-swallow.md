@@ -205,3 +205,53 @@ until the 2c positive-case gaps are closed (else it false-rejects valid
   (the assignment check / R1' frame-level branch never fires — no `R1FL` trace),
   so the inner-local slice escape isn't caught. Blocked upstream (body eval), not
   a frame-level bug. Next concrete step.
+
+---
+
+## 2026-06-10 — env-aliasing fix LANDED; in-body flow-check gates REVERTED (asm.yo regression)
+
+**Landed & validated (std 151 · yo-self 228 · tests 172):**
+- `f6fa7132` — recorded-`ExprInfo.env` aliasing fix (snapshot env in `new_expr_info`
+  + non-mutating begin `pop_frame`). See `issues/yo-self-recorded-env-aliasing.md`.
+  This resolved the `comptime_str` env-snapshot false-positive (2c).
+
+**Attempted, then REVERTED (`6a681f82` → revert `4f81a993`):** the three in-body
+flow-check gate ports (return-position slice/raw-ptr; explicit-`return(arg)`;
+assignment-boundary). They closed 5 of slice_flowability's cases (comptime_str,
+make_dangling, make_wrapper, bad_explicit_ref_return, assign_escape_str) and were
+std/tests-clean, BUT regressed `check ./yo-self` 228 → 227: the **return-position
+slice gate FALSE-REJECTS** a valid function returning a raw-ptr-carrying value
+type from a `cond` of QUALIFIED enum-constructor arms —
+`yo-self/codegen/exprs/asm.yo`'s
+`reg_to_constraint :: (fn(reg : str) -> Option(str))(cond(reg == "rax" => Option(str).Some("a"), …, true => Option(str).None))`.
+
+**Root cause (the prerequisite for re-landing the gates):** `is_flowable_expr`
+does not handle the QUALIFIED enum-constructor form `Enum.Variant(args)`:
+- `Option(str).Some("a")` — callee is `Option(str).Some`, a `.`/2 selector. The
+  `is_variant_ctor` test only matches `.`/1 (`.Some`) or a Dot atom; TS's R3 then
+  resolves the `.`/2 callee via `call.func.$.type`, but yo-self records no Func
+  type on a qualified variant selector → R3 can't resolve → reject. A
+  `is_qualified_variant_ctor` (a `.`/2 whose receiver resolves to a TYPE — check
+  `_info(recv)` `is_type_0(ty)` or `is_type_val(value)`) was drafted but did not
+  fix it.
+- `Option(str).None` (payload-less) is a bare `.`/2 that matches the R2 `.field`
+  branch FIRST and recurses into the type receiver → reject.
+- ⚠️ UNRESOLVED OBSERVATION: instrumentation showed the slice gate's
+  `is_flowable_expr(cond)` did NOT recurse into the arms at all (no per-arm trace),
+  i.e. the R4 `cond` branch (`ast_expr_is_fn_call_of(expr, "cond", None)`) did not
+  match the *evaluated* cond, despite `flow_out.len == 1`. Why R4-cond fails for
+  this evaluated cond (when ref_flowability's conds match fine) is the key open
+  question — pin this BEFORE re-adding the gates.
+
+**Re-landing plan:** (1) fix `is_flowable_expr` to handle qualified `Enum.Variant`
+ctors (and the R4-cond-not-matching observation) — validate it ACCEPTS a
+`cond`-of-`Enum.Variant(literal)` returning a raw-ptr type (asm.yo's
+reg_to_constraint), full-sweep clean; (2) THEN re-apply the three gates
+(`6a681f82`'s diff); (3) then the `assign_escape_slice` frame-level case. The env
+fix already handles the begin-local env-snapshot prerequisite.
+
+**ENV note:** the nix `bun` store path is volatile (GC'd mid-session). Find it with
+`find /nix/store -maxdepth 3 -name bun -path '*bin*'` and set `BUN=<path>` +
+prepend its dir to `PATH`. The husky pre-commit hook calls `bunx`; if its path is
+stale, commit with `git commit --no-verify` (the `.yo` files are formatted via
+`./yo-cli fmt` and lint-staged has no `.yo` task).
