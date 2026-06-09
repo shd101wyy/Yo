@@ -3576,7 +3576,12 @@ evaluate_function_type :: (
     is_return_type_ref,
     // has_variadic — mirrors TS `FunctionType.variadicParameter` presence,
     // set from the trailing `...` marker (C-style variadic externs).
-    params_result.has_variadic
+    params_result.has_variadic,
+    // is_extern / extern_name — None here; a bare `fn(...)` type carries no
+    // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
+    // type with `Some(language)`/`Some(label)` (mirrors extern.ts:138-161).
+    Option(String).None,
+    Option(String).None
   );
   // Set expr info on the expr
   out_info := new_expr_info(env_mut, type_of_type(func_type));

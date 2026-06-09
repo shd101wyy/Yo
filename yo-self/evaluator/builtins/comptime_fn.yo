@@ -375,7 +375,10 @@ evaluate_comptime_fn :: (
     false,
     // result_is_ref
     // has_variadic — preserve the original's flag.
-    match(func_type,.Func({ has_variadic : hv }) => hv, _ => false)
+    match(func_type,.Func({ has_variadic : hv }) => hv, _ => false),
+    // is_extern / extern_name — preserve the original's FFI metadata.
+    match(func_type,.Func({ is_extern : ie }) => ie, _ => Option(String).None),
+    match(func_type,.Func({ extern_name : en }) => en, _ => Option(String).None)
   );
   // Extract body_box and captures from the FuncVal.
   body_box := match(arg_val,.FuncVal(_, _, _, _, bb, _, _, _, _) => bb, _ => box(make_err_expr()));

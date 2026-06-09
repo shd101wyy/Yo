@@ -118,7 +118,25 @@ TypeValue :: enum(
     /// optional type annotation is not yet carried). The call-site
     /// argument-count check is skipped when set (TS helper.ts:965
     /// `if (!functionType.variadicParameter)`).
-    has_variadic : bool
+    has_variadic : bool,
+    /// FFI language tag when this function was declared inside an
+    /// `extern "c"`/`extern "yo"` block or a `c_include(...)` (mirrors
+    /// `FunctionType.isExtern: ExternLanguage` in `src/types/definitions.ts`).
+    /// `Some("c")`/`Some("yo")` for FFI symbols, `None` for ordinary Yo
+    /// functions. Set by `evaluate_extern`/`evaluate_c_include` on the field
+    /// type (mirrors `extern.ts:138-161`). Read by the extern-call
+    /// `unsafe(...)` gate in `calls/function.yo` (plans/EXTERN_UNSAFE_WRAP.md):
+    /// a call to an `is_extern == Some("c")` function outside `unsafe(...)`
+    /// and outside an auto-generated expansion is rejected. (The original
+    /// port dropped this as "codegen-only" — wrong: the gate lives in the
+    /// evaluator call path, not codegen.)
+    is_extern : Option(String),
+    /// The FFI symbol name to bind, when known (mirrors
+    /// `FunctionType.externName`). `Some(field.label)` for extern function
+    /// declarations, `None` otherwise. Used only for the gate's diagnostic
+    /// message (the call-site falls back to the printed callee expression
+    /// when this is `None`).
+    extern_name : Option(String)
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition (mirrors `StructType.id`

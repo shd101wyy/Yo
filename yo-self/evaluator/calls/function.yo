@@ -18,12 +18,14 @@ open(import("std/string"));
   AstExpr,
   ast_expr_token,
   ast_expr_id,
+  ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
   alloc_global_expr_id,
   ast_expr_is_fn_call_of,
   BF_DOT
 } :: import("../../expr.yo");
+{ is_auto_generated_expansion } :: import("../memory_safety.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -912,6 +914,55 @@ evaluate_function_call :: (
     .Some(ci) => ci.env,
     .None => env
   );
+  // plans/EXTERN_UNSAFE_WRAP.md Phase A — extern "c" call-site gate.
+  //
+  // A call to a function declared `extern "c"` (via `extern(...)` or
+  // `c_include(...)`) must be wrapped in `unsafe(...)` at the call site,
+  // even in files declaring `pragma(Pragma.AllowUnsafe);`. The pragma
+  // authorizes DECLARING the FFI symbol; this gate is the per-call audit
+  // marker so a UB-capable line can be pinpointed. Mirrors
+  // `src/evaluator/calls/function.ts:1786-1832`.
+  //
+  // Exemptions: the call is lexically inside an `unsafe(...)` wrapper
+  // (`ctx.unsafe_context`, set by `evaluate_unsafe`), or the call lives in
+  // an auto-generated (macro/derive) expansion, which inherits privilege
+  // from its user-facing trigger site.
+  //
+  // The callee's TYPE carries the FFI marker (extern symbols bind as an
+  // `UnknownVal` of the extern `Func` type, not a `FuncVal`), so the gate
+  // reads `callee_info_opt.ty`, not the value. The migration-helper dump
+  // mode (TS Phase C, `YO_EXTERN_WRAP_DUMP_FILE`) is intentionally omitted
+  // — it is a one-time TS-side migration aid, not part of the gate.
+  callee_ty_for_gate := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
+  gate_is_extern_c := match(
+    callee_ty_for_gate,
+    .Func({ is_extern : ie }) => match(ie,.Some(lang) => (lang.as_str() == "c"),.None => false),
+    _ => false
+  );
+  gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
+  if((gate_is_extern_c && !(ctx.unsafe_context)) && !(gate_in_autogen), {
+    callee_name := match(
+      callee_ty_for_gate,
+      .Func({ extern_name : en }) => match(en,.Some(n) => n,.None => ast_expr_to_string(func_expr)),
+      _ => ast_expr_to_string(func_expr)
+    );
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `Call to extern "c" function '${callee_name}' must be wrapped in 'unsafe(...)' to mark the call site as audit-capable.
+
+C functions are outside Yo's type-checking reach — wrong argument types, contract violations, or aliasing assumptions produce undefined behavior. Wrapping each call site lets 'yo unsafe-report' flag exactly where the UB-capable operations live, instead of just noting that the whole file is privileged.
+
+Fix: wrap the call:
+
+  unsafe(${ast_expr_to_string(expr)})`,
+          false,
+          .None
+        )
+      )
+    );
+  });
   match(
     callee_value,
     // ------------------------------------------------------------------

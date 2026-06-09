@@ -3,10 +3,12 @@
 //! 1:1 port of `src/evaluator/exprs/extern.ts` (201 lines).
 //!
 //! Phase 2av: fully ported — calls `evaluate_module_field` and adds fields to
-//! the environment.  The `is_extern`, `externName`, and `ioBuiltin` metadata
-//! mutations from TypeScript are intentionally skipped: yo-self's `TypeValue`
-//! enum has no such fields, and that metadata is only needed by codegen (which
-//! yo-self does not perform).
+//! the environment.  The `is_extern`/`externName` markers ARE ported (onto the
+//! `Func` variant): the extern-call `unsafe(...)` gate in `calls/function.yo`
+//! reads them to require FFI call sites be wrapped in `unsafe(...)`
+//! (plans/EXTERN_UNSAFE_WRAP.md). The earlier port dropped them as
+//! "codegen-only" — wrong, the gate lives in the evaluator. Only `ioBuiltin`
+//! (a pure codegen concern) stays skipped.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 {
@@ -154,7 +156,8 @@ User code should normally call stdlib wrappers (e.g. functions in
     });
     field_start = usize(1);
   });
-  _ := language; // used for metadata (skipped in yo-self; codegen-only)
+  // `language` is stamped onto each function field type below (is_extern),
+  // so the extern-call `unsafe(...)` gate can identify FFI call sites.
   // Iterate over the field declarations.
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
@@ -194,25 +197,65 @@ User code should normally call stdlib wrappers (e.g. functions in
         )
       );
     });
+    // Stamp the FFI language tag + symbol name onto function field types so
+    // the extern-call `unsafe(...)` gate (calls/function.yo) can identify
+    // calls to this symbol. Mirrors `extern.ts:138-161` (the
+    // `isFunctionType(field.type)` branch sets both `isExtern` and
+    // `externName`). Non-`Func` field types (e.g. `__yo_argc : i32`) carry no
+    // `is_extern` slot in yo-self's `TypeValue` and are never called, so the
+    // gate does not need them. `ioBuiltin` is codegen-only and stays skipped.
+    field_ty_with_extern := match(
+      result.field_type,
+      .Func({
+        forall_labels : fls,
+        forall_types : fts,
+        param_labels : pls,
+        param_types : pts,
+        implicit_labels : ils,
+        implicit_types : its,
+        implicit_spreads : isp,
+        where_types : wts,
+        result : ret,
+        result_is_comptime_only : rico,
+        param_is_ref : pir,
+        result_is_ref : rir,
+        has_variadic : hv
+      }) => TypeValue.Func(
+        fls,
+        fts,
+        pls,
+        pts,
+        ils,
+        its,
+        isp,
+        wts,
+        ret,
+        rico,
+        pir,
+        rir,
+        hv,
+        Option(String).Some(language.clone()),
+        Option(String).Some(String.from(result.label.as_str()))
+      ),
+      _ => result.field_type
+    );
     field_labels.push(String.from(result.label.as_str()));
-    field_types.push(result.field_type);
+    field_types.push(field_ty_with_extern);
     env.frames = result.env.frames;
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
     env.input_string = result.env.input_string;
-    // NOTE: TypeScript sets is_extern/language and externName on the type here,
-    // plus ioBuiltin for __yo_io_async etc.  yo-self skips these — codegen-only.
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
       env,
       String.from(result.label.as_str()),
-      result.field_type,
-      Option(EvalValue).Some(create_unknown_val_with_name(result.field_type, String.from(result.label.as_str()))),
+      field_ty_with_extern,
+      Option(EvalValue).Some(create_unknown_val_with_name(field_ty_with_extern, String.from(result.label.as_str()))),
       true,
       // is_compile_time_only
       false,
       // is_reassignable
-      type_contains_rc_type(result.field_type),
+      type_contains_rc_type(field_ty_with_extern),
       // is_owning_the_rc_value
       false,
       // is_implicit
