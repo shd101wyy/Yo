@@ -44,7 +44,7 @@ open(import("std/fmt"));
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
-{ Environment, Variable, Frame } :: import("./env.yo");
+{ Environment, Variable, Frame, snapshot_env } :: import("./env.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 // ---------------------------------------------------------------------------
@@ -392,7 +392,12 @@ ExprInfo :: object(
 /// `type`, and `pathCollection` set in TypeScript, then populating other fields as needed.
 new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
   ExprInfo(
-    env : env,
+    // Snapshot the env's frame LIST (shallow — shares Frame refs) so this
+    // recorded env reflects the scope at evaluation time and survives a later
+    // in-place `pop_frame` on the live env (e.g. a begin block popping its
+    // scope frame). Storing the live env by reference let `pop_frame` corrupt
+    // recorded begin-local bindings. See issues/yo-self-recorded-env-aliasing.md.
+    env : snapshot_env(env),
     ty : ty,
     path_collection : ArrayList(ArrayList(String)).new(),
     value : Option(EvalValue).None,
