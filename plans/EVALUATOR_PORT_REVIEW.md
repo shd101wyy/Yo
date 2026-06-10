@@ -1,5 +1,55 @@
 # Evaluator port review — TS `src/evaluator/` → yo-self `yo-self/evaluator/`
 
+## Status summary (2026-06-10)
+
+**The `check`-observable surface is DONE and fully green:** `check ./std`
+151/151 · per-file `check ./tests` **170/170 (zero failures)** · `check
+./yo-self` 285/285. Every test that was red at any point in the port is now
+closed, including the final def-eval-era gates (flowability ×4,
+extern_unsafe_wrap, sync/mutex, algebraic_effects — see
+`BOOTSTRAPPING_EVALUATOR.md`).
+
+**"Fully ported" ≠ "fully green":** the remaining known divergences are
+inventoried below (re-verified 2026-06-10). None is observable under `check`
+today; each either needs a runtime/codegen milestone to be exercisable or is a
+documented re-sync/feature item:
+
+1. `builtins/impl_constraint.yo` — `Concrete(T)` extraction + single-Concrete
+   gate deferred (`is_concrete_trait_type` stub returns false).
+2. `builtins/rc_fns.yo` — `iso_extract` returns `Option(T)`; TS Phase-H
+   returns `T`.
+3. `builtins/type_fns.yo` — `get_info` lacks Function/Trait/Dyn/SomeType
+   variants (SomeType → UnknownValue).
+4. `calls/function.yo` — ModuleT/Call overload dispatch is PARTIAL:
+   `_try_expand_call_overload` (the source-namespace `Call` candidate trial)
+   is landed, but general prelude operator-module dispatch still relies on the
+   literal-negation fold special case (see the in-file comment).
+5. `effects/effect_analysis.yo` (885L) vs current TS (263L) — yo-self carries
+   a richer pre-refactor version (full `has_effect_in_spread_` + transitive
+   detection); needs a re-sync audit against the slimmed TS.
+6. GADT **match-refinement** (match.ts `getGadtRefinedExpectedType` etc.) —
+   construction is ported; refinement lives in fn bodies and is deferred to
+   the codegen-selfhost milestone (the first point it can be exercised).
+7. HKT partial application (`Result(_, i32)`) + TypeApplication substitution
+   resolution — masked by test trial-eval swallowing; codegen-selfhost item.
+8. Where-clause full enforcement beyond marker×concrete —
+   `issues/yo-self-where-clause-full-enforcement.md` (two
+   `type_implements_trait` gaps documented with the widening path).
+9. `values/anonymous_function.yo` header simplifications —
+   substituteSomeTypesFromEnv, await analysis, `checkDeferredGenericReturnType`
+   for deferred generic bodies, body-vs-return compatibility check.
+10. Comptime arithmetic **value folding** Tier 2 —
+    `plans/COMPTIME_ARITHMETIC_FOLDING.md`.
+11. Documented module-organization deferrals: `ctfe/ctfe_analysis.yo` (logic
+    inline in comptime_fn/function), `exprs/_expr.yo` `&+`/`&-`/`&/`
+    ptr-arith gate (no dispatch branch to attach to), `asm.yo` stub.
+
+Verdict: **the evaluator port is complete for the bootstrap's purpose**
+(type-checking the full corpus identically to TS at module/def level). The
+items above are the tail to burn down opportunistically — several only become
+testable once the self-hosted compiler can run codegen + execute fn bodies,
+which is exactly the next phase (`BOOTSTRAPPING_CODEGEN.md`).
+
 ## Purpose
 
 A systematic, file-by-file audit that every TypeScript evaluator module was
@@ -88,7 +138,11 @@ gap is deferred on a larger feature (see note)
   `Map<string,Set>` → `ArrayList(PragmaEntry)`. One omission: `recordExternCallSite`
   (a `YO_EXTERN_WRAP_DUMP_FILE` migration tool needing a process-exit hook) —
   documented, not eval-correctness.
-- ⬜ `trait-checking.ts` → `evaluator/trait_checking.yo`
+- 🔧 `trait-checking.ts` → `evaluator/trait_checking.yo` — step-0
+  negative-impl gate (dc1c5c59); Send/Acyclic/Comptime/Runtime builtin fast
+  paths + on-demand marker re-derivation audited earlier; SomeT ids now
+  participate in the step-4 registry lookup (a821ed30 — registration/query key
+  mismatch; closed Mutex(i32) <: Send).
 - ⬜ `utils.ts` → `evaluator/utils.yo`
 - ⬜ `utils/closure.ts` → `evaluator/utils/closure.yo`
 
@@ -130,13 +184,14 @@ gap is deferred on a larger feature (see note)
   (`utils.ts:22-59`) as file-local helpers and wired the gate at the start of the
   property/index-LHS branch. Faithful 1:1; reject-case is mostly def-eval-wall-
   blocked (fn-body assignments aren't evaluated by `check`) so 0 aggregate test
-  delta, but the divergence is closed.
-- ⏸️ `exprs/begin.ts` → `exprs/begin.yo` — safe-code-gate audit: the raw-ptr
-  return-flowability gate (`begin.ts:1268`) is UNPORTED but belongs to the
-  slice/ref-flowability cluster (needs `isFlowableExpr` +
-  `typeRepresentationContainsRawPtr` + fn-body eval = the deferred def-eval-wall
-  feature; cf. wall-blocked ref_flowability/slice_flowability tests). Not a
-  standalone gate. (Otherwise unreviewed.)
+  delta, but the divergence is closed. **Also (fb92038d):** assignment-target
+  capture tracking ported (assignment.ts:667 — a write to an outer var is a
+  capture; was the make_writer blocker).
+- 🔧 `exprs/begin.ts` → `exprs/begin.yo` — the explicit-`return(arg)` raw-ptr
+  flowability gate (`begin.ts:1243-1282`) is now PORTED (commit 8c8bc6d8,
+  slice-flowability cluster). Also fixed here earlier: return-arg expected-type
+  threading (begin.ts:1148-1163) and `pop_frame_nonmutating` for the
+  recorded-env aliasing fix (f6fa7132).
 - 🔧 `exprs/binding.ts` → `exprs/binding.yo` — **fixed a structural divergence**:
   `is_valid_variable_name` was defined in BOTH `binding.yo` (live; 11 importers)
   and `evaluator/utils.yo` (TS-faithful; only a test imported it). TS defines
@@ -159,7 +214,11 @@ gap is deferred on a larger feature (see note)
   level, so NOT def-eval-wall-blocked.
 - ⬜ `exprs/identifer-and-operator.ts` → `exprs/identifer_and_operator.yo`
 - ⬜ `exprs/import.ts` → `exprs/import.yo`
-- ⬜ `exprs/initialization-assignment.ts` → `exprs/initialization_assignment.yo`
+- 🔧 `exprs/initialization-assignment.ts` → `exprs/initialization_assignment.yo` —
+  three faithful ports landed 2026-06-10: §4 escape-boundary-2 (module-level
+  control-bound binding rejected, ts:186-210); typeName stamping extended to
+  TraitT (ts:343-367 — fixes nameless-trait diagnostics); `ref(name) := ...`
+  locals stamp `Variable.is_ref` (ts:510).
 - ⬜ `exprs/match.ts` → `exprs/match.yo`
 - ⬜ `exprs/open.ts` → `exprs/open.yo`
 - 🔧 `exprs/property-access.ts` → `exprs/property_access.yo` — **fixed a missing
@@ -174,7 +233,11 @@ gap is deferred on a larger feature (see note)
 - ⬜ `exprs/subtype-of.ts` → `exprs/subtype_of.yo`
 - ⬜ `exprs/test.ts` → `exprs/test.yo`
 - ⬜ `exprs/typeof.ts` → `exprs/typeof.yo`
-- ⬜ `exprs/unwind.ts` → `exprs/unwind.yo`
+- 🔧 `exprs/unwind.ts` → `exprs/unwind.yo` — 0-arg path + arity throw +
+  expected-type threading fixed earlier (6cb21378); the enclosing-function
+  check (ts:26-32) is now ACTIVE for anonymous-fn bodies since the
+  closure-body def-eval wall (fb92038d) — it is what rejects module-level ctl
+  handlers (algebraic_effects rule 8).
 - ⬜ `exprs/while.ts` → `exprs/while.yo`
 
 ### evaluator/calls/
@@ -183,17 +246,35 @@ gap is deferred on a larger feature (see note)
 - ⬜ `calls/closure-type.ts` → `calls/closure_type.yo`
 - ⬜ `calls/comptime-fn.ts` → `calls/comptime_fn.yo`
 - ⬜ `calls/comptime-list-type.ts` → `calls/comptime_list_type.yo`
-- ⏸️ `calls/function-type.ts` → `calls/function_type.yo` — safe-code-gate audit:
-  the raw-ptr return-flowability gate (`function-type.ts:535-560`) is UNPORTED but
-  belongs to the slice/ref-flowability cluster (deferred def-eval-wall feature),
-  not a standalone gate. (Otherwise unreviewed.)
-- ⬜ `calls/function.ts` → `calls/function.yo` ⚠️ operator dispatch (see Known divergences)
-- ⬜ `calls/helper.ts` → `calls/helper.yo`
+- 🔧 `calls/function-type.ts` → `calls/function_type.yo` — the raw-ptr
+  return-flowability gate (`function-type.ts:535-560`) is now PORTED (commit
+  8c8bc6d8, slice-flowability cluster), along with the def-time body-eval
+  machinery this file hosts (`_trial_eval_fn_body`,
+  `create_function_body_evaluation_context`, flow-violation +
+  propagate-def-time-errors re-raise channels). `check_deferred_generic_return_type`
+  remains a no-op stub.
+- 🔧 `calls/function.ts` → `calls/function.yo` — operator-dispatch Tier 1 landed
+  (cf6219f0, `string_is_operator` routing); the extern-"c" call-site
+  `unsafe(...)` gate (function.ts:1786-1832) PORTED (9d2e40c2, with
+  `is_extern`/`extern_name` restored on the `Func` TypeValue);
+  `_try_expand_call_overload` (ModuleT/Call source-namespace candidate trial)
+  landed. REMAINING: general prelude operator-module `Call` dispatch is still
+  partial (literal-negation fold special case; see in-file comment) and
+  comptime VALUE folding Tier 2 (`plans/COMPTIME_ARITHMETIC_FOLDING.md`).
+- 🔧 `calls/helper.ts` → `calls/helper.yo` — call-site where-clause validation
+  ported (7a67b961): `validate_where_constraints_for_call` from the
+  WhereConstraintEntry side table (TS whereClauseExprs mirror), called from
+  BOTH call paths (Step 8b + the inline FuncVal CTFE arm in calls/function.yo).
+  Documented scope: marker traits × fully-concrete types
+  (`issues/yo-self-where-clause-full-enforcement.md`). Earlier Phase-3
+  deferrals (partial application etc.) still apply.
 - ⬜ `calls/index-trait.ts` → `calls/index_trait.yo`
 - ⬜ `calls/iso.ts` → `calls/iso.yo`
 - ⬜ `calls/numeric-type.ts` → `calls/numeric_type.yo`
 - ⬜ `calls/pointer-type.ts` → `calls/pointer_type.yo`
-- ⬜ `calls/pointer.ts` → `calls/pointer.yo`
+- 🔧 `calls/pointer.ts` → `calls/pointer.yo` — §4 rule 11 ported (dfed0e28):
+  `*(T)` with a control-bound pointee rejected, verified byte-identical to the
+  TS error on `*(Raise)`.
 - ⬜ `calls/record-type.ts` → `calls/record_type.yo`
 - ⬜ `calls/trait-type.ts` → `calls/trait_type.yo`
 - ⬜ `calls/type.ts` → `calls/type.yo`
@@ -406,8 +487,21 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     228/228). Flowability scorecard: **2/4 closed** (ref_flowability,
     slice_flowability); ref_local_binding + ref_closure_capture remain
     (ref-capture-escape, closure-body-eval blocked).
+  - **✅ FLOWABILITY CLUSTER COMPLETE — 4/4 (2026-06-10, fb92038d).**
+    ref_local_binding + ref_closure_capture closed by crossing the
+    closure-body def-eval wall (see the `values/anonymous_function.yo` entry):
+    def-time body eval populates the precise capture set, the Phase B
+    ref-capture gate fires, assignment-target writes count as captures
+    (assignment.ts:667 port in exprs/assignment.yo), and `ref(name) := ...`
+    locals stamp `Variable.is_ref` (ts:510 port in initialization_assignment.yo).
+    **Final: tests 170/170, zero failures.**
+    `issues/yo-self-flowability-swallow.md` → `issues/fixed/`.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
-- ⬜ `types/function.ts` → `types/function.yo`
+- 🔧 `types/function.ts` → `types/function.yo` — where-constraint side table
+  added (7a67b961, the TS `whereClauseExprs` stand-in: WhereConstraintEntry
+  collected from constraint-bearing SomeTs at fn-type-eval end, re-keyed to the
+  FuncVal id); `is_control` stamped from the `ctl` param-list head (dfed0e28).
+  requires/ensures + zone-order + HKT-where notes from the sweep still apply.
 - ⬜ `types/future-trait.ts` → `types/future_trait.yo`
 - ⬜ `types/newtype.ts` → `types/newtype.yo`
 - ⬜ `types/object.ts` → `types/object.yo`
@@ -424,10 +518,17 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
 
 ### evaluator/values/
 
-- ⏸️ `values/anonymous-function.ts` → `values/anonymous_function.yo` — safe-code-gate
-  audit: the raw-ptr return-flowability gate (`anonymous-function.ts:954-975`) is
-  UNPORTED but belongs to the slice/ref-flowability cluster (deferred
-  def-eval-wall feature), not a standalone gate. (Otherwise unreviewed.)
+- 🔧 `values/anonymous-function.ts` → `values/anonymous_function.yo` — **the
+  closure-body def-eval wall was crossed here (fb92038d, 2026-06-10)**:
+  definition-time body evaluation for non-generic anonymous fns
+  (`shouldDeferBodyEvaluation` mirror, capture-free trial swallow + 3 surfacing
+  channels), the capture gates (regular-fn-no-capture ts:867; Phase B
+  ref-capture ts:1078; §4 rule-4 ctl-capture ts:1088), and §4 rule 1
+  (unwind-needs-ctl, ts:894). Closed the final 3 tests (algebraic_effects,
+  ref_local_binding, ref_closure_capture) → tests 170/170. Remaining
+  header-documented simplifications: substituteSomeTypesFromEnv, await
+  analysis, checkDeferredGenericReturnType (generic bodies), body-vs-return
+  compatibility, the raw-ptr return-flowability gate (ts:954-975).
 - ⬜ `values/anonymous-module.ts` → `values/anonymous_module.yo`
 - ⬜ `values/anonymous-struct.ts` → `values/anonymous_struct.yo`
 - ⬜ `values/array.ts` → `values/array.yo`
@@ -500,6 +601,11 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
   5 fixed this session (🔧 assignment, binding, c_include, extern, property_access).
 - Pre-flagged earlier: `calls/function.yo` — Tier 1 operator-dispatch landed
   (cf6219f0); `types/flowability.ts` — ported to wrong path, call-sites unwired.
+- **2026-06-10 re-verification:** the tractable backlog is mostly DRAINED —
+  see the re-verified statuses in the backlog section (6 of 9 fixed; #10 #11
+  #14 remain) and the Status summary at the top for the authoritative
+  remaining-divergence inventory. All `check`-observable behavior now matches
+  TS (tests 170/170).
 
 ## Session review log (2026-06)
 
@@ -581,17 +687,36 @@ async/await_analysis, shared/suspension_analysis.
 
 **HKT (higher_kinded_types)** — ✅ **LANDED (commits eaaa4827 producers + b3886f08 where-clause); flips `higher_kinded_types.test.yo` (tests 169→170).** The `TypeAppT` data model + all consumers (compatibility/substitution/synthesizer/env-dispatch) already existed; only the PRODUCERS were missing: (A) kind-annotated forall binding `F : (fn(comptime(T):Type)->comptime(Type))` → `t_some_t_with_kind` (value.ts:598-624); (B) `F(A)` FnCall SomeT-callee with `kind_function_type` → `t_type_app` (function.ts:1248-1328); (C) where-clause `F(A) <: Trait` → `add_where_clause_constraint_for_type_application` + a TypeApp/SomeT/concrete if-else so TypeApp doesn't hit concrete-validate (function.ts:1265-1348). **STILL UNPORTED but masked by test trial-eval swallowing (→ 0 `check` impact):** partial application `Result(_, i32)` (#4, a whole feature) + TypeApplication substitution resolution `identity(forall(Option,i32),x)` (#5, flagged circular-import — belongs in helper.yo). These matter only under full-codegen self-hosting.
 
-6. **`builtins/comptime_numeric_fns.yo`** `checkOverflow` absent → silently clamps instead of
-   throwing on comptime integer overflow; no fn-name validation throw; i64 not bigint. Behavioral. 7. **`builtins/comptime_string_fns.yo`** result type derived from value TAG not value.type →
-   `length(x)`/`eq(...)` on unknown-valued operands get `comptime_string` instead of
-   `comptime_int`/`bool`. Behavioral (wrong static type). 8. **`builtins/macro_expand.yo`** error swallow-vs-rethrow inverted (benign non-expandable errors
-   abort the loop; assertion-error rethrow lost) — uses outer exn handler. 9. **`builtins/panic.yo`** ignores `expectedType` priority + `isRef`→ptr wrapping. 10. **`builtins/impl_constraint.yo`** `Concrete(T)` extraction + single-Concrete gate dropped
-   (relies on `is_concrete_trait_type` stub). **`builtins/type_fns.yo`** `can_form_rc_cycle`
-   stub returns false; `get_info` missing Function/Trait/Dyn/SomeType variants. 11. **`builtins/rc_fns.yo`** `iso_extract` returns `Option(T)` instead of Phase-H `T`. 12. **`types/enum.yo`** GADT enums hard-rejected ("not yet implemented") vs fully implemented in TS. 13. **`types/struct.yo`** atomic-object Send-enforcement gate missing (`type_implements_send` exists,
-   uncalled); **`exprs/open.yo`** has an extra non-TS implicit-var gate + extra ModuleVal branch. 14. **`effects/effect_analysis.yo`** ports a PRE-EXPLICIT*EFFECTS version (`has_effect_in_spread*`+
-full`is*transitive_effect_call*` that current TS stubbed out) — detects transitive effects TS
-   no longer does. Should be re-synced to the gutted current TS.
+**Backlog re-verification (2026-06-10, via review agents — statuses current):**
 
-Most are def-eval-wall-blocked (fn-body gates) so 0 aggregate `check` delta, but each is a real
-faithfulness divergence. Fix order: #1 (mechanical) → #3/#5/#9/#11 (small surgical) → #2/#10/#13
-(careful, hot paths) → #4/#6/#7/#12 (medium features) → #8/#14 (semantics re-sync).
+6. ✅ **`builtins/comptime_numeric_fns.yo`** — FIXED: checkOverflow-equivalent
+   throws on overflow (no clamping); fn-name validation throws on unknown ops.
+7. ✅ **`builtins/comptime_string_fns.yo`** — FIXED (10fff48e): result type
+   from `type_of_eval_value(result_val)`, not the value tag. (Same fix in
+   comptime_bool_fns, a1130681.)
+8. ✅ **`builtins/macro_expand.yo`** — FIXED: benign-error-swallow vs
+   assertion-rethrow distinction ported.
+9. ✅ **`builtins/panic.yo`** — FIXED: `ctx.expected_type` priority +
+   `result_is_ref` → `t_ptr` wrapping present.
+10. ⚠️ **`builtins/impl_constraint.yo`** — STILL OPEN: `Concrete(T)`
+    extraction + single-Concrete gate deferred (`is_concrete_trait_type` stub).
+    **`builtins/type_fns.yo`** — PARTIAL: `can_type_form_rc_cycle` is real
+    (consulted in types/utils.yo:135) but `get_info` still lacks
+    Function/Trait/Dyn/SomeType variants.
+11. ⚠️ **`builtins/rc_fns.yo`** — STILL OPEN: `iso_extract` returns
+    `Option(T)`; TS Phase-H returns `T`.
+12. ✅ **`types/enum.yo`** — FIXED (e2bdcc65): GADT construction fully
+    supported via `gadt_registry`. (Match-REFINEMENT still deferred — fn-body
+    feature, codegen-selfhost milestone.)
+13. ✅ **`types/struct.yo`** — FIXED: atomic-object Send-enforcement present
+    (auto_derive path consults `type_implements_send`; the Mutex(T) chain is
+    exercised by tests/sync/mutex.test.yo). `exprs/open.yo` extras unaudited.
+14. ⚠️ **`effects/effect_analysis.yo`** — STILL OPEN (re-verified): yo-self
+    885L vs current TS 263L; yo-self carries the richer pre-refactor
+    `has_effect_in_spread_`/transitive machinery. Needs a re-sync audit
+    against the slimmed TS (which still calls `isTransitiveEffectCall` but
+    dropped the rest).
+
+Remaining open set: #10, #11, #14 above + the codegen-selfhost-gated items in
+the Status summary (GADT refinement, HKT partial application, where-clause
+widening, anonymous-function header simplifications, comptime folding Tier 2).
