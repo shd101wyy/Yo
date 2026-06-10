@@ -17,6 +17,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
+{ ArrayList } :: import("../collections/array_list.yo");
 { malloc, free } :: GlobalAllocator;
 { memcpy } :: import("../libc/string.yo");
 /// Internal cons cell — atomic object for thread-safe structural sharing.
@@ -197,12 +198,12 @@ impl(
     false
   }),
   /// Build a list from a slice. O(n).
-  from_slice : (fn(s : Slice(T)) -> Self)({
+  from_list : (fn(l : ArrayList(T)) -> Self)({
     (result : Self) = Self.new();
-    (i : usize) = s.len();
+    (i : usize) = l.len();
     while(i > usize(0), {
       i = (i - usize(1));
-      result = result.prepend(s(i));
+      result = result.prepend(match(l.get(i),.Some(__e) => __e,.None => panic("from_list: index out of bounds")));
     });
     result
   })

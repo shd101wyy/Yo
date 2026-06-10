@@ -19,6 +19,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { SortedMap } :: import("./sorted_map.yo");
+{ ArrayList } :: import("../collections/array_list.yo");
 { List } :: import("./list.yo");
 /// Persistent immutable sorted set backed by a left-leaning red-black tree.
 SortedSet :: (fn(comptime(T) : Type, where(T <: (Eq(T), Ord(T), Send))) -> comptime(Type))(
@@ -174,12 +175,12 @@ impl(
     result
   }),
   /// Create a sorted set from a slice of elements.
-  from_slice : (fn(s : Slice(T)) -> Self)({
+  from_list : (fn(l : ArrayList(T)) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
-    slen := s.len();
+    slen := l.len();
     while(i < slen, i = (i + usize(1)), {
-      result = result.insert((s.ptr() &+ i).*);
+      result = result.insert(match(l.get(i),.Some(__e) => __e,.None => panic("from_list: index out of bounds")));
     });
     result
   })

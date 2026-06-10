@@ -19,6 +19,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
+{ ArrayList } :: import("../collections/array_list.yo");
 { malloc, free } :: GlobalAllocator;
 /// Number of bits per HAMT level.
 BITS :: usize(5);
@@ -948,12 +949,12 @@ impl(
     result
   }),
   /// Create a map from a slice of key-value pairs.
-  from_entries : (fn(pairs : Slice(Pair(K, V))) -> Self)({
+  from_entries : (fn(pairs : ArrayList(Pair(K, V))) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();
     while(i < plen, i = (i + usize(1)), {
-      p := (pairs.ptr() &+ i).*;
+      p := match(pairs.get(i),.Some(__e) => __e,.None => panic("from_entries: index out of bounds"));
       result = result.insert(p.key, p.value);
     });
     result
