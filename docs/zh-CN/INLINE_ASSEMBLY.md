@@ -34,7 +34,7 @@ Yo 目前没有发出内联汇编的机制。底层操作（系统调用、SIMD�
 asm(template, operands..., options...)
 ```
 
-- **template** — `comptime_string`：包含 `{name}` 或 `{N}` 占位符的汇编模板
+- **template** — `comptime_str`：包含 `{name}` 或 `{N}` 占位符的汇编模板
 - **operands** — `in(...)`、`out(...)`、`inout(...)`、`lateout(...)`、`inlateout(...)`：带类型的操作数声明
 - **options** — `clobber(...)`、`clobber_abi(...)`、`asm_options(...)`：副作用和优化提示
 
@@ -67,7 +67,7 @@ asm("", clobber("memory"));
 
 ## 3. 模板字符串
 
-模板是一个 **`comptime_string`**（双引号字符串字面量），在编译期进行验证。
+模板是一个 **`comptime_str`**（双引号字符串字面量），在编译期进行验证。
 
 ### 占位符语法
 
@@ -121,7 +121,7 @@ result := asm(
 
 ### 模板字符串规则
 
-1. 模板必须是 `comptime_string` 字面量 — 不支持运行时字符串。
+1. 模板必须是 `comptime_str` 字面量 — 不支持运行时字符串。
 2. 所有占位符必须引用已声明的操作数。
 3. 允许存在未使用的操作数（C 编译器可能会优化它们）。
 4. 支持多行模板（Yo 双引号字符串可包含 `\n`）。
@@ -153,8 +153,8 @@ in(name?, constraint, value)
 
 | 参数         | 类型                         | 描述                              |
 | ------------ | ---------------------------- | --------------------------------- |
-| `name`       | `comptime_string`（可选）    | `{name}` 在模板中引用的操作数名称 |
-| `constraint` | 寄存器类或 `comptime_string` | 值的存放位置                      |
+| `name`       | `comptime_str`（可选）    | `{name}` 在模板中引用的操作数名称 |
+| `constraint` | 寄存器类或 `comptime_str` | 值的存放位置                      |
 | `value`      | 表达式                       | 提供输入的 Yo 表达式              |
 
 ```rust
@@ -178,8 +178,8 @@ out(name?, constraint, Type)
 
 | 参数         | 类型                         | 描述                              |
 | ------------ | ---------------------------- | --------------------------------- |
-| `name`       | `comptime_string`（可选）    | `{name}` 在模板中引用的操作数名称 |
-| `constraint` | 寄存器类或 `comptime_string` | 结果存放位置                      |
+| `name`       | `comptime_str`（可选）    | `{name}` 在模板中引用的操作数名称 |
+| `constraint` | 寄存器类或 `comptime_str` | 结果存放位置                      |
 | `Type`       | 类型                         | 输出值的 Yo 类型                  |
 
 `Type` 是 Yo 类型（而非值）— `asm` 返回此类型。
@@ -253,7 +253,7 @@ const_val(name?, value)
 
 | 参数    | 类型                      | 描述                              |
 | ------- | ------------------------- | --------------------------------- |
-| `name`  | `comptime_string`（可选） | `{name}` 在模板中引用的操作数名称 |
+| `name`  | `comptime_str`（可选） | `{name}` 在模板中引用的操作数名称 |
 | `value` | 编译期表达式              | 必须求值为编译期整数或字符串      |
 
 ```rust
@@ -290,7 +290,7 @@ sym(name?, symbol)
 
 | 参数     | 类型                      | 描述                              |
 | -------- | ------------------------- | --------------------------------- |
-| `name`   | `comptime_string`（可选） | `{name}` 在模板中引用的操作数名称 |
+| `name`   | `comptime_str`（可选） | `{name}` 在模板中引用的操作数名称 |
 | `symbol` | 外部函数或全局变量        | 要引用地址的符号                  |
 
 ```rust
@@ -380,7 +380,7 @@ __asm__ __volatile__ (
 
 ### 5.2. 显式寄存器名
 
-通过将寄存器名作为 `comptime_string` 传入来使用特定寄存器：
+通过将寄存器名作为 `comptime_str` 传入来使用特定寄存器：
 
 ```rust
 // x86_64 特定寄存器
@@ -529,7 +529,7 @@ __builtin_unreachable();  // 告知优化器此处不可达
 
 ### 6.5. 多字符串模板
 
-为了提高可读性，`asm` 开头的多个 `comptime_string` 参数会被**用 `\n` 连接**。这避免了在长模板中手动添加 `\n`：
+为了提高可读性，`asm` 开头的多个 `comptime_str` 参数会被**用 `\n` 连接**。这避免了在长模板中手动添加 `\n`：
 
 ```rust
 // 多个字符串 — 每个变成一行指令
@@ -548,7 +548,7 @@ asm("push {val}\nshl {val}, 2\npop {out}",
 );
 ```
 
-解析器收集连续的 `comptime_string` 参数，直到遇到非字符串参数（操作数或选项）。
+解析器收集连续的 `comptime_str` 参数，直到遇到非字符串参数（操作数或选项）。
 
 ---
 
@@ -808,7 +808,7 @@ global_asm(
 global_asm(template)
 ```
 
-- `template` — `comptime_string`：在文件作用域输出的原始汇编
+- `template` — `comptime_str`：在文件作用域输出的原始汇编
 - 无操作数，无返回值
 - 必须出现在模块顶层（不在函数内部）
 
@@ -887,8 +887,8 @@ WebAssembly 不支持内联汇编。当目标为 `wasm32` 时，`asm(...)` 会�
 
 | 检查项                                  | 错误信息                                               |
 | --------------------------------------- | ------------------------------------------------------ |
-| 模板为 `comptime_string`                | `"asm template must be a compile-time string literal"` |
-| 约束为 `comptime_string` 或有效寄存器类 | `"Invalid register constraint: {c}"`                   |
+| 模板为 `comptime_str`                | `"asm template must be a compile-time string literal"` |
+| 约束为 `comptime_str` 或有效寄存器类 | `"Invalid register constraint: {c}"`                   |
 | 输出类型为具体的原始/指针类型           | `"asm output type must be a concrete type (got {T})"`  |
 | 所有模板占位符引用已存在的操作数        | `"asm template references undefined operand '{name}'"` |
 | 无重复操作数名称                        | `"Duplicate asm operand name: '{name}'"`               |

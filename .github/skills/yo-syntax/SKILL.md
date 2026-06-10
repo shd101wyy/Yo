@@ -50,7 +50,7 @@ Use this skill when you need to:
 - Unary operators need parenthesized operands: `!(ready)`, `&(value)`.
 - Use `while(true, { ... })` for infinite runtime loops; use `while(comptime(cond), { ... })` only for compile-time unrolling.
 - A single-expression lambda body should not be wrapped in `{ ... }` unless semicolons make it a begin block.
-- `"hello"` is `comptime_string` inside `comptime` functions, not `str`. In runtime code, `"hello"` is always `str`.
+- `"hello"` is `comptime_str` inside `comptime` functions, not `str`. In runtime code, `"hello"` is always `str`.
 - Calls in match/cond branches must use immediate `(...)`; this avoids trailing-comma ambiguity.
 
 ## Resource

@@ -919,7 +919,7 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     }
-    // comptime_string related functions
+    // comptime_str related functions
     else if (
       exprIsFunctionCallOf(
         expr,

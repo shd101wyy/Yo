@@ -2,7 +2,7 @@
 //!
 //! 1:1 port of `src/evaluator/calls/pointer-type.ts`.
 //!
-//! `*(T)(val)` pointer cast: handles comptime_string → *(u8) / *(char)
+//! `*(T)(val)` pointer cast: handles comptime_str → *(u8) / *(char)
 //! and runtime pointer → pointer via `__yo_as`.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
@@ -37,7 +37,7 @@ open(import("std/string"));
 /// Returns `.None` if `target_type` is not a pointer type.
 ///
 /// Handles two cases:
-///   1. `comptime_string` → `*(u8)` or `*(char)`: converts type info, keeps string value.
+///   1. `comptime_str` → `*(u8)` or `*(char)`: converts type info, keeps string value.
 ///   2. Any pointer → pointer: emits a `__yo_as(arg, TargetType)` runtime cast.
 ///
 /// Mirrors `tryToConvertToPointerType` in `src/evaluator/calls/pointer-type.ts`.
@@ -76,7 +76,7 @@ try_to_convert_to_pointer_type :: (
   env := arg_info.env;
   arg_type := arg_info.ty;
   // -----------------------------------------------------------------------
-  // Case 1: comptime_string → *(u8) or *(char)
+  // Case 1: comptime_str → *(u8) or *(char)
   // -----------------------------------------------------------------------
   is_ptr_u8_or_char := match(
     target_type,
@@ -99,8 +99,8 @@ try_to_convert_to_pointer_type :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Annotate the ARG node too — this helper returns `evaluated` (the
     // arg), and callers read the RETURNED node's info; leaving the arg's
-    // original comptime_string info made nested casts like
-    // `*(void)(*(u8)("["))` see comptime_string and reject. Mirrors TS
+    // original comptime_str info made nested casts like
+    // `*(void)(*(u8)("["))` see comptime_str and reject. Mirrors TS
     // setting `evaluatedArg.$` to the converted data before
     // Object.assign-ing it onto the cast expr (pointer-type.ts:76-85).
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated), out_info);
@@ -114,7 +114,7 @@ try_to_convert_to_pointer_type :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `Cannot cast ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_string.`,
+          `Cannot cast ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_str.`,
           false,
           .None
         )

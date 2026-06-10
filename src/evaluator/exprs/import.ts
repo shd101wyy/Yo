@@ -78,7 +78,7 @@ export function evaluateImport({
   if (!isComptimeStringValue(value)) {
     throw formatErrorMessage({
       token: moduleArg.token,
-      errorMessage: `Expected comptime_string for module path, got:\n${exprToString(moduleArg)}`,
+      errorMessage: `Expected comptime_str for module path, got:\n${exprToString(moduleArg)}`,
     });
   }
 

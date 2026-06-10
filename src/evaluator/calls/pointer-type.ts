@@ -61,7 +61,7 @@ export function tryToConvertToPointerType({
   const env = evaluatedArg.$.env;
   const argType = evaluatedArg.$.type;
 
-  // Handle comptime_string -> *(u8) or *(char) conversion
+  // Handle comptime_str -> *(u8) or *(char) conversion
   if (
     isComptimeStringType(argType) &&
     (isU8Type(targetType.childType) || isCharType(targetType.childType))
@@ -80,7 +80,7 @@ export function tryToConvertToPointerType({
     };
 
     // Replace the original expression with the evaluated argument
-    // (the comptime_string value is already a C string literal in codegen)
+    // (the comptime_str value is already a C string literal in codegen)
     Object.assign(expr, evaluatedArg);
     expr.$ = evaluatedArg.$;
 
@@ -91,7 +91,7 @@ export function tryToConvertToPointerType({
   if (!isPtrType(argType)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Cannot cast ${typeToString(argType)} to ${typeToString(targetType)}. Expected a pointer type or comptime_string.`,
+      errorMessage: `Cannot cast ${typeToString(argType)} to ${typeToString(targetType)}. Expected a pointer type or comptime_str.`,
     });
   }
 

@@ -474,7 +474,7 @@ _pointer_target_is_byte :: (fn(ty : TypeValue) -> bool)(
   )
 );
 /// `convert_comptime_type_to_runtime_type` plus an optional
-/// `expected_type` hint. When the input is `comptime_string`, TS
+/// `expected_type` hint. When the input is `comptime_str`, TS
 /// special-cases `*(u8)` / `*(char)` / `Slice(T)` expected types and
 /// returns the expected type instead of `str`. Mirrors the full
 /// signature of TS `convertComptimeTypeToRuntimeType`. The TS-side
@@ -492,11 +492,11 @@ convert_comptime_type_to_runtime_type_with_expected :: (
       expected,
       .None => create_str_type(env),
       .Some(et) => cond(
-        // Expected type is itself `comptime_string` (e.g. a
-        // `comptime(name) : comptime_string` parameter) — keep the
+        // Expected type is itself `comptime_str` (e.g. a
+        // `comptime(name) : comptime_str` parameter) — keep the
         // comptime type rather than coercing to `str`. Without this the
-        // default-value check compares `comptime_string` against `str`
-        // and rejects `(comptime(x) : comptime_string) ?= "…"`.
+        // default-value check compares `comptime_str` against `str`
+        // and rejects `(comptime(x) : comptime_str) ?= "…"`.
         is_comptime_string_type(et) => ty,
         (is_pointer_type(et) && _pointer_target_is_byte(et)) => et,
         is_slice_type(et) => et,

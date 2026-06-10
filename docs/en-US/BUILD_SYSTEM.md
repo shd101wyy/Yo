@@ -98,16 +98,16 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 | Field  | Type              | Default      | Description                                  |
 | ------ | ----------------- | ------------ | -------------------------------------------- |
-| `name` | `comptime_string` | _(required)_ | Module name (importable as `"name"`)         |
-| `root` | `comptime_string` | _(required)_ | Path to root source file (e.g. `src/lib.yo`) |
+| `name` | `comptime_str` | _(required)_ | Module name (importable as `"name"`)         |
+| `root` | `comptime_str` | _(required)_ | Path to root source file (e.g. `src/lib.yo`) |
 
 ### `Executable`
 
 | Field       | Type              | Default              | Description                                |
 | ----------- | ----------------- | -------------------- | ------------------------------------------ |
-| `name`      | `comptime_string` | _(required)_         | Artifact name                              |
-| `root`      | `comptime_string` | _(required)_         | Path to main source file                   |
-| `target`    | `comptime_string` | `target_host`        | Target triple (e.g. `"wasm32-emscripten"`) |
+| `name`      | `comptime_str` | _(required)_         | Artifact name                              |
+| `root`      | `comptime_str` | _(required)_         | Path to main source file                   |
+| `target`    | `comptime_str` | `target_host`        | Target triple (e.g. `"wasm32-emscripten"`) |
 | `optimize`  | `Optimize`        | `Optimize.Debug`     | Optimization level                         |
 | `allocator` | `Allocator`       | `Allocator.Mimalloc` | Memory allocator                           |
 | `sanitize`  | `Sanitize`        | `Sanitize.None`      | Sanitizer                                  |
@@ -116,18 +116,18 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 | Field      | Type              | Default          | Description                 |
 | ---------- | ----------------- | ---------------- | --------------------------- |
-| `name`     | `comptime_string` | _(required)_     | Artifact name               |
-| `root`     | `comptime_string` | _(required)_     | Path to library source file |
-| `target`   | `comptime_string` | `target_host`    | Target triple               |
+| `name`     | `comptime_str` | _(required)_     | Artifact name               |
+| `root`     | `comptime_str` | _(required)_     | Path to library source file |
+| `target`   | `comptime_str` | `target_host`    | Target triple               |
 | `optimize` | `Optimize`        | `Optimize.Debug` | Optimization level          |
 
 ### `SharedLibrary`
 
 | Field      | Type              | Default          | Description                 |
 | ---------- | ----------------- | ---------------- | --------------------------- |
-| `name`     | `comptime_string` | _(required)_     | Artifact name               |
-| `root`     | `comptime_string` | _(required)_     | Path to library source file |
-| `target`   | `comptime_string` | `target_host`    | Target triple               |
+| `name`     | `comptime_str` | _(required)_     | Artifact name               |
+| `root`     | `comptime_str` | _(required)_     | Path to library source file |
+| `target`   | `comptime_str` | `target_host`    | Target triple               |
 | `optimize` | `Optimize`        | `Optimize.Debug` | Optimization level          |
 
 Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib` (macOS), or `.dll` (Windows).
@@ -136,9 +136,9 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 
 | Field    | Type              | Default       | Description                    |
 | -------- | ----------------- | ------------- | ------------------------------ |
-| `name`   | `comptime_string` | _(required)_  | Test suite name                |
-| `root`   | `comptime_string` | _(required)_  | Path to test file or directory |
-| `target` | `comptime_string` | `target_host` | Target triple                  |
+| `name`   | `comptime_str` | _(required)_  | Test suite name                |
+| `root`   | `comptime_str` | _(required)_  | Path to test file or directory |
+| `target` | `comptime_str` | `target_host` | Target triple                  |
 
 ### Optimization Levels
 
@@ -227,7 +227,7 @@ Level 2: install                (depends on app, tests)
 
 | Field  | Type              | Description                                                                                              |
 | ------ | ----------------- | -------------------------------------------------------------------------------------------------------- |
-| `name` | `comptime_string` | Step name (artifact name, or custom name for `build.step`)                                               |
+| `name` | `comptime_str` | Step name (artifact name, or custom name for `build.step`)                                               |
 | `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `SystemLibrary`, `TestSuite`, `Run`, `Custom` |
 
 ### Step Methods
@@ -322,8 +322,8 @@ Returned by `build.module()`. Has one method:
 
 | Field  | Type              | Default      | Description           |
 | ------ | ----------------- | ------------ | --------------------- |
-| `name` | `comptime_string` | _(required)_ | Module name           |
-| `root` | `comptime_string` | _(required)_ | Root source file path |
+| `name` | `comptime_str` | _(required)_ | Module name           |
+| `root` | `comptime_str` | _(required)_ | Root source file path |
 
 ### Importing a Module from a Dependency
 
@@ -368,7 +368,7 @@ exe.add_import_list(import_list);
 
 | Field    | Type              | Description                            |
 | -------- | ----------------- | -------------------------------------- |
-| `name`   | `comptime_string` | Import name (used in `import "name"`)  |
+| `name`   | `comptime_str` | Import name (used in `import "name"`)  |
 | `module` | `BuildModule`     | Module to import (from `dep.module()`) |
 
 ### How It Works
@@ -535,9 +535,9 @@ Run `yo build --help` to see all available project-specific options alongside st
 
 | Field         | Type              | Default      | Description              |
 | ------------- | ----------------- | ------------ | ------------------------ |
-| `name`        | `comptime_string` | _(required)_ | Option name              |
-| `description` | `comptime_string` | _(required)_ | Help text                |
-| `default`     | `comptime_string` | `""`         | Default value if not set |
+| `name`        | `comptime_str` | _(required)_ | Option name              |
+| `description` | `comptime_str` | _(required)_ | Help text                |
+| `default`     | `comptime_str` | `""`         | Default value if not set |
 
 ## Cross-Compilation
 
@@ -1213,15 +1213,15 @@ DocFormat :: enum(
 
 ```rust
 DocConfig :: struct(
-  name : comptime_string,                            // Step name
-  root : comptime_string,                            // Source root file/directory
-  (output : comptime_string) ?= "yo-out/doc",       // Output directory
+  name : comptime_str,                            // Step name
+  root : comptime_str,                            // Source root file/directory
+  (output : comptime_str) ?= "yo-out/doc",       // Output directory
   (format : DocFormat) ?= DocFormat.Html,             // Output format
   (include_private : bool) ?= false,                 // Document non-exported items
   (include_deps : bool) ?= false,                    // Document dependencies too
-  (title : comptime_string) ?= "",                   // Custom site title
-  (logo : comptime_string) ?= "",                    // Logo image path
-  (favicon : comptime_string) ?= ""                  // Favicon path
+  (title : comptime_str) ?= "",                   // Custom site title
+  (logo : comptime_str) ?= "",                    // Logo image path
+  (favicon : comptime_str) ?= ""                  // Favicon path
 );
 ```
 

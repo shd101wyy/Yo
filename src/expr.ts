@@ -192,7 +192,7 @@ export interface EvaluatedExprData {
   /**
    * When a compile-time type needs to be converted to a different runtime type,
    * this field stores the target runtime type.
-   * For example: string literal "hello" with type `comptime_string` converted to `str`
+   * For example: string literal "hello" with type `comptime_str` converted to `str`
    */
   convertedRuntimeType?: Type;
   /**
@@ -1135,7 +1135,7 @@ export const BuiltinFunctions = {
     "__yo_comptime_bool_to_comptime_string",
   ],
 
-  // comptime_string related functions
+  // comptime_str related functions
   /// 2 args
   __yo_comptime_string_concat: ["__yo_comptime_string_concat"],
   __yo_comptime_string_eq: ["__yo_comptime_string_eq"],
@@ -1177,7 +1177,7 @@ export const BuiltinFunctions = {
   derive: ["derive"],
   derive_rule: ["derive_rule"],
 
-  // comptime_string to Expr conversion
+  // comptime_str to Expr conversion
   __yo_comptime_string_to_expr: ["__yo_comptime_string_to_expr"],
 
   // Expr-based type iteration builtins (for derive rules)
@@ -1270,8 +1270,8 @@ export const BuiltinFunctions = {
   __yo_maybe_uninit_assume_init: ["__yo_maybe_uninit_assume_init"],
 
   // Process related functions
-  __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_string
-  __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
+  __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_str
+  __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_str
   __yo_pointer_size_bits: ["__yo_pointer_size_bits"], // returns target pointer size in bits (32 or 64) as comptime_int
 
   // Build system functions (compile-time only)

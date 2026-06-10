@@ -74,7 +74,7 @@ export function evaluatePanic({
         ...context,
       },
     });
-    // Let's require it to be a comptime_string or str
+    // Let's require it to be a comptime_str or str
     if (!evaluatedMessageExpr.$) {
       throw formatErrorMessage({
         token: messageExpr.token,
@@ -93,7 +93,7 @@ export function evaluatePanic({
     if (!msgIsStr && !isComptimeStr) {
       throw formatErrorMessage({
         token: messageExpr.token,
-        errorMessage: `panic message must be a comptime_string or str`,
+        errorMessage: `panic message must be a comptime_str or str`,
       });
     }
   }

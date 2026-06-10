@@ -941,7 +941,7 @@ export function typeRequiresInference(type?: Type): boolean {
 /**
  * Convert comptime types to their runtime equivalents.
  * If expr is provided and a conversion happens, sets expr.$.convertedRuntimeType
- * NOTE: We only convert scalar comptime types here (comptime_int, comptime_float, comptime_string), like Zig.
+ * NOTE: We only convert scalar comptime types here (comptime_int, comptime_float, comptime_str), like Zig.
  */
 export function convertComptimeTypeToRuntimeType({
   type,
@@ -974,7 +974,7 @@ export function convertComptimeTypeToRuntimeType({
     }
 
     if (!convertedType) {
-      // Default: Convert the comptime_string to str from prelude
+      // Default: Convert the comptime_str to str from prelude
       convertedType = createStrType(env);
     }
   } else {

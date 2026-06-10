@@ -106,7 +106,7 @@ For in-place mutation of a value, use the 'ref(name) : T' parameter form on the 
     let argType = evaluatedArgExpr.$.type;
 
     // If the argument is a comptime type, convert it to its runtime equivalent
-    // before creating the pointer type. This ensures we get *(str) instead of *(comptime_string).
+    // before creating the pointer type. This ensures we get *(str) instead of *(comptime_str).
     if (
       isComptimeIntType(argType) ||
       isComptimeFloatType(argType) ||

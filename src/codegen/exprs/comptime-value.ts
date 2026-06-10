@@ -73,7 +73,7 @@ export function generateComptimeValue(
     // For booleans, return true/false
     return value.value ? "true" : "false";
   } else if (isComptimeStringValue(value)) {
-    // Check if there's a converted runtime type (e.g., comptime_string -> str or [u8])
+    // Check if there's a converted runtime type (e.g., comptime_str -> str or [u8])
     const targetType =
       _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type || expectedType;
 
@@ -84,7 +84,7 @@ export function generateComptimeValue(
       return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
 
-    // Fallback: comptime_string materializing in a runtime context with no
+    // Fallback: comptime_str materializing in a runtime context with no
     // recorded conversion becomes the builtin str (branch-value temps,
     // field assignments). Pointer targets were handled above.
     if (!targetType || isComptimeStringType(targetType)) {
@@ -114,7 +114,7 @@ export function generateComptimeValue(
         return "NULL";
       } else if (variant.fields.length === 1 && value.fields.length === 1) {
         // This is the pointer case (Some variant).
-        // Pass the pointer type as context so comptime_string values
+        // Pass the pointer type as context so comptime_str values
         // are generated as C string literals, not as str/Slice structs.
         return generateComptimeValue(value.fields[0]!, context, {
           $: {
@@ -313,7 +313,7 @@ export function generateComptimeValue(
     if (targetValue) {
       // Check if we have a converted runtime type for the pointer's child type
       // e.g., for *(str), the sourceExpr.$.convertedRuntimeType is *(str),
-      // and we need to generate the str value from comptime_string
+      // and we need to generate the str value from comptime_str
       const ptrType =
         _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
       if (ptrType && isPtrType(ptrType)) {

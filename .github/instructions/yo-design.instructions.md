@@ -165,7 +165,7 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
 
 This applies to all parameters and return types in comptime-only APIs:
 
-- Parameters: `comptime(name) : comptime_string`
+- Parameters: `comptime(name) : comptime_str`
 - Return: `-> comptime(Step)`, `-> comptime(unit)`, `-> comptime(str)`
 
 ## Algebraic effects
@@ -575,11 +575,11 @@ All container indexing uses the `Index` trait. Array/Slice have special compiler
 
 Runtime builtins generate inline C code (`(&(arr->data[idx]))`). Comptime builtins handle bounds checking, value extraction, and `arrayElementRef` for mutation.
 
-### comptime_string indexing
+### comptime_str indexing
 
-`comptime_string` supports indexing via `ComptimeIndex`:
+`comptime_str` supports indexing via `ComptimeIndex`:
 
-- `"Hello"(0)` → `"H"` (single character as comptime_string)
+- `"Hello"(0)` → `"H"` (single character as comptime_str)
 - `"Hello"(0..3)` → `"Hel"` (range slicing)
 - `"Hello"(0..=2)` → `"Hel"` (inclusive range slicing)
 

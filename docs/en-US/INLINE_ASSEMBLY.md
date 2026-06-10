@@ -34,7 +34,7 @@ An `asm` builtin would let developers write architecture-specific assembly direc
 asm(template, operands..., options...)
 ```
 
-- **template** — `comptime_string`: assembly template with `{name}` or `{N}` placeholders
+- **template** — `comptime_str`: assembly template with `{name}` or `{N}` placeholders
 - **operands** — `in(...)`, `out(...)`, `inout(...)`, `lateout(...)`, `inlateout(...)`: typed operand declarations
 - **options** — `clobber(...)`, `clobber_abi(...)`, `asm_options(...)`: side-effect and optimization hints
 
@@ -67,7 +67,7 @@ asm("", clobber("memory"));
 
 ## 3. Template String
 
-The template is a **`comptime_string`** (double-quoted string literal), validated at compile time.
+The template is a **`comptime_str`** (double-quoted string literal), validated at compile time.
 
 ### Placeholder Syntax
 
@@ -121,7 +121,7 @@ result := asm(
 
 ### Template String Rules
 
-1. Template must be a `comptime_string` literal — no runtime strings.
+1. Template must be a `comptime_str` literal — no runtime strings.
 2. All placeholders must reference declared operands.
 3. Unused operands are allowed (the C compiler may optimize them).
 4. Multi-line templates are supported (Yo double-quoted strings can contain `\n`).
@@ -153,8 +153,8 @@ in(name?, constraint, value)
 
 | Parameter    | Type                                | Description                           |
 | ------------ | ----------------------------------- | ------------------------------------- |
-| `name`       | `comptime_string` (optional)        | Operand name for `{name}` in template |
-| `constraint` | register class or `comptime_string` | Where to place the value              |
+| `name`       | `comptime_str` (optional)        | Operand name for `{name}` in template |
+| `constraint` | register class or `comptime_str` | Where to place the value              |
 | `value`      | expression                          | Yo expression providing the input     |
 
 ```rust
@@ -178,8 +178,8 @@ out(name?, constraint, Type)
 
 | Parameter    | Type                                | Description                           |
 | ------------ | ----------------------------------- | ------------------------------------- |
-| `name`       | `comptime_string` (optional)        | Operand name for `{name}` in template |
-| `constraint` | register class or `comptime_string` | Where the result lives                |
+| `name`       | `comptime_str` (optional)        | Operand name for `{name}` in template |
+| `constraint` | register class or `comptime_str` | Where the result lives                |
 | `Type`       | type                                | Yo type of the output value           |
 
 The `Type` is a Yo type (not a value) — `asm` returns this type.
@@ -253,7 +253,7 @@ const_val(name?, value)
 
 | Parameter | Type                         | Description                                       |
 | --------- | ---------------------------- | ------------------------------------------------- |
-| `name`    | `comptime_string` (optional) | Operand name for `{name}` in template             |
+| `name`    | `comptime_str` (optional) | Operand name for `{name}` in template             |
 | `value`   | comptime expression          | Must evaluate to a compile-time integer or string |
 
 ```rust
@@ -290,7 +290,7 @@ sym(name?, symbol)
 
 | Parameter | Type                         | Description                           |
 | --------- | ---------------------------- | ------------------------------------- |
-| `name`    | `comptime_string` (optional) | Operand name for `{name}` in template |
+| `name`    | `comptime_str` (optional) | Operand name for `{name}` in template |
 | `symbol`  | extern function or global    | The symbol whose address to reference |
 
 ```rust
@@ -380,7 +380,7 @@ These are architecture-independent names that Yo maps to the correct GCC constra
 
 ### 5.2. Explicit Register Names
 
-Use a specific register by passing its name as a `comptime_string`:
+Use a specific register by passing its name as a `comptime_str`:
 
 ```rust
 // x86_64 specific registers
@@ -529,7 +529,7 @@ The return type of an `asm` with `noreturn` is `noreturn` (Yo's bottom type), si
 
 ### 6.5. Multi-String Templates
 
-For readability, multiple `comptime_string` arguments at the start of `asm` are **joined with `\n`**. This avoids manual `\n` in long templates:
+For readability, multiple `comptime_str` arguments at the start of `asm` are **joined with `\n`**. This avoids manual `\n` in long templates:
 
 ```rust
 // Multiple strings — each becomes one instruction line
@@ -548,7 +548,7 @@ asm("push {val}\nshl {val}, 2\npop {out}",
 );
 ```
 
-The parser collects consecutive `comptime_string` arguments until it encounters a non-string argument (operand or option).
+The parser collects consecutive `comptime_str` arguments until it encounters a non-string argument (operand or option).
 
 ---
 
@@ -808,7 +808,7 @@ global_asm(
 global_asm(template)
 ```
 
-- `template` — `comptime_string`: raw assembly emitted at file scope
+- `template` — `comptime_str`: raw assembly emitted at file scope
 - No operands, no return value
 - Must appear at module top level (not inside a function)
 
@@ -887,8 +887,8 @@ The evaluator performs these checks:
 
 | Check                                                   | Error                                                  |
 | ------------------------------------------------------- | ------------------------------------------------------ |
-| Template is `comptime_string`                           | `"asm template must be a compile-time string literal"` |
-| Constraint is `comptime_string` or valid register class | `"Invalid register constraint: {c}"`                   |
+| Template is `comptime_str`                           | `"asm template must be a compile-time string literal"` |
+| Constraint is `comptime_str` or valid register class | `"Invalid register constraint: {c}"`                   |
 | Output type is a concrete primitive/pointer type        | `"asm output type must be a concrete type (got {T})"`  |
 | All template placeholders reference existing operands   | `"asm template references undefined operand '{name}'"` |
 | No duplicate operand names                              | `"Duplicate asm operand name: '{name}'"`               |

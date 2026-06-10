@@ -137,10 +137,10 @@ evaluate_panic :: (
           .Struct({ name }) => (name == "str"),
           _ => false
         );
-        // comptime_string: StrLit value, or an UNKNOWN value whose type is
-        // comptime_string — mirrors TS panic.ts:91-93
+        // comptime_str: StrLit value, or an UNKNOWN value whose type is
+        // comptime_str — mirrors TS panic.ts:91-93
         // (`isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)`).
-        // Under def-time body evaluation a `comptime_string` parameter binds
+        // Under def-time body evaluation a `comptime_str` parameter binds
         // as a typed unknown; dropping it to `false` made `panic(msg)` the
         // single largest propagated def-eval failure (96 std files).
         is_comptime_str := match(
@@ -158,7 +158,7 @@ evaluate_panic :: (
             dyn(
               format_error_message(
                 ast_expr_token(msg_expr),
-                String.from("panic message must be a comptime_string or str"),
+                String.from("panic message must be a comptime_str or str"),
                 false,
                 .None
               )

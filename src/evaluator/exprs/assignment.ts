@@ -355,7 +355,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
 
     // Convert compile-time types to runtime types if needed
-    // For example: comptime_string -> [u8] when assigning to a [u8] variable
+    // For example: comptime_str -> [u8] when assigning to a [u8] variable
     if (!variable.isCompileTimeOnly) {
       rhsType = convertComptimeTypeToRuntimeType({
         type: rhsType,
@@ -956,7 +956,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     }
 
     // Convert compile-time types to runtime types if needed
-    // For example: comptime_string -> str when assigning to a str field
+    // For example: comptime_str -> str when assigning to a str field
     // Only convert when the target type is a runtime type (not comptime_int, etc.)
     if (
       !isComptimeIntType(expectedType) &&

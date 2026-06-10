@@ -1857,12 +1857,12 @@ Fix: wrap the call:
             );
             arg_info.value = Option(EvalValue).Some(omitted_val);
           });
-          // comptime_string → str/String value coercion. When a
-          // `comptime_string` literal (e.g. `"hi"`) is bound to a concrete
+          // comptime_str → str/String value coercion. When a
+          // `comptime_str` literal (e.g. `"hi"`) is bound to a concrete
           // runtime string parameter (`str`, `String`, …), bind it under the
           // DECLARED parameter type with a runtime value, NOT under its raw
-          // `comptime_string` type. Otherwise in-body method dispatch resolves
-          // against `comptime_string` (`comptime_string.len() -> comptime_int
+          // `comptime_str` type. Otherwise in-body method dispatch resolves
+          // against `comptime_str` (`comptime_str.len() -> comptime_int
           // -> i32`) instead of the declared runtime type (`str.len() ->
           // usize`) — the source of the spurious "Cannot unify i32 and usize"
           // when CTFE-evaluating `String.from("hi")`. The comptime value cannot
@@ -1871,7 +1871,7 @@ Fix: wrap the call:
           // declared type. This is the FuncVal-call counterpart of the
           // comptime→runtime conversion `helper.ts:504-568` performs.
           //
-          // Narrow guard — only comptime_string args against a concrete,
+          // Narrow guard — only comptime_str args against a concrete,
           // non-comptime-string, non-`SomeT` declared param. This avoids
           // touching comptime type-parameter args (e.g.
           // `(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`), which must keep

@@ -441,7 +441,7 @@ export function getTypeString(
     case TypeTag.ComptimeFloat:
       return "double"; // For comptime_float, we can use double
     case TypeTag.ComptimeString:
-      // At runtime, comptime_string values materialize as the builtin str.
+      // At runtime, comptime_str values materialize as the builtin str.
       return "__yo_str";
 
     case TypeTag.Char:

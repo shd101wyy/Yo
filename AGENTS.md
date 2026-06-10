@@ -50,7 +50,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `src/yo-cli.ts`                      | CLI entry point for `yo` / `yo-cli`                                    |
 | `std/`                               | Yo standard library (`.yo` source)                                     |
 | `tests/`                             | Integration test files (`*.test.yo`)                                   |
-| `yo-self/`                           | Bootstrap: self-hosted Yo compiler written in Yo (Phase 1 in progress) |
+| `yo-self/`                           | Bootstrap: self-hosted Yo compiler written in Yo (evaluator port DONE; codegen port pending — see `plans/BOOTSTRAPPING_CODEGEN.md`) |
 | `yo-self/README.md`                  | Bootstrap status, layout, and test instructions                        |
 | `yo-self/lexer.yo`, `token.yo`       | Self-hosted lexer (ports of `src/lexer.ts`, `src/token.ts`)            |
 | `yo-self/parser.yo`                  | Self-hosted parser (port of `src/parser.ts`)                           |

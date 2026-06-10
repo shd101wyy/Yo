@@ -955,11 +955,11 @@ evaluate_function_parameter :: (
           env_mut.input_string = info.env.input_string;
           dv_val_opt := info.value;
           captured_default_value = dv_val_opt;
-          // Coerce comptime types (e.g. comptime_string) to their runtime
+          // Coerce comptime types (e.g. comptime_str) to their runtime
           // equivalents when the param has an explicit annotation. Mirrors
           // TS `convertComptimeTypeToRuntimeType` at default-value sites —
           // lets `(msg : str) ?= "Assertion failed."` typecheck because the
-          // comptime_string literal coerces to `str` (or `*(u8)`/`*(char)`/
+          // comptime_str literal coerces to `str` (or `*(u8)`/`*(char)`/
           // `[u8]` if explicitly expected).
           dv_ty := convert_comptime_type_to_runtime_type_with_expected(
             info.ty,

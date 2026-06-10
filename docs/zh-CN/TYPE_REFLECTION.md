@@ -48,7 +48,7 @@ TypeInfo :: enum(
   // === 元类型 ===
   Trait(fields : ComptimeList(TraitFieldInfo), kind : TraitKind),
   Type(level : comptime_int),
-  Some(name : comptime_string, required_traits : ComptimeList(TraitInfo),
+  Some(name : comptime_str, required_traits : ComptimeList(TraitInfo),
        negative_traits : ComptimeList(TraitInfo), resolved_type : Type),
 
   // === 仅编译时 ===
@@ -164,7 +164,7 @@ comptime_assert(__yo_are_types_compatible(pointee, i32), "pointee is i32");
 
 ```rust
 TypeFieldInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   field_type : Type
 );
 ```
@@ -175,7 +175,7 @@ TypeFieldInfo :: struct(
 
 ```rust
 VariantInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   fields : ComptimeList(TypeFieldInfo),
   _enum_type : Type,        // 内部：父枚举类型
   _variant_index : usize  // 内部：变体索引
@@ -217,7 +217,7 @@ FunctionInfo :: struct(
 
 ```rust
 ParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type,
   is_comptime : bool,
   is_quote : bool,
@@ -231,7 +231,7 @@ Forall 类型参数：
 
 ```rust
 ForallParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type
 );
 ```
@@ -242,7 +242,7 @@ Using/效果参数：
 
 ```rust
 ImplicitParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type
 );
 ```
@@ -263,7 +263,7 @@ TraitInfo :: struct(
 
 ```rust
 TraitFieldInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   field_type : Type,
   is_associated_type : bool
 );
@@ -286,7 +286,7 @@ TraitKind :: enum(
 使用 `match` 对 `TypeInfo` 进行编译时类型分发：
 
 ```rust
-describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",
@@ -325,7 +325,7 @@ derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Ex
 | `Type.get_info(T)`                | 返回类型 `T` 的 `TypeInfo` 枚举                 |
 | `Type.get_struct_fields(T)`       | 返回结构体 `T` 的 `ComptimeList(TypeFieldInfo)` |
 | `Type.get_enum_variants(T)`       | 返回枚举 `T` 的 `ComptimeList(VariantInfo)`     |
-| `Type.to_comptime_string(T)`      | 返回类型名作为 `comptime_string`                |
+| `Type.to_comptime_string(T)`      | 返回类型名作为 `comptime_str`                |
 | `Type.join_fields(T, mapper, op)` | 映射结构体字段为 `Expr` 并用二元运算符组合      |
 | `Type.map_variants(T, mapper)`    | 映射枚举变体为 `ComptimeList(Expr)`             |
 | `Type.eq(A, B)`                   | 精确类型相等（名义类型——需要相同的定义）        |
@@ -383,7 +383,7 @@ branches :: Type.map_variants(
 
 | 方法                   | 描述                                              |
 | ---------------------- | ------------------------------------------------- |
-| `field.name`           | 字段名，类型为 `comptime_string`                  |
+| `field.name`           | 字段名，类型为 `comptime_str`                  |
 | `field.field_type`     | 字段类型，类型为 `Type`                           |
 | `field.name.to_expr()` | 将字段名转换为 `Expr`（通过 `FieldInfo.to_expr`） |
 

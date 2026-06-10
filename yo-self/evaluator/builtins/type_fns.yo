@@ -97,7 +97,7 @@ _extract_type_val :: (
     )
   )
 );
-/// __yo_type_to_comptime_string(T) -> comptime_string
+/// __yo_type_to_comptime_string(T) -> comptime_str
 /// Returns the string representation of type T.
 evaluate_yo_type_to_string :: (
   fn(
@@ -151,7 +151,7 @@ evaluate_yo_type_to_string :: (
       )
     );
   });
-  // Default output: unknown comptime_string value.
+  // Default output: unknown comptime_str value.
   out_info := new_expr_info(arg_info.env, t_comptime_string());
   out_info.value = Option(EvalValue).Some(create_unknown_val(t_comptime_string()));
   // If the type is concretely known, compute the string.
@@ -1074,7 +1074,7 @@ evaluate_yo_type_get_info :: (
   expr
 });
 /// comptime_eval(code_string) -> ()
-/// Parses and evaluates a comptime_string as Yo code. Returns unit.
+/// Parses and evaluates a comptime_str as Yo code. Returns unit.
 evaluate_comptime_eval :: (
   fn(
     expr : AstExpr,
@@ -1171,8 +1171,8 @@ evaluate_comptime_eval :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// __yo_comptime_string_to_expr(code : comptime_string) -> comptime(Expr)
-/// Parses a comptime_string as a Yo expression and returns it as a comptime Expr.
+/// __yo_comptime_string_to_expr(code : comptime_str) -> comptime(Expr)
+/// Parses a comptime_str as a Yo expression and returns it as a comptime Expr.
 evaluate_comptime_string_to_expr :: (
   fn(
     expr : AstExpr,
@@ -1220,7 +1220,7 @@ evaluate_comptime_string_to_expr :: (
     match(
       info0.value,
       .Some(_) => {
-        // Value exists but is not a comptime_string → return unknown Expr.
+        // Value exists but is not a comptime_str → return unknown Expr.
         unknown_val := create_unknown_val(t_expr_t());
         out := new_expr_info(local_env, t_expr_t());
         out.value = Option(EvalValue).Some(unknown_val);
@@ -1232,7 +1232,7 @@ evaluate_comptime_string_to_expr :: (
           dyn(
             format_error_message(
               ast_expr_token(arg0),
-              String.from("__yo_comptime_string_to_expr: expected a comptime_string argument"),
+              String.from("__yo_comptime_string_to_expr: expected a comptime_str argument"),
               false,
               .None
             )

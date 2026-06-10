@@ -5,7 +5,7 @@
 //! Handles compile-time indexing for:
 //!   ComptimeList element and range indexing
 //!   Array/Slice element and range indexing
-//!   comptime_string character and range indexing
+//!   comptime_str character and range indexing
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -1073,7 +1073,7 @@ ci_eval_string_index :: (
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime string index"), exn);
   cur_env = idx_info.env;
   result_ty := self_info.ty;
-  // If self is not a known comptime_string, set no value.
+  // If self is not a known comptime_str, set no value.
   self_is_str := match(
     self_info.value,
     .Some(sv) => is_str_lit(sv),

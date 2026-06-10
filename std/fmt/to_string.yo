@@ -252,22 +252,22 @@ impl(
 // TODO: Array to_string implementation?
 // --- derive_rule for ToString ---
 // Local helpers (not exported from prelude, so defined locally)
-__ts_s2 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string) -> comptime(comptime_string))(a + b);
-__ts_s3 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string) -> comptime(comptime_string))(
+__ts_s2 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str) -> comptime(comptime_str))(a + b);
+__ts_s3 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str) -> comptime(comptime_str))(
   (a + b) + c
 );
-__ts_s4 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string) -> comptime(comptime_string))(
+__ts_s4 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str) -> comptime(comptime_str))(
   ((a + b) + c) + d
 );
-__ts_s5 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string, comptime(e) : comptime_string) -> comptime(comptime_string))(
+__ts_s5 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str, comptime(e) : comptime_str) -> comptime(comptime_str))(
   (((a + b) + c) + d) + e
 );
 __ts_fold_range :: (
   fn(
     comptime(n) : usize,
-    comptime(init) : comptime_string,
-    comptime(f) : (fn(comptime(acc) : comptime_string, comptime(i) : usize) -> comptime(comptime_string))
-  ) -> comptime(comptime_string)
+    comptime(init) : comptime_str,
+    comptime(f) : (fn(comptime(acc) : comptime_str, comptime(i) : usize) -> comptime(comptime_str))
+  ) -> comptime(comptime_str)
 )(
   cond(
     (n == usize(0)) => init,
@@ -276,7 +276,7 @@ __ts_fold_range :: (
   )
 );
 // Helper: join string parts with + operator, left-to-right parenthesized
-__derive_join_plus :: (fn(comptime(parts) : comptime_string, comptime(new_part) : comptime_string) -> comptime(comptime_string))(
+__derive_join_plus :: (fn(comptime(parts) : comptime_str, comptime(new_part) : comptime_str) -> comptime(comptime_str))(
   cond(
     (parts == "") => new_part,
     true => __ts_s5("(", parts, " + ", new_part, ")")
@@ -304,7 +304,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
           body :: __ts_fold_range(
             fc,
             __ts_s3("String.from(\"", type_name, "(\")"),
-            (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+            (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
               with_sep :: cond(
                 (fi == 0) => a,
@@ -330,7 +330,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
       ts_branches :: __ts_fold_range(
         vc,
         "",
-        (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))({
+        (fn(comptime(acc) : comptime_str, comptime(vi) : usize) -> comptime(comptime_str))({
           v :: variants.get(vi);
           branch :: cond(
             (v.fields.len() == 0) =>
@@ -339,7 +339,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
               bindings :: __ts_fold_range(
                 v.fields.len(),
                 "",
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   cond(
                     (a == "") => __ts_s2("__v_", fname),
@@ -350,7 +350,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
               body :: __ts_fold_range(
                 v.fields.len(),
                 __ts_s5("String.from(\"", type_name, ".", v.name, "(\")"),
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   with_sep :: cond(
                     (fi == 0) => a,

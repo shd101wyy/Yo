@@ -72,7 +72,7 @@ Array/Slice indexing through the Index trait uses compiler builtins that are inl
 This function generates C code for `value(arg)` dispatched through the Index trait:
 
 - For builtins (`__yo_array_index`, `__yo_slice_index`): inlines `(&((&value)->data[idx]))` directly
-- For range builtins: creates compound literal `*(Slice(T))` with computed data pointer and length
+- Range indexing dispatches to `slice_copy` methods (owned copies; plans/SLICE_REWORK.md) — the old `*(Slice(T))` compound-literal builtins are deleted
 - For non-builtin methods (ArrayList, HashMap, etc.): generates a named function call
 - Auto-dereferences the pointer result unless wrapped in `&()` (checked via `isIndexTraitAddressOf`)
 

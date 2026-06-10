@@ -900,7 +900,7 @@ function tryComptimeElementAccess({
 }
 
 /**
- * Tries to perform comptime_string indexing: "hello"(0), "hello"(0..3), etc.
+ * Tries to perform comptime_str indexing: "hello"(0), "hello"(0..3), etc.
  * Returns an IndexCallResult if successful, throws on error.
  */
 function tryComptimeStringIndex({

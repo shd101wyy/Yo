@@ -52,7 +52,7 @@ export function evaluateYoComptimeStringFunctions({
     if (!arg.$ || !isComptimeStringType(arg.$.type) || !arg.$.value) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_str type for "${expr.func.token.value}" argument, got:\n${exprToString(
           arg
         )}`,
       });
@@ -136,7 +136,7 @@ export function evaluateYoComptimeStringFunctions({
     ) {
       throw formatErrorMessage({
         token: stringArg.token,
-        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" string argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_str type for "${expr.func.token.value}" string argument, got:\n${exprToString(
           stringArg
         )}`,
       });
@@ -234,7 +234,7 @@ export function evaluateYoComptimeStringFunctions({
     if (!lhs.$ || !isComptimeStringType(lhs.$.type) || !lhs.$.value) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_str type for "${expr.func.token.value}" first argument, got:\n${exprToString(
           lhs
         )}`,
       });
@@ -252,7 +252,7 @@ export function evaluateYoComptimeStringFunctions({
     if (!rhs.$ || !isComptimeStringType(rhs.$.type) || !rhs.$.value) {
       throw formatErrorMessage({
         token: rhs.token,
-        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_str type for "${expr.func.token.value}" second argument, got:\n${exprToString(
           rhs
         )}`,
       });
@@ -339,7 +339,7 @@ export function evaluateYoComptimeStringFunctions({
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Unexpected function call for comptime_string operations: ${exprToString(expr)}`,
+        errorMessage: `Unexpected function call for comptime_str operations: ${exprToString(expr)}`,
       });
     }
 

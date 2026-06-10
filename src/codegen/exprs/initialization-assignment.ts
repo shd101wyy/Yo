@@ -410,7 +410,7 @@ export function generateInitializationAssignment(
             // If so, don't generate a redundant assignment
             if (rhsExprCode.trim() !== tempVarName) {
               // Generate temp variable assignment first
-              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_str -> str)
               const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type!;
               let tempVarType = getVariableTypeString(
                 effectiveType,

@@ -376,7 +376,7 @@ begin(
 
 - `comptime_int`（编译期已知的整数类型）
 - `comptime_float`（编译期已知的浮点类型）
-- `comptime_string`（编译期已知的字符串类型）
+- `comptime_str`（编译期已知的字符串类型）
 - `ComptimeList`（编译期已知的列表类型）
 - `Expr`（编译期已知的表达式类型，用于宏和编译期求值）
 
@@ -3111,7 +3111,7 @@ field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
 comptime_assert((field_count == usize(2)), "Point has 2 fields");
 
 // 基于类型信息的 match 分发
-describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",

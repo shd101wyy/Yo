@@ -118,7 +118,7 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // comptime_string
+  // comptime_str
   else if (identifier === TypeTag.ComptimeString) {
     const value = createTypeValue(createComptimeStringType());
     expr.$ = {

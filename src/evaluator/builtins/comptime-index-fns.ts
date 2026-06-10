@@ -479,11 +479,11 @@ function evaluateComptimeStringIndex({
   env = evaluatedIdx.$.env;
 
   const selfValue = evaluatedSelf.$.value;
-  // Normalize the result type to `*(comptime_string)` regardless of
+  // Normalize the result type to `*(comptime_str)` regardless of
   // how `self` was passed. Pre-inout, the trait took `comptime(self)
   // : *(Self)` so the input was already pointer-typed. With
   // `comptime(inout(self)) : Self`, the input is plain
-  // `comptime_string`. The trait's return is `*(Self.Output)` in
+  // `comptime_str`. The trait's return is `*(Self.Output)` in
   // both shapes — we always wrap here so the type matches.
   const inputType = evaluatedSelf.$.type;
   const baseType: Type = isPtrType(inputType)
@@ -670,7 +670,7 @@ export function evaluateYoComptimeIndexFunctions({
 }
 
 /**
- * Handle comptime_string indexing directly with pre-evaluated values.
+ * Handle comptime_str indexing directly with pre-evaluated values.
  * Called from the function dispatch for `comptime_string_value(arg)`.
  *
  * @param strValue - The JavaScript string from the ComptimeStringValue
@@ -679,7 +679,7 @@ export function evaluateYoComptimeIndexFunctions({
  * @param token - Token for error messages
  * @param isRange - Whether this is a range index
  * @param isInclusive - Whether this is an inclusive range
- * @returns The result comptime_string value
+ * @returns The result comptime_str value
  */
 export function computeComptimeStringIndex({
   strValue,

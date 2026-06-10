@@ -24,14 +24,14 @@ println("plain str is also fine");
 
 | Type              | When you see it                              | Key behavior                           |
 | ----------------- | -------------------------------------------- | -------------------------------------- |
-| `str`             | `"hello"` in runtime contexts                | Slice of bytes, no ownership           |
+| `str`             | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
 | `String`          | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
-| `comptime_string` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
+| `comptime_str` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
 
 Key rules:
 
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
-- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string`. It does NOT auto-convert to `str`. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if a comptime function needs to return `str`.
+- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str`. It does NOT auto-convert to `str`. A comptime function returning `str` materializes its `comptime_str` result automatically.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
 - **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
@@ -497,14 +497,12 @@ result := my_module.helper(i32(5));
 
 Several `yo-self/` APIs take `String` (not `str`) parameters even when the argument is conceptually a name:
 
-- `get_variables_from_env(env, name: String)` — pass the `String` directly, do NOT call `.as_str()` first
+- `get_variables_from_env(env, name: String)` — pass the `String` directly
 - Most other env/value/type lookup functions follow the same convention
+- (`as_str()` no longer exists — heap Strings can never become `str`.)
 
 ```rust
-// ❌ Wrong — .as_str() converts String → str but the param is String
-vars := get_variables_from_env(env, prop_name_su.as_str());
-
-// ✅ Correct — pass the String directly
+// ✅ Pass the String directly
 vars := get_variables_from_env(env, prop_name_su);
 ```
 

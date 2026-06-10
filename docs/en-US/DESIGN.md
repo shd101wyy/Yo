@@ -377,7 +377,7 @@ A type can have the following **Kind**:
 
 - `comptime_int` (compile-time known integer type)
 - `comptime_float` (compile-time known float type)
-- `comptime_string` (compile-time known string type)
+- `comptime_str` (compile-time known string type)
 - `ComptimeList` (compile-time known list type)
 - `Expr` (compile-time known expression type, used for macros and compile-time evaluation)
 
@@ -3119,7 +3119,7 @@ field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
 comptime_assert((field_count == usize(2)), "Point has 2 fields");
 
 // Match dispatch on type info
-describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",

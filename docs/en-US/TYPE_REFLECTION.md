@@ -48,7 +48,7 @@ TypeInfo :: enum(
   // === Meta types ===
   Trait(fields : ComptimeList(TraitFieldInfo), kind : TraitKind),
   Type(level : comptime_int),
-  Some(name : comptime_string, required_traits : ComptimeList(TraitInfo),
+  Some(name : comptime_str, required_traits : ComptimeList(TraitInfo),
        negative_traits : ComptimeList(TraitInfo), resolved_type : Type),
 
   // === Comptime only ===
@@ -164,7 +164,7 @@ Represents a field in a struct, union, tuple, or module:
 
 ```rust
 TypeFieldInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   field_type : Type
 );
 ```
@@ -175,7 +175,7 @@ Represents an enum variant:
 
 ```rust
 VariantInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   fields : ComptimeList(TypeFieldInfo),
   _enum_type : Type,        // internal: parent enum type
   _variant_index : usize  // internal: variant index
@@ -217,7 +217,7 @@ Function parameter metadata:
 
 ```rust
 ParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type,
   is_comptime : bool,
   is_quote : bool,
@@ -231,7 +231,7 @@ Forall type parameter:
 
 ```rust
 ForallParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type
 );
 ```
@@ -242,7 +242,7 @@ Using/effect parameter:
 
 ```rust
 ImplicitParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type
 );
 ```
@@ -263,7 +263,7 @@ Trait field metadata:
 
 ```rust
 TraitFieldInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   field_type : Type,
   is_associated_type : bool
 );
@@ -286,7 +286,7 @@ TraitKind :: enum(
 Use `match` on `TypeInfo` for compile-time type dispatch:
 
 ```rust
-describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",
@@ -325,7 +325,7 @@ The `Type` type provides static methods for compile-time type analysis:
 | `Type.get_info(T)`                | Returns `TypeInfo` enum for type `T`                     |
 | `Type.get_struct_fields(T)`       | Returns `ComptimeList(TypeFieldInfo)` for struct `T`     |
 | `Type.get_enum_variants(T)`       | Returns `ComptimeList(VariantInfo)` for enum `T`         |
-| `Type.to_comptime_string(T)`      | Returns type name as `comptime_string`                   |
+| `Type.to_comptime_string(T)`      | Returns type name as `comptime_str`                   |
 | `Type.join_fields(T, mapper, op)` | Map struct fields to `Expr` and combine with binary op   |
 | `Type.map_variants(T, mapper)`    | Map enum variants to `ComptimeList(Expr)`                |
 | `Type.eq(A, B)`                   | Exact type equality (nominal — same definition required) |
@@ -383,7 +383,7 @@ branches :: Type.map_variants(
 
 | Method                 | Description                                            |
 | ---------------------- | ------------------------------------------------------ |
-| `field.name`           | Field name as `comptime_string`                        |
+| `field.name`           | Field name as `comptime_str`                        |
 | `field.field_type`     | Field type as `Type`                                   |
 | `field.name.to_expr()` | Convert field name to `Expr` (via `FieldInfo.to_expr`) |
 

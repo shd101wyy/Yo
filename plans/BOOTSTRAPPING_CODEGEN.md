@@ -2,18 +2,33 @@
 
 The detailed plan for the codegen slice of self-hosting, the successor to
 `BOOTSTRAPPING_EVALUATOR.md` (whose `check` surface went fully green
-2026-06-10: std 151/151 · tests 170/170 · yo-self 285/285). Keep
-`BOOTSTRAPPING.md` as the umbrella record; update both when status changes.
+2026-06-10). Keep `BOOTSTRAPPING.md` as the umbrella record; update both
+when status changes.
+
+> **2026-06-11 — clean-slate update.** The untyped bootstrap codegen
+> (`yo-self/codegen/` — driver.yo, exprs.yo, 49 files / ~30.6k LOC) was
+> **DELETED** during the slice rework (user decision): it was built on the
+> wrong foundation (AST pattern-matching without the evaluator) and would
+> have been dragged through every language change. `run_compile`/`run_test`
+> in `yo-self/main.yo` now throw a pointer to this plan. The port therefore
+> starts from a CLEAN SLATE — which is the better starting point for the
+> strict 1-to-1 rule: every `yo-self/codegen/X.yo` will be born as a
+> faithful port of `src/codegen/X.ts`, never retrofitted.
+> Also relevant: the slice rework (plans/SLICE_REWORK.md, complete)
+> DELETED the builtin Slice(T) end-to-end, REDUCING the TS codegen surface
+> to port (no slice struct registry, no range compound-literal emitters,
+> no `__yo_slice_*` builtins; `str` is a builtin with one canonical
+> `__yo_str` lowering). Current validation gates: std 152/152 ·
+> tests 146-147/149 (2 unresolvable circular fixtures) · yo-self 245/245.
 
 ## Goal & end state
 
 **The codegen port is a FAITHFUL port, same as the evaluator's:** strict
 1-to-1 file mapping `src/codegen/X.ts` ↔ `yo-self/codegen/X.yo`, same
 functions and control flow, TS-first for any bug found, divergences only where
-the language forces them (documented in header comments). The existing
-untyped bootstrap walker **`driver.yo` is a temporary scaffold and MUST be
-deleted by the end of the port** — it has no TS counterpart and is the
-single largest standing violation of the 1-to-1 rule.
+the language forces them (documented in header comments). (The untyped
+bootstrap walker `driver.yo` was already deleted on 2026-06-11 — the port
+starts clean; nothing pre-existing violates the 1-to-1 rule.)
 
 `yo-self-bin compile <file.yo>` produces a C11 program whose **runtime
 behavior matches the TS compiler's output** on the same source, culminating in
@@ -41,15 +56,12 @@ emit different C for the same semantics.
 | root | 3 | 1,189 | `index.ts` driver (778), `codegen-c.ts` orchestrator (311) |
 | `utils/` `shared/` `parallelism/` `c/` | 5 | 1,978 | helpers, fixup, suspension, worker runtime, includes |
 
-**yo-self codegen today: 49 files, ~30.6k LOC — but built on the wrong
-foundation.** Per `yo-self/codegen/driver.yo`'s own header, the current
-pipeline is a *bootstrap AST-walker* that pattern-matches raw `AstExpr` and
-emits C **without consulting the evaluator** — no `ExprInfo` types, no
-resolved values, no RC paths. ~33/37 expression handlers exist but were
-written against that untyped walker. Async runtime: 0%. Collection passes:
-stubbed. This is a documented violation of the strict 1-to-1 rule that exists
-only because the typed pipeline didn't; **driver.yo is to be deleted, not
-extended** (its header says the same).
+**yo-self codegen today: DELETED (2026-06-11).** The previous 49-file
+untyped bootstrap walker is gone (see the clean-slate note above). There is
+no `yo-self/codegen/` directory; the port creates it file-by-file as
+faithful 1-to-1 ports. The proto-evaluator `yo-self/evaluator/eval.yo`
+remains only as the delegation target of `evaluator/index.yo` and retires
+when the typed pipeline drives the proper evaluator end-to-end.
 
 **The coupling that defines the work.** TS codegen is driven almost entirely
 by evaluator annotations on `expr.$` (yo-self: the `ExprInfo` table):
@@ -81,8 +93,9 @@ work it is expected to unlock.
 - **Iteration loop**: `./yo-cli compile yo-self/main.yo -o /tmp/yo-self-bin`
   (no `--release` — too slow for the loop; use `YO_MAIN_STACK_MB=4096` for
   deep-recursion validation runs).
-- **Never regress the evaluator**: `check ./std` (151), per-file
-  `check ./tests` (170), `check ./yo-self` (285) stay green after every step.
+- **Never regress the evaluator**: `check ./std` (152), `check ./tests`
+  (146-147/149 baseline), `check ./yo-self` (245) stay green after every
+  step.
 - **Differential testing is the gold standard**: same `.yo` source → TS-built
   binary and yo-self-built binary → same stdout/exit code. Build the harness
   in Phase 0 and run it constantly.
@@ -92,22 +105,22 @@ work it is expected to unlock.
 
 ### Phase 0 — Baseline + differential harness
 
-1. Rebuild `yo-self-bin`; record what `yo-self-bin compile` can do TODAY on a
-   tiny corpus (hello-world, arithmetic, struct, enum/match, closure) — expect
-   most to fail or miscompile; the failures are the worklist.
+1. Rebuild `yo-self-bin`; `yo-self-bin compile` currently THROWS by design
+   (the codegen was deleted) — the baseline scorecard is all-COMPILE-FAIL,
+   and the differential harness measures progress from zero.
 2. Build the **differential harness**: a script that takes a `.yo` file (or a
    directory), compiles it with BOTH compilers, runs both binaries, diffs
    stdout/exit code, and reports PASS/FAIL/COMPILE-FAIL per file. This is the
    `check`-equivalent for the whole codegen phase.
-3. Re-triage the existing codegen issues
+3. Close the stale codegen issues
    (`issues/yo-self-codegen-typeid-needs-typed-ast.md`,
-   `issues/yo-self-codegen-parallelism-needs-closure-metadata.md`,
-   `issues/yo-self-bin-rebuild-segfaults-*.md`) — the first two are expected
-   to dissolve with the typed pipeline (Phase 1); verify rather than assume.
+   `issues/yo-self-codegen-parallelism-needs-closure-metadata.md`) — their
+   subject (the untyped walker) was deleted; keep the segfault issue only if
+   it reproduces against the rebuilt pipeline.
 
 **Gate:** harness exists; baseline scorecard committed.
 
-### Phase 1 — The typed pipeline (retire `driver.yo`)
+### Phase 1 — The typed pipeline (from the clean slate)
 
 Port the orchestration spine faithfully, driven by the evaluator's `ExprInfo`:
 
@@ -123,7 +136,6 @@ Port the orchestration spine faithfully, driven by the evaluator's `ExprInfo`:
   (executing-mode body evaluation for reachable runtime functions), populating
   the `ExprInfo` fields the emitters read. Start with the core set
   (type/value/control_flow/variable_name); add fields as emitters demand them.
-- Delete `driver.yo` once the typed spine compiles the Phase-0 tiny corpus.
 
 **Expected evaluator unlocks:** executing-mode body eval will surface
 unification/dispatch gaps the swallow hid — budget for evaluator fixes here
@@ -135,10 +147,9 @@ closure-call/string/ArrayList/HashMap) passes the differential harness.
 
 ### Phase 2 — Expression-emitter sweep (the long middle)
 
-Re-validate all ~33 existing `exprs/*.yo` emitters against the typed pipeline
-(they were written for the untyped walker — assume nothing), and port the
-missing ones. Priority order = differential-harness failure frequency, but
-the known big rocks first:
+Port the `exprs/*.ts` emitters 1-to-1 (all fresh — nothing pre-exists).
+Priority order = differential-harness failure frequency, but the known big
+rocks first:
 
 - `exprs/other-fn-call.ts` (3,459 LOC — calls, method dispatch, trait calls,
   specialization invocation; the single largest emitter).
@@ -248,9 +259,8 @@ variant). After the codegen port:
   Track surfaced gaps in `EVALUATOR_PORT_REVIEW.md`'s status summary.
 - **C-text instability** (random_id in emitted names): differential testing
   compares BEHAVIOR, not text; the fixpoint comparison may need seeded ids.
-- **Untyped-walker leftovers**: emitters silently relying on AST shape instead
-  of ExprInfo will "work" on simple inputs and miscompile real ones — the
-  Phase-2 re-validation treats every existing emitter as unreviewed.
+- **Untyped-walker leftovers**: eliminated — the walker was deleted; every
+  emitter is written fresh against ExprInfo.
 - **Compile-loop speed**: yo-self-bin -O0 builds are minutes; batch
   validation, prefer the differential harness's directory mode, keep
   `--release` out of the loop.

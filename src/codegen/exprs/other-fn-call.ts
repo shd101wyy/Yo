@@ -463,7 +463,7 @@ export function generateOtherFunctionCall(
               arg.$.env
             );
             if (argCode !== sanitizedVarName) {
-              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_str -> str)
               const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
                 effectiveType,
@@ -686,9 +686,9 @@ export function generateOtherFunctionCall(
             // than declaring the temp — so the c-string is just a bare
             // literal in those cases.
             // Prefer the converted runtime type when present: a
-            // comptime_string literal coerced to `str` records its real C
+            // comptime_str literal coerced to `str` records its real C
             // type (__yo_str) there, while `$.type` still says
-            // comptime_string (whose default C mapping is uint8_t*).
+            // comptime_str (whose default C mapping is uint8_t*).
             const argRuntimeType =
               runtimeArgExprs[i]!.$?.convertedRuntimeType ??
               runtimeArgExprs[i]!.$?.type;
@@ -718,7 +718,7 @@ export function generateOtherFunctionCall(
             if (isAddressableCExpr(c)) {
               args[i] = `(&(${c}))`;
             } else {
-              // comptime_string args materialize as __yo_str (mirrors the
+              // comptime_str args materialize as __yo_str (mirrors the
               // comptime-value fallback) — the spill var must match.
               const spillType = argRuntimeType
                 ? isComptimeStringType(argRuntimeType)
@@ -1735,7 +1735,7 @@ export function generateOtherFunctionCall(
               // 1. The expression doesn't already handle it
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
-              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_str -> str)
               const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
                 effectiveType,

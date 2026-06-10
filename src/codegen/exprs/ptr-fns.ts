@@ -50,7 +50,7 @@ export function generateAddressOf(
       const typeName = getTypeString(argType, context);
       return `(&(${typeName}){${argCode}})`;
     }
-    // For comptime_string with conversion, the generateExpr already generates the struct
+    // For comptime_str with conversion, the generateExpr already generates the struct
     if (isComptimeStringValue(argValue) && arg.$?.convertedRuntimeType) {
       const argCode = generateExpr(arg, indent, context);
       return `(&${argCode})`;

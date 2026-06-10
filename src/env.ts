@@ -1365,7 +1365,7 @@ export function getReceiverMethodsByNameFromEnv({
           continue; // skip (was return false)
         }
 
-        // Special case: comptime types (comptime_int, comptime_float, comptime_string) can call
+        // Special case: comptime types (comptime_int, comptime_float, comptime_str) can call
         // methods from their runtime type equivalents (i32, f64, [u8])
         if (
           isComptimeIntType(receiverType) ||

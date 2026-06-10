@@ -772,7 +772,7 @@ export function evaluateFunctionCall({
   // ArrayList, String ranges into a new String; str stays a zero-copy
   // static window). The Index trait's `*(Output)` pointer contract cannot
   // express owned returns, hence the method dispatch. Comptime-valued
-  // receivers (array/slice/comptime_string literals) keep the comptime
+  // receivers (array/slice/comptime_str literals) keep the comptime
   // slicing path in tryToCallWithIndexTrait.
   if (
     !givenFunc &&
@@ -1456,7 +1456,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
               };
             }
           }
-          // array, ComptimeList, comptime_string, or any type with Index impl
+          // array, ComptimeList, comptime_str, or any type with Index impl
           // — unified through Index trait dispatch
           else if (
             isArrayType(functionToCall.type) ||
@@ -1731,7 +1731,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
       (functionToCall) => {
         if (!isFunctionType(functionToCall.type)) return false;
         const params = functionToCall.type.parameters;
-        // Check if any parameter is a comptime type (comptime_int, comptime_float, comptime_string)
+        // Check if any parameter is a comptime type (comptime_int, comptime_float, comptime_str)
         return params.some(
           (param) =>
             isComptimeIntType(param.type) ||

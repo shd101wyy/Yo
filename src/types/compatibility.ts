@@ -186,7 +186,7 @@ export function areTypesCompatible(
     return true;
   }
 
-  // comptime_string can be converted to
+  // comptime_str can be converted to
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
   // - str      static string view

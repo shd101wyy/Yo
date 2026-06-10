@@ -240,7 +240,7 @@ All five standard traits use the same `derive_rule` mechanism:
 - **Eq, Clone, Hash, Ord** — derive rules defined in `std/prelude.yo`
 - **ToString** — derive rule defined in `std/fmt/to_string.yo` (where the ToString trait is defined)
 
-These implementations use string-based code generation with `comptime_string` and `.to_expr()` to build impl blocks at compile time.
+These implementations use string-based code generation with `comptime_str` and `.to_expr()` to build impl blocks at compile time.
 
 ## Type Reflection
 

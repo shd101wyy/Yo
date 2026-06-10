@@ -76,11 +76,11 @@ export(target_host);
 /// Configuration for building an executable.
 Executable :: struct(
   /// Artifact name.
-  name : comptime_string,
+  name : comptime_str,
   /// Root source file.
-  root : comptime_string,
+  root : comptime_str,
   /// Compilation target triple (defaults to host).
-  (target : comptime_string) ?= __yo_build_target_host(),
+  (target : comptime_str) ?= __yo_build_target_host(),
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug,
   /// Memory allocator.
@@ -92,11 +92,11 @@ export(Executable);
 /// Configuration for building a static library.
 StaticLibrary :: struct(
   /// Artifact name.
-  name : comptime_string,
+  name : comptime_str,
   /// Root source file.
-  root : comptime_string,
+  root : comptime_str,
   /// Compilation target triple (defaults to host).
-  (target : comptime_string) ?= __yo_build_target_host(),
+  (target : comptime_str) ?= __yo_build_target_host(),
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug
 );
@@ -104,11 +104,11 @@ export(StaticLibrary);
 /// Configuration for building a shared/dynamic library.
 SharedLibrary :: struct(
   /// Artifact name.
-  name : comptime_string,
+  name : comptime_str,
   /// Root source file.
-  root : comptime_string,
+  root : comptime_str,
   /// Compilation target triple (defaults to host).
-  (target : comptime_string) ?= __yo_build_target_host(),
+  (target : comptime_str) ?= __yo_build_target_host(),
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug
 );
@@ -116,11 +116,11 @@ export(SharedLibrary);
 /// Configuration for a test suite.
 TestSuite :: struct(
   /// Suite name.
-  name : comptime_string,
+  name : comptime_str,
   /// Root test file.
-  root : comptime_string,
+  root : comptime_str,
   /// Compilation target triple (defaults to host).
-  (target : comptime_string) ?= __yo_build_target_host()
+  (target : comptime_str) ?= __yo_build_target_host()
 );
 export(TestSuite);
 // ── Build module type ────────────────────────────────────────────────
@@ -128,17 +128,17 @@ export(TestSuite);
 /// Modules are the unit of reuse across Yo dependencies.
 BuildModule :: struct(
   /// Module name.
-  name : comptime_string,
+  name : comptime_str,
   /// Root source file.
-  root : comptime_string,
-  _dep : comptime_string
+  root : comptime_str,
+  _dep : comptime_str
 );
 export(BuildModule);
 // ── Import entry type ────────────────────────────────────────────────
 /// Pairs an import name with a module for use with `add_import`/`add_import_list`.
 ImportEntry :: struct(
   /// Import alias used in source code.
-  name : comptime_string,
+  name : comptime_str,
   /// The module to import.
   module : BuildModule
 );
@@ -148,7 +148,7 @@ export(ImportEntry);
 /// Use `step.depend_on(dep)` to wire dependencies between steps.
 Step :: struct(
   /// Step name.
-  name : comptime_string,
+  name : comptime_str,
   /// Kind of step.
   kind : StepKind
 );
@@ -179,7 +179,7 @@ impl(
     )
   ),
   /// Add extra C compiler flags to this step.
-  add_c_flags : (fn(comptime(self) : Self, comptime(flags) : comptime_string) -> comptime(unit))({
+  add_c_flags : (fn(comptime(self) : Self, comptime(flags) : comptime_str) -> comptime(unit))({
     __yo_build_add_cflags(self.name, flags);
   })
 );
@@ -197,46 +197,46 @@ impl(
 /// User-configurable build option (declared in `build.yo`, set via `yo build -Dname=value`).
 BuildOption :: struct(
   /// Option name (used with `-D`).
-  name : comptime_string,
+  name : comptime_str,
   /// Human-readable description.
-  description : comptime_string,
+  description : comptime_str,
   /// Default value if not provided.
-  (default : comptime_string) ?= ""
+  (default : comptime_str) ?= ""
 );
 export(BuildOption);
 // ── Dependency config types ──────────────────────────────────────────
 /// Git-hosted dependency configuration.
 GitDependency :: struct(
   /// Dependency name.
-  name : comptime_string,
+  name : comptime_str,
   /// Git repository URL.
-  url : comptime_string,
+  url : comptime_str,
   /// Git ref (tag, branch, or commit SHA). Defaults to `"HEAD"`.
-  (ref : comptime_string) ?= "HEAD",
+  (ref : comptime_str) ?= "HEAD",
   /// Subdirectory within the repository.
-  (path : comptime_string) ?= ""
+  (path : comptime_str) ?= ""
 );
 export(GitDependency);
 /// Local path dependency configuration.
 PathDependency :: struct(
   /// Dependency name.
-  name : comptime_string,
+  name : comptime_str,
   /// Filesystem path to the dependency root.
-  path : comptime_string
+  path : comptime_str
 );
 export(PathDependency);
 /// System C library discovered via `pkg-config`.
 SystemLibrary :: struct(
   /// Library name (passed to `pkg-config`).
-  name : comptime_string,
+  name : comptime_str,
   /// Fallback include path if pkg-config fails.
-  (fallback_include : comptime_string) ?= "",
+  (fallback_include : comptime_str) ?= "",
   /// Fallback library path.
-  (fallback_lib : comptime_string) ?= "",
+  (fallback_lib : comptime_str) ?= "",
   /// Fallback link flags.
-  (fallback_link : comptime_string) ?= "",
+  (fallback_link : comptime_str) ?= "",
   /// Extra C preprocessor defines.
-  (defines : comptime_string) ?= ""
+  (defines : comptime_str) ?= ""
 );
 export(SystemLibrary);
 // ── Dependency handle ────────────────────────────────────────────────
@@ -244,20 +244,20 @@ export(SystemLibrary);
 // Provides access to artifacts defined in the dependency's build.yo.
 /// Handle to a registered dependency. Use `.artifact()` or `.module()` to access its exports.
 Dependency :: struct(
-  name : comptime_string
+  name : comptime_str
 );
 export(Dependency);
 impl(
   Dependency,
   /// Access a named artifact from the dependency's `build.yo`.
   /// Returns a `Step` that can be linked to the consumer's artifacts.
-  artifact : (fn(comptime(self) : Self, comptime(artifact_name) : comptime_string) -> comptime(Step))({
+  artifact : (fn(comptime(self) : Self, comptime(artifact_name) : comptime_str) -> comptime(Step))({
     __yo_build_dep_artifact(self.name, artifact_name);
     Step(name : artifact_name, kind : StepKind.StaticLibrary)
   }),
   /// Get a module from the dependency's `build.yo`.
   /// Empty `module_name` defaults to the sole module if exactly one exists.
-  module : (fn(comptime(self) : Self, (comptime(module_name) : comptime_string) ?= "") -> comptime(BuildModule))({
+  module : (fn(comptime(self) : Self, (comptime(module_name) : comptime_str) ?= "") -> comptime(BuildModule))({
     _encoded :: __yo_build_dep_module(self.name, module_name);
     BuildModule(name : module_name, root : "", _dep : self.name)
   })
@@ -331,8 +331,8 @@ export(run);
 /// Register a named build step. Use `step.depend_on(dep)` to add dependencies.
 step :: (
   fn(
-    comptime(name) : comptime_string,
-    comptime(description) : comptime_string
+    comptime(name) : comptime_str,
+    comptime(description) : comptime_str
   ) -> comptime(Step)
 )({
   __yo_build_step(name, description);
@@ -360,9 +360,9 @@ export(system_library);
 /// Module configuration for shared compilation units.
 ModuleConfig :: struct(
   /// Module name.
-  name : comptime_string,
+  name : comptime_str,
   /// Root source file for the module.
-  root : comptime_string
+  root : comptime_str
 );
 export(ModuleConfig);
 /// Register a named module. Returns a `BuildModule` for linking system libraries
@@ -398,11 +398,11 @@ export(DocFormat);
 /// Configuration for documentation generation.
 DocConfig :: struct(
   /// Step name (e.g., "doc").
-  name : comptime_string,
+  name : comptime_str,
   /// Root source file or directory to document.
-  root : comptime_string,
+  root : comptime_str,
   /// Output directory (default: "yo-out/doc").
-  (output : comptime_string) ?= "yo-out/doc",
+  (output : comptime_str) ?= "yo-out/doc",
   /// Output format (default: Html).
   (format : DocFormat) ?= DocFormat.Html,
   /// Document non-exported (private) items.
@@ -410,14 +410,14 @@ DocConfig :: struct(
   /// Document dependencies too.
   (include_deps : bool) ?= false,
   /// Custom site title (default: project name).
-  (title : comptime_string) ?= "",
+  (title : comptime_str) ?= "",
   /// Release version to display (e.g., "v1.0.0").
   /// When empty, auto-detects from git tag or commit hash.
-  (version : comptime_string) ?= "",
+  (version : comptime_str) ?= "",
   /// Path to logo image.
-  (logo : comptime_string) ?= "",
+  (logo : comptime_str) ?= "",
   /// Path to favicon.
-  (favicon : comptime_string) ?= ""
+  (favicon : comptime_str) ?= ""
 );
 export(DocConfig);
 /// Register a documentation generation step. Returns a Step for dependency wiring.

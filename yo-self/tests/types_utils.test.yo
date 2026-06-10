@@ -298,8 +298,8 @@ test("type_implements_runtime_builtin: comptime types yield Some(false)", {
   );
   match(
     type_implements_runtime_builtin(t_comptime_string()),
-    .Some(b) => assert(!(b), "comptime_string should NOT be runtime"),
-    .None => assert(false, "comptime_string should be decided")
+    .Some(b) => assert(!(b), "comptime_str should NOT be runtime"),
+    .None => assert(false, "comptime_str should be decided")
   );
 });
 test("type_implements_runtime: env-fallback returns false for undecided", {
@@ -313,7 +313,7 @@ test("type_is_comptime_only: comptime types are comptime-only", {
   env := Environment.new(String.from(""));
   assert(type_is_comptime_only(t_comptime_int()), "comptime_int");
   assert(type_is_comptime_only(t_comptime_float()), "comptime_float");
-  assert(type_is_comptime_only(t_comptime_string()), "comptime_string");
+  assert(type_is_comptime_only(t_comptime_string()), "comptime_str");
 });
 test("type_is_comptime_only: runtime primitives are not comptime-only", {
   env := Environment.new(String.from(""));
@@ -328,7 +328,7 @@ test("type_requires_comptime_modifier: comptime-only types require comptime", {
   env := Environment.new(String.from(""));
   assert(type_requires_comptime_modifier(t_comptime_int()), "comptime_int needs comptime");
   assert(type_requires_comptime_modifier(t_comptime_float()), "comptime_float needs comptime");
-  assert(type_requires_comptime_modifier(t_comptime_string()), "comptime_string needs comptime");
+  assert(type_requires_comptime_modifier(t_comptime_string()), "comptime_str needs comptime");
   assert(type_requires_comptime_modifier(TypeValue.TypeUni(usize(0))), "TypeUni(0) needs comptime");
 });
 test("type_requires_comptime_modifier: runtime types do not require comptime", {
