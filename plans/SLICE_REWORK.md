@@ -1,4 +1,4 @@
-# Slice rework — static `str`, unsafe `Slice(T)`, library views
+# Slice rework — static `str`, delete builtin `Slice(T)`, library views
 
 **Branch:** `feat/slice-rework`. **Decision** (resolves
 `issues/slice-invalidation-design.md`): instead of snapshot slices (rejected —
@@ -43,19 +43,34 @@ rather than gated.
     an owned `String` (copy) — unchanged.
   - `String.from(s : str)` stays (copies static bytes into a heap String).
 
-### 2. `Slice(T)` — demoted to unsafe vocabulary (NOT deleted)
+### 2. builtin `Slice(T)` — DELETED
 
-- Naming `Slice(T)` in a file without `pragma(Pragma.AllowUnsafe);` becomes a
-  compile error — the **same structural gate `*(T)` already has**
-  (`calls/pointer.ts` / `calls/pointer.yo` is the template; this is a
-  type-naming gate, not a new analysis).
-- Why demote rather than delete: the stdlib internals (`imm/*`, `crypto`,
-  `alg/hash`, `ArrayList`'s buffer plumbing) and C interop already use the
-  fat-pointer form under pragma; deleting the builtin forces reinventing it
-  with no semantic gain. Demotion keeps one audited raw-view type next to
-  `*(T)`.
-- `ArrayList.as_slice()` is removed from the safe surface (same fate as
-  `as_str`).
+(Decision upgraded from "demote" after a usage census — see below.)
+
+- The builtin generic `Slice(T)` type is removed from the language: TypeTag,
+  evaluator handling, codegen lowering, prelude impls and the `__yo_slice_*`
+  extern builtins. The compiler keeps exactly ONE fat-pointer lowering:
+  `str`'s (which becomes a self-contained builtin, no longer a newtype over
+  `Slice(u8)`).
+- **Census that justified deletion** (2026-06): safe user code ≈ nil (the
+  test mentions are dominated by the flowability tests that test the slice
+  gates themselves); std public API exposure = `as_slice` + Array
+  range-indexing + 1 hash use (all already slated for removal); std internals
+  = 10 files, ALL pragma'd, using Slice only as a ptr+len convenience;
+  compiler surface = 147 refs across 27 src/ files + the yo-self ports —
+  deletion removes an entire TypeTag and SHRINKS the upcoming codegen-port
+  surface.
+- **Pragma'd internals replacement**: a library struct in a pragma'd std file
+  — `RawSlice(T) :: struct(ptr : *(T), len : usize)` — gives `imm/*`,
+  `crypto`, `ArrayList` plumbing and C interop the same convenience with zero
+  compiler machinery. Naming it still requires the pragma (it contains
+  `*(T)`, so the existing raw-pointer naming gate already covers it for
+  free).
+- `ArrayList.as_slice()` is removed (same fate as `as_str`).
+- **Array range-indexing** (`arr(0..5) → Slice(T)`) — the one safe feature
+  lost: runtime Array/ArrayList ranges either go through the library view
+  type (§3) or are dropped (element indexing stays). `str` range-indexing
+  STAYS and returns `str` — a window of static data is still static.
 
 ### 3. Safe windows — library view types over the owning handle
 
@@ -109,9 +124,12 @@ With no raw-ptr-carrying values constructible in safe code:
    `: str`-typed parameters (11 such params in std) — flip the parameter to
    `String` (Rc share, cheap) or to a `str` literal where it really is
    static. *(moderate, case-by-case)*
-4. **Gate `Slice(T)` + remove `as_str`/`as_slice`** from the safe surface;
-   fix fallout in non-pragma'd tests (30 `as_slice` sites in tests — many are
-   the flowability tests themselves, which get rewritten per step 6).
+4. **Delete builtin `Slice(T)`** (TypeTag + evaluator + codegen + prelude
+   impls + `__yo_slice_*` builtins; `str` gets its own builtin fat-pointer
+   lowering first) and remove `as_str`/`as_slice`; add `RawSlice(T)` to a
+   pragma'd std file and migrate the pragma'd internals (imm/*, crypto,
+   array_list, hash) to it; fix fallout in non-pragma'd tests (30 `as_slice`
+   sites — many are the flowability tests themselves, rewritten per step 6).
 5. **Add `ListView`** (+ `StrView` if needed) to std/collections with tests.
 6. **Retire the slice-flow gates** (keep ref-core), rewrite
    `tests/flowability_comprehensive.test.yo` (ref-core + the new
@@ -134,10 +152,14 @@ With no raw-ptr-carrying values constructible in safe code:
   (str = static is what the coercion paths already assume) — verify no path
   relied on str being heap-viewable.
 - **C interop**: `*(char)("lit")` and extern signatures unchanged (pragma'd).
-- **Codegen port interaction**: this rework changes std + the gates but NOT
-  the Slice ABI (the type remains, just gated), so it can land before or
-  in parallel with early `BOOTSTRAPPING_CODEGEN.md` phases; the differential
-  harness will exercise the new std.
+- **Codegen port interaction**: deleting the builtin REDUCES the codegen
+  port surface (one less TypeTag/lowering family to port; 147 refs across 27
+  src/ files retire). Order matters: give `str` its own builtin lowering
+  BEFORE removing SliceType, since str currently lowers through it.
+- **Array range-indexing**: decide drop-vs-view for runtime ranges during
+  step 4; verify Array ELEMENT indexing doesn't lower through slice
+  machinery (prelude `__yo_slice_index` is used by `*(Slice(T))` Indexable —
+  check the Array element path before deleting).
 
 ## Status
 
