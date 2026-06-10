@@ -65,6 +65,11 @@ export enum TypeTag {
   // Slice (Fat Pointer)
   Slice = "Slice",
 
+  // str — builtin immutable view of STATIC string bytes (fat pointer).
+  // The runtime materialization of comptime_string (literals / template
+  // segments); immortal backing. See plans/SLICE_REWORK.md.
+  Str = "str",
+
   // Value
   // Literal = "Literal",
 
