@@ -1323,7 +1323,7 @@ _synthesize_types_impl :: (
     // comparing `functionValue.funcId`.
     exp_cfid3 := match(expected_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
     giv_cfid3 := match(given_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
-    same_constructor3 := ((exp_cfid3.len() > usize(0)) && (exp_cfid3.as_str() == giv_cfid3.as_str()));
+    same_constructor3 := ((exp_cfid3.len() > usize(0)) && (exp_cfid3 == giv_cfid3));
     if((exp_id3 != giv_id3) && !(same_constructor3), {
       exn.throw(
         dyn(
@@ -1378,7 +1378,7 @@ _synthesize_types_impl :: (
     // constructor → unify variant fields. Mirrors the struct same_constructor.
     exp_enum_cf := lookup_enum_cfid(exp_enum_id);
     giv_enum_cf := lookup_enum_cfid(giv_enum_id);
-    same_enum_ctor := ((exp_enum_cf.len() > usize(0)) && (exp_enum_cf.as_str() == giv_enum_cf.as_str()));
+    same_enum_ctor := ((exp_enum_cf.len() > usize(0)) && (exp_enum_cf == giv_enum_cf));
     // Structural fallback when EITHER side lacks a recorded constructor id:
     // enums minted on the fn-SPECIALIZATION path (`enum(...)` re-evaluated
     // inside a specialized ctor body) bypass `evaluate_comptime_fn_call`'s

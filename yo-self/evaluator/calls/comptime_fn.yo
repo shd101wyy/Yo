@@ -151,7 +151,7 @@ lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))(
   while((i < n) && match(found,.None => true,.Some(_) => false), {
     match(
       g_recursive_type_refs.get(i),
-      .Some(r) => if(r.some_id.as_str() == some_id.as_str(), {
+      .Some(r) => if(r.some_id == some_id, {
         found = Option(RecursiveTypeRef).Some(r);
       }),
       .None => ()
@@ -235,7 +235,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
     while((ci < n_c) && match(bucket_opt,.None => true,.Some(_) => false), {
       match(
         g_comptime_fn_caches.get(ci),
-        .Some(e) => if(e.func_id.as_str() == rref.func_id.as_str(), {
+        .Some(e) => if(e.func_id == rref.func_id, {
           bucket_opt = Option(ComptimeFnCacheEntry).Some(e);
         }),
         .None => ()
@@ -602,7 +602,7 @@ evaluate_comptime_fn_call :: (
     while((ci < n_c) && match(entry_idx_opt,.None => true,.Some(_) => false), {
       match(
         g_comptime_fn_caches.get(ci),
-        .Some(e) => if(e.func_id.as_str() == func_id_str.as_str(), {
+        .Some(e) => if(e.func_id == func_id_str, {
           entry_idx_opt = Option(usize).Some(ci);
         }),
         .None => ()

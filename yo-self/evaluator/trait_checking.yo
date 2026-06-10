@@ -245,7 +245,7 @@ _ondemand_guard_contains :: (fn(key : String) -> bool)({
   while((i < g_ondemand_marker_guard.len()) && !(found), {
     match(
       g_ondemand_marker_guard.get(i),
-      .Some(k) => if(k.as_str() == key.as_str(), {
+      .Some(k) => if(k == key, {
         found = true;
       }),
       .None => ()
@@ -1266,7 +1266,7 @@ type_contains_some_type_for_codegen_param :: (
     while((ci < checked_ids.len()) && !(seen), {
       match(
         checked_ids.get(ci),
-        .Some(k) => if(k.as_str() == nominal_id.as_str(), {
+        .Some(k) => if(k == nominal_id, {
           seen = true;
         }),
         .None => ()

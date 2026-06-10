@@ -208,7 +208,7 @@ is_str_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
     .Struct({ name, is_newtype : is_nt }) =>
-      (is_nt && (name.as_str() == "str")),
+      (is_nt && (name == "str")),
     _ => false
   )
 );
@@ -224,7 +224,7 @@ is_box_type :: (fn(t : TypeValue) -> bool)(
       (!(String.from(name.as_str()).starts_with(String.from("Box(")))) => false,
       true => match(
         field_labels.get(usize(0)),
-        .Some(label) => (label.as_str() == "*"),
+        .Some(label) => (label == "*"),
         .None => false
       )
     ),

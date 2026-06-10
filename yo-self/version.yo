@@ -69,7 +69,7 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
     )
   );
   // Reject "latest"
-  if(version.to_lowercase().as_str() == "latest", {
+  if(version.to_lowercase() == "latest", {
     return(.Err(`Invalid version "latest" in .yo-version. Specify a concrete version number (e.g., ${CURRENT_YO_VERSION}).`));
   });
   // Validate semver: MAJOR.MINOR.PATCH(-prerelease)?(+build)?
@@ -182,7 +182,7 @@ read_yo_version :: (
 );
 /// Check whether the pinned version matches the currently running version.
 is_pinned_version_current :: (fn(pinned : String, current : String) -> bool)(
-  pinned.as_str() == current.as_str()
+  pinned == current
 );
 export(
   YO_VERSION_FILE,

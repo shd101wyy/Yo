@@ -66,7 +66,7 @@ _label_already_seen :: (fn(seen : ArrayList(String), label : str) -> bool)({
     match(
       seen.get(i),
       .Some(s) => {
-        if(s.as_str() == label, {
+        if(s == label, {
           found = true;
         });
       },
@@ -96,7 +96,7 @@ _find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Optio
     match(
       field_labels.get(i),
       .Some(s) => {
-        if(s.as_str() == label, {
+        if(s == label, {
           result = Option(usize).Some(i);
         });
       },
@@ -210,14 +210,14 @@ handle_member_destructuring :: (
           match(
             lhs_field,
             .FnCall(_, _, args, _, _) => (
-              (match(args.get(usize(0)),.Some(a) => (ast_expr_token(a).value.as_str() == "..."),.None => false)) &&
-                (match(args.get(usize(1)),.Some(b) => (ast_expr_token(b).value.as_str() == "..."),.None => false))
+              (match(args.get(usize(0)),.Some(a) => (ast_expr_token(a).value == "..."),.None => false)) &&
+                (match(args.get(usize(1)),.Some(b) => (ast_expr_token(b).value == "..."),.None => false))
             ),
             _ => false
           )
       ) => true,
       // bare `...` atom
-      (ast_expr_is_atom(lhs_field) && (ast_expr_token(lhs_field).value.as_str() == "...")) => true,
+      (ast_expr_is_atom(lhs_field) && (ast_expr_token(lhs_field).value == "...")) => true,
       true => false
     );
     if(is_spread, {

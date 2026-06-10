@@ -71,7 +71,7 @@ find_last_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(u
     match(
       labels.get(i),
       .Some(lbl) => {
-        if(lbl.as_str() == name, {
+        if(lbl == name, {
           result = Option(usize).Some(i);
         });
       },
@@ -91,7 +91,7 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(
     match(
       labels.get(i),
       .Some(lbl) => {
-        if(lbl.as_str() == name, {
+        if(lbl == name, {
           result = Option(usize).Some(i);
         });
       },
@@ -266,7 +266,7 @@ evaluate_property_access :: (
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-    if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value.as_str() == "Type")) && ast_expr_is_atom(prop_expr), {
+    if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value == "Type")) && ast_expr_is_atom(prop_expr), {
       kind_name := ast_expr_token(prop_expr).value.as_str();
       (is_kind : bool) = cond(
         (kind_name == "Struct") => true,
@@ -654,7 +654,7 @@ Raw pointer operations may dereference invalid memory.`,
     // receivers — the only spelling these in-impl references use — so
     // unrelated TypeVal property accesses are untouched.
     if((ast_expr_is_atom(property_expr) && ast_expr_is_atom(object_expr)) &&
-      (ast_expr_token(object_expr).value.as_str() == "Self"), {
+      (ast_expr_token(object_expr).value == "Self"), {
       wt_prop := ast_expr_token(property_expr).value;
       n_wt := ctx.current_impl_trait_field_labels.len();
       (wt_i : usize) = usize(0);
@@ -1496,7 +1496,7 @@ Raw pointer operations may dereference invalid memory.`,
                             eov,
                             .EnumVal(ev_vn, ev_flds) => {
                               dot_sel := `.${ sel_vname }`;
-                              if(ev_vn.as_str() == dot_sel.as_str(), {
+                              if(ev_vn == dot_sel, {
                                 match(
                                   ev_flds.get(pfi),
                                   .Some(efv) => {

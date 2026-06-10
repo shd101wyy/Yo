@@ -1071,7 +1071,7 @@ test("Phase 5y: size_of returns IntLit 8", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(v) => assert(v.as_str() == "8", "size_of should return(8)"),
+        .IntLit(v) => assert(v == "8", "size_of should return(8)"),
         _ => assert(false, "size_of should return(IntLit)")
       )
   );
@@ -1274,7 +1274,7 @@ test("Phase 5z: StrLit char_at(0) returns first char", {
     .Some(r) =>
       match(
         r.value,
-        .StrLit(v) => assert(v.as_str() == "\"h\"", "char_at(0) should be h"),
+        .StrLit(v) => assert(v == "\"h\"", "char_at(0) should be h"),
         _ => assert(false, "char_at should return(StrLit)")
       )
   );
@@ -1296,7 +1296,7 @@ test("Phase 5z: StrLit char_at(4) returns last char", {
     .Some(r) =>
       match(
         r.value,
-        .StrLit(v) => assert(v.as_str() == "\"o\"", "char_at(4) should be o"),
+        .StrLit(v) => assert(v == "\"o\"", "char_at(4) should be o"),
         _ => assert(false, "char_at should return(StrLit)")
       )
   );
@@ -1314,7 +1314,7 @@ test("eval map add ten", {
   src := "nums := [1, 2, 3, 4, 5];\nresult := nums.map((x) => (x + i32(10)));\ntotal := result.fold(i32(0), (acc, x) => (acc + x));\nexport(total);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "65", "5 nums + 10 each = 15+65=65"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "65", "5 nums + 10 each = 15+65=65"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval iterative product accumulator", {
   env := empty_env();
@@ -1330,7 +1330,7 @@ test("eval iterative product accumulator", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 2*3*4*5*6 = 720
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "720", "2*3*4*5*6=720"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "720", "2*3*4*5*6=720"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval sum of multiples", {
   env := empty_env();
@@ -1352,8 +1352,8 @@ test("eval sum of multiples", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "45", "3+6+9+12+15=45"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "30", "5+10+15=30"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "45", "3+6+9+12+15=45"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "30", "5+10+15=30"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1372,7 +1372,7 @@ test("eval linear search with break", {
   src := "arr := [2, 5, 8, 12, 16, 23, 38, 56, 72, 91];\ntarget := i32(23);\nfound_idx := i32(-(1));\nidx := i32(0);\nfor(x, arr, {\n  cond((x == target) => { found_idx = idx; break; }, true => ());\n  idx = (idx + i32(1));\n});\nexport(found_idx);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "23 is at index 5"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "5", "23 is at index 5"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval string word count", {
   env := empty_env();
@@ -1387,7 +1387,7 @@ test("eval string word count", {
   src := "sentence := \"hello world foo bar baz\";\nwords := sentence.split(\" \");\ncount := words.len();\nexport(count);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "5 words"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "5", "5 words"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval nested for loop sums", {
   env := empty_env();
@@ -1403,7 +1403,7 @@ test("eval nested for loop sums", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // (1*10 + 1*20 + 1*30) + (2*10 + 2*20 + 2*30) + (3*10 + 3*20 + 3*30) = 60 + 120 + 180 = 360
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "360", "sum of r*c"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "360", "sum of r*c"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval while factorial", {
   env := empty_env();
@@ -1418,7 +1418,7 @@ test("eval while factorial", {
   src := "n := i32(7);\nresult := i32(1);\ni := i32(1);\nwhile((i <= n), {\n  result = (result * i);\n  i = (i + i32(1));\n});\nexport(result);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5040", "7!=5040"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "5040", "7!=5040"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval array filter and count", {
   env := empty_env();
@@ -1439,8 +1439,8 @@ test("eval array filter and count", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "7,9,6,8,10 = 5 items"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "40", "7+9+6+8+10=40"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "5", "7,9,6,8,10 = 5 items"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "40", "7+9+6+8+10=40"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1465,8 +1465,8 @@ test("eval recursive power", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1024", "2^10=1024"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "243", "3^5=243"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "1024", "2^10=1024"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "243", "3^5=243"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1512,7 +1512,7 @@ test("eval sum of even squares", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 2^2 + 4^2 + 6^2 + 8^2 + 10^2 = 4+16+36+64+100 = 220
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "220", "sum of even squares"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "220", "sum of even squares"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval fibonacci pair generation", {
   env := empty_env();
@@ -1534,8 +1534,8 @@ test("eval fibonacci pair generation", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "55", "fib(10)=55"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "89", "fib(11)=89"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "55", "fib(10)=55"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "89", "fib(11)=89"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1555,7 +1555,7 @@ test("eval pairwise sum computation", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 7+9+10+6 = 32
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "32", "7+9+10+6=32"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "32", "7+9+10+6=32"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval array max element", {
   env := empty_env();
@@ -1570,7 +1570,7 @@ test("eval array max element", {
   src := "nums := [34, 12, 78, 56, 23, 89, 45, 67, 11, 90];\nmax_val := nums.fold(i32(0), (acc, x) => cond((x > acc) => x, true => acc));\nexport(max_val);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "90", "max is 90"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "90", "max is 90"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval count vowels in string", {
   env := empty_env();
@@ -1586,7 +1586,7 @@ test("eval count vowels in string", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // hello world programming: e,o,o,o,a,i = 6 vowels
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "6 vowels"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "6", "6 vowels"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval recursive gcd", {
   env := empty_env();
@@ -1607,8 +1607,8 @@ test("eval recursive gcd", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "gcd(48,18)=6"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "25", "gcd(100,75)=25"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "6", "gcd(48,18)=6"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "25", "gcd(100,75)=25"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1628,7 +1628,7 @@ test("eval while loop countdown array", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 25 + 16 + 9 + 4 + 1 = 55
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "55", "sum of squares 1..5 = 55"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "55", "sum of squares 1..5 = 55"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval dot product via fold", {
   env := empty_env();
@@ -1644,7 +1644,7 @@ test("eval dot product via fold", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 10 + 40 + 90 + 160 + 250 = 550
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "550", "dot product = 550"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "550", "dot product = 550"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval string join with custom separator", {
   env := empty_env();
@@ -1667,7 +1667,7 @@ test("eval string join with custom separator", {
       m,
       .ModuleVal(_, v) => {
         match(v.get(usize(0)),.Some(x) => match(x,.BoolVal(b) => assert(b, "has dash"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "14", "red-green-blue = 14"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "14", "red-green-blue = 14"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1692,8 +1692,8 @@ test("eval recursive sum digits", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "1+2+3+4+5=15"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "36", "9+9+9+9=36"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "15", "1+2+3+4+5=15"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "36", "9+9+9+9=36"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1713,7 +1713,7 @@ test("eval map filter chain complex", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // map *3: [3,6,9,12,15,18,21,24,27,30,33,36], filter even: [6,12,18,24,30,36], sum = 126
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "126", "map*3 filter even sum=126"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "126", "map*3 filter even sum=126"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval nested array operations", {
   env := empty_env();
@@ -1735,8 +1735,8 @@ test("eval nested array operations", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "120", "30+40+50=120"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "5 items"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "120", "30+40+50=120"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "5", "5 items"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1756,7 +1756,7 @@ test("eval while collatz steps", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // Collatz(27) takes 111 steps
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "111", "collatz(27)=111 steps"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "111", "collatz(27)=111 steps"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval array contains and any", {
   env := empty_env();
@@ -1800,7 +1800,7 @@ test("eval recursive count down", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 10+9+8+7+6+5+4+3+2+1 = 55
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "55", "sum 1..10=55"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "55", "sum 1..10=55"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval string operations chain", {
   env := empty_env();
@@ -1823,7 +1823,7 @@ test("eval string operations chain", {
       m,
       .ModuleVal(_, v) => {
         match(v.get(usize(0)),.Some(x) => match(x,.BoolVal(b) => assert(b, "has hello"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "11", "hello world=11"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "11", "hello world=11"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1842,7 +1842,7 @@ test("eval for break early", {
   src := "nums := [5, 12, 8, 3, 20, 7, 15];\nfound := i32(-(1));\nfor(x, nums, {\n  cond((x > i32(15)) => { found = x; break; }, true => ());\n});\nexport(found);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "20", "first > 15 is 20"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "20", "first > 15 is 20"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval sum of areas from dimensions", {
   env := empty_env();
@@ -1858,7 +1858,7 @@ test("eval sum of areas from dimensions", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 12 + 30 + 16 = 58
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "58", "12+30+16=58"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "58", "12+30+16=58"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval enum simple color match", {
   env := empty_env();
@@ -1873,7 +1873,7 @@ test("eval enum simple color match", {
   src := "Color :: enum(Red, Green, Blue, Yellow);\ncolors := [Color.Red, Color.Blue, Color.Green, Color.Yellow, Color.Red];\nred_count := i32(0);\nfor(c, colors, {\n  match(c, .Red => { red_count = (red_count + i32(1)); }, _ => ());\n});\nexport(red_count);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2 reds"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "2", "2 reds"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval fold product and sum", {
   env := empty_env();
@@ -1889,7 +1889,7 @@ test("eval fold product and sum", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // product = 120, sum = 14, diff = 106
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "106", "120-14=106"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "106", "120-14=106"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval triangular number", {
   env := empty_env();
@@ -1904,7 +1904,7 @@ test("eval triangular number", {
   src := "n := i32(15);\ntri := (n * (n + i32(1)));\ntri = (tri / i32(2));\nexport(tri);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "120", "15*16/2=120"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "120", "15*16/2=120"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval array partition by predicate", {
   env := empty_env();
@@ -1926,8 +1926,8 @@ test("eval array partition by predicate", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "30", "evens sum=30"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "25", "odds sum=25"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "30", "evens sum=30"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "25", "odds sum=25"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -1953,8 +1953,8 @@ test("eval while geometric growth", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1024", "2^10=1024"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "10 doublings"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "1024", "2^10=1024"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "10", "10 doublings"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2005,8 +2005,8 @@ test("eval recursive fibonacci", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "21", "fib(8)=21"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "55", "fib(10)=55"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "21", "fib(8)=21"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "55", "fib(10)=55"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2026,7 +2026,7 @@ test("eval map to boolean flags", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // >7: 8, 12, 9, 15 = 4
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "4 items >7"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "4", "4 items >7"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval accumulate with condition", {
   env := empty_env();
@@ -2048,8 +2048,8 @@ test("eval accumulate with condition", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "69", "12+18+25+14=69"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "4 items"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "69", "12+18+25+14=69"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "4", "4 items"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2075,7 +2075,7 @@ test("eval string repeat and len", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "12", "abc*4=12"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "12", "abc*4=12"), _ => assert(false, "t")),.None => assert(false, "v"));
         match(v.get(usize(1)),.Some(x) => match(x,.BoolVal(b) => assert(b, "starts with abc"), _ => assert(false, "t")),.None => assert(false, "v"));
         match(v.get(usize(2)),.Some(x) => match(x,.BoolVal(b) => assert(b, "ends with abc"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
@@ -2103,8 +2103,8 @@ test("eval while sum until overflow", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "105", "1+..+14=105"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "i=15 after loop"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "105", "1+..+14=105"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "15", "i=15 after loop"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2130,7 +2130,7 @@ test("eval array reverse and compare", {
       m,
       .ModuleVal(_, v) => {
         match(v.get(usize(0)),.Some(x) => match(x,.BoolVal(b) => assert(b, "reverse preserves sum"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "sum=15"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "15", "sum=15"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2177,7 +2177,7 @@ test("eval array double filter", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // mult of 3: 3,6,9,12,15 => >6: 9,12,15 => sum=36
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "36", "9+12+15=36"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "36", "9+12+15=36"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval while newton sqrt approx", {
   env := empty_env();
@@ -2193,7 +2193,7 @@ test("eval while newton sqrt approx", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // Newton's method for sqrt(100) starting at 10 converges to 10
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "sqrt(100)=10"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "10", "sqrt(100)=10"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval string split and filter empty", {
   env := empty_env();
@@ -2209,7 +2209,7 @@ test("eval string split and filter empty", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // "one","","two","","three" => non_empty = 3
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3 non-empty parts"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "3", "3 non-empty parts"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval recursive binary digits count", {
   env := empty_env();
@@ -2230,9 +2230,9 @@ test("eval recursive binary digits count", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "255=11111111, 8 ones"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "128=10000000, 1 one"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "7=111, 3 ones"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "8", "255=11111111, 8 ones"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "1", "128=10000000, 1 one"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n == "3", "7=111, 3 ones"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2258,8 +2258,8 @@ test("eval for loop with running max", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "9", "max=9"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3 new maxes"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "9", "max=9"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "3", "3 new maxes"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2279,7 +2279,7 @@ test("eval array map squared difference", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // (1-3)^2 + (2-3)^2 + (3-3)^2 + (4-3)^2 + (5-3)^2 = 4+1+0+1+4 = 10
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "variance sum=10"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "10", "variance sum=10"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval enum weekday classification", {
   env := empty_env();
@@ -2294,7 +2294,7 @@ test("eval enum weekday classification", {
   src := "Day :: enum(Mon, Tue, Wed, Thu, Fri, Sat, Sun);\ndays := [Day.Mon, Day.Wed, Day.Fri, Day.Sat, Day.Sun];\nweekend_count := i32(0);\nfor(d, days, {\n  match(d, .Sat => { weekend_count = (weekend_count + i32(1)); }, .Sun => { weekend_count = (weekend_count + i32(1)); }, _ => ());\n});\nexport(weekend_count);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "Sat+Sun=2"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "2", "Sat+Sun=2"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval while digit extraction", {
   env := empty_env();
@@ -2310,7 +2310,7 @@ test("eval while digit extraction", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 5+4+3+2+1 = 15
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "5+4+3+2+1=15"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "15", "5+4+3+2+1=15"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval string builder concat", {
   env := empty_env();
@@ -2332,7 +2332,7 @@ test("eval string builder concat", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "12", "Hello World! = 12"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "12", "Hello World! = 12"), _ => assert(false, "t")),.None => assert(false, "v"));
         match(v.get(usize(1)),.Some(x) => match(x,.BoolVal(b) => assert(b, "has World"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
@@ -2358,8 +2358,8 @@ test("eval consecutive primes sum", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "129", "sum first 10 primes=129"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "10 primes"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "129", "sum first 10 primes=129"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "10", "10 primes"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2385,8 +2385,8 @@ test("eval while bubble pass", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2 swaps"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "a=3 after first swap"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "2", "2 swaps"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "3", "a=3 after first swap"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2412,8 +2412,8 @@ test("eval recursive lcm via gcd", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "24", "lcm(12,8)=24"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "75", "lcm(15,25)=75"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "24", "lcm(12,8)=24"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "75", "lcm(15,25)=75"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2438,8 +2438,8 @@ test("eval array concat two lists", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "21", "1+2+3+4+5+6=21"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "6 items"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "21", "1+2+3+4+5+6=21"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "6", "6 items"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2485,7 +2485,7 @@ test("eval for accumulate with break threshold", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 10+20+30+40=100, +50=150 > 100 => break. sum=150
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "150", "10+20+30+40+50=150"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "150", "10+20+30+40+50=150"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval recursive reverse number", {
   env := empty_env();
@@ -2500,7 +2500,7 @@ test("eval recursive reverse number", {
   src := "rev_num := (fn(n : i32, acc : i32) -> i32)(cond((n == i32(0)) => acc, true => recur((n / i32(10)), ((acc * i32(10)) + (n % i32(10))))));\nr := rev_num(i32(12345), i32(0));\nexport(r);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "54321", "reverse 12345=54321"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "54321", "reverse 12345=54321"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval map abs value", {
   env := empty_env();
@@ -2516,7 +2516,7 @@ test("eval map abs value", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 5+3+2+7+1 = 18
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "18", "5+3+2+7+1=18"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "18", "5+3+2+7+1=18"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval enum season matching", {
   env := empty_env();
@@ -2532,7 +2532,7 @@ test("eval enum season matching", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // Winter x3 + Autumn x1 = 4
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "3 winter + 1 autumn = 4"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "4", "3 winter + 1 autumn = 4"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval while find first divisible", {
   env := empty_env();
@@ -2548,7 +2548,7 @@ test("eval while find first divisible", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 100 % 7 = 2, 99 % 7 = 1, 98 % 7 = 0 => result = 98
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "98", "first <=100 div by 7 is 98"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "98", "first <=100 div by 7 is 98"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval perfect square check", {
   env := empty_env();
@@ -2564,7 +2564,7 @@ test("eval perfect square check", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 4,9,16,25,36 = 5 perfect squares
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "5 perfect squares"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "5", "5 perfect squares"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval array running total", {
   env := empty_env();
@@ -2586,8 +2586,8 @@ test("eval array running total", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "25", "max running=25"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "25", "final running=25"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "25", "max running=25"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "25", "final running=25"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2613,8 +2613,8 @@ test("eval recursive ackermann small", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "ack(1,2)=4"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "7", "ack(2,2)=7"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "4", "ack(1,2)=4"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "7", "ack(2,2)=7"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2634,7 +2634,7 @@ test("eval string word filter by length", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // quick(5), brown(5), jumps(5), over(4), lazy(4) = 5 words > 3 chars
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "5 words longer than 3"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "5", "5 words longer than 3"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval while halving sequence", {
   env := empty_env();
@@ -2650,7 +2650,7 @@ test("eval while halving sequence", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 256->128->64->32->16->8->4->2->1 = 8 steps
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "log2(256)=8"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "8", "log2(256)=8"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval fold min value", {
   env := empty_env();
@@ -2665,7 +2665,7 @@ test("eval fold min value", {
   src := "nums := [45, 23, 67, 12, 89, 34, 56];\nmin_val := nums.fold(i32(999), (acc, x) => cond((x < acc) => x, true => acc));\nexport(min_val);";
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "12", "min=12"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "12", "min=12"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval recursive integer log", {
   env := empty_env();
@@ -2687,8 +2687,8 @@ test("eval recursive integer log", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "log10(1000)=3"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "log2(64)=6"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "3", "log10(1000)=3"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "6", "log2(64)=6"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2714,8 +2714,8 @@ test("eval array interleave", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "36", "1..8 sum=36"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "8 items"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "36", "1..8 sum=36"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "8", "8 items"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2769,8 +2769,8 @@ test("eval for enumerate count", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3 long words"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2 short words"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "3", "3 long words"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "2", "2 short words"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2790,7 +2790,7 @@ test("eval alternating sign sum", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 1-2+3-4+5-6+7-8 = -4
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "-4", "1-2+3-4+5-6+7-8=-4"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "-4", "1-2+3-4+5-6+7-8=-4"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval array all same check", {
   env := empty_env();
@@ -2832,7 +2832,7 @@ test("eval while gcd sequence", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // gcd(252,105) = 21
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "21", "gcd(252,105)=21"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "21", "gcd(252,105)=21"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval string contains chain", {
   env := empty_env();
@@ -2881,8 +2881,8 @@ test("eval recursive tower of powers", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "81", "3^4=81"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "125", "5^3=125"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "81", "3^4=81"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "125", "5^3=125"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2908,8 +2908,8 @@ test("eval map and reduce complex", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "ratio=2"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "60", "doubled sum=60"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "2", "ratio=2"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "60", "doubled sum=60"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2929,7 +2929,7 @@ test("eval enum priority sorting", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // High x2 + Critical x1 = 3
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "2 high + 1 critical = 3"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "3", "2 high + 1 critical = 3"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval for with multiple accumulators", {
   env := empty_env();
@@ -2951,9 +2951,9 @@ test("eval for with multiple accumulators", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "30", "even sum=30"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "25", "odd sum=25"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "24", "1*2*3*4=24"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "30", "even sum=30"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "25", "odd sum=25"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n == "24", "1*2*3*4=24"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -2973,7 +2973,7 @@ test("eval while modular arithmetic", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 2^10 % 1000 = 1024 % 1000 = 24
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "24", "2^10 mod 1000 = 24"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "24", "2^10 mod 1000 = 24"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval array find streak", {
   env := empty_env();
@@ -2989,7 +2989,7 @@ test("eval array find streak", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // longest streak: 3,3,3,3 = 4
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "max streak=4"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "4", "max streak=4"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval sum of cubes", {
   env := empty_env();
@@ -3005,7 +3005,7 @@ test("eval sum of cubes", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 1+8+27+64+125 = 225
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "225", "sum cubes 1..5=225"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "225", "sum cubes 1..5=225"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval while count divisors", {
   env := empty_env();
@@ -3021,7 +3021,7 @@ test("eval while count divisors", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 36: 1,2,3,4,6,9,12,18,36 = 9 divisors
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "9", "36 has 9 divisors"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "9", "36 has 9 divisors"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval string replace multiple", {
   env := empty_env();
@@ -3043,7 +3043,7 @@ test("eval string replace multiple", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "xbbydd=6"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "6", "xbbydd=6"), _ => assert(false, "t")),.None => assert(false, "v"));
         match(v.get(usize(1)),.Some(x) => match(x,.BoolVal(b) => assert(b, "has x"), _ => assert(false, "t")),.None => assert(false, "v"));
         match(v.get(usize(2)),.Some(x) => match(x,.BoolVal(b) => assert(b, "has y"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
@@ -3070,9 +3070,9 @@ test("eval recursive digit count", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "12345 has 5 digits"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "7 has 1 digit"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "7", "1000000 has 7 digits"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "5", "12345 has 5 digits"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "1", "7 has 1 digit"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n == "7", "1000000 has 7 digits"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -3092,7 +3092,7 @@ test("eval array unique count manual", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // cat, dog, bird, fish = 4 unique
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "4 unique words"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "4", "4 unique words"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval while power series", {
   env := empty_env();
@@ -3108,7 +3108,7 @@ test("eval while power series", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // 1+2+4+8+16+32+64+128 = 255
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "255", "2^0+...+2^7=255"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "255", "2^0+...+2^7=255"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval filter map combined", {
   env := empty_env();
@@ -3124,7 +3124,7 @@ test("eval filter map combined", {
   exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, env);
   // filter >3: [4,5,6,7,8,9,10], map x^2: [16,25,36,49,64,81,100], filter <50: [16,25,36,49], sum=126
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "126", "16+25+36+49=126"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "126", "16+25+36+49=126"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("eval for break with counter", {
   env := empty_env();
@@ -3146,8 +3146,8 @@ test("eval for break with counter", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "6 items before break"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "108", "4+8+15+16+23+42=108"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "6", "6 items before break"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "108", "4+8+15+16+23+42=108"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -3172,8 +3172,8 @@ test("eval recursive multiply", {
     .Some(m) => match(
       m,
       .ModuleVal(_, v) => {
-        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "56", "7*8=56"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "60", "12*5=60"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n == "56", "7*8=56"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(1)),.Some(x) => match(x,.IntLit(n) => assert(n == "60", "12*5=60"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )
@@ -3200,7 +3200,7 @@ test("eval 2000th test milestone", {
       .ModuleVal(_, v) => {
         match(v.get(usize(0)),.Some(x) => match(x,.BoolVal(b) => assert(b, "2000 is even"), _ => assert(false, "t")),.None => assert(false, "v"));
         match(v.get(usize(1)),.Some(x) => match(x,.BoolVal(b) => assert(b, "2000 > 1000"), _ => assert(false, "t")),.None => assert(false, "v"));
-        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2000", "milestone=2000"), _ => assert(false, "t")),.None => assert(false, "v"));
+        match(v.get(usize(2)),.Some(x) => match(x,.IntLit(n) => assert(n == "2000", "milestone=2000"), _ => assert(false, "t")),.None => assert(false, "v"));
       },
       _ => assert(false, "m")
     )

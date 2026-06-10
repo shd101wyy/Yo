@@ -67,7 +67,7 @@ _has_variant :: (fn(variant_names : ArrayList(String), name : str) -> bool)({
   while((i < variant_names.len()) && !(found), {
     match(
       variant_names.get(i),
-      .Some(vn) => if(vn.as_str() == name, {
+      .Some(vn) => if(vn == name, {
         found = true;
       }),
       .None => ()
@@ -183,7 +183,7 @@ _patch_self_shell :: (
   match(
     t,
     .EnumT(eid, _, vns, _, _, _, _) => cond(
-      ((eid.as_str() == shell_id) && (vns.len() == usize(0))) => final_ty,
+      ((eid == shell_id) && (vns.len() == usize(0))) => final_ty,
       true => t
     ),
     .Pointer(inner) =>.Pointer(box(recur(inner.*, shell_id, final_ty))),

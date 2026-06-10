@@ -44,7 +44,7 @@ is_lambda_expr :: (fn(expr : AstExpr) -> bool)(
         lf.*,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, lt) => cond(
-          !((lt.value.as_str() == "->") || (lt.value.as_str() == "=>")) => false,
+          !((lt.value == "->") || (lt.value == "=>")) => false,
           true => match(
             largs.get(usize(0)),
             .None => false,
@@ -57,7 +57,7 @@ is_lambda_expr :: (fn(expr : AstExpr) -> bool)(
                 (!(llis)) && match(
                   llf.*,
                   .FnCall(_, _, _, _, _) => false,
-                  .Atom(_, llt) => (llt.value.as_str() == BK_TUPLE)
+                  .Atom(_, llt) => (llt.value == BK_TUPLE)
                 )
               )
             )

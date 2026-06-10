@@ -781,7 +781,7 @@ impl(
       match(
         self.fn_return_names.get(i),
         .None => (),
-        .Some(fn_name) => if(fn_name.as_str() == name, {
+        .Some(fn_name) => if(fn_name == name, {
           result = self.fn_return_tys.get(i);
         })
       );
@@ -799,7 +799,7 @@ impl(
         self.defined_fns.get(fi),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == fn_name, {
+          if(s == fn_name, {
             found_list_idx =.Some(fi);
           });
         }
@@ -855,7 +855,7 @@ impl(
         self.array_var_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found_idx =.Some(i);
           });
         }
@@ -878,7 +878,7 @@ impl(
         self.array_var_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -901,7 +901,7 @@ impl(
         self.slice_var_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -925,7 +925,7 @@ impl(
         self.box_var_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -948,7 +948,7 @@ impl(
         self.emitted_const_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -971,7 +971,7 @@ impl(
         self.string_const_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -991,7 +991,7 @@ impl(
         self.defined_fns.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -1014,7 +1014,7 @@ impl(
         self.defined_enums.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -1042,7 +1042,7 @@ impl(
         self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             self.struct_field_csvs(i) = String.from(fields_csv);
             found = true;
           });
@@ -1061,7 +1061,7 @@ impl(
         self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             result = match(
               self.struct_field_csvs.get(i),
               .None => Option(String).None,
@@ -1086,7 +1086,7 @@ impl(
         self.generic_struct_names.get(i),
         .None => (),
         .Some(existing) => {
-          if(existing.as_str() == name, {
+          if(existing == name, {
             self.generic_struct_field_csvs(i) = String.from(fields_csv);
             found = true;
           });
@@ -1108,7 +1108,7 @@ impl(
         self.generic_struct_names.get(i),
         .None => (),
         .Some(existing) => {
-          if(existing.as_str() == name, {
+          if(existing == name, {
             result = match(
               self.generic_struct_field_csvs.get(i),
               .None => Option(String).None,
@@ -1132,7 +1132,7 @@ impl(
         self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             self.struct_default_value_csvs(i) = String.from(defaults_csv);
           });
         }
@@ -1149,7 +1149,7 @@ impl(
         self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             result = match(
               self.struct_default_value_csvs.get(i),
               .None => Option(String).None,
@@ -1182,7 +1182,7 @@ impl(
         self.open_var_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == var_name, {
+          if(s == var_name, {
             result = match(
               self.open_var_field_csvs.get(i),
               .None => Option(String).None,
@@ -1208,7 +1208,7 @@ impl(
         self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -1236,12 +1236,12 @@ impl(
         self.variant_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == variant, {
+          if(s == variant, {
             // Only treat as a match when both the variant name AND the owning enum
             // match — different enums may legitimately share variant names.
             enum_matches := match(
               self.variant_enums.get(i),
-              .Some(e) => (e.as_str() == enum_name),
+              .Some(e) => (e == enum_name),
               .None => false
             );
             if(enum_matches, {
@@ -1274,7 +1274,7 @@ impl(
         self.var_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == var_name, {
+          if(s == var_name, {
             result = match(
               self.var_types.get(i),
               .Some(t) => Option(String).Some(t),
@@ -1299,7 +1299,7 @@ impl(
         self.variant_enums.get(i),
         .None => (),
         .Some(e) => {
-          if(e.as_str() == name, {
+          if(e == name, {
             match(
               self.variant_fields_csv.get(i),
               .None => (),
@@ -1326,7 +1326,7 @@ impl(
         self.variant_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == variant, {
+          if(s == variant, {
             result = match(
               self.variant_enums.get(i),
               .Some(e) => Option(String).Some(e),
@@ -1353,10 +1353,10 @@ impl(
         self.variant_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == variant, {
+          if(s == variant, {
             enum_matches := match(
               self.variant_enums.get(i),
-              .Some(e) => (e.as_str() == enum_name),
+              .Some(e) => (e == enum_name),
               .None => false
             );
             if(enum_matches, {
@@ -1422,7 +1422,7 @@ impl(
         self.array_alias_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             result = match(
               self.array_alias_elems.get(i),
               .Some(e) => Option(String).Some(e),
@@ -1445,7 +1445,7 @@ impl(
         self.array_alias_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             result = match(
               self.array_alias_sizes.get(i),
               .Some(sz) => Option(usize).Some(sz),
@@ -1470,7 +1470,7 @@ impl(
         self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             self.struct_field_type_csvs(i) = String.from(types_csv);
             found = true;
           });
@@ -1489,7 +1489,7 @@ impl(
         self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             result = match(
               self.struct_field_type_csvs.get(i),
               .None => Option(String).None,
@@ -1519,7 +1519,7 @@ impl(
         self.derive_tostring_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == type_name, {
+          if(s == type_name, {
             found = true;
           });
         }
@@ -1542,7 +1542,7 @@ impl(
         self.derive_clone_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == type_name, {
+          if(s == type_name, {
             found = true;
           });
         }
@@ -1565,7 +1565,7 @@ impl(
         self.derive_eq_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == type_name, {
+          if(s == type_name, {
             found = true;
           });
         }
@@ -1588,7 +1588,7 @@ impl(
         self.derive_hash_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == type_name, {
+          if(s == type_name, {
             found = true;
           });
         }
@@ -1611,7 +1611,7 @@ impl(
         self.derive_ord_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == type_name, {
+          if(s == type_name, {
             found = true;
           });
         }
@@ -1634,7 +1634,7 @@ impl(
         self.skipped_fn_names.get(i),
         .None => (),
         .Some(s) => {
-          if(s.as_str() == name, {
+          if(s == name, {
             found = true;
           });
         }
@@ -1655,7 +1655,7 @@ impl(
       match(
         self.closure_alias_names.get(i),
         .None => (),
-        .Some(name) => if(name.as_str() == alias_name, {
+        .Some(name) => if(name == alias_name, {
           result = self.closure_alias_param_names.get(i);
         })
       );
@@ -1676,7 +1676,7 @@ impl(
       match(
         self.closure_var_names.get(i),
         .None => (),
-        .Some(name) => if(name.as_str() == var_name, {
+        .Some(name) => if(name == var_name, {
           result = self.closure_capture_names.get(i);
         })
       );
@@ -1692,7 +1692,7 @@ impl(
       match(
         self.closure_var_names.get(i),
         .None => (),
-        .Some(name) => if(name.as_str() == var_name, {
+        .Some(name) => if(name == var_name, {
           result = self.closure_param_names.get(i);
         })
       );
@@ -1713,12 +1713,12 @@ impl(
       var_matches := match(
         self.anon_method_var_names.get(i),
         .None => false,
-        .Some(name) => (name.as_str() == var_name)
+        .Some(name) => (name == var_name)
       );
       method_matches := match(
         self.anon_method_names.get(i),
         .None => false,
-        .Some(name2) => (name2.as_str() == method_name)
+        .Some(name2) => (name2 == method_name)
       );
       if(var_matches && method_matches, {
         result = self.anon_method_body_templates.get(i);

@@ -198,7 +198,7 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
   (n_keys : usize) = g_impl_registry_keys.len();
   while(ki < n_keys, {
     existing_key := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
-    if(existing_key.as_str() == key.as_str(), {
+    if(existing_key == key, {
       key_idx = Option(usize).Some(ki);
       ki = n_keys; // break
     });
@@ -240,7 +240,7 @@ has_negative_impl :: (fn(type_id : str, trait_id : str) -> bool)({
   while((i < g_negative_impl_registry.len()) && !(found), {
     match(
       g_negative_impl_registry.get(i),
-      .Some(k) => if(k.as_str() == key.as_str(), {
+      .Some(k) => if(k == key, {
         found = true;
       }),
       .None => ()
@@ -517,7 +517,7 @@ find_matching_generic_impl :: (
   (n_keys : usize) = g_impl_registry_keys.len();
   while(ki < n_keys, {
     k := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
-    if(k.as_str() == key.as_str(), {
+    if(k == key, {
       entry_list_opt = g_impl_registry_entry_lists.get(ki);
       ki = n_keys; // break
     });
@@ -581,7 +581,7 @@ find_matching_negative_generic_impl :: (
         continue;
       }
     );
-    if(entry.trait_key.as_str() == key.as_str(), {
+    if(entry.trait_key == key, {
       if(try_match_generic_impl(concrete_type, entry, env).is_some(), {
         found = true;
       });
@@ -679,7 +679,7 @@ find_methods_from_generic_impls :: (
   });
   // Iterate all key buckets.
   n_keys := g_impl_registry_keys.len();
-  if(method_name.as_str() == "index", {
+  if(method_name == "index", {
   });
   (ki : usize) = usize(0);
   while(ki < n_keys, {
@@ -715,7 +715,7 @@ find_methods_from_generic_impls :: (
         while((pfi < n_pf) && !(has_field_with_name), {
           match(
             entry.field_names.get(pfi),
-            .Some(pfn) => if(pfn.as_str() == method_name.as_str(), {
+            .Some(pfn) => if(pfn == method_name, {
               has_field_with_name = true;
             }),
             .None => ()
@@ -744,7 +744,7 @@ find_methods_from_generic_impls :: (
               .Some(n) => n,
               .None => String.from("")
             );
-            if(fname.as_str() == method_name.as_str(), {
+            if(fname == method_name, {
               ftype := match(
                 entry.field_types.get(fi),
                 .Some(t) => t,
@@ -896,7 +896,7 @@ _trait_field_type_by_label :: (
           match(
             labels.get(i),
             .Some(l) => {
-              if(l.as_str() == label.as_str(), {
+              if(l == label, {
                 found = types.get(i);
               });
             },
@@ -930,7 +930,7 @@ _find_self_level_in_method_ty :: (
           .Some(p) => match(
             p,
             .SomeT(_, n, lvl, _, _, _, _, _, _, _) => {
-              if(n.as_str() == "Self", {
+              if(n == "Self", {
                 found = Option(usize).Some(lvl);
               });
             },
@@ -944,7 +944,7 @@ _find_self_level_in_method_ty :: (
         match(
           ret.*,
           .SomeT(_, n, lvl, _, _, _, _, _, _, _) => {
-            if(n.as_str() == "Self", {
+            if(n == "Self", {
               found = Option(usize).Some(lvl);
             });
           },
@@ -1720,9 +1720,9 @@ evaluate_module_value :: (
             .FnCall(_, pfb, _, _, _) => ast_expr_token(pfb.*).value,
             .Atom(_, _) => String.new()
           );
-          if((pos_trait_name.as_str() == "Send") || (pos_trait_name.as_str() == "Acyclic"), {
+          if((pos_trait_name == "Send") || (pos_trait_name == "Acyclic"), {
             if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(field_expr).module_path.clone()))), {
-              suffix := if(pos_trait_name.as_str() == "Send", String.from("send across threads"), String.from("declare Acyclic"));
+              suffix := if(pos_trait_name == "Send", String.from("send across threads"), String.from("declare Acyclic"));
               exn.throw(
                 dyn(
                   format_error_message(
@@ -1907,7 +1907,7 @@ evaluate_module_value :: (
                       match(
                         existing_entries.get(sh_ei),
                         .Some(ex_entry) => {
-                          if(ex_entry.source_trait_id.as_str() == "__forward_shell", {
+                          if(ex_entry.source_trait_id == "__forward_shell", {
                             ex_entry.ty = fi.ty;
                             ex_entry.value = Option(EvalValue).Some(method_val);
                             ex_entry.source_trait_id = String.from("");

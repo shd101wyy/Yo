@@ -197,19 +197,19 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     .BoolVal(ab) =>
       match(b,.BoolVal(bb) => (ab == bb), _ => false),
     .IntLit(ar) =>
-      match(b,.IntLit(br) => (ar.as_str() == br.as_str()), _ => false),
+      match(b,.IntLit(br) => (ar == br), _ => false),
     .FloatLit(ar) =>
-      match(b,.FloatLit(br) => (ar.as_str() == br.as_str()), _ => false),
+      match(b,.FloatLit(br) => (ar == br), _ => false),
     .StrLit(ar) =>
-      match(b,.StrLit(br) => (ar.as_str() == br.as_str()), _ => false),
+      match(b,.StrLit(br) => (ar == br), _ => false),
     .VarRef(an) =>
-      match(b,.VarRef(bn) => (an.as_str() == bn.as_str()), _ => false),
+      match(b,.VarRef(bn) => (an == bn), _ => false),
     .EnumVal(av, afs) =>
       match(
         b,
         .EnumVal(bv, bfs) =>
           cond(
-            (!(av.as_str() == bv.as_str())) => false,
+            (!(av == bv)) => false,
             (afs.len() != bfs.len()) => false,
             true => {
               n := afs.len();
@@ -250,7 +250,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         b,
         .StructVal(btn, bnames, bvals) =>
           cond(
-            (!(atn.as_str() == btn.as_str())) => false,
+            (!(atn == btn)) => false,
             (anames.len() != bnames.len()) => false,
             (avals.len() != bvals.len()) => false,
             true => {
@@ -265,7 +265,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                       bnames.get(sf_i),
                       .Some(bn_s) => {
                         cond(
-                          (!(an_s.as_str() == bn_s.as_str())) => {
+                          (!(an_s == bn_s)) => {
                             sf_ok = false;
                           },
                           true => ()
@@ -429,7 +429,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         b,
         .TraitVal(btn, bfnames, bfvals) =>
           cond(
-            (!(atn.as_str() == btn.as_str())) => false,
+            (!(atn == btn)) => false,
             (afnames.len() != bfnames.len()) => false,
             (afvals.len() != bfvals.len()) => false,
             true => {
@@ -444,7 +444,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                       bfnames.get(tr_i),
                       .Some(bn_s) => {
                         cond(
-                          (!(an_s.as_str() == bn_s.as_str())) => {
+                          (!(an_s == bn_s)) => {
                             tr_ok = false;
                           },
                           true => ()
@@ -535,7 +535,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         a_ex.*,
         .Atom(_, atok) => match(
           b_ex.*,
-          .Atom(_, btok) => (atok.value.as_str() == btok.value.as_str()),
+          .Atom(_, btok) => (atok.value == btok.value),
           _ => false
         ),
         _ => false
@@ -1015,7 +1015,7 @@ lookup_enum_cfid :: (fn(enum_id : String) -> String)({
   while((i < n) && (r.len() == usize(0)), {
     match(
       g_enum_cfids.get(i),
-      .Some(e) => if(e.enum_id.as_str() == enum_id.as_str(), {
+      .Some(e) => if(e.enum_id == enum_id, {
         r = e.func_id.clone();
       }),
       .None => ()

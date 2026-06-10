@@ -600,7 +600,7 @@ get_deferred_dup_target_atom_name :: (
                 .Atom({ token : lhs_tok }) => match(
                   rhs,
                   .Atom({ token : rhs_tok }) => cond(
-                    (rhs_tok.value.as_str() == BF_DUP) =>
+                    (rhs_tok.value == BF_DUP) =>
                       Option(String).Some(lhs_tok.value),
                     true => Option(String).None
                   ),
@@ -653,7 +653,7 @@ get_deferred_drop_target_atom_name :: (
               .Atom({ token : lhs_tok }) => match(
                 rhs,
                 .Atom({ token : rhs_tok }) => cond(
-                  (rhs_tok.value.as_str() == BF_DROP) =>
+                  (rhs_tok.value == BF_DROP) =>
                     Option(String).Some(lhs_tok.value),
                   true => Option(String).None
                 ),
@@ -769,14 +769,14 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
     .FuncVal({ body }) => match(
       _body_is_begin_wrapping_inline_call(body.*),
       .Some(name) => cond(
-        (name.as_str() == BF_YO_AS) => Option(String).None,
+        (name == BF_YO_AS) => Option(String).None,
         true => Option(String).Some(name)
       ),
       .None => match(
         _fn_call_func_atom_name(body.*),
         .None => Option(String).None,
         .Some(name) => cond(
-          (name.as_str() == BF_YO_AS) => Option(String).None,
+          (name == BF_YO_AS) => Option(String).None,
           is_builtin_yo_inline_function(name.as_str()) => Option(String).Some(name),
           true => Option(String).None
         )

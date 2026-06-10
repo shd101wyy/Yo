@@ -28,7 +28,7 @@ test("generate_yo_inline_function_call: __yo_op_add emits binary +", {
   match(
     out,
     .None => assert(false, "expected Some output"),
-    .Some(code) => assert(code.as_str() == "((x) + (y))", "expected binary add")
+    .Some(code) => assert(code == "((x) + (y))", "expected binary add")
   );
 });
 test("generate_yo_inline_function_call: __yo_op_neg emits unary -", {
@@ -36,7 +36,7 @@ test("generate_yo_inline_function_call: __yo_op_neg emits unary -", {
   match(
     out,
     .None => assert(false, "expected Some output"),
-    .Some(code) => assert(code.as_str() == "(-(a))", "expected unary negation")
+    .Some(code) => assert(code == "(-(a))", "expected unary negation")
   );
 });
 test("generate_yo_inline_function_call: __yo_ptr_eq emits == without parens around args", {
@@ -44,7 +44,7 @@ test("generate_yo_inline_function_call: __yo_ptr_eq emits == without parens arou
   match(
     out,
     .None => assert(false, "expected Some output"),
-    .Some(code) => assert(code.as_str() == "(p == q)", "expected pointer equality")
+    .Some(code) => assert(code == "(p == q)", "expected pointer equality")
   );
 });
 test("generate_yo_inline_function_call: __yo_slice_len accesses .length field", {
@@ -52,7 +52,7 @@ test("generate_yo_inline_function_call: __yo_slice_len accesses .length field", 
   match(
     out,
     .None => assert(false, "expected Some output"),
-    .Some(code) => assert(code.as_str() == "(s.length)", "expected slice length access")
+    .Some(code) => assert(code == "(s.length)", "expected slice length access")
   );
 });
 test("generate_yo_inline_function_call: __yo_noop emits empty string", {
@@ -60,7 +60,7 @@ test("generate_yo_inline_function_call: __yo_noop emits empty string", {
   match(
     out,
     .None => assert(false, "expected Some output"),
-    .Some(code) => assert(code.as_str() == "", "expected empty noop")
+    .Some(code) => assert(code == "", "expected empty noop")
   );
 });
 test("generate_yo_inline_function_call: __yo_decr_rc emits void* cast", {
@@ -68,7 +68,7 @@ test("generate_yo_inline_function_call: __yo_decr_rc emits void* cast", {
   match(
     out,
     .None => assert(false, "expected Some output"),
-    .Some(code) => assert(code.as_str() == "__yo_decr_rc((void*)(rc))", "expected decr_rc with void* cast")
+    .Some(code) => assert(code == "__yo_decr_rc((void*)(rc))", "expected decr_rc with void* cast")
   );
 });
 test("is_yo_inline_builtin: known builtins return true", {

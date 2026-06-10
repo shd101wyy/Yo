@@ -136,7 +136,7 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
         !(
           match(
             func_box.*,
-            .Atom(_, ftok) => (ftok.value.as_str() == "test"),
+            .Atom(_, ftok) => (ftok.value == "test"),
             .FnCall(_, _, _, _, _) => false
           )
         )
@@ -261,7 +261,7 @@ collect_module_deps :: (
       visited.get(iv - usize(1)),
       .None => (),
       .Some(v) => {
-        if(v.as_str() == abs_path.as_str(), {
+        if(v == abs_path, {
           already_visited = true;
         });
       }
@@ -473,11 +473,11 @@ _walk_check_dir :: (
           .Directory => {
             // Skip noisy infrastructure dirs (mirror src/yo-cli.ts:walkCheckDir).
             skip := cond(
-              (entry.name.as_str() == "node_modules") => true,
-              (entry.name.as_str() == "vendor") => true,
-              (entry.name.as_str() == ".git") => true,
-              (entry.name.as_str() == "vscode-extension") => true,
-              (entry.name.as_str() == "outdated") => true,
+              (entry.name == "node_modules") => true,
+              (entry.name == "vendor") => true,
+              (entry.name == ".git") => true,
+              (entry.name == "vscode-extension") => true,
+              (entry.name == "outdated") => true,
               true => false
             );
             if(!(skip), {
@@ -680,7 +680,7 @@ run_check :: (
   (ai : usize) = usize(3);
   while(ai < argv.len(), {
     a := argv(ai);
-    if(a.as_str() == "--exclude", {
+    if(a == "--exclude", {
       next_i := (ai + usize(1));
       if(next_i < argv.len(), {
         excludes.push(argv(next_i));
@@ -748,7 +748,7 @@ run_compile :: (
   (output_path : String) = `a.out`;
   if(argv.len() >= usize(5), {
     flag := argv(usize(3));
-    if(flag.as_str() == "-o", {
+    if(flag == "-o", {
       output_path = argv(usize(4));
     });
   });
@@ -802,7 +802,7 @@ run_test :: (
   (name_filter : String) = String.new();
   if(argv.len() >= usize(5), {
     flag := argv(usize(3));
-    if(flag.as_str() == "--test-name-pattern", {
+    if(flag == "--test-name-pattern", {
       name_filter = argv(usize(4));
     });
   });
@@ -978,7 +978,7 @@ run_fmt :: (
   while(ai < argv.len(), {
     arg := argv(ai);
     cond(
-      (arg.as_str() == "--check") => {
+      (arg == "--check") => {
         check_mode = true;
       },
       true => {
@@ -1034,13 +1034,13 @@ main :: (fn(io : Io) -> unit)({
     exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test> ...`));
   });
   subcmd := argv(usize(1));
-  if(subcmd.as_str() == "compile", {
+  if(subcmd == "compile", {
     run_compile(argv, io, exn);
-  }, if(subcmd.as_str() == "test", {
+  }, if(subcmd == "test", {
     run_test(argv, io, exn);
-  }, if(subcmd.as_str() == "fmt", {
+  }, if(subcmd == "fmt", {
     run_fmt(argv, io, exn);
-  }, if(subcmd.as_str() == "check", {
+  }, if(subcmd == "check", {
     run_check(argv, io, exn);
   }, {
     exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`));

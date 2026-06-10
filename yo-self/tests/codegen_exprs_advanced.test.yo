@@ -594,7 +594,7 @@ test("extract_enum_def: Color :: enum(Red, Green, Blue)", {
     ed_opt,
     .None => assert(false, "extract_enum_def returned None"),
     .Some(ed) => {
-      assert(ed.name.as_str() == "Color", "enum name");
+      assert(ed.name == "Color", "enum name");
       assert(ed.variants.len() == usize(3), "3 variants");
     }
   );
@@ -678,7 +678,7 @@ test("type_expr_to_c: *(i32) emits int32_t*", {
   match(
     result_opt,
     .None => assert(false, "type_expr_to_c returned None for *(i32)"),
-    .Some(c_ty) => assert(c_ty.as_str() == "int32_t*", "pointer type string")
+    .Some(c_ty) => assert(c_ty == "int32_t*", "pointer type string")
   );
 });
 test("is_unary_prefix_op: & is prefix op", {
@@ -741,7 +741,7 @@ test("template string: to_string() on string literal strips the call", {
   match(
     result_opt,
     .None => assert(false, "generate_expr returned None"),
-    .Some(result) => assert(result.as_str() == "\"hello \"", "string literal passed through")
+    .Some(result) => assert(result == "\"hello \"", "string literal passed through")
   );
 });
 test("template string: to_string() on identifier strips the call", {
@@ -752,7 +752,7 @@ test("template string: to_string() on identifier strips the call", {
   match(
     result_opt,
     .None => assert(false, "generate_expr returned None"),
-    .Some(result) => assert(result.as_str() == "name", "identifier passed through")
+    .Some(result) => assert(result == "name", "identifier passed through")
   );
 });
 test("template string: .+(b) emits __yo_str_concat(a, b)", {
@@ -1511,7 +1511,7 @@ test("extract_lambda_param_names: single param extracts name", {
   assert(names.len() == usize(1), "should extract 1 param name");
   match(
     names.get(usize(0)),
-    .Some(n) => assert(n.as_str() == "x", "param name should be x"),
+    .Some(n) => assert(n == "x", "param name should be x"),
     .None => assert(false, "no param at index 0")
   );
 });
@@ -1524,9 +1524,9 @@ test("extract_lambda_param_names: multi param extracts all names", {
   tuple_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tuple_tok)), tuple_args, false, tuple_tok);
   names := extract_lambda_param_names(tuple_expr);
   assert(names.len() == usize(3), "should extract 3 param names");
-  match(names.get(usize(0)),.Some(n) => assert(n.as_str() == "a", "first param a"),.None => assert(false, "no 0"));
-  match(names.get(usize(1)),.Some(n) => assert(n.as_str() == "b", "second param b"),.None => assert(false, "no 1"));
-  match(names.get(usize(2)),.Some(n) => assert(n.as_str() == "c", "third param c"),.None => assert(false, "no 2"));
+  match(names.get(usize(0)),.Some(n) => assert(n == "a", "first param a"),.None => assert(false, "no 0"));
+  match(names.get(usize(1)),.Some(n) => assert(n == "b", "second param b"),.None => assert(false, "no 1"));
+  match(names.get(usize(2)),.Some(n) => assert(n == "c", "third param c"),.None => assert(false, "no 2"));
 });
 test("lift_non_capturing_lambda: single param emits static function", {
   ctx := CodegenContext.new();

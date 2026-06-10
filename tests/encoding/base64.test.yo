@@ -6,7 +6,7 @@ open(import("std/encoding/base64"));
 test("base64_encode empty input", {
   data := ArrayList(u8).new();
   result := base64_encode(data);
-  assert(result.as_str() == "", "empty input should produce empty string");
+  assert(result == "", "empty input should produce empty string");
 });
 test("base64_encode Hello", {
   data := ArrayList(u8).new();
@@ -16,20 +16,20 @@ test("base64_encode Hello", {
   data.push(u8(108));
   data.push(u8(111));
   result := base64_encode(data);
-  assert(result.as_str() == "SGVsbG8=", "Hello should encode to SGVsbG8=");
+  assert(result == "SGVsbG8=", "Hello should encode to SGVsbG8=");
 });
 test("base64_encode single byte", {
   data := ArrayList(u8).new();
   data.push(u8(65));
   result := base64_encode(data);
-  assert(result.as_str() == "QQ==", "A should encode to QQ==");
+  assert(result == "QQ==", "A should encode to QQ==");
 });
 test("base64_encode two bytes", {
   data := ArrayList(u8).new();
   data.push(u8(65));
   data.push(u8(66));
   result := base64_encode(data);
-  assert(result.as_str() == "QUI=", "AB should encode to QUI=");
+  assert(result == "QUI=", "AB should encode to QUI=");
 });
 test("base64_encode three bytes no padding", {
   data := ArrayList(u8).new();
@@ -37,7 +37,7 @@ test("base64_encode three bytes no padding", {
   data.push(u8(66));
   data.push(u8(67));
   result := base64_encode(data);
-  assert(result.as_str() == "QUJD", "ABC should encode to QUJD with no padding");
+  assert(result == "QUJD", "ABC should encode to QUJD with no padding");
 });
 test("base64_encode Man", {
   // "Man" -> "TWFu"
@@ -46,7 +46,7 @@ test("base64_encode Man", {
   data.push(u8(97));
   data.push(u8(110));
   result := base64_encode(data);
-  assert(result.as_str() == "TWFu", "Man should encode to TWFu");
+  assert(result == "TWFu", "Man should encode to TWFu");
 });
 // ===== URL-safe Encoding =====
 test("base64_encode_url no padding", {
@@ -54,7 +54,7 @@ test("base64_encode_url no padding", {
   data.push(u8(65));
   result := base64_encode_url(data);
   // URL-safe should not have padding
-  assert(result.as_str() == "QQ", "URL-safe single byte should not have padding");
+  assert(result == "QQ", "URL-safe single byte should not have padding");
 });
 // ===== Decoding Tests =====
 test("base64_decode empty string", {
@@ -159,47 +159,47 @@ test("base64 url roundtrip", {
 // ===== String-level API Tests =====
 test("encode_string empty", {
   result := base64_encode_string(String.new());
-  assert(result.as_str() == "", "empty string should encode to empty");
+  assert(result == "", "empty string should encode to empty");
 });
 test("encode_string f to Zg==", {
   result := base64_encode_string(`f`);
-  assert(result.as_str() == "Zg==", "f should encode to Zg==");
+  assert(result == "Zg==", "f should encode to Zg==");
 });
 test("encode_string fo to Zm8=", {
   result := base64_encode_string(`fo`);
-  assert(result.as_str() == "Zm8=", "fo should encode to Zm8=");
+  assert(result == "Zm8=", "fo should encode to Zm8=");
 });
 test("encode_string foo to Zm9v", {
   result := base64_encode_string(`foo`);
-  assert(result.as_str() == "Zm9v", "foo should encode to Zm9v");
+  assert(result == "Zm9v", "foo should encode to Zm9v");
 });
 test("encode_string foobar to Zm9vYmFy", {
   result := base64_encode_string(`foobar`);
-  assert(result.as_str() == "Zm9vYmFy", "foobar should encode to Zm9vYmFy");
+  assert(result == "Zm9vYmFy", "foobar should encode to Zm9vYmFy");
 });
 test("encode_string Hello, World!", {
   result := base64_encode_string(`Hello, World!`);
-  assert(result.as_str() == "SGVsbG8sIFdvcmxkIQ==", "Hello, World! should encode to SGVsbG8sIFdvcmxkIQ==");
+  assert(result == "SGVsbG8sIFdvcmxkIQ==", "Hello, World! should encode to SGVsbG8sIFdvcmxkIQ==");
 });
 test("decode_string empty", {
   result := base64_decode_string(String.new());
   assert(result.is_ok(), "empty string should decode ok");
-  assert(result.unwrap().as_str() == "", "empty string should decode to empty");
+  assert(result.unwrap() == "", "empty string should decode to empty");
 });
 test("decode_string Zm9v to foo", {
   result := base64_decode_string(`Zm9v`);
   assert(result.is_ok(), "Zm9v should decode ok");
-  assert(result.unwrap().as_str() == "foo", "Zm9v should decode to foo");
+  assert(result.unwrap() == "foo", "Zm9v should decode to foo");
 });
 test("decode_string Hello World", {
   result := base64_decode_string(`SGVsbG8sIFdvcmxkIQ==`);
   assert(result.is_ok(), "should decode ok");
-  assert(result.unwrap().as_str() == "Hello, World!", "should decode to Hello, World!");
+  assert(result.unwrap() == "Hello, World!", "should decode to Hello, World!");
 });
 test("decode_string with whitespace", {
   result := base64_decode_string(`Zm9v YmFy`);
   assert(result.is_ok(), "should decode ok with whitespace");
-  assert(result.unwrap().as_str() == "foobar", "should decode to foobar ignoring whitespace");
+  assert(result.unwrap() == "foobar", "should decode to foobar ignoring whitespace");
 });
 test("decode_string invalid characters", {
   result := base64_decode_string(`!!!!`);

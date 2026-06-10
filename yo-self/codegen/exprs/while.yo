@@ -91,7 +91,7 @@ expr_is_function_call_of :: (fn(expr : AstExpr, name : str, arity : usize) -> bo
     .FnCall(_, func_box, args, _, _) => match(
       func_box.*,
       .FnCall(_, _, _, _, _) => false,
-      .Atom(_, tok) => ((tok.value.as_str() == name) && (args.len() == arity))
+      .Atom(_, tok) => ((tok.value == name) && (args.len() == arity))
     )
   )
 );
@@ -106,7 +106,7 @@ expr_is_assignment :: (fn(expr : AstExpr) -> bool)(
       .Atom(_, tok) =>
         (
           (is_infix && (tok.kind == TokenKind.Operator)) &&
-            ((tok.value.as_str() == "=") && (args.len() == usize(2)))
+            ((tok.value == "=") && (args.len() == usize(2)))
         )
     )
   )

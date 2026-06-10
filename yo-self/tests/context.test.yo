@@ -45,10 +45,10 @@ test("eval_context_new: default fields", {
   assert(!(ctx.is_inside_impl_block), "not in impl block by default");
   assert(!(ctx.is_inside_where_clause), "not in where clause by default");
   assert(!(ctx.is_inside_io_async_call), "not in io async call by default");
-  assert(ctx.std_path.as_str() == "/std", "std_path set correctly");
+  assert(ctx.std_path == "/std", "std_path set correctly");
   match(
     ctx.current_module_path,
-    .Some(p) => assert(p.as_str() == "test.yo", "module_path set"),
+    .Some(p) => assert(p == "test.yo", "module_path set"),
     .None => assert(false, "module_path should be Some")
   );
 });
@@ -301,6 +301,6 @@ test("create_function_body_evaluation_context: copies parent context fields", {
     env,
     ctx
   );
-  assert(body_ctx.std_path.as_str() == "/custom/std", "std_path copied from parent");
+  assert(body_ctx.std_path == "/custom/std", "std_path copied from parent");
   assert(body_ctx.is_inside_impl_block, "is_inside_impl_block copied from parent");
 });

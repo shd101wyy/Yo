@@ -2318,17 +2318,17 @@ test("evaluate: forall param name is extracted into FuncVal.forall_names", {
         assert(ptnames.len() == usize(1), "1 param type name");
         match(
           fnames.get(usize(0)),
-          .Some(fn_name) => assert(fn_name.as_str() == "A", "forall name is A"),
+          .Some(fn_name) => assert(fn_name == "A", "forall name is A"),
           .None => assert(false, "expected forall name A")
         );
         match(
           ps.get(usize(0)),
-          .Some(pn) => assert(pn.as_str() == "x", "param name is x"),
+          .Some(pn) => assert(pn == "x", "param name is x"),
           .None => assert(false, "expected param x")
         );
         match(
           ptnames.get(usize(0)),
-          .Some(ptn) => assert(ptn.as_str() == "A", "param type name is A"),
+          .Some(ptn) => assert(ptn == "A", "param type name is A"),
           .None => assert(false, "expected param type name A")
         );
       },
@@ -2546,7 +2546,7 @@ test("evaluate: import uses module loader callback", {
   set_module_loader(
     (fn(path : String) -> Option(EvalValue))(
       cond(
-        (path.as_str() == "test/my_module") => {
+        (path == "test/my_module") => {
           mock_names_l := ArrayList(String).new();
           mock_names_l.push(String.from("val"));
           mock_vals_l := ArrayList(EvalValue).new();
@@ -2570,7 +2570,7 @@ test("evaluate: import uses module loader callback", {
           assert(names.len() == usize(1), "module has 1 export");
           match(
             names.get(usize(0)),
-            .Some(n) => assert(n.as_str() == "val", "export(name is val)"),
+            .Some(n) => assert(n == "val", "export(name is val)"),
             .None => assert(false, "missing export(name)")
           );
           match(
@@ -2810,7 +2810,7 @@ test("evaluate: using param is extracted into FuncVal.evidence_params", {
           assert(ev_ps.len() == usize(1), "1 evidence param");
           match(
             ev_ps.get(usize(0)),
-            .Some(evn) => assert(evn.as_str() == "ev", "evidence name is ev"),
+            .Some(evn) => assert(evn == "ev", "evidence name is ev"),
             .None => assert(false, "no evidence name")
           );
         },
@@ -2921,19 +2921,19 @@ test("evaluate: anonymous struct literal _(x: 42, y: true)", {
         assert(field_vals.len() == usize(2), "struct has 2 values");
         match(
           field_names.get(usize(0)),
-          .Some(n) => assert(n.as_str() == "x", "first field is x"),
+          .Some(n) => assert(n == "x", "first field is x"),
           .None => assert(false, "no first field name")
         );
         match(
           field_names.get(usize(1)),
-          .Some(n) => assert(n.as_str() == "y", "second field is y"),
+          .Some(n) => assert(n == "y", "second field is y"),
           .None => assert(false, "no second field name")
         );
         match(
           field_vals.get(usize(0)),
           .Some(v) => match(
             v,
-            .IntLit(raw) => assert(raw.as_str() == "42", "x value is 42"),
+            .IntLit(raw) => assert(raw == "42", "x value is 42"),
             _ => assert(false, "x value is not IntLit")
           ),
           .None => assert(false, "no x value")
@@ -2971,7 +2971,7 @@ test("evaluate: anonymous struct shorthand _(val) — unlabeled field", {
           vals.get(usize(0)),
           .Some(v) => match(
             v,
-            .IntLit(raw) => assert(raw.as_str() == "42", "field value is 42"),
+            .IntLit(raw) => assert(raw == "42", "field value is 42"),
             _ => assert(false, "field value is not IntLit")
           ),
           .None => assert(false, "no field value")
@@ -3006,8 +3006,8 @@ test("evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
             tyb.*,
             .EnumT(_, _, vnames, vfields_all, _, _, _) => {
               assert(vnames.len() == usize(2), "should have 2 variants");
-              match(vnames.get(usize(0)),.Some(n) => assert(n.as_str() == "None", "first variant is None"),.None => assert(false, "no variant 0"));
-              match(vnames.get(usize(1)),.Some(n) => assert(n.as_str() == "Some", "second variant is Some"),.None => assert(false, "no variant 1"));
+              match(vnames.get(usize(0)),.Some(n) => assert(n == "None", "first variant is None"),.None => assert(false, "no variant 0"));
+              match(vnames.get(usize(1)),.Some(n) => assert(n == "Some", "second variant is Some"),.None => assert(false, "no variant 1"));
               match(vfields_all.get(usize(0)),.Some(f) => assert(f.len() == usize(0), "None has no fields"),.None => assert(false, "no fields 0"));
               match(vfields_all.get(usize(1)),.Some(f) => assert(f.len() == usize(1), "Some has 1 field"),.None => assert(false, "no fields 1"));
             },
@@ -3073,8 +3073,8 @@ test("evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
               assert(labels.len() == usize(2), "2 fields");
               assert(!(is_ref_sem), "not ref sem");
               assert(!(is_newtype), "not newtype");
-              match(labels.get(usize(0)),.Some(l) => assert(l.as_str() == "x", "first field x"),.None => assert(false, "no label 0"));
-              match(labels.get(usize(1)),.Some(l) => assert(l.as_str() == "y", "second field y"),.None => assert(false, "no label 1"));
+              match(labels.get(usize(0)),.Some(l) => assert(l == "x", "first field x"),.None => assert(false, "no label 0"));
+              match(labels.get(usize(1)),.Some(l) => assert(l == "y", "second field y"),.None => assert(false, "no label 1"));
               match(types.get(usize(0)),.Some(t) => assert(type_value_tag(t) == TypeTag.TI32, "x:i32"),.None => assert(false, "no type 0"));
               match(types.get(usize(1)),.Some(t) => assert(type_value_tag(t) == TypeTag.TBool, "y:bool"),.None => assert(false, "no type 1"));
             },
@@ -3133,7 +3133,7 @@ test("evaluate: newtype(i32) creates Struct with is_newtype=true", {
               assert(!(is_ref_sem), "newtype is not ref sem");
               assert(is_newtype, "is_newtype is true");
               assert(labels.len() == usize(1), "1 wrapped field");
-              match(labels.get(usize(0)),.Some(l) => assert(l.as_str() == "*", "field label is *"),.None => assert(false, "no label"));
+              match(labels.get(usize(0)),.Some(l) => assert(l == "*", "field label is *"),.None => assert(false, "no label"));
               match(types.get(usize(0)),.Some(t) => assert(type_value_tag(t) == TypeTag.TI32, "wrapped type is i32"),.None => assert(false, "no type"));
             },
             _ => assert(false, "not Struct")
@@ -3163,7 +3163,7 @@ test("evaluate: union(x: i32, y: bool) creates Union TypeVal", {
             tyb.*,
             .Union(_, labels, types) => {
               assert(labels.len() == usize(2), "2 union fields");
-              match(labels.get(usize(0)),.Some(l) => assert(l.as_str() == "x", "label x"),.None => assert(false, "no label 0"));
+              match(labels.get(usize(0)),.Some(l) => assert(l == "x", "label x"),.None => assert(false, "no label 0"));
               match(types.get(usize(0)),.Some(t) => assert(type_value_tag(t) == TypeTag.TI32, "x:i32"),.None => assert(false, "no type 0"));
             },
             _ => assert(false, "not Union")
@@ -3225,7 +3225,7 @@ test("Phase 3am: box and deref round-trip", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(n) => assert(n.as_str() == "42", "deref gives 42"),
+                .IntLit(n) => assert(n == "42", "deref gives 42"),
                 _ => assert(false, "b not IntLit")
               ),
             .None => assert(false, "no b")
@@ -3324,7 +3324,7 @@ test("Phase 3am: ArrayList new returns empty ArrayVal", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(n) => assert(n.as_str() == "0", "empty ArrayList has len 0"),
+                .IntLit(n) => assert(n == "0", "empty ArrayList has len 0"),
                 _ => assert(false, "n not IntLit")
               ),
             .None => assert(false, "no n")
@@ -3361,7 +3361,7 @@ test("Phase 3am: ArrayVal push and len", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(n) => assert(n.as_str() == "2", "ArrayList has len 2 after 2 pushes"),
+                .IntLit(n) => assert(n == "2", "ArrayList has len 2 after 2 pushes"),
                 _ => assert(false, "n not IntLit")
               ),
             .None => assert(false, "no n")
@@ -3399,14 +3399,14 @@ test("Phase 3am: ArrayVal get returns Some(element)", {
               match(
                 v1,
                 .EnumVal(tag, ev_fields) => {
-                  assert(tag.as_str() == ".Some", "first is .Some");
+                  assert(tag == ".Some", "first is .Some");
                   match(
                     ev_fields.get(usize(0)),
                     .None => assert(false, "no first elem"),
                     .Some(first_elem) =>
                       match(
                         first_elem,
-                        .StrLit(s) => assert(s.as_str() == "\"hello\"", "first elem is hello"),
+                        .StrLit(s) => assert(s == "\"hello\"", "first elem is hello"),
                         _ => assert(false, "first elem not StrLit")
                       )
                   );
@@ -3447,7 +3447,7 @@ test("Phase 3am: StrLit.substring", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"ell\"", "substring(1,4) of hello is ell"),
+                .StrLit(s) => assert(s == "\"ell\"", "substring(1,4) of hello is ell"),
                 _ => assert(false, "sub not StrLit")
               ),
             .None => assert(false, "no sub")
@@ -3484,7 +3484,7 @@ test("Phase 3an: StrLit.replace_all", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"hello there\"", "replace_all works"),
+                .StrLit(s) => assert(s == "\"hello there\"", "replace_all works"),
                 _ => assert(false, "r not StrLit")
               ),
             .None => assert(false, "no r")
@@ -3521,7 +3521,7 @@ test("Phase 3an: StrLit.trim", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"hello\"", "trim removes surrounding whitespace"),
+                .StrLit(s) => assert(s == "\"hello\"", "trim removes surrounding whitespace"),
                 _ => assert(false, "t not StrLit")
               ),
             .None => assert(false, "no t")
@@ -3558,7 +3558,7 @@ test("Phase 3an: StrLit.to_uppercase", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"HELLO\"", "to_uppercase works"),
+                .StrLit(s) => assert(s == "\"HELLO\"", "to_uppercase works"),
                 _ => assert(false, "u not StrLit")
               ),
             .None => assert(false, "no u")
@@ -3595,7 +3595,7 @@ test("Phase 3an: StrLit.to_lowercase", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"hello\"", "to_lowercase works"),
+                .StrLit(s) => assert(s == "\"hello\"", "to_lowercase works"),
                 _ => assert(false, "l not StrLit")
               ),
             .None => assert(false, "no l")
@@ -3633,14 +3633,14 @@ test("Phase 3ao: StrLit.parse_i64 valid integer", {
               match(
                 v1,
                 .EnumVal(tag, ev_fields_pi) => {
-                  assert(tag.as_str() == ".Some", "parse_i64 42 is Some");
+                  assert(tag == ".Some", "parse_i64 42 is Some");
                   match(
                     ev_fields_pi.get(usize(0)),
                     .None => assert(false, "no elem"),
                     .Some(elem_pi) =>
                       match(
                         elem_pi,
-                        .IntLit(n) => assert(n.as_str() == "42", "parse_i64 42 gives IntLit 42"),
+                        .IntLit(n) => assert(n == "42", "parse_i64 42 gives IntLit 42"),
                         _ => assert(false, "elem not IntLit")
                       )
                   );
@@ -3681,7 +3681,7 @@ test("Phase 3ao: StrLit.parse_i64 invalid string returns None", {
             .Some(v1) =>
               match(
                 v1,
-                .EnumVal(tag, _) => assert(tag.as_str() == ".None", "parse_i64 invalid is None"),
+                .EnumVal(tag, _) => assert(tag == ".None", "parse_i64 invalid is None"),
                 _ => assert(false, "r not EnumVal")
               ),
             .None => assert(false, "no r")
@@ -3718,7 +3718,7 @@ test("Phase 3ap: while loop with break exits early", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "3", "break at i=3"),
+                .IntLit(raw) => assert(raw == "3", "break at i=3"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3755,7 +3755,7 @@ test("Phase 3ap: for loop iterates over array", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "6", "sum 1+2+3=6"),
+                .IntLit(raw) => assert(raw == "6", "sum 1+2+3=6"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3792,7 +3792,7 @@ test("Phase 3ap: for loop with break exits early", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "20", "break found 20"),
+                .IntLit(raw) => assert(raw == "20", "break found 20"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3829,7 +3829,7 @@ test("Phase 3aq: struct field mutation updates value", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "5", "x should be 5"),
+                .IntLit(raw) => assert(raw == "5", "x should be 5"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3866,7 +3866,7 @@ test("Phase 3aq: multiple struct field mutations", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "10", "count=10"),
+                .IntLit(raw) => assert(raw == "10", "count=10"),
                 _ => assert(false, "r1 not IntLit")
               ),
             .None => assert(false, "no r1")
@@ -3876,7 +3876,7 @@ test("Phase 3aq: multiple struct field mutations", {
             .Some(v2) =>
               match(
                 v2,
-                .IntLit(raw) => assert(raw.as_str() == "3", "step=3"),
+                .IntLit(raw) => assert(raw == "3", "step=3"),
                 _ => assert(false, "r2 not IntLit")
               ),
             .None => assert(false, "no r2")
@@ -3913,7 +3913,7 @@ test("Phase 3aq: struct field mutation in loop", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "5", "total=5"),
+                .IntLit(raw) => assert(raw == "5", "total=5"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")

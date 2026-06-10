@@ -239,7 +239,7 @@ VariadicParamEntry :: struct(label : String, ty : TypeValue);
 (g_func_variadic_params : HashMap(String, VariadicParamEntry)) =
   HashMap(String, VariadicParamEntry).new();
 register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeValue) -> unit)({
-  if(label.as_str() != "...", {
+  if(label != "...", {
     ___ := g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
   });
 });
@@ -509,7 +509,7 @@ _is_dots_atom :: (fn(expr : AstExpr) -> bool)(
     false,
     begin(
       tok := ast_expr_token(expr),
-      tok.value.as_str() == "..."
+      tok.value == "..."
     )
   )
 );

@@ -134,7 +134,7 @@ is_arrow_op :: (fn(func_expr : AstExpr) -> bool)(
       (!(is_infix)) => false,
       true => match(
         inner_func.*,
-        .Atom(_, ftok) => (ftok.value.as_str() == "->"),
+        .Atom(_, ftok) => (ftok.value == "->"),
         .FnCall(_, _, _, _, _) => false
       )
     )
@@ -162,7 +162,7 @@ struct_field_c_name :: (fn(expr : AstExpr) -> Option(str))(
       expr,
       .FnCall(_, _, _, _, _) => Option(str).None,
       .Atom(_, tok) => cond(
-        (tok.value.as_str() == "*") => Option(str).Some("_0"),
+        (tok.value == "*") => Option(str).Some("_0"),
         true => Option(str).None
       )
     )
@@ -182,7 +182,7 @@ is_comptime_expr :: (fn(expr : AstExpr) -> bool)(
       true => match(
         f.*,
         .FnCall(_, _, _, _, _) => false,
-        .Atom(_, tok) => (tok.value.as_str() == "comptime")
+        .Atom(_, tok) => (tok.value == "comptime")
       )
     )
   )
@@ -212,7 +212,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
         top_func.*,
         .FnCall(_, _, _, _, _) => Option(FnDef).None,
         .Atom(_, ttok) => cond(
-          (ttok.value.as_str() != "::") => Option(FnDef).None,
+          (ttok.value != "::") => Option(FnDef).None,
           (top_args.len() != usize(2)) => Option(FnDef).None,
           true => {
             // Step 2: extract the name atom.
@@ -282,7 +282,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                           cf_sk.*,
                           .FnCall(_, _, _, _, _) => false,
                           .Atom(_, ctok_sk) => cond(
-                            (ctok_sk.value.as_str() != "comptime") => false,
+                            (ctok_sk.value != "comptime") => false,
                             true => match(
                               cargs_sk.get(usize(0)),
                               .None => true,
@@ -316,7 +316,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                           !(
                             match(
                               fn_func.*,
-                              .Atom(_, fntok) => (fntok.value.as_str() == "fn"),
+                              .Atom(_, fntok) => (fntok.value == "fn"),
                               .FnCall(_, _, _, _, _) => false
                             )
                           )
@@ -357,7 +357,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                             .Atom(_, pftok) => cond(
                               // typed param:  FnCall(Atom(":"), [name, type], true)
                               // name can be a bare Atom("name") or comptime(name)
-                              ((pftok.value.as_str() == ":") && pinfix) => {
+                              ((pftok.value == ":") && pinfix) => {
                                 // Check if this is `comptime(Name) : MetaType` — a type-variable parameter.
                                 // When the name side is `comptime(...)` and the type side is a meta-type
                                 // (Type, Trait, Expr, etc.) that has no C equivalent, the function is generic
@@ -373,7 +373,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                       true => match(
                                         cpf_chk.*,
                                         .FnCall(_, _, _, _, _) => false,
-                                        .Atom(_, cptok_chk) => (cptok_chk.value.as_str() == "comptime")
+                                        .Atom(_, cptok_chk) => (cptok_chk.value == "comptime")
                                       )
                                     )
                                   )
@@ -408,7 +408,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                         cpf.*,
                                         .FnCall(_, _, _, _, _) => "",
                                         .Atom(_, cptok) => cond(
-                                          (cptok.value.as_str() != "comptime") => "",
+                                          (cptok.value != "comptime") => "",
                                           true => match(
                                             cpargs.get(usize(0)),
                                             .None => "",
@@ -439,7 +439,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                 });
                               },
                               // … evidence param — emit as void* ev_<name>
-                              (pftok.value.as_str() == "using") => match(
+                              (pftok.value == "using") => match(
                                 pargs.get(usize(0)),
                                 // If no inner arg — skip this param
                                 .None => (),
@@ -452,7 +452,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                     .FnCall(_, uf, uargs, _, _) => match(
                                       uf.*,
                                       .Atom(_, uftok) => cond(
-                                        (uftok.value.as_str() == ":") => match(
+                                        (uftok.value == ":") => match(
                                           uargs.get(usize(0)),
                                           .Some(une) => match(
                                             atom_ident(une),
@@ -472,7 +472,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                 }
                               ),
                               // forall param → the whole function is generic; skip it entirely
-                              (pftok.value.as_str() == "forall") => return(Option(FnDef).None),
+                              (pftok.value == "forall") => return(Option(FnDef).None),
                               // other — skip
                               true => ()
                             )
@@ -516,9 +516,9 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
 /// Structs with `Self`-typed fields cannot be emitted as valid C.
 c_type_has_self :: (fn(c_ty : String) -> bool)(
   cond(
-    (c_ty.as_str() == "Self") => true,
-    (c_ty.as_str() == "Self*") => true,
-    (c_ty.as_str() == "Self**") => true,
+    (c_ty == "Self") => true,
+    (c_ty == "Self*") => true,
+    (c_ty == "Self**") => true,
     true => false
   )
 );
@@ -561,7 +561,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
         top_func.*,
         .FnCall(_, _, _, _, _) => Option(StructDef).None,
         .Atom(_, op_tok) => cond(
-          (!(op_tok.value.as_str() == "::")) => Option(StructDef).None,
+          (!(op_tok.value == "::")) => Option(StructDef).None,
           (top_args.len() < usize(2)) => Option(StructDef).None,
           true => match(
             top_args.get(usize(0)),
@@ -583,7 +583,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                       .FnCall(_, _, _, _, _) => Option(StructDef).None,
                       .Atom(_, rhs_tok) => cond(
                         // Accept both "struct" and "object" (object = struct + RC in full compiler)
-                        (!((rhs_tok.value.as_str() == "struct") || (rhs_tok.value.as_str() == "object"))) => Option(StructDef).None,
+                        (!((rhs_tok.value == "struct") || (rhs_tok.value == "object"))) => Option(StructDef).None,
                         true => {
                           // Extract field names and C types from the struct args.
                           out_names := ArrayList(String).new();
@@ -605,7 +605,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                     .FnCall(_, _, _, _, _) => (),
                                     .Atom(_, ftok) => cond(
                                       // Plain field: `name : type`
-                                      (ftok.value.as_str() == ":") => cond(
+                                      (ftok.value == ":") => cond(
                                         (fa.len() < usize(2)) => (),
                                         true => match(
                                           fa.get(usize(0)),
@@ -630,7 +630,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                       ),
                                       // Default-value field: `(name : type) ?= default`
                                       // fa[0] is the inner `name : type` FnCall, fa[1] is the default.
-                                      (ftok.value.as_str() == "?=") => cond(
+                                      (ftok.value == "?=") => cond(
                                         (fa.len() < usize(2)) => (),
                                         true => match(
                                           fa.get(usize(0)),
@@ -644,7 +644,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                                 ic_func.*,
                                                 .FnCall(_, _, _, _, _) => (),
                                                 .Atom(_, ic_tok) => cond(
-                                                  (!(ic_tok.value.as_str() == ":")) => (),
+                                                  (!(ic_tok.value == ":")) => (),
                                                   (ic_args.len() < usize(2)) => (),
                                                   true => match(
                                                     ic_args.get(usize(0)),
@@ -793,7 +793,7 @@ extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
         ef.*,
         .FnCall(_, _, _, _, _) => Option(UnionDef).None,
         .Atom(_, op_tok) => cond(
-          (!(op_tok.value.as_str() == "::")) => Option(UnionDef).None,
+          (!(op_tok.value == "::")) => Option(UnionDef).None,
           (eargs.len() < usize(2)) => Option(UnionDef).None,
           true => match(
             eargs.get(usize(0)),
@@ -813,7 +813,7 @@ extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
                       rf.*,
                       .FnCall(_, _, _, _, _) => Option(UnionDef).None,
                       .Atom(_, rhs_tok) => cond(
-                        (!(rhs_tok.value.as_str() == "union")) => Option(UnionDef).None,
+                        (!(rhs_tok.value == "union")) => Option(UnionDef).None,
                         true => {
                           udef := UnionDef(
                             name : String.from(uname),
@@ -848,7 +848,7 @@ extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
                                       ok = false;
                                     },
                                     .Atom(_, ftok2) => cond(
-                                      (!(ftok2.value.as_str() == ":")) => {
+                                      (!(ftok2.value == ":")) => {
                                         ok = false;
                                       },
                                       true => match(
@@ -965,7 +965,7 @@ extract_newtype_def :: (fn(expr : AstExpr) -> Option(ArrayList(String)))(
         top_func.*,
         .FnCall(_, _, _, _, _) => Option(ArrayList(String)).None,
         .Atom(_, op_tok) => cond(
-          (!(op_tok.value.as_str() == "::")) => Option(ArrayList(String)).None,
+          (!(op_tok.value == "::")) => Option(ArrayList(String)).None,
           true => match(
             top_args.get(usize(0)),
             .None => Option(ArrayList(String)).None,
@@ -984,7 +984,7 @@ extract_newtype_def :: (fn(expr : AstExpr) -> Option(ArrayList(String)))(
                       rhs_func.*,
                       .FnCall(_, _, _, _, _) => Option(ArrayList(String)).None,
                       .Atom(_, rhs_tok) => cond(
-                        (!(rhs_tok.value.as_str() == "newtype")) => Option(ArrayList(String)).None,
+                        (!(rhs_tok.value == "newtype")) => Option(ArrayList(String)).None,
                         (rhs_args.len() != usize(1)) => Option(ArrayList(String)).None,
                         true => match(
                           rhs_args.get(usize(0)),
@@ -1055,7 +1055,7 @@ extract_const_def :: (fn(expr : AstExpr) -> Option(ConstDef))(
         top_func.*,
         .FnCall(_, _, _, _, _) => Option(ConstDef).None,
         .Atom(_, op_tok) => cond(
-          (!(op_tok.value.as_str() == "::")) => Option(ConstDef).None,
+          (!(op_tok.value == "::")) => Option(ConstDef).None,
           true => match(
             top_args.get(usize(0)),
             .None => Option(ConstDef).None,
@@ -1117,7 +1117,7 @@ extract_const_def :: (fn(expr : AstExpr) -> Option(ConstDef))(
 /// - Floats: `static const double Name = value;`
 emit_const_to_c :: (fn(cd : ConstDef, ctx : CodegenContext) -> unit)({
   cond(
-    (cd.kind.as_str() == "str") => {
+    (cd.kind == "str") => {
       ctx.emitter.emit_declaration("static const char* ");
       ctx.emitter.emit_declaration(cd.name.as_str());
       ctx.emitter.emit_declaration(" = ");
@@ -1125,7 +1125,7 @@ emit_const_to_c :: (fn(cd : ConstDef, ctx : CodegenContext) -> unit)({
       ctx.emitter.emit_declaration_line(";");
       ()
     },
-    (cd.kind.as_str() == "float") => {
+    (cd.kind == "float") => {
       ctx.emitter.emit_declaration("static const double ");
       ctx.emitter.emit_declaration(cd.name.as_str());
       ctx.emitter.emit_declaration(" = ");
@@ -1171,7 +1171,7 @@ _parse_variant_field :: (fn(field_expr : AstExpr) -> Option(EnumVariantField))(
         ff.*,
         .FnCall(_, _, _, _, _) => Option(EnumVariantField).None,
         .Atom(_, ftok) => cond(
-          (!(ftok.value.as_str() == ":")) => Option(EnumVariantField).None,
+          (!(ftok.value == ":")) => Option(EnumVariantField).None,
           true => match(
             fargs.get(usize(0)),
             .None => Option(EnumVariantField).None,
@@ -1277,7 +1277,7 @@ _extract_one_variant :: (fn(v_expr : AstExpr, next_disc : usize) -> Option(EnumV
         vf.*,
         .FnCall(_, _, _, _, _) => Option(EnumVariant).None,
         .Atom(_, op_tok) => cond(
-          (!(op_tok.value.as_str() == "=")) => Option(EnumVariant).None,
+          (!(op_tok.value == "=")) => Option(EnumVariant).None,
           true => match(
             vargs.get(usize(0)),
             .None => Option(EnumVariant).None,
@@ -1345,7 +1345,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
         top_func.*,
         .FnCall(_, _, _, _, _) => Option(EnumDef).None,
         .Atom(_, op_tok) => cond(
-          (!(op_tok.value.as_str() == "::")) => Option(EnumDef).None,
+          (!(op_tok.value == "::")) => Option(EnumDef).None,
           true => match(
             top_args.get(usize(0)),
             .None => Option(EnumDef).None,
@@ -1364,7 +1364,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
                       rhs_func.*,
                       .FnCall(_, _, _, _, _) => Option(EnumDef).None,
                       .Atom(_, rhs_tok) => cond(
-                        (!((rhs_tok.value.as_str() == "enum") || (rhs_tok.value.as_str() == "union"))) => Option(EnumDef).None,
+                        (!((rhs_tok.value == "enum") || (rhs_tok.value == "union"))) => Option(EnumDef).None,
                         true => {
                           variants := ArrayList(EnumVariant).new();
                           (is_complex : bool) = false;
@@ -1644,7 +1644,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
         top_func.*,
         .FnCall(_, _, _, _, _) => Option(FnDef).None,
         .Atom(_, ttok) => cond(
-          (ttok.value.as_str() != ":") => Option(FnDef).None,
+          (ttok.value != ":") => Option(FnDef).None,
           true => {
             name_expr := match(
               top_args.get(usize(0)),
@@ -1712,7 +1712,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                           !(
                             match(
                               fn_func2.*,
-                              .Atom(_, fntok2) => (fntok2.value.as_str() == "fn"),
+                              .Atom(_, fntok2) => (fntok2.value == "fn"),
                               .FnCall(_, _, _, _, _) => false
                             )
                           )
@@ -1744,7 +1744,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                             pf2.*,
                             .FnCall(_, _, _, _, _) => (),
                             .Atom(_, pftok2) => cond(
-                              ((pftok2.value.as_str() == ":") && pinfix2) => {
+                              ((pftok2.value == ":") && pinfix2) => {
                                 p_name2 := match(
                                   pargs2.get(usize(0)),
                                   .Some(ne2) => match(
@@ -1759,7 +1759,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                         cpf2.*,
                                         .FnCall(_, _, _, _, _) => "",
                                         .Atom(_, cptok2) => cond(
-                                          (cptok2.value.as_str() != "comptime") => "",
+                                          (cptok2.value != "comptime") => "",
                                           true => match(
                                             cpargs2.get(usize(0)),
                                             .None => "",
@@ -1789,7 +1789,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                   out_param_tys2.push(p_ty_c2);
                                 });
                               },
-                              (pftok2.value.as_str() == "using") => (),
+                              (pftok2.value == "using") => (),
                               true => ()
                             )
                           )
@@ -1847,7 +1847,7 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
         top_func.*,
         .FnCall(_, _, _, _, _) => results,
         .Atom(_, ftok) => cond(
-          (!(ftok.value.as_str() == "impl")) => results,
+          (!(ftok.value == "impl")) => results,
           true => match(
             top_args.get(usize(1)),
             .None => results,
@@ -1858,7 +1858,7 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
                 bf.*,
                 .FnCall(_, _, _, _, _) => results,
                 .Atom(_, btok) => cond(
-                  (btok.value.as_str() == "begin") => {
+                  (btok.value == "begin") => {
                     nm := ba.len();
                     (mi : usize) = usize(0);
                     while(mi < nm, {
@@ -2035,7 +2035,7 @@ extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
         !(
           match(
             func_box.*,
-            .Atom(_, tok) => (tok.value.as_str() == BK_IMPORT),
+            .Atom(_, tok) => (tok.value == BK_IMPORT),
             .FnCall(_, _, _, _, _) => false
           )
         )
@@ -2153,7 +2153,7 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
       is_coloncolon := cond(
         is_infix => match(
           func_box.*,
-          .Atom(_, optok) => ((optok.kind == TokenKind.Operator) && (optok.value.as_str() == "::")),
+          .Atom(_, optok) => ((optok.kind == TokenKind.Operator) && (optok.value == "::")),
           .FnCall(_, _, _, _, _) => false
         ),
         true => false
@@ -2167,7 +2167,7 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
           (!(is_infix)) && (
             (!(is_coloncolon)) && match(
               func_box.*,
-              .Atom(_, ftok) => ((ftok.kind == TokenKind.Identifier) && (ftok.value.as_str() == name)),
+              .Atom(_, ftok) => ((ftok.kind == TokenKind.Identifier) && (ftok.value == name)),
               .FnCall(_, _, _, _, _) => false
             )
           )
@@ -2252,7 +2252,7 @@ merge_enum_defs_for_name :: (fn(all_eds : ArrayList(EnumDef), enum_name : str) -
     match(
       all_eds.get(i),
       .None => (),
-      .Some(ed) => if(ed.name.as_str() == enum_name, {
+      .Some(ed) => if(ed.name == enum_name, {
         nv := ed.variants.len();
         (vi : usize) = usize(0);
         while(vi < nv, {
@@ -2266,14 +2266,14 @@ merge_enum_defs_for_name :: (fn(all_eds : ArrayList(EnumDef), enum_name : str) -
                 match(
                   all_eds.get(j),
                   .None => (),
-                  .Some(later_ed) => if(later_ed.name.as_str() == enum_name, {
+                  .Some(later_ed) => if(later_ed.name == enum_name, {
                     later_nv := later_ed.variants.len();
                     (later_vi : usize) = usize(0);
                     while((later_vi < later_nv) && (!(later_same_variant)), {
                       match(
                         later_ed.variants.get(later_vi),
                         .None => (),
-                        .Some(later_ev) => if(later_ev.name.as_str() == ev.name.as_str(), {
+                        .Some(later_ev) => if(later_ev.name == ev.name, {
                           later_same_variant = true;
                         })
                       );
@@ -2330,7 +2330,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
             all_eds.get(j),
             .None => (),
             .Some(ed2) => {
-              if(ed2.name.as_str() == ed.name.as_str(), {
+              if(ed2.name == ed.name, {
                 later_found = true;
               });
             }
@@ -2386,7 +2386,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
                             alias_fn.*,
                             .FnCall(_, _, _, _, _) => false,
                             .Atom(_, alias_op) => cond(
-                              (!(alias_op.value.as_str() == "::")) => false,
+                              (!(alias_op.value == "::")) => false,
                               true => match(
                                 alias_args.get(usize(0)),
                                 .None => false,
@@ -2490,7 +2490,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
           ef_box.*,
           .FnCall(_, _, _, _, _) => (),
           .Atom(_, op_tok) => cond(
-            (!(op_tok.value.as_str() == "::")) => (),
+            (!(op_tok.value == "::")) => (),
             true => match(
               ef_args.get(usize(0)),
               .None => (),
@@ -2512,7 +2512,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
                           rhs_fn.*,
                           .FnCall(_, _, _, _, _) => (),
                           .Atom(_, rfntok) => cond(
-                            (!(rfntok.value.as_str() == BK_ARRAY)) => (),
+                            (!(rfntok.value == BK_ARRAY)) => (),
                             true => match(
                               rhs_args.get(usize(0)),
                               .None => (),
@@ -2599,7 +2599,7 @@ emit_comptime_const_defs :: (fn(body : AstExpr, ctx : CodegenContext) -> unit)(
                   !(
                     match(
                       sfunc.*,
-                      .Atom(_, sfatom) => (sfatom.value.as_str() == "::"),
+                      .Atom(_, sfatom) => (sfatom.value == "::"),
                       .FnCall(_, _, _, _, _) => false
                     )
                   )
@@ -2674,7 +2674,7 @@ infer_c_type_from_rhs :: (fn(rhs : AstExpr) -> Option(String))(
     .Atom(_, tok) => cond(
       (tok.kind == TokenKind.Integer) => Option(String).Some(String.from("int32_t")),
       (tok.kind == TokenKind.Float) => Option(String).Some(String.from("double")),
-      ((tok.value.as_str() == "true") || (tok.value.as_str() == "false")) => Option(String).Some(String.from("bool")),
+      ((tok.value == "true") || (tok.value == "false")) => Option(String).Some(String.from("bool")),
       true => Option(String).None
     ),
     .FnCall(_, func, args, infix, _) => cond(
@@ -2710,7 +2710,7 @@ extract_module_var_def :: (fn(expr : AstExpr) -> Option(MutableVarDef))(
         .FnCall(_, _, _, _, _) => Option(MutableVarDef).None,
         .Atom(_, op_tok) => cond(
           // Form 1: name := rhs
-          (op_tok.value.as_str() == ":=") => match(
+          (op_tok.value == ":=") => match(
             top_args.get(usize(0)),
             .None => Option(MutableVarDef).None,
             .Some(lhs) => match(
@@ -2730,7 +2730,7 @@ extract_module_var_def :: (fn(expr : AstExpr) -> Option(MutableVarDef))(
             )
           ),
           // Form 2: (name : T) = rhs
-          (op_tok.value.as_str() == "=") => match(
+          (op_tok.value == "=") => match(
             top_args.get(usize(0)),
             .None => Option(MutableVarDef).None,
             .Some(lhs) => match(
@@ -2743,7 +2743,7 @@ extract_module_var_def :: (fn(expr : AstExpr) -> Option(MutableVarDef))(
                   !(
                     match(
                       colon_func.*,
-                      .Atom(_, ctok) => (ctok.value.as_str() == ":"),
+                      .Atom(_, ctok) => (ctok.value == ":"),
                       .FnCall(_, _, _, _, _) => false
                     )
                   )
@@ -2843,7 +2843,7 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : ArrayList(FnDef)) -> unit)
               top_func.*,
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, ftok) => cond(
-                (!(ftok.value.as_str() == "impl")) => (),
+                (!(ftok.value == "impl")) => (),
                 (args.len() < usize(1)) => (),
                 true => match(
                   args.get(usize(0)),
@@ -2908,7 +2908,7 @@ collect_skipped_fn_names :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
           top_func.*,
           .FnCall(_, _, _, _, _) => (),
           .Atom(_, ttok) => cond(
-            (ttok.value.as_str() != "::") => (),
+            (ttok.value != "::") => (),
             (top_args.len() != usize(2)) => (),
             true => match(
               extract_fn_def(expr),
@@ -3239,7 +3239,7 @@ _has_tostring_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
         a,
         .FnCall(_, _, _, _, _) => (),
         .Atom(_, tok) => {
-          if((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "ToString"), {
+          if((tok.kind == TokenKind.Identifier) && (tok.value == "ToString"), {
             found = true;
           });
         }
@@ -3271,7 +3271,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
             mf.*,
             .FnCall(_, _, _, _, _) => (),
             .Atom(_, dtok) => cond(
-              (dtok.value.as_str() != "derive") => (),
+              (dtok.value != "derive") => (),
               (!(_has_tostring_trait(margs))) => (),
               true => {
                 // Extract the type name (first arg)
@@ -3296,7 +3296,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
                                 extract_struct_def(def_expr),
                                 .None => (),
                                 .Some(sd) => {
-                                  if(sd.name.as_str() == type_name, {
+                                  if(sd.name == type_name, {
                                     sd_opt = Option(StructDef).Some(sd);
                                   });
                                 }
@@ -3317,7 +3317,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
                                 extract_enum_def(def_expr),
                                 .None => (),
                                 .Some(ed) => {
-                                  if(ed.name.as_str() == type_name, {
+                                  if(ed.name == type_name, {
                                     ed_opt = Option(EnumDef).Some(ed);
                                   });
                                 }
@@ -3794,7 +3794,7 @@ _has_hash_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
         a,
         .FnCall(_, _, _, _, _) => (),
         .Atom(_, tok) => {
-          if((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "Hash"), {
+          if((tok.kind == TokenKind.Identifier) && (tok.value == "Hash"), {
             found = true;
           });
         }
@@ -3822,7 +3822,7 @@ _has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
               ord_fn.*,
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, etok) => {
-                if(etok.value.as_str() == "Ord", {
+                if(etok.value == "Ord", {
                   found = true;
                 });
               }
@@ -3831,7 +3831,7 @@ _has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
         },
         // bare `Ord` atom form
         .Atom(_, tok) => {
-          if((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "Ord"), {
+          if((tok.kind == TokenKind.Identifier) && (tok.value == "Ord"), {
             found = true;
           });
         }
@@ -3858,7 +3858,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> 
             mf.*,
             .FnCall(_, _, _, _, _) => (),
             .Atom(_, dtok) => cond(
-              (dtok.value.as_str() != "derive") => (),
+              (dtok.value != "derive") => (),
               (!(_has_hash_trait(margs))) => (),
               true => {
                 match(
@@ -3880,7 +3880,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> 
                                 extract_struct_def(def_expr),
                                 .None => (),
                                 .Some(sd) => {
-                                  if(sd.name.as_str() == type_name, {
+                                  if(sd.name == type_name, {
                                     sd_opt = Option(StructDef).Some(sd);
                                   });
                                 }
@@ -3901,7 +3901,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> 
                                 extract_enum_def(def_expr),
                                 .None => (),
                                 .Some(ed) => {
-                                  if(ed.name.as_str() == type_name, {
+                                  if(ed.name == type_name, {
                                     ed_opt = Option(EnumDef).Some(ed);
                                   });
                                 }
@@ -3958,7 +3958,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> u
             mf.*,
             .FnCall(_, _, _, _, _) => (),
             .Atom(_, dtok) => cond(
-              (dtok.value.as_str() != "derive") => (),
+              (dtok.value != "derive") => (),
               (!(_has_ord_trait(margs))) => (),
               true => {
                 match(
@@ -3980,7 +3980,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> u
                                 extract_struct_def(def_expr),
                                 .None => (),
                                 .Some(sd) => {
-                                  if(sd.name.as_str() == type_name, {
+                                  if(sd.name == type_name, {
                                     sd_opt = Option(StructDef).Some(sd);
                                   });
                                 }
@@ -4001,7 +4001,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> u
                                 extract_enum_def(def_expr),
                                 .None => (),
                                 .Some(ed) => {
-                                  if(ed.name.as_str() == type_name, {
+                                  if(ed.name == type_name, {
                                     ed_opt = Option(EnumDef).Some(ed);
                                   });
                                 }
@@ -4054,7 +4054,7 @@ _has_clone_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
         a,
         .FnCall(_, _, _, _, _) => (),
         .Atom(_, tok) => {
-          if((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "Clone"), {
+          if((tok.kind == TokenKind.Identifier) && (tok.value == "Clone"), {
             found = true;
           });
         }
@@ -4082,7 +4082,7 @@ _has_eq_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
               eq_fn.*,
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, etok) => {
-                if(etok.value.as_str() == "Eq", {
+                if(etok.value == "Eq", {
                   found = true;
                 });
               }
@@ -4091,7 +4091,7 @@ _has_eq_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
         },
         // bare `Eq` atom form
         .Atom(_, tok) => {
-          if((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "Eq"), {
+          if((tok.kind == TokenKind.Identifier) && (tok.value == "Eq"), {
             found = true;
           });
         }
@@ -4118,7 +4118,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) ->
             mf.*,
             .FnCall(_, _, _, _, _) => (),
             .Atom(_, dtok) => cond(
-              (dtok.value.as_str() != "derive") => (),
+              (dtok.value != "derive") => (),
               (!(_has_clone_trait(margs))) => (),
               true => {
                 match(
@@ -4140,7 +4140,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) ->
                                 extract_struct_def(def_expr),
                                 .None => (),
                                 .Some(sd) => {
-                                  if(sd.name.as_str() == type_name, {
+                                  if(sd.name == type_name, {
                                     sd_opt = Option(StructDef).Some(sd);
                                   });
                                 }
@@ -4161,7 +4161,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) ->
                                 extract_enum_def(def_expr),
                                 .None => (),
                                 .Some(ed) => {
-                                  if(ed.name.as_str() == type_name, {
+                                  if(ed.name == type_name, {
                                     ed_opt = Option(EnumDef).Some(ed);
                                   });
                                 }
@@ -4216,7 +4216,7 @@ _extract_comptime_eval_derive_typename :: (fn(mexpr : AstExpr) -> Option(String)
         mf_ce.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, ce_tok) => cond(
-          (ce_tok.value.as_str() != "comptime_eval") => Option(String).None,
+          (ce_tok.value != "comptime_eval") => Option(String).None,
           true => match(
             margs_ce.get(usize(0)),
             .None => Option(String).None,
@@ -4308,7 +4308,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
                     extract_struct_def(def_e),
                     .None => (),
                     .Some(sd2) => {
-                      if(sd2.name.as_str() == ce_typename.as_str(), {
+                      if(sd2.name == ce_typename, {
                         ce_sd_opt = Option(StructDef).Some(sd2);
                       });
                     }
@@ -4326,7 +4326,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
                     extract_enum_def(def_e2),
                     .None => (),
                     .Some(ed2) => {
-                      if(ed2.name.as_str() == ce_typename.as_str(), {
+                      if(ed2.name == ce_typename, {
                         ce_ed_opt = Option(EnumDef).Some(ed2);
                       });
                     }
@@ -4365,7 +4365,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
               mf.*,
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, dtok) => cond(
-                (dtok.value.as_str() != "derive") => (),
+                (dtok.value != "derive") => (),
                 (!(_has_eq_trait(margs))) => (),
                 true => {
                   match(
@@ -4387,7 +4387,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
                                   extract_struct_def(def_expr),
                                   .None => (),
                                   .Some(sd) => {
-                                    if(sd.name.as_str() == type_name, {
+                                    if(sd.name == type_name, {
                                       sd_opt = Option(StructDef).Some(sd);
                                     });
                                   }
@@ -4408,7 +4408,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
                                   extract_enum_def(def_expr),
                                   .None => (),
                                   .Some(ed) => {
-                                    if(ed.name.as_str() == type_name, {
+                                    if(ed.name == type_name, {
                                       ed_opt = Option(EnumDef).Some(ed);
                                     });
                                   }
@@ -4493,7 +4493,7 @@ scan_and_emit_local_defs :: (
       // Recurse into begin block children to find nested defs
       is_begin := match(
         func_box.*,
-        .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN),
+        .Atom(_, ftok) => (ftok.value == BK_BEGIN),
         .FnCall(_, _, _, _, _) => false
       );
       if(is_begin, {
@@ -4560,7 +4560,7 @@ compile_module_to_c :: (
                   imp_func.*,
                   .FnCall(_, _, _, _, _) => (),
                   .Atom(_, itok) => cond(
-                    (!(itok.value.as_str() == "impl")) => (),
+                    (!(itok.value == "impl")) => (),
                     true => match(
                       imp_args.get(usize(0)),
                       .None => (),
@@ -4614,7 +4614,7 @@ compile_module_to_c :: (
           .Some(fd) => {
             // Build C function name: fn_<yo_name> (simple convention)
             c_name := `fn_${ fd.name }`;
-            if(fd.name.as_str() == main_name, {
+            if(fd.name == main_name, {
               main_found = true;
               main_c_name = c_name;
             });
@@ -4687,7 +4687,7 @@ compile_module_to_c :: (
                               imp_func.*,
                               .FnCall(_, _, _, _, _) => ArrayList(FnDef).new(),
                               .Atom(_, itok) => cond(
-                                (!(itok.value.as_str() == "impl")) => ArrayList(FnDef).new(),
+                                (!(itok.value == "impl")) => ArrayList(FnDef).new(),
                                 true => match(
                                   imp_args.get(usize(0)),
                                   .None => ArrayList(FnDef).new(),
@@ -4709,7 +4709,7 @@ compile_module_to_c :: (
                             impl_fns.get(mi - usize(1)),
                             .None => (),
                             .Some(fd) => {
-                              if(fd.name.as_str() == main_name, {
+                              if(fd.name == main_name, {
                                 main_found = true;
                                 main_c_name = fd.name;
                               });
@@ -4742,7 +4742,7 @@ compile_module_to_c :: (
                                 gen_func.*,
                                 .FnCall(_, _, _, _, _) => false,
                                 .Atom(_, gen_op_tok) => cond(
-                                  (gen_op_tok.value.as_str() != "::") => false,
+                                  (gen_op_tok.value != "::") => false,
                                   true => match(
                                     gen_args.get(usize(0)),
                                     .None => false,
@@ -4845,7 +4845,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                   mf.*,
                   .FnCall(_, _, _, _, _) => (),
                   .Atom(_, mtok) => cond(
-                    (!(mtok.value.as_str() == "impl")) => (),
+                    (!(mtok.value == "impl")) => (),
                     true => match(
                       margs.get(usize(0)),
                       .None => (),
@@ -4950,7 +4950,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                             match(
                               gen_func2.*,
                               .FnCall(_, _, _, _, _) => (),
-                              .Atom(_, gen_op_tok2) => if(gen_op_tok2.value.as_str() == "::", {
+                              .Atom(_, gen_op_tok2) => if(gen_op_tok2.value == "::", {
                                 match(
                                   gen_args2.get(usize(0)),
                                   .None => (),
@@ -4981,7 +4981,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                               mf2.*,
                               .FnCall(_, _, _, _, _) => (),
                               .Atom(_, mtok2) => cond(
-                                (!(mtok2.value.as_str() == "impl")) => (),
+                                (!(mtok2.value == "impl")) => (),
                                 true => match(
                                   margs2.get(usize(0)),
                                   .None => (),
@@ -5111,7 +5111,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
               hoisted_names.get(hi),
               .None => (),
               .Some(hn_s) => {
-                if(hn_s.as_str() == lfd.name.as_str(), {
+                if(hn_s == lfd.name, {
                   found_dup = true;
                 });
               }

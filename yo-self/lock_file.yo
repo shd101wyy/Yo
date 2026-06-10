@@ -93,7 +93,7 @@ parse_lock_file :: (fn(content : String) -> LockFile)({
       continue;
     });
     // New dependency section header
-    if(line.as_str() == "[[dependencies]]", {
+    if(line == "[[dependencies]]", {
       if(in_entry, {
         deps.push(_finalize_entry(cur_name, cur_url, cur_ref, cur_commit, cur_hash));
       });
@@ -114,19 +114,19 @@ parse_lock_file :: (fn(content : String) -> LockFile)({
         key := line.substring(usize(0), eq_pos).trim();
         value := _strip_quotes(line.substring(eq_pos + usize(1), line.len()).trim());
         cond(
-          (key.as_str() == "name") => {
+          (key == "name") => {
             cur_name = value;
           },
-          (key.as_str() == "url") => {
+          (key == "url") => {
             cur_url = value;
           },
-          (key.as_str() == "ref") => {
+          (key == "ref") => {
             cur_ref = value;
           },
-          (key.as_str() == "commit") => {
+          (key == "commit") => {
             cur_commit = value;
           },
-          (key.as_str() == "hash") => {
+          (key == "hash") => {
             cur_hash = value;
           },
           true => ()
@@ -220,7 +220,7 @@ find_lock_entry :: (fn(lock : LockFile, name : String) -> Option(LockEntry))({
       dep_opt,
       .None => (),
       .Some(dep) => {
-        if(dep.name.as_str() == name.as_str(), {
+        if(dep.name == name, {
           result =.Some(dep);
         });
       }
@@ -242,7 +242,7 @@ upsert_lock_entry :: (fn(lock : LockFile, entry : LockEntry) -> LockFile)({
       .None => (),
       .Some(dep) => {
         cond(
-          (dep.name.as_str() == entry.name.as_str()) => {
+          (dep.name == entry.name) => {
             new_deps.push(entry);
             replaced = true;
           },

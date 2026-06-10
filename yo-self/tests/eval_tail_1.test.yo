@@ -998,7 +998,7 @@ test("evaluate_module_body: exports two bindings into ModuleVal", {
           assert(vals.len() == usize(2), "2 exported values");
           match(
             names.get(usize(0)),
-            .Some(n0) => assert(n0.as_str() == "x", "first export(is x)"),
+            .Some(n0) => assert(n0 == "x", "first export(is x)"),
             .None => assert(false, "missing first export(name)")
           );
           match(
@@ -1008,7 +1008,7 @@ test("evaluate_module_body: exports two bindings into ModuleVal", {
           );
           match(
             names.get(usize(1)),
-            .Some(n1) => assert(n1.as_str() == "y", "second export(is y)"),
+            .Some(n1) => assert(n1 == "y", "second export(is y)"),
             .None => assert(false, "missing second export(name)")
           );
           match(
@@ -1053,7 +1053,7 @@ test("validation milestone: evaluate hello_world module", {
           assert(mod_names.len() == usize(1), "exactly 1 export");
           match(
             mod_names.get(usize(0)),
-            .Some(n) => assert(n.as_str() == "main", "exported name is main"),
+            .Some(n) => assert(n == "main", "exported name is main"),
             .None => assert(false, "no exported name")
           );
           match(
@@ -1065,7 +1065,7 @@ test("validation milestone: evaluate hello_world module", {
                 assert(ev_ps.len() == usize(1), "main has 1 evidence param");
                 match(
                   ev_ps.get(usize(0)),
-                  .Some(evn) => assert(evn.as_str() == "io", "evidence param is io"),
+                  .Some(evn) => assert(evn == "io", "evidence param is io"),
                   .None => assert(false, "no evidence param name")
                 );
               },
@@ -1105,7 +1105,7 @@ test("evaluate_module_body: enum type definition binds in module env", {
           assert(names.len() == usize(1), "1 export");
           match(
             names.get(usize(0)),
-            .Some(n) => assert(n.as_str() == "Color", "export(is Color)"),
+            .Some(n) => assert(n == "Color", "export(is Color)"),
             .None => assert(false, "no export(name)")
           );
           match(
@@ -1118,9 +1118,9 @@ test("evaluate_module_body: enum type definition binds in module env", {
                     tyb.*,
                     .EnumT(_, _, vnames, _, _, _, _) => {
                       assert(vnames.len() == usize(3), "3 variants");
-                      match(vnames.get(usize(0)),.Some(n) => assert(n.as_str() == "Red", "Red"),.None => assert(false, "no variant 0"));
-                      match(vnames.get(usize(1)),.Some(n) => assert(n.as_str() == "Green", "Green"),.None => assert(false, "no variant 1"));
-                      match(vnames.get(usize(2)),.Some(n) => assert(n.as_str() == "Blue", "Blue"),.None => assert(false, "no variant 2"));
+                      match(vnames.get(usize(0)),.Some(n) => assert(n == "Red", "Red"),.None => assert(false, "no variant 0"));
+                      match(vnames.get(usize(1)),.Some(n) => assert(n == "Green", "Green"),.None => assert(false, "no variant 1"));
+                      match(vnames.get(usize(2)),.Some(n) => assert(n == "Blue", "Blue"),.None => assert(false, "no variant 2"));
                     },
                     _ => assert(false, "Color is not EnumT")
                   ),
@@ -1167,8 +1167,8 @@ test("evaluate_module_body: struct type definition binds in module env", {
                     tyb.*,
                     .Struct(_, _, labels, _, _, _, _) => {
                       assert(labels.len() == usize(2), "2 fields");
-                      match(labels.get(usize(0)),.Some(l) => assert(l.as_str() == "x", "x field"),.None => assert(false, "no label 0"));
-                      match(labels.get(usize(1)),.Some(l) => assert(l.as_str() == "y", "y field"),.None => assert(false, "no label 1"));
+                      match(labels.get(usize(0)),.Some(l) => assert(l == "x", "x field"),.None => assert(false, "no label 0"));
+                      match(labels.get(usize(1)),.Some(l) => assert(l == "y", "y field"),.None => assert(false, "no label 1"));
                     },
                     _ => assert(false, "Point is not Struct")
                   ),
@@ -1213,8 +1213,8 @@ test("evaluate_module_body: generic comptime function MyOption(i32) returns Enum
                     tyb.*,
                     .EnumT(_, _, vnames, _, _, _, _) => {
                       assert(vnames.len() == usize(2), "2 variants");
-                      match(vnames.get(usize(0)),.Some(n) => assert(n.as_str() == "None", "None"),.None => assert(false, "no v0"));
-                      match(vnames.get(usize(1)),.Some(n) => assert(n.as_str() == "Some", "Some"),.None => assert(false, "no v1"));
+                      match(vnames.get(usize(0)),.Some(n) => assert(n == "None", "None"),.None => assert(false, "no v0"));
+                      match(vnames.get(usize(1)),.Some(n) => assert(n == "Some", "Some"),.None => assert(false, "no v1"));
                     },
                     _ => assert(false, "not EnumT")
                   ),
@@ -1258,7 +1258,7 @@ test("evaluate_module_body: impl non-generic method dispatch returns field value
                 v,
                 // The simplified evaluator propagates IntLit (compile-time int literal)
                 // through struct fields — i32(3) stores as IntLit("3") not I32Val(3).
-                .IntLit(raw) => assert(raw.as_str() == "3", "val raw is '3'"),
+                .IntLit(raw) => assert(raw == "3", "val raw is '3'"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1297,7 +1297,7 @@ test("evaluate_module_body: impl method with multiple params dispatch", {
               match(
                 v,
                 // i32(10) + i32(5) = IntLit("15") in the simplified evaluator
-                .IntLit(raw) => assert(raw.as_str() == "15", "val raw is '15'"),
+                .IntLit(raw) => assert(raw == "15", "val raw is '15'"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1336,7 +1336,7 @@ test("evaluate_module_body: closure captures outer variable (Phase 3ac)", {
               match(
                 v,
                 // 5 + 10 = 15
-                .IntLit(raw) => assert(raw.as_str() == "15", "result is 15"),
+                .IntLit(raw) => assert(raw == "15", "result is 15"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1375,7 +1375,7 @@ test("evaluate_module_body: higher-order function (fn passed as argument)", {
               match(
                 v,
                 // double(7) = 14
-                .IntLit(raw) => assert(raw.as_str() == "14", "result is 14"),
+                .IntLit(raw) => assert(raw == "14", "result is 14"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1414,7 +1414,7 @@ test("evaluate_module_body: closure returned from function captures parameter", 
               match(
                 v,
                 // add5(3) = 3 + 5 = 8
-                .IntLit(raw) => assert(raw.as_str() == "8", "result is 8"),
+                .IntLit(raw) => assert(raw == "8", "result is 8"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1453,7 +1453,7 @@ test("evaluate_module_body: absolute value using cond and comparison (Phase 3ac)
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(r1) => assert(r1.as_str() == "5", "r1 is 5"),
+                .IntLit(r1) => assert(r1 == "5", "r1 is 5"),
                 _ => assert(false, "r1 not IntLit")
               ),
             .None => assert(false, "no r1")
@@ -1464,7 +1464,7 @@ test("evaluate_module_body: absolute value using cond and comparison (Phase 3ac)
             .Some(v2) =>
               match(
                 v2,
-                .IntLit(r2) => assert(r2.as_str() == "3", "r2 is 3"),
+                .IntLit(r2) => assert(r2 == "3", "r2 is 3"),
                 _ => assert(false, "r2 not IntLit")
               ),
             .None => assert(false, "no r2")
@@ -1503,7 +1503,7 @@ test("evaluate_module_body: while loop accumulates sum 1..5 = 15", {
               match(
                 v,
                 // 1+2+3+4+5 = 15
-                .IntLit(raw) => assert(raw.as_str() == "15", "result is 15"),
+                .IntLit(raw) => assert(raw == "15", "result is 15"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1541,7 +1541,7 @@ test("evaluate_module_body: match .Some(x) binding returns inner value", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "42", "result is 42"),
+                .IntLit(raw) => assert(raw == "42", "result is 42"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1579,7 +1579,7 @@ test("evaluate_module_body: match .None branch taken when scrutinee is .None", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "99", "result is 99"),
+                .IntLit(raw) => assert(raw == "99", "result is 99"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1618,7 +1618,7 @@ test("evaluate_module_body: nested function calls double(triple(2)) = 12", {
               match(
                 v,
                 // triple(2)=6, double(6)=12
-                .IntLit(raw) => assert(raw.as_str() == "12", "result is 12"),
+                .IntLit(raw) => assert(raw == "12", "result is 12"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1707,7 +1707,7 @@ test("evaluate_module_body: recur factorial(1) = 1", {
               match(
                 v,
                 // factorial(1) = 1*factorial(0) = 1*1 = 1
-                .IntLit(raw) => assert(raw.as_str() == "1", "result is 1"),
+                .IntLit(raw) => assert(raw == "1", "result is 1"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1795,7 +1795,7 @@ test("evaluate_module_body: closure captures multiple outer variables", {
               match(
                 v,
                 // add_ab(1) = 1 + (3 + 7) = 11
-                .IntLit(raw) => assert(raw.as_str() == "11", "result is 11"),
+                .IntLit(raw) => assert(raw == "11", "result is 11"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1834,7 +1834,7 @@ test("evaluate_module_body: enum variant wildcard pattern", {
               match(
                 v,
                 // .Some(5) does not match .None, but matches wildcard _ => 42
-                .IntLit(raw) => assert(raw.as_str() == "42", "result is 42"),
+                .IntLit(raw) => assert(raw == "42", "result is 42"),
                 _ => assert(false, "not IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -1873,7 +1873,7 @@ test("evaluate_module_body: return(early exit from function)", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "-1", "r1 is -1"),
+                .IntLit(raw) => assert(raw == "-1", "r1 is -1"),
                 _ => assert(false, "r1 not IntLit")
               ),
             .None => assert(false, "no r1")
@@ -1884,7 +1884,7 @@ test("evaluate_module_body: return(early exit from function)", {
             .Some(v2) =>
               match(
                 v2,
-                .IntLit(raw) => assert(raw.as_str() == "0", "r2 is 0"),
+                .IntLit(raw) => assert(raw == "0", "r2 is 0"),
                 _ => assert(false, "r2 not IntLit")
               ),
             .None => assert(false, "no r2")
@@ -1895,7 +1895,7 @@ test("evaluate_module_body: return(early exit from function)", {
             .Some(v3) =>
               match(
                 v3,
-                .IntLit(raw) => assert(raw.as_str() == "1", "r3 is 1"),
+                .IntLit(raw) => assert(raw == "1", "r3 is 1"),
                 _ => assert(false, "r3 not IntLit")
               ),
             .None => assert(false, "no r3")
@@ -1934,7 +1934,7 @@ test("evaluate_module_body: struct construction and field access", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "3", "rx is 3"),
+                .IntLit(raw) => assert(raw == "3", "rx is 3"),
                 _ => assert(false, "rx not IntLit")
               ),
             .None => assert(false, "no rx")
@@ -1945,7 +1945,7 @@ test("evaluate_module_body: struct construction and field access", {
             .Some(v2) =>
               match(
                 v2,
-                .IntLit(raw) => assert(raw.as_str() == "4", "ry is 4"),
+                .IntLit(raw) => assert(raw == "4", "ry is 4"),
                 _ => assert(false, "ry not IntLit")
               ),
             .None => assert(false, "no ry")
@@ -1984,7 +1984,7 @@ test("evaluate_module_body: float arithmetic and comparison", {
             .Some(v1) =>
               match(
                 v1,
-                .FloatLit(raw) => assert(raw.as_str() == "4", "s is 4"),
+                .FloatLit(raw) => assert(raw == "4", "s is 4"),
                 _ => assert(false, "s not FloatLit")
               ),
             .None => assert(false, "no s")
@@ -2034,7 +2034,7 @@ test("evaluate_module_body: integer division and modulo", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "3", "a is 3"),
+                .IntLit(raw) => assert(raw == "3", "a is 3"),
                 _ => assert(false, "a not IntLit")
               ),
             .None => assert(false, "no a")
@@ -2045,7 +2045,7 @@ test("evaluate_module_body: integer division and modulo", {
             .Some(v2) =>
               match(
                 v2,
-                .IntLit(raw) => assert(raw.as_str() == "1", "b is 1"),
+                .IntLit(raw) => assert(raw == "1", "b is 1"),
                 _ => assert(false, "b not IntLit")
               ),
             .None => assert(false, "no b")
@@ -2084,7 +2084,7 @@ test("evaluate_module_body: function composition", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "15", "r is 15"),
+                .IntLit(raw) => assert(raw == "15", "r is 15"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -2161,7 +2161,7 @@ test("evaluate_module_body: impl method call", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "7", "rx is 7"),
+                .IntLit(raw) => assert(raw == "7", "rx is 7"),
                 _ => assert(false, "rx not IntLit")
               ),
             .None => assert(false, "no rx")
@@ -2199,7 +2199,7 @@ test("evaluate_module_body: fieldless enum variant and match", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "2", "r is 2 (Green)"),
+                .IntLit(raw) => assert(raw == "2", "r is 2 (Green)"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -2285,7 +2285,7 @@ test("evaluate_module_body: int to_string", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(raw) => assert(raw.as_str() == "\"42\"", "s is string 42"),
+                .StrLit(raw) => assert(raw == "\"42\"", "s is string 42"),
                 _ => assert(false, "s not StrLit")
               ),
             .None => assert(false, "no s")
@@ -2323,7 +2323,7 @@ test("evaluate_module_body: bool to_string", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(raw) => assert(raw.as_str() == "\"true\"", "s is string true"),
+                .StrLit(raw) => assert(raw == "\"true\"", "s is string true"),
                 _ => assert(false, "s not StrLit")
               ),
             .None => assert(false, "no s")
@@ -2333,7 +2333,7 @@ test("evaluate_module_body: bool to_string", {
             .Some(v2) =>
               match(
                 v2,
-                .StrLit(raw) => assert(raw.as_str() == "\"false\"", "sf is string false"),
+                .StrLit(raw) => assert(raw == "\"false\"", "sf is string false"),
                 _ => assert(false, "sf not StrLit")
               ),
             .None => assert(false, "no sf")
@@ -2371,7 +2371,7 @@ test("evaluate_module_body: String.from passthrough", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(raw) => assert(raw.as_str() == "\"hello\"", "s is hello"),
+                .StrLit(raw) => assert(raw == "\"hello\"", "s is hello"),
                 _ => assert(false, "s not StrLit")
               ),
             .None => assert(false, "no s")
@@ -2409,7 +2409,7 @@ test("evaluate_module_body: String.new empty string", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(raw) => assert(raw.as_str() == "\"\"", "s is empty string"),
+                .StrLit(raw) => assert(raw == "\"\"", "s is empty string"),
                 _ => assert(false, "s not StrLit")
               ),
             .None => assert(false, "no s")
@@ -2447,7 +2447,7 @@ test("evaluate_module_body: StrLit + StrLit infix concat", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(raw) => assert(raw.as_str() == "\"hello world\"", "concat result"),
+                .StrLit(raw) => assert(raw == "\"hello world\"", "concat result"),
                 _ => assert(false, "s not StrLit")
               ),
             .None => assert(false, "no s")
@@ -2485,7 +2485,7 @@ test("evaluate_module_body: higher-order function", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "10", "apply(double) = 10"),
+                .IntLit(raw) => assert(raw == "10", "apply(double) = 10"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -2523,7 +2523,7 @@ test("evaluate_module_body: closure captures outer variable", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "15", "adder(5) = 15"),
+                .IntLit(raw) => assert(raw == "15", "adder(5) = 15"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -2561,7 +2561,7 @@ test("evaluate_module_body: String.as_str passthrough", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(raw) => assert(raw.as_str() == "\"hello\"", "as_str passthrough"),
+                .StrLit(raw) => assert(raw == "\"hello\"", "as_str passthrough"),
                 _ => assert(false, "t not StrLit")
               ),
             .None => assert(false, "no t")
@@ -2599,7 +2599,7 @@ test("evaluate_module_body: StrLit len method", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "5", "len of hello is 5"),
+                .IntLit(raw) => assert(raw == "5", "len of hello is 5"),
                 _ => assert(false, "n not IntLit")
               ),
             .None => assert(false, "no n")
@@ -2637,7 +2637,7 @@ test("evaluate_module_body: empty string len is 0", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "0", "len of empty string is 0"),
+                .IntLit(raw) => assert(raw == "0", "len of empty string is 0"),
                 _ => assert(false, "n not IntLit")
               ),
             .None => assert(false, "no n")
@@ -2823,7 +2823,7 @@ test("Phase 5m: name := rhs binds name in scope", {
     .Some(res) =>
       match(
         res.value,
-        .IntLit(raw) => assert(raw.as_str() == "42", "handler value is 42"),
+        .IntLit(raw) => assert(raw == "42", "handler value is 42"),
         _ => assert(false, "expected IntLit(42)")
       )
   );
@@ -3134,7 +3134,7 @@ test("Phase 5q: nested begin blocks evaluate to inner result", {
     .None => assert(false, "nested begin returned None"),
     .Some(r) => match(
       r.value,
-      .IntLit(n) => assert(n.as_str() == "42", "expected 42"),
+      .IntLit(n) => assert(n == "42", "expected 42"),
       _ => assert(false, "expected IntLit from nested begin")
     )
   );
@@ -3153,7 +3153,7 @@ test("Phase 5q: begin block with multiple stmts returns last", {
     .None => assert(false, "begin block returned None"),
     .Some(r) => match(
       r.value,
-      .IntLit(n) => assert(n.as_str() == "30", "expected 30"),
+      .IntLit(n) => assert(n == "30", "expected 30"),
       _ => assert(false, "expected IntLit(30)")
     )
   );
@@ -3176,7 +3176,7 @@ test("Phase 5q: unary negation on integer", {
     .None => assert(false, "unary neg returned None"),
     .Some(r) => match(
       r.value,
-      .IntLit(n) => assert(n.as_str() == "-5", "expected -5"),
+      .IntLit(n) => assert(n == "-5", "expected -5"),
       _ => assert(false, "expected IntLit(-(5))")
     )
   );
@@ -3236,7 +3236,7 @@ test("Phase 5q: cond with multiple arms evaluates correct branch", {
     .None => assert(false, "cond returned None"),
     .Some(r) => match(
       r.value,
-      .IntLit(n) => assert(n.as_str() == "1", "expected 1 from true branch"),
+      .IntLit(n) => assert(n == "1", "expected 1 from true branch"),
       _ => assert(false, "expected IntLit(1)")
     )
   );
@@ -3250,7 +3250,7 @@ test("Phase 5q: integer modulo operator", {
     .None => assert(false, "modulo returned None"),
     .Some(r) => match(
       r.value,
-      .IntLit(n) => assert(n.as_str() == "1", "expected 1"),
+      .IntLit(n) => assert(n == "1", "expected 1"),
       _ => assert(false, "expected IntLit(1) from 10 % 3")
     )
   );
@@ -3264,7 +3264,7 @@ test("Phase 5q: integer division", {
     .None => assert(false, "division returned None"),
     .Some(r) => match(
       r.value,
-      .IntLit(n) => assert(n.as_str() == "3", "expected 3"),
+      .IntLit(n) => assert(n == "3", "expected 3"),
       _ => assert(false, "expected IntLit(3) from 7 / 2")
     )
   );
@@ -3304,7 +3304,7 @@ test("Phase 5q: string + string concatenation", {
     .None => assert(false, "str concat returned None"),
     .Some(r) => match(
       r.value,
-      .StrLit(s) => assert(s.as_str() == "\"hello world\"", "expected hello world"),
+      .StrLit(s) => assert(s == "\"hello world\"", "expected hello world"),
       _ => assert(false, "expected StrLit")
     )
   );
@@ -3323,7 +3323,7 @@ test("Phase 5q: variable reassignment updates value", {
     .None => assert(false, "reassignment returned None"),
     .Some(r) => match(
       r.value,
-      .IntLit(n) => assert(n.as_str() == "2", "expected 2 after reassignment"),
+      .IntLit(n) => assert(n == "2", "expected 2 after reassignment"),
       _ => assert(false, "expected IntLit(2)")
     )
   );
@@ -3357,7 +3357,7 @@ test("Phase 5r: function definition via :: and call", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "14", "double(7) should be 14"),
+                .IntLit(raw) => assert(raw == "14", "double(7) should be 14"),
                 _ => assert(false, "expected IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -3401,7 +3401,7 @@ test("Phase 5r: while loop with early return", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "3", "find_first(10) should be 3"),
+                .IntLit(raw) => assert(raw == "3", "find_first(10) should be 3"),
                 _ => assert(false, "expected IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -3450,7 +3450,7 @@ test("Phase 5r: match on enum with binding extracts value", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "42", "extracted value should be 42"),
+        .IntLit(raw) => assert(raw == "42", "extracted value should be 42"),
         _ => assert(false, "expected IntLit(42)")
       )
   );
@@ -3485,13 +3485,13 @@ test("Phase 5r: ArrayVal push and get operations", {
               match(
                 v,
                 .EnumVal(tag, fields) => {
-                  assert(tag.as_str() == ".Some", "get(0)(should return(.Some))");
+                  assert(tag == ".Some", "get(0)(should return(.Some))");
                   match(
                     fields.get(usize(0)),
                     .Some(inner) =>
                       match(
                         inner,
-                        .IntLit(raw) => assert(raw.as_str() == "10", "first element should be 10"),
+                        .IntLit(raw) => assert(raw == "10", "first element should be 10"),
                         _ => assert(false, "expected IntLit inside .Some")
                       ),
                     .None => assert(false, "no field in .Some")
@@ -3517,7 +3517,7 @@ test("Phase 5r: template string simple (no interpolation)", {
     .Some(r) =>
       match(
         r.value,
-        .StrLit(raw) => assert(raw.as_str() == "hello world", "template should be hello world"),
+        .StrLit(raw) => assert(raw == "hello world", "template should be hello world"),
         _ => assert(false, "expected StrLit from template atom")
       )
   );
@@ -3550,7 +3550,7 @@ test("Phase 5r: while loop with break exits early", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "5", "count after while should be 5"),
+                .IntLit(raw) => assert(raw == "5", "count after while should be 5"),
                 _ => assert(false, "expected IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -3589,7 +3589,7 @@ test("Phase 5r: nested function calls with arithmetic", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "22", "add(mul(3,4), mul(2,5)) should be 22"),
+                .IntLit(raw) => assert(raw == "22", "add(mul(3,4), mul(2,5)) should be 22"),
                 _ => assert(false, "expected IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -3623,12 +3623,12 @@ test("Phase 5s: array literal [1, 2, 3] produces ArrayVal with 3 elements", {
           assert(arr.len() == usize(3), "array should have 3 elements");
           match(
             arr.get(usize(0)),
-            .Some(v) => match(v,.IntLit(s) => assert(s.as_str() == "1", "first elem should be 1"), _ => assert(false, "elem 0 not IntLit")),
+            .Some(v) => match(v,.IntLit(s) => assert(s == "1", "first elem should be 1"), _ => assert(false, "elem 0 not IntLit")),
             .None => assert(false, "elem 0 missing")
           );
           match(
             arr.get(usize(2)),
-            .Some(v) => match(v,.IntLit(s) => assert(s.as_str() == "3", "third elem should be 3"), _ => assert(false, "elem 2 not IntLit")),
+            .Some(v) => match(v,.IntLit(s) => assert(s == "3", "third elem should be 3"), _ => assert(false, "elem 2 not IntLit")),
             .None => assert(false, "elem 2 missing")
           );
         },
@@ -3663,7 +3663,7 @@ test("Phase 5s: for loop iterates over array elements", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "6", "sum should be 6"),
+                .IntLit(raw) => assert(raw == "6", "sum should be 6"),
                 _ => assert(false, "expected IntLit for sum")
               ),
             .None => assert(false, "no export(value)")
@@ -3703,10 +3703,10 @@ test("Phase 5s: for loop with early return(exits iteration)", {
                 .ReturnVal(inner, _) =>
                   match(
                     inner.*,
-                    .IntLit(raw) => assert(raw.as_str() == "20", "return(value should be 20)"),
+                    .IntLit(raw) => assert(raw == "20", "return(value should be 20)"),
                     _ => assert(false, "expected IntLit inside ReturnVal")
                   ),
-                .IntLit(raw) => assert(raw.as_str() == "20", "direct int should be 20"),
+                .IntLit(raw) => assert(raw == "20", "direct int should be 20"),
                 _ => assert(false, "expected ReturnVal or IntLit")
               ),
             .None => assert(false, "no export(value)")
@@ -3730,7 +3730,7 @@ test("Phase 5s: string concatenation with + operator", {
     .Some(r) =>
       match(
         r.value,
-        .StrLit(raw) => assert(raw.as_str() == "\"hello world\"", "concat should be hello world"),
+        .StrLit(raw) => assert(raw == "\"hello world\"", "concat should be hello world"),
         _ => assert(false, "expected StrLit from string +")
       )
   );
@@ -3762,7 +3762,7 @@ test("Phase 5s: given declaration binds value in env", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "42", "given value should be 42"),
+                .IntLit(raw) => assert(raw == "42", "given value should be 42"),
                 _ => assert(false, "expected IntLit from given")
               ),
             .None => assert(false, "no export(value)")
@@ -3798,7 +3798,7 @@ test("Phase 5s: for loop with break stops iteration", {
             .Some(v) =>
               match(
                 v,
-                .IntLit(raw) => assert(raw.as_str() == "3", "count should be 3 (break after x>3)"),
+                .IntLit(raw) => assert(raw == "3", "count should be 3 (break after x>3)"),
                 _ => assert(false, "expected IntLit for count")
               ),
             .None => assert(false, "no export(value)")
@@ -3909,7 +3909,7 @@ test("Phase 5t: lambda invocation returns computed result", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "6", "f(5) should be 6"),
+        .IntLit(raw) => assert(raw == "6", "f(5) should be 6"),
         _ => assert(false, "expected IntLit from lambda call")
       )
   );
@@ -3955,7 +3955,7 @@ test("Phase 5u: continue in while loop skips rest of body", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "12", "sum with continue should be 12"),
+        .IntLit(raw) => assert(raw == "12", "sum with continue should be 12"),
         _ => assert(false, "expected IntLit for sum")
       )
   );
@@ -4010,7 +4010,7 @@ test("Phase 5u: continue in for loop skips iteration", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "12", "sum with continue in for should be 12"),
+        .IntLit(raw) => assert(raw == "12", "sum with continue in for should be 12"),
         _ => assert(false, "expected IntLit for sum")
       )
   );
@@ -4096,7 +4096,7 @@ test("Phase 5v: FnMut closure called returns result", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "15", "f(5) with =>> should be 15"),
+        .IntLit(raw) => assert(raw == "15", "f(5) with =>> should be 15"),
         _ => assert(false, "expected IntLit from =>> call")
       )
   );
@@ -4147,7 +4147,7 @@ test("Phase 5v: unary negate -(5) returns -5", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "-5", "-(5) should be -5"),
+        .IntLit(raw) => assert(raw == "-5", "-(5) should be -5"),
         _ => assert(false, "expected IntLit from -(5)")
       )
   );
@@ -4164,7 +4164,7 @@ test("Phase 5v: unary negate -(3.14) returns -3.14", {
     .Some(r) =>
       match(
         r.value,
-        .FloatLit(raw) => assert(raw.as_str() == "-3.14", "-(3.14) should be -3.14"),
+        .FloatLit(raw) => assert(raw == "-3.14", "-(3.14) should be -3.14"),
         _ => assert(false, "expected FloatLit from -(3.14)")
       )
   );
@@ -4182,7 +4182,7 @@ test("Phase 5w: runtime(expr) just evaluates inner expression", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "42", "runtime(42) should be 42"),
+        .IntLit(raw) => assert(raw == "42", "runtime(42) should be 42"),
         _ => assert(false, "expected IntLit from runtime()")
       )
   );
@@ -4200,7 +4200,7 @@ test("Phase 5w: dyn(expr) passes through evaluated value", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "99", "dyn(x) should pass through 99"),
+        .IntLit(raw) => assert(raw == "99", "dyn(x) should pass through 99"),
         _ => assert(false, "expected IntLit from dyn()")
       )
   );
@@ -4266,7 +4266,7 @@ test("Phase 5x: bitwise OR (5 | 3) = 7", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "7", "5|3 should be 7"),
+        .IntLit(raw) => assert(raw == "7", "5|3 should be 7"),
         _ => assert(false, "expected IntLit from |")
       )
   );
@@ -4281,7 +4281,7 @@ test("Phase 5x: bitwise AND (7 & 5) = 5", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "5", "7&5 should be 5"),
+        .IntLit(raw) => assert(raw == "5", "7&5 should be 5"),
         _ => assert(false, "expected IntLit from &")
       )
   );
@@ -4296,7 +4296,7 @@ test("Phase 5x: bitwise XOR (6 ^ 3) = 5", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "5", "6^3 should be 5"),
+        .IntLit(raw) => assert(raw == "5", "6^3 should be 5"),
         _ => assert(false, "expected IntLit from ^")
       )
   );
@@ -4311,7 +4311,7 @@ test("Phase 5x: left shift (1 << 3) = 8", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "8", "1<<3 should be 8"),
+        .IntLit(raw) => assert(raw == "8", "1<<3 should be 8"),
         _ => assert(false, "expected IntLit from <<")
       )
   );
@@ -4326,7 +4326,7 @@ test("Phase 5x: right shift (16 >> 2) = 4", {
     .Some(r) =>
       match(
         r.value,
-        .IntLit(raw) => assert(raw.as_str() == "4", "16>>2 should be 4"),
+        .IntLit(raw) => assert(raw == "4", "16>>2 should be 4"),
         _ => assert(false, "expected IntLit from >>")
       )
   );

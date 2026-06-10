@@ -376,7 +376,7 @@ _try_expand_call_overload :: (
   while((li < s_fls.len()) && call_idx.is_none(), {
     match(
       s_fls.get(li),
-      .Some(l) => if(l.as_str() == "Call", {
+      .Some(l) => if(l == "Call", {
         call_idx = Option(usize).Some(li);
       }),
       .None => ()
@@ -403,7 +403,7 @@ _try_expand_call_overload :: (
         while((vi < v_names.len()) && vidx.is_none(), {
           match(
             v_names.get(vi),
-            .Some(n) => if(n.as_str() == "Call", {
+            .Some(n) => if(n == "Call", {
               vidx = Option(usize).Some(vi);
             }),
             .None => ()
@@ -590,7 +590,7 @@ evaluate_function_call :: (
     _ => String.new()
   );
   is_neg_call :=
-    (neg_callee_str.as_str() == "-") && (args.len() == usize(1));
+    (neg_callee_str == "-") && (args.len() == usize(1));
   if(is_neg_call, {
     arg0 := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     match(
@@ -713,7 +713,7 @@ evaluate_function_call :: (
                         agreed = Option(TypeValue).Some(cand_ty);
                       },
                       .Some(prev) => {
-                        if(type_to_string(prev).as_str() != type_to_string(cand_ty).as_str(), {
+                        if(type_to_string(prev) != type_to_string(cand_ty), {
                           diverged = true;
                         });
                       }
@@ -936,7 +936,7 @@ evaluate_function_call :: (
   callee_ty_for_gate := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
   gate_is_extern_c := match(
     callee_ty_for_gate,
-    .Func({ is_extern : ie }) => match(ie,.Some(lang) => (lang.as_str() == "c"),.None => false),
+    .Func({ is_extern : ie }) => match(ie,.Some(lang) => (lang == "c"),.None => false),
     _ => false
   );
   gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
@@ -1273,7 +1273,7 @@ Fix: wrap the call:
               match(
                 variant_names.get(vs_i),
                 .Some(vn) => {
-                  if(vn.as_str() == variant_name.as_str(), {
+                  if(vn == variant_name, {
                     variant_idx = vs_i;
                     found_variant = true;
                   });
@@ -1778,7 +1778,7 @@ Fix: wrap the call:
           (fa_bound : bool) = false;
           while((ptn_i < n_ptn) && (!(fa_bound)), {
             ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
-            if(ptn.as_str() == fa_name.as_str(), {
+            if(ptn == fa_name, {
               arg_info := match(
                 evaled_arg_infos.get(ptn_i),
                 .Some(i) => i,
@@ -2162,7 +2162,7 @@ Fix: wrap the call:
                     (bni : usize) = usize(0);
                     while(bni < fa_bound_names.len(), {
                       bn := match(fa_bound_names.get(bni),.Some(x) => x,.None => String.from(""));
-                      if(bn.as_str() == rst_name.as_str(), {
+                      if(bn == rst_name, {
                         bt := match(fa_bound_types.get(bni),.Some(t) => t,.None => t_unit());
                         subst_add(s_ret, rst_name.clone(), rst_lvl, bt);
                         s_ret_any = true;

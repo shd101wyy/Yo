@@ -105,7 +105,7 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
   (n_keys : usize) = g_impl_registry_keys.len();
   while(ki < n_keys, {
     existing_key := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
-    if(existing_key.as_str() == key.as_str(), {
+    if(existing_key == key, {
       key_idx = Option(usize).Some(ki);
       ki = n_keys; // break
     });
@@ -305,7 +305,7 @@ find_matching_generic_impl :: (
   (n_keys : usize) = g_impl_registry_keys.len();
   while(ki < n_keys, {
     k := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
-    if(k.as_str() == key.as_str(), {
+    if(k == key, {
       entry_list_opt = g_impl_registry_entry_lists.get(ki);
       ki = n_keys; // break
     });
@@ -407,7 +407,7 @@ find_methods_from_generic_impls :: (
             continue;
           }
         );
-        if(fname.as_str() == method_name.as_str(), {
+        if(fname == method_name, {
           ftype := match(
             entry.field_types.get(fi),
             .Some(t) => t,

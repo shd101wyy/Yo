@@ -412,7 +412,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
       );
       func_is_tuple_kw := match(
         func_box.*,
-        .Atom(_, ftok) => (ftok.value.as_str() == BK_TUPLE),
+        .Atom(_, ftok) => (ftok.value == BK_TUPLE),
         .FnCall(_, _, _, _, _) => false
       );
       cond(
@@ -427,7 +427,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               arg0_str := recur(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()));
               is_fc := ast_expr_is_fn_call(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()));
               cond(
-                (func_tok_val.as_str() == ".") => cond(
+                (func_tok_val == ".") => cond(
                   is_fc => `${func_tok_val}(${arg0_str})`,
                   true => `${func_tok_val}${arg0_str}`
                 ),
@@ -446,7 +446,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
                 true => rhs0
               );
               cond(
-                (func_tok_val.as_str() == ".") => {
+                (func_tok_val == ".") => {
                   rhs_final := cond(
                     ast_expr_is_fn_call(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr())) => `(${rhs})`,
                     true => rhs

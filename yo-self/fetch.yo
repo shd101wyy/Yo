@@ -323,7 +323,7 @@ compute_content_hash :: (
         });
       }, {
         // File entry — skip the sidecar hash file
-        is_sidecar := (entry_name.as_str() == SIDECAR_FILENAME);
+        is_sidecar := (entry_name == SIDECAR_FILENAME);
         if(!(is_sidecar), {
           // Hash "file:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
@@ -438,7 +438,7 @@ inspect_cached_dep :: (
           }
         );
         if(
-          actual_hash.as_str() == hash.as_str(),
+          actual_hash == hash,
           CachedDepState(
             status : CachedDepStatus.Ok,
             cached_path : cached_path,
@@ -606,7 +606,7 @@ fetch_dep :: (
     ref_changed := match(
       existing_entry,
       .None => false,
-      .Some(e) => (!(e.ref.as_str() == dep.ref.as_str()))
+      .Some(e) => (!(e.ref == dep.ref))
     );
     // Check if already up-to-date
     cached_state_opt := match(
@@ -649,7 +649,7 @@ fetch_dep :: (
     commit_matches := match(
       existing_entry,
       .None => false,
-      .Some(e) => (e.commit.as_str() == commit.as_str())
+      .Some(e) => (e.commit == commit)
     );
     if((!(update)) && commit_matches, {
       state := match(
@@ -778,7 +778,7 @@ fetch_all_deps :: (
             match(
               deps.get(m),
               .None => (),
-              .Some(dep) => if(dep.name.as_str() == entry.name.as_str(), {
+              .Some(dep) => if(dep.name == entry.name, {
                 still_declared = true;
               })
             );

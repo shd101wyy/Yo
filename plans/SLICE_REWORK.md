@@ -178,7 +178,13 @@ With no raw-ptr-carrying values constructible in safe code:
   `issues/fixed/heterogeneous-eq-overload-dispatch.md`. yo-self needs no
   port (registry returns all overloads; no specializedType). Validated:
   std 151/151 (TS + yo-self-bin), bun 459, string tests 249, impl tests 6.
-- [ ] 2. mechanical `as_str()` comparison sweep (yo-self / tests / std)
+- [x] 2. mechanical `as_str()` comparison sweep — DONE. Dropped `.as_str()`
+  adjacent to `==`/`!=` (both sides; comment lines skipped): yo-self 1333
+  sites / 96 files, tests 72 sites / 8 files (crypto/encoding/os), std 0
+  (its 6 `as_str` uses are bare → step 3). Zero comparison-adjacent
+  `as_str()` remains outside comments. Validated: full ./tests 2609/2609,
+  swept-source yo-self-bin sweeps std 151/151 + tests 147/149 (baseline,
+  2 circular fixtures) + yo-self 285/285.
 - [ ] 3. remaining `as_str()` + `: str` param audit
 - [ ] 4. `Slice(T)` safe-code naming gate + remove `as_str`/`as_slice`
 - [ ] 5. `ListView` library type + tests

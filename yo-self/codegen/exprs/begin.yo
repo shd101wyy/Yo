@@ -45,7 +45,7 @@ is_begin_block :: (fn(expr : AstExpr) -> bool)(
     .FnCall(_, func_box, _, _, _) => match(
       func_box.*,
       .FnCall(_, _, _, _, _) => false,
-      .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN)
+      .Atom(_, ftok) => (ftok.value == BK_BEGIN)
     )
   )
 );
@@ -63,20 +63,20 @@ is_stmt_body_expr :: (fn(expr : AstExpr) -> bool)(
     expr,
     .Atom(_, tok) => cond(
       (tok.kind != TokenKind.Identifier) => false,
-      (tok.value.as_str() == "continue") => true,
-      (tok.value.as_str() == "break") => true,
+      (tok.value == "continue") => true,
+      (tok.value == "break") => true,
       true => false
     ),
     .FnCall(_, func_box, args, _, _) => {
       is_ret := match(
         func_box.*,
         .FnCall(_, _, _, _, _) => false,
-        .Atom(_, ftok) => ((ftok.kind == TokenKind.Identifier) && (ftok.value.as_str() == "return"))
+        .Atom(_, ftok) => ((ftok.kind == TokenKind.Identifier) && (ftok.value == "return"))
       );
       is_begin := match(
         func_box.*,
         .FnCall(_, _, _, _, _) => false,
-        .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN)
+        .Atom(_, ftok) => (ftok.value == BK_BEGIN)
       );
       cond(
         is_ret => true,

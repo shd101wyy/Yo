@@ -77,7 +77,7 @@ resolve_module_path :: (
     module_path_to_import = Path.new(String.from(std_path)).join(Path.new(rel)).to_string();
   });
   // 2. `std` alone → std/index.yo.
-  if(module_path_to_import.as_str() == "std", {
+  if(module_path_to_import == "std", {
     module_path_to_import = Path.new(String.from(std_path)).join(Path.new(String.from("index.yo"))).to_string();
   });
   // 3. Relative paths (`.` or `..` prefix) — resolve relative to current dir.
@@ -356,7 +356,7 @@ evaluate_import :: (
     String.from(raw_with_quotes.as_str())
   );
   // Disallow importing the prelude.
-  if((module_path_to_import.as_str() == "std/prelude") || (module_path_to_import.as_str() == "std/prelude.yo"), {
+  if((module_path_to_import == "std/prelude") || (module_path_to_import == "std/prelude.yo"), {
     exn.throw(
       dyn(
         format_error_message(

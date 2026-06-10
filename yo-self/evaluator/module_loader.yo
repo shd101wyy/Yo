@@ -52,7 +52,7 @@ unregister_loading :: (fn(path : str) -> unit)({
     i = (i - usize(1));
     match(
       g_loading_keys.get(i),
-      .Some(k) => if(k.as_str() == path, {
+      .Some(k) => if(k == path, {
         _ := g_loading_keys.remove(i, usize(1));
         _ := g_loading_envs.remove(i, usize(1));
         return(());
@@ -68,7 +68,7 @@ loading_env :: (fn(path : str) -> Option(Environment))({
     i = (i - usize(1));
     match(
       g_loading_keys.get(i),
-      .Some(k) => if(k.as_str() == path, {
+      .Some(k) => if(k == path, {
         return(g_loading_envs.get(i));
       }),
       .None => ()
@@ -101,7 +101,7 @@ _module_cache_index :: (fn(path : str) -> Option(usize))({
   while((i < n) && idx.is_none(), {
     match(
       g_module_cache_keys.get(i),
-      .Some(k) => if(k.as_str() == path, {
+      .Some(k) => if(k == path, {
         idx = Option(usize).Some(i);
       }),
       .None => ()

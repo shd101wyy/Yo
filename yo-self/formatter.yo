@@ -169,9 +169,9 @@ prefix_operator_needs_leading_space :: (fn(token : Token, previous : Option(Toke
     previous,
     .None => false,
     .Some(p) => cond(
-      (((p.kind == TokenKind.Operator) && (p.value.as_str() == "...")) && (token.value.as_str() == "#")) => false,
+      (((p.kind == TokenKind.Operator) && (p.value == "...")) && (token.value == "#")) => false,
       (p.kind == TokenKind.Comma) => true,
-      ((p.kind == TokenKind.Operator) && (p.value.as_str() != ".")) => true,
+      ((p.kind == TokenKind.Operator) && (p.value != ".")) => true,
       true => false
     )
   )
@@ -710,7 +710,7 @@ has_top_level_field_block :: (
         true => {
           at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
           cond(
-            (((t.kind == TokenKind.Operator) && (t.value.as_str() == ":")) && at_top_level) => {
+            (((t.kind == TokenKind.Operator) && (t.value == ":")) && at_top_level) => {
               saw_top_level_colon = true;
             },
             (((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0))) && saw_top_level_colon) => {
@@ -870,7 +870,7 @@ is_parenthesized_dot_deref :: (
           .None => false,
           .Some(inner) => (
             (inner.kind == TokenKind.Operator) &&
-              ((inner.value.as_str() == "*") && (inner_count == usize(1)))
+              ((inner.value == "*") && (inner_count == usize(1)))
           )
         )
       )
@@ -2174,7 +2174,7 @@ format_yo_source :: (
                   },
                   (token.kind == TokenKind.Operator) => {
                     // Operator-handling cascade matches TS lines 386-426
-                    is_colon_in_inline_curly := ((token.value.as_str() == ":") && (inline_curly_depth > usize(0)));
+                    is_colon_in_inline_curly := ((token.value == ":") && (inline_curly_depth > usize(0)));
                     cond(
                       is_colon_in_inline_curly => {
                         if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
@@ -2425,7 +2425,7 @@ format_yo_files :: (
         bytes := io.await(read_file(Path.new(file), io), IoExn(io : io, exn : exn));
         original := String.from_bytes(bytes);
         formatted := format_yo_source(original, file, exn);
-        if(formatted.as_str() != original.as_str(), {
+        if(formatted != original, {
           _r := changed.push(file);
           if(!(options.check), {
             io.await(write_file(Path.new(file), formatted, io), IoExn(io : io, exn : exn));

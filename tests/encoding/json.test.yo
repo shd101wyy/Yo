@@ -87,7 +87,7 @@ test("json_parse string", {
     )
   );
   v := json_parse("\"hello\"", exn);
-  assert(v.as_string().unwrap().as_str() == "hello", "should be hello");
+  assert(v.as_string().unwrap() == "hello", "should be hello");
 });
 test("json_parse string with escapes", {
   exn := Exception(
@@ -114,7 +114,7 @@ test("json_parse empty string", {
     )
   );
   v := json_parse("\"\"", exn);
-  assert(v.as_string().unwrap().as_str() == "", "should be empty string");
+  assert(v.as_string().unwrap() == "", "should be empty string");
 });
 // ===== Parse Arrays =====
 test("json_parse empty array", {
@@ -159,7 +159,7 @@ test("json_parse mixed array", {
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(4), "should have 4 elements");
   assert(arr(usize(0)).as_number().unwrap() == f64(1), "element 0 is 1");
-  assert(arr(usize(1)).as_string().unwrap().as_str() == "two", "element 1 is two");
+  assert(arr(usize(1)).as_string().unwrap() == "two", "element 1 is two");
   assert(arr(usize(2)).as_bool().unwrap() == true, "element 2 is true");
   is_null := match(arr(usize(3)),.Null => true, _ => false);
   assert(is_null, "element 3 is null");
@@ -190,7 +190,7 @@ test("json_parse simple object", {
   v := json_parse("{\"name\": \"test\", \"value\": 42}", exn);
   name := v.get(String.from("name"));
   assert(name.is_some(), "should have name key");
-  assert(name.unwrap().as_string().unwrap().as_str() == "test", "name should be test");
+  assert(name.unwrap().as_string().unwrap() == "test", "name should be test");
   value := v.get(String.from("value"));
   assert(value.is_some(), "should have value key");
   assert(value.unwrap().as_number().unwrap() == f64(42), "value should be 42");
@@ -234,7 +234,7 @@ test("json_parse with whitespace", {
     )
   );
   v := json_parse("  {  \"key\"  :  \"value\"  }  ", exn);
-  assert(v(String.from("key")).as_string().unwrap().as_str() == "value", "should parse correctly with whitespace");
+  assert(v(String.from("key")).as_string().unwrap() == "value", "should parse correctly with whitespace");
 });
 // ===== Parse Errors =====
 test("json_parse empty input", {
@@ -262,28 +262,28 @@ test("json_parse unclosed string error", {
 // ===== Stringify =====
 test("json_stringify null", {
   result := json_stringify(.Null);
-  assert(result.as_str() == "null", "null should stringify to null");
+  assert(result == "null", "null should stringify to null");
 });
 test("json_stringify true", {
   result := json_stringify(.Bool(true));
-  assert(result.as_str() == "true", "true should stringify to true");
+  assert(result == "true", "true should stringify to true");
 });
 test("json_stringify false", {
   result := json_stringify(.Bool(false));
-  assert(result.as_str() == "false", "false should stringify to false");
+  assert(result == "false", "false should stringify to false");
 });
 test("json_stringify number", {
   result := json_stringify(.Number(f64(42)));
-  assert(result.as_str() == "42", "42 should stringify to 42");
+  assert(result == "42", "42 should stringify to 42");
 });
 test("json_stringify string", {
   result := json_stringify(.Str(String.from("hello")));
-  assert(result.as_str() == "\"hello\"", "hello should be quoted");
+  assert(result == "\"hello\"", "hello should be quoted");
 });
 test("json_stringify empty array", {
   items := ArrayList(JsonValue).new();
   result := json_stringify(.Array(items));
-  assert(result.as_str() == "[]", "empty array should stringify to []");
+  assert(result == "[]", "empty array should stringify to []");
 });
 test("json_stringify array", {
   items := ArrayList(JsonValue).new();
@@ -291,13 +291,13 @@ test("json_stringify array", {
   items.push(.Number(f64(2)));
   items.push(.Number(f64(3)));
   result := json_stringify(.Array(items));
-  assert(result.as_str() == "[1,2,3]", "should stringify array");
+  assert(result == "[1,2,3]", "should stringify array");
 });
 test("json_stringify empty object", {
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
   result := json_stringify(.Object(keys, vals));
-  assert(result.as_str() == "{}", "empty object should stringify to {}");
+  assert(result == "{}", "empty object should stringify to {}");
 });
 test("json_stringify object", {
   keys := ArrayList(String).new();
@@ -307,7 +307,7 @@ test("json_stringify object", {
   keys.push(String.from("b"));
   vals.push(.Bool(true));
   result := json_stringify(.Object(keys, vals));
-  assert(result.as_str() == "{\"a\":1,\"b\":true}", "should stringify object");
+  assert(result == "{\"a\":1,\"b\":true}", "should stringify object");
 });
 // ===== Roundtrip =====
 test("json roundtrip simple object", {
@@ -322,7 +322,7 @@ test("json roundtrip simple object", {
   input := "{\"name\":\"test\",\"value\":42}";
   parsed := json_parse(input, exn);
   output := json_stringify(parsed);
-  assert(output.as_str() == input, "roundtrip should preserve simple object");
+  assert(output == input, "roundtrip should preserve simple object");
 });
 test("json roundtrip nested", {
   exn := Exception(
@@ -336,7 +336,7 @@ test("json roundtrip nested", {
   input := "{\"a\":[1,2,3],\"b\":{\"c\":true}}";
   parsed := json_parse(input, exn);
   output := json_stringify(parsed);
-  assert(output.as_str() == input, "roundtrip should preserve nested structure");
+  assert(output == input, "roundtrip should preserve nested structure");
 });
 test("json roundtrip booleans and null", {
   exn := Exception(
@@ -350,7 +350,7 @@ test("json roundtrip booleans and null", {
   input := "[true,false,null]";
   parsed := json_parse(input, exn);
   output := json_stringify(parsed);
-  assert(output.as_str() == input, "roundtrip should preserve booleans and null");
+  assert(output == input, "roundtrip should preserve booleans and null");
 });
 // ===== JsonValue Methods =====
 test("JsonValue.get missing key", {

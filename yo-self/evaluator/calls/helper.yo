@@ -757,7 +757,7 @@ _find_specialization_cache :: (
     match(
       entry_opt,
       .Some(entry) => {
-        if(entry.func_id.as_str() == func_id, {
+        if(entry.func_id == func_id, {
           n_caches := entry.caches.len();
           (ci : usize) = usize(0);
           while((ci < n_caches) && result.is_none(), {
@@ -840,7 +840,7 @@ _store_specialization_cache :: (
     match(
       entry_opt,
       .Some(entry) => {
-        if(entry.func_id.as_str() == func_id.as_str(), {
+        if(entry.func_id == func_id, {
           found = true;
           // Push into existing entry's caches
           entry.caches.push(new_cache);
@@ -2149,7 +2149,7 @@ try_to_call_function_with_arguments :: (
             .Some(fv) => match(
               fv,
               .FuncVal(_, _, _, _, _, _, _, _, fid) =>
-                (spec_info.original_func_id.as_str() == fid.as_str()),
+                (spec_info.original_func_id == fid),
               _ => false
             ),
             .None => false

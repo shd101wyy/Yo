@@ -74,7 +74,7 @@ test("utf16_to_utf8 empty", {
   );
   data := ArrayList(u16).new();
   result := utf16_to_utf8(data, exn);
-  assert(result.as_str() == "", "should be empty string");
+  assert(result == "", "should be empty string");
 });
 test("utf16_to_utf8 ASCII", {
   exn := Exception(
@@ -92,7 +92,7 @@ test("utf16_to_utf8 ASCII", {
   data.push(u16(108));
   data.push(u16(111));
   result := utf16_to_utf8(data, exn);
-  assert(result.as_str() == "Hello", "should be Hello");
+  assert(result == "Hello", "should be Hello");
 });
 test("utf16_to_utf8 BMP character", {
   exn := Exception(
@@ -147,7 +147,7 @@ test("utf16 roundtrip ASCII", {
   input := "Hello, World!";
   utf16 := utf8_to_utf16(input);
   result := utf16_to_utf8(utf16, exn);
-  assert(result.as_str() == input, "ASCII roundtrip should preserve string");
+  assert(result == input, "ASCII roundtrip should preserve string");
 });
 test("utf16 roundtrip two-byte", {
   exn := Exception(
@@ -162,7 +162,7 @@ test("utf16 roundtrip two-byte", {
   input := _make_str_2(u8(0xC3), u8(0xA9));
   utf16 := utf8_to_utf16(input.as_str());
   result := utf16_to_utf8(utf16, exn);
-  assert(result.as_str() == input.as_str(), "two-byte roundtrip should preserve string");
+  assert(result == input, "two-byte roundtrip should preserve string");
 });
 test("utf16 roundtrip surrogate pair", {
   exn := Exception(

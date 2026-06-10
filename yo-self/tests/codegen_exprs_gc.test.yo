@@ -26,7 +26,7 @@ test("generate_yo_gc_collect: zero args emits __yo_gc_collect()", {
   ind := String.new();
   args := ArrayList(AstExpr).new();
   out := generate_yo_gc_collect(args, pctx, ind);
-  assert(out.as_str() == "__yo_gc_collect()", "expected __yo_gc_collect()");
+  assert(out == "__yo_gc_collect()", "expected __yo_gc_collect()");
 });
 test("generate_yo_gc_collect: arity error emits comment", {
   ctx := CodegenContext.new();
@@ -35,5 +35,5 @@ test("generate_yo_gc_collect: arity error emits comment", {
   args := ArrayList(AstExpr).new();
   args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, "x")));
   out := generate_yo_gc_collect(args, pctx, ind);
-  assert(out.as_str() == "// Error: __yo_gc_collect requires exactly 0 arguments", "expected error comment");
+  assert(out == "// Error: __yo_gc_collect requires exactly 0 arguments", "expected error comment");
 });

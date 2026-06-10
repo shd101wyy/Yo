@@ -57,7 +57,7 @@ test("get_cached_dep_dir: appends name-shortcommit", {
     String.from("my-lib"),
     String.from("abc123def456789")
   );
-  assert(path.as_str() == "/home/.cache/yo/deps/my-lib-abc123def456", "path matches expected");
+  assert(path == "/home/.cache/yo/deps/my-lib-abc123def456", "path matches expected");
 });
 test("get_cached_dep_dir: uses first 12 chars of commit", {
   path := get_cached_dep_dir(
@@ -65,7 +65,7 @@ test("get_cached_dep_dir: uses first 12 chars of commit", {
     String.from("foo"),
     String.from("aabbccddeeff1122")
   );
-  assert(path.as_str() == "/cache/foo-aabbccddeeff", "exactly 12 commit chars");
+  assert(path == "/cache/foo-aabbccddeeff", "exactly 12 commit chars");
 });
 // ---------------------------------------------------------------------------
 // sort_dir_entries
@@ -87,7 +87,7 @@ test("sort_dir_entries: single entry unchanged", {
   entries.push(_make_dir_entry("foo.txt"));
   sorted := sort_dir_entries(entries);
   assert(sorted.len() == usize(1), "one entry");
-  assert(sorted(usize(0)).name.as_str() == "foo.txt", "name preserved");
+  assert(sorted(usize(0)).name == "foo.txt", "name preserved");
 });
 test("sort_dir_entries: already sorted list unchanged", {
   entries := ArrayList(DirEntry).new();
@@ -95,9 +95,9 @@ test("sort_dir_entries: already sorted list unchanged", {
   entries.push(_make_dir_entry("b.txt"));
   entries.push(_make_dir_entry("c.txt"));
   sorted := sort_dir_entries(entries);
-  assert(sorted(usize(0)).name.as_str() == "a.txt", "a first");
-  assert(sorted(usize(1)).name.as_str() == "b.txt", "b second");
-  assert(sorted(usize(2)).name.as_str() == "c.txt", "c third");
+  assert(sorted(usize(0)).name == "a.txt", "a first");
+  assert(sorted(usize(1)).name == "b.txt", "b second");
+  assert(sorted(usize(2)).name == "c.txt", "c third");
 });
 test("sort_dir_entries: reverse order is sorted", {
   entries := ArrayList(DirEntry).new();
@@ -105,7 +105,7 @@ test("sort_dir_entries: reverse order is sorted", {
   entries.push(_make_dir_entry("m.txt"));
   entries.push(_make_dir_entry("a.txt"));
   sorted := sort_dir_entries(entries);
-  assert(sorted(usize(0)).name.as_str() == "a.txt", "a first");
-  assert(sorted(usize(1)).name.as_str() == "m.txt", "m second");
-  assert(sorted(usize(2)).name.as_str() == "z.txt", "z third");
+  assert(sorted(usize(0)).name == "a.txt", "a first");
+  assert(sorted(usize(1)).name == "m.txt", "m second");
+  assert(sorted(usize(2)).name == "z.txt", "z third");
 });

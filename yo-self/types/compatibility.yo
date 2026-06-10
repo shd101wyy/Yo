@@ -396,7 +396,7 @@ _compat_impl :: (
         // ("ArgParser" vs ""), and the mixed pair must stay compatible
         // (previously everything was "" so this never arose).
         !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
-        (aid.as_str() == eid.as_str()) => true,
+        (aid == eid) => true,
         // Exact, different ids → structural. But the SEMANTICS KIND must match
         // first: a value `struct`, a reference `object`, an `atomic object`, and
         // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the
@@ -450,7 +450,7 @@ _compat_impl :: (
         // with the same cycle guard as the Struct arm.
         .EnumT(eid, ename, evns, evfs, _, evls, _) => cond(
           !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
-          (aid.as_str() == eid.as_str()) => true,
+          (aid == eid) => true,
           (avns.len() != evns.len()) => false,
           true => {
             vkey := ((aid.clone() + String.from("=>")) + eid);

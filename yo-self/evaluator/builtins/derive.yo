@@ -227,7 +227,7 @@ call_registered_derive_rule :: (
         (fa_bound : bool) = false;
         while((ptn_i < n_ptn) && (!(fa_bound)), {
           ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
-          if(ptn.as_str() == fa_name.as_str(), {
+          if(ptn == fa_name, {
             arg_inf := match(
               evaled_arg_infos.get(ptn_i),
               .Some(i) => i,
@@ -518,7 +518,7 @@ evaluate_derive :: (
         .FnCall(_, func_b, fa2, _, _) => match(
           func_b.*,
           .Atom(_, op_tok) => cond(
-            (op_tok.value.as_str() == ":") => match(
+            (op_tok.value == ":") => match(
               fa2.get(usize(0)),
               .Some(na) => match(na,.Atom(_, ntok) => ntok.value,.FnCall(_, _, _, _, _) => String.from("")),
               .None => String.from("")

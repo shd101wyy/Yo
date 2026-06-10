@@ -54,7 +54,7 @@ _same_some_id :: (fn(ty : TypeValue, id_to_compare : String) -> bool)(
       negative_trait_types : _,
       negative_trait_levels : _
     ) =>
-      (tid.as_str() == id_to_compare.as_str()),
+      (tid == id_to_compare),
     _ => false
   )
 );
@@ -116,7 +116,7 @@ _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
       visited_ids.get(i),
       .Some(existing) =>
         cond(
-          (existing.as_str() == id.as_str()) => {
+          (existing == id) => {
             found = true;
             i = n;
           },
@@ -201,7 +201,7 @@ _def_frame_confirms_binding :: (
   if(is_some_type(def_tv), {
     return(false);
   });
-  type_to_string(def_tv).as_str() == type_to_string(resolved_tv).as_str()
+  type_to_string(def_tv) == type_to_string(resolved_tv)
 });
 /// Search the env for a variable of `name` that was ever bound to a TypeVal
 /// whose `id` matches `id_to_find`.  Used to distinguish unbound type variables

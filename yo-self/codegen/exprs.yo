@@ -120,8 +120,8 @@ handle_infix_op :: (
         // Use strcmp for string equality/inequality comparisons.
         // Detect: either side is a C string literal (starts with '"') or
         // a to_string() call (contains "_to_string(").
-        lhs_is_str := (l.starts_with(String.from("\"")) || (l.contains(String.from("_to_string(")) || (l.contains(String.from("__yo_")) || match(ctx.get_var_type(l.as_str()),.None => false,.Some(ltyp) => (ltyp.as_str() == "const char*")))));
-        rhs_is_str := (r.starts_with(String.from("\"")) || (r.contains(String.from("_to_string(")) || (r.contains(String.from("__yo_")) || match(ctx.get_var_type(r.as_str()),.None => false,.Some(rtyp) => (rtyp.as_str() == "const char*")))));
+        lhs_is_str := (l.starts_with(String.from("\"")) || (l.contains(String.from("_to_string(")) || (l.contains(String.from("__yo_")) || match(ctx.get_var_type(l.as_str()),.None => false,.Some(ltyp) => (ltyp == "const char*")))));
+        rhs_is_str := (r.starts_with(String.from("\"")) || (r.contains(String.from("_to_string(")) || (r.contains(String.from("__yo_")) || match(ctx.get_var_type(r.as_str()),.None => false,.Some(rtyp) => (rtyp == "const char*")))));
         // box var check: `box(T)` returns a pointer; compare via deref (*x == *y).
         lhs_is_box := ctx.is_box_var(l.as_str());
         // Derive-Eq type check: look up the type of lhs variable and check for registered Eq.
@@ -142,9 +142,9 @@ handle_infix_op :: (
             true => Option(String).None
           )
         );
-        is_cmp_op := ((op.as_str() == "<") || ((op.as_str() == "<=") || ((op.as_str() == ">") || (op.as_str() == ">="))));
+        is_cmp_op := ((op == "<") || ((op == "<=") || ((op == ">") || (op == ">="))));
         cond(
-          ((lhs_is_str || rhs_is_str) && (op.as_str() == "==")) => {
+          ((lhs_is_str || rhs_is_str) && (op == "==")) => {
             out := String.from("(strcmp(");
             out.push_string(l);
             out.push_str(", ");
@@ -152,7 +152,7 @@ handle_infix_op :: (
             out.push_str(") == 0)");
             Option(String).Some(out)
           },
-          ((lhs_is_str || rhs_is_str) && (op.as_str() == "!=")) => {
+          ((lhs_is_str || rhs_is_str) && (op == "!=")) => {
             out2 := String.from("(strcmp(");
             out2.push_string(l);
             out2.push_str(", ");
@@ -161,7 +161,7 @@ handle_infix_op :: (
             Option(String).Some(out2)
           },
           // box var: compare dereferenced values (*x == *y)
-          (lhs_is_box && (op.as_str() == "==")) => {
+          (lhs_is_box && (op == "==")) => {
             out_box := String.from("(*");
             out_box.push_string(l);
             out_box.push_str(" == *");
@@ -169,7 +169,7 @@ handle_infix_op :: (
             out_box.push_str(")");
             Option(String).Some(out_box)
           },
-          (lhs_is_box && (op.as_str() == "!=")) => {
+          (lhs_is_box && (op == "!=")) => {
             out_box2 := String.from("(*");
             out_box2.push_string(l);
             out_box2.push_str(" != *");
@@ -177,7 +177,7 @@ handle_infix_op :: (
             out_box2.push_str(")");
             Option(String).Some(out_box2)
           },
-          ((op.as_str() == "==") && lhs_eq_type.is_some()) => match(
+          ((op == "==") && lhs_eq_type.is_some()) => match(
             lhs_eq_type,
             .None =>.Some(gen_binary_op(op, l, r)),
             .Some(ty_name) => {
@@ -191,7 +191,7 @@ handle_infix_op :: (
               Option(String).Some(out3)
             }
           ),
-          ((op.as_str() == "!=") && lhs_eq_type.is_some()) => match(
+          ((op == "!=") && lhs_eq_type.is_some()) => match(
             lhs_eq_type,
             .None =>.Some(gen_binary_op(op, l, r)),
             .Some(ty_name2) => {
@@ -374,7 +374,7 @@ emit_cond_as_if_else :: (
               is_last := (i == (n - usize(1)));
               is_true_catch := match(
                 cond_expr,
-                .Atom(_, ctok) => ((ctok.kind == TokenKind.Bool) && (ctok.value.as_str() == "true")),
+                .Atom(_, ctok) => ((ctok.kind == TokenKind.Bool) && (ctok.value == "true")),
                 .FnCall(_, _, _, _, _) => false
               );
               cond(
@@ -463,7 +463,7 @@ emit_returning_branch_body :: (
     call_gen_expr(branch_body, ctx, inner),
     .None => false,
     .Some(bs) => {
-      if(bs.as_str() != "0", {
+      if(bs != "0", {
         ctx.emitter.emit_string(inner);
         ctx.emitter.emit("return ");
         ctx.emitter.emit_string(bs);
@@ -511,7 +511,7 @@ emit_cond_as_return_if_else :: (
               is_last := (i == (n - usize(1)));
               is_true_catch := match(
                 cond_expr,
-                .Atom(_, ctok) => ((ctok.kind == TokenKind.Bool) && (ctok.value.as_str() == "true")),
+                .Atom(_, ctok) => ((ctok.kind == TokenKind.Bool) && (ctok.value == "true")),
                 .FnCall(_, _, _, _, _) => false
               );
               cond(
@@ -572,7 +572,7 @@ emit_cond_as_return_if_else :: (
 _is_atom_value :: (fn(expr : AstExpr, val : str) -> bool)(
   match(
     expr,
-    .Atom(_, tok) => (tok.value.as_str() == val),
+    .Atom(_, tok) => (tok.value == val),
     .FnCall(_, _, _, _, _) => false
   )
 );
@@ -695,7 +695,7 @@ handle_cond :: (
         });
         found_begin
       };
-      can_return_from_cond := ((ctx.current_fn_return_type.len() > usize(0)) && (ctx.current_fn_return_type.as_str() != "void"));
+      can_return_from_cond := ((ctx.current_fn_return_type.len() > usize(0)) && (ctx.current_fn_return_type != "void"));
       cond(
         ((has_begin_body && (!(has_stmt_body))) && can_return_from_cond) => emit_cond_as_return_if_else(args, ctx, indent),
         (has_stmt_body || has_begin_body) => emit_cond_as_if_else(args, ctx, indent),
@@ -838,7 +838,7 @@ gen_match_arm :: (
       .Some(body_expr) => {
         is_wild := match(
           pat_expr,
-          .Atom(_, ptok) => (ptok.value.as_str() == "_"),
+          .Atom(_, ptok) => (ptok.value == "_"),
           .FnCall(_, _, _, _, _) => false
         );
         match(
@@ -1169,7 +1169,7 @@ _extract_data_arm :: (
   // Case 1: wildcard `_`
   is_wild := match(
     pat_expr,
-    .Atom(_, wtok) => (wtok.value.as_str() == "_"),
+    .Atom(_, wtok) => (wtok.value == "_"),
     .FnCall(_, _, _, _, _) => false
   );
   cond(
@@ -1256,7 +1256,7 @@ _extract_data_arm :: (
                           barg,
                           // Positional binding: Atom(local_name)
                           .Atom(_, batom) => cond(
-                            (batom.value.as_str() == "_") => (),
+                            (batom.value == "_") => (),
                             // wildcard, skip
                             true => match(
                               fields.get(bi),
@@ -1286,7 +1286,7 @@ _extract_data_arm :: (
                             (
                               (!(binfix)) && match(
                                 bfunc.*,
-                                .Atom(_, cftok) => (cftok.value.as_str() == BK_ANON_STRUCT),
+                                .Atom(_, cftok) => (cftok.value == BK_ANON_STRUCT),
                                 .FnCall(_, _, _, _, _) => false
                               )
                             ) => {
@@ -1300,7 +1300,7 @@ _extract_data_arm :: (
                                     ci_arg,
                                     // Bare atom: `width` → bind field "width" as var "width"
                                     .Atom(_, ci_atm) => cond(
-                                      (ci_atm.value.as_str() == "_") => (),
+                                      (ci_atm.value == "_") => (),
                                       true => {
                                         path_c := String.from("data.");
                                         path_c.push_string(vatom2.value);
@@ -1323,7 +1323,7 @@ _extract_data_arm :: (
                                         !(
                                           match(
                                             lb_func.*,
-                                            .Atom(_, lbtok) => (lbtok.value.as_str() == ":"),
+                                            .Atom(_, lbtok) => (lbtok.value == ":"),
                                             .FnCall(_, _, _, _, _) => false
                                           )
                                         )
@@ -1341,7 +1341,7 @@ _extract_data_arm :: (
                                               v_e,
                                               .FnCall(_, _, _, _, _) => (),
                                               .Atom(_, v_tok) => cond(
-                                                (v_tok.value.as_str() == "_") => (),
+                                                (v_tok.value == "_") => (),
                                                 true => {
                                                   path_l := String.from("data.");
                                                   path_l.push_string(vatom2.value);
@@ -1372,7 +1372,7 @@ _extract_data_arm :: (
                               !(
                                 match(
                                   bfunc.*,
-                                  .Atom(_, bfatom) => (bfatom.value.as_str() == ":"),
+                                  .Atom(_, bfatom) => (bfatom.value == ":"),
                                   .FnCall(_, _, _, _, _) => false
                                 )
                               )
@@ -1390,7 +1390,7 @@ _extract_data_arm :: (
                                     local_expr,
                                     .FnCall(_, _, _, _, _) => (),
                                     .Atom(_, lnatom) => cond(
-                                      (lnatom.value.as_str() == "_") => (),
+                                      (lnatom.value == "_") => (),
                                       // wildcard, skip
                                       true => {
                                         path2 := String.from("data.");
@@ -1450,7 +1450,7 @@ emit_simplified_some_binding_expr :: (
       binding_infix => match(
         binding_func_box.*,
         .FnCall(_, _, _, _, _) => (),
-        .Atom(_, binding_func_tok) => if(binding_func_tok.value.as_str() == ":", {
+        .Atom(_, binding_func_tok) => if(binding_func_tok.value == ":", {
           match(
             binding_args.get(usize(1)),
             .None => (),
@@ -1466,7 +1466,7 @@ emit_simplified_some_binding_expr :: (
       true => match(
         binding_func_box.*,
         .FnCall(_, _, _, _, _) => (),
-        .Atom(_, binding_func_tok2) => if(binding_func_tok2.value.as_str() == BK_ANON_STRUCT, {
+        .Atom(_, binding_func_tok2) => if(binding_func_tok2.value == BK_ANON_STRUCT, {
           (i : usize) = usize(0);
           n := binding_args.len();
           while(i < n, {
@@ -1597,13 +1597,13 @@ emit_option_null_if_else :: (
                   _get_arm_variant_name(pat_e),
                   .None => (),
                   .Some(vn) => cond(
-                    ((vn.as_str() == "Some") || (vn.as_str() == "Ok")) => {
+                    ((vn == "Some") || (vn == "Ok")) => {
                       if(some_body_expr.is_none(), {
                         some_body_expr = Option(AstExpr).Some(body_e);
                         some_pat_expr = Option(AstExpr).Some(pat_e);
                       });
                     },
-                    ((vn.as_str() == "None") || (vn.as_str() == "Err")) => {
+                    ((vn == "None") || (vn == "Err")) => {
                       if(none_body_expr.is_none(), {
                         none_body_expr = Option(AstExpr).Some(body_e);
                       });
@@ -1736,21 +1736,21 @@ handle_match_data :: (
               ctx.get_var_type(scrut_code.as_str()),
               .None => true,
               .Some(vt) => cond(
-                (vt.as_str() == "__auto_type") => true,
-                (vt.as_str() == "int8_t") => true,
-                (vt.as_str() == "int16_t") => true,
-                (vt.as_str() == "int32_t") => true,
-                (vt.as_str() == "int64_t") => true,
-                (vt.as_str() == "uint8_t") => true,
-                (vt.as_str() == "uint16_t") => true,
-                (vt.as_str() == "uint32_t") => true,
-                (vt.as_str() == "uint64_t") => true,
-                (vt.as_str() == "size_t") => true,
-                (vt.as_str() == "isize") => true,
-                (vt.as_str() == "double") => true,
-                (vt.as_str() == "float") => true,
-                (vt.as_str() == "bool") => true,
-                (vt.as_str() == "const char*") => true,
+                (vt == "__auto_type") => true,
+                (vt == "int8_t") => true,
+                (vt == "int16_t") => true,
+                (vt == "int32_t") => true,
+                (vt == "int64_t") => true,
+                (vt == "uint8_t") => true,
+                (vt == "uint16_t") => true,
+                (vt == "uint32_t") => true,
+                (vt == "uint64_t") => true,
+                (vt == "size_t") => true,
+                (vt == "isize") => true,
+                (vt == "double") => true,
+                (vt == "float") => true,
+                (vt == "bool") => true,
+                (vt == "const char*") => true,
                 true => false
               )
             )
@@ -1772,7 +1772,7 @@ handle_match_data :: (
                       data_arm_variant_name(pat_expr2),
                       .None => (),
                       .Some(vn) => cond(
-                        (vn.as_str() != "Some") => (),
+                        (vn != "Some") => (),
                         true => match(
                           arm_args2.get(usize(1)),
                           .None => (),
@@ -1931,7 +1931,7 @@ step_to_c_expr :: (
     .FnCall(_, sf, _, _, _) => match(
       sf.*,
       .FnCall(_, _, _, _, _) => false,
-      .Atom(_, stok) => (stok.value.as_str() == BK_BEGIN)
+      .Atom(_, stok) => (stok.value == BK_BEGIN)
     )
   );
   cond(
@@ -1961,7 +1961,7 @@ step_to_c_expr :: (
                       sef.*,
                       .FnCall(_, _, _, _, _) => false,
                       .Atom(_, setok) => (
-                        ((setok.value.as_str() == BK_TUPLE) || (setok.value.as_str() == BK_ANON_STRUCT)) && (seargs.len() == usize(0))
+                        ((setok.value == BK_TUPLE) || (setok.value == BK_ANON_STRUCT)) && (seargs.len() == usize(0))
                       )
                     )
                   );
@@ -2038,7 +2038,7 @@ handle_for :: (
                 hfn.*,
                 .FnCall(_, _, _, _, _) => Option(String).None,
                 .Atom(_, htok) => cond(
-                  (htok.value.as_str() != "=>") => Option(String).None,
+                  (htok.value != "=>") => Option(String).None,
                   true => Option(String).Some(String.from("ok"))
                 )
               )
@@ -2086,7 +2086,7 @@ handle_for :: (
                           dot_fn.*,
                           .FnCall(_, _, _, _, _) => Option(String).None,
                           .Atom(_, dtok) => cond(
-                            (dtok.value.as_str() != ".") => Option(String).None,
+                            (dtok.value != ".") => Option(String).None,
                             true => match(
                               dot_args.get(usize(1)),
                               .None => Option(String).None,
@@ -2094,7 +2094,7 @@ handle_for :: (
                                 method_e,
                                 .FnCall(_, _, _, _, _) => Option(String).None,
                                 .Atom(_, mtok) => cond(
-                                  (mtok.value.as_str() != "iter") => Option(String).None,
+                                  (mtok.value != "iter") => Option(String).None,
                                   true =>
                                     // Receiver is dot_args[0]: should be `&arr_var`
                                     match(
@@ -2110,7 +2110,7 @@ handle_for :: (
                                             ref_fn.*,
                                             .FnCall(_, _, _, _, _) => Option(String).None,
                                             .Atom(_, rftok) => cond(
-                                              (rftok.value.as_str() != "&") => Option(String).None,
+                                              (rftok.value != "&") => Option(String).None,
                                               true => match(
                                                 ref_args.get(usize(0)),
                                                 .None => Option(String).None,
@@ -2299,7 +2299,7 @@ handle_while :: (
         .FnCall(_, rt_func, rt_args, _, _) => match(
           rt_func.*,
           .Atom(_, rttok) => cond(
-            ((rttok.value.as_str() == "runtime") || (rttok.value.as_str() == "comptime")) => match(
+            ((rttok.value == "runtime") || (rttok.value == "comptime")) => match(
               rt_args.get(usize(0)),
               .Some(inner) => inner,
               .None => raw_cond
@@ -2621,7 +2621,7 @@ impl_fn_i32_i32_c_type_from_expr :: (fn(expr : AstExpr) -> Option(String))(
         impl_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, impl_tok) => cond(
-          !((impl_tok.value.as_str() == "Impl") || (impl_tok.value.as_str() == "Dyn")) =>
+          !((impl_tok.value == "Impl") || (impl_tok.value == "Dyn")) =>
             Option(String).None,
           true => match(
             impl_args.get(usize(0)),
@@ -2635,7 +2635,7 @@ impl_fn_i32_i32_c_type_from_expr :: (fn(expr : AstExpr) -> Option(String))(
                   arrow_box.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, arrow_tok) => cond(
-                    (arrow_tok.value.as_str() != "->") => Option(String).None,
+                    (arrow_tok.value != "->") => Option(String).None,
                     true => match(
                       arrow_args.get(usize(1)),
                       .None => Option(String).None,
@@ -2643,7 +2643,7 @@ impl_fn_i32_i32_c_type_from_expr :: (fn(expr : AstExpr) -> Option(String))(
                         ret_expr,
                         .FnCall(_, _, _, _, _) => Option(String).None,
                         .Atom(_, ret_tok) => cond(
-                          (ret_tok.value.as_str() != "i32") => Option(String).None,
+                          (ret_tok.value != "i32") => Option(String).None,
                           true => match(
                             arrow_args.get(usize(0)),
                             .None => Option(String).None,
@@ -2657,7 +2657,7 @@ impl_fn_i32_i32_c_type_from_expr :: (fn(expr : AstExpr) -> Option(String))(
                                   fn_head_box.*,
                                   .FnCall(_, _, _, _, _) => Option(String).None,
                                   .Atom(_, fn_tok) => cond(
-                                    !((fn_tok.value.as_str() == "Fn") || (fn_tok.value.as_str() == "fn")) =>
+                                    !((fn_tok.value == "Fn") || (fn_tok.value == "fn")) =>
                                       Option(String).None,
                                     true => match(
                                       fn_head_args.get(usize(0)),
@@ -2672,7 +2672,7 @@ impl_fn_i32_i32_c_type_from_expr :: (fn(expr : AstExpr) -> Option(String))(
                                             colon_box.*,
                                             .FnCall(_, _, _, _, _) => Option(String).None,
                                             .Atom(_, colon_tok) => cond(
-                                              (colon_tok.value.as_str() != ":") => Option(String).None,
+                                              (colon_tok.value != ":") => Option(String).None,
                                               true => match(
                                                 colon_args.get(usize(1)),
                                                 .None => Option(String).None,
@@ -2680,7 +2680,7 @@ impl_fn_i32_i32_c_type_from_expr :: (fn(expr : AstExpr) -> Option(String))(
                                                   param_ty_expr,
                                                   .FnCall(_, _, _, _, _) => Option(String).None,
                                                   .Atom(_, param_ty_tok) => cond(
-                                                    (param_ty_tok.value.as_str() == "i32") =>
+                                                    (param_ty_tok.value == "i32") =>
                                                       Option(String).Some(String.from("__yo_impl_fn_i32_i32")),
                                                     true => Option(String).None
                                                   )
@@ -2716,14 +2716,14 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
       (ttok.kind != TokenKind.Identifier) => Option(String).None,
       // Yo meta-types have no C equivalent — return None so callers fall back to void*.
       // (Type, Expr, Trait, DeriveContext, Module, comptime_int, comptime_float, comptime_string, ComptimeList)
-      (ttok.value.as_str() == "Type") => Option(String).None,
-      (ttok.value.as_str() == "Expr") => Option(String).None,
-      (ttok.value.as_str() == "Trait") => Option(String).None,
-      (ttok.value.as_str() == "DeriveContext") => Option(String).None,
-      (ttok.value.as_str() == "Module") => Option(String).None,
-      (ttok.value.as_str() == "comptime_int") => Option(String).None,
-      (ttok.value.as_str() == "comptime_float") => Option(String).None,
-      (ttok.value.as_str() == "comptime_string") => Option(String).None,
+      (ttok.value == "Type") => Option(String).None,
+      (ttok.value == "Expr") => Option(String).None,
+      (ttok.value == "Trait") => Option(String).None,
+      (ttok.value == "DeriveContext") => Option(String).None,
+      (ttok.value == "Module") => Option(String).None,
+      (ttok.value == "comptime_int") => Option(String).None,
+      (ttok.value == "comptime_float") => Option(String).None,
+      (ttok.value == "comptime_string") => Option(String).None,
       true =>.Some(type_name_to_c(ttok.value.as_str()))
     ),
     .FnCall(_, func_box, func_args, is_infix, _) => cond(
@@ -2733,7 +2733,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
         func_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, ftok) => cond(
-          (ftok.value.as_str() != "->") => Option(String).None,
+          (ftok.value != "->") => Option(String).None,
           true => {
             ret_c := match(
               func_args.get(usize(1)),
@@ -2757,7 +2757,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                     fn_f.*,
                     .FnCall(_, _, _, _, _) => String.from(""),
                     .Atom(_, fn_ftok) => cond(
-                      (fn_ftok.value.as_str() != "fn") => String.from(""),
+                      (fn_ftok.value != "fn") => String.from(""),
                       true => {
                         sb := String.new();
                         n_fn := fn_args.len();
@@ -2776,7 +2776,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                                     pf.*,
                                     .FnCall(_, _, _, _, _) => Option(AstExpr).None,
                                     .Atom(_, ptok) => cond(
-                                      (ptok.value.as_str() != ":") => Option(AstExpr).None,
+                                      (ptok.value != ":") => Option(AstExpr).None,
                                       true => pas.get(usize(1))
                                     )
                                   )
@@ -2823,8 +2823,8 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
             .FnCall(_, _, _, _, _) => true,
             .Atom(_, arity_tok) =>
               (
-                ((arity_tok.value.as_str() != "Tuple") && (arity_tok.value.as_str() != "Array")) &&
-                  ((arity_tok.value.as_str() != "HashMap") && (arity_tok.value.as_str() != "BTreeMap"))
+                ((arity_tok.value != "Tuple") && (arity_tok.value != "Array")) &&
+                  ((arity_tok.value != "HashMap") && (arity_tok.value != "BTreeMap"))
               )
           )
       ) => Option(String).None,
@@ -2836,7 +2836,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
           // Meta-types like `Type`, `Expr`, comptime_int, comptime_float, comptime_string
           // have no C equivalent → return None.  All other identifiers (primitives,
           // user-defined structs/enums) are passed through as-is.
-          (ftok.value.as_str() == "comptime") => match(
+          (ftok.value == "comptime") => match(
             func_args.get(usize(0)),
             .None => Option(String).None,
             .Some(inner) => match(
@@ -2844,49 +2844,49 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
               .FnCall(_, _, _, _, _) => recur(inner),
               .Atom(_, itok) => cond(
                 (itok.kind != TokenKind.Identifier) => Option(String).None,
-                (itok.value.as_str() == "Type") => Option(String).None,
-                (itok.value.as_str() == "Expr") => Option(String).None,
-                (itok.value.as_str() == "Trait") => Option(String).None,
-                (itok.value.as_str() == "DeriveContext") => Option(String).None,
-                (itok.value.as_str() == "Module") => Option(String).None,
-                (itok.value.as_str() == "comptime_int") => Option(String).None,
-                (itok.value.as_str() == "comptime_float") => Option(String).None,
-                (itok.value.as_str() == "comptime_string") => Option(String).None,
-                (itok.value.as_str() == "ComptimeList") => Option(String).None,
-                (itok.value.as_str() == "comptime_bool") => Option(String).None,
+                (itok.value == "Type") => Option(String).None,
+                (itok.value == "Expr") => Option(String).None,
+                (itok.value == "Trait") => Option(String).None,
+                (itok.value == "DeriveContext") => Option(String).None,
+                (itok.value == "Module") => Option(String).None,
+                (itok.value == "comptime_int") => Option(String).None,
+                (itok.value == "comptime_float") => Option(String).None,
+                (itok.value == "comptime_string") => Option(String).None,
+                (itok.value == "ComptimeList") => Option(String).None,
+                (itok.value == "comptime_bool") => Option(String).None,
                 true => recur(inner)
               )
             )
           ),
           // Tuple(T1, T2, ...) or Tuple(name : T, ...) — lower to an inline C
           // struct type with numeric fields, plus named aliases for labeled fields.
-          (ftok.value.as_str() == "Array") => match(
+          (ftok.value == "Array") => match(
             func_args.get(usize(0)),
             .None => Option(String).None,
             .Some(array_elem_e) => match(
               array_elem_e,
               .FnCall(_, _, _, _, _) => Option(String).None,
               .Atom(_, array_elem_tok) => cond(
-                (array_elem_tok.value.as_str() == "i32") => Option(String).Some(String.from("YoArray_i32")),
+                (array_elem_tok.value == "i32") => Option(String).Some(String.from("YoArray_i32")),
                 true => Option(String).None
               )
             )
           ),
-          (ftok.value.as_str() == "Slice") => match(
+          (ftok.value == "Slice") => match(
             func_args.get(usize(0)),
             .None => Option(String).None,
             .Some(slice_elem_e) => match(
               slice_elem_e,
               .FnCall(_, _, _, _, _) => Option(String).None,
               .Atom(_, slice_elem_tok) => cond(
-                (slice_elem_tok.value.as_str() == "u8") => Option(String).Some(String.from("YoSlice_u8")),
+                (slice_elem_tok.value == "u8") => Option(String).Some(String.from("YoSlice_u8")),
                 true => Option(String).None
               )
             )
           ),
-          (ftok.value.as_str() == "HashMap") => two_arg_type_app_name_to_c("HashMap", func_args),
-          (ftok.value.as_str() == "BTreeMap") => two_arg_type_app_name_to_c("BTreeMap", func_args),
-          (ftok.value.as_str() == "Tuple") => {
+          (ftok.value == "HashMap") => two_arg_type_app_name_to_c("HashMap", func_args),
+          (ftok.value == "BTreeMap") => two_arg_type_app_name_to_c("BTreeMap", func_args),
+          (ftok.value == "Tuple") => {
             n_tuple := func_args.len();
             cond(
               (n_tuple == usize(0)) => Option(String).None,
@@ -2910,7 +2910,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                             tf_box.*,
                             .FnCall(_, _, _, _, _) => Option(String).None,
                             .Atom(_, tf_tok) => cond(
-                              (tf_tok.value.as_str() != ":") => Option(String).None,
+                              (tf_tok.value != ":") => Option(String).None,
                               true => match(
                                 tf_args.get(usize(0)),
                                 .None => Option(String).None,
@@ -2976,12 +2976,12 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
             )
           },
           // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
-          (!(ftok.value.as_str() == "*")) => cond(
+          (!(ftok.value == "*")) => cond(
             // Bootstrap specialization: ArrayList(T) has a concrete value layout
             // when T is an identifier. The typedef is emitted lazily by
             // ensure_arraylist_c_type before the C type is used in signatures or
             // constructors.
-            (ftok.value.as_str() == "ArrayList") => match(
+            (ftok.value == "ArrayList") => match(
               func_args.get(usize(0)),
               .None => Option(String).Some(String.from("void*")),
               .Some(list_arg) => match(
@@ -2990,7 +2990,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                   recur(list_arg),
                   .None => Option(String).Some(String.from("void*")),
                   .Some(nested_list_ty) => cond(
-                    (nested_list_ty.as_str() == "void*") => Option(String).Some(String.from("void*")),
+                    (nested_list_ty == "void*") => Option(String).Some(String.from("void*")),
                     true => {
                       list_ty := String.from("ArrayList_");
                       list_ty.push_string(sanitize_c_ident(nested_list_ty.as_str()));
@@ -3008,7 +3008,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                 )
               )
             ),
-            (ftok.value.as_str() == "Deque") => match(
+            (ftok.value == "Deque") => match(
               func_args.get(usize(0)),
               .None => Option(String).Some(String.from("void*")),
               .Some(deque_arg) => match(
@@ -3017,7 +3017,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                   recur(deque_arg),
                   .None => Option(String).Some(String.from("void*")),
                   .Some(nested_deque_ty) => cond(
-                    (nested_deque_ty.as_str() == "void*") => Option(String).Some(String.from("void*")),
+                    (nested_deque_ty == "void*") => Option(String).Some(String.from("void*")),
                     true => {
                       deque_ty := String.from("Deque_");
                       deque_ty.push_string(sanitize_c_ident(nested_deque_ty.as_str()));
@@ -3036,10 +3036,10 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
               )
             ),
             // Other generic container types still use the opaque prototype representation.
-            (ftok.value.as_str() == "Option") => Option(String).Some(String.from("void*")),
-            (ftok.value.as_str() == "Result") => Option(String).Some(String.from("void*")),
-            (ftok.value.as_str() == "Box") => Option(String).Some(String.from("void*")),
-            ((ftok.value.as_str() == "Impl") || (ftok.value.as_str() == "Dyn")) => match(
+            (ftok.value == "Option") => Option(String).Some(String.from("void*")),
+            (ftok.value == "Result") => Option(String).Some(String.from("void*")),
+            (ftok.value == "Box") => Option(String).Some(String.from("void*")),
+            ((ftok.value == "Impl") || (ftok.value == "Dyn")) => match(
               impl_fn_i32_i32_c_type_from_expr(ty_expr),
               .Some(impl_fn_ty) => Option(String).Some(impl_fn_ty),
               .None => Option(String).Some(String.from("void*"))
@@ -3131,7 +3131,7 @@ expr_all_ids_known :: (fn(expr : AstExpr, ctx : CodegenContext) -> bool)(
       // handle_method_call can emit as valid C (whitelist: neg, len, as_str, is_some, is_none).
       is_dot2 := match(
         fn2.*,
-        .Atom(_, ftok2) => (ftok2.value.as_str() == "."),
+        .Atom(_, ftok2) => (ftok2.value == "."),
         .FnCall(_, _, _, _, _) => false
       );
       (ok2 : bool) = match(
@@ -3143,11 +3143,11 @@ expr_all_ids_known :: (fn(expr : AstExpr, ctx : CodegenContext) -> bool)(
             .Some(mname_e) => match(
               mname_e,
               .Atom(_, mname_tok) => (
-                (mname_tok.value.as_str() == "neg") ||
-                  (mname_tok.value.as_str() == "len") ||
-                    (mname_tok.value.as_str() == "as_str") ||
-                      (mname_tok.value.as_str() == "is_some") ||
-                        (mname_tok.value.as_str() == "is_none")
+                (mname_tok.value == "neg") ||
+                  (mname_tok.value == "len") ||
+                    (mname_tok.value == "as_str") ||
+                      (mname_tok.value == "is_some") ||
+                        (mname_tok.value == "is_none")
               ),
               .FnCall(_, _, _, _, _) => false
             )
@@ -3358,7 +3358,7 @@ handle_bare_colon_decl :: (
                 atf.*,
                 .FnCall(_, _, _, _, _) => false,
                 .Atom(_, attok) => cond(
-                  (attok.value.as_str() != "Array") => false,
+                  (attok.value != "Array") => false,
                   true => {
                     elem_c_opt := match(
                       ata.get(usize(0)),
@@ -3425,7 +3425,7 @@ handle_bare_colon_decl :: (
             cf_box.*,
             .FnCall(_, _, _, _, _) =>.Some(String.from("0")),
             .Atom(_, cftok) => cond(
-              (!(cftok.value.as_str() == "comptime")) =>.Some(String.from("0")),
+              (!(cftok.value == "comptime")) =>.Some(String.from("0")),
               true => match(
                 cf_args.get(usize(0)),
                 .None =>.Some(String.from("0")),
@@ -3437,7 +3437,7 @@ handle_bare_colon_decl :: (
                     true => {
                       is_meta_type := match(
                         ty_expr,
-                        .Atom(_, ttok) => (ttok.value.as_str() == "Type"),
+                        .Atom(_, ttok) => (ttok.value == "Type"),
                         .FnCall(_, _, _, _, _) => false
                       );
                       cond(
@@ -3523,7 +3523,7 @@ type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
       true => match(
         type_fn_box.*,
         .FnCall(_, _, _, _, _) => false,
-        .Atom(_, type_tok) => (type_tok.value.as_str() == type_name)
+        .Atom(_, type_tok) => (type_tok.value == type_name)
       )
     )
   )
@@ -3541,7 +3541,7 @@ array_i32_size_arg_to_c :: (
         type_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, type_tok) => cond(
-          (type_tok.value.as_str() != "Array") => Option(String).None,
+          (type_tok.value != "Array") => Option(String).None,
           true => match(
             type_args.get(usize(0)),
             .None => Option(String).None,
@@ -3549,7 +3549,7 @@ array_i32_size_arg_to_c :: (
               elem_e,
               .FnCall(_, _, _, _, _) => Option(String).None,
               .Atom(_, elem_tok) => cond(
-                (elem_tok.value.as_str() != "i32") => Option(String).None,
+                (elem_tok.value != "i32") => Option(String).None,
                 true => match(
                   type_args.get(usize(1)),
                   .None => Option(String).None,
@@ -3574,14 +3574,14 @@ type_app_receiver_arg_is :: (fn(expr : AstExpr, type_name : str, arg_name : str)
         type_fn_box.*,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, type_tok) => cond(
-          (type_tok.value.as_str() != type_name) => false,
+          (type_tok.value != type_name) => false,
           true => match(
             type_args.get(usize(0)),
             .None => false,
             .Some(arg_expr) => match(
               arg_expr,
               .FnCall(_, _, _, _, _) => false,
-              .Atom(_, arg_tok) => (arg_tok.value.as_str() == arg_name)
+              .Atom(_, arg_tok) => (arg_tok.value == arg_name)
             )
           )
         )
@@ -3605,7 +3605,7 @@ is_slice_u8_from_raw_parts_call :: (fn(expr : AstExpr) -> bool)(
             dot_fn_box.*,
             .FnCall(_, _, _, _, _) => false,
             .Atom(_, dot_tok) => cond(
-              (dot_tok.value.as_str() != ".") => false,
+              (dot_tok.value != ".") => false,
               true => match(
                 dot_args.get(usize(0)),
                 .None => false,
@@ -3617,7 +3617,7 @@ is_slice_u8_from_raw_parts_call :: (fn(expr : AstExpr) -> bool)(
                     .Some(method_e) => match(
                       method_e,
                       .FnCall(_, _, _, _, _) => false,
-                      .Atom(_, method_tok) => (method_tok.value.as_str() == "from_raw_parts")
+                      .Atom(_, method_tok) => (method_tok.value == "from_raw_parts")
                     )
                   )
                 )
@@ -3633,7 +3633,7 @@ var_type_is :: (fn(ctx : CodegenContext, name : str, c_type : str) -> bool)(
   match(
     ctx.get_var_type(name),
     .None => false,
-    .Some(actual) => (actual.as_str() == c_type)
+    .Some(actual) => (actual == c_type)
   )
 );
 static_method_receiver_type_name :: (fn(expr : AstExpr, ctx : CodegenContext) -> Option(String))(
@@ -3641,7 +3641,7 @@ static_method_receiver_type_name :: (fn(expr : AstExpr, ctx : CodegenContext) ->
     expr,
     .FnCall(_, _, _, _, _) => Option(String).None,
     .Atom(_, tok) => cond(
-      (tok.value.as_str() == "Self") => {
+      (tok.value == "Self") => {
         self_ty := ctx.get_self_type();
         cond(
           (self_ty == "") => Option(String).None,
@@ -3725,7 +3725,7 @@ struct_template_field_names_csv :: (fn(expr : AstExpr) -> Option(String))(
         struct_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, struct_tok) => cond(
-          (struct_tok.value.as_str() != "struct") => Option(String).None,
+          (struct_tok.value != "struct") => Option(String).None,
           true => {
             csv := String.new();
             n := struct_args.len();
@@ -3752,7 +3752,7 @@ struct_template_field_names_csv :: (fn(expr : AstExpr) -> Option(String))(
                         ok = false;
                       },
                       .Atom(_, field_tok) => cond(
-                        (field_tok.value.as_str() != ":") => {
+                        (field_tok.value != ":") => {
                           ok = false;
                         },
                         true => match(
@@ -4004,7 +4004,7 @@ should_skip_comptime_field_assignment :: (fn(ctx : CodegenContext, lhs_expr : As
       cm_infix &&
         match(
           cm_fn.*,
-          .Atom(_, cm_tok) => (cm_tok.value.as_str() == "."),
+          .Atom(_, cm_tok) => (cm_tok.value == "."),
           .FnCall(_, _, _, _, _) => false
         ) &&
           match(
@@ -4200,7 +4200,7 @@ generic_static_constructor_type_from_call :: (fn(expr : AstExpr) -> Option(Strin
             dot_fn.*,
             .FnCall(_, _, _, _, _) => Option(String).None,
             .Atom(_, dot_tok) => cond(
-              (dot_tok.value.as_str() != ".") => Option(String).None,
+              (dot_tok.value != ".") => Option(String).None,
               true => match(
                 dot_args.get(usize(1)),
                 .None => Option(String).None,
@@ -4208,7 +4208,7 @@ generic_static_constructor_type_from_call :: (fn(expr : AstExpr) -> Option(Strin
                   method_e,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, method_tok) => cond(
-                    !((method_tok.value.as_str() == "new") || (method_tok.value.as_str() == "another_new")) =>
+                    !((method_tok.value == "new") || (method_tok.value == "another_new")) =>
                       Option(String).None,
                     true => match(
                       dot_args.get(usize(0)),
@@ -4242,7 +4242,7 @@ box_constructor_elem_c_type :: (fn(expr : AstExpr) -> Option(String))(
             box_type_fn_box.*,
             .FnCall(_, _, _, _, _) => Option(String).None,
             .Atom(_, box_type_tok) => cond(
-              (box_type_tok.value.as_str() != "Box") => Option(String).None,
+              (box_type_tok.value != "Box") => Option(String).None,
               true => match(
                 box_type_args.get(usize(0)),
                 .None => Option(String).None,
@@ -4268,7 +4268,7 @@ emit_method_extraction_macro_if_supported :: (
         me_fn_box.*,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, me_dot_tok) => cond(
-          (me_dot_tok.value.as_str() != ".") => false,
+          (me_dot_tok.value != ".") => false,
           true => match(
             me_args.get(usize(0)),
             .None => false,
@@ -4279,7 +4279,7 @@ emit_method_extraction_macro_if_supported :: (
                 me_method_expr,
                 .FnCall(_, _, _, _, _) => false,
                 .Atom(_, me_method_tok) => cond(
-                  (me_method_tok.value.as_str() != "unwrap") => false,
+                  (me_method_tok.value != "unwrap") => false,
                   (!(type_app_receiver_is(me_recv, "Option") || type_app_receiver_is(me_recv, "Result"))) => false,
                   true => {
                     ctx.emitter.emit_string(indent);
@@ -4323,12 +4323,12 @@ anon_struct_type_to_c :: (fn(type_args : ArrayList(AstExpr)) -> Option(String))(
               ok = false;
             },
             .Atom(_, colon_tok) => cond(
-              !((colon_tok.value.as_str() == ":") || (colon_tok.value.as_str() == "?=")) => {
+              !((colon_tok.value == ":") || (colon_tok.value == "?=")) => {
                 ok = false;
               },
               true => {
                 actual_args_opt := cond(
-                  (colon_tok.value.as_str() == ":") => Option(ArrayList(AstExpr)).Some(colon_args),
+                  (colon_tok.value == ":") => Option(ArrayList(AstExpr)).Some(colon_args),
                   true => match(
                     colon_args.get(usize(0)),
                     .None => Option(ArrayList(AstExpr)).None,
@@ -4342,7 +4342,7 @@ anon_struct_type_to_c :: (fn(type_args : ArrayList(AstExpr)) -> Option(String))(
                           inner_colon_box.*,
                           .FnCall(_, _, _, _, _) => Option(ArrayList(AstExpr)).None,
                           .Atom(_, inner_colon_tok) => cond(
-                            (inner_colon_tok.value.as_str() != ":") => Option(ArrayList(AstExpr)).None,
+                            (inner_colon_tok.value != ":") => Option(ArrayList(AstExpr)).None,
                             true => Option(ArrayList(AstExpr)).Some(inner_colon_args)
                           )
                         )
@@ -4472,7 +4472,7 @@ struct_default_values_csv :: (
             field_fn.*,
             .FnCall(_, _, _, _, _) => Option(String).None,
             .Atom(_, field_tok) => cond(
-              (field_tok.value.as_str() != "?=") => Option(String).None,
+              (field_tok.value != "?=") => Option(String).None,
               true => match(
                 field_args.get(usize(1)),
                 .None => Option(String).None,
@@ -4502,7 +4502,7 @@ struct_defaults_has_value :: (fn(defaults_csv : String) -> bool)({
       parts.get(i),
       .None => (),
       .Some(part) => {
-        if(part.as_str() != "__yo_no_default", {
+        if(part != "__yo_no_default", {
           found = true;
         });
       }
@@ -4527,7 +4527,7 @@ aggregate_initializer_to_c :: (
         agg_fn.*,
         .FnCall(_, _, _, _, _) => call_gen_expr(expr, ctx, indent),
         .Atom(_, agg_tok) => cond(
-          !((agg_tok.value.as_str() == BK_TUPLE) || (agg_tok.value.as_str() == BK_ANON_STRUCT)) =>
+          !((agg_tok.value == BK_TUPLE) || (agg_tok.value == BK_ANON_STRUCT)) =>
             call_gen_expr(expr, ctx, indent),
           true => {
             result := String.from("{");
@@ -4552,13 +4552,13 @@ aggregate_initializer_to_c :: (
                         (label_args.len() == usize(2)) &&
                           match(
                             label_fn.*,
-                            .Atom(_, label_tok) => (label_tok.value.as_str() == ":"),
+                            .Atom(_, label_tok) => (label_tok.value == ":"),
                             .FnCall(_, _, _, _, _) => false
                           )
                     )
                   );
                   cond(
-                    ((agg_tok.value.as_str() == BK_ANON_STRUCT) && arg_is_labeled) => match(
+                    ((agg_tok.value == BK_ANON_STRUCT) && arg_is_labeled) => match(
                       arg_expr,
                       .Atom(_, _) => {
                         ok = false;
@@ -4624,7 +4624,7 @@ aggregate_initializer_to_c :: (
 expr_contains_ident_name :: (fn(expr : AstExpr, name : str) -> bool)(
   match(
     expr,
-    .Atom(_, tok) => ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == name)),
+    .Atom(_, tok) => ((tok.kind == TokenKind.Identifier) && (tok.value == name)),
     .FnCall(_, func_box, args, _, _) => {
       (found : bool) = recur(func_box.*, name);
       (i : usize) = usize(0);
@@ -4655,7 +4655,7 @@ closure_param_name_from_impl_fn :: (fn(expr : AstExpr) -> Option(String))(
         impl_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, impl_tok) => cond(
-          !((impl_tok.value.as_str() == "Impl") || (impl_tok.value.as_str() == "Dyn")) => Option(String).None,
+          !((impl_tok.value == "Impl") || (impl_tok.value == "Dyn")) => Option(String).None,
           true => match(
             impl_args.get(usize(0)),
             .None => Option(String).None,
@@ -4669,7 +4669,7 @@ closure_param_name_from_impl_fn :: (fn(expr : AstExpr) -> Option(String))(
                   arrow_fn_box.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, arrow_tok) => cond(
-                    (arrow_tok.value.as_str() != "->") => Option(String).None,
+                    (arrow_tok.value != "->") => Option(String).None,
                     true => match(
                       arrow_args.get(usize(0)),
                       .None => Option(String).None,
@@ -4683,7 +4683,7 @@ closure_param_name_from_impl_fn :: (fn(expr : AstExpr) -> Option(String))(
                             fn_head_box.*,
                             .FnCall(_, _, _, _, _) => Option(String).None,
                             .Atom(_, fn_tok) => cond(
-                              !((fn_tok.value.as_str() == "Fn") || (fn_tok.value.as_str() == "fn")) =>
+                              !((fn_tok.value == "Fn") || (fn_tok.value == "fn")) =>
                                 Option(String).None,
                               true => match(
                                 fn_head_args.get(usize(0)),
@@ -4698,7 +4698,7 @@ closure_param_name_from_impl_fn :: (fn(expr : AstExpr) -> Option(String))(
                                       colon_fn_box.*,
                                       .FnCall(_, _, _, _, _) => Option(String).None,
                                       .Atom(_, colon_tok) => cond(
-                                        (colon_tok.value.as_str() != ":") => Option(String).None,
+                                        (colon_tok.value != ":") => Option(String).None,
                                         true => match(
                                           colon_args.get(usize(0)),
                                           .None => Option(String).None,
@@ -4738,7 +4738,7 @@ simple_closure_capture_from_body :: (fn(body_expr : AstExpr, param_name : str) -
         begin_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, begin_tok) => cond(
-          (begin_tok.value.as_str() != BK_BEGIN) => Option(String).None,
+          (begin_tok.value != BK_BEGIN) => Option(String).None,
           true => {
             (i : usize) = usize(0);
             (result : Option(String)) = Option(String).None;
@@ -4753,7 +4753,7 @@ simple_closure_capture_from_body :: (fn(body_expr : AstExpr, param_name : str) -
                     assign_is_eq := match(
                       assign_fn_box.*,
                       .FnCall(_, _, _, _, _) => false,
-                      .Atom(_, assign_tok) => (assign_tok.value.as_str() == "=")
+                      .Atom(_, assign_tok) => (assign_tok.value == "=")
                     );
                     if(assign_is_eq, {
                       lhs_name_opt := match(
@@ -4768,7 +4768,7 @@ simple_closure_capture_from_body :: (fn(body_expr : AstExpr, param_name : str) -
                               lhs_dot_box.*,
                               .FnCall(_, _, _, _, _) => Option(String).None,
                               .Atom(_, lhs_dot_tok) => cond(
-                                (lhs_dot_tok.value.as_str() != ".") => Option(String).None,
+                                (lhs_dot_tok.value != ".") => Option(String).None,
                                 true => match(
                                   lhs_dot_args.get(usize(1)),
                                   .None => Option(String).None,
@@ -4776,7 +4776,7 @@ simple_closure_capture_from_body :: (fn(body_expr : AstExpr, param_name : str) -
                                     lhs_field_expr,
                                     .FnCall(_, _, _, _, _) => Option(String).None,
                                     .Atom(_, lhs_field_tok) => cond(
-                                      (lhs_field_tok.value.as_str() != "*") => Option(String).None,
+                                      (lhs_field_tok.value != "*") => Option(String).None,
                                       true => match(
                                         lhs_dot_args.get(usize(0)),
                                         .None => Option(String).None,
@@ -4830,7 +4830,7 @@ simple_closure_capture_from_body_or_cond :: (fn(body_expr : AstExpr, param_name 
           begin_fn_box.*,
           .FnCall(_, _, _, _, _) => Option(String).None,
           .Atom(_, begin_tok) => cond(
-            (begin_tok.value.as_str() != BK_BEGIN) => Option(String).None,
+            (begin_tok.value != BK_BEGIN) => Option(String).None,
             true => {
               (i : usize) = usize(0);
               (result : Option(String)) = Option(String).None;
@@ -4845,7 +4845,7 @@ simple_closure_capture_from_body_or_cond :: (fn(body_expr : AstExpr, param_name 
                       is_cond_expr := match(
                         cond_fn_box.*,
                         .FnCall(_, _, _, _, _) => false,
-                        .Atom(_, cond_tok) => (cond_tok.value.as_str() == "cond")
+                        .Atom(_, cond_tok) => (cond_tok.value == "cond")
                       );
                       if(is_cond_expr, {
                         (ci : usize) = usize(0);
@@ -4860,7 +4860,7 @@ simple_closure_capture_from_body_or_cond :: (fn(body_expr : AstExpr, param_name 
                                 is_arrow := match(
                                   arm_fn_box.*,
                                   .FnCall(_, _, _, _, _) => false,
-                                  .Atom(_, arm_tok) => (arm_tok.value.as_str() == "=>")
+                                  .Atom(_, arm_tok) => (arm_tok.value == "=>")
                                 );
                                 if(is_arrow, {
                                   match(
@@ -4903,7 +4903,7 @@ typed_lambda_fn_box_params :: (fn(fn_box : AstExpr) -> Option(AstExpr))(
         arrow_box.*,
         .FnCall(_, _, _, _, _) => Option(AstExpr).None,
         .Atom(_, arrow_tok) => cond(
-          (arrow_tok.value.as_str() != "->") => Option(AstExpr).None,
+          (arrow_tok.value != "->") => Option(AstExpr).None,
           true => match(
             arrow_args.get(usize(0)),
             .None => Option(AstExpr).None,
@@ -4916,7 +4916,7 @@ typed_lambda_fn_box_params :: (fn(fn_box : AstExpr) -> Option(AstExpr))(
                   fn_kw_box.*,
                   .FnCall(_, _, _, _, _) => Option(AstExpr).None,
                   .Atom(_, fn_kw_tok) => cond(
-                    (fn_kw_tok.value.as_str() != "fn") => Option(AstExpr).None,
+                    (fn_kw_tok.value != "fn") => Option(AstExpr).None,
                     true => fn_kw_args.get(usize(0))
                   )
                 )
@@ -4938,7 +4938,7 @@ lambda_body_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
         lambda_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(AstExpr).None,
         .Atom(_, lambda_tok) => cond(
-          !((lambda_tok.value.as_str() == "->") || (lambda_tok.value.as_str() == "=>")) =>
+          !((lambda_tok.value == "->") || (lambda_tok.value == "=>")) =>
             Option(AstExpr).None,
           true => match(
             lambda_args.get(usize(1)),
@@ -4970,7 +4970,7 @@ lambda_params_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
         lambda_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(AstExpr).None,
         .Atom(_, lambda_tok) => cond(
-          !((lambda_tok.value.as_str() == "->") || (lambda_tok.value.as_str() == "=>")) =>
+          !((lambda_tok.value == "->") || (lambda_tok.value == "=>")) =>
             Option(AstExpr).None,
           true => match(
             lambda_args.get(usize(0)),
@@ -5005,7 +5005,7 @@ lambda_single_param_name :: (fn(params_expr : AstExpr) -> Option(String))(
         op_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, op_tok) => cond(
-          (op_tok.value.as_str() != ":") => Option(String).None,
+          (op_tok.value != ":") => Option(String).None,
           true => match(
             pargs.get(usize(0)),
             .None => Option(String).None,
@@ -5035,7 +5035,7 @@ dyn_lambda_body_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
         dyn_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(AstExpr).None,
         .Atom(_, dyn_tok) => cond(
-          (dyn_tok.value.as_str() != "dyn") => Option(AstExpr).None,
+          (dyn_tok.value != "dyn") => Option(AstExpr).None,
           true => match(
             dyn_args.get(usize(0)),
             .None => Option(AstExpr).None,
@@ -5052,7 +5052,7 @@ dyn_lambda_body_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
                     box_fn_box.*,
                     .FnCall(_, _, _, _, _) => Option(AstExpr).None,
                     .Atom(_, box_tok) => cond(
-                      (box_tok.value.as_str() != "box") => Option(AstExpr).None,
+                      (box_tok.value != "box") => Option(AstExpr).None,
                       true => match(
                         box_args.get(usize(0)),
                         .None => Option(AstExpr).None,
@@ -5093,7 +5093,7 @@ emit_simple_closure_value :: (
         .Some(capture_ty) => match(
           ctx.get_struct_fields(capture_ty.as_str()),
           .None => false,
-          .Some(fields_csv) => (fields_csv.as_str() == "_0")
+          .Some(fields_csv) => (fields_csv == "_0")
         )
       );
       ctx.emitter.emit_string(indent);
@@ -5161,7 +5161,7 @@ capture_access_for_closure_var :: (
   closure_is_env_ptr := match(
     ctx.get_var_type(closure_var_name),
     .None => false,
-    .Some(closure_ty) => (closure_ty.as_str() == "__yo_closure_env_ptr")
+    .Some(closure_ty) => (closure_ty == "__yo_closure_env_ptr")
   );
   if(closure_is_env_ptr, {
     result.push_str("->");
@@ -5175,7 +5175,7 @@ capture_access_for_closure_var :: (
     .Some(capture_ty) => match(
       ctx.get_struct_fields(capture_ty.as_str()),
       .None => false,
-      .Some(fields_csv) => (fields_csv.as_str() == "_0")
+      .Some(fields_csv) => (fields_csv == "_0")
     )
   );
   if(should_use_payload, {
@@ -5247,7 +5247,7 @@ handle_define :: (
               rf_box.*,
               .FnCall(_, _, _, _, _) => Option(String).None,
               .Atom(_, rftok) => cond(
-                (!(rftok.value.as_str() == BK_ANON_STRUCT)) => Option(String).None,
+                (!(rftok.value == BK_ANON_STRUCT)) => Option(String).None,
                 true => {
                   csv_buf := String.new();
                   n_rf := rf_args.len();
@@ -5271,7 +5271,7 @@ handle_define :: (
                           is_lbl := (
                             (rf_finfix && (rf_fa.len() == usize(2))) && match(
                               rf_ff.*,
-                              .Atom(_, rf_ftok) => (rf_ftok.value.as_str() == ":"),
+                              .Atom(_, rf_ftok) => (rf_ftok.value == ":"),
                               .FnCall(_, _, _, _, _) => false
                             )
                           );
@@ -5341,11 +5341,11 @@ handle_define :: (
           }
         );
         discard_binding_emitted := cond(
-          (name_tok.value.as_str() == "_") => match(
+          (name_tok.value == "_") => match(
             call_gen_expr(rhs_expr, ctx, indent),
             .None => false,
             .Some(discard_code) => {
-              if(discard_code.as_str() != "0", {
+              if(discard_code != "0", {
                 emit_as_stmt(discard_code, ctx, indent);
               });
               true
@@ -5369,7 +5369,7 @@ handle_define :: (
                     rhs_ty_fn.*,
                     .FnCall(_, _, _, _, _) => false,
                     .Atom(_, rhs_ty_tok) => cond(
-                      (rhs_ty_tok.value.as_str() != "struct") => false,
+                      (rhs_ty_tok.value != "struct") => false,
                       true => match(
                         anon_struct_type_to_c(rhs_ty_args),
                         .None => false,
@@ -5407,7 +5407,7 @@ handle_define :: (
                 asn_fn_box.*,
                 .FnCall(_, _, _, _, _) => false,
                 .Atom(_, asn_tok) => cond(
-                  (asn_tok.value.as_str() != "=") => false,
+                  (asn_tok.value != "=") => false,
                   true => match(
                     asn_args.get(usize(0)),
                     .None => false,
@@ -5441,7 +5441,7 @@ handle_define :: (
                             match(
                               call_gen_expr(rhs_expr, ctx, indent),
                               .None => (),
-                              .Some(assign_code) => if(assign_code.as_str() != "0", {
+                              .Some(assign_code) => if(assign_code != "0", {
                                 emit_as_stmt(assign_code, ctx, indent);
                               })
                             );
@@ -5458,7 +5458,7 @@ handle_define :: (
                           match(
                             call_gen_expr(rhs_expr, ctx, indent),
                             .None => (),
-                            .Some(assign_code2) => if(assign_code2.as_str() != "0", {
+                            .Some(assign_code2) => if(assign_code2 != "0", {
                               emit_as_stmt(assign_code2, ctx, indent);
                             })
                           );
@@ -5541,7 +5541,7 @@ handle_define :: (
                     ac_inner_fn.*,
                     .FnCall(_, _, _, _, _) => false,
                     .Atom(_, ac_name_tok) => cond(
-                      (ac_name_tok.value.as_str() != "Array") => false,
+                      (ac_name_tok.value != "Array") => false,
                       true => {
                         elem_c_opt := match(
                           ac_inner_args.get(usize(0)),
@@ -5557,7 +5557,7 @@ handle_define :: (
                             .Atom(_, stok) => cond(
                               (stok.kind == TokenKind.Integer) => Option(String).Some(stok.value),
                               (stok.kind == TokenKind.Identifier) => cond(
-                                (stok.value.as_str() == "_") => Option(String).Some(ac_fn_args.len().to_string()),
+                                (stok.value == "_") => Option(String).Some(ac_fn_args.len().to_string()),
                                 true => Option(String).Some(stok.value)
                               ),
                               true => Option(String).None
@@ -5641,7 +5641,7 @@ handle_define :: (
                 il_fn_box.*,
                 .FnCall(_, _, _, _, _) => false,
                 .Atom(_, il_fn_tok) => cond(
-                  (il_fn_tok.value.as_str() != "array") => false,
+                  (il_fn_tok.value != "array") => false,
                   true => {
                     n_il := il_fn_args.len();
                     // Generate all element expressions
@@ -5821,7 +5821,7 @@ handle_define :: (
                   .Atom(_, rhs_atom_tok2) => match(
                     ctx.get_var_type(rhs_atom_tok2.value.as_str()),
                     .None => (),
-                    .Some(rhs_var_ty) => if(rhs_var_ty.as_str() == "__yo_closure_env_ptr", {
+                    .Some(rhs_var_ty) => if(rhs_var_ty == "__yo_closure_env_ptr", {
                       ctx.register_var_type(name_tok.value.as_str(), "__yo_closure_env_ptr");
                     })
                   )
@@ -5835,7 +5835,7 @@ handle_define :: (
                       ctx.register_var_type(name_tok.value.as_str(), "int64_t"),
                     (rhs_lit_tok.kind == TokenKind.Float) =>
                       ctx.register_var_type(name_tok.value.as_str(), "double"),
-                    ((rhs_lit_tok.kind == TokenKind.Bool) || ((rhs_lit_tok.value.as_str() == "true") || (rhs_lit_tok.value.as_str() == "false"))) =>
+                    ((rhs_lit_tok.kind == TokenKind.Bool) || ((rhs_lit_tok.value == "true") || (rhs_lit_tok.value == "false"))) =>
                       ctx.register_var_type(name_tok.value.as_str(), "bool"),
                     true => ()
                   )
@@ -5849,7 +5849,7 @@ handle_define :: (
                   match(
                     ctx.get_var_type(rhs_code.as_str()),
                     .None => (),
-                    .Some(rhs_prop_ty) => if(rhs_prop_ty.as_str() == "const char*", {
+                    .Some(rhs_prop_ty) => if(rhs_prop_ty == "const char*", {
                       ctx.register_var_type(name_tok.value.as_str(), "const char*");
                     })
                   );
@@ -5931,7 +5931,7 @@ handle_define :: (
                               true => match(
                                 range_fn2.*,
                                 .FnCall(_, _, _, _, _) => false,
-                                .Atom(_, rtok2) => ((rtok2.value.as_str() == "..") || (rtok2.value.as_str() == "..="))
+                                .Atom(_, rtok2) => ((rtok2.value == "..") || (rtok2.value == "..="))
                               )
                             )
                           )
@@ -5956,7 +5956,7 @@ handle_define :: (
                     true => match(
                       box_fn.*,
                       .FnCall(_, _, _, _, _) => false,
-                      .Atom(_, box_tok) => (box_tok.value.as_str() == "box")
+                      .Atom(_, box_tok) => (box_tok.value == "box")
                     )
                   )
                 );
@@ -5999,7 +5999,7 @@ handle_define :: (
                           inner_fn.*,
                           .FnCall(_, _, _, _, _) => Option(String).None,
                           .Atom(_, dot_tok) => cond(
-                            (dot_tok.value.as_str() != ".") => Option(String).None,
+                            (dot_tok.value != ".") => Option(String).None,
                             true => match(
                               inner_args.get(usize(0)),
                               .None => Option(String).None,
@@ -6024,7 +6024,7 @@ handle_define :: (
                         def_rhs_fn.*,
                         .FnCall(_, _, _, _, _) => Option(String).None,
                         .Atom(_, def_rhs_dot_tok) => cond(
-                          (def_rhs_dot_tok.value.as_str() != ".") => Option(String).None,
+                          (def_rhs_dot_tok.value != ".") => Option(String).None,
                           true => match(
                             def_rhs_ctor_args.get(usize(0)),
                             .None => Option(String).None,
@@ -6065,7 +6065,7 @@ handle_define :: (
                               dot_fn2.*,
                               .FnCall(_, _, _, _, _) => Option(String).None,
                               .Atom(_, dot_tok2) => cond(
-                                (dot_tok2.value.as_str() != ".") => Option(String).None,
+                                (dot_tok2.value != ".") => Option(String).None,
                                 true => match(
                                   dot_args2.get(usize(1)),
                                   .None => Option(String).None,
@@ -6073,7 +6073,7 @@ handle_define :: (
                                     mname_e,
                                     .FnCall(_, _, _, _, _) => Option(String).None,
                                     .Atom(_, mname_tok) => cond(
-                                      (mname_tok.value.as_str() != "clone") => Option(String).None,
+                                      (mname_tok.value != "clone") => Option(String).None,
                                       true => match(
                                         dot_args2.get(usize(0)),
                                         .None => Option(String).None,
@@ -6092,7 +6092,7 @@ handle_define :: (
                                               ref_fn3.*,
                                               .FnCall(_, _, _, _, _) => Option(String).None,
                                               .Atom(_, ref_tok3) => cond(
-                                                (ref_tok3.value.as_str() != "&") => Option(String).None,
+                                                (ref_tok3.value != "&") => Option(String).None,
                                                 true => match(
                                                   ref_args3.get(usize(0)),
                                                   .None => Option(String).None,
@@ -6184,7 +6184,7 @@ handle_define :: (
             destr_func.*,
             .FnCall(_, _, _, _, _) => Option(String).None,
             .Atom(_, single_field_tok) => cond(
-              ((single_field_tok.value.as_str() == ":") && (destr_args.len() == usize(2))) => match(
+              ((single_field_tok.value == ":") && (destr_args.len() == usize(2))) => match(
                 destr_args.get(usize(0)),
                 .None => Option(String).None,
                 .Some(single_field_e) => match(
@@ -6230,7 +6230,7 @@ handle_define :: (
             is_given := match(
               destr_func.*,
               .FnCall(_, _, _, _, _) => false,
-              .Atom(_, gtok) => (gtok.value.as_str() == "given")
+              .Atom(_, gtok) => (gtok.value == "given")
             );
             cond(
               (is_given && (destr_args.len() == usize(1))) =>
@@ -6261,10 +6261,10 @@ handle_define :: (
                   destr_func.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, dtok) => cond(
-                    (dtok.value.as_str() == BK_TUPLE) => Option(String).Some(String.from("tuple")),
-                    (dtok.value.as_str() == BK_ANON_STRUCT) => Option(String).Some(String.from("struct")),
+                    (dtok.value == BK_TUPLE) => Option(String).Some(String.from("tuple")),
+                    (dtok.value == BK_ANON_STRUCT) => Option(String).Some(String.from("struct")),
                     (
-                      (dtok.value.as_str() == BK_BEGIN) && (
+                      (dtok.value == BK_BEGIN) && (
                         (destr_args.len() == usize(1)) &&
                           match(
                             destr_args.get(usize(0)),
@@ -6276,7 +6276,7 @@ handle_define :: (
                                 (single_begin_infix && (single_begin_args.len() == usize(2))) &&
                                   match(
                                     single_begin_fn.*,
-                                    .Atom(_, single_begin_tok) => (single_begin_tok.value.as_str() == ":"),
+                                    .Atom(_, single_begin_tok) => (single_begin_tok.value == ":"),
                                     .FnCall(_, _, _, _, _) => false
                                   )
                               )
@@ -6311,7 +6311,7 @@ handle_define :: (
                               is_colon_pair2 := (
                                 (dfinfix && (dfa.len() == usize(2))) && match(
                                   dff.*,
-                                  .Atom(_, dftok) => (dftok.value.as_str() == ":"),
+                                  .Atom(_, dftok) => (dftok.value == ":"),
                                   .FnCall(_, _, _, _, _) => false
                                 )
                               );
@@ -6381,7 +6381,7 @@ handle_define :: (
                                         },
                                         .Atom(_, var_tok) => cond(
                                           // Spread `...`: emit remaining unbound fields from source struct.
-                                          (field_tok.value.as_str() == "...") => {
+                                          (field_tok.value == "...") => {
                                             match(
                                               ctx.get_open_var_fields(rhs_code.as_str()),
                                               .None => (),
@@ -6401,7 +6401,7 @@ handle_define :: (
                                                           bound_fields.get(bf_i),
                                                           .None => (),
                                                           .Some(bf) => {
-                                                            if(bf.as_str() == af_name.as_str(), {
+                                                            if(bf == af_name, {
                                                               already_bound = true;
                                                             });
                                                           }
@@ -6455,7 +6455,7 @@ handle_define :: (
                                   var_name_p := datom.value;
                                   // Build "._N" for tuple (positional) or ".name" for struct (by name).
                                   field_ref := cond(
-                                    (destr_kind.as_str() == "tuple") => _tuple_field_ref(di),
+                                    (destr_kind == "tuple") => _tuple_field_ref(di),
                                     true => {
                                       r2 := String.from(".");
                                       r2.push_string(var_name_p);
@@ -6559,7 +6559,7 @@ handle_bare_dot_variant :: (
         ctx.get_enum_for_variant(vtok.value.as_str()),
         .None => cond(
           // `.None` without a registered enum → bootstrap encoding is NULL (void*/0)
-          (vtok.value.as_str() == "None") => Option(String).Some(String.from("NULL")),
+          (vtok.value == "None") => Option(String).Some(String.from("NULL")),
           true => Option(String).None
         ),
         .Some(enum_name) => {
@@ -6580,8 +6580,8 @@ handle_bare_dot_variant :: (
           .FnCall(_, _, _, _, _) => Option(String).None,
           .Atom(_, vftok) => cond(
             (
-              (vftok.value.as_str() == "Some") ||
-                ((vftok.value.as_str() == "Ok") || (vftok.value.as_str() == "Err"))
+              (vftok.value == "Some") ||
+                ((vftok.value == "Ok") || (vftok.value == "Err"))
             ) => match(
               ctx.get_enum_for_variant(vftok.value.as_str()),
               .Some(_) => Option(String).None,
@@ -6633,7 +6633,7 @@ anon_typeof_receiver_name :: (fn(expr : AstExpr) -> Option(String))(
         fn_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, ftok) => cond(
-          (ftok.value.as_str() != "typeof") => Option(String).None,
+          (ftok.value != "typeof") => Option(String).None,
           true => match(
             fn_args.get(usize(0)),
             .None => Option(String).None,
@@ -6665,7 +6665,7 @@ anon_method_template_expr_to_c :: (
   match(
     expr,
     .Atom(_, tok) => cond(
-      ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == param_name)) => Option(String).Some(String.from("__YO_ARG__")),
+      ((tok.kind == TokenKind.Identifier) && (tok.value == param_name)) => Option(String).Some(String.from("__YO_ARG__")),
       true => call_gen_expr(expr, ctx, indent)
     ),
     .FnCall(_, func_box, expr_args, expr_infix, _) => cond(
@@ -6679,7 +6679,7 @@ anon_method_template_expr_to_c :: (
           .Some(recv_expr) => match(
             recv_expr,
             .FnCall(_, _, _, _, _) => false,
-            .Atom(_, recv_tok) => ((recv_tok.kind == TokenKind.Identifier) && (recv_tok.value.as_str() == self_name))
+            .Atom(_, recv_tok) => ((recv_tok.kind == TokenKind.Identifier) && (recv_tok.value == self_name))
           )
         );
         field_name := match(
@@ -6746,7 +6746,7 @@ anon_method_template_expr_to_c :: (
             match(
               func_box.*,
               .FnCall(_, _, _, _, _) => false,
-              .Atom(_, tuple_tok) => (tuple_tok.value.as_str() == BK_TUPLE)
+              .Atom(_, tuple_tok) => (tuple_tok.value == BK_TUPLE)
             )
       ) => match(
         expr_args.get(usize(0)),
@@ -6771,7 +6771,7 @@ param_name_from_colon_or_atom :: (fn(expr : AstExpr) -> Option(String))(
         func_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
         .Atom(_, op_tok) => cond(
-          (op_tok.value.as_str() != ":") => Option(String).None,
+          (op_tok.value != ":") => Option(String).None,
           true => match(
             args.get(usize(0)),
             .None => Option(String).None,
@@ -6808,7 +6808,7 @@ register_anon_typeof_impl :: (
             is_colon := match(
               bind_func.*,
               .FnCall(_, _, _, _, _) => false,
-              .Atom(_, bind_tok) => (bind_tok.value.as_str() == ":")
+              .Atom(_, bind_tok) => (bind_tok.value == ":")
             );
             if(is_colon, {
               method_name_opt := match(
@@ -6840,7 +6840,7 @@ register_anon_typeof_impl :: (
                           is_arrow := match(
                             arrow_func.*,
                             .FnCall(_, _, _, _, _) => false,
-                            .Atom(_, arrow_tok) => (arrow_tok.value.as_str() == "->")
+                            .Atom(_, arrow_tok) => (arrow_tok.value == "->")
                           );
                           if(is_arrow, {
                             fn_type_expr := match(arrow_args.get(usize(0)),.None => fn_app,.Some(e) => e);
@@ -6851,7 +6851,7 @@ register_anon_typeof_impl :: (
                                 is_fn := match(
                                   fn_func.*,
                                   .FnCall(_, _, _, _, _) => false,
-                                  .Atom(_, fn_tok) => (fn_tok.value.as_str() == "fn")
+                                  .Atom(_, fn_tok) => (fn_tok.value == "fn")
                                 );
                                 if(is_fn, {
                                   match(
@@ -6954,7 +6954,7 @@ first_captured_ident_name :: (
     expr,
     .Atom(_, tok) => cond(
       (tok.kind != TokenKind.Identifier) => Option(String).None,
-      (tok.value.as_str() == param_name) => Option(String).None,
+      (tok.value == param_name) => Option(String).None,
       is_c_type_name(tok.value.as_str()) => Option(String).None,
       is_primitive_type_cast(tok.value.as_str()) => Option(String).None,
       is_builtin_keyword(tok.value.as_str()) => Option(String).None,
@@ -7234,7 +7234,7 @@ gen_arg_list :: (
               match(
                 ua_fn.*,
                 .Atom(_, ua_tok) => cond(
-                  (ua_tok.value.as_str() == "using") =>
+                  (ua_tok.value == "using") =>
                     match(
                       ua_args.get(usize(0)),
                       .Some(inner) => inner,
@@ -7252,7 +7252,7 @@ gen_arg_list :: (
           actual_arg,
           .FnCall(_, _, _, _, _) => call_gen_expr(actual_arg, ctx, indent),
           .Atom(_, actual_tok) => cond(
-            ((actual_tok.value.as_str() == "io") && ctx.get_var_type("io").is_none()) =>
+            ((actual_tok.value == "io") && ctx.get_var_type("io").is_none()) =>
               Option(String).Some(String.from("NULL")),
             true => call_gen_expr(actual_arg, ctx, indent)
           )
@@ -7294,7 +7294,7 @@ handle_regular_call :: (
       // Check array var first, then do regular arg list + call building.
       cond(
         // consume(expr) — no-op: just return the expression (emitted as stmt by caller)
-        ((id.as_str() == "consume") && (args.len() == usize(1))) =>
+        ((id == "consume") && (args.len() == usize(1))) =>
           generate_consume(args, ctx, indent),
         // Inline builtins (operators, ptr ops, slice helpers, randomness wrappers).
         // Mirrors `generateYoInlineFunctionCall` dispatch in src/codegen/exprs/generation.ts.
@@ -7375,7 +7375,7 @@ handle_regular_call :: (
           ctx.get_var_type(id.as_str()),
           .None => Option(String).None,
           .Some(id_ty) => cond(
-            (id_ty.as_str() != "YoArray_i32") => Option(String).None,
+            (id_ty != "YoArray_i32") => Option(String).None,
             true => match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -7410,7 +7410,7 @@ handle_regular_call :: (
           ctx.get_var_type(id.as_str()),
           .None => Option(String).None,
           .Some(id_ty_for_index) => cond(
-            (id_ty_for_index.as_str() == "const char*") => match(
+            (id_ty_for_index == "const char*") => match(
               args.get(usize(0)),
               .None => Option(String).None,
               .Some(str_idx_expr) => match(
@@ -7535,7 +7535,7 @@ handle_regular_call :: (
                           }
                         ),
                       .Atom(_, rtok) => cond(
-                        ((rtok.value.as_str() != "..") && (rtok.value.as_str() != "..=")) =>
+                        ((rtok.value != "..") && (rtok.value != "..=")) =>
                           // Not a range — treat as regular index
                           match(
                             call_gen_expr(arg_e, ctx, indent),
@@ -7567,7 +7567,7 @@ handle_regular_call :: (
                                     san_arr := sanitize_c_ident(id.as_str());
                                     // Inclusive ..= adds 1 to the length
                                     length_expr := cond(
-                                      (rtok.value.as_str() == "..=") => {
+                                      (rtok.value == "..=") => {
                                         le := String.from("(");
                                         le.push_string(end_c);
                                         le.push_str(") - (");
@@ -7659,7 +7659,7 @@ handle_regular_call :: (
                           }
                         ),
                       .Atom(_, srtok) => cond(
-                        ((srtok.value.as_str() != "..") && (srtok.value.as_str() != "..=")) =>
+                        ((srtok.value != "..") && (srtok.value != "..=")) =>
                           match(
                             call_gen_expr(sidx_e, ctx, indent),
                             .None => Option(String).None,
@@ -7689,7 +7689,7 @@ handle_regular_call :: (
                                   .Some(ss_end_c) => {
                                     san_sl := sanitize_c_ident(id.as_str());
                                     ss_length := cond(
-                                      (srtok.value.as_str() == "..=") => {
+                                      (srtok.value == "..=") => {
                                         sle := String.from("(");
                                         sle.push_string(ss_end_c);
                                         sle.push_str(") - (");
@@ -7843,16 +7843,16 @@ handle_dot_access :: (
             .None => Option(String).None,
             .Some(fname) => {
               is_enum := ctx.is_enum_name(obj_code.as_str());
-              is_deref := (fname.as_str() == "*");
+              is_deref := (fname == "*");
               // Check if `obj_code` is a pointer variable — if so, emit `obj->field`.
               is_ptr_var := ctx.var_type_is_ptr(obj_code.as_str());
               // `rune` is a zero-cost newtype over u32.  In C it is `typedef uint32_t rune;`
               // so there is no `.char` field — the `.char` accessor is an identity.
-              is_char_field := (fname.as_str() == "char");
+              is_char_field := (fname == "char");
               is_arraylist_u8 := match(
                 ctx.get_var_type(obj_code.as_str()),
                 .None => false,
-                .Some(obj_ty) => (obj_ty.as_str() == "ArrayList_u8")
+                .Some(obj_ty) => (obj_ty == "ArrayList_u8")
               );
               deref_is_value_payload := match(
                 ctx.get_var_type(obj_code.as_str()),
@@ -7860,12 +7860,12 @@ handle_dot_access :: (
                 .Some(obj_ty2) => match(
                   ctx.get_struct_fields(obj_ty2.as_str()),
                   .None => false,
-                  .Some(fields_csv) => (fields_csv.as_str() == "_0")
+                  .Some(fields_csv) => (fields_csv == "_0")
                 )
               );
               cond(
                 // Type constructor field access without parens: Option(T).None → typed zero or NULL
-                (type_app_receiver_is(obj_expr, "Option") && (fname.as_str() == "None")) =>
+                (type_app_receiver_is(obj_expr, "Option") && (fname == "None")) =>
                   match(
                     generic_type_app_field_c_type(obj_expr),
                     .None => Option(String).Some(String.from("NULL")),
@@ -7879,9 +7879,9 @@ handle_dot_access :: (
                       true => Option(String).Some(String.from("NULL"))
                     )
                   ),
-                (type_app_receiver_is(obj_expr, "Result") && (fname.as_str() == "Err")) =>
+                (type_app_receiver_is(obj_expr, "Result") && (fname == "Err")) =>
                   Option(String).Some(String.from("NULL")),
-                (generic_type_app_c_name(obj_expr).is_some() && (fname.as_str() == "None")) =>
+                (generic_type_app_c_name(obj_expr).is_some() && (fname == "None")) =>
                   match(
                     generic_type_app_field_c_type(obj_expr),
                     .None => Option(String).Some(String.from("NULL")),
@@ -7908,7 +7908,7 @@ handle_dot_access :: (
                   Option(String).Some(result)
                 },
                 is_char_field => Option(String).Some(obj_code),
-                (is_arraylist_u8 && (fname.as_str() == "_ptr")) => {
+                (is_arraylist_u8 && (fname == "_ptr")) => {
                   result_ptr := String.from("((");
                   result_ptr.push_string(obj_code);
                   result_ptr.push_str(".length > 0) ? &");
@@ -7995,7 +7995,7 @@ func_box_static_type_app_method_is :: (fn(func_box : Box(AstExpr), type_name : s
     match(
       get_dispatch_method(func_box),
       .None => false,
-      .Some(found_method) => (found_method.as_str() == method_name)
+      .Some(found_method) => (found_method == method_name)
     ) &&
       match(
         get_dispatch_receiver(func_box),
@@ -8039,13 +8039,13 @@ handle_method_call :: (
           // Prototype lowering for standard Option/Result constructors. The
           // bootstrap codegen represents Some/Ok/Err as the payload value and
           // None as NULL; runtime methods below are lowered accordingly.
-          (((recv_code.as_str() == "io") && (method_name.as_str() == "await")) && (args.len() == usize(1))) =>
+          (((recv_code == "io") && (method_name == "await")) && (args.len() == usize(1))) =>
             Option(String).Some(String.from("0")),
-          (((recv_code.as_str() == "Worker") && (method_name.as_str() == "set_num_threads")) && (args.len() == usize(1))) =>
+          (((recv_code == "Worker") && (method_name == "set_num_threads")) && (args.len() == usize(1))) =>
             Option(String).Some(String.from("0")),
-          (((recv_code.as_str() == "Worker") && (method_name.as_str() == "spawn")) && (args.len() == usize(1))) =>
+          (((recv_code == "Worker") && (method_name == "spawn")) && (args.len() == usize(1))) =>
             Option(String).Some(String.from("0")),
-          (((recv_code.as_str() == "str") && (method_name.as_str() == "from_raw_parts")) && (args.len() == usize(2))) =>
+          (((recv_code == "str") && (method_name == "from_raw_parts")) && (args.len() == usize(2))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -8060,7 +8060,7 @@ handle_method_call :: (
                 }
               )
             ),
-          ((type_app_receiver_arg_is(recv_expr, "Slice", "u8") && (method_name.as_str() == "from_raw_parts")) && (args.len() == usize(2))) =>
+          ((type_app_receiver_arg_is(recv_expr, "Slice", "u8") && (method_name == "from_raw_parts")) && (args.len() == usize(2))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -8085,7 +8085,7 @@ handle_method_call :: (
                 )
               )
             ),
-          ((type_app_receiver_is(recv_expr, "Array") && (method_name.as_str() == "fill")) && (args.len() == usize(1))) => match(
+          ((type_app_receiver_is(recv_expr, "Array") && (method_name == "fill")) && (args.len() == usize(1))) => match(
             array_i32_size_arg_to_c(recv_expr, ctx, indent),
             .None => Option(String).None,
             .Some(array_size_c) => match(
@@ -8105,7 +8105,7 @@ handle_method_call :: (
               )
             )
           ),
-          ((type_app_receiver_is(recv_expr, "ArrayList") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
+          ((type_app_receiver_is(recv_expr, "ArrayList") && (method_name == "new")) && (args.len() == usize(0))) =>
             match(
               type_expr_to_c(recv_expr),
               .None => Option(String).None,
@@ -8117,7 +8117,7 @@ handle_method_call :: (
                 Option(String).Some(list_new)
               }
             ),
-          ((type_app_receiver_is(recv_expr, "Deque") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
+          ((type_app_receiver_is(recv_expr, "Deque") && (method_name == "new")) && (args.len() == usize(0))) =>
             match(
               type_expr_to_c(recv_expr),
               .None => Option(String).None,
@@ -8132,7 +8132,7 @@ handle_method_call :: (
           (
             (
               (type_app_receiver_is(recv_expr, "HashMap") || type_app_receiver_is(recv_expr, "BTreeMap")) &&
-                (method_name.as_str() == "new")
+                (method_name == "new")
             ) &&
               (args.len() == usize(0))
           ) =>
@@ -8152,9 +8152,9 @@ handle_method_call :: (
                 Option(String).Some(map_new)
               }
             ),
-          ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
+          ((generic_type_app_c_name(recv_expr).is_some() && (method_name == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
-          ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
+          ((generic_type_app_c_name(recv_expr).is_some() && (method_name == "None")) && (args.len() == usize(0))) =>
             match(
               generic_type_app_field_c_type(recv_expr),
               .None => Option(String).Some(String.from("NULL")),
@@ -8168,9 +8168,9 @@ handle_method_call :: (
                 true => Option(String).Some(String.from("NULL"))
               )
             ),
-          ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
+          ((type_app_receiver_is(recv_expr, "Option") && (method_name == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
-          ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
+          ((type_app_receiver_is(recv_expr, "Option") && (method_name == "None")) && (args.len() == usize(0))) =>
             match(
               generic_type_app_field_c_type(recv_expr),
               .None => Option(String).Some(String.from("NULL")),
@@ -8184,13 +8184,13 @@ handle_method_call :: (
                 true => Option(String).Some(String.from("NULL"))
               )
             ),
-          ((type_app_receiver_is(recv_expr, "Result") && (method_name.as_str() == "Ok")) && (args.len() == usize(1))) =>
+          ((type_app_receiver_is(recv_expr, "Result") && (method_name == "Ok")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           // Err(e) lowers to NULL (the error value is discarded in the prototype encoding).
-          ((type_app_receiver_is(recv_expr, "Result") && (method_name.as_str() == "Err")) && (args.len() == usize(1))) =>
+          ((type_app_receiver_is(recv_expr, "Result") && (method_name == "Err")) && (args.len() == usize(1))) =>
             Option(String).Some(String.from("NULL")),
           (
-            ((method_name.as_str() == "new") || (method_name.as_str() == "another_new")) &&
+            ((method_name == "new") || (method_name == "another_new")) &&
               (args.len() == usize(1)) &&
                 (!(type_app_receiver_is(recv_expr, "Option") || type_app_receiver_is(recv_expr, "Result")))
           ) => match(
@@ -8219,24 +8219,24 @@ handle_method_call :: (
             )
           ),
           // `arr.len()` on a registered C array variable — emit the known size constant.
-          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.is_array_var(recv_code.as_str()))) =>
+          ((method_name == "len") && ((args.len() == usize(0)) && ctx.is_array_var(recv_code.as_str()))) =>
             match(
               ctx.get_array_var_size(recv_code.as_str()),
               .None => Option(String).None,
               .Some(sz) => Option(String).Some(sz)
             ),
           // `slice.len()` on a registered C slice variable — emit `slice.length`.
-          ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.is_slice_var(recv_code.as_str()))) => {
+          ((method_name == "len") && ((args.len() == usize(0)) && ctx.is_slice_var(recv_code.as_str()))) => {
             sl_len := String.new();
             sl_len.push_string(recv_code);
             sl_len.push_str(".length");
             Option(String).Some(sl_len)
           },
-          (var_type_is(ctx, recv_code.as_str(), "YoArray_i32") && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+          (var_type_is(ctx, recv_code.as_str(), "YoArray_i32") && ((method_name == "len") && (args.len() == usize(0)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_array_len) => cond(
-              (recv_ty_for_array_len.as_str() != "YoArray_i32") => Option(String).None,
+              (recv_ty_for_array_len != "YoArray_i32") => Option(String).None,
               true => {
                 array_len_code := String.new();
                 array_len_code.push_string(recv_code);
@@ -8246,7 +8246,7 @@ handle_method_call :: (
             )
           ),
           // Bootstrap ArrayList(T) value operations.
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push") && (args.len() == usize(1)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "push") && (args.len() == usize(1)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_push) => cond(
@@ -8275,7 +8275,7 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "len") && (args.len() == usize(0)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_len) => cond(
@@ -8288,7 +8288,7 @@ handle_method_call :: (
               }
             )
           ),
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "get") && (args.len() == usize(1)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "get") && (args.len() == usize(1)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_get) => cond(
@@ -8311,7 +8311,7 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "dispose") && (args.len() == usize(0)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "dispose") && (args.len() == usize(0)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_dispose) => cond(
@@ -8319,7 +8319,7 @@ handle_method_call :: (
               true => Option(String).None
             )
           ),
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "set") && (args.len() == usize(2)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "set") && (args.len() == usize(2)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_map_set) => cond(
@@ -8360,7 +8360,7 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push_back") && (args.len() == usize(1)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "push_back") && (args.len() == usize(1)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_deque_push) => cond(
@@ -8389,7 +8389,7 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "pop_front") && (args.len() == usize(0)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "pop_front") && (args.len() == usize(0)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_deque_pop) => cond(
@@ -8408,7 +8408,7 @@ handle_method_call :: (
               }
             )
           ),
-          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+          (ctx.get_var_type(recv_code.as_str()).is_some() && ((method_name == "len") && (args.len() == usize(0)))) => match(
             ctx.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_deque_len) => cond(
@@ -8422,14 +8422,14 @@ handle_method_call :: (
             )
           ),
           // `str_lit.len()` / `str_const.len()` / `string.bytes_len()` → strlen(recv)
-          (((method_name.as_str() == "len") || (method_name.as_str() == "bytes_len")) && (args.len() == usize(0))) => {
+          (((method_name == "len") || (method_name == "bytes_len")) && (args.len() == usize(0))) => {
             sl_len2 := String.from("strlen(");
             sl_len2.push_string(recv_code);
             sl_len2.push_str(")");
             Option(String).Some(sl_len2)
           },
           // `x.to_string()` — check for derive(ToString) first, else strip (template string part).
-          ((method_name.as_str() == "to_string") && (args.len() == usize(0))) => {
+          ((method_name == "to_string") && (args.len() == usize(0))) => {
             // Try to detect `var_name.to_string()` or `(&var_name).to_string()` where var_name has derive(ToString).
             tostr_result := match(
               recv_expr,
@@ -8456,7 +8456,7 @@ handle_method_call :: (
                   ref_fn.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, rftok) => cond(
-                    (rftok.value.as_str() != "&") => Option(String).None,
+                    (rftok.value != "&") => Option(String).None,
                     true => match(
                       ref_args.get(usize(0)),
                       .None => Option(String).None,
@@ -8496,7 +8496,7 @@ handle_method_call :: (
                       arith_fn_b.*,
                       .FnCall(_, _, _, _, _) => Option(String).None,
                       .Atom(_, arith_op_tok) => cond(
-                        ((arith_op_tok.value.as_str() == "+") || ((arith_op_tok.value.as_str() == "-") || ((arith_op_tok.value.as_str() == "*") || ((arith_op_tok.value.as_str() == "/") || (arith_op_tok.value.as_str() == "%"))))) => {
+                        ((arith_op_tok.value == "+") || ((arith_op_tok.value == "-") || ((arith_op_tok.value == "*") || ((arith_op_tok.value == "/") || (arith_op_tok.value == "%"))))) => {
                           arith_conv := String.from("__yo_int_to_str((int64_t)(");
                           arith_conv.push_string(recv_code);
                           arith_conv.push_str("))");
@@ -8520,7 +8520,7 @@ handle_method_call :: (
                       conv_flt.push_str(")");
                       Option(String).Some(conv_flt)
                     },
-                    ((recv_tok_ts.value.as_str() == "true") || (recv_tok_ts.value.as_str() == "false")) => {
+                    ((recv_tok_ts.value == "true") || (recv_tok_ts.value == "false")) => {
                       conv_bool := String.from("__yo_bool_to_str(");
                       conv_bool.push_string(recv_code);
                       conv_bool.push_str(")");
@@ -8540,25 +8540,25 @@ handle_method_call :: (
                       ctx.get_var_type(recv_var_tok.value.as_str()),
                       .None => Option(String).None,
                       .Some(tracked_ty) => cond(
-                        ((tracked_ty.as_str() == "int64_t") || ((tracked_ty.as_str() == "int32_t") || ((tracked_ty.as_str() == "int16_t") || ((tracked_ty.as_str() == "int8_t") || (tracked_ty.as_str() == "isize"))))) => {
+                        ((tracked_ty == "int64_t") || ((tracked_ty == "int32_t") || ((tracked_ty == "int16_t") || ((tracked_ty == "int8_t") || (tracked_ty == "isize"))))) => {
                           tv_int := String.from("__yo_int_to_str((int64_t)(");
                           tv_int.push_string(recv_code);
                           tv_int.push_str("))");
                           Option(String).Some(tv_int)
                         },
-                        ((tracked_ty.as_str() == "size_t") || ((tracked_ty.as_str() == "uint64_t") || ((tracked_ty.as_str() == "uint32_t") || ((tracked_ty.as_str() == "uint16_t") || (tracked_ty.as_str() == "uint8_t"))))) => {
+                        ((tracked_ty == "size_t") || ((tracked_ty == "uint64_t") || ((tracked_ty == "uint32_t") || ((tracked_ty == "uint16_t") || (tracked_ty == "uint8_t"))))) => {
                           tv_uint := String.from("__yo_uint_to_str((uint64_t)(");
                           tv_uint.push_string(recv_code);
                           tv_uint.push_str("))");
                           Option(String).Some(tv_uint)
                         },
-                        ((tracked_ty.as_str() == "double") || (tracked_ty.as_str() == "float")) => {
+                        ((tracked_ty == "double") || (tracked_ty == "float")) => {
                           tv_flt := String.from("__yo_float_to_str((double)(");
                           tv_flt.push_string(recv_code);
                           tv_flt.push_str("))");
                           Option(String).Some(tv_flt)
                         },
-                        (tracked_ty.as_str() == "bool") => {
+                        (tracked_ty == "bool") => {
                           tv_bool := String.from("__yo_bool_to_str(");
                           tv_bool.push_string(recv_code);
                           tv_bool.push_str(")");
@@ -8581,7 +8581,7 @@ handle_method_call :: (
           },
           // `x.clone()` — check for derive(Clone) on receiver type, emit fn_TypeName_clone(recv).
           // Supports both `(&x).clone()` and `x.clone()` forms.
-          ((method_name.as_str() == "clone") && (args.len() == usize(0))) => {
+          ((method_name == "clone") && (args.len() == usize(0))) => {
             clone_result := match(
               recv_expr,
               // Direct atom: `orig.clone()` → fn_TypeName_clone(&orig)
@@ -8607,7 +8607,7 @@ handle_method_call :: (
                   ref_fn2.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, rftok2) => cond(
-                    (rftok2.value.as_str() != "&") => Option(String).None,
+                    (rftok2.value != "&") => Option(String).None,
                     true => match(
                       ref_args2.get(usize(0)),
                       .None => Option(String).None,
@@ -8648,7 +8648,7 @@ handle_method_call :: (
           },
           // `x.hash()` — check for derive(Hash) on receiver type, emit fn_TypeName_hash(recv).
           // Supports both `(&x).hash()` and `x.hash()` forms.
-          ((method_name.as_str() == "hash") && (args.len() == usize(0))) => {
+          ((method_name == "hash") && (args.len() == usize(0))) => {
             hash_result := match(
               recv_expr,
               // Direct atom: `orig.hash()` → fn_TypeName_hash(&orig)
@@ -8674,7 +8674,7 @@ handle_method_call :: (
                   ref_fn_h.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, rftok_h) => cond(
-                    (rftok_h.value.as_str() != "&") => Option(String).None,
+                    (rftok_h.value != "&") => Option(String).None,
                     true => match(
                       ref_args_h.get(usize(0)),
                       .None => Option(String).None,
@@ -8714,7 +8714,7 @@ handle_method_call :: (
             )
           },
           // `a.+(b)` — template string concatenation: emit __yo_str_concat(a, b).
-          ((method_name.as_str() == "+") && (args.len() == usize(1))) =>
+          ((method_name == "+") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -8828,7 +8828,7 @@ handle_method_call :: (
                           (
                             (lf_infix && (lf_args.len() == usize(2))) && match(
                               lf_box.*,
-                              .Atom(_, ltok) => (ltok.value.as_str() == ":"),
+                              .Atom(_, ltok) => (ltok.value == ":"),
                               .FnCall(_, _, _, _, _) => false
                             )
                           ) => match(
@@ -8878,7 +8878,7 @@ handle_method_call :: (
               }
             ),
           (
-            ((method_name.as_str() == "add") || (method_name.as_str() == "another_add")) &&
+            ((method_name == "add") || (method_name == "another_add")) &&
               (args.len() == usize(1)) &&
                 match(
                   recv_expr,
@@ -8889,7 +8889,7 @@ handle_method_call :: (
                     .Some(add_recv_ty) => match(
                       ctx.get_struct_fields(add_recv_ty.as_str()),
                       .None => false,
-                      .Some(add_fields) => (add_fields.as_str() == "value")
+                      .Some(add_fields) => (add_fields == "value")
                     )
                   )
                 )
@@ -8914,19 +8914,19 @@ handle_method_call :: (
           // `x.unwrap()` with no args — strip the call, pass receiver through.
           // In the prototype codegen, malloc/calloc/realloc return raw C pointers;
           // wrapping in Option/Result is not emitted, so .unwrap() is a no-op.
-          (((method_name.as_str() == "unwrap") || (method_name.as_str() == "comptime_unwrap")) && (args.len() == usize(0))) =>
+          (((method_name == "unwrap") || (method_name == "comptime_unwrap")) && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
-          ((method_name.as_str() == "unwrap_or") && (args.len() == usize(1))) =>
+          ((method_name == "unwrap_or") && (args.len() == usize(1))) =>
             Option(String).Some(recv_code),
           // `.neg()` — arithmetic negation: emit `(-(recv))`
-          ((method_name.as_str() == "neg") && (args.len() == usize(0))) => {
+          ((method_name == "neg") && (args.len() == usize(0))) => {
             result_neg := String.from("(-(");
             result_neg.push_string(recv_code);
             result_neg.push_str("))");
             Option(String).Some(result_neg)
           },
           // `.not()` — logical/bitwise NOT: emit `(!(recv))`
-          ((method_name.as_str() == "not") && (args.len() == usize(0))) => {
+          ((method_name == "not") && (args.len() == usize(0))) => {
             result_not := String.from("(!(");
             result_not.push_string(recv_code);
             result_not.push_str("))");
@@ -8934,7 +8934,7 @@ handle_method_call :: (
           },
           // `.abs()` — absolute value.  We rely on C's signed vs. unsigned
           // semantics: emit `abs(recv)` for now (close enough for the prototype).
-          ((method_name.as_str() == "abs") && (args.len() == usize(0))) => {
+          ((method_name == "abs") && (args.len() == usize(0))) => {
             result_abs := String.from("abs(");
             result_abs.push_string(recv_code);
             result_abs.push_str(")");
@@ -8942,20 +8942,20 @@ handle_method_call :: (
           },
           // `.is_some()` / `.is_none()` on the simplified Option lowering:
           // direct `None` lowers to NULL, while `Some(value)` lowers to value.
-          ((method_name.as_str() == "is_some") && (args.len() == usize(0))) =>
+          ((method_name == "is_some") && (args.len() == usize(0))) =>
             cond(
-              (recv_code.as_str() == "NULL") => Option(String).Some(String.from("false")),
+              (recv_code == "NULL") => Option(String).Some(String.from("false")),
               true => Option(String).Some(String.from("true"))
             ),
-          ((method_name.as_str() == "is_none") && (args.len() == usize(0))) => {
+          ((method_name == "is_none") && (args.len() == usize(0))) => {
             is_none_c := String.from("(");
             is_none_c.push_string(recv_code);
             is_none_c.push_str(" == NULL)");
             Option(String).Some(is_none_c)
           },
-          ((method_name.as_str() == "is_ok") && (args.len() == usize(0))) =>
+          ((method_name == "is_ok") && (args.len() == usize(0))) =>
             Option(String).Some(String.from("true")),
-          ((method_name.as_str() == "is_err") && (args.len() == usize(0))) => {
+          ((method_name == "is_err") && (args.len() == usize(0))) => {
             is_err_c := String.from("(");
             is_err_c.push_string(recv_code);
             is_err_c.push_str(" == NULL)");
@@ -8964,7 +8964,7 @@ handle_method_call :: (
           // `.map(closure)` — Option/Result map: apply closure when Some/Ok, propagate None/Err.
           // Bootstrap encoding: Some(x)/Ok(x) = x (non-NULL), None/Err = NULL.
           // Emits: (recv != NULL ? ({ __auto_type param = recv; body; }) : NULL)
-          ((method_name.as_str() == "map") && (args.len() == usize(1))) =>
+          ((method_name == "map") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9009,7 +9009,7 @@ handle_method_call :: (
           // `.map(forall(T), closure)` — 2-arg form where first arg is forall type, second is closure.
           // In HKT usage: `x.map(forall(i32), (fn(a : i32) -> i32)(body))`.
           // Bootstrap: ignore the forall type arg, treat as 1-arg .map(closure).
-          ((method_name.as_str() == "map") && (args.len() == usize(2))) =>
+          ((method_name == "map") && (args.len() == usize(2))) =>
             match(
               args.get(usize(1)),
               .None => Option(String).None,
@@ -9052,7 +9052,7 @@ handle_method_call :: (
               )
             ),
           // `.transform(closure)` — 1-arg form, alias for .map() in Mappable trait.
-          ((method_name.as_str() == "transform") && (args.len() == usize(1))) =>
+          ((method_name == "transform") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9095,7 +9095,7 @@ handle_method_call :: (
               )
             ),
           // `.transform(forall(T), closure)` — 2-arg form alias for .map().
-          ((method_name.as_str() == "transform") && (args.len() == usize(2))) =>
+          ((method_name == "transform") && (args.len() == usize(2))) =>
             match(
               args.get(usize(1)),
               .None => Option(String).None,
@@ -9139,7 +9139,7 @@ handle_method_call :: (
             ),
           // `.contains_value()` — Mappable trait: returns true if Some/Ok, false if None/Err.
           // Bootstrap: (recv != NULL)
-          ((method_name.as_str() == "contains_value") && (args.len() == usize(0))) => {
+          ((method_name == "contains_value") && (args.len() == usize(0))) => {
             cv_c := String.from("(");
             cv_c.push_string(recv_code);
             cv_c.push_str(" != NULL)");
@@ -9147,10 +9147,10 @@ handle_method_call :: (
           },
           // `.get_value()` — Container trait: extract inner value (assumes Some/Ok).
           // Bootstrap: identity — recv is already the inner value
-          ((method_name.as_str() == "get_value") && (args.len() == usize(0))) =>
+          ((method_name == "get_value") && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
           // `.and_then(closure)` — flatMap: same lowering as `.map()` in bootstrap.
-          ((method_name.as_str() == "and_then") && (args.len() == usize(1))) =>
+          ((method_name == "and_then") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9194,7 +9194,7 @@ handle_method_call :: (
             ),
           // `.filter(pred)` — keep Some if pred is true, otherwise None.
           // Emits: (recv != NULL ? (({ __auto_type param = recv; pred; }) ? recv : NULL) : NULL)
-          ((method_name.as_str() == "filter") && (args.len() == usize(1))) =>
+          ((method_name == "filter") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9240,9 +9240,9 @@ handle_method_call :: (
             ),
           // `.map_err(closure)` — transform error value; Ok passes through unchanged.
           // Bootstrap encoding: Ok = value, Err = NULL. Since Err is NULL, just return recv.
-          ((method_name.as_str() == "map_err") && (args.len() == usize(1))) =>
+          ((method_name == "map_err") && (args.len() == usize(1))) =>
             Option(String).Some(recv_code),
-          (((recv_code.as_str() == "String") && (method_name.as_str() == "concat")) && (args.len() == usize(2))) =>
+          (((recv_code == "String") && (method_name == "concat")) && (args.len() == usize(2))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9267,20 +9267,20 @@ handle_method_call :: (
                 )
               )
             ),
-          (((recv_code.as_str() == "String") && (method_name.as_str() == "from")) && (args.len() == usize(1))) =>
+          (((recv_code == "String") && (method_name == "from")) && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
               .Some(arg_e) => call_gen_expr(arg_e, ctx, indent)
             ),
           // `String.new()` — empty string literal in proto codegen
-          (((recv_code.as_str() == "String") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
+          (((recv_code == "String") && (method_name == "new")) && (args.len() == usize(0))) =>
             Option(String).Some(String.from("\"\"")),
           // `.as_str()` — identity in proto codegen (String == str == const char*)
-          ((method_name.as_str() == "as_str") && (args.len() == usize(0))) =>
+          ((method_name == "as_str") && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
           // `.bytes(idx)` — str byte access: `(uint8_t)(recv[idx])`
-          ((method_name.as_str() == "bytes") && (args.len() == usize(1))) =>
+          ((method_name == "bytes") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9319,7 +9319,7 @@ handle_method_call :: (
             ),
           // `.or_else(closure)` — If Some, return self. If None, call closure() → Option.
           // Emits: (recv != NULL ? recv : closure_body)
-          ((method_name.as_str() == "or_else") && (args.len() == usize(1))) =>
+          ((method_name == "or_else") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9344,7 +9344,7 @@ handle_method_call :: (
             ),
           // `.unwrap_or_else(closure)` — If Some(x), return x. If None, call closure().
           // Emits: (recv != 0 ? recv : closure_body)
-          ((method_name.as_str() == "unwrap_or_else") && (args.len() == usize(1))) =>
+          ((method_name == "unwrap_or_else") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9369,7 +9369,7 @@ handle_method_call :: (
             ),
           // `.map_or(default, closure)` — If Some(x), return closure(x). If None, return default.
           // Emits: (recv != 0 ? ({ __auto_type p = recv; body }) : default)
-          ((method_name.as_str() == "map_or") && (args.len() == usize(2))) =>
+          ((method_name == "map_or") && (args.len() == usize(2))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9421,7 +9421,7 @@ handle_method_call :: (
             ),
           // `.map_or_else(default_fn, closure)` — If Some(x), return closure(x). If None, call default_fn().
           // Emits: (recv != 0 ? ({ __auto_type p = recv; body }) : default_fn_body)
-          ((method_name.as_str() == "map_or_else") && (args.len() == usize(2))) =>
+          ((method_name == "map_or_else") && (args.len() == usize(2))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9477,19 +9477,19 @@ handle_method_call :: (
             ),
           // `.flatten()` — Option(Option(T)) → Option(T). In bootstrap encoding, identity (both None=0, Some(v)=v).
           // Emits: recv
-          ((method_name.as_str() == "flatten") && (args.len() == usize(0))) =>
+          ((method_name == "flatten") && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
           // `.ok_or(err)` — Convert Option to Result: Some(x) → Ok(x), None → Err(_) = NULL.
           // In bootstrap encoding, identity (Ok=value, Err=NULL; Some=value, None=NULL).
           // Emits: recv
-          ((method_name.as_str() == "ok_or") && (args.len() == usize(1))) =>
+          ((method_name == "ok_or") && (args.len() == usize(1))) =>
             Option(String).Some(recv_code),
           // `.ok_or_else(fn)` — Same as ok_or but lazy. In bootstrap, identity.
-          ((method_name.as_str() == "ok_or_else") && (args.len() == usize(1))) =>
+          ((method_name == "ok_or_else") && (args.len() == usize(1))) =>
             Option(String).Some(recv_code),
           // `.and(other)` — Option/Result.and: if None/Err return None/Err (0), else return other.
           // Emits: (recv != 0 ? other_code : 0)
-          ((method_name.as_str() == "and") && (args.len() == usize(1))) =>
+          ((method_name == "and") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9508,7 +9508,7 @@ handle_method_call :: (
             ),
           // `.or(other)` — Option/Result.or: if Some/Ok return self, else return other.
           // Emits: (recv != 0 ? recv : other_code)
-          ((method_name.as_str() == "or") && (args.len() == usize(1))) =>
+          ((method_name == "or") && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
               .None => Option(String).None,
@@ -9528,12 +9528,12 @@ handle_method_call :: (
               )
             ),
           // `.ok()` — Result → Option: Ok(x) → Some(x), Err(_) → None. In bootstrap, identity.
-          ((method_name.as_str() == "ok") && (args.len() == usize(0))) =>
+          ((method_name == "ok") && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
           // `.err()` — Result → Option: Ok(_) → None, Err(e) → Some(e). In bootstrap, invert.
           // Ok=value (non-zero), Err=NULL (0). .err() → None if Ok (0), Some if Err (but Err=0 too).
           // Bootstrap simplification: emit 0 (always None since Err discards its value).
-          ((method_name.as_str() == "err") && (args.len() == usize(0))) =>
+          ((method_name == "err") && (args.len() == usize(0))) =>
             Option(String).Some(String.from("0")),
           // Default: emit as C method call `recv.method(args)`
           true => match(
@@ -9592,7 +9592,7 @@ gen_anon_struct_compound :: (
               finfix_l && (
                 match(
                   ff_l.*,
-                  .Atom(_, ftok_l) => (ftok_l.value.as_str() == ":"),
+                  .Atom(_, ftok_l) => (ftok_l.value == ":"),
                   .FnCall(_, _, _, _, _) => false
                 ) && (fa_l.len() == usize(2))
               )
@@ -9767,7 +9767,7 @@ handle_assignment :: (
               !(
                 lcolon_infix && match(
                   lcolon_box.*,
-                  .Atom(_, lctok) => ((lctok.kind == TokenKind.Operator) && (lctok.value.as_str() == ":")),
+                  .Atom(_, lctok) => ((lctok.kind == TokenKind.Operator) && (lctok.value == ":")),
                   .FnCall(_, _, _, _, _) => false
                 )
               )
@@ -9793,7 +9793,7 @@ handle_assignment :: (
                           lty_fn.*,
                           .FnCall(_, _, _, _, _) => Option(String).None,
                           .Atom(_, ltytok) => cond(
-                            (ltytok.value.as_str() != "Array") => Option(String).None,
+                            (ltytok.value != "Array") => Option(String).None,
                             true => {
                               // [T; N] or Array(T, N) → extract elem type and size
                               elem_c_opt := match(
@@ -9809,7 +9809,7 @@ handle_assignment :: (
                                   .FnCall(_, _, _, _, _) => Option(String).None,
                                   .Atom(_, sz_tok) => cond(
                                     (sz_tok.kind == TokenKind.Integer) => Option(String).Some(sz_tok.value),
-                                    (sz_tok.value.as_str() == "_") => Option(String).None,
+                                    (sz_tok.value == "_") => Option(String).None,
                                     true => Option(String).None
                                   )
                                 )
@@ -9833,7 +9833,7 @@ handle_assignment :: (
                                           rhs_arr_fn.*,
                                           .FnCall(_, _, _, _, _) => call_gen_expr(rhs_expr, ctx, indent),
                                           .Atom(_, ratok) => cond(
-                                            (ratok.value.as_str() != "array") => call_gen_expr(rhs_expr, ctx, indent),
+                                            (ratok.value != "array") => call_gen_expr(rhs_expr, ctx, indent),
                                             true => {
                                               // Build `{v0, v1, ...}` initializer
                                               n_rv := rhs_arr_args.len();
@@ -9917,7 +9917,7 @@ handle_assignment :: (
                 match(
                   rhs_fn_box.*,
                   .FnCall(_, _, _, _, _) => false,
-                  .Atom(_, rfntok) => (rfntok.value.as_str() == BK_ANON_STRUCT)
+                  .Atom(_, rfntok) => (rfntok.value == BK_ANON_STRUCT)
                 )
           )
         );
@@ -9929,7 +9929,7 @@ handle_assignment :: (
               !(
                 colon_infix_a && match(
                   colon_box_a.*,
-                  .Atom(_, ctoka) => ((ctoka.kind == TokenKind.Operator) && (ctoka.value.as_str() == ":")),
+                  .Atom(_, ctoka) => ((ctoka.kind == TokenKind.Operator) && (ctoka.value == ":")),
                   .FnCall(_, _, _, _, _) => false
                 )
               )
@@ -9956,7 +9956,7 @@ handle_assignment :: (
                       ty_fn_a.*,
                       .FnCall(_, _, _, _, _) => Option(ArrayList(AstExpr)).None,
                       .Atom(_, ty_tok_a) => cond(
-                        (ty_tok_a.value.as_str() == "struct") => Option(ArrayList(AstExpr)).Some(ty_args_a),
+                        (ty_tok_a.value == "struct") => Option(ArrayList(AstExpr)).Some(ty_args_a),
                         true => Option(ArrayList(AstExpr)).None
                       )
                     )
@@ -9972,7 +9972,7 @@ handle_assignment :: (
                     rhs_fn_a.*,
                     .FnCall(_, _, _, _, _) => Option(ArrayList(AstExpr)).None,
                     .Atom(_, rhs_tok_a) => cond(
-                      (rhs_tok_a.value.as_str() == BK_ANON_STRUCT) => Option(ArrayList(AstExpr)).Some(rhs_args_a),
+                      (rhs_tok_a.value == BK_ANON_STRUCT) => Option(ArrayList(AstExpr)).Some(rhs_args_a),
                       true => Option(ArrayList(AstExpr)).None
                     )
                   )
@@ -10020,7 +10020,7 @@ handle_assignment :: (
               tuple_rhs_fn.*,
               .FnCall(_, _, _, _, _) => Option(String).None,
               .Atom(_, tuple_rhs_tok) => cond(
-                (tuple_rhs_tok.value.as_str() != BK_TUPLE) => Option(String).None,
+                (tuple_rhs_tok.value != BK_TUPLE) => Option(String).None,
                 true => match(
                   lhs_expr,
                   .Atom(_, _) => Option(String).None,
@@ -10029,7 +10029,7 @@ handle_assignment :: (
                       !(
                         colon_infix_t && match(
                           colon_box_t.*,
-                          .Atom(_, ctokt) => ((ctokt.kind == TokenKind.Operator) && (ctokt.value.as_str() == ":")),
+                          .Atom(_, ctokt) => ((ctokt.kind == TokenKind.Operator) && (ctokt.value == ":")),
                           .FnCall(_, _, _, _, _) => false
                         )
                       )
@@ -10085,7 +10085,7 @@ handle_assignment :: (
               closure_colon_infix && match(
                 closure_colon_box.*,
                 .Atom(_, closure_colon_tok) =>
-                  ((closure_colon_tok.kind == TokenKind.Operator) && (closure_colon_tok.value.as_str() == ":")),
+                  ((closure_colon_tok.kind == TokenKind.Operator) && (closure_colon_tok.value == ":")),
                 .FnCall(_, _, _, _, _) => false
               )
             ) => Option(String).None,
@@ -10124,7 +10124,7 @@ handle_assignment :: (
                             true => match(
                               closure_type_fn_box.*,
                               .FnCall(_, _, _, _, _) => false,
-                              .Atom(_, closure_type_name_tok) => (closure_type_name_tok.value.as_str() == "Dyn")
+                              .Atom(_, closure_type_name_tok) => (closure_type_name_tok.value == "Dyn")
                             )
                           ),
                           .Atom(_, _) => false
@@ -10179,7 +10179,7 @@ handle_assignment :: (
                     ala_fn.*,
                     .FnCall(_, _, _, _, _) => Option(String).None,
                     .Atom(_, ala_tok) => cond(
-                      (ala_tok.value.as_str() != "array") => Option(String).None,
+                      (ala_tok.value != "array") => Option(String).None,
                       true => {
                         san_arr := sanitize_c_ident(lna_tok.value.as_str());
                         n_ala := ala_args.len();
@@ -10230,7 +10230,7 @@ handle_assignment :: (
                 !(
                   colon_infix_a && match(
                     colon_box_a.*,
-                    .Atom(_, ctoka) => ((ctoka.kind == TokenKind.Operator) && (ctoka.value.as_str() == ":")),
+                    .Atom(_, ctoka) => ((ctoka.kind == TokenKind.Operator) && (ctoka.value == ":")),
                     .FnCall(_, _, _, _, _) => false
                   )
                 )
@@ -10259,7 +10259,7 @@ handle_assignment :: (
                     ty_opt_a,
                     .None => Option(String).None,
                     .Some(c_ty_a) => cond(
-                      (c_ty_a.as_str() == "Type") => Option(String).None,
+                      (c_ty_a == "Type") => Option(String).None,
                       true => {
                         // Extract the anon-struct args
                         struct_args_opt := match(
@@ -10312,7 +10312,7 @@ handle_assignment :: (
                 (
                   colon_infix && match(
                     colon_box.*,
-                    .Atom(_, ctok) => ((ctok.kind == TokenKind.Operator) && (ctok.value.as_str() == ":")),
+                    .Atom(_, ctok) => ((ctok.kind == TokenKind.Operator) && (ctok.value == ":")),
                     .FnCall(_, _, _, _, _) => false
                   )
                 ) => {
@@ -10330,7 +10330,7 @@ handle_assignment :: (
                           cf_box3.*,
                           .FnCall(_, _, _, _, _) => Option(String).None,
                           .Atom(_, cftok3) => cond(
-                            (!(cftok3.value.as_str() == "comptime")) => Option(String).None,
+                            (!(cftok3.value == "comptime")) => Option(String).None,
                             true => match(
                               cf_args3.get(usize(0)),
                               .None => Option(String).None,
@@ -10362,7 +10362,7 @@ handle_assignment :: (
                           match(
                             cf_box_c.*,
                             .FnCall(_, _, _, _, _) => false,
-                            .Atom(_, tok_c) => (tok_c.value.as_str() == "comptime")
+                            .Atom(_, tok_c) => (tok_c.value == "comptime")
                           )
                       )
                     )
@@ -10379,7 +10379,7 @@ handle_assignment :: (
                           tuple_ty_fn.*,
                           .FnCall(_, _, _, _, _) => type_expr_to_c(te),
                           .Atom(_, tuple_ty_tok) => cond(
-                            (tuple_ty_tok.value.as_str() == "Tuple") => Option(String).None,
+                            (tuple_ty_tok.value == "Tuple") => Option(String).None,
                             true => type_expr_to_c(te)
                           )
                         )
@@ -10436,7 +10436,7 @@ handle_assignment :: (
                                   nt_fb.*,
                                   .FnCall(_, _, _, _, _) => Option(String).None,
                                   .Atom(_, nt_tok) => cond(
-                                    (nt_tok.value.as_str() != "Tuple") => Option(String).None,
+                                    (nt_tok.value != "Tuple") => Option(String).None,
                                     true => {
                                       n_nt := nt_fa.len();
                                       (nt_ok : bool) = true;
@@ -10467,7 +10467,7 @@ handle_assignment :: (
                                                   nt_ok = false;
                                                 },
                                                 .Atom(_, nt_at) => cond(
-                                                  (nt_at.value.as_str() != ":") => {
+                                                  (nt_at.value != ":") => {
                                                     nt_ok = false;
                                                   },
                                                   true => match(
@@ -10611,7 +10611,7 @@ handle_assignment :: (
                       .Some(c_ty) => cond(
                         // Skip: `(comptime(T) : Type) = SomeType` — Type is a meta-type.
                         // Skip: `(comptime(x) : PureYoType) = val` — type has no C representation.
-                        (comptime_type_has_no_c_repr || (c_ty.as_str() == "Type")) => Option(String).None,
+                        (comptime_type_has_no_c_repr || (c_ty == "Type")) => Option(String).None,
                         true => {
                           // Emit: indent + "c_ty name" + " = " + rhs + ";"
                           san_cty_name := sanitize_c_ident(var_name.as_str());
@@ -10737,7 +10737,7 @@ handle_println :: (
       .Some(value_code) => {
         // Wrap non-string values with a to-string helper so printf("%s\n", ...) is safe.
         print_arg := cond(
-          (value_code.starts_with(String.from("\"")) || (value_code.contains(String.from("__yo_")) || match(ctx.get_var_type(value_code.as_str()),.None => false,.Some(pln_vty) => (pln_vty.as_str() == "const char*")))) =>
+          (value_code.starts_with(String.from("\"")) || (value_code.contains(String.from("__yo_")) || match(ctx.get_var_type(value_code.as_str()),.None => false,.Some(pln_vty) => (pln_vty == "const char*")))) =>
             value_code,
           true => match(
             value_expr,
@@ -10754,7 +10754,7 @@ handle_println :: (
                 pln_wf.push_str(")");
                 pln_wf
               },
-              ((pln_atom_tok.value.as_str() == "true") || (pln_atom_tok.value.as_str() == "false")) => {
+              ((pln_atom_tok.value == "true") || (pln_atom_tok.value == "false")) => {
                 pln_wb := String.from("__yo_bool_to_str(");
                 pln_wb.push_string(value_code);
                 pln_wb.push_str(")");
@@ -10764,25 +10764,25 @@ handle_println :: (
                 ctx.get_var_type(value_code.as_str()),
                 .None => value_code,
                 .Some(pln_ty) => cond(
-                  ((pln_ty.as_str() == "int64_t") || ((pln_ty.as_str() == "int32_t") || ((pln_ty.as_str() == "int16_t") || ((pln_ty.as_str() == "int8_t") || (pln_ty.as_str() == "isize"))))) => {
+                  ((pln_ty == "int64_t") || ((pln_ty == "int32_t") || ((pln_ty == "int16_t") || ((pln_ty == "int8_t") || (pln_ty == "isize"))))) => {
                     pln_ti := String.from("__yo_int_to_str((int64_t)(");
                     pln_ti.push_string(value_code);
                     pln_ti.push_str("))");
                     pln_ti
                   },
-                  ((pln_ty.as_str() == "size_t") || ((pln_ty.as_str() == "uint64_t") || ((pln_ty.as_str() == "uint32_t") || ((pln_ty.as_str() == "uint16_t") || (pln_ty.as_str() == "uint8_t"))))) => {
+                  ((pln_ty == "size_t") || ((pln_ty == "uint64_t") || ((pln_ty == "uint32_t") || ((pln_ty == "uint16_t") || (pln_ty == "uint8_t"))))) => {
                     pln_tu := String.from("__yo_uint_to_str((uint64_t)(");
                     pln_tu.push_string(value_code);
                     pln_tu.push_str("))");
                     pln_tu
                   },
-                  ((pln_ty.as_str() == "double") || (pln_ty.as_str() == "float")) => {
+                  ((pln_ty == "double") || (pln_ty == "float")) => {
                     pln_tf := String.from("__yo_float_to_str((double)(");
                     pln_tf.push_string(value_code);
                     pln_tf.push_str("))");
                     pln_tf
                   },
-                  (pln_ty.as_str() == "bool") => {
+                  (pln_ty == "bool") => {
                     pln_tbl := String.from("__yo_bool_to_str(");
                     pln_tbl.push_string(value_code);
                     pln_tbl.push_str(")");
@@ -10797,19 +10797,19 @@ handle_println :: (
                 pln_fn_b.*,
                 .FnCall(_, _, _, _, _) => value_code,
                 .Atom(_, pln_cast_tok) => cond(
-                  ((pln_cast_tok.value.as_str() == "i8") || ((pln_cast_tok.value.as_str() == "i16") || ((pln_cast_tok.value.as_str() == "i32") || ((pln_cast_tok.value.as_str() == "i64") || (pln_cast_tok.value.as_str() == "isize"))))) => {
+                  ((pln_cast_tok.value == "i8") || ((pln_cast_tok.value == "i16") || ((pln_cast_tok.value == "i32") || ((pln_cast_tok.value == "i64") || (pln_cast_tok.value == "isize"))))) => {
                     pln_ci := String.from("__yo_int_to_str((int64_t)(");
                     pln_ci.push_string(value_code);
                     pln_ci.push_str("))");
                     pln_ci
                   },
-                  ((pln_cast_tok.value.as_str() == "u8") || ((pln_cast_tok.value.as_str() == "u16") || ((pln_cast_tok.value.as_str() == "u32") || ((pln_cast_tok.value.as_str() == "u64") || (pln_cast_tok.value.as_str() == "usize"))))) => {
+                  ((pln_cast_tok.value == "u8") || ((pln_cast_tok.value == "u16") || ((pln_cast_tok.value == "u32") || ((pln_cast_tok.value == "u64") || (pln_cast_tok.value == "usize"))))) => {
                     pln_cu := String.from("__yo_uint_to_str((uint64_t)(");
                     pln_cu.push_string(value_code);
                     pln_cu.push_str("))");
                     pln_cu
                   },
-                  ((pln_cast_tok.value.as_str() == "f32") || (pln_cast_tok.value.as_str() == "f64")) => {
+                  ((pln_cast_tok.value == "f32") || (pln_cast_tok.value == "f64")) => {
                     pln_cf := String.from("__yo_float_to_str((double)(");
                     pln_cf.push_string(value_code);
                     pln_cf.push_str("))");
@@ -10840,7 +10840,7 @@ is_labeled_arg :: (fn(expr : AstExpr) -> bool)(
       finfix && (
         match(
           ff.*,
-          .Atom(_, ftok) => (ftok.value.as_str() == ":"),
+          .Atom(_, ftok) => (ftok.value == ":"),
           .FnCall(_, _, _, _, _) => false
         ) && (fa.len() == usize(2))
       )
@@ -10985,7 +10985,7 @@ handle_struct_constructor :: (
                 default_values.get(di),
                 .None => (),
                 .Some(default_value) => {
-                  if(default_value.as_str() != "__yo_no_default", {
+                  if(default_value != "__yo_no_default", {
                     field_name_opt := field_names.get(di);
                     match(
                       field_name_opt,
@@ -10998,7 +10998,7 @@ handle_struct_constructor :: (
                             provided_fields.get(pi),
                             .None => (),
                             .Some(provided_name) => {
-                              if(provided_name.as_str() == default_field_name.as_str(), {
+                              if(provided_name == default_field_name, {
                                 already_provided = true;
                               });
                             }
@@ -11040,7 +11040,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
     expr,
     // --- Atom expressions ---
     .Atom(_, tok) => cond(
-      ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "continue")) => Option(String).Some(
+      ((tok.kind == TokenKind.Identifier) && (tok.value == "continue")) => Option(String).Some(
         cond(
           (ctx.current_continue_label.len() > usize(0)) => {
             continue_code := String.from("goto ");
@@ -11050,7 +11050,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           true => String.from("continue")
         )
       ),
-      ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "break")) => Option(String).Some(String.from("break")),
+      ((tok.kind == TokenKind.Identifier) && (tok.value == "break")) => Option(String).Some(String.from("break")),
       (tok.kind == TokenKind.Integer) =>.Some(gen_integer_lit(tok.value)),
       (tok.kind == TokenKind.Float) =>.Some(gen_float_lit(tok.value)),
       (tok.kind == TokenKind.Bool) =>.Some(gen_bool_lit(tok.value.as_str())),
@@ -11068,13 +11068,13 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           is_infix && match(
             op_opt,
             .None => false,
-            .Some(op) => ((op.as_str() == "&&") || (op.as_str() == "||"))
+            .Some(op) => ((op == "&&") || (op == "||"))
           )
         ) => match(
           op_opt,
           .None => Option(String).None,
           .Some(op) => cond(
-            (op.as_str() == "&&") => generate_op_and(args, indent, ctx),
+            (op == "&&") => generate_op_and(args, indent, ctx),
             true => generate_op_or(args, indent, ctx)
           )
         ),
@@ -11109,7 +11109,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
               match(
                 ident_opt,
                 .None => false,
-                .Some(id) => (id.as_str() == BK_TUPLE)
+                .Some(id) => (id == BK_TUPLE)
               )
         ) => match(
           generate_anonymous_tuple(expr, args, ctx, indent),
@@ -11128,7 +11128,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
               match(
                 ident_opt,
                 .None => false,
-                .Some(id) => (id.as_str() == BK_ANON_STRUCT)
+                .Some(id) => (id == BK_ANON_STRUCT)
               ) &&
                 all_labeled_args(args)
         ) => {
@@ -11256,7 +11256,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
               match(
                 ident_opt,
                 .None => false,
-                .Some(id) => (id.as_str() == BK_ANON_STRUCT)
+                .Some(id) => (id == BK_ANON_STRUCT)
               ) &&
                 ({
                   n_sh := args.len();
@@ -11362,7 +11362,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
               match(
                 ident_opt,
                 .None => false,
-                .Some(id) => ((id.as_str() == BK_TUPLE) || (id.as_str() == BK_ANON_STRUCT))
+                .Some(id) => ((id == BK_TUPLE) || (id == BK_ANON_STRUCT))
               )
         ) =>.Some(String.from("0")),
         // open NAME — emit `__auto_type field = name.field;` for each known field.
@@ -11373,7 +11373,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
               match(
                 ident_opt,
                 .None => false,
-                .Some(id) => (id.as_str() == "open")
+                .Some(id) => (id == "open")
               )
         ) => match(
           args.get(usize(0)),
@@ -11433,7 +11433,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                       match(
                         inner_func_box.*,
                         .FnCall(_, _, _, _, _) => false,
-                        .Atom(_, ibtok) => (ibtok.value.as_str() == "*")
+                        .Atom(_, ibtok) => (ibtok.value == "*")
                       )
                 )
               )
@@ -11469,7 +11469,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
         match(
           ident_opt,
           .None => false,
-          .Some(id) => (id.as_str() == BK_BEGIN)
+          .Some(id) => (id == BK_BEGIN)
         ) => match(
           generate_begin(expr, args, ctx, indent),
           .Some(code) => Option(String).Some(code),
@@ -11480,7 +11480,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "return")
+            .Some(id) => (id == "return")
           )
         ) => match(
           args.get(usize(0)),
@@ -11500,7 +11500,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                   ret_fn_box.*,
                   .FnCall(_, _, _, _, _) => Option(String).None,
                   .Atom(_, ret_begin_tok) => cond(
-                    ((ret_begin_tok.value.as_str() == BK_BEGIN) && (ctx.current_fn_return_type.len() > usize(0))) => match(
+                    ((ret_begin_tok.value == BK_BEGIN) && (ctx.current_fn_return_type.len() > usize(0))) => match(
                       ret_args.get(usize(0)),
                       .None => Option(String).None,
                       .Some(ret_field_expr) => match(
@@ -11550,7 +11550,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "unwind")
+            .Some(id) => (id == "unwind")
           )
         ) => match(
           args.get(usize(0)),
@@ -11581,7 +11581,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "break")
+            .Some(id) => (id == "break")
           )
         ) => {
           ctx.emitter.emit_string(indent);
@@ -11593,7 +11593,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "continue")
+            .Some(id) => (id == "continue")
           )
         ) => {
           ctx.emitter.emit_string(indent);
@@ -11610,7 +11610,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
         match(
           ident_opt,
           .None => false,
-          .Some(id) => (id.as_str() == "cond")
+          .Some(id) => (id == "cond")
         ) => match(
           generate_cond(expr, args, ctx, indent),
           .Some(result) => Option(String).Some(result),
@@ -11620,7 +11620,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
         match(
           ident_opt,
           .None => false,
-          .Some(id) => (id.as_str() == "match")
+          .Some(id) => (id == "match")
         ) => cond(
           _has_data_arm(args) => handle_match_data(args, ctx, indent),
           true => handle_match_value(args, ctx, indent)
@@ -11629,19 +11629,19 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
         match(
           ident_opt,
           .None => false,
-          .Some(id) => (id.as_str() == "while")
+          .Some(id) => (id == "while")
         ) => generate_while_loop(expr, args, ctx, indent),
         // for iter_expr, (param) => { body } — iterator for-loop macro
         match(
           ident_opt,
           .None => false,
-          .Some(id) => (id.as_str() == "for")
+          .Some(id) => (id == "for")
         ) => handle_for(args, ctx, indent),
         // if(cond, then) / if(cond, then, else)
         match(
           ident_opt,
           .None => false,
-          .Some(id) => (id.as_str() == "if")
+          .Some(id) => (id == "if")
         ) => handle_if(args, ctx, indent),
         // Dot field access: a.b — infix FnCall with Dot func
         (is_infix && func_box_is_dot(func_box)) => handle_dot_access(args, ctx, indent),
@@ -11691,7 +11691,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                       match(
                         box_type_fn_box_early.*,
                         .FnCall(_, _, _, _, _) => false,
-                        .Atom(_, box_type_tok_early) => (box_type_tok_early.value.as_str() == "Box")
+                        .Atom(_, box_type_tok_early) => (box_type_tok_early.value == "Box")
                       )
                   )
                 )
@@ -11747,7 +11747,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "assert")
+            .Some(id) => (id == "assert")
           )
         ) => handle_assert(args, ctx, indent),
         // println(value) — bootstrap lowering for std/fmt string output.
@@ -11755,7 +11755,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "println")
+            .Some(id) => (id == "println")
           )
         ) => handle_println(args, ctx, indent),
         // comptime_assert(cond) / comptime_expect_error(expr) — compile-time only, no-op in prototype.
@@ -11763,7 +11763,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => ((id.as_str() == "comptime_assert") || (id.as_str() == "comptime_expect_error"))
+            .Some(id) => ((id == "comptime_assert") || (id == "comptime_expect_error"))
           )
         ) =>.Some(String.from("0")),
         // name — strip the wrapper, emit the inner argument directly.
@@ -11772,7 +11772,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "using")
+            .Some(id) => (id == "using")
           )
         ) => match(
           args.get(usize(0)),
@@ -11781,7 +11781,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             inner,
             .FnCall(_, _, _, _, _) => call_gen_expr(inner, ctx, indent),
             .Atom(_, inner_tok) => cond(
-              ((inner_tok.value.as_str() == "io") && ctx.get_var_type("io").is_none()) =>
+              ((inner_tok.value == "io") && ctx.get_var_type("io").is_none()) =>
                 Option(String).Some(String.from("NULL")),
               true => call_gen_expr(inner, ctx, indent)
             )
@@ -11792,7 +11792,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "given")
+            .Some(id) => (id == "given")
           )
         ) =>.Some(String.from("0")),
         // Struct constructor: TypeName(field1: val1, field2: val2)
@@ -11808,7 +11808,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           .None => Option(String).None,
           .Some(id) => {
             resolved_id := cond(
-              (id.as_str() == "Self") => {
+              (id == "Self") => {
                 st := ctx.get_self_type();
                 cond(
                   (st.len() > usize(0)) => String.from(st),
@@ -11829,7 +11829,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             .None => false,
             .Some(id) => {
               effective_id := cond(
-                (id.as_str() == "Self") => {
+                (id == "Self") => {
                   st := ctx.get_self_type();
                   cond(
                     (st.len() > usize(0)) => String.from(st),
@@ -11846,7 +11846,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           .None => Option(String).None,
           .Some(id) => {
             effective_id2 := cond(
-              (id.as_str() == "Self") => {
+              (id == "Self") => {
                 st := ctx.get_self_type();
                 cond(
                   (st.len() > usize(0)) => String.from(st),
@@ -11893,7 +11893,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                     default_values2.get(ai),
                     .None => (),
                     .Some(default_value2) => {
-                      if(default_value2.as_str() != "__yo_no_default", {
+                      if(default_value2 != "__yo_no_default", {
                         if(ai > usize(0), {
                           result2.push_str(", ");
                         });
@@ -11920,7 +11920,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "__yo_gc_collect")
+            .Some(id) => (id == "__yo_gc_collect")
           )
         ) => Option(String).Some(generate_yo_gc_collect(args, ctx, indent)),
         // panic([message]) — print message (if present), abort, and return an
@@ -11930,7 +11930,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "panic")
+            .Some(id) => (id == "panic")
           )
         ) => generate_panic(expr, args, ctx, indent),
         // __yo_thread_set_maximum_threads(n) — configure parallelism runtime.
@@ -11939,7 +11939,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "__yo_thread_set_maximum_threads")
+            .Some(id) => (id == "__yo_thread_set_maximum_threads")
           )
         ) => generate_yo_thread_set_maximum_threads(args, ctx, indent),
         // array(v0, v1, ...) — metadata-aware anonymous array lowering.
@@ -11948,7 +11948,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "array")
+            .Some(id) => (id == "array")
           )
         ) => match(
           generate_anonymous_array(expr, args, ctx, indent),
@@ -11961,7 +11961,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "__yo_array_fill")
+            .Some(id) => (id == "__yo_array_fill")
           )
         ) => Option(String).Some(generate_yo_array_fill(expr, args, ctx, indent)),
         // __yo_iso_extract(iso_value) — extract inner value from Iso wrapper.
@@ -11970,7 +11970,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "__yo_iso_extract")
+            .Some(id) => (id == "__yo_iso_extract")
           )
         ) => Option(String).Some(generate_yo_iso_extract(expr, args, ctx, indent)),
         // __yo_iso_dispose(iso_value) — dispose Iso wrapper.
@@ -11979,7 +11979,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "__yo_iso_dispose")
+            .Some(id) => (id == "__yo_iso_dispose")
           )
         ) => Option(String).Some(generate_yo_iso_dispose(expr, args, ctx, indent)),
         // open(struct_value) — emit runtime destructuring declarations when
@@ -11989,7 +11989,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "open")
+            .Some(id) => (id == "open")
           )
         ) => match(
           generate_open(expr, args, ctx, indent),
@@ -12002,7 +12002,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             (args.len() == usize(1)) && match(
               ident_opt,
               .None => false,
-              .Some(id) => (id.as_str() == "sizeof")
+              .Some(id) => (id == "sizeof")
             )
           )
         ) => match(
@@ -12028,7 +12028,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
             (args.len() == usize(1)) && match(
               ident_opt,
               .None => false,
-              .Some(id) => (id.as_str() == "typeid")
+              .Some(id) => (id == "typeid")
             )
           )
         ) => generate_typeid(args, ctx),
@@ -12038,7 +12038,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "recur")
+            .Some(id) => (id == "recur")
           )
         ) => match(
           generate_recur(expr, args, ctx, indent),
@@ -12061,7 +12061,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           ((!(is_infix)) && (args.len() == usize(1))) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "box")
+            .Some(id) => (id == "box")
           )
         ) => match(
           args.get(usize(0)),
@@ -12082,7 +12082,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           ((!(is_infix)) && (args.len() == usize(1))) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "dyn")
+            .Some(id) => (id == "dyn")
           )
         ) => match(
           args.get(usize(0)),
@@ -12098,7 +12098,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                     dyn_box_fn_box.*,
                     .FnCall(_, _, _, _, _) => Option(AstExpr).None,
                     .Atom(_, dyn_box_tok) => cond(
-                      (dyn_box_tok.value.as_str() == "box") => dyn_box_args.get(usize(0)),
+                      (dyn_box_tok.value == "box") => dyn_box_args.get(usize(0)),
                       true => Option(AstExpr).Some(dyn_arg_expr)
                     )
                   )
@@ -12152,7 +12152,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "impl")
+            .Some(id) => (id == "impl")
           )
         ) => {
           register_anon_typeof_impl(args, ctx, indent);
@@ -12216,7 +12216,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           is_infix && match(
             op_opt,
             .None => false,
-            .Some(op) => (op.as_str() == "=")
+            .Some(op) => (op == "=")
           )
         ) => handle_assignment(args, ctx, indent),
         // Bare type annotation: x : T  →  emit "T_c x;"
@@ -12224,7 +12224,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           is_infix && match(
             op_opt,
             .None => false,
-            .Some(op) => (op.as_str() == ":")
+            .Some(op) => (op == ":")
           )
         ) => match(
           generate_binding(args, ctx, indent),
@@ -12236,7 +12236,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           is_infix && match(
             op_opt,
             .None => false,
-            .Some(op) => (op.as_str() == ":=")
+            .Some(op) => (op == ":=")
           )
         ) => handle_define(args, ctx, indent),
         // Constant binding: name :: val.
@@ -12248,7 +12248,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
           is_infix && match(
             op_opt,
             .None => false,
-            .Some(op) => (op.as_str() == "::")
+            .Some(op) => (op == "::")
           )
         ) => {
           lhs_name_opt := match(
@@ -12287,7 +12287,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                 (
                   rhs_infix && match(
                     rhs_func.*,
-                    .Atom(_, rftok_i) => (rftok_i.value.as_str() == "->"),
+                    .Atom(_, rftok_i) => (rftok_i.value == "->"),
                     .FnCall(_, _, _, _, _) => false
                   )
                 ) => false,
@@ -12306,7 +12306,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                 (
                   rhs_infix && match(
                     rhs_func.*,
-                    .Atom(_, rftok_dot) => (rftok_dot.value.as_str() == "."),
+                    .Atom(_, rftok_dot) => (rftok_dot.value == "."),
                     .FnCall(_, _, _, _, _) => false
                   )
                 ) => false,
@@ -12325,7 +12325,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                     rhs_func.*,
                     .FnCall(_, _, _, _, _) => false,
                     .Atom(_, rftok_op) => cond(
-                      (rftok_op.value.as_str() != "+") => false,
+                      (rftok_op.value != "+") => false,
                       true => {
                         has_str_atom := match(
                           args.get(usize(1)),
@@ -12380,7 +12380,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                 (
                   match(
                     rhs_func.*,
-                    .Atom(_, rftok2) => ((rhs_fargs.len() > usize(0)) && (rftok2.value.as_str() == BK_TUPLE)),
+                    .Atom(_, rftok2) => ((rhs_fargs.len() > usize(0)) && (rftok2.value == BK_TUPLE)),
                     .FnCall(_, _, _, _, _) => false
                   )
                 ) => true,
@@ -12394,7 +12394,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                       ect_infix &&
                         match(
                           ect_fn.*,
-                          .Atom(_, ectok) => (ectok.value.as_str() == "."),
+                          .Atom(_, ectok) => (ectok.value == "."),
                           .FnCall(_, _, _, _, _) => false
                         ) &&
                           match(
@@ -12443,13 +12443,13 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                   .FnCall(_, _, _, _, _) => false,
                   .Atom(_, rftok) => cond(
                     // Skip: function definition body
-                    (rftok.value.as_str() == "fn") => false,
+                    (rftok.value == "fn") => false,
                     // Skip: enum/object/impl/forall definitions
-                    (rftok.value.as_str() == "enum") => false,
-                    (rftok.value.as_str() == "object") => false,
-                    (rftok.value.as_str() == "impl") => false,
-                    (rftok.value.as_str() == "forall") => false,
-                    (rftok.value.as_str() == "where") => false,
+                    (rftok.value == "enum") => false,
+                    (rftok.value == "object") => false,
+                    (rftok.value == "impl") => false,
+                    (rftok.value == "forall") => false,
+                    (rftok.value == "where") => false,
                     // Unary/binary operator symbol (non-identifier) → eligible if all identifier
                     // args reference known C variables.
                     // e.g., `n :: (-1000)` → `__auto_type n = (-1000);`
@@ -12523,12 +12523,12 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                       .FnCall(_, _, _, _, _) => false,
                       .Atom(_, type_alias_tok) => {
                         type_alias_c_opt := cond(
-                          (type_alias_tok.value.as_str() == "struct") => match(
+                          (type_alias_tok.value == "struct") => match(
                             rhs_e2,
                             .Atom(_, _) => Option(String).None,
                             .FnCall(_, _, type_alias_args, _, _) => anon_struct_type_to_c(type_alias_args)
                           ),
-                          (type_alias_tok.value.as_str() == "Tuple") => type_expr_to_c(rhs_e2),
+                          (type_alias_tok.value == "Tuple") => type_expr_to_c(rhs_e2),
                           true => Option(String).None
                         );
                         match(
@@ -12540,7 +12540,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                               rhs_e2,
                               .Atom(_, _) => String.new(),
                               .FnCall(_, _, type_alias_args2, _, _) => cond(
-                                (type_alias_tok.value.as_str() == "struct") =>
+                                (type_alias_tok.value == "struct") =>
                                   struct_default_values_csv(type_alias_args2, ctx, indent),
                                 true => String.new()
                               )
@@ -12549,7 +12549,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                             should_emit_alias := (
                               (!(type_alias_c.contains(String.from("Self")))) &&
                                 (
-                                  (type_alias_tok.value.as_str() == "Tuple") ||
+                                  (type_alias_tok.value == "Tuple") ||
                                     has_defaults_for_alias ||
                                       (!(ctx.is_struct_name(c_name.as_str())))
                                 )
@@ -12589,7 +12589,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                           match(
                             il_fn_b.*,
                             .FnCall(_, _, _, _, _) => false,
-                            .Atom(_, il_tok) => (il_tok.value.as_str() == "array")
+                            .Atom(_, il_tok) => (il_tok.value == "array")
                           )
                       )
                     )

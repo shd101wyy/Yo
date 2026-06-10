@@ -11,7 +11,7 @@ test("sha256_hex empty input", {
   data := ArrayList(u8).new();
   result := sha256_hex(data);
   assert(
-    result.as_str() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    result == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "SHA-256 of empty input should match known vector"
   );
 });
@@ -19,7 +19,7 @@ test("sha256_hex abc", {
   data := _bytes_from_str("abc");
   result := sha256_hex(data);
   assert(
-    result.as_str() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    result == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     "SHA-256 of 'abc' should match known vector"
   );
 });
@@ -27,7 +27,7 @@ test("sha256_hex hello world", {
   data := _bytes_from_str("hello world");
   result := sha256_hex(data);
   assert(
-    result.as_str() == "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+    result == "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
     "SHA-256 of 'hello world' should match known vector"
   );
 });
@@ -35,7 +35,7 @@ test("sha256_hex The quick brown fox", {
   data := _bytes_from_str("The quick brown fox jumps over the lazy dog");
   result := sha256_hex(data);
   assert(
-    result.as_str() == "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
+    result == "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
     "SHA-256 of 'The quick brown fox...' should match known vector"
   );
 });
@@ -66,7 +66,7 @@ test("Sha256 streaming matches one-shot", {
   });
   streamed := hex_encode(bytes);
   assert(
-    streamed.as_str() == one_shot.as_str(),
+    streamed == one_shot,
     "streaming result should match one-shot"
   );
 });
@@ -92,7 +92,7 @@ test("Sha256 streaming single byte at a time", {
   });
   streamed := hex_encode(bytes);
   assert(
-    streamed.as_str() == one_shot.as_str(),
+    streamed == one_shot,
     "byte-by-byte streaming should match one-shot"
   );
 });
@@ -112,7 +112,7 @@ test("Sha256 streaming empty update", {
   result := hex_encode(bytes);
   expected := sha256_hex(_bytes_from_str("test"));
   assert(
-    result.as_str() == expected.as_str(),
+    result == expected,
     "empty updates should not affect result"
   );
 });
@@ -122,7 +122,7 @@ test("sha256_hex exactly 55 bytes (padding boundary)", {
   data := _bytes_from_str("1234567890123456789012345678901234567890123456789012345");
   result := sha256_hex(data);
   assert(
-    result.as_str() == "03c3a70e99ed5eeccd80f73771fcf1ece643d939d9ecc76f25544b0233f708e9",
+    result == "03c3a70e99ed5eeccd80f73771fcf1ece643d939d9ecc76f25544b0233f708e9",
     "SHA-256 of 55-byte input should match"
   );
 });
@@ -131,7 +131,7 @@ test("sha256_hex exactly 56 bytes (padding crosses block)", {
   data := _bytes_from_str("12345678901234567890123456789012345678901234567890123456");
   result := sha256_hex(data);
   assert(
-    result.as_str() == "0be66ce72c2467e793202906000672306661791622e0ca9adf4a8955b2ed189c",
+    result == "0be66ce72c2467e793202906000672306661791622e0ca9adf4a8955b2ed189c",
     "SHA-256 of 56-byte input should match"
   );
 });
@@ -139,7 +139,7 @@ test("sha256_hex exactly 64 bytes (one full block)", {
   data := _bytes_from_str("1234567890123456789012345678901234567890123456789012345678901234");
   result := sha256_hex(data);
   assert(
-    result.as_str() == "676491965ed3ec50cb7a63ee96315480a95c54426b0b72bca8a0d4ad1285ad55",
+    result == "676491965ed3ec50cb7a63ee96315480a95c54426b0b72bca8a0d4ad1285ad55",
     "SHA-256 of 64-byte input should match"
   );
 });
@@ -147,7 +147,7 @@ test("sha256_hex longer than 64 bytes (multi-block)", {
   data := _bytes_from_str("The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.");
   result := sha256_hex(data);
   assert(
-    result.as_str() == "635241ac823ee4a81fbb410c92be616b0a89191083d8d7b5d232c823dc8df4f5",
+    result == "635241ac823ee4a81fbb410c92be616b0a89191083d8d7b5d232c823dc8df4f5",
     "SHA-256 of multi-block input should match"
   );
 });

@@ -507,3 +507,9 @@ vars := get_variables_from_env(env, prop_name_su.as_str());
 // ✅ Correct — pass the String directly
 vars := get_variables_from_env(env, prop_name_su);
 ```
+
+String/str comparisons never need `as_str()` either (slice-rework step 2
+swept all of them): `token.value == "fn"`, `name != other_string`, and
+`"lit" == x` all dispatch directly via the heterogeneous `Eq(str)`/
+`Eq(String)` impls. `as_str()` itself is slated for deletion
+(plans/SLICE_REWORK.md) — do not introduce new calls to it.
