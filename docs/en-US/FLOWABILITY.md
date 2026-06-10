@@ -144,21 +144,33 @@ Flowability is a **structural, scope-nesting** proof, not a full
 borrow-checker. It guarantees that a stored view's backing *scope* encloses the
 view's destination. It deliberately does **not** track two things:
 
-1. **Reassignment or move of the backing within the same scope.** If a slice is
-   taken from a same-scope local collection and that local is then *reassigned*
-   (dropping its old buffer) while the slice is still held, the slice dangles —
-   flowability accepts the original same-scope binding because the scopes nest,
-   but it does not see the later reassignment:
+1. **Invalidation of the backing while a borrow lives** — the
+   slice-invalidation problem. Flowability proves the backing's *scope*
+   encloses the borrow; it does not track events inside that scope that
+   replace or move the backing buffer. Three triggers, all currently
+   accepted:
 
    ```rust
    buf := ArrayList(i32).new();
-   buf.push(i32(7));
+   buf.push(i32(42));
    s := match(buf.as_slice(), .Some(x) => x, .None => panic("e"));
-   buf = ArrayList(i32).new();  // old buffer freed; `s` now dangles
+
+   buf = ArrayList(i32).new();   // (a) reassignment — old buffer freed
+   buf.push(i32(1));             // (b) growth past capacity — realloc moves
+                                 //     the buffer; `s` points at the old one
+   alias := buf;
+   alias.clear();                // (c) mutation through an Rc alias — same
+                                 //     effect, invisible to any per-variable
+                                 //     analysis
    ```
 
-   This is the known boundary of the scope-nesting model; tracking it requires
-   move/borrow invalidation, which is future work.
+   After any of these, reading `s` is undefined behavior — typically *silent
+   stale reads*, not a crash. This is the known boundary of the scope-nesting
+   model. Closing it fully requires either aliasing-aware borrow exclusivity
+   (a Rust-style borrow checker, which conflicts with Yo's shared-mutable
+   `object` model) or a change to `Slice`'s representation (e.g. snapshot
+   slices that co-own their buffer) — see
+   `issues/slice-invalidation-design.md` for the design discussion.
 
 2. **`unsafe` / pragma'd code.** By design, the gates do not run there.
 
