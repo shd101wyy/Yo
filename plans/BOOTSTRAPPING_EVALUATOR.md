@@ -85,20 +85,25 @@ structure).
 > never exercised. `tests` rose 164 → 173 over this era. **2026-06-10 closures:**
 > extern_unsafe_wrap (the extern "c" `unsafe(...)` gate port — `is_extern` on
 > `Func` — plus scoped def-time-error propagation so `comptime_expect_error`
-> observes body-eval errors; commits `9d2e40c2`+`7380294c`) and sync/mutex (SomeT
+> observes body-eval errors; commits `9d2e40c2`+`7380294c`), sync/mutex (SomeT
 > ids in the trait-registry lookup + call-site where-clause validation for marker
 > traits + trait-name stamping at `::`; commits `a821ed30`+`7a67b961`; see
 > `issues/yo-self-where-clause-full-enforcement.md` for the documented
-> enforcement scope). Per-file `./tests` now **167/170**. The 3 remaining fails
-> — algebraic_effects (deferred unwind-in-lambda-body + closure-capture-of-ctl;
-> NOT escape-boundary-2, which is now ported), ref_local_binding,
-> ref_closure_capture (ref-capture-escape) — are ALL blocked on yo-self
-> deferring _closure/lambda_ body eval (the next keystone). The control-bound
-> machinery (`is_control` on `Func` + `type_is_control_bound` +
-> escape-boundary-2 + rule-11; commit `dfed0e28`) is ported and proven (rule-11
-> rejects `*(Raise)` identically to TS) and activates the remaining ctl rules
-> once closure-body eval lands. **ref_flowability + slice_flowability are
-> CLOSED** (2026-06-10); see the flowability note below.
+> enforcement scope), and — **crossing the closure-body def-eval wall**
+> (`fb92038d`) — the final three: algebraic_effects, ref_local_binding,
+> ref_closure_capture. Non-generic anonymous-function bodies now evaluate at
+> definition time (values/anonymous_function.yo, mirrors
+> anonymous-function.ts:766-852, capture-free trial swallow + three surfacing
+> channels), activating the capture gates (regular-fn-no-capture, Phase B
+> ref-capture, §4 rule-4 ctl-capture), §4 rule 1 (unwind-needs-ctl), and the
+> existing unwind enclosing-fn check; plus assignment-target capture tracking
+> (a write is a capture) and `is_ref` stamping on `ref(name) :=` locals. The
+> control-bound machinery (`dfed0e28`) and comptime_expect_error propagation
+> (`7380294c`) activated as designed.
+>
+> **🎉 Per-file `./tests` is now 170/170 — ZERO failing tests.** Together with
+> `check ./std` 151/151 and `check ./yo-self` 285/285, the evaluator port has
+> no known red test under `check`.
 
 > **Phase 3 fixpoint reached (227/227).** The generic-instantiation identity
 > knot that dominated Phase 3 was resolved (comptime-fn cache collision —
@@ -750,25 +755,28 @@ moved on substantially.)
 1. ✅ `./yo-cli check yo-self/main.yo` passes (drift repaired). _(Phase 0)_
 2. ✅ `yo-self-bin` builds from `yo-self/main.yo`. _(Phase 0)_
 3. ✅ `yo-self-bin check ./std` matches `yo-cli check ./std` (151/151). _(Phase 1)_
-4. ✅ `yo-self-bin check ./tests` (per-file 167/170 as of 2026-06-10; the 3
-   remaining — algebraic_effects, ref_local_binding, ref_closure_capture — are
-   all blocked on closure/lambda body eval). _(Phase 2)_
+4. ✅ `yo-self-bin check ./tests` — **170/170 per-file as of 2026-06-10, ZERO
+   failures** (the closure-body def-eval wall, `fb92038d`, closed the last
+   three). _(Phase 2 — COMPLETE)_
 5. ✅ `yo-self-bin check ./yo-self` passes (285/285 per-file as of 2026-06-10) —
    evaluator self-check fixpoint reached (the generic-instantiation identity
    knot was resolved as a comptime-fn cache collision, `e3936a98`). _(Phase 3)_
 
-**Post-fixpoint work (def-eval era):** the active effort is now completing the
-**in-body definition-time gates** surfaced by crossing the def-eval wall — see
-`EVALUATOR_PORT_REVIEW.md` (flowability cluster) and the remaining `tests`
-clusters. Closed so far: ref_flowability (2026-06-09); slice_flowability,
-extern_unsafe_wrap, sync/mutex (2026-06-10). The single remaining keystone is
-**closure/lambda body evaluation** — it blocks all 3 remaining test fails
-(ref-capture-escape for the two ref tests; unwind-in-lambda-body +
-closure-capture-of-ctl for algebraic_effects). The supporting machinery that
-activates once it lands is already ported: comptime_expect_error def-time-error
-propagation (`7380294c`), the control-bound/`ctl` escape rules (`dfed0e28`),
-and call-site where-clause validation (`7a67b961`, marker-trait scope — see
-`issues/yo-self-where-clause-full-enforcement.md` for the widening path).
+**Post-fixpoint work (def-eval era) — COMPLETE (2026-06-10).** All in-body
+definition-time gates surfaced by the def-eval wall are now closed:
+ref_flowability (2026-06-09); slice_flowability, extern_unsafe_wrap,
+sync/mutex, and — via the closure-body def-eval wall (`fb92038d`) —
+algebraic_effects, ref_local_binding, ref_closure_capture (2026-06-10). The
+`check` surface is fully green: std 151/151, tests 170/170, yo-self 285/285.
+
+**Remaining known divergences (documented, non-red):** full where-clause
+enforcement beyond marker×concrete
+(`issues/yo-self-where-clause-full-enforcement.md`); the Phase-3
+simplifications listed in values/anonymous_function.yo's header
+(substituteSomeTypesFromEnv, await analysis, deferred-generic return-type
+check, body-vs-return compatibility); comptime arithmetic value folding Tier 2
+(`plans/COMPTIME_ARITHMETIC_FOLDING.md`). Next frontier: the codegen port
+(out of evaluator scope — see `BOOTSTRAPPING.md`).
 
 ---
 

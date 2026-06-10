@@ -1,11 +1,15 @@
 # yo-self: flowability tests — swallow + cond ptr-relaxed + ref-capture-escape
 
-## Status
+## Status — ALL FIXED (2026-06-10)
 
 - `ref_flowability.test.yo` — **FIXED** (3 coordinated changes below).
-- `ref_local_binding.test.yo` — still failing: needs ref-capture-escape (below).
-- `ref_closure_capture.test.yo` — still failing: needs ref-capture-escape.
-- `slice_flowability.test.yo` — still failing: needs slice-escape-at-return.
+- `ref_local_binding.test.yo` — **FIXED** (`fb92038d`): closure-body def-eval
+  wall crossed in values/anonymous_function.yo; the Phase B ref-capture gate
+  now runs (plus `ref(name) := ...` locals carry `is_ref : true`).
+- `ref_closure_capture.test.yo` — **FIXED** (`fb92038d`): same, plus
+  assignment-target capture tracking (a write to an outer var is a capture).
+- `slice_flowability.test.yo` — **FIXED** (`dc9dfe1f` era): cond/match arm
+  frame-level check + in-body slice gates.
 
 `is_flowable_expr` (yo-self/types/flowability.yo) is a complete, faithful port of
 `isFlowableExpr` — the failures were never in that function.
