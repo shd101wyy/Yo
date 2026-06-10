@@ -202,7 +202,7 @@ test("parse_package_specifier: user/repo shorthand", {
   result := parse_package_specifier(String.from("user/myrepo"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -222,7 +222,7 @@ test("parse_package_specifier: user/repo@v1.2.3 pinned", {
   result := parse_package_specifier(String.from("user/myrepo@v1.2.3"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -241,7 +241,7 @@ test("parse_package_specifier: full https URL", {
   result := parse_package_specifier(String.from("https://github.com/user/repo.git"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -256,7 +256,7 @@ test("parse_package_specifier: local path", {
   result := parse_package_specifier(String.from("./my-lib"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Git(_, _, _) => assert(false, "expected Path"),

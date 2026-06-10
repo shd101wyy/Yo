@@ -273,15 +273,20 @@ Ordered parts (validate `check ./std` + targeted tests between each):
   str def update.
 - **F. yo-self mirrors** deferred to codegen port.
 
-**Part A simplification (discovered):** `str` is NOT a compiler builtin —
-`createStrType` (src/types/creators.ts:680) merely looks up the prelude's
-`str` newtype. So NO TypeTag.Str is needed: re-base
-`str :: newtype(bytes : RawSlice(u8))` where
-`RawSlice(u8) :: struct(ptr : *(u8), len : usize)` is defined in the
-prelude BEFORE str. str's impls (len/ptr/bytes(i)/from_raw_parts/range
-index) become plain field access + unsafe() ptr arithmetic — replacing the
-__yo_slice_* builtin calls. Lowering is then ordinary struct-in-struct C.
-Only string-LITERAL materialization in codegen (which presumably constructs
-the Slice_uint8_t struct for str literals) needs to target the new layout —
-find where codegen emits str literal values and update the struct shape
-(field names ptr/len vs data/length).
+**Part A decision (user, 2026-06-10): `str` becomes a TRUE BUILTIN —
+TypeTag.Str — like comptime_string.** (The newtype-over-RawSlice alternative
+was considered and rejected: it exposes an unsafe backing field to safe
+code, keeps the fragile prelude lookup in createStrType:680, and keeps
+codegen pattern-matching the "newtype wrapping Slice(u8)" shape in 3
+places.) Canonical C lowering: `typedef struct { const uint8_t* ptr;
+size_t len; } __yo_str;`. len()/byte_at()/from_raw_parts/ptr() become
+intrinsics (ptr/from_raw_parts pragma-gated); Eq/Ord/Hash/Display impls
+stay in the prelude over the intrinsics; comptime_string→str is tag-to-tag.
+
+**yo-self codegen DELETED (user, 2026-06-10):** yo-self/codegen/ +
+codegen_*.test.yo removed; extract_import_path/extract_bare_import_path
+inlined into main.yo; run_compile/run_test stub-throw pointing at
+plans/BOOTSTRAPPING_CODEGEN.md; `check` untouched. This removes the
+566-site as_str conflict — `as_str`/`as_slice` are HARD-DELETED in step 4
+(no pragma-gating); only eval.yo (~25 sites, kept for evaluator/index.yo)
+and eval-tests need sweeping first.
