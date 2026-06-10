@@ -327,9 +327,17 @@ NEXT (in order, validate check ./std + targeted tests between):
    evaluator). Decide when implementing.
 4. eval.yo (~25 as_str) + eval-tests + install_command.test remnants:
    drop as_str per the flip recipe.
-5. Delete String.as_str + ArrayList.as_slice (+ slice-only helpers);
-   remove the TRANSITIONAL TypeTag.Str case in
-   typeRepresentationContainsRawPtr (src/types/utils.ts).
+5. String.as_str DONE (ec560861). ArrayList.as_slice deletion MUST land
+   together with the step-6 flowability batch: its only remaining users
+   are tests/{slice_flowability,flowability_comprehensive}.test.yo (which
+   test the slice gates themselves) + tests/collections/array_list.test.yo.
+   One coherent batch: delete as_slice + retire slice gates (sites 2/4/5,
+   typeMayProvideSliceSource, ctor/tuple raw-ptr rules; keep ref-core
+   R1-R4 sites 1/3) + remove the TRANSITIONAL TypeTag.Str case in
+   typeRepresentationContainsRawPtr + rewrite both flowability test files
+   (ref-core + str-static positives + RawSlice naming-gate negatives) +
+   array_list.test as_slice tests -> ptr()/len() based + FLOWABILITY.md
+   en/zh rewrite + MEMORY_SAFETY.md table.
 6. Part C: copying ranges — evaluator calls/index-trait.ts range path
    (createSliceValue at ~916,948): for Array/ArrayList → build ArrayList
    copy (dispatch to a method e.g. ArrayList.from_array_range /
