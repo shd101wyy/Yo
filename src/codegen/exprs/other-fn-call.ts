@@ -87,6 +87,99 @@ import {
 let refSpillCounter = 0;
 
 /**
+ * True when the generated C expression is an addressable lvalue — i.e. `&(c)`
+ * is valid AND points at the caller-visible storage (so a `ref` parameter's
+ * writes land where the caller can see them). Conservative by construction:
+ * anything unrecognized is treated as an rvalue and spilled to a temp.
+ *
+ * Accepted shapes (after stripping balanced outer parens):
+ *   - a dereference `*expr` (then `&(*expr)` ≡ `expr`)
+ *   - an identifier followed by member/index chains:
+ *     `foo`, `foo.bar`, `foo->bar`, `sm->__capture.x`, `arr[idx]`, mixes.
+ */
+function isAddressableCExpr(code: string): boolean {
+  let s = code.trim();
+  // Strip balanced fully-enclosing parens: `((*self)._inner)` →
+  // `(*self)._inner`, `(*self)` → `*self`.
+  for (;;) {
+    if (!(s.startsWith("(") && s.endsWith(")"))) break;
+    let depth = 0;
+    let enclosing = true;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === "(") depth++;
+      else if (s[i] === ")") {
+        depth--;
+        if (depth === 0 && i < s.length - 1) {
+          enclosing = false;
+          break;
+        }
+      }
+    }
+    if (!enclosing) break;
+    s = s.slice(1, -1).trim();
+  }
+  // A deref of anything is an lvalue (`&(*p)` is just `p`, and writes
+  // through it land in the pointed-to storage).
+  if (s.startsWith("*")) return true;
+  // Chain scanner: HEAD (identifier or parenthesized deref `(*…)`) followed
+  // by member/index tails `.f` / `->f` / `[…]`. Covers the shapes codegen
+  // emits for receivers: `self`, `(*self)._inner`, `sm->__capture.x`,
+  // `arr[i]`. Anything else (binary exprs, calls, casts, literals) is an
+  // rvalue → caller spills.
+  let i = 0;
+  if (s[0] === "(") {
+    // Parenthesized head must be a deref `(*…)` with balanced parens.
+    let depth = 0;
+    let close = -1;
+    for (let k = 0; k < s.length; k++) {
+      if (s[k] === "(") depth++;
+      else if (s[k] === ")") {
+        depth--;
+        if (depth === 0) {
+          close = k;
+          break;
+        }
+      }
+    }
+    if (close < 0) return false;
+    if (!s.slice(1, close).trim().startsWith("*")) return false;
+    i = close + 1;
+  } else {
+    const m = /^[a-zA-Z_][a-zA-Z0-9_]*/.exec(s);
+    if (!m) return false;
+    i = m[0].length;
+  }
+  while (i < s.length) {
+    if (s[i] === " ") {
+      i++;
+    } else if (s[i] === "." || s.startsWith("->", i)) {
+      i += s[i] === "." ? 1 : 2;
+      const m = /^[a-zA-Z_][a-zA-Z0-9_]*/.exec(s.slice(i));
+      if (!m) return false;
+      i += m[0].length;
+    } else if (s[i] === "[") {
+      let depth = 0;
+      let close = -1;
+      for (let k = i; k < s.length; k++) {
+        if (s[k] === "[") depth++;
+        else if (s[k] === "]") {
+          depth--;
+          if (depth === 0) {
+            close = k;
+            break;
+          }
+        }
+      }
+      if (close < 0) return false;
+      i = close + 1;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Resolves a variable name to its state machine field reference if inside an
  * async or effect state machine context. Returns `sm->__capture.X` for outer
  * variables or `sm->var_X` for locals; otherwise returns the name unchanged.
@@ -607,8 +700,17 @@ export function generateOtherFunctionCall(
               args[i] = `(&((${cType}){${c}}))`;
               continue;
             }
-            // Spill complex expressions to a temp so `&()` operates on an lvalue.
-            if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c)) {
+            // Spill genuine RVALUES (binary exprs, calls) to a temp so `&()`
+            // operates on an lvalue. ADDRESSABLE expressions must NOT be
+            // spilled: a `ref` parameter mutates through the pointer, and
+            // `&__yo_ref_spill_N` would hand the callee a COPY — the caller's
+            // storage never changes. That regression made every
+            // `it.next(ref(self))`-style call advance a copy: iterator
+            // combinators hung (the real iterator never advanced) or aborted
+            // (tests/iterator_combinators.test.yo, found by bisect). C
+            // lvalues here: bare identifiers, derefs `(*p)`, member chains
+            // `a.b` / `a->b`, and subscripts `a[i]` — `&` is valid on all.
+            if (isAddressableCExpr(c)) {
               args[i] = `(&(${c}))`;
             } else {
               const spillType = argRuntimeType

@@ -785,11 +785,13 @@ evaluate_assignment :: (
   // an outer-scope binding, so pass the target's `frame_level` as
   // `max_local_frame_level`: a same-frame/local source is accepted only if its
   // scope encloses the target's (level <= target). Parameters, comptime values
-  // and `ref`-bound names outlive the function and are always accepted; in
-  // privileged files an `unsafe(...)` wrap opts out (is_flowable_expr treats it
-  // as flowable). Mirrors the binding-site check, but `:=` is always innermost
-  // so only `=` reassignment can invert scope.
-  if(type_representation_contains_raw_ptr(variable.ty), {
+  // and `ref`-bound names outlive the function and are always accepted.
+  // Privileged files (pragma AllowUnsafe) are exempt, mirroring the sibling
+  // return-position gate — raw-pointer manipulation like `p = &(x)` is exactly
+  // what those files declare (assignment.ts gate, same exemption). Mirrors the
+  // binding-site check, but `:=` is always innermost so only `=` reassignment
+  // can invert scope.
+  if(type_representation_contains_raw_ptr(variable.ty) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone())))), {
     assign_flow_opts := FlowOptions(
       allow_same_frame_local : true,
       allow_parameter_source : true,

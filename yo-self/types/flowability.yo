@@ -159,6 +159,19 @@ _info :: (fn(ctx : EvalContext, expr : AstExpr) -> Option(ExprInfo))(
 /// `isFlowableExpr` in `src/types/flowability.ts`.
 is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions) -> bool)({
   expr := _unwrap_begin_blocks(expr_in);
+  // Strip a `label : value` wrapper — labeled arguments (constructor fields
+  // `Identifier(name : "x")`, named call args) are transparent for flow
+  // purposes; the VALUE side is what flows. Mirrors flowability.ts.
+  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":",.Some(usize(2))), {
+    labeled_args := match(expr,.FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
+    match(
+      labeled_args.get(usize(1)),
+      .Some(lv) => {
+        return(recur(lv, ctx, opts));
+      },
+      .None => ()
+    );
+  });
   // Divergent expressions never yield a value here — accept vacuously.
   info_opt := _info(ctx, expr);
   has_cf := match(info_opt,.Some(i) => has_any_control_flow(i.control_flow),.None => false);
@@ -336,15 +349,37 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     },
     true => false
   );
+  // Plain struct/type constructor: the CALLEE itself evaluates to a TYPE
+  // value (`Identifier(name : "x")` where `Identifier :: struct(name : str)`).
+  // Same reasoning as the variant-ctor forms: a freshly constructed value can
+  // only carry a raw pointer through its arguments. Mirrors flowability.ts
+  // `isTypeCtorCall`.
+  is_type_ctor_call := match(
+    _info(ctx, call_func),
+    .Some(cfi) => match(cfi.value,.Some(cfv) => is_type_val(cfv),.None => false),
+    .None => false
+  );
   is_variant_ctor := (
     (ast_expr_is_fn_call(call_func) && ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(1)))) ||
       (ast_expr_is_atom(call_func) && match(ast_expr_token(call_func).kind,.Dot => true, _ => false))
-      || is_qualified_variant_ctor
+      || (is_qualified_variant_ctor || is_type_ctor_call)
   );
   if(is_variant_ctor, {
     (i : usize) = usize(0);
     while(i < call_args.len(), {
-      a := match(call_args.get(i),.Some(x) => x,.None => make_err_expr());
+      (a : AstExpr) = match(call_args.get(i),.Some(x) => x,.None => make_err_expr());
+      // Look THROUGH a `label : value` wrapper: the labeled pair node may
+      // carry no ExprInfo type of its own, which would silently SKIP the
+      // check and accept a constructor smuggling a local-backed slice
+      // (`SliceWrapper(s : local_slice)`). The VALUE side is what flows.
+      // Mirrors flowability.ts.
+      if(ast_expr_is_fn_call(a) && ast_expr_is_fn_call_of(a, ":",.Some(usize(2))), {
+        a = match(
+          a,
+          .FnCall(_, _, la2, _, _) => match(la2.get(usize(1)),.Some(v) => v,.None => a),
+          _ => a
+        );
+      });
       a_ty_opt := match(_info(ctx, a),.Some(inf) => Option(TypeValue).Some(inf.ty),.None => Option(TypeValue).None);
       needs := match(a_ty_opt,.Some(t) => type_representation_contains_raw_ptr(t),.None => false);
       if(needs && !(recur(a, ctx, opts)), {

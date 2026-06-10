@@ -219,3 +219,57 @@ test("slice-flow assign: assigning `.Some(flowable_slice)` is accepted", {
     .None => panic("unexpected None")
   );
 });
+
+// ── Constructor-call flowability at the assignment boundary ──────
+// Regression coverage for the type-constructor flow rule
+// (flowability.ts isTypeCtorCall + the label-strip): a freshly
+// constructed value is flowable iff every raw-pointer-carrying
+// argument is flowable.
+StrHolder :: struct(name : str);
+// Positive: a constructed str-bearing struct whose field comes from a
+// string LITERAL (static storage) is accepted at the assignment
+// boundary. This false-positived before the ctor rule landed
+// (tests/circular_import.test.yo's `Identifier(name : "x")`).
+test("ctor with literal str field is flowable at the assignment boundary", {
+  (h : StrHolder) = StrHolder(name : "ab");
+  h = StrHolder(name : "xyz");
+  assert(h.name.len() == usize(3), "reassigned constructed holder");
+});
+// Negative (soundness): a constructor cannot SMUGGLE a local-backed
+// slice through a labeled argument to an outer-scope binding. The
+// label wrapper must be looked through — skipping it would silently
+// accept the escape.
+comptime_expect_error(
+  assign_ctor_smuggle :: (fn(seed : Slice(i32)) -> unit)({
+    (w : SliceWrapper) = SliceWrapper(s : seed);
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(
+        inner.as_slice(),
+        .Some(sl) => sl,
+        .None => seed
+      );
+      w = SliceWrapper(s : inner_slice);
+    };
+    ()
+  })
+);
+// Negative (soundness): same smuggle through a QUALIFIED variant
+// constructor wrapping the struct constructor.
+comptime_expect_error(
+  assign_variant_ctor_smuggle :: (fn(seed : Slice(i32)) -> unit)({
+    (w : Option(SliceWrapper)) = Option(SliceWrapper).None;
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(
+        inner.as_slice(),
+        .Some(sl) => sl,
+        .None => seed
+      );
+      w = Option(SliceWrapper).Some(SliceWrapper(s : inner_slice));
+    };
+    ()
+  })
+);

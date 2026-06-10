@@ -118,6 +118,14 @@ export function isFlowableExpr(
   // bodies after evaluation often appear as `begin((expr))`.
   expr = unwrapBeginBlocks(expr);
 
+  // Strip a `label : value` wrapper — labeled arguments (constructor
+  // fields `Identifier(name : "x")`, named call args) are transparent
+  // for flow purposes; the VALUE side is what flows.
+  if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":", 2)) {
+    const labeledValue = expr.args[1];
+    if (labeledValue) return isFlowableExpr(labeledValue, options);
+  }
+
   // Divergent expressions never actually yield a value to the
   // surrounding expression — `panic(...)`, `return(...)`,
   // `unwind(...)`, `break`, `continue`, or anything with a control-
@@ -301,13 +309,30 @@ export function isFlowableExpr(
       const recvValue = (call.func as FnCallExpr).args[0]?.$?.value;
       return !!recvValue && isTypeValue(recvValue);
     })();
+  // Plain struct/type constructor: the CALLEE itself evaluates to a TYPE
+  // value (`Identifier(name : "x")` where `Identifier :: struct(name : str)`).
+  // Same reasoning as the variant-ctor forms: a freshly constructed value can
+  // only carry a raw pointer through its arguments, so it is flowable iff
+  // every raw-pointer-carrying argument is flowable. Without this, assigning
+  // a constructed str-bearing struct (`(id : Identifier) = Identifier(name :
+  // "x")`) false-positived at the assignment flow gate.
+  const isTypeCtorCall =
+    !!call.func.$?.value && isTypeValue(call.func.$.value);
   const isVariantCtor =
     (exprIsFunctionCall(call.func) &&
       exprIsFunctionCallOf(call.func as FnCallExpr, ".", 1)) ||
     (exprIsAtom(call.func) && call.func.token.type === TokenType.Dot) ||
-    isQualifiedVariantCtor;
+    isQualifiedVariantCtor ||
+    isTypeCtorCall;
   if (isVariantCtor) {
-    for (const a of call.args) {
+    for (let a of call.args) {
+      // Look THROUGH a `label : value` wrapper: the labeled pair node may
+      // carry no `$` type of its own, which would silently SKIP the check
+      // and accept a constructor smuggling a local-backed slice
+      // (`SliceWrapper(s : localSlice)`). The VALUE side is what flows.
+      if (exprIsFunctionCall(a) && exprIsFunctionCallOf(a, ":", 2)) {
+        a = (a as FnCallExpr).args[1] ?? a;
+      }
       const aType = a.$?.type;
       if (
         aType &&

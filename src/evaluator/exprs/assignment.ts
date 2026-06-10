@@ -274,9 +274,13 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     // target's `frameLevel` as `maxLocalFrameLevel`: a local source is only
     // accepted when its scope encloses the target's. Parameters, comptime
     // values, and `ref`-bound names outlive the whole function and are always
-    // accepted. In privileged files the documented `unsafe(...)` wrap opts out
-    // (isFlowableExpr treats it as flowable).
-    if (typeRepresentationContainsRawPtr(variable.type)) {
+    // accepted. Privileged files (pragma AllowUnsafe) are exempt, mirroring
+    // the sibling return-position gate (function-type.ts:973) — raw-pointer
+    // manipulation like `p = &(x)` is exactly what those files declare.
+    if (
+      typeRepresentationContainsRawPtr(variable.type) &&
+      !isImplicitlyUnsafeCapableFile(rhs.token.modulePath)
+    ) {
       if (
         !isFlowableExpr(rhs, {
           allowSameFrameLocal: true,
