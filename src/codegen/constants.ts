@@ -41,6 +41,10 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_ptr_gte, // __yo_ptr_gte
 
   // Slice operations
+  ...BuiltinFunctions.__yo_str_from_raw_parts, // __yo_str_from_raw_parts
+  ...BuiltinFunctions.__yo_str_len, // __yo_str_len
+  ...BuiltinFunctions.__yo_str_ptr, // __yo_str_ptr
+  ...BuiltinFunctions.__yo_str_byte, // __yo_str_byte
   ...BuiltinFunctions.__yo_slice_len, // __yo_slice_len
   ...BuiltinFunctions.__yo_slice_new, // __yo_slice_new
   ...BuiltinFunctions.__yo_slice_ptr, // __yo_slice_ptr

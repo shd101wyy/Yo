@@ -21,6 +21,7 @@ import {
   isComptimeIntType,
   isComptimeListType,
   isComptimeStringType,
+  isStrType,
   isDynType,
   isEnumType,
   isExprType,
@@ -29,7 +30,6 @@ import {
   isFutureTraitType,
   isIsoType,
   isSourceNamespaceType,
-  isNewtypeType,
   isPrimitiveType,
   isPtrType,
   isSliceType,
@@ -129,6 +129,11 @@ export function areTypesCompatible(
     return expected.type.tag === given.type.tag;
   }
 
+  // str (builtin static string view): nominal by tag.
+  if (isStrType(expected.type) && isStrType(given.type)) {
+    return true;
+  }
+
   // comptime_int can be converted to
   // - comptime_int
   // - u8
@@ -194,8 +199,7 @@ export function areTypesCompatible(
       (isPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.childType) ||
           isCharType(expected.type.childType))) ||
-      (isNewtypeType(expected.type) && // str
-        expected.type.typeName === "str")) &&
+      isStrType(expected.type)) && // str (builtin)
     isComptimeStringType(given.type)
   ) {
     return true;

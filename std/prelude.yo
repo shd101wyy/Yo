@@ -145,6 +145,15 @@ extern(
     fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_gte :
     fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+  // str (builtin static string view) intrinsics
+  __yo_str_from_raw_parts :
+    fn(ptr : *(u8), length : usize) -> str,
+  __yo_str_len :
+    fn(s : str) -> usize,
+  __yo_str_ptr :
+    fn(s : str) -> *(u8),
+  __yo_str_byte :
+    fn(s : str, idx : usize) -> u8,
   // slice related
   __yo_slice_len :
     fn(forall(T : Type), slice : Slice(T)) -> usize,
@@ -5817,26 +5826,32 @@ impl(
     )
   )
 );
-/// `str` — an immutable UTF-8 byte string view (newtype over `Slice(u8)`).
+/// `str` — the BUILTIN immutable view of STATIC string bytes (TypeTag.Str,
+/// a fat pointer `{ const uint8_t* ptr; size_t len; }` in C).
 ///
-/// String literals `"hello"` produce `str` at runtime.
+/// String literals `"hello"` and template-literal segments produce `str`
+/// at runtime; the backing bytes live in static storage (immortal), so a
+/// `str` is freely copyable and storable with no lifetime constraints.
 /// For heap-allocated growable strings, see `String`.
-str :: newtype(
-  /// The underlying byte slice.
-  bytes : Slice(u8)
-);
 impl(
   str,
   /// Construct a `str` from a raw pointer and length.
+  /// SAFETY: callers must guarantee the bytes outlive every use of the
+  /// view — the safe surface only ever does this with static storage.
   from_raw_parts : (fn(ptr : *(u8), length : usize) -> Self)(
-    Self(bytes : __yo_slice_new(ptr, length))
+    __yo_str_from_raw_parts(ptr, length)
   ),
   /// Return the length in bytes.
   len : (fn(self : Self) -> usize)(
-    __yo_slice_len(self.bytes)
+    __yo_str_len(self)
   ),
   ptr : (fn(self : Self) -> *(u8))(
-    __yo_slice_ptr(self.bytes)
+    __yo_str_ptr(self)
+  ),
+  /// Return the byte at `idx` (bounds are the caller's responsibility,
+  /// mirroring slice indexing).
+  bytes : (fn(self : Self, idx : usize) -> u8)(
+    __yo_str_byte(self, idx)
   )
 );
 impl(
@@ -5898,7 +5913,8 @@ impl(
     })
   )
 );
-export(str);
+// (str is a builtin type — no export needed; the identifier resolves
+// everywhere like bool/i32.)
 assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(
   cond(
     flag => (),

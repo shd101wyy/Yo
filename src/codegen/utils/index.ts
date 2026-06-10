@@ -33,7 +33,6 @@ import type {
 } from "../../types/definitions";
 import {
   isEnumType,
-  isNewtypeType,
   isObjectType,
   isPtrType,
   isSliceType,
@@ -449,18 +448,8 @@ export function getTypeString(
     case TypeTag.ComptimeFloat:
       return "double"; // For comptime_float, we can use double
     case TypeTag.ComptimeString:
-      // At runtime, comptime_string values become str (Slice(u8)).
-      // Look up the str newtype from registered types for the correct C name.
-      for (const entry of Object.values(context.types)) {
-        if (
-          isNewtypeType(entry.type) &&
-          entry.type.fields.length === 1 &&
-          isSliceType(entry.type.fields[0]!.type)
-        ) {
-          return entry.cName;
-        }
-      }
-      return "uint8_t*"; // fallback if str type not found
+      // At runtime, comptime_string values materialize as the builtin str.
+      return "__yo_str";
 
     case TypeTag.Char:
       return "char"; // C char type
@@ -596,6 +585,11 @@ export function getTypeString(
         return arrayTypeName;
       }
       break;
+    }
+    case TypeTag.Str: {
+      // Builtin static string view — canonical fat pointer typedef emitted
+      // in the C preamble.
+      return "__yo_str";
     }
     case TypeTag.Slice: {
       // Generate slice struct type name: Slice_ElementType

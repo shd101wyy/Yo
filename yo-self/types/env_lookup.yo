@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
-{ t_i32, t_f64 } :: import("./creators.yo");
+{ t_i32, t_f64, t_str } :: import("./creators.yo");
 {
   is_some_type,
   is_trait_type,
@@ -457,34 +457,12 @@ get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue)
 /// import cycle no longer exists; `types/env_lookup.yo` is the
 /// designated location for env-dependent type lookups.
 create_str_type :: (fn(env : Environment) -> TypeValue)({
-  vars := get_variables_from_env(env, String.from("str"));
-  (i : usize) = usize(0);
-  (found : Option(TypeValue)) =.None;
-  (n : usize) = vars.len();
-  while(i < n, {
-    match(
-      vars.get(i),
-      .Some(v) => match(
-        v.value,
-        .Some(ev) => match(
-          ev,
-          .TypeVal(ty) => {
-            found =.Some(ty.*);
-          },
-          _ => ()
-        ),
-        .None => ()
-      ),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  match(
-    found,
-    .Some(t) => t,
-    .None => t_i32()
-  )
+  // str is now the builtin static string view; no prelude lookup needed.
+  // (env parameter kept for signature stability with callers.)
+  ___ := env;
+  t_str()
 });
+
 /// True iff `ty` is `*(u8)` or `*(char)` — the two byte-pointer
 /// shapes that can hold a comptime-string literal. Helper for
 /// `convert_comptime_type_to_runtime_type_with_expected`.

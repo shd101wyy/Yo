@@ -13,6 +13,7 @@ import type {
   SourceNamespaceType,
   PtrType,
   SliceType,
+  StrType,
   SomeType,
   StructType,
   TraitType,
@@ -140,6 +141,10 @@ export function isExprType(type?: Type): boolean {
 // Complex type guards
 export function isArrayType(type?: Type): type is ArrayType {
   return type?.tag === TypeTag.Array;
+}
+
+export function isStrType(type?: Type): type is StrType {
+  return type?.tag === TypeTag.Str;
 }
 
 export function isSliceType(type?: Type): type is SliceType {

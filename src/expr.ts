@@ -785,6 +785,10 @@ export const BuiltinFunctions = {
   __yo_ptr_set: ["__yo_ptr_set"],
 
   // Slice related functions
+  __yo_str_from_raw_parts: ["__yo_str_from_raw_parts"],
+  __yo_str_len: ["__yo_str_len"],
+  __yo_str_ptr: ["__yo_str_ptr"],
+  __yo_str_byte: ["__yo_str_byte"],
   __yo_slice_len: ["__yo_slice_len"],
   __yo_slice_new: ["__yo_slice_new"],
   __yo_slice_ptr: ["__yo_slice_ptr"],

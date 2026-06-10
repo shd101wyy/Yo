@@ -131,6 +131,7 @@ function typeImplementsComptimeBuiltin(
     }
 
     // Primitive types available in both contexts - return true
+    case TypeTag.Str:
     case TypeTag.Unit:
     case TypeTag.Bool:
     case TypeTag.Usize:
@@ -218,6 +219,7 @@ function typeImplementsRuntimeBuiltin(
     case TypeTag.I64:
     case TypeTag.F32:
     case TypeTag.F64:
+    case TypeTag.Str:
     case TypeTag.Function:
     case TypeTag.Union: {
       return true;

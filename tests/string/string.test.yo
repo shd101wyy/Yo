@@ -18,10 +18,11 @@ test("String.from_bytes creates string from byte array", {
   assert(not(s.is_empty()));
   assert(s.len() == usize(5));
 });
-test("String.from creates string from byte slice", {
-  arr := [u8(72), u8(101), u8(108), u8(108), u8(111)];
-  slice := arr(usize(0) .. usize(5));
-  s := String.from(str(slice));
+test("String.from creates string from str", {
+  // (Former "from byte slice" test: constructing a str view over mortal
+  // stack bytes is no longer possible — str is the builtin STATIC view;
+  // see plans/SLICE_REWORK.md.)
+  s := String.from("Hello");
   assert(s.len() == usize(5));
 });
 // ===== ASCII String Tests =====

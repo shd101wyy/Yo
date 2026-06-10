@@ -2,7 +2,7 @@ import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import type { FnCallExpr } from "../../expr";
 import { createPtrType } from "../../types/creators";
-import { isComptimeStringType, isNewtypeType } from "../../types/guards";
+import { isComptimeStringType, isStrType as isStrTypeGuard } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -84,14 +84,13 @@ export function evaluatePanic({
 
     const msgType = evaluatedMessageExpr.$.type;
     const msgValue = evaluatedMessageExpr.$.value;
-    const isStrType =
-      msgType && isNewtypeType(msgType) && msgType.typeName === "str";
+    const msgIsStr = msgType && isStrTypeGuard(msgType);
     const isComptimeStr =
       msgValue &&
       (isComptimeStringValue(msgValue) ||
         (isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)));
 
-    if (!isStrType && !isComptimeStr) {
+    if (!msgIsStr && !isComptimeStr) {
       throw formatErrorMessage({
         token: messageExpr.token,
         errorMessage: `panic message must be a comptime_string or str`,

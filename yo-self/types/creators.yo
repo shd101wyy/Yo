@@ -33,6 +33,26 @@ generate_some_type_id :: (fn() -> String)({
 // Convenience constructors for primitive and pointer-sized types
 // ---------------------------------------------------------------------------
 t_unit :: (fn() -> TypeValue)(.Unit);
+/// `str` — the builtin static string view (TS: TypeTag.Str, a dedicated
+/// tag). Documented divergence: yo-self's TypeValue keeps representing it
+/// as a stable newtype-shaped Struct singleton (id/name "str", no fields)
+/// so the existing Struct machinery (impl registry keyed by id,
+/// is_str_type guard) keeps working without adding an enum variant across
+/// every match. The codegen port revisits this with a true tag.
+t_str :: (fn() -> TypeValue)(
+  .Struct(
+    id : String.from("str"),
+    name : String.from("str"),
+    field_labels : ArrayList(String).new(),
+    field_types : ArrayList(TypeValue).new(),
+    is_reference_semantics : false,
+    is_atomic_rc : false,
+    is_newtype : true,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
+  )
+);
 t_bool :: (fn() -> TypeValue)(.BoolT);
 t_void :: (fn() -> TypeValue)(.Void);
 t_i8 :: (fn() -> TypeValue)(.Int(u8(8), true));
@@ -356,6 +376,7 @@ export(register_enum_final, resolve_enum_shell);
 export(
   generate_some_type_id,
   t_unit,
+  t_str,
   t_bool,
   t_void,
   t_i8,

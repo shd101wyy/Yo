@@ -12,6 +12,7 @@ import {
   createF64Type,
   createI16Type,
   createI32Type,
+  createStrType,
   createI64Type,
   createI8Type,
   createIntType,
@@ -216,6 +217,18 @@ export function evaluateIdentifierAndOperator({
   // u32
   else if (identifier === TypeTag.U32) {
     const value = createTypeValue(createU32Type());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // str — builtin static string view (plans/SLICE_REWORK.md)
+  else if (identifier === TypeTag.Str) {
+    const value = createTypeValue(createStrType());
     expr.$ = {
       env,
       type: value.type,

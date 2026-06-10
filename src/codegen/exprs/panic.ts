@@ -1,5 +1,5 @@
 import type { FnCallExpr } from "../../expr";
-import { isNewtypeType, isStructType } from "../../types/guards";
+import { isStrType } from "../../types/guards";
 import { isComptimeStringValue } from "../../value";
 import { type CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";
@@ -36,15 +36,11 @@ export function generatePanic(
       // Runtime message - generate code to evaluate it
       const messageCode = generateExpr(messageArg, indent, context);
       const msgType = messageArg.$?.type;
-      const isStrType =
-        msgType &&
-        isStructType(msgType) &&
-        isNewtypeType(msgType) &&
-        msgType.typeName === "str";
-      if (isStrType) {
-        // str is a newtype over Slice(u8), in C it has .data and .length
+      const msgIsStr = msgType && isStrType(msgType);
+      if (msgIsStr) {
+        // str is the builtin fat pointer: { const uint8_t* ptr; size_t len; }
         emitter.emitLine(
-          `${indent}fprintf(stderr, "%.*s\\n", (int)${messageCode}.length, ${messageCode}.data);`
+          `${indent}fprintf(stderr, "%.*s\\n", (int)${messageCode}.len, (const char*)${messageCode}.ptr);`
         );
       } else {
         emitter.emitLine(`${indent}fprintf(stderr, "%s\\n", ${messageCode});`);

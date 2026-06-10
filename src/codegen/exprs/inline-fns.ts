@@ -170,6 +170,16 @@ export function generateYoInlineFunctionCall(
   else if (BuiltinFunctions.__yo_ptr_gte.includes(functionName)) {
     return `(${args[0]!} >= ${args[1]!})`;
   }
+  // __yo_str_* — builtin str (static string view) intrinsics
+  else if (BuiltinFunctions.__yo_str_len.includes(functionName)) {
+    return `(${args[0]!}.len)`;
+  } else if (BuiltinFunctions.__yo_str_ptr.includes(functionName)) {
+    return `((uint8_t*)${args[0]!}.ptr)`;
+  } else if (BuiltinFunctions.__yo_str_byte.includes(functionName)) {
+    return `(${args[0]!}.ptr[${args[1]!}])`;
+  } else if (BuiltinFunctions.__yo_str_from_raw_parts.includes(functionName)) {
+    return `(__yo_str){ .ptr = (const uint8_t*)${args[0]!}, .len = ${args[1]!} }`;
+  }
   // __yo_slice_len - access the length field of a slice fat pointer
   else if (BuiltinFunctions.__yo_slice_len.includes(functionName)) {
     return `(${args[0]!}.length)`;

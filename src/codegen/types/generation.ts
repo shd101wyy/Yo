@@ -1017,6 +1017,14 @@ export function generateArrayStructDeclarations(context: CodeGenContext): void {
  */
 export function generateSliceStructDeclarations(context: CodeGenContext): void {
   const emitter = context.emitter;
+  // str — builtin static string view (always emitted; trivially small).
+  emitter.emitDeclarationLine(
+    `typedef struct { // str: builtin static string view`
+  );
+  emitter.emitDeclarationLine(`  const uint8_t* ptr;`);
+  emitter.emitDeclarationLine(`  size_t len;`);
+  emitter.emitDeclarationLine(`} __yo_str;`);
+  emitter.emitDeclarationLine("");
   for (const [sliceTypeName, { childType }] of context.sliceStructTypes) {
     emitter.emitDeclarationLine(`typedef struct { // Slice wrapper struct`);
     emitter.emitDeclarationLine(`  ${childType}* data;`);

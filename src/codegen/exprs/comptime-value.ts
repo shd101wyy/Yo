@@ -2,8 +2,8 @@ import type { Expr } from "../../expr";
 import type { FunctionType } from "../../types/definitions";
 import {
   isComptimeStringType,
+  isStrType,
   isFunctionType,
-  isNewtypeType,
   isPtrType,
   isSliceType,
   isStructType,
@@ -76,22 +76,11 @@ export function generateComptimeValue(
     const targetType =
       _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
 
-    // Check if the target type is a newtype wrapping a slice (e.g., str)
-    // Newtypes are transparent in C (just typedefs), so we generate the underlying slice
-    if (
-      targetType &&
-      isNewtypeType(targetType) &&
-      targetType.fields.length === 1
-    ) {
-      const wrappedType = targetType.fields[0]!.type;
-      if (isSliceType(wrappedType)) {
-        const newtypeCType = getTypeString(targetType, context);
-        const stringLiteral = JSON.stringify(value.value);
-        const stringLength = Buffer.byteLength(value.value, "utf8");
-
-        // Newtypes are zero-cost abstractions, so we just generate the slice value
-        return `(${newtypeCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
-      }
+    // Builtin str target: emit the fat pointer over the static literal.
+    if (targetType && isStrType(targetType)) {
+      const stringLiteral = JSON.stringify(value.value);
+      const stringLength = Buffer.byteLength(value.value, "utf8");
+      return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
 
     // Check if the target type is a slice (e.g., [u8])
@@ -105,22 +94,13 @@ export function generateComptimeValue(
       return `(${sliceCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
     }
 
-    // Fallback: comptime_string in runtime context should become str (Slice(u8)).
-    // This handles cases where convertedRuntimeType was not set on the expression
-    // (e.g., cond branch values, field assignments).
-    // Search the registered types for the str newtype wrapping Slice(u8).
+    // Fallback: comptime_string materializing in a runtime context with no
+    // recorded conversion becomes the builtin str (branch-value temps,
+    // field assignments). Pointer/slice targets were handled above.
     if (!targetType || isComptimeStringType(targetType)) {
-      for (const entry of Object.values(context.types)) {
-        if (
-          isNewtypeType(entry.type) &&
-          entry.type.fields.length === 1 &&
-          isSliceType(entry.type.fields[0]!.type)
-        ) {
-          const stringLiteral = JSON.stringify(value.value);
-          const stringLength = Buffer.byteLength(value.value, "utf8");
-          return `(${entry.cName}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
-        }
-      }
+      const stringLiteral = JSON.stringify(value.value);
+      const stringLength = Buffer.byteLength(value.value, "utf8");
+      return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
 
     // For regular strings, return the C string literal with proper escaping
@@ -321,6 +301,9 @@ export function generateComptimeValue(
     // For type values, we can return the C type name if available
     const type = value.value;
     if (type) {
+      if (isStrType(type)) {
+        return "__yo_str";
+      }
       if (context.types[type.id]) {
         return context.types[type.id]!.cName;
       } else {

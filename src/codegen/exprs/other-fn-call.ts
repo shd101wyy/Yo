@@ -1,3 +1,4 @@
+import { isComptimeStringType } from "../../types/guards";
 import {
   findInnermostFrameWithGivenVariable,
   getVariablesFromEnv,
@@ -686,7 +687,13 @@ export function generateOtherFunctionCall(
             // the codegen ultimately emits the constant value rather
             // than declaring the temp — so the c-string is just a bare
             // literal in those cases.
-            const argRuntimeType = runtimeArgExprs[i]!.$?.type;
+            // Prefer the converted runtime type when present: a
+            // comptime_string literal coerced to `str` records its real C
+            // type (__yo_str) there, while `$.type` still says
+            // comptime_string (whose default C mapping is uint8_t*).
+            const argRuntimeType =
+              runtimeArgExprs[i]!.$?.convertedRuntimeType ??
+              runtimeArgExprs[i]!.$?.type;
             const cIsBareLiteral =
               // signed/unsigned integer literal, possibly with L/LL/U
               // suffixes, possibly negated
@@ -713,8 +720,12 @@ export function generateOtherFunctionCall(
             if (isAddressableCExpr(c)) {
               args[i] = `(&(${c}))`;
             } else {
+              // comptime_string args materialize as __yo_str (mirrors the
+              // comptime-value fallback) — the spill var must match.
               const spillType = argRuntimeType
-                ? getTypeString(argRuntimeType, context)
+                ? isComptimeStringType(argRuntimeType)
+                  ? "__yo_str"
+                  : getTypeString(argRuntimeType, context)
                 : "size_t";
               const spillName = `__yo_ref_spill_${refSpillCounter++}`;
               context.emitter.emitLine(
