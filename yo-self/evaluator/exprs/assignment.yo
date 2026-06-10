@@ -50,7 +50,7 @@ open(import("std/string"));
   update_existing_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage } :: import("../context.yo");
 {
   EvalValue,
   is_struct_val,
@@ -720,6 +720,22 @@ evaluate_assignment :: (
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
   variable := match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env));
+  // Closure capture tracking — a WRITE to an outer variable from inside a
+  // function body / async block is a capture too (mirrors assignment.ts:667
+  // calling trackVariableUsage with usage "own"). Reads are tracked by the
+  // identifier evaluator; without this, a closure whose only reference to an
+  // outer variable is an assignment (`(...) => { x = v; }`) recorded NO
+  // capture and the ref-capture gate never saw `x`
+  // (tests/ref_closure_capture.test.yo `make_writer`). The tracking helper
+  // itself guards on the body-evaluation context, the outer-frame threshold,
+  // and compile-time-only variables.
+  track_variable_usage(
+    variable.name,
+    variable.frame_level,
+    CaptureUsage.Own,
+    ast_expr_token(lhs_resolved),
+    ctx
+  );
   // Check reassignability.
   if(!(variable.is_reassignable), {
     exn.throw(
