@@ -272,3 +272,16 @@ Ordered parts (validate `check ./std` + targeted tests between each):
 - **E. prelude cleanup:** delete Slice impls 5647-5788, __yo_slice_* decls;
   str def update.
 - **F. yo-self mirrors** deferred to codegen port.
+
+**Part A simplification (discovered):** `str` is NOT a compiler builtin —
+`createStrType` (src/types/creators.ts:680) merely looks up the prelude's
+`str` newtype. So NO TypeTag.Str is needed: re-base
+`str :: newtype(bytes : RawSlice(u8))` where
+`RawSlice(u8) :: struct(ptr : *(u8), len : usize)` is defined in the
+prelude BEFORE str. str's impls (len/ptr/bytes(i)/from_raw_parts/range
+index) become plain field access + unsafe() ptr arithmetic — replacing the
+__yo_slice_* builtin calls. Lowering is then ordinary struct-in-struct C.
+Only string-LITERAL materialization in codegen (which presumably constructs
+the Slice_uint8_t struct for str literals) needs to target the new layout —
+find where codegen emits str literal values and update the struct shape
+(field names ptr/len vs data/length).
