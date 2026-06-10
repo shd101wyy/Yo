@@ -336,7 +336,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                     out_param_tys := ArrayList(String).new();
                     n_p := params_list.len();
                     (pi : usize) = usize(0);
-                    while(runtime(pi < n_p), {
+                    while(pi < n_p, {
                       pi = (pi + usize(1));
                       match(
                         params_list.get(pi - usize(1)),
@@ -527,7 +527,7 @@ struct_has_self_fields :: (fn(sd : StructDef) -> bool)({
   n := sd.field_tys.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       sd.field_tys.get(i),
       .None => (),
@@ -590,7 +590,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                           out_tys := ArrayList(String).new();
                           nf := rhs_args.len();
                           (fi : usize) = usize(0);
-                          while(runtime(fi < nf), {
+                          while(fi < nf, {
                             fi = (fi + usize(1));
                             match(
                               rhs_args.get(fi - usize(1)),
@@ -718,7 +718,7 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
     field_tys_csv_buf := String.new();
     nf := sd.field_names.len();
     (fi : usize) = usize(0);
-    while(runtime(fi < nf), {
+    while(fi < nf, {
       fi = (fi + usize(1));
       match(
         sd.field_names.get(fi - usize(1)),
@@ -745,7 +745,7 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
     ctx.register_struct_field_types(sd.name.as_str(), field_tys_csv_buf.as_str());
     line := String.from("typedef struct { ");
     (fi2 : usize) = usize(0);
-    while(runtime(fi2 < nf), {
+    while(fi2 < nf, {
       fi2 = (fi2 + usize(1));
       match(
         sd.field_names.get(fi2 - usize(1)),
@@ -823,7 +823,7 @@ extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
                           nfields := rargs.len();
                           (fi : usize) = usize(0);
                           (ok : bool) = true;
-                          while(runtime((fi < nfields) && ok), {
+                          while((fi < nfields) && ok, {
                             fi = (fi + usize(1));
                             match(
                               rargs.get(fi - usize(1)),
@@ -910,7 +910,7 @@ emit_union_to_c :: (fn(ud : UnionDef, ctx : CodegenContext) -> unit)({
     fields_csv_buf := String.new();
     nf := ud.field_names.len();
     (fi : usize) = usize(0);
-    while(runtime(fi < nf), {
+    while(fi < nf, {
       fi = (fi + usize(1));
       match(
         ud.field_names.get(fi - usize(1)),
@@ -926,7 +926,7 @@ emit_union_to_c :: (fn(ud : UnionDef, ctx : CodegenContext) -> unit)({
     ctx.register_struct_fields(ud.name.as_str(), fields_csv_buf.as_str());
     line := String.from("typedef union { ");
     (fi2 : usize) = usize(0);
-    while(runtime(fi2 < nf), {
+    while(fi2 < nf, {
       fi2 = (fi2 + usize(1));
       match(
         ud.field_names.get(fi2 - usize(1)),
@@ -1151,7 +1151,7 @@ _parse_usize :: (fn(s : str) -> usize)({
   n := s.len();
   (i : usize) = usize(0);
   (acc : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     c := s.bytes(i);
     digit_ord := (usize(c) - usize(48));
     acc = ((acc * usize(10)) + digit_ord);
@@ -1214,7 +1214,7 @@ _parse_complex_variant :: (fn(call_expr : AstExpr) -> Option(EnumVariant))(
           nf := vargs.len();
           (fi : usize) = usize(0);
           (ok : bool) = true;
-          while(runtime((fi < nf) && ok), {
+          while((fi < nf) && ok, {
             fi = (fi + usize(1));
             match(
               vargs.get(fi - usize(1)),
@@ -1372,7 +1372,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
                           (vi : usize) = usize(0);
                           (next_disc : usize) = usize(0);
                           (failed : bool) = false;
-                          while(runtime((vi < nv) && (!(failed))), {
+                          while((vi < nv) && (!(failed)), {
                             vi = (vi + usize(1));
                             match(
                               rhs_args.get(vi - usize(1)),
@@ -1419,7 +1419,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
 _register_enum_variants :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
   nv := ed.variants.len();
   (vi : usize) = usize(0);
-  while(runtime(vi < nv), {
+  while(vi < nv, {
     vi = (vi + usize(1));
     match(
       ed.variants.get(vi - usize(1)),
@@ -1428,7 +1428,7 @@ _register_enum_variants :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
         nf := ev.fields.len();
         fields_csv := String.new();
         (fi : usize) = usize(0);
-        while(runtime(fi < nf), {
+        while(fi < nf, {
           fi = (fi + usize(1));
           match(
             ev.fields.get(fi - usize(1)),
@@ -1477,7 +1477,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
     (!(ed.is_complex)) => {
       line := String.from("typedef enum { ");
       (vi : usize) = usize(0);
-      while(runtime(vi < nv), {
+      while(vi < nv, {
         vi = (vi + usize(1));
         match(
           ed.variants.get(vi - usize(1)),
@@ -1506,7 +1506,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
       // --- 1) typedef enum { Shape_Circle = 0, ... } Shape_tag; ---
       tag_line := String.from("typedef enum { ");
       (vi2 : usize) = usize(0);
-      while(runtime(vi2 < nv), {
+      while(vi2 < nv, {
         vi2 = (vi2 + usize(1));
         match(
           ed.variants.get(vi2 - usize(1)),
@@ -1530,7 +1530,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
       // --- 2) typedef union { struct { T f; } V; ... } Name_data; ---
       ctx.emitter.emit_declaration_line("typedef union {");
       (vi3 : usize) = usize(0);
-      while(runtime(vi3 < nv), {
+      while(vi3 < nv, {
         vi3 = (vi3 + usize(1));
         match(
           ed.variants.get(vi3 - usize(1)),
@@ -1549,7 +1549,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
               true => {
                 ctx.emitter.emit_declaration_line("  struct {");
                 (fi2 : usize) = usize(0);
-                while(runtime(fi2 < nf), {
+                while(fi2 < nf, {
                   fi2 = (fi2 + usize(1));
                   match(
                     ev.fields.get(fi2 - usize(1)),
@@ -1613,7 +1613,7 @@ subst_self_ty_list :: (fn(tys : ArrayList(String), concrete_type : str) -> Array
   result := ArrayList(String).new();
   n := tys.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tys.get(i),
       .None => (),
@@ -1726,7 +1726,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                     out_param_tys2 := ArrayList(String).new();
                     n_p2 := params_list2.len();
                     (pi2 : usize) = usize(0);
-                    while(runtime(pi2 < n_p2), {
+                    while(pi2 < n_p2, {
                       pi2 = (pi2 + usize(1));
                       match(
                         params_list2.get(pi2 - usize(1)),
@@ -1861,7 +1861,7 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
                   (btok.value.as_str() == "begin") => {
                     nm := ba.len();
                     (mi : usize) = usize(0);
-                    while(runtime(mi < nm), {
+                    while(mi < nm, {
                       mi = (mi + usize(1));
                       match(
                         ba.get(mi - usize(1)),
@@ -1929,7 +1929,7 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
                     // Multi-method impls parse as `impl(T, method1 : ..., method2 : ..., ...)`.
                     // The first method is `body_expr`; remaining methods live in top_args[2..].
                     (extra_i : usize) = usize(2);
-                    while(runtime(extra_i < top_args.len()), {
+                    while(extra_i < top_args.len(), {
                       match(
                         top_args.get(extra_i),
                         .None => (),
@@ -1983,7 +1983,7 @@ build_param_tys_pipe :: (fn(param_tys : ArrayList(String)) -> String)({
   sb := String.new();
   n := param_tys.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     i = (i + usize(1));
     match(
       param_tys.get(i - usize(1)),
@@ -2096,6 +2096,46 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
   )
 );
 export(extract_bare_import_path, extract_import_path);
+/// Recursively collect every `import(...)` path reachable from `expr`,
+/// including imports NESTED inside `impl({...})` / module / `begin`
+/// bodies. `extract_import_path` only inspects a single expression, so a
+/// top-level-only walk misses e.g. `env :: impl({ { getenv, setenv } ::
+/// import("./libc/stdlib"); ... })` — the import lives inside the impl
+/// body, not at module top level. The preload step (main.yo) needs these
+/// nested imports cached, otherwise `evaluate_import` fails with
+/// "module not preloaded" when the impl body is evaluated.
+///
+/// Paths may appear more than once (e.g. a `{ ... } :: import(p)` node
+/// yields `p`, and recursing into its `import(p)` child yields `p`
+/// again); callers dedup by resolved path.
+collect_import_paths_recursive :: (
+  fn(expr : AstExpr, out : ArrayList(String)) -> unit
+)({
+  match(
+    extract_import_path(expr),
+    .Some(p) => {
+      out.push(p);
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .Atom(_, _) => (),
+    .FnCall(_, fb, args, _, _) => {
+      recur(fb.*, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+export(collect_import_paths_recursive);
 // ---------------------------------------------------------------------------
 // Test body compilation
 // ---------------------------------------------------------------------------
@@ -2146,7 +2186,7 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
                 n := args.len();
                 (i : usize) = usize(0);
                 (found : bool) = false;
-                while(runtime((i < n) && (!(found))), {
+                while((i < n) && (!(found)), {
                   match(
                     args.get(i),
                     .None => (),
@@ -2178,7 +2218,7 @@ collect_all_enum_defs :: (fn(expr : AstExpr, result : ArrayList(EnumDef)) -> uni
       is_begin_block(expr) => {
         n := args.len();
         (i : usize) = usize(0);
-        while(runtime(i < n), {
+        while(i < n, {
           match(
             args.get(i),
             .None => (),
@@ -2208,28 +2248,28 @@ merge_enum_defs_for_name :: (fn(all_eds : ArrayList(EnumDef), enum_name : str) -
   is_complex := false;
   n_all := all_eds.len();
   (i : usize) = usize(0);
-  while(runtime(i < n_all), {
+  while(i < n_all, {
     match(
       all_eds.get(i),
       .None => (),
       .Some(ed) => if(ed.name.as_str() == enum_name, {
         nv := ed.variants.len();
         (vi : usize) = usize(0);
-        while(runtime(vi < nv), {
+        while(vi < nv, {
           match(
             ed.variants.get(vi),
             .None => (),
             .Some(ev) => {
               (later_same_variant : bool) = false;
               (j : usize) = (i + usize(1));
-              while(runtime((j < n_all) && (!(later_same_variant))), {
+              while((j < n_all) && (!(later_same_variant)), {
                 match(
                   all_eds.get(j),
                   .None => (),
                   .Some(later_ed) => if(later_ed.name.as_str() == enum_name, {
                     later_nv := later_ed.variants.len();
                     (later_vi : usize) = usize(0);
-                    while(runtime((later_vi < later_nv) && (!(later_same_variant))), {
+                    while((later_vi < later_nv) && (!(later_same_variant)), {
                       match(
                         later_ed.variants.get(later_vi),
                         .None => (),
@@ -2277,7 +2317,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
   collect_all_enum_defs(expr, all_eds);
   ned := all_eds.len();
   (ei : usize) = usize(0);
-  while(runtime(ei < ned), {
+  while(ei < ned, {
     match(
       all_eds.get(ei),
       .None => (),
@@ -2285,7 +2325,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
         // Determine whether this is the last (rightmost) definition for this name.
         (j : usize) = (ei + usize(1));
         (later_found : bool) = false;
-        while(runtime((j < ned) && (!(later_found))), {
+        while((j < ned) && (!(later_found)), {
           match(
             all_eds.get(j),
             .None => (),
@@ -2323,7 +2363,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
         is_begin_block(e) => {
           en := eargs.len();
           (si : usize) = usize(0);
-          while(runtime(si < en), {
+          while(si < en, {
             match(
               eargs.get(si),
               .None => (),
@@ -2434,7 +2474,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
         is_begin_block(e) => {
           na_e := ef_args.len();
           (ia : usize) = usize(0);
-          while(runtime(ia < na_e), {
+          while(ia < na_e, {
             match(
               ef_args.get(ia),
               .None => (),
@@ -2492,7 +2532,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
                                         sz_str := sz_tok.value.as_str();
                                         sz := usize(0);
                                         (si : usize) = usize(0);
-                                        while(runtime(si < sz_str.len()), {
+                                        while(si < sz_str.len(), {
                                           ch_opt := sz_tok.value.at(si);
                                           match(
                                             ch_opt,
@@ -2544,7 +2584,7 @@ emit_comptime_const_defs :: (fn(body : AstExpr, ctx : CodegenContext) -> unit)(
       is_begin_block(body) => {
         nb := bargs.len();
         (ib : usize) = usize(0);
-        while(runtime(ib < nb), {
+        while(ib < nb, {
           match(
             bargs.get(ib),
             .None => (),
@@ -2750,7 +2790,7 @@ emit_module_level_vars :: (fn(module_exprs : ArrayList(AstExpr), ctx : CodegenCo
   ne := module_exprs.len();
   (ie : usize) = usize(0);
   indent := String.new();
-  while(runtime(ie < ne), {
+  while(ie < ne, {
     ie = (ie + usize(1));
     match(
       module_exprs.get(ie - usize(1)),
@@ -2815,7 +2855,7 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : ArrayList(FnDef)) -> unit)
                       impl_fns := extract_impl_fns(expr, type_prefix);
                       nim := impl_fns.len();
                       (im : usize) = usize(0);
-                      while(runtime(im < nim), {
+                      while(im < nim, {
                         im = (im + usize(1));
                         match(
                           impl_fns.get(im - usize(1)),
@@ -2839,7 +2879,7 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : ArrayList(FnDef)) -> unit)
         is_begin_block(expr) => {
           n := args.len();
           (i : usize) = usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               args.get(i),
               .None => (),
@@ -2906,7 +2946,7 @@ collect_skipped_fn_names :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
         is_begin_block(expr) => {
           n := top_args.len();
           (i : usize) = usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               top_args.get(i),
               .None => (),
@@ -2960,7 +3000,7 @@ _build_concat_chain :: (fn(parts : ArrayList(String)) -> String)({
         .Some(p) => p
       );
       (i : usize) = usize(1);
-      while(runtime(i < n), {
+      while(i < n, {
         match(
           parts.get(i),
           .None => (),
@@ -2997,7 +3037,7 @@ emit_struct_tostring_fn :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
   parts.push(open_str);
   (buf_idx : usize) = usize(0);
   (fi : usize) = usize(0);
-  while(runtime(fi < n), {
+  while(fi < n, {
     match(
       sd.field_names.get(fi),
       .None => (),
@@ -3059,7 +3099,7 @@ emit_simple_enum_tostring_fn :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)
   ctx.emitter.emit_declaration_line("* self) {");
   ctx.emitter.emit_declaration_line("  switch (*self) {");
   (vi : usize) = usize(0);
-  while(runtime(vi < nv), {
+  while(vi < nv, {
     match(
       ed.variants.get(vi),
       .None => (),
@@ -3093,7 +3133,7 @@ emit_complex_enum_tostring_fn :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit
   ctx.emitter.emit_declaration_line("* self) {");
   ctx.emitter.emit_declaration_line("  switch (self->tag) {");
   (vi : usize) = usize(0);
-  while(runtime(vi < nv), {
+  while(vi < nv, {
     match(
       ed.variants.get(vi),
       .None => (),
@@ -3130,7 +3170,7 @@ emit_complex_enum_tostring_fn :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit
             parts.push(open_str);
             (buf_idx : usize) = usize(0);
             (fi : usize) = usize(0);
-            while(runtime(fi < nf), {
+            while(fi < nf, {
               match(
                 ev.fields.get(fi),
                 .None => (),
@@ -3191,7 +3231,7 @@ _has_tostring_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       args.get(i),
       .None => (),
@@ -3216,7 +3256,7 @@ _has_tostring_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
 process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx : CodegenContext) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while(runtime(ie < n), {
+  while(ie < n, {
     match(
       exprs.get(ie),
       .None => (),
@@ -3248,7 +3288,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while(runtime((je < n) && match(sd_opt,.None => true,.Some(_) => false)), {
+                          while((je < n) && match(sd_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(je),
                               .None => (),
@@ -3269,7 +3309,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while(runtime((ke < n) && match(ed_opt,.None => true,.Some(_) => false)), {
+                          while((ke < n) && match(ed_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(ke),
                               .None => (),
@@ -3340,7 +3380,7 @@ emit_struct_clone_fn :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
   ctx.emitter.emit_declaration(type_name);
   ctx.emitter.emit_declaration_line(" result;");
   (fi : usize) = usize(0);
-  while(runtime(fi < n), {
+  while(fi < n, {
     match(
       sd.field_names.get(fi),
       .None => (),
@@ -3387,7 +3427,7 @@ emit_complex_enum_clone_fn :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
   ctx.emitter.emit_declaration_line("  result.tag = self->tag;");
   ctx.emitter.emit_declaration_line("  switch (self->tag) {");
   (vi : usize) = usize(0);
-  while(runtime(vi < nv), {
+  while(vi < nv, {
     match(
       ed.variants.get(vi),
       .None => (),
@@ -3411,7 +3451,7 @@ emit_complex_enum_clone_fn :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
           true => {
             // Data variant: copy each field
             (fi : usize) = usize(0);
-            while(runtime(fi < nf), {
+            while(fi < nf, {
               match(
                 ev.fields.get(fi),
                 .None => (),
@@ -3467,7 +3507,7 @@ emit_struct_eq_fn :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
   ctx.emitter.emit_declaration(type_name);
   ctx.emitter.emit_declaration_line("* b) {");
   (fi : usize) = usize(0);
-  while(runtime(fi < n), {
+  while(fi < n, {
     match(
       sd.field_names.get(fi),
       .None => (),
@@ -3527,7 +3567,7 @@ emit_complex_enum_eq_fn :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
   ctx.emitter.emit_declaration_line("  if (a->tag != b->tag) return false;");
   ctx.emitter.emit_declaration_line("  switch (a->tag) {");
   (vi : usize) = usize(0);
-  while(runtime(vi < nv), {
+  while(vi < nv, {
     match(
       ed.variants.get(vi),
       .None => (),
@@ -3548,7 +3588,7 @@ emit_complex_enum_eq_fn :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
             (fi : usize) = usize(0);
             (first_field : bool) = true;
             ctx.emitter.emit_declaration("      return ");
-            while(runtime(fi < nf), {
+            while(fi < nf, {
               match(
                 ev.fields.get(fi),
                 .None => (),
@@ -3612,7 +3652,7 @@ emit_struct_hash_fn :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
   ctx.emitter.emit_declaration_line("* self) {");
   ctx.emitter.emit_declaration_line("  size_t h = 0;");
   (fi : usize) = usize(0);
-  while(runtime(fi < n), {
+  while(fi < n, {
     match(
       sd.field_names.get(fi),
       .None => (),
@@ -3675,7 +3715,7 @@ emit_struct_ord_fn :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
   ctx.emitter.emit_declaration(type_name);
   ctx.emitter.emit_declaration_line("* b) {");
   (fi : usize) = usize(0);
-  while(runtime(fi < n), {
+  while(fi < n, {
     match(
       sd.field_names.get(fi),
       .None => (),
@@ -3746,7 +3786,7 @@ _has_hash_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       args.get(i),
       .None => (),
@@ -3769,7 +3809,7 @@ _has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       args.get(i),
       .None => (),
@@ -3805,7 +3845,7 @@ _has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
 process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while(runtime(ie < n), {
+  while(ie < n, {
     match(
       exprs.get(ie),
       .None => (),
@@ -3832,7 +3872,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> 
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while(runtime((je < n) && match(sd_opt,.None => true,.Some(_) => false)), {
+                          while((je < n) && match(sd_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(je),
                               .None => (),
@@ -3853,7 +3893,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> 
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while(runtime((ke < n) && match(ed_opt,.None => true,.Some(_) => false)), {
+                          while((ke < n) && match(ed_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(ke),
                               .None => (),
@@ -3905,7 +3945,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> 
 process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while(runtime(ie < n), {
+  while(ie < n, {
     match(
       exprs.get(ie),
       .None => (),
@@ -3932,7 +3972,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> u
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while(runtime((je < n) && match(sd_opt,.None => true,.Some(_) => false)), {
+                          while((je < n) && match(sd_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(je),
                               .None => (),
@@ -3953,7 +3993,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> u
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while(runtime((ke < n) && match(ed_opt,.None => true,.Some(_) => false)), {
+                          while((ke < n) && match(ed_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(ke),
                               .None => (),
@@ -4006,7 +4046,7 @@ _has_clone_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       args.get(i),
       .None => (),
@@ -4029,7 +4069,7 @@ _has_eq_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       args.get(i),
       .None => (),
@@ -4065,7 +4105,7 @@ _has_eq_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
 process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while(runtime(ie < n), {
+  while(ie < n, {
     match(
       exprs.get(ie),
       .None => (),
@@ -4092,7 +4132,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) ->
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while(runtime((je < n) && match(sd_opt,.None => true,.Some(_) => false)), {
+                          while((je < n) && match(sd_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(je),
                               .None => (),
@@ -4113,7 +4153,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) ->
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while(runtime((ke < n) && match(ed_opt,.None => true,.Some(_) => false)), {
+                          while((ke < n) && match(ed_opt,.None => true,.Some(_) => false), {
                             match(
                               exprs.get(ke),
                               .None => (),
@@ -4232,7 +4272,7 @@ _derive_string_contains_trait :: (fn(raw : String, trait_name : str) -> bool)(
 process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while(runtime(ie < n), {
+  while(ie < n, {
     match(
       exprs.get(ie),
       .None => (),
@@ -4260,7 +4300,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
               // Look up struct/enum def in exprs
               (je2 : usize) = usize(0);
               (ce_sd_opt : Option(StructDef)) = Option(StructDef).None;
-              while(runtime((je2 < n) && match(ce_sd_opt,.None => true,.Some(_) => false)), {
+              while((je2 < n) && match(ce_sd_opt,.None => true,.Some(_) => false), {
                 match(
                   exprs.get(je2),
                   .None => (),
@@ -4278,7 +4318,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
               });
               (ke2 : usize) = usize(0);
               (ce_ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-              while(runtime((ke2 < n) && match(ce_ed_opt,.None => true,.Some(_) => false)), {
+              while((ke2 < n) && match(ce_ed_opt,.None => true,.Some(_) => false), {
                 match(
                   exprs.get(ke2),
                   .None => (),
@@ -4339,7 +4379,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
                           found_struct := {
                             (je : usize) = usize(0);
                             (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                            while(runtime((je < n) && match(sd_opt,.None => true,.Some(_) => false)), {
+                            while((je < n) && match(sd_opt,.None => true,.Some(_) => false), {
                               match(
                                 exprs.get(je),
                                 .None => (),
@@ -4360,7 +4400,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : CodegenContext) -> un
                           found_enum := {
                             (ke : usize) = usize(0);
                             (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                            while(runtime((ke < n) && match(ed_opt,.None => true,.Some(_) => false)), {
+                            while((ke < n) && match(ed_opt,.None => true,.Some(_) => false), {
                               match(
                                 exprs.get(ke),
                                 .None => (),
@@ -4459,7 +4499,7 @@ scan_and_emit_local_defs :: (
       if(is_begin, {
         (i : usize) = usize(0);
         n := args.len();
-        while(runtime(i < n), {
+        while(i < n, {
           match(args.get(i),.None => (),.Some(child) => recur(child, ctx));
           i = (i + usize(1));
         });
@@ -4495,7 +4535,7 @@ compile_module_to_c :: (
   // === Pass 1: register all top-level Yo function names ===
   // This allows forward calls (foo calls bar defined later) to receive the
   // correct `fn_` prefix in the generated C.
-  while(runtime(i < n), {
+  while(i < n, {
     i = (i + usize(1));
     match(
       exprs.get(i - usize(1)),
@@ -4531,7 +4571,7 @@ compile_module_to_c :: (
                           impl_fns := extract_impl_fns(expr, type_name);
                           nim := impl_fns.len();
                           (mi : usize) = usize(0);
-                          while(runtime(mi < nim), {
+                          while(mi < nim, {
                             mi = (mi + usize(1));
                             match(
                               impl_fns.get(mi - usize(1)),
@@ -4561,7 +4601,7 @@ compile_module_to_c :: (
   i = usize(0);
   (main_found : bool) = false;
   (main_c_name : String) = String.new();
-  while(runtime(i < n), {
+  while(i < n, {
     i = (i + usize(1));
     match(
       exprs.get(i - usize(1)),
@@ -4663,7 +4703,7 @@ compile_module_to_c :: (
                         );
                         nm := impl_fns.len();
                         (mi : usize) = usize(0);
-                        while(runtime(mi < nm), {
+                        while(mi < nm, {
                           mi = (mi + usize(1));
                           match(
                             impl_fns.get(mi - usize(1)),
@@ -4780,7 +4820,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   // === Pass 1: register all top-level function names ===
   ne := module_exprs.len();
   (ie : usize) = usize(0);
-  while(runtime(ie < ne), {
+  while(ie < ne, {
     ie = (ie + usize(1));
     match(
       module_exprs.get(ie - usize(1)),
@@ -4816,7 +4856,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                           impl_fns_tp := extract_impl_fns(mexpr, tp);
                           n_imp := impl_fns_tp.len();
                           (ii : usize) = usize(0);
-                          while(runtime(ii < n_imp), {
+                          while(ii < n_imp, {
                             ii = (ii + usize(1));
                             match(
                               impl_fns_tp.get(ii - usize(1)),
@@ -4851,7 +4891,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   emit_module_level_vars(module_exprs, pctx);
   // === Pass 2: emit helper structs and functions ===
   ie = usize(0);
-  while(runtime(ie < ne), {
+  while(ie < ne, {
     ie = (ie + usize(1));
     match(
       module_exprs.get(ie - usize(1)),
@@ -4952,7 +4992,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                                       impl_fns2 := extract_impl_fns(mexpr, tp2);
                                       n_impl2 := impl_fns2.len();
                                       (ii2 : usize) = usize(0);
-                                      while(runtime(ii2 < n_impl2), {
+                                      while(ii2 < n_impl2, {
                                         ii2 = (ii2 + usize(1));
                                         match(
                                           impl_fns2.get(ii2 - usize(1)),
@@ -5036,7 +5076,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   nf := local_fns.len();
   // First pass: register impl method names so call sites get fn_ prefix.
   (jf0 : usize) = usize(0);
-  while(runtime(jf0 < nf), {
+  while(jf0 < nf, {
     jf0 = (jf0 + usize(1));
     match(
       local_fns.get(jf0 - usize(1)),
@@ -5052,7 +5092,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   });
   hoisted_names := ArrayList(String).new();
   (jf : usize) = usize(0);
-  while(runtime(jf < nf), {
+  while(jf < nf, {
     jf = (jf + usize(1));
     match(
       local_fns.get(jf - usize(1)),
@@ -5066,7 +5106,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
           hn := hoisted_names.len();
           (hi : usize) = usize(0);
           (found_dup : bool) = false;
-          while(runtime((hi < hn) && (!(found_dup))), {
+          while((hi < hn) && (!(found_dup)), {
             match(
               hoisted_names.get(hi),
               .None => (),

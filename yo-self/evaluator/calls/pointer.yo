@@ -26,6 +26,9 @@ open(import("std/fmt"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr, t_i32 } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ type_is_control_bound } :: import("../../types/utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
@@ -85,6 +88,45 @@ evaluate_raw_pointer_call :: (
         .Some(v) => match(v,.TypeVal(inner) => inner.*, _ => t_i32()),
         .None => t_i32() // unreachable
       );
+      // Phase C structural gate (plans/MEMORY_SAFETY.md): `*(T)` produces a raw
+      // pointer type. In safe code (a file without `pragma(Pragma.AllowUnsafe);`
+      // and not in an `unsafe(...)` context), raw pointer types are not part of
+      // the user vocabulary — naming `*(T)` in a parameter / field / return slot
+      // is rejected. 1:1 with `src/evaluator/calls/pointer.ts:75-86`.
+      ptok := ast_expr_token(expr);
+      if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.clone())))), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ptok,
+              `Raw pointer types ('*(${type_to_string(inner_ty).as_str()})') are not available in safe code.\n\nUse 'Slice(T)' for bounded byte/element views, 'ref(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`,
+              false,
+              .None
+            )
+          )
+        );
+      });
+      // §4 escape boundary (rule 11): a pointer type cannot have a
+      // control-bound pointee. A `ctl(...)` value's lifetime is bound to its
+      // install frame; a pointer would let writes-through-indirection escape
+      // that frame. Banning the TYPE prevents the construction. Mirrors
+      // `src/evaluator/calls/pointer.ts:87-101`.
+      if(type_is_control_bound(inner_ty), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ptok,
+              `Cannot form a pointer to a control-bound type. The pointee transitively contains a \`ctl(...) -> ret\` function value, whose lifetime is bound to its install frame. A pointer would allow writes-through-indirection that escape that frame.
+
+Pointee type: ${type_to_string(inner_ty)}
+
+If you need to thread a handler through code, pass it by value (handlers are fn-pointer-sized; copying is free).`,
+              false,
+              .None
+            )
+          )
+        );
+      });
       ptr_ty := t_ptr(inner_ty);
       ptr_val := create_type_value(ptr_ty);
       meta_ty := type_of_type(ptr_ty);

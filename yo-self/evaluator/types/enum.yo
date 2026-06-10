@@ -28,24 +28,27 @@ open(import("std/fmt"));
   make_err_expr,
   BK_ENUM,
   BK_ASSIGN,
-  BK_CONST
+  BK_CONST,
+  BF_RECUR
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_comptime_int_type } :: import("../../types/guards.yo");
+{ t_unit, register_enum_final } :: import("../../types/creators.yo");
+{ is_comptime_int_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
 { parse_raw_int } :: import("../utils.yo");
 { random_id } :: import("../../utils.yo");
-{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_enum_type } :: import("./utils.yo");
+{ register_gadt_enum, register_gadt_type_constructor_args } :: import("./gadt_registry.yo");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -61,7 +64,7 @@ _fn_call_func :: (fn(e : AstExpr) -> AstExpr)(
 _has_variant :: (fn(variant_names : ArrayList(String), name : str) -> bool)({
   i := usize(0);
   (found : bool) = false;
-  while(runtime((i < variant_names.len()) && !(found)), {
+  while((i < variant_names.len()) && !(found), {
     match(
       variant_names.get(i),
       .Some(vn) => if(vn.as_str() == name, {
@@ -169,6 +172,44 @@ _evaluate_discriminant :: (
 // ---------------------------------------------------------------------------
 // evaluate_enum_type
 // ---------------------------------------------------------------------------
+/// Replace the empty-variant `Self` shell (matched by enum id + 0
+/// variants) with `final_ty` anywhere inside `t`. One-level rebuild over
+/// the standard type containers; the inserted `final_ty` itself still
+/// carries shells one level deeper — those resolve via the enum-final
+/// registry at use sites (types/creators.yo resolve_enum_shell).
+_patch_self_shell :: (
+  fn(t : TypeValue, shell_id : str, final_ty : TypeValue) -> TypeValue
+)(
+  match(
+    t,
+    .EnumT(eid, _, vns, _, _, _, _) => cond(
+      ((eid.as_str() == shell_id) && (vns.len() == usize(0))) => final_ty,
+      true => t
+    ),
+    .Pointer(inner) =>.Pointer(box(recur(inner.*, shell_id, final_ty))),
+    .Slice(el) =>.Slice(box(recur(el.*, shell_id, final_ty))),
+    .Array(el, n, lv) =>.Array(box(recur(el.*, shell_id, final_ty)), n, lv),
+    .ComptimeListT(el) =>.ComptimeListT(box(recur(el.*, shell_id, final_ty))),
+    .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => {
+      new_fts := ArrayList(TypeValue).new();
+      (i : usize) = usize(0);
+      while(i < field_types.len(), {
+        ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
+        new_fts.push(recur(ft, shell_id, final_ty));
+        i = (i + usize(1));
+      });
+      new_tas := ArrayList(TypeValue).new();
+      (j : usize) = usize(0);
+      while(j < type_arguments.len(), {
+        ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
+        new_tas.push(recur(ta, shell_id, final_ty));
+        j = (j + usize(1));
+      });
+      .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
+    },
+    _ => t
+  )
+);
 evaluate_enum_type :: (
   fn(
     expr : AstExpr,
@@ -192,9 +233,14 @@ evaluate_enum_type :: (
   });
   enum_id := `enum_${random_id(env.module_path)}`;
   // Preliminary EnumT (empty variants) used as SelfType during field evaluation
-  // so self-referential variants like `Some(Self)` work.
+  // so self-referential variants like `Some(Self)` work. The shell carries a
+  // DISTINCT id: sharing the final's id made EXACT type comparison — the
+  // CTFE cache key — conflate `Option(shell)` with `Option(final)`, so
+  // def-time instantiations that captured the empty shell were returned
+  // for post-definition lookups of the real enum (std/encoding/json.yo).
+  shell_id := `${enum_id}__self_shell`;
   prelim_ty := TypeValue.EnumT(
-    String.from(enum_id.as_str()),
+    String.from(shell_id.as_str()),
     String.from(""),
     ArrayList(String).new(),
     ArrayList(ArrayList(TypeValue)).new(),
@@ -211,15 +257,23 @@ evaluate_enum_type :: (
   variant_fields := ArrayList(ArrayList(TypeValue)).new();
   variant_field_labels := ArrayList(ArrayList(String)).new();
   variant_discriminants := ArrayList(i64).new();
+  // GADT: per-variant `-> recur(T…)` return-type args, parallel to variant
+  // order. An empty inner list marks a non-GADT variant. `any_gadt` mirrors
+  // `EnumType.isGadt`. Recorded in the gadt_registry side-table at the end.
+  all_variant_gadt_args := ArrayList(ArrayList(TypeValue)).new();
+  (any_gadt : bool) = false;
   // Track the next auto-assigned discriminant.
   (next_discriminant : i64) = i64(0);
   args := _fn_call_args(expr);
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     enum_arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // -------------------------------------------------------------------
-    // GADT detection (not yet implemented in Phase 1 bootstrap).
-    // Detect: `Variant -> recur(T)` or `(Variant -> recur(T)) = disc`.
+    // GADT detection. Detect `Variant -> recur(T…)` or
+    // `(Variant -> recur(T…)) = disc`, capture the `recur(...)` return-type
+    // expression in `gadt_ret`, and rewrite `enum_arg` to the bare variant so
+    // the normal variant-building `cond` below runs unchanged. Mirrors
+    // `enum.ts:61-85`.
     // -------------------------------------------------------------------
     is_gadt_arrow := ast_expr_is_fn_call_of(enum_arg, "->", Option(usize).Some(usize(2)));
     is_gadt_eq_arrow := if(ast_expr_is_fn_call_of(enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
@@ -227,17 +281,32 @@ evaluate_enum_type :: (
       lhs_eq := match(eq_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
       ast_expr_is_fn_call_of(lhs_eq, "->", Option(usize).Some(usize(2)))
     }, false);
-    if(is_gadt_arrow || is_gadt_eq_arrow, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(enum_arg),
-            String.from("GADT enum not yet implemented in self-hosted compiler"),
-            false,
-            .None
-          )
-        )
-      );
+    (gadt_ret : Option(AstExpr)) = Option(AstExpr).None;
+    if(is_gadt_arrow, {
+      arrow_args := _fn_call_args(enum_arg);
+      gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
+      enum_arg = match(arrow_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    }, {
+      if(is_gadt_eq_arrow, {
+        eq_args := _fn_call_args(enum_arg);
+        arrow_e := match(eq_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+        arrow_args := _fn_call_args(arrow_e);
+        gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
+        arrow_lhs := match(arrow_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+        eq_disc := match(eq_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+        // Reconstruct the `=` node stripped of the `->` wrapper (mirrors TS's
+        // `{...outerFnCall, args:[arrow.args[0], outer.args[1]]}`).
+        enum_arg = match(
+          enum_arg,
+          .FnCall(fid, ffunc, _, finfix, ftok) => {
+            new_args := ArrayList(AstExpr).new();
+            new_args.push(arrow_lhs);
+            new_args.push(eq_disc);
+            AstExpr.FnCall(fid, ffunc, new_args, finfix, ftok)
+          },
+          .Atom(_, _) => enum_arg
+        );
+      });
     });
     // -------------------------------------------------------------------
     // Atom variant with discriminant: `VariantName = value`
@@ -395,14 +464,14 @@ evaluate_enum_type :: (
         v_field_types := ArrayList(TypeValue).new();
         v_field_labels := ArrayList(String).new();
         (j : usize) = usize(0);
-        while(runtime(j < v_args.len()), {
+        while(j < v_args.len(), {
           field_arg := match(v_args.get(j),.Some(a) => a,.None => make_err_expr());
           result := evaluate_type_field(field_arg, j, env, ctx, "enum", exn);
           field := result.field;
           // Check for duplicate labels in this variant.
           (dup_idx : usize) = usize(0);
           (has_dup : bool) = false;
-          while(runtime((dup_idx < v_field_labels.len()) && !(has_dup)), {
+          while((dup_idx < v_field_labels.len()) && !(has_dup), {
             existing := match(v_field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
             if(existing == field.label, {
               has_dup = true;
@@ -441,7 +510,10 @@ evaluate_enum_type :: (
           });
           v_field_types.push(field.ty);
           v_field_labels.push(String.from(field.label.as_str()));
-          env = result.env;
+          env.frames = result.env.frames;
+          env.module_path = result.env.module_path;
+          env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+          env.input_string = result.env.input_string;
           j = (j + usize(1));
         });
         disc := match(custom_disc,.Some(d) => d,.None => next_discriminant);
@@ -452,15 +524,145 @@ evaluate_enum_type :: (
         next_discriminant = (disc + i64(1));
       }
     );
+    // GADT: evaluate the `-> recur(T…)` return-type args for the variant just
+    // built and record them parallel to variant order (mirrors enum.ts:313-366).
+    // A non-GADT variant records an empty list. `ctx.self_type` is still the
+    // preliminary enum type, so self-referential return args resolve.
+    match(
+      gadt_ret,
+      .Some(gre) => {
+        if(!(ast_expr_is_fn_call_of(gre, BF_RECUR, Option(usize).None)), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(gre),
+                `Expected recur(...) for GADT return type, got:\n${ast_expr_to_string(gre)}`,
+                false,
+                .None
+              )
+            )
+          );
+        });
+        recur_args := _fn_call_args(gre);
+        this_variant_args := ArrayList(TypeValue).new();
+        (gi : usize) = usize(0);
+        while(gi < recur_args.len(), {
+          ra := match(recur_args.get(gi),.Some(a) => a,.None => make_err_expr());
+          evaluated_ra := evaluate_expression_raw(ra, env, ctx, exn);
+          ra_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ra));
+          ra_info := match(ra_info_opt,.Some(ii) => ii,.None => new_expr_info(env, TypeValue.Unit));
+          if(!(is_type_value(ra_info.value)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(ra),
+                  `Expected type for GADT return type argument, got ${ast_expr_to_string(ra)}`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
+          ra_ty := match(
+            ra_info.value,
+            .Some(v) => match(v,.TypeVal(inner) => inner.*, _ => TypeValue.Unit),
+            .None => TypeValue.Unit
+          );
+          this_variant_args.push(ra_ty);
+          gi = (gi + usize(1));
+        });
+        all_variant_gadt_args.push(this_variant_args);
+        any_gadt = true;
+      },
+      .None => {
+        ___ := all_variant_gadt_args.push(ArrayList(TypeValue).new());
+      }
+    );
     i = (i + usize(1));
+  });
+  // GADT: record per-variant return-type args in the side-table (marks this
+  // enum id as a GADT). Mirrors `enumType.isGadt = true` + per-variant
+  // `gadtReturnTypeArgs` (enum.ts:364-365). typeConstructorArgs (enum.ts:369-391)
+  // is populated by the caller/match path.
+  if(any_gadt, {
+    register_gadt_enum(enum_id.as_str(), all_variant_gadt_args);
+    // typeConstructorArgs (enum.ts:369-391): when a GADT enum is built
+    // inside its type-constructor fn body (`Value(i32)` → `enum(...)`),
+    // record the concrete type args the constructor was called with —
+    // read from the env via the fn type's comptime (Type-universe) params.
+    // The match exhaustiveness check uses these to skip GADT-unreachable
+    // variants (tests/gadts.test.yo `eval_int_only` on `Value(i32)`).
+    match(
+      ctx.is_evaluating_function_body_or_async_block,
+      .Some(fab) => if(match(fab.kind,.FunctionBody => true, _ => false), {
+        match(
+          fab.func_type,
+          .Some(ft) => match(
+            ft,
+            .Func({ param_labels : fc_plabels, param_types : fc_ptypes }) => {
+              tca := ArrayList(TypeValue).new();
+              (tci : usize) = usize(0);
+              n_tcp := fc_plabels.len();
+              while(tci < n_tcp, {
+                p_lbl := match(fc_plabels.get(tci),.Some(l) => l,.None => String.from(""));
+                p_ty := match(fc_ptypes.get(tci),.Some(t) => t,.None => TypeValue.Unit);
+                // Comptime type param ≈ declared type is the `Type` universe.
+                if(is_type_0(p_ty), {
+                  vars := get_variables_from_env(env, p_lbl);
+                  if(vars.len() > usize(0), {
+                    match(
+                      vars.get(vars.len() - usize(1)),
+                      .Some(lastv) => match(
+                        lastv.value,
+                        .Some(vv) => match(
+                          vv,
+                          .TypeVal(tvb) => {
+                            _t := tca.push(tvb.*);
+                          },
+                          _ => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                });
+                tci = (tci + usize(1));
+              });
+              // Only register when every comptime param resolved to a type
+              // (mirrors TS `typeArgs.length === comptimeParams.length`).
+              n_comptime := usize(0);
+              (cti : usize) = usize(0);
+              while(cti < fc_ptypes.len(), {
+                match(
+                  fc_ptypes.get(cti),
+                  .Some(pt) => if(is_type_0(pt), {
+                    n_comptime = (n_comptime + usize(1));
+                  }),
+                  .None => ()
+                );
+                cti = (cti + usize(1));
+              });
+              if((tca.len() > usize(0)) && (tca.len() == n_comptime), {
+                register_gadt_type_constructor_args(enum_id.as_str(), tca);
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
   auto_derive_traits_for_enum_type(String.from(enum_id.as_str()), variant_fields, env);
   // Restore SelfType.
   ctx.self_type = old_self_type;
-  // Build final EnumT.
-  enum_ty := TypeValue.EnumT(
+  // Build the final EnumT in two steps: an UNPATCHED pre-final used as the
+  // replacement target, then the real final with shell-patched fields.
+  pre_final_ty := TypeValue.EnumT(
     String.from(enum_id.as_str()),
     String.from(""),
     variant_names,
@@ -469,6 +671,40 @@ evaluate_enum_type :: (
     variant_field_labels,
     variant_discriminants
   );
+  // Patch the SELF SHELL out of the variant fields: during field
+  // evaluation `Self` was the empty prelim (same id), and instantiations
+  // like `ArrayList(Self)` captured it — `.Array(items)` bindings then
+  // carried ArrayList(<0-variant shell>) and downstream dispatch/unify
+  // failed (std/encoding/json.yo's `at`). Replace one level here; deeper
+  // self-nesting resolves through the enum-final registry
+  // (resolve_enum_shell). TS needs no patch — its Self IS the same
+  // mutable object.
+  patched_fields := ArrayList(ArrayList(TypeValue)).new();
+  (pf_i : usize) = usize(0);
+  while(pf_i < variant_fields.len(), {
+    vf_list := match(variant_fields.get(pf_i),.Some(l) => l,.None => ArrayList(TypeValue).new());
+    new_list := ArrayList(TypeValue).new();
+    (pf_j : usize) = usize(0);
+    while(pf_j < vf_list.len(), {
+      ft := match(vf_list.get(pf_j),.Some(t) => t,.None => t_unit());
+      new_list.push(_patch_self_shell(ft, shell_id.as_str(), pre_final_ty));
+      pf_j = (pf_j + usize(1));
+    });
+    patched_fields.push(new_list);
+    pf_i = (pf_i + usize(1));
+  });
+  enum_ty := TypeValue.EnumT(
+    String.from(enum_id.as_str()),
+    String.from(""),
+    variant_names,
+    patched_fields,
+    Option(String).None,
+    variant_field_labels,
+    variant_discriminants
+  );
+  // Record the finalized form under the SHELL's id so leaked shells can
+  // be resolved at use sites — see resolve_enum_shell.
+  register_enum_final(String.from(shell_id.as_str()), enum_ty);
   enum_val := create_type_value(enum_ty);
   meta_ty := type_of_type(enum_ty);
   out_info := new_expr_info(env, meta_ty);

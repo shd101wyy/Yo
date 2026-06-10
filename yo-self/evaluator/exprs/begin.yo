@@ -54,6 +54,10 @@ open(import("std/string"));
 { is_some_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ is_flowable_expr, flow_options_default, FlowOptions }
+:: import("../../types/flowability.yo");
+{ type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
@@ -200,7 +204,7 @@ evaluate_begin_expression :: (
   _fr := env.push_frame(true);
   // Inject pre-supplied variables (e.g. function parameters) into the frame.
   (vi : usize) = usize(0);
-  while(runtime(vi < variables_to_add.len()), {
+  while(vi < variables_to_add.len(), {
     v := match(
       variables_to_add.get(vi),
       .Some(x) => x,
@@ -236,7 +240,7 @@ evaluate_begin_expression :: (
   (has_runtime_side_effects : bool) = false;
   (done : bool) = false;
   (loop_i : usize) = usize(0);
-  while(runtime((loop_i < n_args) && !(done)), {
+  while((loop_i < n_args) && !(done), {
     (expr_to_eval : AstExpr) = match(
       begin_args.get(loop_i),
       .Some(a) => a,
@@ -254,7 +258,7 @@ evaluate_begin_expression :: (
       // return / return(val)
       // -------------------------------------------------------------------
       is_return_expr => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("return"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("return"), exn);
         if(!(ctx.is_evaluating_function_body_or_async_block.is_some()), {
           exn.throw(
             dyn(
@@ -282,10 +286,39 @@ evaluate_begin_expression :: (
             .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
-          // Pass the function-body's expected return type when available.
-          // (Full synthesize_types support is Phase 3; we pass None here.)
+          // Pass the function-body's return type as the expected type for the
+          // return argument — mirrors TS begin.ts:1148-1163: for a
+          // FunctionBody context, `expectedType = { type:
+          // functionType.return.type, env }`; for async blocks / other
+          // contexts, keep the current expected type. Without this,
+          // `return(.Variant(...))` shorthand throws "Failed to infer enum
+          // variant type" at definition-time body evaluation (this was the
+          // single largest def-eval swallow category, 58× in std).
           old_expected := ctx.expected_type;
-          ctx.expected_type = Option(ExpectedTypeCtx).None;
+          ret_expected := match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .Some(fb_ctx) => match(
+              fb_ctx.kind,
+              .FunctionBody => match(
+                fb_ctx.func_type,
+                .Some(ft) => match(
+                  ft,
+                  .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box.*),
+                  _ => Option(TypeValue).None
+                ),
+                .None => Option(TypeValue).None
+              ),
+              _ => Option(TypeValue).None
+            ),
+            .None => Option(TypeValue).None
+          );
+          match(
+            ret_expected,
+            .Some(rt) => {
+              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt, env : env));
+            },
+            .None => ()
+          );
           evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, exn);
           ctx.expected_type = old_expected;
           ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg));
@@ -302,7 +335,10 @@ evaluate_begin_expression :: (
             );
           });
           ret_info := match(ret_info_opt,.Some(ri) => ri,.None => new_expr_info(env, TypeValue.Unit));
-          env = ret_info.env;
+          env.frames = ret_info.env.frames;
+          env.module_path = ret_info.env.module_path;
+          env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
+          env.input_string = ret_info.env.input_string;
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
           attach_temp_variable_to_expr(evaluated_ret_arg, true, ctx);
           // Re-read env in case the stub updated it (future-proof).
@@ -310,6 +346,66 @@ evaluate_begin_expression :: (
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg)),
             .Some(ri) => ri.env,
             .None => env
+          );
+          // Defense-in-depth flowability on the return ARGUMENT (begin.ts:
+          // 1243-1282). The function-body-level `is_flowable_expr` walk
+          // vacuously accepts `return(...)` (the return wrapper sets a
+          // control-flow flag → true), so the returned expression must be
+          // re-checked here for `-> ref(T)` returns and for value returns whose
+          // representation carries a raw pointer (Slice/str/struct-wrapping).
+          match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .Some(rfb_ctx) => match(
+              rfb_ctx.kind,
+              .FunctionBody => match(
+                rfb_ctx.func_type,
+                .Some(rft) => match(
+                  rft,
+                  .Func({ result : rfb, result_is_ref : rfr, result_is_comptime_only : rfco }) => {
+                    if(rfr, {
+                      if(!(is_flowable_expr(evaluated_ret_arg, ctx, flow_options_default())), {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              ast_expr_token(ret_arg),
+                              `'return(...)' from a function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
+                              false,
+                              .None
+                            )
+                          )
+                        );
+                      });
+                    }, {
+                      if((!(rfco) && type_representation_contains_raw_ptr(rfb.*))
+                      && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone()))), {
+                        ret_slice_opts := FlowOptions(
+                          allow_same_frame_local : false,
+                          allow_parameter_source : true,
+                          allow_comptime_source : true,
+                          max_local_frame_level : Option(usize).None
+                        );
+                        if(!(is_flowable_expr(evaluated_ret_arg, ctx, ret_slice_opts)), {
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(ret_arg),
+                                `'return(...)' from a function returning '${type_to_string(rfb.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
+                        });
+                      });
+                    });
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              ),
+              _ => ()
+            ),
+            .None => ()
           );
           out := new_expr_info(env, ret_info.ty);
           out.value = ret_info.value;
@@ -325,7 +421,7 @@ evaluate_begin_expression :: (
       // break
       // -------------------------------------------------------------------
       is_break_atom => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("break"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("break"), exn);
         if(!(ctx.is_evaluating_loop_body.is_some()), {
           exn.throw(
             dyn(
@@ -349,7 +445,7 @@ evaluate_begin_expression :: (
       // continue
       // -------------------------------------------------------------------
       is_continue_atom => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("continue"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("continue"), exn);
         if(!(ctx.is_evaluating_loop_body.is_some()), {
           exn.throw(
             dyn(
@@ -373,7 +469,7 @@ evaluate_begin_expression :: (
       // unwind(val)
       // -------------------------------------------------------------------
       is_escape_call => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("unwind"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("unwind"), exn);
         if(!(ctx.enclosing_function_return_type.is_some()), {
           exn.throw(
             dyn(
@@ -464,7 +560,10 @@ evaluate_begin_expression :: (
         match(
           ev_info_opt,
           .Some(ev_info) => {
-            env = ev_info.env;
+            env.frames = ev_info.env.frames;
+            env.module_path = ev_info.env.module_path;
+            env.function_declaration_frame_level = ev_info.env.function_declaration_frame_level;
+            env.input_string = ev_info.env.input_string;
           },
           .None => ()
         );
@@ -543,7 +642,7 @@ evaluate_begin_expression :: (
               .Some(ft) => {
                 match(
                   ft,
-                  .Func(_, _, _, _, _, _, _, _, result_box) => {
+                  .Func({ result : result_box }) => {
                     expected_ret := result_box.*;
                     compat := are_types_compatible(return_type, expected_ret);
                     if(!(is_some_type(expected_ret)) && !(compat), {
@@ -588,7 +687,7 @@ evaluate_begin_expression :: (
     ),
     true => re_base
   );
-  throw_expr_is_implicit_variable_error(check_expr, env, ctx);
+  throw_expr_is_implicit_variable_error(check_expr, env, ctx, exn);
   // -------------------------------------------------------------------------
   // Ownership / RC optimizations — all stubbed (type_contains_rc_type = false)
   // -------------------------------------------------------------------------
@@ -609,7 +708,14 @@ evaluate_begin_expression :: (
     .Some(f) => Option(Frame).Some(f),
     .None => Option(Frame).None
   );
-  env.pop_frame();
+  // Drop the begin scope frame NON-mutatingly: reassign `env.frames` to a fresh
+  // list without the last frame, instead of `env.frames.pop()` (in-place). The
+  // threading above (`env.frames = ev_info.env.frames`) aliases `env.frames` to
+  // the last statement's recorded `ExprInfo` snapshot list; an in-place pop
+  // would drop the begin frame from THAT snapshot too, hiding begin-local
+  // bindings from any later consumer of the recorded env (e.g. the flowability
+  // check). See issues/yo-self-recorded-env-aliasing.md.
+  env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
   // Build ExprInfo for the begin expression itself
   // -------------------------------------------------------------------------

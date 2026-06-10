@@ -27,10 +27,25 @@ open(import("std/fmt"));
 { ExprInfoTable } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
-{ Environment } :: import("./env.yo");
-{ EvalContext, eval_context_new } :: import("./evaluator/context.yo");
+{ Environment, clone_env } :: import("./env.yo");
+// Cached prelude env — populated on first check, reused thereafter.
+(g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
+// Demand-driven module loader state (set per `check_single_file` run). The
+// import handler `ctx.load_module` has a fixed `(path) -> LoadModuleResult`
+// signature with no `io`/`exn`, so the loading context is stashed here for the
+// on-demand load path. This enables CIRCULAR imports: a module is registered as
+// "loading" (with its live env) before its body runs, so a cyclic import reads
+// its partial exports instead of failing "module not preloaded".
+(g_loader_io : Option(Io)) = Option(Io).None;
+(g_loader_std_path : Option(String)) = Option(String).None;
+(g_loader_exn : Option(Exception)) = Option(Exception).None;
+{ EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
+{ resolve_module_path, ModuleResolveResult, _build_module_val_from_env } :: import("./evaluator/exprs/import.yo");
+{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env } :: import("./evaluator/module_loader.yo");
+{ EvalValue } :: import("./value.yo");
+{ TypeValue } :: import("./types/definitions.yo");
 { compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 // Temporary C source path used during compilation.
@@ -92,6 +107,7 @@ try_populate_expr_info_table :: (
   // any evaluator coverage gap (e.g. unported HKT/RC features in prelude).
   env := Environment.new(module_path);
   ctx := eval_context_new(resolve_std_path(), module_path);
+  ctx.is_executing = true;
   // Wire the proper expression-evaluator function pointer.
   register_evaluate_expression();
   // Drive the module body through the proper evaluator. We discard the
@@ -101,6 +117,7 @@ try_populate_expr_info_table :: (
     exprs,
     env,
     ctx,
+    false,
     false,
     local_exn
   );
@@ -165,7 +182,7 @@ extract_test_body :: (fn(expr : AstExpr) -> Option(AstExpr))(
 /// Normalize an import path: append `.yo` if not already present.
 normalize_import_path :: (fn(path_str : str) -> String)(
   cond(
-    (String.from(path_str).ends_with(String.from(".yo"))) => String.from(path_str),
+    (String.from(path_str).ends_with(String.from(".yo")) || String.from(path_str).ends_with(String.from(".test.yo"))) => String.from(path_str),
     true => `${path_str}.yo`
   )
 );
@@ -218,13 +235,13 @@ collect_module_deps :: (
   });
   // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
   (abs_path : String) = String.from(abs_path_raw.as_str());
-  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str()))), io);
+  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str())), io), io);
   if(!(file_found), {
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
     base_no_ext := abs_path_raw.substring(usize(0), base_len - usize(3));
     index_path := `${base_no_ext.as_str()}/index.yo`;
-    index_found := io.await(exists(Path.new(index_path)), io);
+    index_found := io.await(exists(Path.new(index_path), io), io);
     cond(
       index_found => {
         abs_path = index_path;
@@ -238,7 +255,7 @@ collect_module_deps :: (
   nv := visited.len();
   (iv : usize) = usize(0);
   (already_visited : bool) = false;
-  while(runtime((iv < nv) && (!(already_visited))), {
+  while((iv < nv) && (!(already_visited)), {
     iv = (iv + usize(1));
     match(
       visited.get(iv - usize(1)),
@@ -262,13 +279,13 @@ collect_module_deps :: (
     .Some(p) => p.to_string()
   );
   // Read and parse the imported module
-  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str()))), io);
+  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str())), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, String.from(mod_base_dir.as_str()), exn);
   // Recursively collect dependencies of this module first (post-order DFS)
   nm := mod_exprs.len();
   (im : usize) = usize(0);
-  while(runtime(im < nm), {
+  while(im < nm, {
     im = (im + usize(1));
     match(
       mod_exprs.get(im - usize(1)),
@@ -292,7 +309,7 @@ collect_module_deps :: (
   });
   // Append this module's declarations to all_exprs (after its deps)
   im = usize(0);
-  while(runtime(im < nm), {
+  while(im < nm, {
     im = (im + usize(1));
     match(
       mod_exprs.get(im - usize(1)),
@@ -303,6 +320,134 @@ collect_module_deps :: (
     );
   });
 });
+/// Pre-evaluate the dependency tree rooted at `import_path` (as written
+/// in an importing file) and register each module's exports in the
+/// module-loader cache, so a later `import("…")` resolved by
+/// `evaluate_import` finds *just that module's exports* (not the whole
+/// flatten-eval env).
+///
+/// This is the orchestration half of the per-module-isolation design
+/// (see `evaluator/module_loader.yo`): it performs the I/O (reading +
+/// parsing dependency files) and the per-module evaluation that the
+/// pure `ctx.load_module` callback cannot. Post-order DFS guarantees a
+/// module's own dependencies are registered before it is evaluated, so
+/// its `import("…")` calls hit the cache.
+///
+/// `base_dir` is the directory of the *importing* file, used to resolve
+/// relative paths — and chosen so the resolved `file://` key matches the
+/// one `evaluate_import` will compute for the same import.
+// Function-pointer slot for the demand loader. `demand_load_module` and
+// `_load_module_at_abs` are mutually recursive (the loader sets
+// `ctx.load_module` to itself for nested imports) and yo has no forward refs,
+// so the loader is wired through this slot (set in the init IIFE below).
+(g_demand_loader : Option((fn(path : String) -> LoadModuleResult))) =
+  Option((fn(path : String) -> LoadModuleResult)).None;
+/// Evaluate a module's top-level exprs, catching any evaluator error
+/// locally so the caller can unregister the currently-loading entry
+/// before re-throwing. Success: pushes the module value to `out`.
+/// Failure: the handler PRINTS the error (handlers cannot capture
+/// outer runtime vars, and an unwound String loses its Rc storage)
+/// and unwinds — `out` stays empty, which is the caller's signal.
+_eval_module_exprs_capturing_error :: (
+  fn(
+    mod_exprs : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(EvalValue),
+    out_tys : ArrayList(TypeValue)
+  ) -> bool
+)({
+  // Same handler shape as `check_single_file`'s top-level handler:
+  // print the error, unwind a bool. Handlers cannot reference outer
+  // runtime variables (locals OR module globals), and an unwound String
+  // loses its Rc storage — printing here is the only way to preserve
+  // the message.
+  local_exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`check: error in: ${err.to_string()}`);
+        unwind(false)
+      }
+    )
+  );
+  result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, local_exn);
+  ___ := out.push(result.module_value);
+  ___t := out_tys.push(result.module_type);
+  true
+});
+/// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
+/// register its exports. Registers it as "loading" (with its live env) BEFORE
+/// evaluating, so a circular import resolves to its partial exports. Uses the
+/// loader io / std_path / exn stashed by `check_single_file`.
+_load_module_at_abs :: (fn(abs : String) -> unit)({
+  if(abs.ends_with(String.from("prelude.yo")), {
+    return(());
+  });
+  if(module_cache_has(abs.as_str()), {
+    return(());
+  });
+  io := match(g_loader_io,.Some(i) => i,.None => return(()));
+  std_path := match(g_loader_std_path,.Some(s) => s,.None => String.from(""));
+  exn := match(g_loader_exn,.Some(e) => e,.None => return(()));
+  fs_path := abs.replace(String.from("file://"), String.from(""));
+  src_bytes := io.await(read_file(Path.new(String.from(fs_path.as_str())), io), IoExn(io : io, exn : exn));
+  src := String.from_bytes(src_bytes);
+  mod_exprs := parse(src, abs.clone(), exn);
+  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(abs.clone())));
+  env.module_path = abs.clone();
+  ctx := eval_context_new(String.from(std_path.as_str()), abs.clone());
+  ctx.is_executing = true;
+  ctx.load_module = g_demand_loader;
+  register_evaluate_expression();
+  register_loading(abs.clone(), env);
+  out_vals := ArrayList(EvalValue).new();
+  out_tys := ArrayList(TypeValue).new();
+  _ := _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
+  // ALWAYS unregister — a leaked currently-loading entry poisons every
+  // LATER check that imports this module: `demand_load_module` then
+  // returns partial exports from the dead env (hangs/crashes; see
+  // issues/yo-self-dir-check-state-corruption-after-failure.md).
+  unregister_loading(abs.as_str());
+  match(
+    out_vals.get(usize(0)),
+    .Some(mv) => {
+      reg_ty := match(out_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+      register_module(abs.clone(), mv, reg_ty);
+    },
+    .None => {
+      // Root-cause detail printed by the helper's handler.
+      exn.throw(dyn(`Failed to evaluate module "${abs.as_str()}"`));
+    }
+  );
+});
+/// Demand-driven `ctx.load_module`. `path` is the resolved `file://` abs path
+/// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
+/// (cycle) -> partial exports from the module's live env; else load on demand.
+demand_load_module :: (fn(path : String) -> LoadModuleResult)({
+  if(module_cache_has(path.as_str()), {
+    return(load_module_from_cache(path));
+  });
+  match(
+    loading_env(path.as_str()),
+    .Some(env) => {
+      return(
+        LoadModuleResult(
+          module_value : _build_module_val_from_env(env),
+          module_type : TypeValue.Unit,
+          module_error : Option(String).None
+        )
+      );
+    },
+    .None => ()
+  );
+  _load_module_at_abs(path.clone());
+  load_module_from_cache(path)
+});
+// Wire the slot (breaks the mutual-recursion forward ref).
+_demand_loader_init := (fn() -> bool)({
+  g_demand_loader = Option((fn(path : String) -> LoadModuleResult)).Some(demand_load_module);
+  true
+})();
 /// Recursive helper for `collect_check_files` — walks a directory
 /// tree appending each `.yo` file path to `out`.
 _walk_check_dir :: (
@@ -313,10 +458,10 @@ _walk_check_dir :: (
     exn : Exception
   ) -> unit
 )({
-  entries := io.await(read_dir(Path.new(dir.clone())), io);
+  entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
   (n : usize) = entries.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     i = (i + usize(1));
     match(
       entries.get(i - usize(1)),
@@ -340,7 +485,10 @@ _walk_check_dir :: (
             });
           },
           .File => {
-            if(entry.name.ends_with(String.from(".yo")), {
+            // Skip dot-prefixed `.yo` files — auto-generated, not-yet-
+            // cleaned-up test-batch artifacts (`.yo_test_batch_*.yo`), not
+            // source. Mirrors `walkCheckDir` in `src/yo-cli.ts`.
+            if((entry.name.ends_with(String.from(".yo")) || entry.name.ends_with(String.from(".test.yo"))) && !(entry.name.starts_with(String.from("."))), {
               out.push(full);
             });
           },
@@ -361,21 +509,45 @@ _walk_check_dir :: (
 collect_check_files :: (
   fn(
     path_str : String,
+    excludes : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> ArrayList(String)
 )({
-  out := ArrayList(String).new();
-  meta := io.await(metadata(Path.new(path_str.clone()), io), io);
+  raw := ArrayList(String).new();
+  meta := io.await(metadata(Path.new(path_str.clone()), io), IoExn(io : io, exn : exn));
   cond(
     meta.is_file() => {
-      if(path_str.ends_with(String.from(".yo")), {
-        out.push(path_str.clone());
+      if(path_str.ends_with(String.from(".yo")) || path_str.ends_with(String.from(".test.yo")), {
+        raw.push(path_str.clone());
       });
     },
-    meta.is_dir() => _walk_check_dir(path_str, out, io, exn),
+    meta.is_dir() => _walk_check_dir(path_str, raw, io, exn),
     true => ()
   );
+  // Drop any collected path that contains an `--exclude` path as a substring
+  // (so `--exclude yo-self/tests` skips that whole subtree from a directory
+  // check). Mirrors the exclude filter in `collectCheckFiles` (src/yo-cli.ts);
+  // yo-self lacks `path.resolve`, so this uses path-segment containment on the
+  // collected absolute paths rather than resolved-prefix matching.
+  out := ArrayList(String).new();
+  (ri : usize) = usize(0);
+  while(ri < raw.len(), {
+    fp := match(raw.get(ri),.Some(p) => p,.None => String.from(""));
+    (skip : bool) = false;
+    (ei : usize) = usize(0);
+    while((ei < excludes.len()) && !(skip), {
+      ex := match(excludes.get(ei),.Some(e) => e,.None => String.from(""));
+      if(!(ex.is_empty()) && fp.contains(ex), {
+        skip = true;
+      });
+      ei = (ei + usize(1));
+    });
+    if(!(skip), {
+      out.push(fp);
+    });
+    ri = (ri + usize(1));
+  });
   out
 });
 /// Run the evaluator against a single `.yo` file. Returns `true` on
@@ -397,94 +569,88 @@ check_single_file :: (
   // Yo's `->` rule), so we can't print here — the caller logs the
   // file's pass/fail status from the bool return.
   local_exn := Exception(
-    throw : ((_err) -> unwind(false))
+    throw : (
+      (err) -> {
+        eprintln(`check: error in: ${err.to_string()}`);
+        unwind(false)
+      }
+    )
   );
   println(`check: parsing ${input_path}`);
-  src_bytes := io.await(read_file(Path.new(input_path.clone())), io);
+  src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
-  visited := ArrayList(String).new();
-  dep_exprs := ArrayList(AstExpr).new();
-  prelude_literal := String.from("prelude.yo");
-  collect_module_deps(
-    prelude_literal.as_str(),
-    std_path.as_str(),
-    std_path.as_str(),
-    visited,
-    dep_exprs,
-    io,
-    local_exn
+  (is_prelude : bool) = input_path.ends_with(String.from("prelude.yo"));
+  // ---------------------------------------------------------------------------
+  // Prelude: evaluate directly and cache the resulting env. The prelude
+  // is injected (cloned) into every other file's env, so it is never
+  // routed through the module loader.
+  // ---------------------------------------------------------------------------
+  if(is_prelude, {
+    prelude_env := Environment.new(input_path.clone());
+    prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
+    prelude_ctx.is_executing = true;
+    register_evaluate_expression();
+    println(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
+    // keep_frame_at_end=true so the prelude's bindings survive into the
+    // cached env (see issues/yo-self-multi-file-prelude-bindings.md).
+    _rp := evaluate_anonymous_module_begin_exprs(
+      exprs,
+      prelude_env,
+      prelude_ctx,
+      false,
+      true,
+      local_exn
+    );
+    g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    println(`check: ${input_path} — evaluator OK`);
+    return(true);
+  });
+  // ---------------------------------------------------------------------------
+  // Ensure the prelude env is cached (single-file checks skip the
+  // run_check pre-load step).
+  // ---------------------------------------------------------------------------
+  if(g_cached_prelude_env.is_none(), {
+    prelude_path := `${std_path.as_str()}/prelude.yo`;
+    _pre := recur(prelude_path, std_path.clone(), io, exn);
+  });
+  // ---------------------------------------------------------------------------
+  // Demand-driven module loading (supports circular imports). Stash the loader
+  // context (io / std_path / exn) for `demand_load_module`, register THIS file
+  // as "loading" under its resolved file:// abs path BEFORE evaluating its body
+  // (so a dependency that imports it back resolves to its partial exports), wire
+  // `ctx.load_module` to the demand loader, then evaluate. Imports load on
+  // demand during evaluation — no post-order pre-pass (cannot resolve cycles).
+  // ---------------------------------------------------------------------------
+  g_loader_io = Option(Io).Some(io);
+  g_loader_std_path = Option(String).Some(std_path.clone());
+  g_loader_exn = Option(Exception).Some(local_exn);
+  entry_abs := match(
+    resolve_module_path(input_path.as_str(), ".", std_path.as_str()),
+    .Found(p) => p,
+    .NotFound(_) => input_path.clone(),
+    .Ambiguous(_) => input_path.clone()
   );
-  println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
-  input_base_dir := match(
-    Path.new(String.from(input_path.as_str())).parent(),
-    .None => String.from("."),
-    .Some(p) => p.to_string()
-  );
-  (nip : usize) = exprs.len();
-  (iip : usize) = usize(0);
-  while(runtime(iip < nip), {
-    iip = (iip + usize(1));
-    match(
-      exprs.get(iip - usize(1)),
-      .None => (),
-      .Some(e) => match(
-        extract_import_path(e),
-        .None => (),
-        .Some(imp_path) => {
-          collect_module_deps(
-            imp_path.as_str(),
-            input_base_dir.as_str(),
-            std_path.as_str(),
-            visited,
-            dep_exprs,
-            io,
-            local_exn
-          );
-        }
-      )
-    );
-  });
-  // Combine: dependency module declarations first, then the
-  // input file's declarations.
-  all_exprs := ArrayList(AstExpr).new();
-  (ndep : usize) = dep_exprs.len();
-  (idep : usize) = usize(0);
-  while(runtime(idep < ndep), {
-    idep = (idep + usize(1));
-    match(
-      dep_exprs.get(idep - usize(1)),
-      .None => (),
-      .Some(e) => {
-        all_exprs.push(e);
-      }
-    );
-  });
-  (nexp : usize) = exprs.len();
-  (iexp : usize) = usize(0);
-  while(runtime(iexp < nexp), {
-    iexp = (iexp + usize(1));
-    match(
-      exprs.get(iexp - usize(1)),
-      .None => (),
-      .Some(e) => {
-        all_exprs.push(e);
-      }
-    );
-  });
-  println(`check: collected ${all_exprs.len().to_string()} exprs total (deps + body); registering evaluator`);
-  env := Environment.new(input_path.clone());
-  ctx := eval_context_new(std_path.clone(), input_path.clone());
+  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
+  env.module_path = entry_abs.clone();
+  ctx := eval_context_new(std_path.clone(), entry_abs.clone());
+  ctx.is_executing = true;
+  ctx.load_module = g_demand_loader;
   register_evaluate_expression();
+  register_loading(entry_abs.clone(), env);
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
-  _r := evaluate_anonymous_module_begin_exprs(
-    all_exprs,
-    env,
-    ctx,
-    false,
-    local_exn
-  );
+  out_vals_cf := ArrayList(EvalValue).new();
+  out_tys_cf := ArrayList(TypeValue).new();
+  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf, out_tys_cf);
+  // ALWAYS unregister, error or not — a leaked currently-loading entry
+  // poisons every LATER file in a directory check (see
+  // issues/yo-self-dir-check-state-corruption-after-failure.md).
+  unregister_loading(entry_abs.as_str());
+  if(out_vals_cf.len() == usize(0), {
+    // Root-cause detail printed by the helper's handler.
+    return(false);
+  });
   println(`check: ${input_path} — evaluator OK`);
   true
 });
@@ -509,15 +675,44 @@ run_check :: (
     exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
   });
   target_path := argv(usize(2));
-  files := collect_check_files(target_path.clone(), io, exn);
+  // Parse `--exclude <path>` flags (repeatable) from argv after the target.
+  excludes := ArrayList(String).new();
+  (ai : usize) = usize(3);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    if(a.as_str() == "--exclude", {
+      next_i := (ai + usize(1));
+      if(next_i < argv.len(), {
+        excludes.push(argv(next_i));
+        ai = (ai + usize(2));
+      }, {
+        ai = (ai + usize(1));
+      });
+    }, {
+      ai = (ai + usize(1));
+    });
+  });
+  files := collect_check_files(target_path.clone(), excludes, io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
   std_path := resolve_std_path();
+  // Reset the per-module loader cache for this run. Keys are absolute
+  // paths, so cache entries are valid for the whole run (a module
+  // imported by several files is evaluated once).
+  clear_module_cache();
+  // Pre-load the prelude so g_cached_prelude_env is a clean prelude-only
+  // environment before any file is checked. (check_single_file also
+  // self-bootstraps the prelude, but doing it once here keeps the cached
+  // env free of the first file's own bindings.)
+  if(g_cached_prelude_env.is_none(), {
+    prelude_path := `${std_path.as_str()}/prelude.yo`;
+    _pre := check_single_file(prelude_path, std_path.clone(), io, exn);
+  });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   total := files.len();
-  while(runtime(fi < total), {
+  while(fi < total, {
     match(
       files.get(fi),
       .None => (),
@@ -560,7 +755,7 @@ run_compile :: (
   // Derive module id from input filename
   mod_id := module_id_from_path(input_path);
   // Read the input .yo file
-  src_bytes := io.await(read_file(Path.new(input_path)), io);
+  src_bytes := io.await(read_file(Path.new(input_path), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   // Parse with the self-hosted parser
   exprs := parse(src, input_path, exn);
@@ -576,14 +771,14 @@ run_compile :: (
     .Some(c) => c
   );
   // Write C to temp file
-  io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
+  io.await(write_file(Path.new(String.from(C_TMP)), c_src, io), IoExn(io : io, exn : exn));
   // Compile C with system C compiler
   cc := Command.new(`cc`);
   cc.arg(String.from(C_TMP));
   cc.arg(`-w`);
   cc.arg(`-o`);
   cc.arg(output_path);
-  st := io.await(cc.status(), io);
+  st := io.await(cc.status(io), IoExn(io : io, exn : exn));
   if(!(st.success()), {
     exn.throw(dyn(`compile: C compilation failed`));
   });
@@ -612,7 +807,7 @@ run_test :: (
     });
   });
   // Read and parse the test file
-  src_bytes := io.await(read_file(Path.new(input_path)), io);
+  src_bytes := io.await(read_file(Path.new(input_path), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path, exn);
   // Phase 5g: resolve transitive imports and collect all module declarations.
@@ -627,7 +822,7 @@ run_test :: (
   );
   (nip : usize) = exprs.len();
   (iip : usize) = usize(0);
-  while(runtime(iip < nip), {
+  while(iip < nip, {
     iip = (iip + usize(1));
     match(
       exprs.get(iip - usize(1)),
@@ -653,7 +848,7 @@ run_test :: (
   all_module_exprs := ArrayList(AstExpr).new();
   (ndep : usize) = dep_exprs.len();
   (idep : usize) = usize(0);
-  while(runtime(idep < ndep), {
+  while(idep < ndep, {
     idep = (idep + usize(1));
     match(
       dep_exprs.get(idep - usize(1)),
@@ -665,7 +860,7 @@ run_test :: (
   });
   (nexp : usize) = exprs.len();
   (iexp : usize) = usize(0);
-  while(runtime(iexp < nexp), {
+  while(iexp < nexp, {
     iexp = (iexp + usize(1));
     match(
       exprs.get(iexp - usize(1)),
@@ -688,7 +883,7 @@ run_test :: (
   (passed : usize) = usize(0);
   (failed : usize) = usize(0);
   (skipped : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     i = (i + usize(1));
     match(
       exprs.get(i - usize(1)),
@@ -710,20 +905,20 @@ run_test :: (
                 // Generate C for this test body (includes all imported declarations)
                 c_src := compile_test_body_to_c(body, "test_module", all_module_exprs);
                 // Write to temp C file
-                io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
+                io.await(write_file(Path.new(String.from(C_TMP)), c_src, io), IoExn(io : io, exn : exn));
                 // Compile with cc
                 cc := Command.new(`cc`);
                 cc.arg(String.from(C_TMP));
                 cc.arg(`-w`);
                 cc.arg(`-o`);
                 cc.arg(String.from(TEST_BIN_TMP));
-                compile_st := io.await(cc.status(), io);
+                compile_st := io.await(cc.status(io), IoExn(io : io, exn : exn));
                 if(compile_st.success(), {
                   // Run the test binary (with a timeout to avoid hangs)
                   run := Command.new(`timeout`);
                   run.arg(String.from("3"));
                   run.arg(String.from(TEST_BIN_TMP));
-                  run_st := io.await(run.status(), io);
+                  run_st := io.await(run.status(io), IoExn(io : io, exn : exn));
                   cond(
                     run_st.success() => {
                       println(`  ✓ ${test_name}`);
@@ -780,7 +975,7 @@ run_fmt :: (
   input_paths := ArrayList(String).new();
   (check_mode : bool) = false;
   (ai : usize) = usize(2); // skip program name + "fmt"
-  while(runtime(ai < argv.len()), {
+  while(ai < argv.len(), {
     arg := argv(ai);
     cond(
       (arg.as_str() == "--check") => {
@@ -799,7 +994,7 @@ run_fmt :: (
   cond(
     check_mode => {
       (cidx : usize) = usize(0);
-      while(runtime(cidx < cn), {
+      while(cidx < cn, {
         match(
           result.changed.get(cidx),
           .Some(c) => println(`would format: ${c}`),
@@ -808,12 +1003,12 @@ run_fmt :: (
         cidx = (cidx + usize(1));
       });
       if(cn > usize(0), {
-        exit(int(1));
+        unsafe(exit(int(1)));
       });
     },
     true => {
       (cidx : usize) = usize(0);
-      while(runtime(cidx < cn), {
+      while(cidx < cn, {
         match(
           result.changed.get(cidx),
           .Some(c) => println(`formatted: ${c}`),
@@ -829,7 +1024,7 @@ main :: (fn(io : Io) -> unit)({
     throw : (
       (err) -> {
         eprintln(`yo-self: error: ${err.to_string()}`);
-        exit(int(1));
+        unsafe(exit(int(1)));
         unwind();
       }
     )
@@ -839,12 +1034,16 @@ main :: (fn(io : Io) -> unit)({
     exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test> ...`));
   });
   subcmd := argv(usize(1));
-  cond(
-    (subcmd.as_str() == "compile") => run_compile(argv, io, exn),
-    (subcmd.as_str() == "test") => run_test(argv, io, exn),
-    (subcmd.as_str() == "fmt") => run_fmt(argv, io, exn),
-    (subcmd.as_str() == "check") => run_check(argv, io, exn),
-    true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`))
-  );
+  if(subcmd.as_str() == "compile", {
+    run_compile(argv, io, exn);
+  }, if(subcmd.as_str() == "test", {
+    run_test(argv, io, exn);
+  }, if(subcmd.as_str() == "fmt", {
+    run_fmt(argv, io, exn);
+  }, if(subcmd.as_str() == "check", {
+    run_check(argv, io, exn);
+  }, {
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`));
+  }))));
 });
 export(main);

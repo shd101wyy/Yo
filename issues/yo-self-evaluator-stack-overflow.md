@@ -2,7 +2,75 @@
 
 ## Status
 
-OPEN (workaround: `ulimit -s 65520` before running yo-self-bin)
+**FIXED** — the generated `main()` now runs the whole program body on a
+dedicated POSIX worker thread with a 1 GiB stack (commit on
+`feat/bootstrapping-evaluator`). `ulimit -s 65520` is **no longer
+required**: `check std/prelude.yo` passes at the default 8 MB stack.
+
+Verified: at `ulimit -s 8192`, the old binary SIGSEGVs on
+`std/prelude.yo` (exit 139) while the new binary exits 0.
+
+## Fix
+
+`generateMainWrapper` (`src/codegen/functions/generation.ts`) emits, for
+POSIX native targets (`isTargetPosix`), a `__yo_main_thread_entry`
+function holding the program body (async scheduler init, module-level
+variable init, `__yo_user_main`, `__yo_async_wait_all`). `main()` sets
+the arg globals, then `pthread_create`s that entry on a
+`pthread_attr_setstacksize(…, 1 GiB)` thread and `pthread_join`s it. The
+macOS main thread is hard-capped at ~64 MiB; a pthread stack is not. The
+1 GiB reservation is virtual-only (committed on touch), so ordinary
+programs pay nothing. The async runtime's scheduler-init flag and task
+queue are thread-local, so they correctly live on this worker thread.
+Windows / WASM keep the direct main-thread call. Thread-safety verified
+against the async/thread/parallelism test suites.
+
+## NOTE — this was NOT what blocked the net/sys/http std files
+
+The earlier survey labelled 13 `net/*` `sys/*` `http/*` files as
+"stack-overflow" failures. That was a **misdiagnosis**. With the
+worker-stack fix in place they still fail, deterministically and at a
+shallow depth, with genuine evaluator-coverage gaps:
+
+- **9 files** (`sys/socket.yo`, `sys/tcp.yo`, `sys/udp.yo`,
+  `sys/unix.yo`, `net/tcp.yo`, `net/udp.yo`, `net/dns.yo`,
+  `http/client.yo`, `http/index.yo`):
+  `Expected bool type for "or" argument, got: platform == (Platform.Macos)`.
+
+  **Root cause (pinned):** comptime comparison operators produce a
+  `unit`-typed result instead of `bool`. Minimal repro:
+  `(r : bool) = ("a" == "a");` → `Incompatible types: Expected bool,
+Given unit`. This is NOT string-specific — `(i32(1) == i32(1)) ||
+(i32(1) == i32(1))` fails the same way. `==` (an operator-trait /
+  `Eq` dispatch) falls into the evaluator's unbound-operator-name
+  fallback in `evaluator/exprs/identifer_and_operator.yo`, which returns
+  `UnknownVal(t_unit())`; the call result therefore types as `unit`.
+  `cond` tolerates a non-`bool` condition, which is why a bare
+  `cond((a == b) => …)` passes — but `||`/`&&`
+  (`evaluator/builtins/and_or.yo`) and `bool`-typed bindings strictly
+  require `is_bool_type`, so they reject it. `platform` and
+  `Platform.Macos` are both comptime strings, so socket.yo's
+  `(platform == Platform.Macos) || (platform == Platform.Windows)`
+  hits exactly this.
+
+  The crash (139) is secondary: `_evaluate_expression_wrapper` prints the
+  error and unwinds with a `make_err_expr()` placeholder, and evaluation
+  limps on with that placeholder until a downstream access segfaults.
+
+  **Real fix:** port comptime operator-trait (`Eq`/`Ord`/…) dispatch so
+  comparison operators on comptime values resolve to their impl and type
+  as `bool`. Sizable evaluator-coverage work; would unblock all 9 files
+  at once.
+
+- **`build.yo`**: `evaluate_yo_build_functions: not yet implemented`.
+- **`env.yo`, `os/env.yo`, `fs/temp.yo`**:
+  `Failed to import module "./libc/stdlib"`.
+
+These are tracked as evaluator-coverage work, separate from the stack
+issue. The dominant one (comptime-string `==` → bool) would unblock 9
+files at once.
+
+## Original report (for history)
 
 ## Symptoms
 

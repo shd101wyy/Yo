@@ -53,10 +53,10 @@ is_slice_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Slice(_) => true, _ => false)
 );
 is_array_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Array(_, _) => true, _ => false)
+  match(t,.Array(_, _, _) => true, _ => false)
 );
 is_function_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Func(result : _) => true, _ => false)
+  match(t,.Func({ result : _ }) => true, _ => false)
 );
 is_some_type :: (fn(t : TypeValue) -> bool)(
   match(t,.SomeT(name : _) => true, _ => false)
@@ -70,11 +70,16 @@ is_trait_type :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
+/// True for source-namespace structs (anonymous modules / imports).
+/// Mirrors TS `isSourceNamespaceType` (guards.ts:191) — TS has no module
+/// type; the legacy name is kept for the existing call sites.
 is_module_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.ModuleT(_, _, _, _) => true, _ => false)
+  match(t,.Struct({ is_source_namespace : sns }) => sns, _ => false)
 );
+/// Mirrors TS `isStructType` (guards.ts:161): EXCLUDES source-namespace
+/// structs, exactly as TS does.
 is_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct(_, _, _, _, _, _, _) => true, _ => false)
+  match(t,.Struct({ is_source_namespace : sns }) => !(sns), _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)
@@ -232,7 +237,7 @@ is_fn_trait_type :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_is_type_function :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(result : r) => match(r.*,.TypeUni(_) => true, _ => false),
+    .Func({ result : r }) => match(r.*,.TypeUni(_) => true, _ => false),
     _ => false
   )
 );
@@ -250,7 +255,9 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
     .ComptimeFloat => true,
     .ComptimeString => true,
     .TypeUni(_) => true,
-    .ModuleT(_, _, _, _) => true,
+    // Source-namespace structs (anonymous modules / imports) are
+    // comptime-only; ordinary structs are not.
+    .Struct({ is_source_namespace : sns2 }) => sns2,
     .TraitT(name : _) => true,
     .FnTraitT(base_name : _) => true,
     .FutureTraitT(base_name : _) => true,
@@ -265,7 +272,7 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(result : r) => is_comptime_only_type_simple(r.*),
+    .Func({ result : r }) => is_comptime_only_type_simple(r.*),
     _ => false
   )
 );
@@ -370,14 +377,14 @@ is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(false);
 is_rc_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Struct(_, _, _, _, is_ref, _, _) => is_ref,
+    .Struct({ is_reference_semantics : is_ref }) => is_ref,
     .DynT(required_trait_types : _) => true,
     .IsoT(_) => true,
     .SomeT(required_trait_types : req_traits) => {
       // Check if any required trait is a Future trait
       (found : bool) = false;
       (i : usize) = usize(0);
-      while(runtime((i < req_traits.len()) && !(found)), {
+      while((i < req_traits.len()) && !(found), {
         match(
           req_traits.get(i),
           .Some(tr) => {
@@ -423,7 +430,7 @@ is_c_compatible_type :: (fn(t : TypeValue) -> bool)(
 is_function_type_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(forall_labels : fl, implicit_labels : il, param_types : pts) =>
+    .Func({ forall_labels : fl, implicit_labels : il, param_types : pts }) =>
       cond(
         (fl.len() > usize(0)) => true,
         (il.len() > usize(0)) => true,
@@ -432,7 +439,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
           found := false;
           i := usize(0);
           n := pts.len();
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               pts.get(i),
               .Some(pt) => match(
@@ -466,7 +473,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
 is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func(forall_labels : fl, param_types : pts) =>
+    .Func({ forall_labels : fl, param_types : pts }) =>
       cond(
         (fl.len() > usize(0)) => true,
         // Partial: check if any param is SomeT (Phase 2b: exclude resolved SomeType)
@@ -474,7 +481,7 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
           found := false;
           i := usize(0);
           n := pts.len();
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               pts.get(i),
               .Some(pt) => match(

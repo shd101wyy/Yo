@@ -1,0 +1,162 @@
+//! evaluator/module_loader — per-module evaluation cache for `check`.
+//!
+//! yo-self has no equivalent of TypeScript's `ModuleManager`
+//! (`src/module-manager.ts`). For the `check` subcommand we still need
+//! `ctx.load_module` to return *just* an imported file's exports — not
+//! the whole flatten-eval env (which conflates prelude + every dep and
+//! breaks spread-export with "already exported" errors).
+//!
+//! This module provides the minimal slice that makes that work within
+//! yo-self's constraints:
+//!
+//!   * I/O (reading + parsing dependency files) cannot happen inside a
+//!     plain `fn(path) -> LoadModuleResult` callback — `io` is
+//!     control-bound and the callback signature is fixed. So the actual
+//!     reading + evaluation is done up front by the orchestration in
+//!     `main.yo` (`preload_module_tree`), which has `io`/`exn` in scope.
+//!   * That orchestration evaluates each dependency module in isolation
+//!     (against a clone of the cached prelude env) and registers the
+//!     resulting `ModuleVal` here, keyed by the `file://`-prefixed
+//!     absolute path that `evaluate_import` computes.
+//!   * `load_module_from_cache` is then a pure lookup, usable directly as
+//!     `ctx.load_module`.
+//!
+//! This mirrors the *effect* of TS's `ModuleManager.loadModule` (cache +
+//! per-module isolation) while keeping all effects at the orchestration
+//! layer.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ EvalValue } :: import("../value.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{ Environment } :: import("../env.yo");
+{ LoadModuleResult } :: import("./context.yo");
+// ---------------------------------------------------------------------------
+// In-progress (currently-loading) registry — enables CIRCULAR imports under
+// demand-driven loading (main.yo `demand_load_module`). When module A is mid-
+// evaluation and imports B, and B imports A, A is "loading": the importer reads
+// A's LIVE env (its exported names are already bound as variables) to build a
+// partial ModuleVal, instead of erroring "module not preloaded". Mirrors TS's
+// loader returning the in-progress module for cycles.
+// ---------------------------------------------------------------------------
+(g_loading_keys : ArrayList(String)) = ArrayList(String).new();
+(g_loading_envs : ArrayList(Environment)) = ArrayList(Environment).new();
+/// Register `path` as currently-loading with its live evaluation `env`.
+register_loading :: (fn(path : String, env : Environment) -> unit)({
+  g_loading_keys.push(path);
+  g_loading_envs.push(env);
+});
+/// Remove the most-recent loading entry for `path` (LIFO — nested loads).
+unregister_loading :: (fn(path : str) -> unit)({
+  (i : usize) = g_loading_keys.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_loading_keys.get(i),
+      .Some(k) => if(k.as_str() == path, {
+        _ := g_loading_keys.remove(i, usize(1));
+        _ := g_loading_envs.remove(i, usize(1));
+        return(());
+      }),
+      .None => ()
+    );
+  });
+});
+/// The live env of a currently-loading module, or `.None`.
+loading_env :: (fn(path : str) -> Option(Environment))({
+  (i : usize) = g_loading_keys.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_loading_keys.get(i),
+      .Some(k) => if(k.as_str() == path, {
+        return(g_loading_envs.get(i));
+      }),
+      .None => ()
+    );
+  });
+  Option(Environment).None
+});
+// Parallel-array cache: `g_module_cache_keys(i)` (a `file://…` absolute
+// path) maps to `g_module_cache_vals(i)` (that module's exports as a
+// `ModuleVal`). Parallel arrays rather than a HashMap to keep the value
+// type (`EvalValue`) simple and avoid extra trait requirements.
+(g_module_cache_keys : ArrayList(String)) = ArrayList(String).new();
+(g_module_cache_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+(g_module_cache_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+/// Reset the cache. Call between independent `check` runs so module
+/// values from a previous file don't leak into the next.
+clear_module_cache :: (fn() -> unit)({
+  g_module_cache_keys = ArrayList(String).new();
+  g_module_cache_vals = ArrayList(EvalValue).new();
+  g_module_cache_types = ArrayList(TypeValue).new();
+  g_loading_keys = ArrayList(String).new();
+  g_loading_envs = ArrayList(Environment).new();
+  ()
+});
+/// Find the cache index for `path`, or `.None`.
+_module_cache_index :: (fn(path : str) -> Option(usize))({
+  (idx : Option(usize)) = Option(usize).None;
+  (i : usize) = usize(0);
+  n := g_module_cache_keys.len();
+  while((i < n) && idx.is_none(), {
+    match(
+      g_module_cache_keys.get(i),
+      .Some(k) => if(k.as_str() == path, {
+        idx = Option(usize).Some(i);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  idx
+});
+/// True iff a module value has already been registered for `path`.
+module_cache_has :: (fn(path : str) -> bool)(
+  _module_cache_index(path).is_some()
+);
+/// Register the evaluated `module_value` for `path`. First registration
+/// wins; callers guard with `module_cache_has` so this is a no-op on
+/// re-registration (a duplicate push would still be harmless because
+/// `_module_cache_index` returns the first match).
+register_module :: (fn(path : String, module_value : EvalValue, module_type : TypeValue) -> unit)({
+  if(!(module_cache_has(path.as_str())), {
+    g_module_cache_keys.push(path);
+    g_module_cache_vals.push(module_value);
+    g_module_cache_types.push(module_type);
+  });
+});
+/// Pure lookup used as `ctx.load_module`. On a hit, returns the cached
+/// module value; on a miss, returns a `LoadModuleResult` carrying an
+/// error message so `evaluate_import` can surface it.
+load_module_from_cache :: (fn(path : String) -> LoadModuleResult)(
+  match(
+    _module_cache_index(path.as_str()),
+    .Some(i) => LoadModuleResult(
+      module_value : match(
+        g_module_cache_vals.get(i),
+        .Some(v) => v,
+        .None => EvalValue.UnitVal
+      ),
+      module_type : match(
+        g_module_cache_types.get(i),
+        .Some(t) => t,
+        .None => TypeValue.Unit
+      ),
+      module_error : Option(String).None
+    ),
+    .None => LoadModuleResult(
+      module_value : EvalValue.UnitVal,
+      module_type : TypeValue.Unit,
+      module_error : Option(String).Some(`module not preloaded: ${path}`)
+    )
+  )
+);
+export(
+  clear_module_cache,
+  module_cache_has,
+  register_module,
+  load_module_from_cache,
+  register_loading,
+  unregister_loading,
+  loading_env
+);

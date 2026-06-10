@@ -43,6 +43,7 @@ open(import("std/fmt"));
 { random_id } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type } :: import("./utils.yo");
+{ is_iso_type } :: import("../../types/guards.yo");
 evaluate_struct_type :: (
   fn(
     expr : AstExpr,
@@ -80,7 +81,12 @@ evaluate_struct_type :: (
     ArrayList(TypeValue).new(),
     is_reference_semantics,
     is_atomic_rc,
-    is_newtype
+    is_newtype,
+    String.from(""),
+    // constructor_func_id — set later at the comptime-fn call site
+    ArrayList(TypeValue).new(),
+    // type_arguments — set later at the comptime-fn call site
+    false // is_source_namespace
   );
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
@@ -94,14 +100,14 @@ evaluate_struct_type :: (
   runtime_field_types := ArrayList(TypeValue).new();
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     result := evaluate_type_field(arg, i, env, ctx, "struct", exn);
     field := result.field;
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while(runtime((dup_idx < field_labels.len()) && !(has_dup)), {
+    while((dup_idx < field_labels.len()) && !(has_dup), {
       existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
       if(existing == field.label, {
         has_dup = true;
@@ -132,8 +138,47 @@ evaluate_struct_type :: (
       runtime_field_types.push(field.ty);
     });
     fields.push(field);
-    env = result.env;
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
     i = (i + usize(1));
+  });
+  // Phase H: Ban Arc(Iso(T)) — the `*` field of an atomic object wrapping Iso
+  // directly. Arc(Iso) is contradictory: Arc shares, Iso is unique. Transitive
+  // nesting (Arc(MyStruct(_inner: Iso(T)))) stays legal. Mirrors struct.ts:114-125.
+  if(is_atomic_rc, {
+    (deref_idx : Option(usize)) = Option(usize).None;
+    (j : usize) = usize(0);
+    while((j < field_labels.len()) && deref_idx.is_none(), {
+      match(
+        field_labels.get(j),
+        .Some(l) => if(l.as_str() == "*", {
+          deref_idx = Option(usize).Some(j);
+        }),
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    match(
+      deref_idx,
+      .Some(di) => {
+        deref_ty := match(field_types.get(di),.Some(t) => t,.None => TypeValue.Unit);
+        if(is_iso_type(deref_ty), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`,
+                false,
+                .None
+              )
+            )
+          );
+        });
+      },
+      .None => ()
+    );
   });
   // Check newtype constraint: must have exactly one field
   if(is_newtype && !(fields.len() == usize(1)), {
@@ -157,7 +202,12 @@ evaluate_struct_type :: (
     field_types,
     is_reference_semantics,
     is_atomic_rc,
-    is_newtype
+    is_newtype,
+    String.from(""),
+    // constructor_func_id — set later at the comptime-fn call site
+    ArrayList(TypeValue).new(),
+    // type_arguments — set later at the comptime-fn call site
+    false // is_source_namespace
   );
   // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in TypeScript.

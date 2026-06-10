@@ -36,6 +36,11 @@ open(import("std/string"));
 /// `{ moduleValue: ModuleValue; moduleError: Error | undefined }` in the TS source.
 LoadModuleResult :: object(
   module_value : EvalValue,
+  /// The source-namespace STRUCT TYPE with real member field types.
+  /// `type_of_eval_value(module_value)` cannot reconstruct these (FuncVal
+  /// values carry no type — every imported fn member arrived unit-typed,
+  /// so `mod.f(x)` calls typed unit). `.Unit` when unknown (cycle path).
+  module_type : TypeValue,
   module_error : Option(String)
 );
 // ---------------------------------------------------------------------------
@@ -204,6 +209,10 @@ EvalContext :: object(
   current_module_path : Option(String),
   /// Whether the function type being evaluated is marked unsafe.
   is_unsafe_function_type : bool,
+  /// Whether the expression currently being evaluated is inside an
+  /// `unsafe(...)` block. Set by `evaluate_unsafe`; permits raw-pointer
+  /// operations (deref/arith) within. Mirrors TS `EvaluatorContext.unsafeContext`.
+  unsafe_context : bool,
   /// Whether the function type being evaluated was declared `ctl(...)
   /// -> ret`. Control functions may contain `unwind` in their body and
   /// are frame-bound (escape boundaries reject them).
@@ -244,6 +253,17 @@ EvalContext :: object(
   /// `value.yo` and `env.yo`.  Each entry holds the cached call results for
   /// one compile-time function.
   comptime_fn_caches : ArrayList(ComptimeFnCacheEntry),
+  /// Working-trait field bindings for the trait constructor CURRENTLY
+  /// being implemented inside an `impl(...)` block — parallel
+  /// label/value arrays. Mirrors TS attaching the progressively-updated
+  /// `workingTraitType` to `receiverType.trait` (trait-type.ts:151-203)
+  /// so `Self.X` resolves to fields already bound in the SAME trait
+  /// entry (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`);
+  /// yo-self TypeValues have value semantics (no trait slot), so the
+  /// in-flight bindings live on the context, consulted by
+  /// property_access's working-trait associated-type fallback.
+  current_impl_trait_field_labels : ArrayList(String),
+  current_impl_trait_field_types : ArrayList(TypeValue),
   /// Specialization cache — per-function buckets keyed by `func_id`.
   ///
   /// Stored here (rather than on `FuncVal`) to avoid FuncVal pattern-match
@@ -272,6 +292,7 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     std_path : std_path,
     current_module_path : Option(String).Some(module_path),
     is_unsafe_function_type : false,
+    unsafe_context : false,
     is_control_function_type : false,
     enclosing_function_return_type : Option(TypeValue).None,
     has_control_function_implicit_params : false,
@@ -289,6 +310,8 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     doc_comment_lookup : Option(HashMap(String, String)).None,
     expr_info_table : expr_info_table_new(),
     comptime_fn_caches : ArrayList(ComptimeFnCacheEntry).new(),
+    current_impl_trait_field_labels : ArrayList(String).new(),
+    current_impl_trait_field_types : ArrayList(TypeValue).new(),
     specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry).new()
   )
 );
@@ -525,14 +548,14 @@ track_variable_usage :: (
       actual_frame_level := usize(0);
       fi := usize(0);
       n_frames := eval_env.frame_count();
-      while(runtime(fi < n_frames), {
+      while(fi < n_frames, {
         frame_opt := eval_env.frames.get(fi);
         match(
           frame_opt,
           .Some(frame) => {
             vi := usize(0);
             n_vars := frame.variables.len();
-            while(runtime(vi < n_vars), {
+            while(vi < n_vars, {
               match(
                 frame.variables.get(vi),
                 .Some(v) => {

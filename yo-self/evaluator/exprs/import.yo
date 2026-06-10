@@ -29,8 +29,10 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { Path } :: import("std/path");
+{ cwd } :: import("std/env");
 { access, F_OK } :: import("std/libc/unistd");
 { evaluate_expression } :: import("./expr.yo");
+{ random_id } :: import("../../utils.yo");
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
@@ -39,6 +41,78 @@ _file_exists_sync :: (fn(absolute_path : String) -> bool)({
   cstr := absolute_path.to_cstr();
   ptr := *(char)(cstr.ptr().unwrap());
   unsafe(access(ptr, F_OK)) == int(0)
+});
+// ---------------------------------------------------------------------------
+// Module path resolution (shared with main.yo's preload_module_tree)
+// ---------------------------------------------------------------------------
+/// Result of resolving an `import("…")` path string to a concrete file.
+/// `Found` carries the `file://`-prefixed absolute path (with extension).
+ModuleResolveResult :: enum(
+  Found(abs_path : String),
+  NotFound(base : String),
+  Ambiguous(base : String)
+);
+/// Resolve an import path string (already stripped of surrounding quotes,
+/// and known not to be the prelude) to a concrete `file://` module path.
+///
+/// I/O-free: file existence is probed with `_file_exists_sync` (POSIX
+/// `access(2)`), so this is a pure `fn` usable from both the evaluator
+/// (`evaluate_import`) and the orchestration layer (`preload_module_tree`
+/// in main.yo). Keeping resolution in one place guarantees both compute
+/// the *same* cache key for `ctx.load_module`.
+///
+/// Mirrors the resolution order in `src/evaluator/exprs/import.ts`:
+///   1. `std/…`     → relative to `std_path`
+///   2. `std`       → `std_path/index.yo`
+///   3. `.`/`..`    → relative to `current_dir`
+///   4. otherwise   → relative to CWD
+/// then extension resolution: `<path>.yo` xor `<path>/index.yo`.
+resolve_module_path :: (
+  fn(import_path : str, current_dir : str, std_path : str) -> ModuleResolveResult
+)({
+  (module_path_to_import : String) = String.from(import_path);
+  // 1. `std/` prefix → resolve relative to std_path.
+  if(module_path_to_import.starts_with(String.from("std/")), {
+    rel := module_path_to_import.substring(usize(4), module_path_to_import.len());
+    module_path_to_import = Path.new(String.from(std_path)).join(Path.new(rel)).to_string();
+  });
+  // 2. `std` alone → std/index.yo.
+  if(module_path_to_import.as_str() == "std", {
+    module_path_to_import = Path.new(String.from(std_path)).join(Path.new(String.from("index.yo"))).to_string();
+  });
+  // 3. Relative paths (`.` or `..` prefix) — resolve relative to current dir.
+  //    Build a combined string and re-`Path.new` it: `Path.new` collapses
+  //    `..`/`.` segments on construction, whereas `Path.join` does NOT
+  //    re-normalize `..` in its argument (so `std/imm`.join(`../allocator`)
+  //    would wrongly yield `std/imm/allocator`, not `std/allocator`).
+  if(module_path_to_import.starts_with(String.from(".")), {
+    module_path_to_import = Path.new(`${current_dir}/${module_path_to_import.as_str()}`).to_string();
+  });
+  // 4. Non-relative, non-absolute paths: resolve relative to CWD.
+  if(!(Path.new(String.from(module_path_to_import.as_str())).is_absolute()), {
+    cwd_result := match(
+      cwd(),
+      .Ok(p) => p.to_string(),
+      .Err(_) => String.from(".")
+    );
+    module_path_to_import = Path.new(cwd_result).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
+  });
+  // Extension resolution.
+  ext_opt := Path.new(String.from(module_path_to_import.as_str())).extension();
+  has_ext := match(ext_opt,.Some(_) => true,.None => false);
+  if(has_ext, {
+    return(ModuleResolveResult.Found(`file://${module_path_to_import}`));
+  });
+  yo_file_path := `${module_path_to_import}.yo`;
+  index_yo_path := `${module_path_to_import}/index.yo`;
+  yo_exists := _file_exists_sync(String.from(yo_file_path.as_str()));
+  index_exists := _file_exists_sync(String.from(index_yo_path.as_str()));
+  cond(
+    (yo_exists && index_exists) => ModuleResolveResult.Ambiguous(module_path_to_import),
+    yo_exists => ModuleResolveResult.Found(`file://${yo_file_path}`),
+    index_exists => ModuleResolveResult.Found(`file://${index_yo_path}`),
+    true => ModuleResolveResult.NotFound(module_path_to_import)
+  )
 });
 // ---------------------------------------------------------------------------
 // _find_project_root
@@ -50,7 +124,7 @@ _find_project_root :: (fn(file_path : String) -> Option(String))({
   dir_path_opt := Path.new(file_path).parent();
   (result : Option(String)) =.None;
   (found : bool) = false;
-  while(runtime(!(found)), {
+  while(!(found), {
     match(
       dir_path_opt,
       .None => {
@@ -107,7 +181,8 @@ _resolve_dependency_entry_point :: (fn(dep_root : String, dep_name : String) -> 
 // ---------------------------------------------------------------------------
 // _build_module_val_from_env
 // ---------------------------------------------------------------------------
-/// Build a `ModuleVal` whose fields are all comptime-known bindings currently
+/// Build a source-namespace `StructVal` (TS: imports are StructValues,
+/// evaluator/index.ts:49) whose fields are all comptime-known bindings currently
 /// visible in `env`. Used as a fallback when no real module loader is
 /// registered: in `run_check`'s flatten-eval pipeline all dep exprs run in the
 /// same shared env, so the names declared in any imported module are already
@@ -119,19 +194,28 @@ _build_module_val_from_env :: (fn(env : Environment) -> EvalValue)({
   names := ArrayList(String).new();
   values := ArrayList(EvalValue).new();
   (fi : usize) = usize(0);
-  while(runtime(fi < env.frames.len()), {
+  while(fi < env.frames.len(), {
     match(
       env.frames.get(fi),
       .Some(frame) => {
         (vi : usize) = usize(0);
-        while(runtime(vi < frame.variables.len()), {
+        while(vi < frame.variables.len(), {
           match(
             frame.variables.get(vi),
             .Some(v) => match(
               v.value,
               .Some(val) => {
-                names.push(String.from(v.name.as_str()));
-                values.push(val);
+                // Skip prelude operator / impl-method names (like bool.!, i32.MAX)
+                // that would cause "already exported" errors when spread-exporting
+                // multiple imports in flatten-eval mode. Real module exports never
+                // contain '.' — operator/impl names do.
+                name_str := v.name.as_str();
+                if(String.from(name_str).contains(String.from(".")), {
+                  // skip — prelude operator binding, not a module export
+                }, {
+                  names.push(String.from(name_str));
+                  values.push(val);
+                });
               },
               .None => ()
             ),
@@ -144,7 +228,7 @@ _build_module_val_from_env :: (fn(env : Environment) -> EvalValue)({
     );
     fi = (fi + usize(1));
   });
-  EvalValue.ModuleVal(names, values)
+  EvalValue.StructVal(`source_namespace_${random_id(env.module_path)}`, names, values)
 });
 // ---------------------------------------------------------------------------
 // evaluate_import
@@ -224,7 +308,10 @@ evaluate_import :: (
       new_expr_info(env, t_unit())
     }
   );
-  env = arg_info.env;
+  env.frames = arg_info.env.frames;
+  env.module_path = arg_info.env.module_path;
+  env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+  env.input_string = arg_info.env.input_string;
   // Extract the comptime string value.
   // In yo-self, StrLit.raw includes the surrounding quotes (e.g., `"std/string"`).
   // Strip the leading and trailing quote character to get the raw path.
@@ -291,81 +378,38 @@ evaluate_import :: (
     .Some(p) => p.to_string(),
     .None => String.from(".")
   );
-  // 1. `std/` prefix → resolve relative to ctx.std_path.
-  if(module_path_to_import.starts_with(String.from("std/")), {
-    rel := module_path_to_import.substring(usize(4), module_path_to_import.len());
-    abs_std := Path.new(ctx.std_path).join(Path.new(rel)).to_string();
-    module_path_to_import = abs_std;
-  });
-  // 2. `std` alone → std/index.yo.
-  if(module_path_to_import.as_str() == "std", {
-    abs_std := Path.new(ctx.std_path).join(Path.new(String.from("index.yo"))).to_string();
-    module_path_to_import = abs_std;
-  });
-  // 3. Relative paths (`.` or `..` prefix) — resolve relative to current dir.
-  if(module_path_to_import.starts_with(String.from(".")), {
-    resolved := Path.new(String.from(current_dir.as_str())).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
-    module_path_to_import = resolved;
-  });
-  // 4. Non-relative, non-absolute paths: dependency name resolution.
-  //    Phase 2 stub — dependency resolution via build registry is not yet ported.
-  //    If the path is still not absolute here, throw a helpful error.
-  if(!(Path.new(String.from(module_path_to_import.as_str())).is_absolute()), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(module_arg),
-          `Module "${module_path_to_import}" not found. If this is a dependency, add it to build.yo and run 'yo fetch'. (Dependency name resolution is not yet implemented in the self-hosted compiler.)`,
-          false,
-          .None
-        )
-      )
-    );
-  });
-  // ---------------------------------------------------------------------------
-  // Extension resolution
-  // ---------------------------------------------------------------------------
-  // Build the `file://` absolute path.
-  (module_abs_path : String) = `file://${module_path_to_import}`;
-  // If the path has no `.yo` extension, try `<path>.yo` then `<path>/index.yo`.
-  ext_opt := Path.new(String.from(module_path_to_import.as_str())).extension();
-  has_ext := match(ext_opt,.Some(_) => true,.None => false);
-  if(!(has_ext), {
-    yo_file_path := `${module_path_to_import}.yo`;
-    index_yo_path := `${module_path_to_import}/index.yo`;
-    yo_exists := _file_exists_sync(String.from(yo_file_path.as_str()));
-    index_exists := _file_exists_sync(String.from(index_yo_path.as_str()));
-    if(yo_exists && index_exists, {
+  // Resolve via the shared resolver so the cache key here matches the one
+  // `preload_module_tree` (main.yo) registers under.
+  (module_abs_path : String) = match(
+    resolve_module_path(module_path_to_import.as_str(), current_dir.as_str(), ctx.std_path.as_str()),
+    .Found(p) => p,
+    .Ambiguous(base) => {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            `Ambiguous import("${module_path_to_import}": both "${module_path_to_import}.yo" and "${module_path_to_import}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`,
+            `Ambiguous import("${base}": both "${base}.yo" and "${base}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`,
             false,
             .None
           )
         )
       );
-    });
-    if(yo_exists, {
-      module_abs_path = `file://${yo_file_path}`;
-    });
-    if(index_exists, {
-      module_abs_path = `file://${index_yo_path}`;
-    });
-    if(!(yo_exists) && !(index_exists), {
+      String.from("")
+    },
+    .NotFound(base) => {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            `Module not found: tried "${module_path_to_import}.yo" and "${module_path_to_import}/index.yo"`,
+            `Module not found: tried "${base}.yo" and "${base}/index.yo"`,
             false,
             .None
           )
         )
       );
-    });
-  });
+      String.from("")
+    }
+  );
   // ---------------------------------------------------------------------------
   // Load the module
   // ---------------------------------------------------------------------------
@@ -381,6 +425,7 @@ evaluate_import :: (
     .Some(load_fn) => load_fn(String.from(module_abs_path.as_str())),
     .None => LoadModuleResult(
       module_value : _build_module_val_from_env(env),
+      module_type : TypeValue.Unit,
       module_error :.None
     )
   );
@@ -403,13 +448,19 @@ evaluate_import :: (
   );
   // Record the result.
   mod_val := load_result.module_value;
-  // Use the value-derived module type so downstream destructurers
-  // (`{ X } :: import("…")`) see a ModuleT and proceed; otherwise the
-  // unit-typed shape would trip the "Destructuring assignment not
-  // supported for the right-hand type: unit" error.
-  out_info := new_expr_info(env, type_of_eval_value(mod_val));
+  // Prefer the CACHED namespace struct type (real member field types —
+  // fn members especially, whose FuncVal values carry no type, so the
+  // value-derived reconstruction makes every imported fn unit-typed and
+  // every `mod.f(x)` call unit). Fall back to the value-derived type for
+  // the cycle path, which has no recorded type.
+  mod_ty := match(
+    load_result.module_type,
+    .Unit => type_of_eval_value(mod_val),
+    _ => load_result.module_type
+  );
+  out_info := new_expr_info(env, mod_ty);
   out_info.value =.Some(mod_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-export(evaluate_import);
+export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);

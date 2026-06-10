@@ -134,6 +134,7 @@ masked := ((A | B) | C);
 - **Audit public stdlib safety with `./yo-cli public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./yo-self`; keep it that way when adding new APIs.
 - **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/EXTERN_UNSAFE_WRAP.md`.
 - **Slice-flowability rule:** a function returning a slice-bearing type (`Slice(T)`, `str`, a struct wrapping a Slice, ...) must root the returned value in caller-owned storage (a `ref`-bound parameter, any non-`ref` parameter, a `comptime`/literal source, or a flowable projection chain). `(fn() -> Option(Slice(i32)))({ arr := ArrayList(i32).new(); arr.as_slice() })` is rejected; `(fn(ref(arr) : ArrayList(i32)) -> Option(Slice(i32)))(arr.as_slice())` is accepted. See `plans/SLICE_FLOWABILITY.md`.
+- **Return-slot modifier placement: on the LABEL, not the type.** In a _labeled_ return slot, a `ref`/`comptime` modifier attaches to the label, mirroring the parameter convention (`ref(name) : T`). Valid: `-> ref(T)` and `-> comptime(T)` (unlabeled — modifier on the sole type), `-> (ref(name) : T)`, `-> (comptime(name) : T)`. **Rejected:** `-> (name : ref(T))`, `-> (name : comptime(T))` (modifier on the type when labeled), and `-> (ref(name) : ref(T))` (double-ref — "pick one"). Enforced at function-type eval in `src/evaluator/types/function.ts` (and the yo-self port).
 - **Signed-integer overflow is defined (wrap-around).** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on `i32(MAX)` wraps to `i32(MIN)` instead of UB. Opt-out: `--cflags='-fno-wrapv'`.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
@@ -524,7 +525,9 @@ divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y)
 increment :: (fn(ref(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
 
 // invariant(...) must be the FIRST statement of a while body.
-while(runtime(i < n), {
+// NOTE: do NOT wrap the condition in runtime(...) — while conditions are
+// runtime by default, so `while(runtime(i < n), …)` is redundant; use `while(i < n, …)`.
+while(i < n, {
   invariant(i <= n, acc >= i32(0));
   i = (i + i32(1)); acc = (acc + i);
 });

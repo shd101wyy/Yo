@@ -20,7 +20,7 @@ open(import("std/string"));
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_iso, t_type } :: import("../../types/creators.yo");
-{ is_iso_type } :: import("../../types/guards.yo");
+{ is_iso_type, is_atomic_object_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { can_type_form_rc_cycle } :: import("../../types/utils.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -30,6 +30,30 @@ open(import("std/string"));
 { evaluate_expression } :: import("../exprs/expr.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
+/// True if struct type `t` has a dereference field labeled `*` (the
+/// pointed-to-value field of a Box/Arc wrapper). Mirrors TS
+/// `childType.fields.find((f) => f.label === "*")` (iso.ts:65).
+_struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ field_labels : fls }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < fls.len()) && !(found), {
+        match(
+          fls.get(i),
+          .Some(l) => if(l.as_str() == "*", {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
 /// Evaluate an Iso type-constructor call, e.g. `Iso(Box(i32))`.
 ///
 /// Mirrors `evaluateIsoTypeCall` in `src/evaluator/calls/iso.ts`.
@@ -95,7 +119,10 @@ evaluate_iso_type_call :: (
     );
   });
   arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
-  env = arg_info.env;
+  env.frames = arg_info.env.frames;
+  env.module_path = arg_info.env.module_path;
+  env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+  env.input_string = arg_info.env.input_string;
   // Check that the argument is a type value.
   if(!(is_type_value(arg_info.value)), {
     exn.throw(
@@ -120,6 +147,21 @@ evaluate_iso_type_call :: (
     ),
     .None => TypeValue.Unit
   );
+  // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
+  // rc, not the inner Arc cell. After extract() you get the Arc back; Iso adds
+  // nothing over naked Arc + move-on-spawn. Mirrors iso.ts:62-73.
+  if(is_atomic_object_type(child_type) && _struct_has_deref_field(child_type), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Iso(Arc(T)) is not allowed.\n  - To send an Arc handle across a thread, send the Arc directly — the spawn closure already consumes it. Iso adds nothing.\n  - If you want unique-owned heap data, use Iso(Box(T)) or Iso(...your struct...).`,
+          false,
+          .None
+        )
+      )
+    );
+  });
   // Create the Iso type.
   iso_type := t_iso(child_type);
   // Phase 2bd deferred: addRcFunctionsToIsoType — generates atomic dispose/drop/dup
@@ -136,7 +178,7 @@ _join_strings :: (fn(items : ArrayList(String), sep : String) -> String)({
   result := String.from("");
   n := items.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       items.get(i),
       .Some(s) => {
@@ -157,13 +199,13 @@ _find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(Strin
   result := ArrayList(String).new();
   n_frames := env.frames.len();
   (fi : usize) = usize(0);
-  while(runtime(fi < n_frames), {
+  while(fi < n_frames, {
     match(
       env.frames.get(fi),
       .Some(frame) => {
         n_vars := frame.variables.len();
         (vi : usize) = usize(0);
-        while(runtime(vi < n_vars), {
+        while(vi < n_vars, {
           match(
             frame.variables.get(vi),
             .Some(v) => {
@@ -252,7 +294,10 @@ evaluate_iso_value_call :: (
     );
   });
   arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
-  env = arg_info.env;
+  env.frames = arg_info.env.frames;
+  env.module_path = arg_info.env.module_path;
+  env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+  env.input_string = arg_info.env.input_string;
   // Check ownership / alias constraints using the variable name from ExprInfo.
   match(
     arg_info.variable_name,
@@ -341,7 +386,7 @@ evaluate_iso_value_call :: (
     arg_info.variable_name,
     .Some(var_name) => {
       is_type_val := is_type_value(arg_info.value);
-      set_variable_as_consumed(var_name, ast_expr_token(arg_expr), env, false, is_type_val);
+      set_variable_as_consumed(var_name, ast_expr_token(arg_expr), env, false, is_type_val, exn);
     },
     .None => ()
   );

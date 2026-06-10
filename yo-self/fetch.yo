@@ -73,12 +73,12 @@ SIDECAR_FILENAME :: ".yo-content-hash";
 /// Recursive directory removal.
 /// Walks the tree (parents first), then deletes in reverse order.
 remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
-  io.async((io, exn) => {
+  io.async((io) => {
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
     entries := io.await(walk_with(path, opts, io), io);
     n := entries.len();
     // Delete deepest entries first (reverse order from walk output)
-    while(runtime(n > usize(0)), {
+    while(n > usize(0), {
       n = (n - usize(1));
       match(
         entries.get(n),
@@ -105,17 +105,17 @@ sort_dir_entries :: (fn(entries : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
   // Track which entries have been moved to result
   added := ArrayList(bool).with_capacity(n);
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     added.push(false);
     i = (i + usize(1));
   });
   selected := usize(0);
-  while(runtime(selected < n), {
+  while(selected < n, {
     // Find the minimum-name entry not yet added
     min_idx := usize(0);
     found := false;
     j := usize(0);
-    while(runtime(j < n), {
+    while(j < n, {
       flag := match(added.get(j),.None => true,.Some(f) => f);
       if(!(flag), {
         if(!(found), {
@@ -155,7 +155,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   // Quick path: no CR in input
   has_cr := false;
   i := usize(0);
-  while(runtime((i < bytes.len()) && (!(has_cr))), {
+  while((i < bytes.len()) && (!(has_cr)), {
     match(
       bytes.get(i),
       .None => (),
@@ -168,7 +168,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   if(!(has_cr), bytes, {
     out := ArrayList(u8).with_capacity(bytes.len());
     j := usize(0);
-    while(runtime(j < bytes.len()), {
+    while(j < bytes.len(), {
       match(
         bytes.get(j),
         .None => (),
@@ -194,7 +194,7 @@ _push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
-  while(runtime(k < n), {
+  while(k < n, {
     {
       buf.push((p &+ k).*);
     };
@@ -206,7 +206,7 @@ _push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
-  while(runtime(k < n), {
+  while(k < n, {
     match(
       bytes.get(k),
       .None => (),
@@ -232,7 +232,7 @@ compute_content_hash :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     hasher := Sha256.new();
     // Bootstrap: push root entries in reversed sorted order so LIFO pop gives forward order
     root_entries := io.await(read_dir(Path.new(dir_path)), io);
@@ -240,7 +240,7 @@ compute_content_hash :: (
     stack := ArrayList(_HashWorkItem).new();
     // Push root entries in reversed sorted order
     ri := root_sorted.len();
-    while(runtime(ri > usize(0)), {
+    while(ri > usize(0), {
       ri = (ri - usize(1));
       match(
         root_sorted.get(ri),
@@ -259,7 +259,7 @@ compute_content_hash :: (
         }
       );
     });
-    while(runtime(stack.len() > usize(0)), {
+    while(stack.len() > usize(0), {
       item := match(
         stack.pop(),
         .None => {
@@ -298,7 +298,7 @@ compute_content_hash :: (
           sub_entries := io.await(read_dir(Path.new(abs_sub)), io);
           sub_sorted := sort_dir_entries(sub_entries);
           si := sub_sorted.len();
-          while(runtime(si > usize(0)), {
+          while(si > usize(0), {
             si = (si - usize(1));
             match(
               sub_sorted.get(si),
@@ -345,7 +345,7 @@ compute_content_hash :: (
     digest := hasher.finish();
     hex_bytes := ArrayList(u8).with_capacity(usize(32));
     k := usize(0);
-    while(runtime(k < usize(32)), {
+    while(k < usize(32), {
       hex_bytes.push(digest(k));
       k = (k + usize(1));
     });
@@ -364,7 +364,7 @@ write_sidecar_hash :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_content := String.from(content_hash.as_str());
     sidecar_content.push_str("\n");
@@ -379,7 +379,7 @@ read_sidecar_hash :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_exists := io.await(exists(sidecar), io);
     if(!(sidecar_exists), Option(String).None, {
@@ -410,7 +410,7 @@ inspect_cached_dep :: (
     exn : Exception
   ) -> Impl(Future(CachedDepState, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cached_path := get_cached_dep_dir(cache_dir, dep_name, commit);
     path_exists := io.await(exists(Path.new(cached_path)), io);
     if(
@@ -466,7 +466,7 @@ resolve_git_ref :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--"));
@@ -512,7 +512,7 @@ clone_repo :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     target_dir := get_cached_dep_dir(cache_dir, dep_name, commit);
     // Return early if already cloned
     already_exists := io.await(exists(Path.new(target_dir)), io);
@@ -601,7 +601,7 @@ fetch_dep :: (
     exn : Exception
   ) -> Impl(Future(FetchDepResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     existing_entry := find_lock_entry(lock_file, dep.name);
     ref_changed := match(
       existing_entry,
@@ -728,7 +728,7 @@ fetch_all_deps :: (
     exn : Exception
   ) -> Impl(Future(FetchResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cache_dir := io.await(ensure_global_deps_cache_dir(), io);
     resolved_paths := ArrayList(String).new();
     resolved_names := ArrayList(String).new();
@@ -751,7 +751,7 @@ fetch_all_deps :: (
     n := deps.len();
     i := usize(0);
     current_lock := lock_file;
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         deps.get(i),
         .None => (),
@@ -767,14 +767,14 @@ fetch_all_deps :: (
     // Prune stale lock entries (deps no longer in build.yo)
     pruned_deps := ArrayList(LockEntry).new();
     k := usize(0);
-    while(runtime(k < current_lock.dependencies.len()), {
+    while(k < current_lock.dependencies.len(), {
       match(
         current_lock.dependencies.get(k),
         .None => (),
         .Some(entry) => {
           still_declared := false;
           m := usize(0);
-          while(runtime(m < deps.len()), {
+          while(m < deps.len(), {
             match(
               deps.get(m),
               .None => (),
@@ -809,7 +809,7 @@ are_deps_cached :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     if(deps.len() == usize(0), {
       return(true);
     });
@@ -817,7 +817,7 @@ are_deps_cached :: (
     cache_dir := get_global_deps_cache_dir();
     all_cached := true;
     i := usize(0);
-    while(runtime((i < deps.len()) && all_cached), {
+    while((i < deps.len()) && all_cached, {
       match(
         deps.get(i),
         .None => (),
@@ -853,7 +853,7 @@ resolve_dep_path :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     lock_file := io.await(read_lock_file(Path.new(project_dir)), io);
     entry_opt := find_lock_entry(lock_file, dep_name);
     match(

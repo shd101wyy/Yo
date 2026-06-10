@@ -44,7 +44,7 @@ open(import("std/fmt"));
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
-{ Environment, Variable, Frame } :: import("./env.yo");
+{ Environment, Variable, Frame, snapshot_env } :: import("./env.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 // ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) 
     return(false);
   });
   i := usize(0);
-  while(runtime(i < n2), {
+  while(i < n2, {
     s1 := match(path1.get(i),.Some(s) => s,.None => String.from(""));
     s2 := match(path2.get(i),.Some(s) => s,.None => String.from("~"));
     if(s1 != s2, {
@@ -104,10 +104,10 @@ path_collection_conflicts_with_path_collection :: (
   n1 := c1.len();
   n2 := c2.len();
   i := usize(0);
-  while(runtime(i < n1), {
+  while(i < n1, {
     p1 := match(c1.get(i),.Some(p) => p,.None => ArrayList(String).new());
     j := usize(0);
-    while(runtime(j < n2), {
+    while(j < n2, {
       p2 := match(c2.get(j),.Some(p) => p,.None => ArrayList(String).new());
       if(path_conflicts_with_path(p1, p2), {
         return(true);
@@ -215,7 +215,7 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
   c := false;
   n := flows.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     cf := match(
       flows.get(i),
       .Some(f) => f,
@@ -392,7 +392,12 @@ ExprInfo :: object(
 /// `type`, and `pathCollection` set in TypeScript, then populating other fields as needed.
 new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
   ExprInfo(
-    env : env,
+    // Snapshot the env's frame LIST (shallow — shares Frame refs) so this
+    // recorded env reflects the scope at evaluation time and survives a later
+    // in-place `pop_frame` on the live env (e.g. a begin block popping its
+    // scope frame). Storing the live env by reference let `pop_frame` corrupt
+    // recorded begin-local bindings. See issues/yo-self-recorded-env-aliasing.md.
+    env : snapshot_env(env),
     ty : ty,
     path_collection : ArrayList(ArrayList(String)).new(),
     value : Option(EvalValue).None,
@@ -452,6 +457,33 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
 expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   table.data.get(id)
 );
+// ---------------------------------------------------------------------------
+// Method-call callee-type side-table.
+//
+// Maps a method-CALL expr id → the resolved method's `Func` type. Populated
+// during method dispatch (evaluator/calls/function.yo, where the resolved
+// `method_info.method_ty` is known) and read by the flowability R3 check
+// (types/flowability.yo) as a FALLBACK when the `.`/2 method-callee sub-expr
+// has no ExprInfo of its own. yo-self never annotates the callee node with the
+// method Func type, and writing it INTO that node's ExprInfo is destructive
+// (the node's ExprInfo means property/field-access info — doing so regressed
+// `check ./std` 151→15). This non-destructive side-table is the faithful
+// equivalent of TS reading `call.func.$.type`. Keyed by `ExprId` (globally
+// unique), so one process-wide table is safe. Mutated via `set` (the loader
+// makes fresh ctx-keyed ExprInfoTables per module, but this global side-table
+// is shared — harmless, ids never collide). See
+// issues/yo-self-flowability-swallow.md.
+// ---------------------------------------------------------------------------
+(g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
+/// Record the resolved method `Func` type for a method-call expr id.
+record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
+  _ := g_method_callee_types.set(call_id, ty);
+  ()
+});
+/// Look up the resolved method `Func` type for a method-call expr id, if any.
+lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
+  g_method_callee_types.get(call_id)
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
@@ -462,3 +494,4 @@ export(ComptimeRef);
 export(RuntimeDestructuring);
 export(ExprInfo, new_expr_info);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
+export(record_method_callee_type, lookup_method_callee_type);

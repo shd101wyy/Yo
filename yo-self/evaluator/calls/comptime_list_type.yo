@@ -49,7 +49,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
   (env : Environment) = caller_env;
   elements := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
-  while(runtime(i < arg_exprs.len()), {
+  while(i < arg_exprs.len(), {
     arg_expr := match(arg_exprs.get(i),.Some(a) => a,.None => make_err_expr());
     // Set expectedType in context for this evaluation, then restore.
     saved_expected := ctx.expected_type;
@@ -80,7 +80,10 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
       }
     );
     set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
-    env = info.env;
+    env.frames = info.env.frames;
+    env.module_path = info.env.module_path;
+    env.function_declaration_frame_level = info.env.function_declaration_frame_level;
+    env.input_string = info.env.input_string;
     if(!(are_types_compatible(info.ty, expected_element_type)), {
       exn.throw(
         dyn(

@@ -119,7 +119,7 @@ resolve_constraint :: (fn(constraint : str, arch : str) -> String)(
       bytes := String.from(constraint).as_bytes();
       out := String.new();
       i := usize(4);
-      while(runtime(i < bytes.len()), {
+      while(i < bytes.len(), {
         match(
           bytes.get(i),
           .None => (),
@@ -167,7 +167,7 @@ all_decimal_digits_ :: (fn(s : str) -> bool)({
     true => {
       (all : bool) = true;
       (i : usize) = usize(0);
-      while(runtime((i < n) && all), {
+      while((i < n) && all, {
         b := match(bs.get(i),.Some(x) => x,.None => u8(0));
         if(!((b >= u8(48)) && (b <= u8(57))), {
           all = false;
@@ -217,7 +217,7 @@ transform_template :: (fn(template : str) -> String)({
   bytes := String.from(template).as_bytes();
   n := bytes.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
     cond(
       (b == u8(123)) => {
@@ -234,7 +234,7 @@ transform_template :: (fn(template : str) -> String)({
             close_idx := usize(0);
             found := false;
             (j : usize) = (i + usize(1));
-            while(runtime((j < n) && !(found)), {
+            while((j < n) && !(found), {
               bj := match(bytes.get(j),.Some(x) => x,.None => u8(0));
               if(bj == u8(125), {
                 close_idx = j;
@@ -252,7 +252,7 @@ transform_template :: (fn(template : str) -> String)({
                 // Extract inner text bytes[i+1..close_idx).
                 inner := String.new();
                 (k : usize) = (i + usize(1));
-                while(runtime(k < close_idx), {
+                while(k < close_idx, {
                   match(
                     bytes.get(k),
                     .None => (),
@@ -267,7 +267,7 @@ transform_template :: (fn(template : str) -> String)({
                 colon_idx := usize(0);
                 colon_found := false;
                 (m : usize) = usize(0);
-                while(runtime((m < inner_bytes.len()) && !(colon_found)), {
+                while((m < inner_bytes.len()) && !(colon_found), {
                   bm := match(inner_bytes.get(m),.Some(x) => x,.None => u8(0));
                   if(bm == u8(58), {
                     colon_idx = m;
@@ -280,7 +280,7 @@ transform_template :: (fn(template : str) -> String)({
                 cond(
                   colon_found => {
                     (p : usize) = usize(0);
-                    while(runtime(p < colon_idx), {
+                    while(p < colon_idx, {
                       match(
                         inner_bytes.get(p),
                         .None => (),
@@ -291,7 +291,7 @@ transform_template :: (fn(template : str) -> String)({
                       p = (p + usize(1));
                     });
                     (q : usize) = (colon_idx + usize(1));
-                    while(runtime(q < inner_bytes.len()), {
+                    while(q < inner_bytes.len(), {
                       match(
                         inner_bytes.get(q),
                         .None => (),

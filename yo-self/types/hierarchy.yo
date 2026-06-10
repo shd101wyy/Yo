@@ -30,7 +30,7 @@ open(import("std/string"));
 _name_in_visited :: (fn(visited : ArrayList(String), name : String) -> bool)({
   result := false;
   i := usize(0);
-  while(runtime(i < visited.len()), {
+  while(i < visited.len(), {
     elem := match(visited.get(i),.Some(s) => s,.None => String.from(""));
     cond(
       (elem.as_str() == name.as_str()) => {
@@ -63,7 +63,7 @@ _determine_type_universe :: (
 )({
   max_level := usize(0);
   i := usize(0);
-  while(runtime(i < field_types.len()), {
+  while(i < field_types.len(), {
     field := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
     subtype := match(
       g_type_of_type_visited_fn,
@@ -114,7 +114,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     .Pointer(_) => TypeValue.TypeUni(usize(0)),
     .Slice(_) => TypeValue.TypeUni(usize(0)),
     // Array: recurse into element type --------------------------------------
-    .Array(elem_box, _) => match(
+    .Array(elem_box, _, _) => match(
       g_type_of_type_visited_fn,
       .Some(f) => f(elem_box.*, visited),
       .None => TypeValue.TypeUni(usize(0))
@@ -122,10 +122,14 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     // Tuple: check all field types ------------------------------------------
     .Tuple(_, ftypes) => _determine_type_universe(ftypes, visited),
     // Function types: all functions are level-0 types -----------------------
-    .Func(_, _, _, _, _, _, _, _, _) => TypeValue.TypeUni(usize(0)),
-    // Struct: recurse into fields, guard against cycles by name ------------
-    .Struct(_, sname, _, ftypes, _, _, _) =>
+    .Func({ result : _ }) => TypeValue.TypeUni(usize(0)),
+    // Struct: recurse into fields, guard against cycles by name.
+    // Source-namespace structs (anonymous modules / imports) are
+    // type-level-1, like traits (TS: modules ARE structs; the namespace
+    // itself is a comptime entity).
+    .Struct({ name : sname, field_types : ftypes, is_source_namespace : s_sns }) =>
       cond(
+        s_sns => TypeValue.TypeUni(usize(1)),
         _name_in_visited(visited, sname) => TypeValue.TypeUni(usize(0)),
         true => {
           new_visited := visited.clone();
@@ -142,10 +146,10 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
           new_visited.push(String.from(ename.as_str()));
           all_fields := ArrayList(TypeValue).new();
           vi := usize(0);
-          while(runtime(vi < variant_fields.len()), {
+          while(vi < variant_fields.len(), {
             vfields := match(variant_fields.get(vi),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
             fi := usize(0);
-            while(runtime(fi < vfields.len()), {
+            while(fi < vfields.len(), {
               ft := match(vfields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
               all_fields.push(ft);
               fi = (fi + usize(1));
@@ -167,7 +171,6 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
       ),
     // Traits and modules are type-level-1 types ----------------------------
     .TraitT(_, _, _, _, _, _, _, _) => TypeValue.TypeUni(usize(1)),
-    .ModuleT(_, _, _, _) => TypeValue.TypeUni(usize(1)),
     .FnTraitT(base_name : _) => TypeValue.TypeUni(usize(1)),
     .FutureTraitT(base_name : _) => TypeValue.TypeUni(usize(1)),
     // SomeT: return its parent_type (meta-type) ----------------------------
@@ -177,10 +180,14 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
   )
 );
 // Set the function pointer after type_of_type_with_visited is defined.
-_hierarchy_fn_init := (fn() -> bool)({
-  g_type_of_type_visited_fn =.Some(type_of_type_with_visited);
-  true
-})();
+// Assigned at module top level (not inside an IIFE): a module-level global
+// is reassignable, but a closure-CAPTURED copy of it is not, so reassigning
+// from inside an `(fn() -> ...)({ ... })()` wrapper is rejected. The direct
+// top-level assignment reassigns the real global.
+g_type_of_type_visited_fn =
+  Option((fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue)).Some(
+    type_of_type_with_visited
+  );
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------

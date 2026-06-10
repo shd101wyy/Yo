@@ -27,7 +27,7 @@ open(import("std/string"));
 { t_unit } :: import("../../types/creators.yo");
 { EvalValue } :: import("../../value.yo");
 { format_error_message } :: import("../../error.yo");
-{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { Exception } :: import("std/error");
 evaluate_va_start :: (
   fn(
@@ -44,7 +44,7 @@ evaluate_va_start :: (
   );
   n := args.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     arg_opt := args.get(i);
     match(
       arg_opt,
@@ -105,7 +105,9 @@ evaluate_va_start :: (
                 is_from_effect_spread : variable.is_from_effect_spread,
                 is_effect_param : variable.is_effect_param,
                 is_module_level : variable.is_module_level,
-                doc_comment : variable.doc_comment
+                doc_comment : variable.doc_comment,
+                is_ref : false,
+                is_parameter : false
               );
               update_existing_variable(env, variable, new_var);
             }

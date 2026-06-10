@@ -49,11 +49,13 @@ open(import("std/string"));
   is_comptime_int_type,
   is_comptime_float_type,
   is_comptime_string_type,
-  is_function_type_and_returns_comptime_value
+  is_function_type_and_returns_comptime_value,
+  is_some_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
+{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 {
@@ -72,7 +74,7 @@ open(import("std/string"));
 contains_str_in_list :: (fn(list : ArrayList(String), s : str) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
-  while(runtime((i < list.len()) && !(found)), {
+  while((i < list.len()) && !(found), {
     match(
       list.get(i),
       .Some(item) => {
@@ -90,7 +92,7 @@ contains_str_in_list :: (fn(list : ArrayList(String), s : str) -> bool)({
 find_str_in_list :: (fn(list : ArrayList(String), s : str) -> Option(usize))({
   (i : usize) = usize(0);
   (result : Option(usize)) = Option(usize).None;
-  while(runtime((i < list.len()) && result.is_none()), {
+  while((i < list.len()) && result.is_none(), {
     match(
       list.get(i),
       .Some(item) => {
@@ -130,7 +132,7 @@ flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
   right_flat := recur(right);
   result := ArrayList(AstExpr).new();
   (lfi : usize) = usize(0);
-  while(runtime(lfi < left_flat.len()), {
+  while(lfi < left_flat.len(), {
     match(
       left_flat.get(lfi),
       .Some(e) => {
@@ -141,7 +143,7 @@ flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
     lfi = (lfi + usize(1));
   });
   (rfi : usize) = usize(0);
-  while(runtime(rfi < right_flat.len()), {
+  while(rfi < right_flat.len(), {
     match(
       right_flat.get(rfi),
       .Some(e) => {
@@ -192,7 +194,7 @@ evaluate_primitive_match :: (
   control_flows := ArrayList(ControlFlowFlags).new();
   return_bodies := ArrayList(AstExpr).new();
   (pat_i : usize) = usize(1);
-  while(runtime(pat_i < all_args.len()), {
+  while(pat_i < all_args.len(), {
     pattern := match(
       all_args.get(pat_i),
       .Some(p) => p,
@@ -255,7 +257,7 @@ evaluate_primitive_match :: (
       );
       old_executing_wc := ctx.is_executing;
       ctx.is_executing = is_arm_executing_wc;
-      evaluated_body_wc := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false);
+      evaluated_body_wc := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
       ctx.is_executing = old_executing_wc;
       env.pop_frame();
       body_info_wc_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wc));
@@ -347,7 +349,7 @@ evaluate_primitive_match :: (
         if(should_early_return_wc, {
           filtered_wc := ArrayList(AstExpr).new();
           (fwc_i : usize) = usize(0);
-          while(runtime(fwc_i < bodies.len()), {
+          while(fwc_i < bodies.len(), {
             b_wc := match(bodies.get(fwc_i),.Some(b2) => b2,.None => make_err_expr());
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_wc)),
@@ -360,7 +362,7 @@ evaluate_primitive_match :: (
             );
             fwc_i = (fwc_i + usize(1));
           });
-          env = merge_and_check_envs(env, filtered_wc, ctx);
+          env = merge_and_check_envs(env, filtered_wc, ctx, exn);
           result_ty_wc3 := cond(
             match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
               match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
@@ -412,7 +414,7 @@ evaluate_primitive_match :: (
       pat_vals := ArrayList(EvalValue).new();
       pat_exprs_eval := ArrayList(AstExpr).new();
       (fp_i : usize) = usize(0);
-      while(runtime(fp_i < flattened.len()), {
+      while(fp_i < flattened.len(), {
         fp_expr := match(flattened.get(fp_i),.Some(e) => e,.None => make_err_expr());
         fp_i = (fp_i + usize(1));
         old_expected_fp := ctx.expected_type;
@@ -494,7 +496,7 @@ evaluate_primitive_match :: (
               .None => new_expr_info(env, scrutinee_type)
             );
             (pv_check_i : usize) = usize(0);
-            while(runtime((pv_check_i < pat_vals.len()) && !(matches_at_ct)), {
+            while((pv_check_i < pat_vals.len()) && !(matches_at_ct), {
               pv_item := match(pat_vals.get(pv_check_i),.Some(v) => v,.None => EvalValue.UnitVal);
               pe_item := match(pat_exprs_eval.get(pv_check_i),.Some(e) => e,.None => make_err_expr());
               pe_info := match(
@@ -513,7 +515,7 @@ evaluate_primitive_match :: (
       // Build primitive_pattern_values list for ExprInfo
       pattern_value_opts := ArrayList(Option(EvalValue)).new();
       (pvs_i : usize) = usize(0);
-      while(runtime(pvs_i < pat_vals.len()), {
+      while(pvs_i < pat_vals.len(), {
         pvi := match(pat_vals.get(pvs_i),.Some(v) => v,.None => EvalValue.UnitVal);
         pattern_value_opts.push(Option(EvalValue).Some(pvi));
         pvs_i = (pvs_i + usize(1));
@@ -525,7 +527,7 @@ evaluate_primitive_match :: (
       ___ := env.push_frame(false);
       old_executing_lit := ctx.is_executing;
       ctx.is_executing = matches_at_ct;
-      evaluated_body_lit := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false);
+      evaluated_body_lit := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
       ctx.is_executing = old_executing_lit;
       env.pop_frame();
       body_info_lit_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_lit));
@@ -719,7 +721,7 @@ evaluate_primitive_match :: (
     rt_pm := match(result_type_pm,.Some(t) => t,.None => t_unit());
     non_return_pm := ArrayList(AstExpr).new();
     (nrpm_i : usize) = usize(0);
-    while(runtime(nrpm_i < bodies.len()), {
+    while(nrpm_i < bodies.len(), {
       b_pm := match(bodies.get(nrpm_i),.Some(b2) => b2,.None => make_err_expr());
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_pm)),
@@ -747,11 +749,14 @@ evaluate_primitive_match :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrpm)),
         .None => (),
         .Some(bi) => {
-          env = bi.env;
+          env.frames = bi.env.frames;
+          env.module_path = bi.env.module_path;
+          env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+          env.input_string = bi.env.input_string;
         }
       );
     }, {
-      env = merge_and_check_envs(env, non_return_pm, ctx);
+      env = merge_and_check_envs(env, non_return_pm, ctx, exn);
     });
     out_val_pm := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
@@ -822,7 +827,7 @@ evaluate_primitive_match :: (
                     .Some(ft) => {
                       match(
                         ft,
-                        .Func(_, _, _, _, _, _, _, _, result_box) => {
+                        .Func({ result : result_box }) => {
                           ret_type_pm = Option(TypeValue).Some(result_box.*);
                         },
                         _ => ()
@@ -851,7 +856,7 @@ evaluate_primitive_match :: (
               dyn(
                 format_error_message(
                   ast_expr_token(expr),
-                  `Failed to determine the return(type for match(statement.))`,
+                  `Failed to determine the return type for match statement.`,
                   false,
                   .None
                 )
@@ -961,6 +966,66 @@ evaluate_primitive_match :: (
 /// Evaluate a `match(...)` expression.
 ///
 /// Mirrors `evaluateMatch` in `src/evaluator/exprs/match.ts`.
+/// GADT branch reachability — mirrors `isGadtBranchReachable`
+/// (src/evaluator/exprs/match.ts:117). A variant is UNREACHABLE when the
+/// enum is instantiated with concrete type args that don't match the
+/// variant's `-> recur(...)` return-type args (e.g. `Value(i32).BoolVal`
+/// is unreachable because `BoolVal -> recur(bool)` and `bool != i32`).
+/// Non-GADT enums and SomeT (unrefined) instantiation args make every
+/// branch reachable. `variant_idx` indexes the enum's variant order.
+_is_gadt_branch_reachable :: (
+  fn(enum_id : str, variant_idx : usize) -> bool
+)({
+  vargs_opt := get_gadt_variant_args(enum_id);
+  tca_opt := get_gadt_type_constructor_args(enum_id);
+  match(
+    vargs_opt,
+    .None => true,
+    .Some(all_vargs) => match(
+      tca_opt,
+      .None => true,
+      .Some(tca) => {
+        gra := match(all_vargs.get(variant_idx),.Some(g) => g,.None => ArrayList(TypeValue).new());
+        // Empty return-args list = non-GADT variant → always reachable.
+        if(gra.len() == usize(0), {
+          return(true);
+        });
+        (reachable : bool) = true;
+        (k : usize) = usize(0);
+        while((k < tca.len()) && reachable, {
+          tk := match(tca.get(k),.Some(t) => t,.None => TypeValue.Unit);
+          gk := match(gra.get(k),.Some(g) => g,.None => TypeValue.Unit);
+          // Skip unrefined (SomeT) instantiation args — TS `!isSomeType(tca)`.
+          if(!(is_some_type(tk)), {
+            if(!(are_types_compatible(tk, gk)), {
+              reachable = false;
+            });
+          });
+          k = (k + usize(1));
+        });
+        reachable
+      }
+    )
+  )
+});
+/// Compare an EnumVal's stored variant name against a match-arm variant
+/// name, tolerating the leading-dot convention: constructed EnumVals store
+/// names WITH a leading dot (".Some", property_access.yo / eval.yo), while
+/// arm patterns yield the bare atom ("Some"). A plain `==` therefore never
+/// matched a CONCRETE enum scrutinee — dormant for runtime matches (unknown
+/// scrutinee skips these comparisons) but it made comptime enum reflection
+/// (`match(Type.get_info(T), .Enum(_) => …)`) always fall through to the
+/// wildcard, breaking derived `Eq`/etc.
+_variant_name_eq :: (fn(sv_vname : str, arm_name : str) -> bool)(
+  cond(
+    (sv_vname == arm_name) => true,
+    true => {
+      dotted := String.from(".");
+      dotted.push_str(arm_name);
+      sv_vname == dotted.as_str()
+    }
+  )
+);
 evaluate_match :: (
   fn(
     expr : AstExpr,
@@ -1009,7 +1074,7 @@ evaluate_match :: (
     ast_expr_is_atom(scrutinee_expr) =>
       evaluate_expression(scrutinee_expr, env, ctx),
     true =>
-      evaluate_begin_expression(scrutinee_expr, env, ctx, ArrayList(Variable).new(), false)
+      evaluate_begin_expression(scrutinee_expr, env, ctx, ArrayList(Variable).new(), false, exn)
   );
   ctx.expected_type = old_expected_scr;
   // Check scrutinee ExprInfo has variable_name
@@ -1049,7 +1114,10 @@ evaluate_match :: (
       new_expr_info(env, t_unit())
     }
   );
-  env = scr_info.env;
+  env.frames = scr_info.env.frames;
+  env.module_path = scr_info.env.module_path;
+  env.function_declaration_frame_level = scr_info.env.function_declaration_frame_level;
+  env.input_string = scr_info.env.input_string;
   scrutinee_type := scr_info.ty;
   scrutinee_val_opt := scr_info.value;
   // Check pointer type — dereference one level
@@ -1061,7 +1129,7 @@ evaluate_match :: (
   });
   // Dispatch to primitive match
   if(is_matchable_primitive_type(matched_type), {
-    return(evaluate_primitive_match(expr, env, ctx, evaluated_scrutinee, matched_type, scrutinee_val_opt));
+    return(evaluate_primitive_match(expr, env, ctx, evaluated_scrutinee, matched_type, scrutinee_val_opt, exn));
   });
   // Must be enum
   if(!(is_enum_type(matched_type)), {
@@ -1078,6 +1146,7 @@ evaluate_match :: (
     return(expr);
   });
   // Extract enum type fields
+  en_id := match(matched_type,.EnumT(eid, _, _, _, _, _, _) => eid, _ => String.new());
   en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _) => n, _ => String.new());
   en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
   en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
@@ -1092,7 +1161,7 @@ evaluate_match :: (
   return_bodies_em := ArrayList(AstExpr).new();
   (matched_body_idx : Option(usize)) = Option(usize).None;
   (arm_i : usize) = usize(1);
-  while(runtime(arm_i < all_args.len()), {
+  while(arm_i < all_args.len(), {
     pattern_em := match(
       all_args.get(arm_i),
       .Some(p) => p,
@@ -1235,7 +1304,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_fl),
+                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.as_str(), variant_name_fl)),
                 _ => true
               )
             )
@@ -1272,14 +1341,14 @@ evaluate_match :: (
           .Some(sv) => (
             is_enum_val(sv) && match(
               sv,
-              .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_fl),
+              .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.as_str(), variant_name_fl),
               _ => false
             )
           )
         );
         old_executing_fl := ctx.is_executing;
         ctx.is_executing = is_arm_executing_fl;
-        evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false);
+        evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
         ctx.is_executing = old_executing_fl;
         env.pop_frame();
         body_info_fl_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_fl));
@@ -1373,7 +1442,7 @@ evaluate_match :: (
                 match(
                   sv,
                   .EnumVal(sv_vname, _) => {
-                    if((sv_vname.as_str() == variant_name_fl) || (variant_name_fl == "_"), {
+                    if(_variant_name_eq(sv_vname.as_str(), variant_name_fl) || (variant_name_fl == "_"), {
                       matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                     });
                   },
@@ -1484,7 +1553,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_wf),
+                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.as_str(), variant_name_wf)),
                 _ => true
               )
             )
@@ -1527,7 +1596,7 @@ evaluate_match :: (
             });
             // Validate: no nested curly, no bare "_"
             (cvi : usize) = usize(0);
-            while(runtime(cvi < curly_inner.len()), {
+            while(cvi < curly_inner.len(), {
               cv_elem := match(curly_inner.get(cvi),.Some(e) => e,.None => make_err_expr());
               if(ast_expr_is_fn_call_of(cv_elem, "_",.None), {
                 exn.throw(
@@ -1560,7 +1629,7 @@ evaluate_match :: (
             // Lift inner args into mae_args_wf
             mae_args_wf.clear();
             (lfi2 : usize) = usize(0);
-            while(runtime(lfi2 < curly_inner.len()), {
+            while(lfi2 < curly_inner.len(), {
               match(
                 curly_inner.get(lfi2),
                 .Some(e) => {
@@ -1576,7 +1645,7 @@ evaluate_match :: (
           has_labeled_wf := is_curly_wf;
           if(!(has_labeled_wf), {
             (lbl_check_i : usize) = usize(0);
-            while(runtime((lbl_check_i < destr_params.len()) && !(has_labeled_wf)), {
+            while((lbl_check_i < destr_params.len()) && !(has_labeled_wf), {
               lbl_p := match(destr_params.get(lbl_check_i),.Some(p) => p,.None => make_err_expr());
               if(ast_expr_is_fn_call_of(lbl_p, ":",.Some(usize(2))), {
                 has_labeled_wf = true;
@@ -1639,7 +1708,7 @@ evaluate_match :: (
           if(variant_fields_wf.len() > usize(0), {
             destructured_labels := ArrayList(String).new();
             (dp_i : usize) = usize(0);
-            while(runtime(dp_i < destr_params.len()), {
+            while(dp_i < destr_params.len(), {
               param := match(destr_params.get(dp_i),.Some(p) => p,.None => make_err_expr());
               if(ast_expr_is_fn_call_of(param, ":",.Some(usize(2))), {
                 // Labeled destructuring: (label: variable) or (label: _)
@@ -1669,7 +1738,7 @@ evaluate_match :: (
                   // Build available labels string
                   available_labels := String.new();
                   (al_i : usize) = usize(0);
-                  while(runtime(al_i < variant_labels_wf.len()), {
+                  while(al_i < variant_labels_wf.len(), {
                     match(
                       variant_labels_wf.get(al_i),
                       .Some(lbl) => {
@@ -1825,14 +1894,14 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_wf),
+                .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.as_str(), variant_name_wf),
                 _ => false
               )
             )
           );
           old_executing_wf := ctx.is_executing;
           ctx.is_executing = is_arm_executing_wf;
-          evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false);
+          evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
           ctx.is_executing = old_executing_wf;
           env.pop_frame();
           body_info_wf_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wf));
@@ -1906,7 +1975,7 @@ evaluate_match :: (
                   match(
                     sv,
                     .EnumVal(sv_vname, _) => {
-                      if((sv_vname.as_str() == variant_name_wf) || (variant_name_wf == "_"), {
+                      if(_variant_name_eq(sv_vname.as_str(), variant_name_wf) || (variant_name_wf == "_"), {
                         matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                       });
                     },
@@ -1998,11 +2067,14 @@ Supported patterns:
     if(!(contains_str_in_list(checked_variant_names, "_")), {
       missing_em := ArrayList(String).new();
       (vn_i : usize) = usize(0);
-      while(runtime(vn_i < en_vnames.len()), {
+      while(vn_i < en_vnames.len(), {
         match(
           en_vnames.get(vn_i),
           .Some(vname) => {
-            if(!(contains_str_in_list(checked_variant_names, vname.as_str())), {
+            // GADT-unreachable variants (e.g. BoolVal when matching
+            // Value(i32)) need not be covered — mirrors TS skipping them
+            // in the exhaustiveness scan (match.ts:1169).
+            if((!(contains_str_in_list(checked_variant_names, vname.as_str()))) && _is_gadt_branch_reachable(en_id.as_str(), vn_i), {
               missing_em.push(vname);
             });
           },
@@ -2014,7 +2086,7 @@ Supported patterns:
         missing_str_em := String.new();
         missing_str_em.push_str("\n- ");
         (ms_i : usize) = usize(0);
-        while(runtime(ms_i < missing_em.len()), {
+        while(ms_i < missing_em.len(), {
           match(
             missing_em.get(ms_i),
             .Some(mv) => {
@@ -2043,7 +2115,7 @@ Supported patterns:
     // Select environment: concrete CT scrutinee → use matched body's env
     non_return_em := ArrayList(AstExpr).new();
     (nrem_i : usize) = usize(0);
-    while(runtime(nrem_i < bodies.len()), {
+    while(nrem_i < bodies.len(), {
       b_em := match(bodies.get(nrem_i),.Some(b2) => b2,.None => make_err_expr());
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),
@@ -2072,7 +2144,10 @@ Supported patterns:
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(mb)),
                 .None => (),
                 .Some(mbi) => {
-                  env = mbi.env;
+                  env.frames = mbi.env.frames;
+                  env.module_path = mbi.env.module_path;
+                  env.function_declaration_frame_level = mbi.env.function_declaration_frame_level;
+                  env.input_string = mbi.env.input_string;
                   matched_body_val = mbi.value;
                   did_use_matched_body = true;
                 }
@@ -2095,7 +2170,10 @@ Supported patterns:
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem)),
               .None => (),
               .Some(bi) => {
-                env = bi.env;
+                env.frames = bi.env.frames;
+                env.module_path = bi.env.module_path;
+                env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+                env.input_string = bi.env.input_string;
                 matched_body_val = bi.value;
                 did_use_single = true;
               }
@@ -2108,7 +2186,10 @@ Supported patterns:
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem2)),
               .None => (),
               .Some(bi) => {
-                env = bi.env;
+                env.frames = bi.env.frames;
+                env.module_path = bi.env.module_path;
+                env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+                env.input_string = bi.env.input_string;
                 did_use_single = true;
               }
             );
@@ -2117,7 +2198,7 @@ Supported patterns:
       );
       // Case 4: runtime or multiple bodies → merge
       if(!(did_use_single), {
-        env = merge_and_check_envs(env, non_return_em, ctx);
+        env = merge_and_check_envs(env, non_return_em, ctx, exn);
       });
     });
     // Determine output value
@@ -2190,7 +2271,7 @@ Supported patterns:
                     .Some(ft) => {
                       match(
                         ft,
-                        .Func(_, _, _, _, _, _, _, _, result_box) => {
+                        .Func({ result : result_box }) => {
                           ret_type_em = Option(TypeValue).Some(result_box.*);
                         },
                         _ => ()
@@ -2219,7 +2300,7 @@ Supported patterns:
               dyn(
                 format_error_message(
                   ast_expr_token(expr),
-                  `Failed to determine the return(type for match(statement.))`,
+                  `Failed to determine the return type for match statement.`,
                   false,
                   .None
                 )

@@ -57,7 +57,7 @@ evaluate_tuple_elements_type :: (
   field_types := ArrayList(TypeValue).new();
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     result := evaluate_type_field(arg, i, env, ctx, for_type, exn);
     field := result.field;
@@ -65,7 +65,7 @@ evaluate_tuple_elements_type :: (
     if(field.label.len() > usize(0), {
       (dup_idx : usize) = usize(0);
       (has_dup : bool) = false;
-      while(runtime((dup_idx < field_labels.len()) && !(has_dup)), {
+      while((dup_idx < field_labels.len()) && !(has_dup), {
         existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
         if(existing == field.label, {
           has_dup = true;
@@ -94,7 +94,10 @@ evaluate_tuple_elements_type :: (
     field_labels.push(String.from(field.label.as_str()));
     field_types.push(field.ty);
     fields.push(field);
-    env = result.env;
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
     i = (i + usize(1));
   });
   EvalTupleElementsResult(
@@ -127,10 +130,13 @@ evaluate_tuple_type :: (
   });
   // Evaluate each tuple element.
   result := evaluate_tuple_elements_type(args, env, ctx, "tuple", exn);
-  env = result.env;
+  env.frames = result.env.frames;
+  env.module_path = result.env.module_path;
+  env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+  env.input_string = result.env.input_string;
   // Reject default values: tuples may not have `field : T = default`.
   (j : usize) = usize(0);
-  while(runtime(j < result.fields.len()), {
+  while(j < result.fields.len(), {
     field := match(
       result.fields.get(j),
       .Some(f) => f,

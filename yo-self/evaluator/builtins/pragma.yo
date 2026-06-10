@@ -19,30 +19,31 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_fn_call_of, BF_PRAGMA } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, BF_PRAGMA } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
-/// Pragma kinds recognised by the pre-scan. Keep aligned with
-/// `PragmaKind` in `src/evaluator/memory-safety.ts`.
-PragmaKind :: enum(
-  AllowUnsafe,
-  SkipPrelude,
-  SkipWasm,
-  SkipWasm32Emscripten,
-  SkipWasm32Wasi
-);
-export(PragmaKind);
+{ new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../../value.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ register_file_pragma } :: import("../memory_safety.yo");
+{ Exception } :: import("std/error");
+// Pragma kinds use the prelude's `Pragma` enum (auto-loaded), not a separate
+// internal type — yo-self is self-hosted, so the compiler reuses the
+// language's own `Pragma`. (TS keeps a distinct `Pragma` in
+// `src/evaluator/memory-safety.ts`; here that collapses to `Pragma`.)
 /// Map a `Pragma.X` variant name (as a `str`) to the corresponding
-/// `PragmaKind`. Returns `.None` when the name doesn't match any
+/// `Pragma`. Returns `.None` when the name doesn't match any
 /// known variant — typo handling for full evaluation belongs in
 /// `evaluatePragma`; the pre-scan just ignores unknown names.
-pragma_kind_from_variant_name :: (fn(name : str) -> Option(PragmaKind))(
+pragma_kind_from_variant_name :: (fn(name : str) -> Option(Pragma))(
   cond(
-    (name == "AllowUnsafe") => Option(PragmaKind).Some(.AllowUnsafe),
-    (name == "SkipPrelude") => Option(PragmaKind).Some(.SkipPrelude),
-    (name == "SkipWasm") => Option(PragmaKind).Some(.SkipWasm),
-    (name == "SkipWasm32Emscripten") => Option(PragmaKind).Some(.SkipWasm32Emscripten),
-    (name == "SkipWasm32Wasi") => Option(PragmaKind).Some(.SkipWasm32Wasi),
-    true => Option(PragmaKind).None
+    (name == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
+    (name == "SkipPrelude") => Option(Pragma).Some(.SkipPrelude),
+    (name == "SkipWasm") => Option(Pragma).Some(.SkipWasm),
+    (name == "SkipWasm32Emscripten") => Option(Pragma).Some(.SkipWasm32Emscripten),
+    (name == "SkipWasm32Wasi") => Option(Pragma).Some(.SkipWasm32Wasi),
+    true => Option(Pragma).None
   )
 );
 /// Recognise the `Pragma.X` argument shape in a pragma call. Yo
@@ -55,18 +56,18 @@ pragma_kind_from_variant_name :: (fn(name : str) -> Option(PragmaKind))(
 ///
 /// Mirrors `recognizePragmaArgByAstShape` in
 /// `src/evaluator/builtins/pragma.ts`.
-recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(PragmaKind))(
+recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
   match(
     arg,
-    .Atom(_, _) => Option(PragmaKind).None,
+    .Atom(_, _) => Option(Pragma).None,
     .FnCall(_, func_box, args, _, _) => {
       is_dot := match(
         func_box.*,
         .Atom(_, tok) => (tok.kind == TokenKind.Dot),
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(is_dot), return(Option(PragmaKind).None));
-      if(args.len() != usize(2), return(Option(PragmaKind).None));
+      if(!(is_dot), return(Option(Pragma).None));
+      if(args.len() != usize(2), return(Option(Pragma).None));
       lhs_is_pragma := match(
         args.get(usize(0)),
         .Some(lhs) => match(
@@ -76,15 +77,15 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(PragmaKind))(
         ),
         .None => false
       );
-      if(!(lhs_is_pragma), return(Option(PragmaKind).None));
+      if(!(lhs_is_pragma), return(Option(Pragma).None));
       match(
         args.get(usize(1)),
         .Some(rhs) => match(
           rhs,
           .Atom(_, tok) => pragma_kind_from_variant_name(tok.value.as_str()),
-          .FnCall(_, _, _, _, _) => Option(PragmaKind).None
+          .FnCall(_, _, _, _, _) => Option(Pragma).None
         ),
-        .None => Option(PragmaKind).None
+        .None => Option(Pragma).None
       )
     }
   )
@@ -101,7 +102,7 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   found := false;
   i := usize(0);
   n := program.len();
-  while(runtime((i < n) && !(found)), {
+  while((i < n) && !(found), {
     match(
       program.get(i),
       .Some(expr) => {
@@ -133,4 +134,40 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   });
   found
 });
-export(pre_scan_for_skip_prelude, recognize_pragma_arg);
+/// Eval-time `pragma(...)` handler. Registers the file-level pragma so
+/// `is_implicitly_unsafe_capable_file` (and the Phase-C raw-pointer /
+/// `unsafe(...)` gates) can see it. Mirrors the registration part of
+/// `evaluatePragma` (`src/evaluator/builtins/pragma.ts:113-116`); yo-self uses
+/// the syntactic `recognize_pragma_arg` (the `Pragma.X` shape) rather than
+/// fully evaluating the arg. Returns the expr annotated with a unit result.
+evaluate_pragma :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  arg_opt := match(
+    expr,
+    .FnCall(_, _, args, _, _) => args.get(usize(0)),
+    .Atom(_, _) => Option(AstExpr).None
+  );
+  match(
+    arg_opt,
+    .Some(arg) => match(
+      recognize_pragma_arg(arg),
+      .Some(kind) => {
+        tok := ast_expr_token(expr);
+        register_file_pragma(tok.module_path.clone(), kind);
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  out := new_expr_info(env, t_unit());
+  out.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+export(pre_scan_for_skip_prelude, recognize_pragma_arg, evaluate_pragma);

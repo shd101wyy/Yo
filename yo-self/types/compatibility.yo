@@ -14,8 +14,8 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
-{ type_value_tag } :: import("./creators.yo");
-{ is_int_type, is_float_type } :: import("./guards.yo");
+{ type_value_tag, resolve_enum_shell } :: import("./creators.yo");
+{ is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -31,7 +31,7 @@ open(import("std/string"));
 _visited_contains :: (fn(visited : ArrayList(String), key : String) -> bool)({
   i := usize(0);
   n := visited.len();
-  while(runtime(i < n), {
+  while(i < n, {
     s := match(visited.get(i),.Some(v) => v,.None => ``);
     if(s == key, {
       return(true);
@@ -43,7 +43,7 @@ _visited_contains :: (fn(visited : ArrayList(String), key : String) -> bool)({
 _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
   i := usize(0);
   n := used.len();
-  while(runtime(i < n), {
+  while(i < n, {
     ui := match(used.get(i),.Some(v) => v,.None => usize(999999));
     if(ui == idx, {
       return(true);
@@ -65,7 +65,7 @@ _flatten_effects :: (
 )({
   i := usize(0);
   n := labels.len();
-  while(runtime(i < n), {
+  while(i < n, {
     lbl := match(labels.get(i),.Some(v) => v,.None => ``);
     ty := match(types.get(i),.Some(v) => v,.None => TypeValue.Unit);
     sp := match(spreads.get(i),.Some(v) => v,.None => false);
@@ -75,7 +75,7 @@ _flatten_effects :: (
         .EffectsRowT(implicit_labels : row_labels, implicit_types : row_types) => {
           j := usize(0);
           m := row_labels.len();
-          while(runtime(j < m), {
+          while(j < m, {
             rl := match(row_labels.get(j),.Some(v) => v,.None => ``);
             rt := match(row_types.get(j),.Some(v) => v,.None => TypeValue.Unit);
             out_labels.push(rl);
@@ -182,6 +182,90 @@ _compat_impl :: (
     });
     return(type_value_tag(actual) == type_value_tag(expected));
   });
+  // --- SomeType vs DynType --------------------------------------------------
+  // A DynType is compatible with a SomeType parameter. If the SomeType has
+  // required traits (e.g. `Self <: ToString` introduced by a where-clause),
+  // each must be satisfied by some trait the DynType carries. This lets a
+  // `dyn(Error)` receiver match a `Self`-constrained `self` param when the
+  // dyn's required traits (incl. expanded supertraits) cover the constraint.
+  // Checked before the tag-mismatch guard since the tags differ.
+  // Mirrors `areTypesCompatible` (src/types/compatibility.ts:662-684).
+  if(is_some_type(actual) && is_dyn_type(expected), {
+    artt := match(
+      actual,
+      .SomeT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    drtt := match(
+      expected,
+      .DynT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    i := usize(0);
+    while(i < artt.len(), {
+      req := match(artt.get(i),.Some(v) => v,.None => TypeValue.Unit);
+      satisfied := false;
+      j := usize(0);
+      while(j < drtt.len(), {
+        dt := match(drtt.get(j),.Some(v) => v,.None => TypeValue.Unit);
+        if(recur(req, dt, false, visited), {
+          satisfied = true;
+        });
+        if(satisfied, {
+          break;
+        });
+        j = (j + usize(1));
+      });
+      if(!(satisfied), {
+        return(false);
+      });
+      i = (i + usize(1));
+    });
+    return(true);
+  });
+  // --- DynType (actual) vs SomeType (expected) ------------------------------
+  // The mirror of the rule above, for the (actual, expected) arg order used
+  // by `_filter_receiver_methods` (`are_types_compatible(receiver, pointee)`):
+  // a `Dyn(Trait)` RECEIVER must satisfy a `Self`-constrained pointee `*(Self)`
+  // so the filter flags `needs_pointer_conversion` and the call site addresses
+  // it. Maps to TS `areTypesCompatible(expected=SomeType, given=Dyn)`
+  // (compatibility.ts:662-684) — yo-self's actual≈given. Without it, a dyn
+  // method call (`value.print()` on `value : Dyn(TestDyn)`, self : `*(Self)`)
+  // synthesized `*(Self)` vs the bare `dyn(...)` arg and failed the
+  // tag-mismatch guard (tests/dyn.test.yo).
+  if(is_dyn_type(actual) && is_some_type(expected), {
+    erts := match(
+      expected,
+      .SomeT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    adrtt := match(
+      actual,
+      .DynT(required_trait_types : rtt) => rtt,
+      _ => ArrayList(TypeValue).new()
+    );
+    i := usize(0);
+    while(i < erts.len(), {
+      req := match(erts.get(i),.Some(v) => v,.None => TypeValue.Unit);
+      satisfied := false;
+      j := usize(0);
+      while(j < adrtt.len(), {
+        dt := match(adrtt.get(j),.Some(v) => v,.None => TypeValue.Unit);
+        if(recur(req, dt, false, visited), {
+          satisfied = true;
+        });
+        if(satisfied, {
+          break;
+        });
+        j = (j + usize(1));
+      });
+      if(!(satisfied), {
+        return(false);
+      });
+      i = (i + usize(1));
+    });
+    return(true);
+  });
   // --- Tag mismatch ---------------------------------------------------------
   if(type_value_tag(actual) != type_value_tag(expected), {
     return(false);
@@ -224,9 +308,17 @@ _compat_impl :: (
       .Slice(einner) => recur(ainner.*, einner.*, require_exact, visited),
       _ => false
     ),
-    .Array(ainner, alen) => match(
+    .Array(ainner, alen, alvar) => match(
       expected,
-      .Array(einner, elen) => ((alen == elen) && recur(ainner.*, einner.*, require_exact, visited)),
+      .Array(einner, elen, elvar) => {
+        // Variable-length arrays (forall `U : usize` patterns) are
+        // length-compatible with anything; concrete lengths must match.
+        len_ok := cond(
+          ((alvar.len() > usize(0)) || (elvar.len() > usize(0))) => true,
+          true => (alen == elen)
+        );
+        len_ok && recur(ainner.*, einner.*, require_exact, visited)
+      },
       _ => false
     ),
     .Tuple(alabels, atypes) => match(
@@ -237,7 +329,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < n), {
+        while(i < n, {
           at := match(atypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(etypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
           al := match(alabels.get(i),.Some(v) => v,.None => ``);
@@ -255,9 +347,9 @@ _compat_impl :: (
       _ => false
     ),
     // Function types: compare forall count, param count, types, return
-    .Func(forall_types : afts, param_types : apts, result : aret) => match(
+    .Func({ forall_types : afts, param_types : apts, result : aret }) => match(
       expected,
-      .Func(forall_types : efts, param_types : epts, result : eret) => {
+      .Func({ forall_types : efts, param_types : epts, result : eret }) => {
         if(afts.len() != efts.len(), {
           return(false);
         });
@@ -265,7 +357,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < afts.len()), {
+        while(i < afts.len(), {
           at := match(afts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(efts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -274,7 +366,7 @@ _compat_impl :: (
           i = (i + usize(1));
         });
         i = usize(0);
-        while(runtime(i < apts.len()), {
+        while(i < apts.len(), {
           at := match(apts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(epts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -286,31 +378,135 @@ _compat_impl :: (
       },
       _ => false
     ),
-    // Named user types: name-only comparison (Phase 2f)
-    .Struct(_, aname, _, _, _, _, _) => match(
+    // Named user types. Non-exact (general compatibility): name-only (Phase 2f).
+    // `require_exact` (cache identity — TS `requireExactMatch=true`): compare
+    // STRUCTURALLY (equal field labels + recursively-exact field types), with a
+    // cycle guard. All yo-self structs carry an empty `name` (struct.yo sets
+    // `""`), so name-only would treat ALL anonymous structs as equal — that
+    // caused a comptime-fn cache collision where `(?*)(Bucket(String,
+    // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
+    // HashMap's `data` field to `?*(ME)`. Structural exact comparison
+    // distinguishes them (e.g. labels `[key, value]` vs `[name, kind]`).
+    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew }) => match(
       expected,
-      .Struct(_, ename, _, _, _, _, _) => (aname == ename),
+      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew }) => cond(
+        // Lenient: name equality, with EMPTY names as wildcards — types
+        // reconstructed from values (type_of_eval_value) and pre-stamping
+        // instantiations carry "" while `::`-bound types are now STAMPED
+        // ("ArgParser" vs ""), and the mixed pair must stay compatible
+        // (previously everything was "" so this never arose).
+        !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+        (aid.as_str() == eid.as_str()) => true,
+        // Exact, different ids → structural. But the SEMANTICS KIND must match
+        // first: a value `struct`, a reference `object`, an `atomic object`, and
+        // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the
+        // comptime-fn CTFE cache (keyed via `are_types_compatible_exact`) collides
+        // them — e.g. `Type.impls(AtomicPoint, Send)` and
+        // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
+        // entry, so the second query returns the first's result.
+        (((aref != eref) || (aatomic != eatomic)) || (anew != enew)) => false,
+        (alabels.len() != elabels.len()) => false,
+        true => {
+          vkey := ((aid.clone() + String.from("=>")) + eid);
+          cond(
+            _visited_contains(visited, vkey) => true,
+            true => {
+              visited.push(vkey);
+              (ok : bool) = true;
+              (si : usize) = usize(0);
+              while((si < alabels.len()) && ok, {
+                al := match(alabels.get(si),.Some(v) => v,.None => ``);
+                el := match(elabels.get(si),.Some(v) => v,.None => ``);
+                at := match(atypes.get(si),.Some(v) => v,.None => TypeValue.Unit);
+                et := match(etypes.get(si),.Some(v) => v,.None => TypeValue.Unit);
+                if((al != el) || !(recur(at, et, true, visited)), {
+                  ok = false;
+                });
+                si = (si + usize(1));
+              });
+              ok
+            }
+          )
+        }
+      ),
       _ => false
     ),
-    .EnumT(_, aname, _, _, _, _, _) => match(
-      expected,
-      .EnumT(_, ename, _, _, _, _, _) => (aname == ename),
+    .EnumT(_, _, _, _, _, _, _) => match(
+      // Resolve empty-variant Self shells (enum.yo) to their finalized
+      // forms before comparing — pointer/exact children otherwise see a
+      // 0-variant shell vs the real enum (`*(JsonValue)` vs
+      // `*(<enum:..__self_shell>)`, std/encoding/json.yo).
+      resolve_enum_shell(actual),
+      .EnumT(aid, aname, avns, avfs, _, avls, _) => match(
+        resolve_enum_shell(expected),
+        // Non-exact keeps the empty-name wildcard rule ("TomlValue" vs a
+        // ""-named reconstruction of the same enum). Under `require_exact`
+        // (cache identity), name-only is unsound for the same reason as the
+        // Struct arm: all yo-self enums carry an empty name, so e.g. the
+        // CTFE cache key `Option(JsonValue)` matched a stale `Option(T)`
+        // entry and returned `Option(Option(T))` (std/encoding/json.yo).
+        // Mirror TS compatibility.ts:344-399: equal ids → true; otherwise
+        // compare variant names, field labels, and field types exactly,
+        // with the same cycle guard as the Struct arm.
+        .EnumT(eid, ename, evns, evfs, _, evls, _) => cond(
+          !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+          (aid.as_str() == eid.as_str()) => true,
+          (avns.len() != evns.len()) => false,
+          true => {
+            vkey := ((aid.clone() + String.from("=>")) + eid);
+            cond(
+              _visited_contains(visited, vkey) => true,
+              true => {
+                visited.push(vkey);
+                (ok : bool) = true;
+                (vi : usize) = usize(0);
+                while((vi < avns.len()) && ok, {
+                  avn := match(avns.get(vi),.Some(v) => v,.None => ``);
+                  evn := match(evns.get(vi),.Some(v) => v,.None => ``);
+                  if(avn != evn, {
+                    ok = false;
+                  });
+                  if(ok, {
+                    afl := match(avfs.get(vi),.Some(v) => v,.None => ArrayList(TypeValue).new());
+                    efl := match(evfs.get(vi),.Some(v) => v,.None => ArrayList(TypeValue).new());
+                    all := match(avls.get(vi),.Some(v) => v,.None => ArrayList(String).new());
+                    ell := match(evls.get(vi),.Some(v) => v,.None => ArrayList(String).new());
+                    if(afl.len() != efl.len(), {
+                      ok = false;
+                    }, {
+                      (fi : usize) = usize(0);
+                      while((fi < afl.len()) && ok, {
+                        at := match(afl.get(fi),.Some(v) => v,.None => TypeValue.Unit);
+                        et := match(efl.get(fi),.Some(v) => v,.None => TypeValue.Unit);
+                        al := match(all.get(fi),.Some(v) => v,.None => ``);
+                        el := match(ell.get(fi),.Some(v) => v,.None => ``);
+                        if((al != el) || !(recur(at, et, true, visited)), {
+                          ok = false;
+                        });
+                        fi = (fi + usize(1));
+                      });
+                    });
+                  });
+                  vi = (vi + usize(1));
+                });
+                ok
+              }
+            )
+          }
+        ),
+        _ => false
+      ),
       _ => false
     ),
     .Union(aname, _, _) => match(
       expected,
-      .Union(ename, _, _) => (aname == ename),
+      .Union(ename, _, _) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
       _ => false
     ),
     // TraitT: nominal comparison; FnTraitT/FutureTraitT: structural
     .TraitT(name : aname) => match(
       expected,
       .TraitT(name : ename) => (aname == ename),
-      _ => false
-    ),
-    .ModuleT(name : aname) => match(
-      expected,
-      .ModuleT(name : ename) => (aname == ename),
       _ => false
     ),
     // SomeT: name + frame_level identity (Phase 2f: no env resolution)
@@ -335,7 +531,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < als.len()), {
+        while(i < als.len(), {
           al := match(als.get(i),.Some(v) => v,.None => ``);
           el := match(els.get(i),.Some(v) => v,.None => ``);
           at := match(ats.get(i),.Some(v) => v,.None => TypeValue.Unit);
@@ -370,7 +566,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < aargs.len()), {
+        while(i < aargs.len(), {
           at := match(aargs.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(eargs.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -394,11 +590,11 @@ _compat_impl :: (
         expected,
         .DynT(required_trait_types : ertt, negative_trait_types : entt) => {
           i := usize(0);
-          while(runtime(i < ertt.len()), {
+          while(i < ertt.len(), {
             et := match(ertt.get(i),.Some(v) => v,.None => TypeValue.Unit);
             found := false;
             j := usize(0);
-            while(runtime(j < artt.len()), {
+            while(j < artt.len(), {
               at := match(artt.get(j),.Some(v) => v,.None => TypeValue.Unit);
               if(recur(et, at, require_exact, visited), {
                 found = true;
@@ -414,10 +610,10 @@ _compat_impl :: (
             i = (i + usize(1));
           });
           i = usize(0);
-          while(runtime(i < entt.len()), {
+          while(i < entt.len(), {
             et := match(entt.get(i),.Some(v) => v,.None => TypeValue.Unit);
             j := usize(0);
-            while(runtime(j < artt.len()), {
+            while(j < artt.len(), {
               at := match(artt.get(j),.Some(v) => v,.None => TypeValue.Unit);
               if(recur(et, at, require_exact, visited), {
                 return(false);
@@ -441,7 +637,7 @@ _compat_impl :: (
           return(false);
         });
         i := usize(0);
-        while(runtime(i < apts.len()), {
+        while(i < apts.len(), {
           at := match(apts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(epts.get(i),.Some(v) => v,.None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
@@ -480,12 +676,12 @@ _compat_impl :: (
           // Order-independent set matching
           used := ArrayList(usize).new();
           ei := usize(0);
-          while(runtime(ei < flat_e_types.len()), {
+          while(ei < flat_e_types.len(), {
             et := match(flat_e_types.get(ei),.Some(v) => v,.None => TypeValue.Unit);
             el := match(flat_e_labels.get(ei),.Some(v) => v,.None => ``);
             found := false;
             ai := usize(0);
-            while(runtime(ai < flat_a_types.len()), {
+            while(ai < flat_a_types.len(), {
               if(!(_is_in_used(used, ai)), {
                 at := match(flat_a_types.get(ai),.Some(v) => v,.None => TypeValue.Unit);
                 al := match(flat_a_labels.get(ai),.Some(v) => v,.None => ``);

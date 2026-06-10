@@ -48,7 +48,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { EvalValue } :: import("../../value.yo");
 /// Extract the unique `id` string from a `TypeValue` variant that
-/// carries one (Struct / EnumT / TraitT / ModuleT / SomeT). Returns
+/// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
 /// meaningless for them, mirroring TS's early-return-`[]` path when
 /// the type has no `.trait`. Lives here (rather than on env.yo or
@@ -58,11 +58,49 @@ open(import("std/string"));
 type_id_or_empty :: (fn(t : TypeValue) -> String)(
   match(
     t,
-    .Struct(id, _, _, _, _, _, _) => id,
+    .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _) => id,
-    .ModuleT(id, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
+    // Primitive types get stable synthetic ids so `impl(usize, ...)`,
+    // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
+    // in the trait-methods registry — without an id the registration
+    // is silently skipped and property access (`usize.MAX`) fails.
+    .Unit => String.from("__yo_t_unit"),
+    .BoolT => String.from("__yo_t_bool"),
+    .Void => String.from("__yo_t_void"),
+    .Int(bits, signed) => cond(
+      signed => (String.from("__yo_t_i") + bits.to_string()),
+      true => (String.from("__yo_t_u") + bits.to_string())
+    ),
+    .Float(bits) => (String.from("__yo_t_f") + bits.to_string()),
+    .Usize => String.from("__yo_t_usize"),
+    .Isize => String.from("__yo_t_isize"),
+    .ComptimeInt => String.from("__yo_t_comptime_int"),
+    .ComptimeFloat => String.from("__yo_t_comptime_float"),
+    .ComptimeString => String.from("__yo_t_comptime_string"),
+    .CChar => String.from("__yo_t_c_char"),
+    .CShort => String.from("__yo_t_c_short"),
+    .CUShort => String.from("__yo_t_c_ushort"),
+    .CInt => String.from("__yo_t_c_int"),
+    .CUInt => String.from("__yo_t_c_uint"),
+    .CLong => String.from("__yo_t_c_long"),
+    .CULong => String.from("__yo_t_c_ulong"),
+    .CLongLong => String.from("__yo_t_c_longlong"),
+    .CULongLong => String.from("__yo_t_c_ulonglong"),
+    .CLongDouble => String.from("__yo_t_c_longdouble"),
+    /// The Expr reflection type. Mirrors the TS ExprType singleton carrying
+    /// a trait slot — `impl(Expr, is_atom : ...)` must register and
+    /// `expr.is_atom()` dispatch must resolve (same class of gap as the
+    /// TypeUni id below; without it every Expr method soft-fell to unit).
+    .ExprT => String.from("__yo_t_expr"),
+    // The type universe (`Type`). Mirrors TS `createTypeHierarchy`, which
+    // gives the cached singleton `id: "Type(${level})"` (creators.ts:1030)
+    // and a trait slot — so `impl(Type, get_info : ...)` registers and
+    // `Type.get_info(...)` dispatch resolves. Without this id the prelude's
+    // `impl(Type, ...)` registration was silently skipped and every
+    // `Type.*` reflection method soft-fell to `unit` under check.
+    .TypeUni(level) => ((String.from("Type(") + level.to_string()) + String.from(")")),
     _ => String.from("")
   )
 );
@@ -140,7 +178,7 @@ get_type_trait_methods_by_name :: (
   all := get_type_trait_methods_for_type(type_id);
   n := all.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       all.get(i),
       .Some(entry) => {

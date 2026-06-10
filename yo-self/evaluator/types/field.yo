@@ -42,7 +42,7 @@ open(import("std/fmt"));
 { prohibit_void_type } :: import("../../types/utils.yo");
 { doc_comment_lookup_key_from_token } :: import("../utils.yo");
 { is_type_value } :: import("../../value.yo");
-{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -241,8 +241,7 @@ evaluate_type_field :: (
       maybe_field_ty := match(
         expected_type_val,
         .Tuple(_, types) => types.get(tuple_field_index),
-        .Struct(_, _, _, types, _, _, _) => types.get(tuple_field_index),
-        .ModuleT(_, _, _, types) => types.get(tuple_field_index),
+        .Struct({ field_types : types }) => types.get(tuple_field_index),
         .TraitT(_, _, _, types, _, _, _, _) => types.get(tuple_field_index),
         _ => Option(TypeValue).None
       );
@@ -281,7 +280,10 @@ evaluate_type_field :: (
     ctx.expected_type = old_expected;
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
     te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env, TypeValue.Unit));
-    env = te_info.env;
+    env.frames = te_info.env.frames;
+    env.module_path = te_info.env.module_path;
+    env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+    env.input_string = te_info.env.input_string;
     if(!(is_type_value(te_info.value)), {
       exn.throw(
         dyn(
@@ -364,7 +366,10 @@ evaluate_type_field :: (
         new_expr_info(env, TypeValue.Unit)
       }
     );
-    env = av_info.env;
+    env.frames = av_info.env.frames;
+    env.module_path = av_info.env.module_path;
+    env.function_declaration_frame_level = av_info.env.function_declaration_frame_level;
+    env.input_string = av_info.env.input_string;
     if(av_info.value.is_none(), {
       exn.throw(
         dyn(
@@ -442,7 +447,10 @@ evaluate_type_field :: (
         new_expr_info(env, TypeValue.Unit)
       }
     );
-    env = dv_info.env;
+    env.frames = dv_info.env.frames;
+    env.module_path = dv_info.env.module_path;
+    env.function_declaration_frame_level = dv_info.env.function_declaration_frame_level;
+    env.input_string = dv_info.env.input_string;
     if(dv_info.value.is_none(), {
       exn.throw(
         dyn(

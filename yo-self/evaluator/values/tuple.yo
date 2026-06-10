@@ -185,7 +185,10 @@ evaluate_tuple_element_value :: (
       new_expr_info(env, TypeValue.Unit) // unreachable
     }
   );
-  env = rhs_info.env;
+  env.frames = rhs_info.env.frames;
+  env.module_path = rhs_info.env.module_path;
+  env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+  env.input_string = rhs_info.env.input_string;
   // Reject `type` values stored as tuple elements.
   if(is_type_value(rhs_info.value), {
     exn.throw(
@@ -233,7 +236,7 @@ evaluate_tuple_elements_value :: (
   values := ArrayList(Option(EvalValue)).new();
   runtime_arg_exprs_in_order := ArrayList(AstExpr).new();
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     result := evaluate_tuple_element_value(
       arg,
@@ -246,7 +249,10 @@ evaluate_tuple_elements_value :: (
     field_labels.push(i.to_string());
     field_types.push(result.ty);
     values.push(result.value);
-    env = result.env;
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
     i = (i + usize(1));
   });
   EvalTupleElementsValueResult(
@@ -293,7 +299,7 @@ evaluate_tuple_value :: (
   tuple_ty := TypeValue.Tuple(result.field_labels, result.field_types);
   (all_known : bool) = true;
   (k : usize) = usize(0);
-  while(runtime((k < result.values.len()) && all_known), {
+  while((k < result.values.len()) && all_known, {
     match(
       result.values.get(k),
       .Some(opt) => match(
@@ -313,7 +319,7 @@ evaluate_tuple_value :: (
   if(all_known, {
     val_list := ArrayList(EvalValue).new();
     (m : usize) = usize(0);
-    while(runtime(m < result.values.len()), {
+    while(m < result.values.len(), {
       match(
         result.values.get(m),
         .Some(opt) => match(

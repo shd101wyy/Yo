@@ -41,7 +41,7 @@ sanitize_project_name :: (fn(raw : String) -> String)({
   result := String.new();
   bytes := raw.as_bytes();
   i := usize(0);
-  while(runtime(i < bytes.len()), {
+  while(i < bytes.len(), {
     b_opt := bytes.get(i);
     match(
       b_opt,
@@ -138,7 +138,7 @@ init_project :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // Resolve user CWD (yo-cli overrides this env var when it changes directory)
     user_cwd_str := match(
       env.get(String.from("YO_ORIGINAL_CWD")),

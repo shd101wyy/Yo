@@ -220,7 +220,7 @@ is_pkg_config_available :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("pkg-config"));
     cmd.arg(String.from("--version"));
     status := io.await(cmd.status(io, exn), io);
@@ -236,7 +236,7 @@ query_pkg_config :: (
     exn : Exception
   ) -> Impl(Future(Option(PkgConfigResult), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // Run pkg-config --cflags
     cflags_cmd := Command.new(String.from("pkg-config"));
     cflags_cmd.arg(String.from("--cflags"));
@@ -270,7 +270,7 @@ resolve_system_library :: (
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     pkg_available := io.await(is_pkg_config_available(), io);
     if(pkg_available, {
       pkg_result := io.await(query_pkg_config(lib.name), io);
@@ -295,7 +295,7 @@ resolve_all_system_libraries :: (
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     merged := _empty_result();
     k := usize(0);
     n := libs.len();

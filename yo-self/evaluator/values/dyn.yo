@@ -19,10 +19,10 @@ open(import("std/string"));
   expr_info_table_get
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_object_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
@@ -71,9 +71,53 @@ evaluate_dyn_value :: (
       return(expr);
     }
   );
+  // Expected-type for the INNER value expression. The dyn target itself
+  // must NOT flow down as the inner's expected type: the inner is a
+  // concrete value being coerced into the dyn, so matching its type
+  // against the dyn (e.g. `"x".to_string()`'s `String` return vs
+  // `dyn(Error)`) wrongly reaches `synthesize_types` and tag-mismatches.
+  // Mirrors TS `evaluateDynValue`: when the outer expected type is a Dyn,
+  // evaluate the inner with a fresh `SomeT` carrying the Dyn's required /
+  // negative traits (a type variable, which `synthesize` binds to the
+  // concrete value and checks the trait constraints against); otherwise
+  // clear the expected type entirely.
+  (inner_expected : Option(ExpectedTypeCtx)) = match(
+    ctx.expected_type,
+    .Some(et) => match(
+      et.ty,
+      .DynT(
+        required_trait_types : rtt,
+        required_trait_levels : rtl,
+        negative_trait_types : ntt,
+        negative_trait_levels : ntl
+      ) =>
+        Option(ExpectedTypeCtx).Some(
+          ExpectedTypeCtx(
+            ty : TypeValue.SomeT(
+              generate_some_type_id(),
+              String.from(""),
+              env.frames.len(),
+              Box(TypeValue)(TypeValue.TypeUni(usize(0))),
+              rtt,
+              rtl,
+              ntt,
+              ntl,
+              false,
+              Option(Box(TypeValue)).None
+            ),
+            env : et.env
+          )
+        ),
+      _ => Option(ExpectedTypeCtx).None
+    ),
+    .None => Option(ExpectedTypeCtx).None
+  );
   // Non-executing path: still type-check the inner expression, then return early.
   if(ctx.is_validating_function_definition || !(ctx.is_executing), {
+    saved_et_ne := ctx.expected_type;
+    ctx.expected_type = inner_expected;
     _inner := evaluate_expression(value_arg, env, ctx);
+    ctx.expected_type = saved_et_ne;
     (ret_type : TypeValue) = match(
       ctx.expected_type,
       .Some(et) => et.ty,
@@ -89,8 +133,11 @@ evaluate_dyn_value :: (
     return(expr);
   });
   // --- Executing path ---
-  // Evaluate the inner expression.
+  // Evaluate the inner expression (with the inner-expected computed above).
+  saved_et_ex := ctx.expected_type;
+  ctx.expected_type = inner_expected;
   eval_inner := evaluate_expression(value_arg, env, ctx);
+  ctx.expected_type = saved_et_ex;
   inner_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_inner));
   inner_info := match(
     inner_info_opt,
@@ -231,7 +278,7 @@ evaluate_dyn_value :: (
     .DynT(required_trait_types : rtt) => {
       n := rtt.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         tt_opt := rtt.get(i);
         match(
           tt_opt,
@@ -242,7 +289,7 @@ evaluate_dyn_value :: (
               field_names := ArrayList(String).new();
               field_vals := ArrayList(Option(EvalValue)).new();
               (j : usize) = usize(0);
-              while(runtime(j < n_fields), {
+              while(j < n_fields, {
                 fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
                 field_names.push(fname);
                 field_vals.push(Option(EvalValue).None);

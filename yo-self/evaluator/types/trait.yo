@@ -47,7 +47,7 @@ open(import("std/fmt"));
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
-{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { _add_where_clause_constraint, _trait_has_receiver } :: import("./function.yo");
@@ -223,7 +223,10 @@ _get_or_create_some_ty_for_trait :: (
       )
     );
   });
-  env_mut = lhs_info.env;
+  env_mut.frames = lhs_info.env.frames;
+  env_mut.module_path = lhs_info.env.module_path;
+  env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
+  env_mut.input_string = lhs_info.env.input_string;
   lhs_tv := match(
     lhs_info.value,
     .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
@@ -319,7 +322,10 @@ _apply_single_constraint_for_trait :: (
   if(!(is_type_value(te_info.value)), {
     return(false);
   });
-  env_mut = te_info.env;
+  env_mut.frames = te_info.env.frames;
+  env_mut.module_path = te_info.env.module_path;
+  env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+  env_mut.input_string = te_info.env.input_string;
   trait_ty2 = match(
     te_info.value,
     .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
@@ -370,7 +376,7 @@ _parse_trait_where_clauses :: (
 )({
   pending_traits := ArrayList(_PendingTraitConstraint).new();
   (ci : usize) = usize(0);
-  while(runtime(ci < constraint_exprs.len()), {
+  while(ci < constraint_exprs.len(), {
     constraint_expr := match(
       constraint_exprs.get(ci),
       .Some(e) => e,
@@ -417,7 +423,7 @@ _parse_trait_where_clauses :: (
     if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE,.None), {
       rhs_args := _fn_call_args(rhs_expr);
       (ri : usize) = usize(0);
-      while(runtime(ri < rhs_args.len()), {
+      while(ri < rhs_args.len(), {
         rte := match(rhs_args.get(ri),.Some(a) => a,.None => make_err_expr());
         rhs_trait_exprs.push(rte);
         ri = (ri + usize(1));
@@ -427,7 +433,7 @@ _parse_trait_where_clauses :: (
     });
     // Evaluate each trait expr and apply constraint
     (ti : usize) = usize(0);
-    while(runtime(ti < rhs_trait_exprs.len()), {
+    while(ti < rhs_trait_exprs.len(), {
       trait_expr_item := match(rhs_trait_exprs.get(ti),.Some(a) => a,.None => make_err_expr());
       ti = (ti + usize(1));
       // Check negation
@@ -491,7 +497,10 @@ _parse_trait_where_clauses :: (
           );
         });
       });
-      env_mut = te_info.env;
+      env_mut.frames = te_info.env.frames;
+      env_mut.module_path = te_info.env.module_path;
+      env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+      env_mut.input_string = te_info.env.input_string;
       trait_ty2 = match(
         te_info.value,
         .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
@@ -764,7 +773,10 @@ _evaluate_trait_field :: (
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
       te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut, TypeValue.Unit));
-      env_mut = te_info.env;
+      env_mut.frames = te_info.env.frames;
+      env_mut.module_path = te_info.env.module_path;
+      env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+      env_mut.input_string = te_info.env.input_string;
       if(!(is_type_value(te_info.value)), {
         exn.throw(
           dyn(
@@ -832,7 +844,10 @@ _evaluate_trait_field :: (
           new_expr_info(env_mut, TypeValue.Unit)
         }
       );
-      env_mut = av_info.env;
+      env_mut.frames = av_info.env.frames;
+      env_mut.module_path = av_info.env.module_path;
+      env_mut.function_declaration_frame_level = av_info.env.function_declaration_frame_level;
+      env_mut.input_string = av_info.env.input_string;
       av := match(
         av_info.value,
         .Some(v) => v,
@@ -923,7 +938,10 @@ _evaluate_trait_field :: (
           new_expr_info(env_mut, TypeValue.Unit)
         }
       );
-      env_mut = dv_info.env;
+      env_mut.frames = dv_info.env.frames;
+      env_mut.module_path = dv_info.env.module_path;
+      env_mut.function_declaration_frame_level = dv_info.env.function_declaration_frame_level;
+      env_mut.input_string = dv_info.env.input_string;
       dv := match(
         dv_info.value,
         .Some(v) => v,
@@ -1153,7 +1171,7 @@ evaluate_trait_type :: (
   // Evaluate trait fields (skip the where clause if present at the end)
   (field_index : usize) = usize(0);
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     i = (i + usize(1));
     if(ast_expr_is_fn_call_of(arg, BK_WHERE,.None), {
@@ -1196,7 +1214,7 @@ evaluate_trait_type :: (
     // Check for duplicate labels
     (is_duplicate : bool) = false;
     (li : usize) = usize(0);
-    while(runtime(li < field_labels.len()), {
+    while(li < field_labels.len(), {
       existing_label := match(field_labels.get(li),.Some(s) => s,.None => String.from(""));
       li = (li + usize(1));
       if(existing_label.as_str() == field_result.label.as_str(), {
@@ -1283,7 +1301,7 @@ evaluate_trait_type :: (
   if(pending_constraints.len() > usize(0), {
     retry_list := ArrayList(AstExpr).new();
     (pi : usize) = usize(0);
-    while(runtime(pi < pending_constraints.len()), {
+    while(pi < pending_constraints.len(), {
       match(
         pending_constraints.get(pi),
         .Some(p) => {

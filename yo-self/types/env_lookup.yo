@@ -27,6 +27,7 @@ open(import("std/string"));
   is_u8_type,
   is_char_type
 } :: import("./guards.yo");
+{ type_to_string } :: import("./string.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, get_variables_from_env } :: import("../env.yo");
 // ---------------------------------------------------------------------------
@@ -89,12 +90,28 @@ _some_name :: (fn(ty : TypeValue) -> String)(
     _ => String.from("")
   )
 );
+/// Extract the `frame_level` field from a `SomeT`; `.None` on mismatch.
+_some_frame_level :: (fn(ty : TypeValue) -> Option(usize))(
+  match(
+    ty,
+    .SomeT(
+      id : _,
+      name : _,
+      frame_level : fl,
+      required_trait_types : _,
+      required_trait_levels : _,
+      negative_trait_types : _,
+      negative_trait_levels : _
+    ) => Option(usize).Some(fl),
+    _ => Option(usize).None
+  )
+);
 /// True if `id` already appears in `visited_ids`.
 _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
   (found : bool) = false;
   n := visited_ids.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       visited_ids.get(i),
       .Some(existing) =>
@@ -125,7 +142,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
           m := vars.len();
           (result : Option(TypeValue)) =.None;
           (i : usize) = usize(0);
-          while(runtime(i < m), {
+          while(i < m, {
             match(
               vars.get(i),
               .Some(var) =>
@@ -155,6 +172,37 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
       )
   )
 });
+/// TS fallback (env-lookup.ts:170-200): after `synthesize_types` replaces a
+/// SomeType's binding with a concrete type, the self-referential marker
+/// (`T = SomeT(T)`) that `_was_self_bound` looks for no longer exists. Verify
+/// ownership instead via the SomeType's definition frame level: if the
+/// variable named `name` at `env.frames[frame_level]` holds a concrete
+/// TypeVal equal to what the normal name-search found, the binding is FOR
+/// this SomeType (definition frame level + name is unique). TS compares with
+/// object identity (`defTypeVal.value === someTypeValue.value`); yo-self's
+/// value-type stand-in is rendered-type equality.
+_def_frame_confirms_binding :: (
+  fn(env : Environment, some_ty : TypeValue, resolved_tv : TypeValue) -> bool
+)({
+  fl := match(
+    _some_frame_level(some_ty),
+    .Some(l) => l,
+    .None => {
+      return(false);
+    }
+  );
+  def_tv := match(
+    _lookup_by_frame(env, fl, _some_name(some_ty)),
+    .Some(t) => t,
+    .None => {
+      return(false);
+    }
+  );
+  if(is_some_type(def_tv), {
+    return(false);
+  });
+  type_to_string(def_tv).as_str() == type_to_string(resolved_tv).as_str()
+});
 /// Search the env for a variable of `name` that was ever bound to a TypeVal
 /// whose `id` matches `id_to_find`.  Used to distinguish unbound type variables
 /// from ones that were concretised by `synthesizeTypes`.
@@ -162,14 +210,14 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
   (found : bool) = false;
   n_frames := env.frames.len();
   (fi : usize) = usize(0);
-  while(runtime((fi < n_frames) && !(found)), {
+  while((fi < n_frames) && !(found), {
     match(
       env.frames.get(fi),
       .Some(frame) => {
         vars := frame.variables;
         m := vars.len();
         (vi : usize) = usize(0);
-        while(runtime((vi < m) && !(found)), {
+        while((vi < m) && !(found), {
           match(
             vars.get(vi),
             .Some(var) =>
@@ -248,7 +296,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
   (current : TypeValue) = start;
   (done : bool) = false;
   (result : TypeValue) = start;
-  while(runtime(!(done)), {
+  while(!(done), {
     cur_id := _some_id(current);
     cur_name := _some_name(current);
     cond(
@@ -314,7 +362,15 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           },
                           // Concrete type
                           true => {
-                            was_bound := _was_self_bound(env, cur_name, cur_id);
+                            (was_bound : bool) = _was_self_bound(env, cur_name, cur_id);
+                            // TS fallback (env-lookup.ts:170-200): the
+                            // self-referential marker is gone once
+                            // `synthesize_types` rebinds the variable to the
+                            // concrete type — confirm ownership via the
+                            // SomeType's definition frame level instead.
+                            if(!(was_bound), {
+                              was_bound = _def_frame_confirms_binding(env, current, resolved_tv);
+                            });
                             cond(
                               (!(was_bound)) => {
                                 result = current;
@@ -405,7 +461,7 @@ create_str_type :: (fn(env : Environment) -> TypeValue)({
   (i : usize) = usize(0);
   (found : Option(TypeValue)) =.None;
   (n : usize) = vars.len();
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       vars.get(i),
       .Some(v) => match(
@@ -458,6 +514,12 @@ convert_comptime_type_to_runtime_type_with_expected :: (
       expected,
       .None => create_str_type(env),
       .Some(et) => cond(
+        // Expected type is itself `comptime_string` (e.g. a
+        // `comptime(name) : comptime_string` parameter) — keep the
+        // comptime type rather than coercing to `str`. Without this the
+        // default-value check compares `comptime_string` against `str`
+        // and rejects `(comptime(x) : comptime_string) ?= "…"`.
+        is_comptime_string_type(et) => ty,
         (is_pointer_type(et) && _pointer_target_is_byte(et)) => et,
         is_slice_type(et) => et,
         true => create_str_type(env)

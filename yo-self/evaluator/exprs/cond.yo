@@ -36,6 +36,7 @@ open(import("std/string"));
 {
   is_bool_type,
   is_some_type,
+  is_pointer_type,
   is_function_type_and_returns_comptime_value
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
@@ -124,7 +125,7 @@ evaluate_cond :: (
   // -------------------------------------------------------------------------
   parsed_stmts := ArrayList(ParsedStmt).new();
   (pi : usize) = usize(0);
-  while(runtime(pi < statement_count), {
+  while(pi < statement_count, {
     statement := match(statements.get(pi),.Some(s) => s,.None => make_err_expr());
     is_arrow_call := (ast_expr_is_fn_call(statement) && ast_expr_is_fn_call_of(statement, "=>",.Some(usize(2))));
     if(!(is_arrow_call), {
@@ -164,7 +165,7 @@ evaluate_cond :: (
   evaluated_conds := ArrayList(EvaluatedCond).new();
   (done_eval : bool) = false;
   (ec_i : usize) = usize(0);
-  while(runtime((ec_i < parsed_stmts.len()) && !(done_eval)), {
+  while((ec_i < parsed_stmts.len()) && !(done_eval), {
     pstmt := match(
       parsed_stmts.get(ec_i),
       .Some(s) => s,
@@ -183,7 +184,7 @@ evaluate_cond :: (
       ast_expr_is_atom(cond_expr) =>
         evaluate_expression(cond_expr, case_env, ctx),
       true =>
-        evaluate_begin_expression(cond_expr, case_env, ctx, ArrayList(Variable).new(), false)
+        evaluate_begin_expression(cond_expr, case_env, ctx, ArrayList(Variable).new(), false, exn)
     );
     ctx.expected_type = old_expected;
     // Require that the evaluator produced ExprInfo.
@@ -262,7 +263,7 @@ evaluate_cond :: (
   (first_true_index : Option(usize)) = Option(usize).None;
   (fti : usize) = usize(0);
   (fti_done : bool) = false;
-  while(runtime((fti < evaluated_conds.len()) && !(fti_done)), {
+  while((fti < evaluated_conds.len()) && !(fti_done), {
     ec_here := match(
       evaluated_conds.get(fti),
       .Some(c) => c,
@@ -276,7 +277,7 @@ evaluate_cond :: (
       // Ensure all previous conditions were compile-time false.
       (all_prev_false : bool) = true;
       (j : usize) = usize(0);
-      while(runtime((j < fti) && all_prev_false), {
+      while((j < fti) && all_prev_false, {
         match(
           evaluated_conds.get(j),
           .Some(prev) => {
@@ -329,7 +330,7 @@ evaluate_cond :: (
         }
       );
       // Evaluate the body.
-      evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false);
+      evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
       body_cf := match(body_info_opt,.Some(bi) => bi.control_flow,.None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
@@ -373,7 +374,10 @@ evaluate_cond :: (
         );
         bodies.push(evaluated_body);
         value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_info.ty, env : body_info.env));
-        env = body_info.env;
+        env.frames = body_info.env.frames;
+        env.module_path = body_info.env.module_path;
+        env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
+        env.input_string = body_info.env.input_string;
         result_ty := cond(
           match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
             match(ctx.expected_type,.Some(et) => et.ty,.None => body_info.ty),
@@ -399,7 +403,7 @@ evaluate_cond :: (
       return_bodies := ArrayList(AstExpr).new();
       (has_runtime_body_val : bool) = false;
       (nb_i : usize) = usize(0);
-      while(runtime(nb_i < evaluated_conds.len()), {
+      while(nb_i < evaluated_conds.len(), {
         match(
           evaluated_conds.get(nb_i),
           .None => {
@@ -426,7 +430,8 @@ evaluate_cond :: (
                 ec_item.case_env,
                 ctx,
                 ArrayList(Variable).new(),
-                false
+                false,
+                exn
               );
               ctx.is_executing = old_executing;
               // Consume the case body temp var to avoid phantom drops.
@@ -479,17 +484,41 @@ evaluate_cond :: (
                   ctx.expected_type,
                   .None => (),
                   .Some(et) => {
-                    if(!(are_types_compatible(body_einfo.ty, et.ty)), {
-                      exn.throw(
-                        dyn(
-                          format_error_message(
-                            ast_expr_token(evaluated_case_body),
-                            `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_einfo.ty)}`,
-                            false,
-                            .None
+                    // For `-> ref(T)` enclosing functions the body's expected
+                    // type is lowered to `*(T)` (function_type.yo
+                    // `bodyExpectedType`). Cond arms that produce raw `T` (e.g.
+                    // a field projection `p.x` of a ref-bound parameter) are
+                    // flowable — codegen emits address-taking on the way out.
+                    // Accept the raw `T` form here; the flowability rule on the
+                    // return expression owns soundness. Mirrors TS cond.ts
+                    // `isPtrRelaxedMatch`.
+                    is_ptr_relaxed_match := cond(
+                      (is_pointer_type(et.ty) && !(is_pointer_type(body_einfo.ty))) => match(
+                        et.ty,
+                        .Pointer(child_box) => are_types_compatible(body_einfo.ty, child_box.*),
+                        _ => false
+                      ),
+                      true => false
+                    );
+                    if(!(is_ptr_relaxed_match) && !(are_types_compatible(body_einfo.ty, et.ty)), {
+                      // Coerce the arm's comptime type to runtime and re-check
+                      // (e.g. a `comptime_string` literal arm against a `str`
+                      // expected return), mirroring the value-type unification
+                      // fallback below. TS's areTypesCompatible accepts this
+                      // directly; yo-self needs the explicit widening.
+                      runtime_arm_ty := convert_comptime_type_to_runtime_type(body_einfo.ty, body_einfo.env);
+                      if(!(are_types_compatible(runtime_arm_ty, et.ty)), {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              ast_expr_token(evaluated_case_body),
+                              `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_einfo.ty)}`,
+                              false,
+                              .None
+                            )
                           )
-                        )
-                      );
+                        );
+                      });
                     });
                   }
                 );
@@ -553,7 +582,7 @@ evaluate_cond :: (
         // Merge environments from arms that don't return/unwind.
         filtered_bodies := ArrayList(AstExpr).new();
         (fb_i : usize) = usize(0);
-        while(runtime(fb_i < bodies.len()), {
+        while(fb_i < bodies.len(), {
           body := match(bodies.get(fb_i),.Some(b) => b,.None => make_err_expr());
           body_info_filt_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(body));
           match(
@@ -567,7 +596,7 @@ evaluate_cond :: (
           );
           fb_i = (fb_i + usize(1));
         });
-        env = merge_and_check_envs(env, filtered_bodies, ctx);
+        env = merge_and_check_envs(env, filtered_bodies, ctx, exn);
         // Determine the compile-time value.
         result_val := cond(
           has_runtime_body_val => Option(EvalValue).None,
@@ -640,7 +669,7 @@ evaluate_cond :: (
                         .Some(ft) => {
                           match(
                             ft,
-                            .Func(_, _, _, _, _, _, _, _, result_box) => {
+                            .Func({ result : result_box }) => {
                               return_type = Option(TypeValue).Some(result_box.*);
                             },
                             _ => ()
@@ -669,7 +698,7 @@ evaluate_cond :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(expr),
-                      `Failed to determine the return(type for cond(statement.))`,
+                      `Failed to determine the return type for cond statement.`,
                       false,
                       .None
                     )

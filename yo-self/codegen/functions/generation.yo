@@ -66,7 +66,7 @@ build_param_list :: (
   );
   sb := String.new();
   (i : usize) = usize(0);
-  while(runtime(i < n_params), {
+  while(i < n_params, {
     if(i > usize(0), {
       sb.push_str(", ");
     });
@@ -92,7 +92,7 @@ emit_function_declaration :: (
   {
     n_pt := param_tys.len();
     (pt_i : usize) = usize(0);
-    while(runtime(pt_i < n_pt), {
+    while(pt_i < n_pt, {
       match(
         param_tys.get(pt_i),
         .None => (),
@@ -140,7 +140,7 @@ generate_function :: (
   {
     n_pt := param_tys.len();
     (pt_i : usize) = usize(0);
-    while(runtime(pt_i < n_pt), {
+    while(pt_i < n_pt, {
       match(
         param_tys.get(pt_i),
         .None => (),
@@ -162,7 +162,7 @@ generate_function :: (
   // Also register struct fields for struct-typed parameters to support `open p` in function bodies.
   {
     (ip : usize) = usize(0);
-    while(runtime(ip < n_params), {
+    while(ip < n_params, {
       ty_p := match(param_tys.get(ip),.Some(s) => s,.None => String.from("void*"));
       p_p := match(params.get(ip),.Some(s) => s,.None => String.from("_p"));
       ctx.register_var_type(p_p.as_str(), ty_p.as_str());

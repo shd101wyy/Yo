@@ -29,8 +29,11 @@ open(import("std/string"));
   BK_COLON,
   BK_CONST,
   BK_INIT_ASSIGN,
-  BK_GIVEN
+  BK_GIVEN,
+  BK_REF
 } :: import("../../expr.yo");
+{ is_flowable_expr, FlowOptions, flag_flow_violation }
+:: import("../../types/flowability.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -54,14 +57,15 @@ open(import("std/string"));
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
-  type_contains_rc_type
+  type_contains_rc_type,
+  type_is_control_bound
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("./expr.yo");
-{ is_valid_variable_name } :: import("./binding.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -150,6 +154,47 @@ evaluate_initialization_assignment :: (
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
+  // Detect `ref(name) := expr;` — a second-class reference (borrow) binding.
+  // The bound name aliases the ref-yielding RHS. Mirrors
+  // `initialization-assignment.ts` (the `BuiltinKeywords.ref` unwrap).
+  (is_ref_binding : bool) = false;
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_REF,.None), {
+    if(is_const || ctx.force_compile_time_bindings, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            String.from("'ref(name) :=' cannot be used with '::' or in a compile-time-only context — borrows are runtime constructs."),
+            false,
+            .None
+          )
+        )
+      );
+    });
+    n_ref_args := match(
+      lhs,
+      .FnCall(_, _, rargs, _, _) => rargs.len(),
+      .Atom(_, _) => usize(0)
+    );
+    if(n_ref_args != usize(1), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            `Expected one argument for 'ref' in a local binding, got ${n_ref_args.to_string()}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    is_ref_binding = true;
+    actual_lhs = match(
+      lhs,
+      .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+  });
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN,.None), {
     n_given_args := match(
       lhs,
@@ -198,7 +243,15 @@ evaluate_initialization_assignment :: (
   if(is_implicit, {
     ctx.is_inside_given_handler = true;
   });
-  rhs = evaluate_expression(rhs, env, ctx);
+  // Use the exn-threading (raw) evaluator so a compile error in the rhs
+  // propagates to the caller's handler instead of being caught, printed,
+  // and swallowed by the non-raw `_evaluate_expression_wrapper` (which then
+  // continues with a placeholder expr). In particular this lets a test
+  // body's trial-evaluation swallow (see `evaluate_test`) actually catch
+  // errors raised while evaluating a `:=` rhs. Mirrors TS
+  // `evaluateInitializationAssignment` calling the propagating
+  // `evaluateExpression`.
+  rhs = evaluate_expression_raw(rhs, env, ctx, exn);
   ctx.expected_type = old_expected_type;
   ctx.is_inside_given_handler = old_is_inside_given_handler;
   // Update env from the evaluated rhs.
@@ -206,7 +259,10 @@ evaluate_initialization_assignment :: (
   match(
     rhs_info_opt,
     .Some(rhs_info) => {
-      env = rhs_info.env;
+      env.frames = rhs_info.env.frames;
+      env.module_path = rhs_info.env.module_path;
+      env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+      env.input_string = rhs_info.env.input_string;
     },
     .None => ()
   );
@@ -215,6 +271,36 @@ evaluate_initialization_assignment :: (
     rhs_info_opt,
     .Some(rhs_info) => {
       prohibit_void_type(rhs_info.ty, ast_expr_token(rhs), exn);
+    },
+    .None => ()
+  );
+  // §4 escape boundary 2 (algebraic-effect ctl rules): a module-level binding
+  // type cannot be control-bound. Module-level bindings outlive every call
+  // frame, so a stored `ctl(...)` handler (or an aggregate / pointer containing
+  // one) would be invokable long after its install frame has returned, where it
+  // would `unwind` to a dead frame. Mirrors `initialization-assignment.ts:186-210`.
+  match(
+    rhs_info_opt,
+    .Some(rhs_info) => {
+      is_at_module_level := match(
+        ctx.is_evaluating_function_body_or_async_block,
+        .Some(_) => false,
+        .None => true
+      );
+      if(is_at_module_level && type_is_control_bound(rhs_info.ty), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(rhs),
+              `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
+
+Bound type: ${type_to_string(rhs_info.ty)}`,
+              false,
+              .None
+            )
+          )
+        );
+      });
     },
     .None => ()
   );
@@ -234,6 +320,28 @@ evaluate_initialization_assignment :: (
   );
   // Disallow implicit variables as the RHS of non-given assignment.
   throw_expr_is_implicit_variable_error(rhs, env, ctx, exn);
+  // Flowability check on the RHS of `ref(name) := expr;`. The RHS must be a
+  // ref-yielding expression that roots back to a `ref`-bound parameter (or any
+  // same-function local — the borrow is bounded by the enclosing block).
+  // Otherwise the binding would hand out a reference into storage that doesn't
+  // outlive the call frame. Mirrors `initialization-assignment.ts` (the
+  // `isFlowableExpr(rhs, { allowSameFrameLocal: true })` check).
+  if(is_ref_binding, {
+    ref_flow_opts := FlowOptions(
+      allow_same_frame_local : true,
+      allow_parameter_source : false,
+      allow_comptime_source : false,
+      max_local_frame_level : Option(usize).None
+    );
+    if(!(is_flowable_expr(rhs, ctx, ref_flow_opts)), {
+      viol_msg := `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`;
+      // Flag the violation (recording its message) so that if this throw is
+      // swallowed by a def-time trial-eval, the def-time caller re-raises the
+      // same diagnostic via the real `exn` (function_type.yo).
+      flag_flow_violation(viol_msg);
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
+    });
+  });
   // --------------------------------------------------------------------------
   // Branch: atom LHS vs destructuring LHS
   // --------------------------------------------------------------------------
@@ -243,13 +351,20 @@ evaluate_initialization_assignment :: (
     // -------------------------------------------------------------------
     // Check if the RHS variable has been consumed (moved).
     require_expr_not_consumed(rhs, env, ctx, exn);
-    // Insert dup (Phase 2w: stub, no-op).
-    set_expr_as_needs_to_call_dup(rhs, ctx);
+    // Insert dup (Phase 2w: stub, no-op) — but NOT for a `ref(name) :=` borrow.
+    // A ref-binding aliases the RHS rather than owning it, so no clone is
+    // inserted. Mirrors the `!isRefBinding` gate in `initialization-assignment.ts`.
+    if(!(is_ref_binding), {
+      set_expr_as_needs_to_call_dup(rhs, ctx);
+    });
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
       .Some(ri) => {
-        env = ri.env;
+        env.frames = ri.env.frames;
+        env.module_path = ri.env.module_path;
+        env.function_declaration_frame_level = ri.env.function_declaration_frame_level;
+        env.input_string = ri.env.input_string;
       },
       .None => ()
     );
@@ -325,7 +440,10 @@ evaluate_initialization_assignment :: (
       synth := synthesize_expr_and_type(rhs, pre_type, env, ctx);
       rhs = synth.expr;
       rhs_type_opt = Option(TypeValue).Some(synth.ty);
-      env = synth.env;
+      env.frames = synth.env.frames;
+      env.module_path = synth.env.module_path;
+      env.function_declaration_frame_level = synth.env.function_declaration_frame_level;
+      env.input_string = synth.env.input_string;
       // Re-read rhs_info for the updated rhs.
       rhs_info_opt = expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
       // Check type compatibility.
@@ -407,10 +525,69 @@ ${rhs_str}`,
         )
       );
     });
+    // typeName stamping at `::` binding — mirrors TS
+    // initialization-assignment.ts:343-367: `str :: newtype(...)` names the
+    // struct "str", `Color :: enum(...)` names the enum, etc. TS mutates
+    // the shared type object in place; yo-self TypeValues are value-typed,
+    // so rebuild the TypeVal with the binding name filled (only when the
+    // current name is empty) before storing. Without this, name-keyed
+    // checks — e.g. panic's `typeName === "str"` (panic.ts:88) — can never
+    // match; under propagated def-eval the prelude's `assert` failed on it
+    // and cascaded across 96 std files.
+    stamped_rhs_value_opt := match(
+      rhs_value_opt,
+      .Some(rv) => match(
+        rv,
+        .TypeVal(tv_box) => {
+          binding_name := String.from(ast_expr_token(actual_lhs).value.as_str());
+          stamped_ty := match(
+            tv_box.*,
+            .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
+              (st_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
+              ),
+              true => Option(TypeValue).None
+            ),
+            .EnumT(en_id, en_name, en_vns, en_vfs, en_sel, en_vfl, en_vd) => cond(
+              (en_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd)
+              ),
+              true => Option(TypeValue).None
+            ),
+            .Union(un_name, un_fls, un_fts) => cond(
+              (un_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.Union(binding_name, un_fls, un_fts)
+              ),
+              true => Option(TypeValue).None
+            ),
+            // Traits too: `Send :: trait(id := "Send")` names the trait
+            // "Send" (TS stamps any unnamed type the same way). Identity is
+            // unaffected — trait matching keys on the `id` field, which is
+            // preserved. Without this, diagnostics render the trait as its
+            // field dump (`(id : comptime_string)` instead of `Send`), e.g.
+            // the where-clause "does not implement required trait" error.
+            .TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc) => cond(
+              (tr_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.TraitT(binding_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc)
+              ),
+              true => Option(TypeValue).None
+            ),
+            _ => Option(TypeValue).None
+          );
+          match(
+            stamped_ty,
+            .Some(new_ty) => Option(EvalValue).Some(EvalValue.TypeVal(box(new_ty))),
+            .None => rhs_value_opt
+          )
+        },
+        _ => rhs_value_opt
+      ),
+      .None => rhs_value_opt
+    );
     // Determine the value to store.
     lhs_value_opt := cond(
       effective_is_compile_time_only => match(
-        rhs_value_opt,
+        stamped_rhs_value_opt,
         .Some(rv) => Option(EvalValue).Some(clone_value(rv, true)),
         .None => Option(EvalValue).Some(create_unknown_val(lhs_type))
       ),
@@ -503,6 +680,12 @@ Use \`::\` for compile-time definitions inside impl.`,
       .Some(new_var) => {
         new_var.is_module_level = is_module_level;
         new_var.doc_comment = doc_comment_opt;
+        // A `ref(name) := <ref-yielding expr>` local carries `is_ref : true`
+        // (mirrors TS initialization-assignment.ts:510 `isRef: isRefBinding`).
+        // The closure ref-capture gate (values/anonymous_function.yo) keys on
+        // it — without this, a captured ref-LOCAL (vs ref-param) was not
+        // rejected (tests/ref_local_binding.test.yo `make_capturing_closure`).
+        new_var.is_ref = is_ref_binding;
         // Set is_owning_the_same_rc_value_as when applicable.
         match(
           is_owning_same_rc_value_as,
@@ -557,7 +740,10 @@ Use \`::\` for compile-time definitions inside impl.`,
       ctx,
       exn
     );
-    env = destr_result.env;
+    env.frames = destr_result.env.frames;
+    env.module_path = destr_result.env.module_path;
+    env.function_declaration_frame_level = destr_result.env.function_declaration_frame_level;
+    env.input_string = destr_result.env.input_string;
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info.runtime_destructurings = destr_result.runtime_destructurings;

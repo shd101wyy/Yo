@@ -70,7 +70,7 @@ evaluate_array_value :: (
     .Some(et) => cond(
       is_array_type(et.ty) => match(
         et.ty,
-        .Array(box_elem, _) => Option(TypeValue).Some(box_elem.*),
+        .Array(box_elem, _, _) => Option(TypeValue).Some(box_elem.*),
         _ => Option(TypeValue).None
       ),
       true => Option(TypeValue).None
@@ -83,7 +83,7 @@ evaluate_array_value :: (
   (element_values : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (runtime_arg_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   (i : usize) = usize(0);
-  while(runtime(i < array_len), {
+  while(i < array_len, {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // Save/restore expected_type around element evaluation.
     old_expected := ctx.expected_type;
@@ -183,7 +183,7 @@ evaluate_array_value :: (
   // Build a compile-time ArrayVal if every element has a compile-time value.
   (all_have_values : bool) = true;
   (check_i : usize) = usize(0);
-  while(runtime((check_i < element_values.len()) && all_have_values), {
+  while((check_i < element_values.len()) && all_have_values, {
     opt_v := match(element_values.get(check_i),.Some(x) => x,.None => Option(EvalValue).None);
     if(opt_v.is_none(), {
       all_have_values = false;
@@ -194,7 +194,7 @@ evaluate_array_value :: (
     all_have_values => {
       (elems : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
       (build_i : usize) = usize(0);
-      while(runtime(build_i < element_values.len()), {
+      while(build_i < element_values.len(), {
         opt_v := match(element_values.get(build_i),.Some(x) => x,.None => Option(EvalValue).None);
         match(
           opt_v,

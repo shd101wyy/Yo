@@ -71,7 +71,7 @@ has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> b
   (found : bool) = false;
   (i : usize) = usize(0);
   n := tokens.len();
-  while(runtime((i < n) && (!(found))), {
+  while((i < n) && (!(found)), {
     match(
       tokens.get(i),
       .Some(tok) => {
@@ -149,12 +149,12 @@ impl(
         .Some(pval) =>
           match(
             pval,
-            .ModuleVal(pnames, pvalues) => {
+            .StructVal(_, pnames, pvalues) => {
               // Push a dedicated prelude frame so user code can shadow prelude names.
               env.push_frame(true);
               (pi : usize) = usize(0);
               pn := pnames.len();
-              while(runtime(pi < pn), {
+              while(pi < pn, {
                 match(
                   pnames.get(pi),
                   .Some(pname) => {

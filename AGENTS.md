@@ -234,3 +234,91 @@ TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
 - **yargs `.scriptName("yo")`** is set in `yo-cli.ts` so help text shows `yo` instead of `bun`. Don't remove it.
 - **`yo fetch` auto-prunes stale lock entries.** When a dep is removed from `build.yo`, running `yo fetch` removes it from `yo.lock`. Global cache is not auto-cleaned.
 - **`GIT_TERMINAL_PROMPT=0`** must be set when running `git ls-remote` on potentially non-existent repos to prevent interactive credential prompts.
+- **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion, NOT heap corruption — don't chase ASan/malloc.** Compiled Yo programs run `main` on a worker thread whose stack defaults to 1 GiB (`__yo_main_stack` in `src/codegen/functions/generation.ts`) and is overridable at runtime via the `YO_MAIN_STACK_MB` env var. At `-O0` (the default, non-`--release` build) clang gives every temporary its own stack slot, so the big evaluator functions (`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB) have multi-MB frames; deep compile-time recursion — e.g. `derive(Eq)` over a ~46-variant enum unrolling `__yo_comptime_fold_range` once per variant — then exhausts a 1 GiB stack at ~45 levels (≈22 MB/level). This is why `check ./yo-self` crashed under `is_executing`. **`--release` (-O2, src/codegen/index.ts) shrinks frames ~100× via LLVM stack coloring (only runs at `-O1`+), needing <1 MB/level — it handles 1000+ levels on 1 GiB and never hits this.** So: validate the self-hosted compiler under deep recursion either with `--release`, or keep the fast `-O0` loop and bump the stack: `YO_MAIN_STACK_MB=4096 <binary> check ./yo-self`. Diagnose this class of crash by rc=139 with no ASan output + a sharp deterministic depth threshold (it scales linearly with the stack size). The default is kept at 1 GiB (reserved lazily) so CI runners are not asked to reserve gigabytes.
+
+## Debugging codegen / C compilation issues
+
+When you encounter a C compilation error from `./yo-cli compile`, follow this
+workflow:
+
+1. **Document the issue** in `issues/<name>.md` with:
+   - The error message (verbatim)
+   - A **minimal `.yo` reproducer** (use `src/tests/fixme.yo`)
+   - The root cause analysis
+2. **Create the minimal repro** — a tiny `.yo` file that triggers the same
+   error. This isolates the bug from the noise of a full build.
+3. **Fix the codegen** in `src/codegen/`.
+4. **Verify** by compiling the repro (should succeed) and the full project
+   (error count should decrease).
+5. **Move the doc** to `issues/fixed/` and commit.
+
+---
+
+## Karpathy‑Inspired Coding Guidelines
+
+Behavioral guidelines to reduce common LLM coding mistakes. (Source: [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills))
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+### 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+
+- State assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them — don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it — don't delete it.
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

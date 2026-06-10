@@ -6,6 +6,7 @@
 //! unlike the TypeScript which strips them via JSON.parse.
 open(import("std/string"));
 open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -15,6 +16,91 @@ open(import("std/fmt"));
 { t_comptime_string } :: import("../../types/creators.yo");
 { Exception } :: import("std/error");
 { format_error_message } :: import("../../error.yo");
+/// Decode escape sequences in a raw string-literal token value, preserving the
+/// surrounding `"` delimiters (yo-self's `StrLit` convention keeps the quotes).
+///
+/// The TypeScript lexer keeps string-literal escapes raw and
+/// `evaluateStringLiteral` decodes them via `JSON.parse(token.value)`. yo-self
+/// stores the raw quoted token in `StrLit`, so we decode here at evaluation
+/// time, mirroring the template-string escape table in `lexer.yo`. Without this,
+/// a literal `"\n"` flows through the comptime-string subsystem as a backslash +
+/// `n` (two chars) instead of a single newline — which breaks `to_expr()` /
+/// `generate_expr_from_code` on derive-generated source and `len()`/`starts_with`
+/// char counts.
+decode_str_lit_escapes :: (fn(raw : String) -> String)({
+  chars := ArrayList(rune).new();
+  {
+    it := raw.chars();
+    while(true, {
+      match(it.next(),.None => break,.Some(r) => chars.push(r));
+    });
+  };
+  nn := chars.len();
+  null_rune := rune(u32(0));
+  sb := StringBuilder.new();
+  sb.write_byte(u8(0x22));
+  k := usize(1);
+  end := cond((nn > usize(0)) => (nn - usize(1)), true => usize(0));
+  while(k < end, {
+    ck := chars.get(k).unwrap_or(null_rune);
+    nck := chars.get(k + usize(1)).unwrap_or(null_rune);
+    cond(
+      (ck.char == u32(0x5C)) => cond(
+        (nck.char == u32(0x6E)) => {
+          sb.write_rune(rune(u32(0x0A)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x74)) => {
+          sb.write_rune(rune(u32(0x09)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x72)) => {
+          sb.write_rune(rune(u32(0x0D)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x5C)) => {
+          sb.write_rune(rune(u32(0x5C)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x22)) => {
+          sb.write_rune(rune(u32(0x22)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x27)) => {
+          sb.write_rune(rune(u32(0x27)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x30)) => {
+          sb.write_rune(rune(u32(0x00)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x62)) => {
+          sb.write_rune(rune(u32(0x08)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x66)) => {
+          sb.write_rune(rune(u32(0x0C)));
+          k = (k + usize(2));
+        },
+        (nck.char == u32(0x76)) => {
+          sb.write_rune(rune(u32(0x0B)));
+          k = (k + usize(2));
+        },
+        true => {
+          sb.write_rune(ck);
+          sb.write_rune(nck);
+          k = (k + usize(2));
+        }
+      ),
+      true => {
+        sb.write_rune(ck);
+        k = (k + usize(1));
+      }
+    );
+  });
+  sb.write_byte(u8(0x22));
+  sb.to_string()
+});
 evaluate_string_literal :: (
   fn(
     expr : AstExpr,
@@ -36,10 +122,10 @@ evaluate_string_literal :: (
       )
     );
   });
-  val := EvalValue.StrLit(tok.value);
+  val := EvalValue.StrLit(decode_str_lit_escapes(tok.value));
   info := new_expr_info(env, t_comptime_string());
   info.value =.Some(val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
-export(evaluate_string_literal);
+export(evaluate_string_literal, decode_str_lit_escapes);

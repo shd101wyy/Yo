@@ -1,0 +1,180 @@
+//! evaluator/builtins/contracts — contract-clause builtin handlers.
+//!
+//! Partial 1:1 port of `src/evaluator/builtins/contracts.ts` (Phase 0 of
+//! plans/FORMAL_VERIFICATION.md). Ported here: the expression-position
+//! handlers for `requires` / `ensures` / `invariant` / `ghost` (no-op markers
+//! that evaluate their args and return `unit`) and `ghost_fn` / `old`
+//! (transparent pass-throughs).
+//!
+//! NOT yet ported: `wrap_function_body_with_contracts` — the signature→assert
+//! lowering that turns `requires(...)` / `ensures(...)` in a function SIGNATURE
+//! into runtime `assert(...)` / `comptime_assert(...)` calls wrapping the body.
+//! That ties into the function-type evaluator's signature processing and is the
+//! remaining contracts piece (see plans/REMAINING_EVALUATOR_PORTS.md). The
+//! markers below cover the expression-position uses.
+open(import("std/string"));
+open(import("std/fmt"));
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BF_REQUIRES,
+  BF_ENSURES,
+  BF_INVARIANT,
+  BF_GHOST,
+  BF_GHOST_FN,
+  BF_OLD,
+  make_err_expr
+} :: import("../../expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
+:: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../../value.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ format_error_message } :: import("../../error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+/// Evaluate any of the no-op contract markers (`requires` / `ensures` /
+/// `invariant` / `ghost` in expression position). Each argument is evaluated
+/// (so expression-level errors surface), but the call itself returns `unit`.
+/// Mirrors `evaluateContractMarker` in `src/evaluator/builtins/contracts.ts`.
+_evaluate_contract_marker :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  (cur_env : Environment) = env;
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    evaluated := evaluate_expression_raw(arg, cur_env, ctx, exn);
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+      .Some(info) => {
+        cur_env = info.env;
+      },
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg),
+              String.from("Failed to evaluate argument of contract clause."),
+              false,
+              .None
+            )
+          )
+        );
+      }
+    );
+    i = (i + usize(1));
+  });
+  out_info := new_expr_info(cur_env, t_unit());
+  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+/// `requires(...)` in expression position — no-op marker. Mirrors
+/// `evaluateRequires`.
+evaluate_requires :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_contract_marker(expr, env, ctx, exn)
+);
+/// `ensures(...)` in expression position — no-op marker. Mirrors
+/// `evaluateEnsures`.
+evaluate_ensures :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_contract_marker(expr, env, ctx, exn)
+);
+/// `invariant(...)` — no-op marker (loop placement checked in `while`; SMT
+/// discharge is a later phase). Mirrors `evaluateInvariant`.
+evaluate_invariant :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_contract_marker(expr, env, ctx, exn)
+);
+/// `ghost(...)` — ghost-binding marker, transparent in Phase 0. Mirrors
+/// `evaluateGhost`.
+evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_contract_marker(expr, env, ctx, exn)
+);
+/// Shared transparent pass-through for `ghost_fn(inner)` / `old(inner)`:
+/// evaluate the single inner argument and propagate its ExprInfo to the outer
+/// call. Mirrors the bodies of `evaluateGhostFn` / `evaluateOld`.
+_evaluate_transparent_unary :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  arg := match(
+    expr,
+    .FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(info) => {
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    },
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            String.from("Failed to evaluate argument of contract clause."),
+            false,
+            .None
+          )
+        )
+      );
+    }
+  );
+  expr
+});
+/// `ghost_fn(f)` — marks a function value ghost-only. Phase 0: transparent
+/// pass-through. Mirrors `evaluateGhostFn`.
+evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  if(!(ast_expr_is_fn_call_of(expr, BF_GHOST_FN,.Some(usize(1)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `'ghost_fn(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  _evaluate_transparent_unary(expr, env, ctx, exn)
+});
+/// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
+/// by the wrapper; transparent pass-through elsewhere). Mirrors `evaluateOld`.
+evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  if(!(ast_expr_is_fn_call_of(expr, BF_OLD,.Some(usize(1)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `'old(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  _evaluate_transparent_unary(expr, env, ctx, exn)
+});
+export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_ghost);
+export(evaluate_ghost_fn, evaluate_old);

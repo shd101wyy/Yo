@@ -90,7 +90,7 @@ _analyze_ctfe_capability :: (
   (ctfe_env : Environment) = Environment.new(env.module_path);
   n_cap := cap_names.len();
   (cap_i : usize) = usize(0);
-  while(runtime(cap_i < n_cap), {
+  while(cap_i < n_cap, {
     cn := match(cap_names.get(cap_i),.Some(n) => n,.None => String.from(""));
     ct := match(cap_tys.get(cap_i),.Some(t) => t,.None => t_unit());
     cv := match(cap_vals.get(cap_i),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
@@ -127,7 +127,7 @@ _analyze_ctfe_capability :: (
   // Bind each parameter as UnknownVal with is_compile_time_only = true.
   n_p := param_labels.len();
   (p_i : usize) = usize(0);
-  while(runtime(p_i < n_p), {
+  while(p_i < n_p, {
     plabel := match(param_labels.get(p_i),.Some(l) => l,.None => String.from(""));
     ptype := match(param_types.get(p_i),.Some(t) => t,.None => t_unit());
     punknown := create_unknown_val(ptype);
@@ -171,7 +171,8 @@ _analyze_ctfe_capability :: (
     ctfe_env,
     ctx_p,
     ArrayList(Variable).new(),
-    true
+    true,
+    exn
   );
   // Restore context state.
   ctx_p.is_analyzing_ctfe_capability = saved_analyzing;
@@ -284,15 +285,15 @@ evaluate_comptime_fn :: (
     return(expr);
   });
   // Extract TypeValue.Func fields.
-  forall_labels := match(func_type,.Func(fl, _, _, _, _, _, _, _, _) => fl, _ => ArrayList(String).new());
-  forall_types := match(func_type,.Func(_, ft, _, _, _, _, _, _, _) => ft, _ => ArrayList(TypeValue).new());
-  param_labels := match(func_type,.Func(_, _, pl, _, _, _, _, _, _) => pl, _ => ArrayList(String).new());
-  param_types := match(func_type,.Func(_, _, _, pt, _, _, _, _, _) => pt, _ => ArrayList(TypeValue).new());
-  implicit_labels := match(func_type,.Func(_, _, _, _, il, _, _, _, _) => il, _ => ArrayList(String).new());
-  implicit_types := match(func_type,.Func(_, _, _, _, _, it, _, _, _) => it, _ => ArrayList(TypeValue).new());
-  implicit_spreads := match(func_type,.Func(_, _, _, _, _, _, is, _, _) => is, _ => ArrayList(bool).new());
-  where_types := match(func_type,.Func(_, _, _, _, _, _, _, wt, _) => wt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb, _ => box(t_unit()));
+  forall_labels := match(func_type,.Func({ forall_labels : fl }) => fl, _ => ArrayList(String).new());
+  forall_types := match(func_type,.Func({ forall_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  param_labels := match(func_type,.Func({ param_labels : pl }) => pl, _ => ArrayList(String).new());
+  param_types := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  implicit_labels := match(func_type,.Func({ implicit_labels : il }) => il, _ => ArrayList(String).new());
+  implicit_types := match(func_type,.Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
+  implicit_spreads := match(func_type,.Func({ implicit_spreads : is }) => is, _ => ArrayList(bool).new());
+  where_types := match(func_type,.Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
+  result_box := match(func_type,.Func({ result : rb }) => rb, _ => box(t_unit()));
   // Skip functions with forall parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
     exn.throw(
@@ -309,7 +310,7 @@ evaluate_comptime_fn :: (
   // Check param types and return type are comptime-compatible.
   n_pt := param_types.len();
   (pti : usize) = usize(0);
-  while(runtime(pti < n_pt), {
+  while(pti < n_pt, {
     pt := match(param_types.get(pti),.Some(t) => t,.None => t_unit());
     if(type_prohibits_comptime_modifier(pt), {
       exn.throw(
@@ -330,7 +331,7 @@ evaluate_comptime_fn :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          String.from("comptime_fn: return(type prohibits the comptime modifier)"),
+          String.from("comptime_fn: return type prohibits the comptime modifier"),
           false,
           .None
         )
@@ -347,7 +348,7 @@ evaluate_comptime_fn :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("comptime_fn: return(type cannot be promoted to comptime)"),
+            String.from("comptime_fn: return type cannot be promoted to comptime"),
             false,
             .None
           )
@@ -366,7 +367,19 @@ evaluate_comptime_fn :: (
     implicit_types,
     implicit_spreads,
     where_types,
-    box(comptime_result_ty)
+    box(comptime_result_ty),
+    true,
+    // result_is_comptime_only — this builds the comptime-result form
+    ArrayList(bool).new(),
+    // param_is_ref
+    false,
+    // result_is_ref
+    // has_variadic — preserve the original's flag.
+    match(func_type,.Func({ has_variadic : hv }) => hv, _ => false),
+    // is_extern / extern_name / is_control — preserve the original's metadata.
+    match(func_type,.Func({ is_extern : ie }) => ie, _ => Option(String).None),
+    match(func_type,.Func({ extern_name : en }) => en, _ => Option(String).None),
+    match(func_type,.Func({ is_control : ic }) => ic, _ => false)
   );
   // Extract body_box and captures from the FuncVal.
   body_box := match(arg_val,.FuncVal(_, _, _, _, bb, _, _, _, _) => bb, _ => box(make_err_expr()));

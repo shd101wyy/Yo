@@ -67,7 +67,14 @@ t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
 t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
 t_slice :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element)));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
-  .Array(box(element), length)
+  .Array(box(element), length, String.from(""))
+);
+/// Array type whose LENGTH is an unresolved forall variable (`Array(T, U)`
+/// with `U : usize` in a forall list). `length` is a placeholder 0; the
+/// synthesizer binds `length_var` to the concrete count during matching
+/// (mirrors TS ArrayType.length being an UnknownValue with variableName).
+t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
+  .Array(box(element), usize(0), length_var)
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
@@ -89,7 +96,20 @@ t_func_simple :: (
     ArrayList(TypeValue).new(),
     ArrayList(bool).new(),
     ArrayList(TypeValue).new(),
-    box(result)
+    box(result),
+    false,
+    // result_is_comptime_only — simple (runtime) function type
+    ArrayList(bool).new(),
+    // param_is_ref — no ref params in a synthesized type
+    false,
+    // result_is_ref
+    false,
+    // has_variadic
+    Option(String).None,
+    // is_extern — synthesized types are never FFI
+    Option(String).None,
+    // extern_name
+    false // is_control — synthesized `fn` type, not `ctl`
   )
 );
 /// Create a trait type with associated-type names and method/field lists.
@@ -115,11 +135,13 @@ t_module :: (
     field_types : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .ModuleT(String.from(""), name, field_labels, field_types)
+  // Source-namespace STRUCT — TS has no module type (SourceNamespaceType,
+  // src/types/definitions.ts:514). plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+  .Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 /// Create a named module type with no fields.
 t_module_simple :: (fn(name : String) -> TypeValue)(
-  .ModuleT(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new())
+  .Struct(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for Phase 2f variants
@@ -265,14 +287,15 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .TypeUni(_) => TypeTag.TType,
     .Pointer(_) => TypeTag.TPtr,
     .Slice(_) => TypeTag.TSlice,
-    .Array(_, _) => TypeTag.TArray,
+    .Array(_, _, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
-    .Func(result : _) => TypeTag.TFunction,
-    .Struct(_, _, _, _, _, _, _) => TypeTag.TStruct,
+    .Func({ result : _ }) => TypeTag.TFunction,
+    // Source-namespace structs keep the TModule tag (yo-self TypeTag is
+    // internal; TS has no module tag at all).
+    .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
     .EnumT(_, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,
     .TraitT(name : _) => TypeTag.TTrait,
-    .ModuleT(_, _, _, _) => TypeTag.TModule,
     .SomeT(name : _) => TypeTag.TSomeType,
     .ExprT => TypeTag.TExpr,
     .ComptimeListT(_) => TypeTag.TComptimeList,
@@ -284,6 +307,52 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .FutureTraitT(base_name : _) => TypeTag.TTrait
   )
 );
+// Enum finalization side-table: `enum_id -> finalized EnumT`. During an
+// enum's own definition, `Self` is bound to a PRELIMINARY empty-variant
+// shell (enum.yo). TS mutates one object in place, so anything that
+// captured `Self` sees the populated fields later;
+// yo-self TypeValues are value-typed snapshots, so leaked shells keep 0
+// variants forever (e.g. `ArrayList(Self)` instantiations CACHED with the
+// shell element — "Cannot unify incompatible enum types" with a 0-variant
+// side, std/encoding/json.yo). The registry lets use sites swap a shell
+// for its final form BY ID — the faithful value-semantics mirror of TS's
+// object identity.
+EnumFinalEntry :: struct(enum_id : String, ty : TypeValue);
+(g_enum_finals : ArrayList(EnumFinalEntry)) = ArrayList(EnumFinalEntry).new();
+register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
+  if(enum_id.len() > usize(0), {
+    _ := g_enum_finals.push(EnumFinalEntry(enum_id : enum_id, ty : ty));
+  });
+});
+/// Resolve an empty-variant EnumT shell to its finalized form (no-op for
+/// non-enums, populated enums, and unknown ids).
+resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .EnumT(eid, _, vns, _, _, _, _) => {
+      if(vns.len() > usize(0), {
+        return(t);
+      });
+      (i : usize) = usize(0);
+      n := g_enum_finals.len();
+      (r : Option(TypeValue)) = Option(TypeValue).None;
+      while((i < n) && r.is_none(), {
+        match(
+          g_enum_finals.get(i),
+          .Some(e) => if(e.enum_id.as_str() == eid.as_str(), {
+            r = Option(TypeValue).Some(e.ty);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(r,.Some(f) => f,.None => t)
+    },
+    _ => t
+  )
+);
+
+export(register_enum_final, resolve_enum_shell);
 export(
   generate_some_type_id,
   t_unit,
@@ -319,6 +388,7 @@ export(
   t_ptr,
   t_slice,
   t_array,
+  t_array_var,
   t_func_simple,
   t_trait,
   t_trait_simple,

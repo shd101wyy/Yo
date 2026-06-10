@@ -29,7 +29,7 @@ open(import("std/fmt"));
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 /// Evaluate `runtime(expr)`. Side-effects only: writes an `ExprInfo` for the
 /// outer call into `ctx.expr_info_table` with `value = .None` (runtime value)
 /// and `ty = convert_comptime_type_to_runtime_type(arg.ty, env)`.
@@ -79,7 +79,7 @@ evaluate_runtime :: (
     .Atom(_, _) => make_err_expr()
   );
   // Recursively evaluate the argument.
-  evaluated := evaluate_expression(arg_expr, env, ctx);
+  evaluated := evaluate_expression_raw(arg_expr, env, ctx, exn);
   // Read the evaluated arg's info.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(

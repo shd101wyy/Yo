@@ -19,6 +19,7 @@ open(import("std/collections/array_list"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
+  clone_expr_fresh_ids,
   BK_QUOTE
 } :: import("../../expr.yo");
 {
@@ -40,7 +41,7 @@ open(import("std/collections/array_list"));
 { t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { is_expr_type, is_expr_list_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 // Constant string aliases for unquote/unquote_splicing builtin keyword names.
 BK_UNQUOTE :: "unquote";
@@ -100,9 +101,16 @@ process_unquotes_in_expr :: (
   match(
     expr,
     .FnCall(id, func_box, args, is_infix, tok) => {
-      // Case 1: func is `unquote` — evaluate the single argument and return
-      // the expression it contains.
-      if(_is_unquote(func_box.*), {
+      // Case 1: the NODE ITSELF is `unquote(x)` — evaluate the single
+      // argument and return the expression it contains. NOTE: the test is
+      // on `expr`, NOT on `func_box` — TS checks `exprIsAtomOf(func,
+      // unquote)` (quote.ts:46-50), i.e. the CALLEE ATOM; testing the
+      // callee with `_is_unquote` (is-the-callee-an-unquote-CALL) never
+      // matched, so unquotes were silently left UNSPLICED in every
+      // expansion and only "worked" when the unexpanded node happened to
+      // evaluate benignly (LHS `unquote(temp) := ...` did not —
+      // tests/try_macro.test.yo).
+      if(_is_unquote(expr), {
         if(!(args.len() == usize(1)), {
           return(expr);
         });
@@ -113,7 +121,7 @@ process_unquotes_in_expr :: (
             return(expr);
           }
         );
-        eval_arg := evaluate_expression(arg, env, ctx);
+        eval_arg := evaluate_expression_raw(arg, env, ctx, exn);
         arg_info := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
           .Some(i) => i,
@@ -149,9 +157,12 @@ process_unquotes_in_expr :: (
         if(is_unknown_val(val), {
           return(expr);
         });
+        // FRESH-ID CLONE of the spliced AST — `eb.*` alone embeds the
+        // env-bound ExprVal's nodes (and their ExprInfo keys) into the
+        // expansion; see the template-clone comment in `evaluate_quote`.
         inner_expr := match(
           val,
-          .ExprVal(eb) => eb.*,
+          .ExprVal(eb) => clone_expr_fresh_ids(eb.*),
           _ => {
             exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"), false,.None)));
             make_err_expr()
@@ -160,11 +171,11 @@ process_unquotes_in_expr :: (
         return(inner_expr);
       });
       // Case 2: Process func and each arg, expanding unquote_splicing.
-      new_func := recur(func_box.*, env, ctx);
+      new_func := recur(func_box.*, env, ctx, exn);
       new_args := ArrayList(AstExpr).new();
       i := usize(0);
       n := args.len();
-      while(runtime(i < n), {
+      while(i < n, {
         opt_arg := args.get(i);
         i = (i + usize(1));
         match(
@@ -185,7 +196,7 @@ process_unquotes_in_expr :: (
                   }, match(splice_args.get(usize(0)),.Some(a) => a,.None => arg)),
                 .Atom(_, _) => arg
               );
-              eval_splice := evaluate_expression(splice_inner, env, ctx);
+              eval_splice := evaluate_expression_raw(splice_inner, env, ctx, exn);
               opt_splice_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_splice));
               match(
                 opt_splice_info,
@@ -222,7 +233,7 @@ process_unquotes_in_expr :: (
                             .ComptimeListVal(elems) => {
                               j := usize(0);
                               m := elems.len();
-                              while(runtime(j < m), {
+                              while(j < m, {
                                 opt_elem := elems.get(j);
                                 j = (j + usize(1));
                                 match(
@@ -230,7 +241,7 @@ process_unquotes_in_expr :: (
                                   .None => (),
                                   .Some(elem) => {
                                     if(is_expr_val(elem), {
-                                      inner_node := match(elem,.ExprVal(eb) => eb.*, _ => arg);
+                                      inner_node := match(elem,.ExprVal(eb) => clone_expr_fresh_ids(eb.*), _ => arg);
                                       new_args.push(inner_node);
                                     }, {
                                       new_args.push(arg);
@@ -251,7 +262,7 @@ process_unquotes_in_expr :: (
                 }
               );
             }, {
-              new_args.push(recur(arg, env, ctx));
+              new_args.push(recur(arg, env, ctx, exn));
             });
           }
         );
@@ -283,8 +294,15 @@ evaluate_quote :: (
       return(expr);
     }
   );
-  // Process unquotes inside the quoted expression.
-  quoted := process_unquotes_in_expr(arg, env, ctx);
+  // Process unquotes inside a FRESH-ID CLONE of the quoted template. The
+  // template is part of the macro fn's body AST and is expanded on EVERY
+  // call; a derived (id-preserving) clone makes every expansion share
+  // ExprInfo-table keys with the template AND with every other expansion
+  // of the same macro — table writes then drop values other holders still
+  // reference (intermittent allocator SIGTRAPs). TS's cloneExpr creates
+  // new objects (fresh `$` slots); `clone_expr_fresh_ids` is its faithful
+  // mirror under the id-keyed table.
+  quoted := process_unquotes_in_expr(clone_expr_fresh_ids(arg), env, ctx, exn);
   // Wrap result in ExprVal and register ExprInfo.
   val := EvalValue.ExprVal(box(quoted));
   out_info := new_expr_info(env, t_expr_t());

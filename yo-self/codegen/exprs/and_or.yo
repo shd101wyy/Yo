@@ -46,7 +46,7 @@ expr_may_have_side_effects :: (fn(expr : AstExpr, ctx : CodegenContext) -> bool)
       .FnCall(_, func_box, args, _, _) => {
         found := false;
         i := usize(0);
-        while(runtime((i < args.len()) && (!(found))), {
+        while((i < args.len()) && (!(found)), {
           match(
             args.get(i),
             .None => (),
@@ -65,7 +65,7 @@ collect_runtime_args_for_and :: (
   fn(args : ArrayList(AstExpr), ctx : CodegenContext, out : ArrayList(AstExpr)) -> Option(String)
 )({
   i := usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     match(
       args.get(i),
       .None => (),
@@ -90,7 +90,7 @@ collect_runtime_args_for_or :: (
   fn(args : ArrayList(AstExpr), ctx : CodegenContext, out : ArrayList(AstExpr)) -> Option(String)
 )({
   i := usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     match(
       args.get(i),
       .None => (),
@@ -116,7 +116,7 @@ runtime_args_need_if_chain :: (
 )({
   found := false;
   i := usize(1);
-  while(runtime((i < args.len()) && (!(found))), {
+  while((i < args.len()) && (!(found)), {
     match(
       args.get(i),
       .None => (),
@@ -135,7 +135,7 @@ join_runtime_args :: (
   out := String.from("(");
   ok := true;
   i := usize(0);
-  while(runtime((i < args.len()) && ok), {
+  while((i < args.len()) && ok, {
     match(
       args.get(i),
       .None => {
@@ -205,7 +205,7 @@ emit_if_chain_for_and :: (
   current_indent := String.from(indent.as_str());
   i := usize(0);
   ok := true;
-  while(runtime((i < args.len()) && ok), {
+  while((i < args.len()) && ok, {
     match(
       args.get(i),
       .None => {
@@ -231,7 +231,7 @@ emit_if_chain_for_and :: (
   });
   depth := cond((args.len() > usize(0)) => (args.len() - usize(1)), true => usize(0));
   j := usize(0);
-  while(runtime(j < depth), {
+  while(j < depth, {
     current_indent = indent_minus_two(current_indent);
     ctx.emitter.emit_string_line(format_and_or_close_brace(current_indent));
     j = (j + usize(1));
@@ -247,7 +247,7 @@ emit_if_chain_for_or :: (
   current_indent := String.from(indent.as_str());
   i := usize(0);
   ok := true;
-  while(runtime((i < args.len()) && ok), {
+  while((i < args.len()) && ok, {
     match(
       args.get(i),
       .None => {
@@ -275,7 +275,7 @@ emit_if_chain_for_or :: (
   });
   depth := cond((args.len() > usize(0)) => (args.len() - usize(1)), true => usize(0));
   j := usize(0);
-  while(runtime(j < depth), {
+  while(j < depth, {
     current_indent = indent_minus_two(current_indent);
     ctx.emitter.emit_string_line(format_and_or_close_brace(current_indent));
     j = (j + usize(1));

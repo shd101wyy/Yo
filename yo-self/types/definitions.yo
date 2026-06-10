@@ -57,7 +57,13 @@ TypeValue :: enum(
   // Compound types ---------------------------------------------------------
   Pointer(pointee : Box(Self)),
   Slice(element : Box(Self)),
-  Array(element : Box(Self), length : usize),
+  /// `length_var` mirrors the VALUE-ness of TS `ArrayType.length: Value`:
+  /// "" = `length` is the concrete element count; non-empty = the length is
+  /// an unresolved forall VARIABLE of that name (e.g. the `U` in
+  /// `impl(forall(T : Type, U : usize), Array(T, U), ...)`) and `length`
+  /// is a meaningless placeholder. TS stores an UnknownValue carrying
+  /// `variableName` and binds it during synthesis (synthesizer.ts:884).
+  Array(element : Box(Self), length : usize, length_var : String),
   /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
   /// field (empty `String` means positional). `field_types(i)` is the type.
   Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
@@ -80,7 +86,67 @@ TypeValue :: enum(
     // isEffectRowSpread flags
     where_types : ArrayList(Self),
     // where-clause constraint types
-    result : Box(Self) // return type
+    result : Box(Self),
+    // return type
+    /// Mirrors `FunctionType.return.isCompileTimeOnly` in
+    /// `src/types/definitions.ts` (TS models the return as a
+    /// `FunctionParameter { type, isCompileTimeOnly, … }`; yo-self flattened
+    /// that to a bare `result`, so this restores the one bit the CTFE gate
+    /// needs). True when the declared return is `comptime(...)` — i.e. the
+    /// function is a compile-time-only function (a type constructor, macro,
+    /// or comptime-value producer). `helper.ts:1731` gates CTFE on this; the
+    /// FuncVal-call delegation + `evaluate_comptime_fn_call`'s `should_cache`
+    /// use it so type-constructor calls whose return RESOLVED to a concrete
+    /// struct (not bare `Type`) are still routed through memoization.
+    result_is_comptime_only : bool,
+    /// Per-parameter `ref` flags, parallel to `param_labels`/`param_types`.
+    /// `param_is_ref(i)` is true when the i-th parameter was declared
+    /// `ref(name) : T` (a by-reference borrow). Mirrors
+    /// `FunctionParameter.isRef` in `src/types/definitions.ts` (yo-self
+    /// flattened FunctionParameter to parallel arrays, so this restores the
+    /// `isRef` bit). Used by `is_flowable_expr` (the `ref(T)`-flow soundness
+    /// check). Empty/all-false for functions with no `ref` parameters.
+    param_is_ref : ArrayList(bool),
+    /// True when the return type was declared `-> ref(T)` (a by-reference
+    /// return borrow). Mirrors `FunctionType.return.isRef`. Used by
+    /// `is_flowable_expr` to require the return expression be flowable.
+    result_is_ref : bool,
+    /// True when the parameter list ends with a `...` variadic marker
+    /// (C-style variadic externs like `snprintf`). Mirrors
+    /// `FunctionType.variadicParameter` in `src/types/definitions.ts`
+    /// (yo-self restores just the presence bit; the variadic parameter's
+    /// optional type annotation is not yet carried). The call-site
+    /// argument-count check is skipped when set (TS helper.ts:965
+    /// `if (!functionType.variadicParameter)`).
+    has_variadic : bool,
+    /// FFI language tag when this function was declared inside an
+    /// `extern "c"`/`extern "yo"` block or a `c_include(...)` (mirrors
+    /// `FunctionType.isExtern: ExternLanguage` in `src/types/definitions.ts`).
+    /// `Some("c")`/`Some("yo")` for FFI symbols, `None` for ordinary Yo
+    /// functions. Set by `evaluate_extern`/`evaluate_c_include` on the field
+    /// type (mirrors `extern.ts:138-161`). Read by the extern-call
+    /// `unsafe(...)` gate in `calls/function.yo` (plans/EXTERN_UNSAFE_WRAP.md):
+    /// a call to an `is_extern == Some("c")` function outside `unsafe(...)`
+    /// and outside an auto-generated expansion is rejected. (The original
+    /// port dropped this as "codegen-only" — wrong: the gate lives in the
+    /// evaluator call path, not codegen.)
+    is_extern : Option(String),
+    /// The FFI symbol name to bind, when known (mirrors
+    /// `FunctionType.externName`). `Some(field.label)` for extern function
+    /// declarations, `None` otherwise. Used only for the gate's diagnostic
+    /// message (the call-site falls back to the printed callee expression
+    /// when this is `None`).
+    extern_name : Option(String),
+    /// True when this is a `ctl(...) -> ret` control-function type (declared
+    /// with the `ctl` constructor instead of `fn`). Mirrors
+    /// `FunctionType.isControl` in `src/types/definitions.ts`. A `ctl` value
+    /// is FRAME-BOUND — its body may `unwind` out of the enclosing install
+    /// frame — so it must not escape (be stored at module level, captured by a
+    /// closure, or have a pointer formed to it). Read by `type_is_control_bound`
+    /// (types/utils.yo) and the §4 escape-boundary checks (the algebraic-effect
+    /// ctl rules). A plain `fn(...)` whose params/return merely reference `ctl`
+    /// is NOT control-bound — only the `ctl` value itself carries the CF.
+    is_control : bool
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition (mirrors `StructType.id`
@@ -89,6 +155,16 @@ TypeValue :: enum(
   /// `is_reference_semantics` = true for `object(...)`, false for `struct(...)`.
   /// `is_atomic_rc` = true for `atomic object(...)`.
   /// `is_newtype` = true for `newtype(...)`.
+  /// `constructor_func_id` mirrors `StructType.functionValue` in
+  /// `src/types/definitions.ts:222`: the `funcId` of the comptime
+  /// type-constructor that produced this type (set at the comptime-fn call
+  /// site, `src/evaluator/calls/comptime-fn.ts:274`). The synthesizer uses
+  /// it to unify two instantiations of the SAME generic constructor
+  /// (`src/evaluator/types/synthesizer.ts:662` compares `functionValue.funcId`).
+  /// `""` = unknown origin (mirrors TS `functionValue` being optional).
+  /// Only the `funcId` is stored, not the whole `FunctionValue`, because
+  /// `TypeValue` (this module) cannot import `EvalValue` (`value.yo`) without
+  /// a cycle — and `funcId` is the only part the synthesizer reads.
   Struct(
     id : String,
     name : String,
@@ -96,7 +172,22 @@ TypeValue :: enum(
     field_types : ArrayList(Self),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
-    is_newtype : bool
+    is_newtype : bool,
+    constructor_func_id : String,
+    /// Concrete type arguments of a generic instantiation, in constructor-
+    /// parameter order (`HashMap(String, String)` → `[String, String]`). Empty
+    /// for non-generic or not-yet-instantiated structs. Faithful stand-in for
+    /// `StructType.env` (TS carries the instantiation env): a method dispatched
+    /// on this struct binds its `forall` params positionally from here. See
+    /// plans/STRUCT_TYPE_ARGUMENTS.md.
+    type_arguments : ArrayList(Self),
+    /// True for source-namespace structs — anonymous modules (`impl({...})`,
+    /// extern blocks) and imported modules. Mirrors TS
+    /// `StructType.isSourceNamespace` (`SourceNamespaceType`,
+    /// src/types/definitions.ts:514-518): TS has NO separate module type;
+    /// modules ARE structs with this marker. See
+    /// plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+    is_source_namespace : bool
   ),
   /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
   /// Each variant has a name and an `ArrayList` of field types (possibly empty).
@@ -143,16 +234,6 @@ TypeValue :: enum(
     self_constraints : ArrayList(Self),
     // where-clause constraints on Self
     neg_self_constraints : ArrayList(Self) // negative where-clause constraints on Self
-  ),
-  /// Named module type. Phase 2b: function-field list.
-  /// Phase 2au: `id` added for nominal identity (mirrors TypeScript ModuleType.id).
-  ModuleT(
-    id : String,
-    // unique module type identity
-    name : String,
-    field_labels : ArrayList(String),
-    // function / field names
-    field_types : ArrayList(Self) // function / field types
   ),
   // Generic / unresolved ----------------------------------------------------
   /// A `SomeType` introduced by `forall` or by a yet-to-be-resolved generic

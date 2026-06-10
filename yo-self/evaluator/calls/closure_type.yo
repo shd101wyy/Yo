@@ -123,7 +123,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // Add each FnTrait parameter as a runtime variable to the new frame.
   n_params := param_labels.len();
   (pi : usize) = usize(0);
-  while(runtime(pi < n_params), {
+  while(pi < n_params, {
     p_label := match(param_labels.get(pi),.Some(l) => l,.None => String.from("_p"));
     p_type := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
     p_tok := synthetic_token(String.from(p_label.as_str()), env.module_path);
@@ -164,7 +164,20 @@ try_to_implement_closure_by_fn_module_type :: (
     // implicit_spreads
     ArrayList(TypeValue).new(),
     // where_types
-    box(result_type_copy)
+    box(result_type_copy),
+    false,
+    // result_is_comptime_only — a runtime closure call type
+    ArrayList(bool).new(),
+    // param_is_ref
+    false,
+    // result_is_ref
+    false,
+    // has_variadic
+    Option(String).None,
+    // is_extern — synthetic closure call type is not FFI
+    Option(String).None,
+    // extern_name
+    false // is_control — synthetic closure call type is `fn`, not `ctl`
   );
   // Build a preliminary FuncVal for the evaluation context.
   closure_id := `closure_${random_id(env.module_path)}`;
@@ -196,7 +209,7 @@ try_to_implement_closure_by_fn_module_type :: (
   evaluated_body := evaluate_begin_expression(
     closure_body_for_eval,
     env,
-    &(eval_ctx),
+    eval_ctx,
     ArrayList(Variable).new(),
     true,
     exn
@@ -206,7 +219,10 @@ try_to_implement_closure_by_fn_module_type :: (
   match(
     body_info_opt,
     .Some(bi) => {
-      env = bi.env;
+      env.frames = bi.env.frames;
+      env.module_path = bi.env.module_path;
+      env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+      env.input_string = bi.env.input_string;
     },
     .None => ()
   );
@@ -221,7 +237,7 @@ try_to_implement_closure_by_fn_module_type :: (
       dyn(
         format_error_message(
           tok,
-          `Incompatible closure return(type)`,
+          `Incompatible closure return type`,
           false,
           .None
         )

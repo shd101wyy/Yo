@@ -109,7 +109,7 @@ try_to_call_type_with_arguments :: (
   runtime_arg_exprs_in_order := ArrayList(AstExpr).new();
   // Pre-fill with None / placeholder.
   (pre_i : usize) = usize(0);
-  while(runtime(pre_i < n_fields), {
+  while(pre_i < n_fields, {
     values.push(Option(EvalValue).None);
     runtime_arg_exprs_in_order.push(function_callee_expr);
     pre_i = (pre_i + usize(1));
@@ -117,7 +117,7 @@ try_to_call_type_with_arguments :: (
   (env : Environment) = caller_env;
   // Process each provided argument.
   (i : usize) = usize(0);
-  while(runtime(i < n_args), {
+  while(i < n_args, {
     arg_expr_opt := arg_exprs.get(i);
     if(arg_expr_opt.is_none(), {
       i = (i + usize(1));
@@ -181,7 +181,7 @@ try_to_call_type_with_arguments :: (
       label_tok := match(label_sub,.Atom(_, tok) => tok.value, _ => String.from(""));
       (found_idx : Option(usize)) = Option(usize).None;
       (search_i : usize) = usize(0);
-      while(runtime(search_i < n_fields), {
+      while(search_i < n_fields, {
         match(
           type_fields.get(search_i),
           .Some(f) => {
@@ -261,7 +261,10 @@ try_to_call_type_with_arguments :: (
     });
     arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, member_element.ty));
     set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
-    env = arg_info.env;
+    env.frames = arg_info.env.frames;
+    env.module_path = arg_info.env.module_path;
+    env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+    env.input_string = arg_info.env.input_string;
     // Convert comptime type → runtime type unless the field type is comptime-only.
     arg_type := if(
       _is_comptime_only_type_approx(member_element.ty),
@@ -290,7 +293,7 @@ try_to_call_type_with_arguments :: (
   // Check that all unchecked fields have defaults.
   if(!(is_union_type), {
     (ci : usize) = usize(0);
-    while(runtime(ci < n_fields), {
+    while(ci < n_fields, {
       already_checked := match(checked_indices.get(ci),.Some(_) => true,.None => false);
       if(!(already_checked), {
         field_opt2 := type_fields.get(ci);

@@ -31,20 +31,20 @@ open(import("std/fmt"));
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, type_of_eval_value } :: import("../../value.yo");
+{ EvalValue, type_of_eval_value, is_module_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_struct_type } :: import("../../types/guards.yo");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 /// Walk down a `.`-chain to its leftmost root atom (or any non-`.` expr).
 /// Mirrors the TS `while((exprIsFunctionCallOf(rootExpr, ".")))` walk.
 walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
   cur := e;
   // Local-mutable loop: while cur is `.`-call, descend to first arg.
   done := false;
-  while(runtime(!(done)), {
+  while(!(done), {
     cond(
       ast_expr_is_fn_call_of(cur, BF_DOT,.None) => {
         match(
@@ -143,8 +143,14 @@ evaluate_open :: (
       );
     });
   });
-  // Recursively evaluate the argument via the dispatcher seam.
-  evaluated := evaluate_expression(arg_expr, env, ctx);
+  // Recursively evaluate the argument via the dispatcher seam. Use the
+  // exn-threading (raw) evaluator so a failure evaluating the argument — most
+  // importantly a failed `import("…")` (e.g. an unsupported circular import
+  // whose module isn't preloaded yet) — PROPAGATES to the caller's handler
+  // instead of being swallowed by the non-raw wrapper (which prints + returns
+  // an `err` placeholder and lets evaluation continue into a downstream crash).
+  // Mirrors TS `evaluateOpen` calling the propagating `evaluateExpression`.
+  evaluated := evaluate_expression_raw(arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     arg_info_opt,
@@ -174,7 +180,7 @@ evaluate_open :: (
   // Branch on value/type shape.
   is_module := match(
     arg_value,
-    .Some(v) => match(v,.ModuleVal(_, _) => true, _ => false),
+    .Some(v) => is_module_val(v),
     .None => false
   );
   is_struct_v := match(
@@ -190,9 +196,9 @@ evaluate_open :: (
         arg_value,
         .Some(v) => match(
           v,
-          .ModuleVal(mnames, mvals) => {
+          .StructVal(_, mnames, mvals) => {
             i := usize(0);
-            while(runtime(i < mnames.len()), {
+            while(i < mnames.len(), {
               field_name := match(mnames.get(i),.Some(n) => n,.None => String.from(""));
               field_val := match(mvals.get(i),.Some(x) => x,.None => EvalValue.UnitVal);
               field_ty := type_of_eval_value(field_val);
@@ -220,9 +226,9 @@ evaluate_open :: (
       rds := ArrayList(RuntimeDestructuring).new();
       match(
         arg_ty,
-        .Struct(_, _, field_labels, field_types, _, _, _) => {
+        .Struct({ field_labels, field_types }) => {
           i := usize(0);
-          while(runtime(i < field_labels.len()), {
+          while(i < field_labels.len(), {
             label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
             fty := match(field_types.get(i),.Some(t) => t,.None => t_unit());
             // Pull the corresponding value from the StructVal, if any.

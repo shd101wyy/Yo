@@ -79,7 +79,7 @@ string_is_operator :: (fn(s : str) -> bool)({
     true => {
       (i : usize) = usize(0);
       (ok : bool) = true;
-      while(runtime((i < n) && ok), {
+      while((i < n) && ok, {
         b := s.bytes(i);
         // Operator chars: same set as is_operator_char, but on bytes
         is_op := cond(
@@ -141,7 +141,7 @@ is_valid_identifier :: (fn(s : String) -> bool)({
   chars := ArrayList(rune).new();
   {
     c_iter := s.chars();
-    while(runtime(true), {
+    while(true, {
       match(
         c_iter.next(),
         .None => {
@@ -163,7 +163,7 @@ is_valid_identifier :: (fn(s : String) -> bool)({
         true => {
           (i : usize) = usize(1);
           (ok : bool) = true;
-          while(runtime((i < n) && ok), {
+          while((i < n) && ok, {
             ch := match(chars.get(i),.Some(c) => c,.None => rune(u32(0)));
             if(!(is_identifier_continue(ch)), {
               ok = false;
@@ -227,7 +227,7 @@ find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option
   );
   i := (start + usize(1));
   depth := usize(1);
-  while(runtime(i < n), {
+  while(i < n, {
     tk_opt := tokens.get(i);
     match(
       tk_opt,

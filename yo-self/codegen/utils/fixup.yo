@@ -60,7 +60,7 @@ for_each_dyn_impl_ :: (
   // Collect old keys first.
   old_keys := ArrayList(String).new();
   keys_iter := ctx.dyn_impls.keys();
-  while(runtime(true), {
+  while(true, {
     match(
       keys_iter.next(),
       .None => break,
@@ -70,7 +70,7 @@ for_each_dyn_impl_ :: (
     );
   });
   i := usize(0);
-  while(runtime(i < old_keys.len()), {
+  while(i < old_keys.len(), {
     match(
       old_keys.get(i),
       .None => (),
@@ -99,7 +99,7 @@ fixup_dyn_impl_keys :: (fn(ctx : CodegenContext) -> unit)({
   // Replace the entire map.
   ctx.dyn_impls = HashMap(String, CodegenDynImplEntry).new();
   i := usize(0);
-  while(runtime(i < new_keys.len()), {
+  while(i < new_keys.len(), {
     match(
       new_keys.get(i),
       .None => (),

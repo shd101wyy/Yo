@@ -26,7 +26,7 @@ current_yo_version :: (fn() -> str)(CURRENT_YO_VERSION);
 _all_digits :: (fn(s : String, start : usize, end_pos : usize) -> bool)({
   ok := true;
   i := start;
-  while(runtime(i < end_pos), {
+  while(i < end_pos, {
     byte_opt := s.as_bytes().get(i);
     is_digit := match(
       byte_opt,
@@ -129,7 +129,7 @@ find_yo_version_file :: (
     result := Option(Path).None;
     keep_going := true;
     current := start_dir;
-    while(runtime(keep_going), {
+    while(keep_going, {
       candidate := current.join(Path.new(String.from(YO_VERSION_FILE)));
       found := io.await(exists(candidate, io), io);
       if(found, {
@@ -164,7 +164,7 @@ read_yo_version :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     path_opt := io.await(find_yo_version_file(start_dir, io), io);
     match(
       path_opt,

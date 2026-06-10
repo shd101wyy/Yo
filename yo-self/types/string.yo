@@ -6,274 +6,302 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
-/// Render a TypeValue as a string. Recursive over Pointer/Slice/Array/Tuple/Func/Struct/EnumT/Union.
-type_to_string :: (fn(t : TypeValue) -> String)(
-  match(
-    t,
-    .Unit => `unit`,
-    .BoolT => `bool`,
-    .Void => `void`,
-    .Int(bits, signed) => cond(
-      signed => cond(
-        (bits == u8(8)) => `i8`,
-        (bits == u8(16)) => `i16`,
-        (bits == u8(32)) => `i32`,
-        true => `i64`
+/// Depth-bounded core of `type_to_string`. `_d` is the current recursion
+/// depth; once it exceeds the cap we return an ellipsis instead of recursing.
+/// This is the recursion guard: a cyclic / pathologically-deep TypeValue
+/// (e.g. a recursive immutable structure whose field type chains back through
+/// non-struct wrappers) would otherwise overflow the stack here — the crash
+/// that surfaced once the generic-impl synthesize match started descending
+/// into such fields (`synthesis_type_id` falls back to `type_to_string` for
+/// non-struct types). A bounded string is still a fine "unique-enough" key
+/// for the synthesizer's anti-circularity check.
+_tts :: (fn(t : TypeValue, _d : usize) -> String)(
+  cond(
+    (_d > usize(40)) => String.from("…"),
+    true => match(
+      t,
+      .Unit => `unit`,
+      .BoolT => `bool`,
+      .Void => `void`,
+      .Int(bits, signed) => cond(
+        signed => cond(
+          (bits == u8(8)) => `i8`,
+          (bits == u8(16)) => `i16`,
+          (bits == u8(32)) => `i32`,
+          true => `i64`
+        ),
+        true => cond(
+          (bits == u8(8)) => `u8`,
+          (bits == u8(16)) => `u16`,
+          (bits == u8(32)) => `u32`,
+          true => `u64`
+        )
       ),
-      true => cond(
-        (bits == u8(8)) => `u8`,
-        (bits == u8(16)) => `u16`,
-        (bits == u8(32)) => `u32`,
-        true => `u64`
-      )
-    ),
-    .Float(bits) => cond(
-      (bits == u8(32)) => `f32`,
-      true => `f64`
-    ),
-    .Usize => `usize`,
-    .Isize => `isize`,
-    .ComptimeInt => `comptime_int`,
-    .ComptimeFloat => `comptime_float`,
-    .ComptimeString => `comptime_string`,
-    .CChar => `char`,
-    .CShort => `short`,
-    .CUShort => `ushort`,
-    .CInt => `int`,
-    .CUInt => `uint`,
-    .CLong => `long`,
-    .CULong => `ulong`,
-    .CLongLong => `longlong`,
-    .CULongLong => `ulonglong`,
-    .CLongDouble => `longdouble`,
-    .TypeUni(level) => cond(
-      (level == usize(0)) => `Type`,
-      true => `Type(${level})`
-    ),
-    .Pointer(inner) => `*(${recur(inner.*)})`,
-    .Slice(inner) => `Slice(${recur(inner.*)})`,
-    .Array(inner, n) => `Array(${recur(inner.*)}, ${n})`,
-    .Tuple(labels, types) => {
-      body := String.from("");
-      n := types.len();
-      i := usize(0);
-      while(runtime(i < n), {
-        if(i > usize(0), {
-          body = `${body}, `;
+      .Float(bits) => cond(
+        (bits == u8(32)) => `f32`,
+        true => `f64`
+      ),
+      .Usize => `usize`,
+      .Isize => `isize`,
+      .ComptimeInt => `comptime_int`,
+      .ComptimeFloat => `comptime_float`,
+      .ComptimeString => `comptime_string`,
+      .CChar => `char`,
+      .CShort => `short`,
+      .CUShort => `ushort`,
+      .CInt => `int`,
+      .CUInt => `uint`,
+      .CLong => `long`,
+      .CULong => `ulong`,
+      .CLongLong => `longlong`,
+      .CULongLong => `ulonglong`,
+      .CLongDouble => `longdouble`,
+      .TypeUni(level) => cond(
+        (level == usize(0)) => `Type`,
+        true => `Type(${level})`
+      ),
+      .Pointer(inner) => `*(${recur(inner.*, _d + usize(1))})`,
+      .Slice(inner) => `Slice(${recur(inner.*, _d + usize(1))})`,
+      .Array(inner, n, lv) => cond(
+        (lv.len() > usize(0)) => `Array(${recur(inner.*, _d + usize(1))}, ${lv})`,
+        true => `Array(${recur(inner.*, _d + usize(1))}, ${n})`
+      ),
+      .Tuple(labels, types) => {
+        body := String.from("");
+        n := types.len();
+        i := usize(0);
+        while(i < n, {
+          if(i > usize(0), {
+            body = `${body}, `;
+          });
+          label := match(labels.get(i),.Some(s) => s,.None => `""`);
+          ts := match(types.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          if(label.len() > usize(0), {
+            body = `${body}${label} : ${ts}`;
+          }, {
+            body = `${body}${ts}`;
+          });
+          i = (i + usize(1));
         });
-        label := match(labels.get(i),.Some(s) => s,.None => `""`);
-        ts := match(types.get(i),.Some(t2) => recur(t2),.None => `?`);
-        if(label.len() > usize(0), {
-          body = `${body}${label} : ${ts}`;
-        }, {
+        `Tuple(${body})`
+      },
+      .Func({ forall_labels : fls, forall_types : fts, param_labels : plabels, param_types : ptypes, implicit_labels : ils, implicit_types : its, result : ret }) => {
+        // forall prefix: forall(T, U, ...)
+        body := String.from("");
+        fn := usize(0);
+        while((fn < fts.len()), {
+          if((fn > usize(0)), {
+            body = `${body}, `;
+          });
+          fl := match(fls.get(fn),.Some(s) => s,.None => `""`);
+          body = `${body}${fl}`;
+          fn = (fn + usize(1));
+        });
+        forall_prefix := if(body.len() > usize(0), `forall(${body}) `, String.from(""));
+        // params
+        body = String.from("");
+        i := usize(0);
+        n := ptypes.len();
+        while(i < n, {
+          if(i > usize(0), {
+            body = `${body}, `;
+          });
+          label := match(plabels.get(i),.Some(s) => s,.None => `""`);
+          ts := match(ptypes.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          if(label.len() > usize(0), {
+            body = `${body}${label} : ${ts}`;
+          }, {
+            body = `${body}${ts}`;
+          });
+          i = (i + usize(1));
+        });
+        // implicit params (effects)
+        ibody := String.from("");
+        ii := usize(0);
+        in_ := its.len();
+        while(ii < in_, {
+          if(ii > usize(0), {
+            ibody = `${ibody}, `;
+          });
+          ilabel := match(ils.get(ii),.Some(s) => s,.None => `""`);
+          its2 := match(its.get(ii),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          if(ilabel.len() > usize(0), {
+            ibody = `${ibody}${ilabel} : ${its2}`;
+          }, {
+            ibody = `${ibody}${its2}`;
+          });
+          ii = (ii + usize(1));
+        });
+        using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
+        `fn(${forall_prefix}${body}) -> ${recur(ret.*, _d + usize(1))}${using_suffix}`
+      },
+      .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
+        // Source-namespace structs (anonymous modules / imports) keep the
+        // legacy `module (...)` rendering for error-message continuity.
+        s_sns => {
+          if(s_fls.len() == usize(0), {
+            return(`module ${name}`);
+          });
+          body := String.from("");
+          i := usize(0);
+          while(i < s_fls.len(), {
+            if(i > usize(0), {
+              body = `${body}, `;
+            });
+            fl := match(s_fls.get(i),.Some(s) => s,.None => `""`);
+            ft := match(s_fts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+            body = `${body}${fl} : ${ft}`;
+            i = (i + usize(1));
+          });
+          `module ${name}(${body})`
+        },
+        true => if(name.len() > usize(0), name, `<struct:${id}>`)
+      ),
+      .EnumT(id, name, _, _, _, _, _) => if(name.len() > usize(0), name, `<enum:${id}>`),
+      .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
+      .TraitT(name : n, field_labels : fls, field_types : fts) => {
+        // Prefer the trait's NAME whenever it has one (mirrors TS
+        // typeToString printing "Send", not the trait's field dump) — the
+        // field dump is the fallback for genuinely anonymous traits only.
+        if(n.len() > usize(0), {
+          return(n);
+        });
+        if(fls.len() == usize(0), {
+          return(n);
+        });
+        body := String.from("");
+        i := usize(0);
+        while(i < fls.len(), {
+          if(i > usize(0), {
+            body = `${body}, `;
+          });
+          fl := match(fls.get(i),.Some(s) => s,.None => `""`);
+          ft := match(fts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          body = `${body}${fl} : ${ft}`;
+          i = (i + usize(1));
+        });
+        `${n}(${body})`
+      },
+      .SomeT(name : n, required_trait_types : rts, negative_trait_types : nts) => {
+        if((rts.len() == usize(0)) && (nts.len() == usize(0)), {
+          return(n);
+        });
+        body := String.from("");
+        i := usize(0);
+        while(i < rts.len(), {
+          if(i > usize(0), {
+            body = `${body} + `;
+          });
+          rt := match(rts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          body = `${body}${rt}`;
+          i = (i + usize(1));
+        });
+        ii := usize(0);
+        while(ii < nts.len(), {
+          if((body.len() > usize(0)) || (ii > usize(0)), {
+            body = `${body} + `;
+          });
+          nt := match(nts.get(ii),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          body = `${body}!(${nt})`;
+          ii = (ii + usize(1));
+        });
+        `${n} : (${body})`
+      },
+      .ExprT => `Expr`,
+      .ComptimeListT(child) => `ComptimeList(${recur(child.*, _d + usize(1))})`,
+      .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
+        body := String.from("");
+        i := usize(0);
+        while(i < labels.len(), {
+          if(i > usize(0), {
+            body = `${body}, `;
+          });
+          lbl := match(labels.get(i),.Some(s) => s,.None => ``);
+          ts := match(types.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          body = `${body}${lbl} : ${ts}`;
+          i = (i + usize(1));
+        });
+        `EffectsRow(${body})`
+      },
+      .TypeAppT(constructor, args) => {
+        body := String.from("");
+        i := usize(0);
+        while(i < args.len(), {
+          if(i > usize(0), {
+            body = `${body}, `;
+          });
+          ts := match(args.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
           body = `${body}${ts}`;
+          i = (i + usize(1));
         });
-        i = (i + usize(1));
-      });
-      `Tuple(${body})`
-    },
-    .Func(
-      forall_labels : fls,
-      forall_types : fts,
-      param_labels : plabels,
-      param_types : ptypes,
-      implicit_labels : ils,
-      implicit_types : its,
-      result : ret
-    ) => {
-      // forall prefix: forall(T, U, ...)
-      body := String.from("");
-      fn := usize(0);
-      while(runtime((fn < fts.len())), {
-        if((fn > usize(0)), {
-          body = `${body}, `;
-        });
-        fl := match(fls.get(fn),.Some(s) => s,.None => `""`);
-        body = `${body}${fl}`;
-        fn = (fn + usize(1));
-      });
-      forall_prefix := if(body.len() > usize(0), `forall(${body}) `, String.from(""));
-      // params
-      body = String.from("");
-      i := usize(0);
-      n := ptypes.len();
-      while(runtime(i < n), {
-        if(i > usize(0), {
-          body = `${body}, `;
-        });
-        label := match(plabels.get(i),.Some(s) => s,.None => `""`);
-        ts := match(ptypes.get(i),.Some(t2) => recur(t2),.None => `?`);
-        if(label.len() > usize(0), {
-          body = `${body}${label} : ${ts}`;
-        }, {
+        `TypeApp(${recur(constructor.*, _d + usize(1))}, [${body}])`
+      },
+      .IsoT(child) => `iso(${recur(child.*, _d + usize(1))})`,
+      .DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _) => {
+        body := String.from("");
+        i := usize(0);
+        while(i < rtt.len(), {
+          if(i > usize(0), {
+            body = `${body} + `;
+          });
+          ts := match(rtt.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
           body = `${body}${ts}`;
+          i = (i + usize(1));
         });
-        i = (i + usize(1));
-      });
-      // implicit params (effects)
-      ibody := String.from("");
-      ii := usize(0);
-      in_ := its.len();
-      while(runtime(ii < in_), {
-        if(ii > usize(0), {
-          ibody = `${ibody}, `;
+        ii := usize(0);
+        while(ii < ntt.len(), {
+          if(body.len() > usize(0), {
+            body = `${body} + `;
+          });
+          ts := match(ntt.get(ii),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          body = `${body}!(${ts})`;
+          ii = (ii + usize(1));
         });
-        ilabel := match(ils.get(ii),.Some(s) => s,.None => `""`);
-        its2 := match(its.get(ii),.Some(t2) => recur(t2),.None => `?`);
-        if(ilabel.len() > usize(0), {
-          ibody = `${ibody}${ilabel} : ${its2}`;
-        }, {
-          ibody = `${ibody}${its2}`;
+        `dyn(${body})`
+      },
+      .FnTraitT(base_name : bn, call_param_labels : _, call_param_types : cpts, call_result : cr) => {
+        body := String.from("");
+        i := usize(0);
+        while(i < cpts.len(), {
+          if(i > usize(0), {
+            body = `${body}, `;
+          });
+          ts := match(cpts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          body = `${body}${ts}`;
+          i = (i + usize(1));
         });
-        ii = (ii + usize(1));
-      });
-      using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
-      `fn(${forall_prefix}${body}) -> ${recur(ret.*)}${using_suffix}`
-    },
-    .Struct(_, name, _, _, _, _, _) => name,
-    .EnumT(_, name, _, _, _, _, _) => name,
-    .Union(name, _, _) => name,
-    .TraitT(name : n, field_labels : fls, field_types : fts) => {
-      if(fls.len() == usize(0), {
-        return(n);
-      });
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < fls.len()), {
-        if(i > usize(0), {
-          body = `${body}, `;
+        `${bn}(${body}) -> ${recur(cr.*, _d + usize(1))}`
+      },
+      .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : _) => {
+        body := String.from("");
+        i := usize(0);
+        while(i < ets.len(), {
+          if(i > usize(0), {
+            body = `${body}, `;
+          });
+          el := match(els.get(i),.Some(s) => s,.None => ``);
+          ts := match(ets.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          body = `${body}${el} : ${ts}`;
+          i = (i + usize(1));
         });
-        fl := match(fls.get(i),.Some(s) => s,.None => `""`);
-        ft := match(fts.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${fl} : ${ft}`;
-        i = (i + usize(1));
-      });
-      `${n}(${body})`
-    },
-    .ModuleT(name : n, field_labels : fls, field_types : fts) => {
-      if(fls.len() == usize(0), {
-        return(`module ${n}`);
-      });
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < fls.len()), {
-        if(i > usize(0), {
-          body = `${body}, `;
-        });
-        fl := match(fls.get(i),.Some(s) => s,.None => `""`);
-        ft := match(fts.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${fl} : ${ft}`;
-        i = (i + usize(1));
-      });
-      `module ${n}(${body})`
-    },
-    .SomeT(name : n, required_trait_types : rts, negative_trait_types : nts) => {
-      if((rts.len() == usize(0)) && (nts.len() == usize(0)), {
-        return(n);
-      });
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < rts.len()), {
-        if(i > usize(0), {
-          body = `${body} + `;
-        });
-        rt := match(rts.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${rt}`;
-        i = (i + usize(1));
-      });
-      ii := usize(0);
-      while(runtime(ii < nts.len()), {
-        if((body.len() > usize(0)) || (ii > usize(0)), {
-          body = `${body} + `;
-        });
-        nt := match(nts.get(ii),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}!(${nt})`;
-        ii = (ii + usize(1));
-      });
-      `${n} : (${body})`
-    },
-    .ExprT => `Expr`,
-    .ComptimeListT(child) => `ComptimeList(${recur(child.*)})`,
-    .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < labels.len()), {
-        if(i > usize(0), {
-          body = `${body}, `;
-        });
-        lbl := match(labels.get(i),.Some(s) => s,.None => ``);
-        ts := match(types.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${lbl} : ${ts}`;
-        i = (i + usize(1));
-      });
-      `EffectsRow(${body})`
-    },
-    .TypeAppT(constructor, args) => {
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < args.len()), {
-        if(i > usize(0), {
-          body = `${body}, `;
-        });
-        ts := match(args.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${ts}`;
-        i = (i + usize(1));
-      });
-      `TypeApp(${recur(constructor.*)}, [${body}])`
-    },
-    .IsoT(child) => `iso(${recur(child.*)})`,
-    .DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _) => {
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < rtt.len()), {
-        if(i > usize(0), {
-          body = `${body} + `;
-        });
-        ts := match(rtt.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${ts}`;
-        i = (i + usize(1));
-      });
-      ii := usize(0);
-      while(runtime(ii < ntt.len()), {
-        if(body.len() > usize(0), {
-          body = `${body} + `;
-        });
-        ts := match(ntt.get(ii),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}!(${ts})`;
-        ii = (ii + usize(1));
-      });
-      `dyn(${body})`
-    },
-    .FnTraitT(base_name : bn, call_param_labels : _, call_param_types : cpts, call_result : cr) => {
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < cpts.len()), {
-        if(i > usize(0), {
-          body = `${body}, `;
-        });
-        ts := match(cpts.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${ts}`;
-        i = (i + usize(1));
-      });
-      `${bn}(${body}) -> ${recur(cr.*)}`
-    },
-    .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : _) => {
-      body := String.from("");
-      i := usize(0);
-      while(runtime(i < ets.len()), {
-        if(i > usize(0), {
-          body = `${body}, `;
-        });
-        el := match(els.get(i),.Some(s) => s,.None => ``);
-        ts := match(ets.get(i),.Some(t2) => recur(t2),.None => `?`);
-        body = `${body}${el} : ${ts}`;
-        i = (i + usize(1));
-      });
-      cond(
-        (body.len() > usize(0)) => `Future[${bn}](${recur(out.*)}) ${body}`,
-        true => `Future[${bn}](${recur(out.*)})`
-      )
-    }
+        cond(
+          (body.len() > usize(0)) => `Future[${bn}](${recur(out.*, _d + usize(1))}) ${body}`,
+          true => `Future[${bn}](${recur(out.*, _d + usize(1))})`
+        )
+      }
+    )
   )
 );
-export(type_to_string);
+/// Render a TypeValue as a string. Recursive over
+/// Pointer/Slice/Array/Tuple/Func/Struct/EnumT/Union, with a depth cap (see
+/// `_tts`) so cyclic / very deep types can't overflow the stack.
+type_to_string :: (fn(t : TypeValue) -> String)(_tts(t, usize(0)));
+/// A cheap, shallow key for the synthesizer's anti-circularity check. Renders
+/// only the top few levels of structure (then `…`), so it can't blow up the way
+/// full `type_to_string` (depth 40) does when called O(n) times over a large or
+/// deep type with a growing `checked` list (the O(n²) string-building that
+/// hangs recursive-type synthesis). For shallow types it's identical to
+/// `type_to_string`; only deep types are truncated. (TS uses O(1) object
+/// identity for `checkedTypePairs`; this is the value-semantic proxy.)
+type_to_string_key :: (fn(t : TypeValue) -> String)(_tts(t, usize(36)));
+export(type_to_string, type_to_string_key);

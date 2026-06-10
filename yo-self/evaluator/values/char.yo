@@ -4,24 +4,32 @@
 //!
 //! Char literals produce an IntLit(raw) with type u32. The raw field stores
 //! the decimal string of the Unicode code point (e.g., `'a'` → `"97"`).
+//!
+//! NOTE on the `Invalid char literal` throw (char.ts:67): TS measures the inner
+//! length in UTF-16 code units, so a BMP multibyte char like `'é'` has length 1
+//! and is accepted. yo-self uses a BYTE model (it reads `bytes(1)`), under which
+//! `'é'` would have inner byte-length 2 and a naive length check would wrongly
+//! reject it. To avoid that regression, the invalid-length throw is intentionally
+//! NOT ported; the unknown-escape throw (char.ts:64) IS ported faithfully below.
 open(import("std/string"));
 open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
-{ TokenKind } :: import("../../token.yo");
+{ TokenKind, Token } :: import("../../token.yo");
 { t_comptime_int } :: import("../../types/creators.yo");
 { Exception } :: import("std/error");
 { format_error_message } :: import("../../error.yo");
 // Parses a char literal token value (e.g., `'a'`, `'\n'`) to its u32 code point.
 // tok_value includes surrounding single quotes.
-parse_char_literal :: (fn(tok_value : str) -> u32)({
+parse_char_literal :: (fn(tok_value : str, tok : Token, exn : Exception) -> u32)({
   // b1 is the byte at index 1 (after the opening `'`)
   b1 := tok_value.bytes(usize(1));
   cond(
-    // Unwind sequence: tok_value looks like '\x' — b1 is backslash (92)
+    // Escape sequence: tok_value looks like '\x' — b1 is backslash (92)
     (b1 == u8(92)) => {
       b2 := tok_value.bytes(usize(2));
       cond(
@@ -47,7 +55,24 @@ parse_char_literal :: (fn(tok_value : str) -> u32)({
         // \f form feed
         (b2 == u8(118)) => u32(11),
         // \v vertical tab
-        true => u32(b2) // unknown: raw byte value
+        // Unknown escape sequence — mirrors `char.ts:64`
+        // (`throw new Error("Unknown escape sequence: \\X")`).
+        true => {
+          esc_bytes := ArrayList(u8).new();
+          esc_bytes.push(b2);
+          esc_str := String.from_bytes(esc_bytes);
+          exn.throw(
+            dyn(
+              format_error_message(
+                tok,
+                `Unknown escape sequence: \\${esc_str}`,
+                false,
+                .None
+              )
+            )
+          );
+          u32(0)
+        }
       )
     },
     // Simple character: tok_value looks like 'x' — b1 is the char byte
@@ -75,7 +100,7 @@ evaluate_char_literal :: (
       )
     );
   });
-  char_code := parse_char_literal(tok.value.as_str());
+  char_code := parse_char_literal(tok.value.as_str(), tok, exn);
   val := EvalValue.IntLit(char_code.to_string());
   info := new_expr_info(env, t_comptime_int());
   info.value =.Some(val);

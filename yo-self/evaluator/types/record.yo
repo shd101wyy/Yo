@@ -50,7 +50,7 @@ open(import("std/fmt"));
 { Exception } :: import("std/error");
 { random_id } :: import("../../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 /// Result type returned by evaluate_module_field.
 EvalModuleFieldResult :: struct(
@@ -149,7 +149,10 @@ evaluate_module_field :: (
   evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
   te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut, TypeValue.Unit));
-  env_mut = te_info.env;
+  env_mut.frames = te_info.env.frames;
+  env_mut.module_path = te_info.env.module_path;
+  env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+  env_mut.input_string = te_info.env.input_string;
   if(!(is_type_value(te_info.value)), {
     exn.throw(
       dyn(
@@ -201,13 +204,13 @@ evaluate_module_type :: (
       )
     );
   });
-  module_id := `module_${random_id(env.module_path)}`;
+  module_id := `source_namespace_${random_id(env.module_path)}`;
   (env_mut : Environment) = env;
   args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // Stub: spread (...) extend form — Phase 3
     if(ast_expr_is_fn_call_of(arg, "...", Option(usize).Some(usize(1))), {
@@ -227,7 +230,7 @@ evaluate_module_type :: (
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while(runtime((dup_idx < field_labels.len()) && !(has_dup)), {
+    while((dup_idx < field_labels.len()) && !(has_dup), {
       existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
       if(existing == result.label, {
         has_dup = true;
@@ -254,11 +257,16 @@ evaluate_module_type :: (
     });
     field_labels.push(result.label);
     field_types.push(result.field_type);
-    env_mut = result.env;
+    env_mut.frames = result.env.frames;
+    env_mut.module_path = result.env.module_path;
+    env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env_mut.input_string = result.env.input_string;
     i = (i + usize(1));
   });
   // TODO (Phase 3): propagate ctx.current_module_path to module type (orphan rule checks).
-  module_ty := TypeValue.ModuleT(String.from(module_id.as_str()), String.from(""), field_labels, field_types);
+  // Source-namespace STRUCT (TS: records operate on SourceNamespaceType,
+  // record-type.ts:37). See plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+  module_ty := TypeValue.Struct(String.from(module_id.as_str()), String.from(""), field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true);
   module_val := create_type_value(module_ty);
   meta_ty := type_of_type(module_ty);
   out_info := new_expr_info(env_mut, meta_ty);

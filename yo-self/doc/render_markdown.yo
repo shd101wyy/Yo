@@ -28,7 +28,7 @@ open(import("std/string"));
 find_method_by_name_ :: (fn(methods : ArrayList(DocFunction), name : String) -> Option(DocFunction))({
   i := usize(0);
   n := methods.len();
-  while(runtime(i < n), {
+  while(i < n, {
     m := match(
       methods.get(i),
       .Some(x) => x,
@@ -48,7 +48,7 @@ is_in_list_ :: (fn(list : ArrayList(String), name : String) -> bool)({
   i := usize(0);
   n := list.len();
   result := false;
-  while(runtime(i < n), {
+  while(i < n, {
     item := match(
       list.get(i),
       .Some(x) => x,
@@ -76,7 +76,7 @@ format_type_params_ :: (fn(params : Option(ArrayList(DocParam))) -> String)(
           names := ArrayList(String).new();
           i := usize(0);
           n := p.len();
-          while(runtime(i < n), {
+          while(i < n, {
             param := match(
               p.get(i),
               .Some(x) => x,
@@ -100,7 +100,7 @@ render_fields_ :: (fn(fields : ArrayList(DocField)) -> String)({
   lines.push(``);
   i := usize(0);
   n := fields.len();
-  while(runtime(i < n), {
+  while(i < n, {
     f := match(
       fields.get(i),
       .Some(x) => x,
@@ -123,7 +123,7 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
   lines.push(``);
   i := usize(0);
   n := variants.len();
-  while(runtime(i < n), {
+  while(i < n, {
     v := match(
       variants.get(i),
       .Some(x) => x,
@@ -142,7 +142,7 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
           parts := ArrayList(String).new();
           fi := usize(0);
           fn_ := fs.len();
-          while(runtime(fi < fn_), {
+          while(fi < fn_, {
             f := match(
               fs.get(fi),
               .Some(x) => x,
@@ -172,7 +172,7 @@ render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)
   lines.push(``);
   i := usize(0);
   n := types.len();
-  while(runtime(i < n), {
+  while(i < n, {
     t := match(
       types.get(i),
       .Some(x) => x,
@@ -221,7 +221,7 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
     lines.push(``);
     i := usize(0);
     n := fn_.parameters.len();
-    while(runtime(i < n), {
+    while(i < n, {
       p := match(
         fn_.parameters.get(i),
         .Some(x) => x,
@@ -320,7 +320,7 @@ render_type_md :: (fn(t : DocType) -> String)({
     impl_names := ArrayList(String).new();
     ti := usize(0);
     tn := t.trait_impls.len();
-    while(runtime(ti < tn), {
+    while(ti < tn, {
       name := match(
         t.trait_impls.get(ti),
         .Some(x) => x,
@@ -345,7 +345,7 @@ render_type_md :: (fn(t : DocType) -> String)({
       .Some(impls) => {
         ii := usize(0);
         ni := impls.len();
-        while(runtime(ii < ni), {
+        while(ii < ni, {
           impl := match(
             impls.get(ii),
             .Some(x) => x,
@@ -362,7 +362,7 @@ render_type_md :: (fn(t : DocType) -> String)({
               if(assoc_types.len() > usize(0), {
                 ai := usize(0);
                 na := assoc_types.len();
-                while(runtime(ai < na), {
+                while(ai < na, {
                   at := match(
                     assoc_types.get(ai),
                     .Some(x) => x,
@@ -379,7 +379,7 @@ render_type_md :: (fn(t : DocType) -> String)({
           );
           mi := usize(0);
           nm := impl.method_names.len();
-          while(runtime(mi < nm), {
+          while(mi < nm, {
             method_name := match(
               impl.method_names.get(mi),
               .Some(x) => x,
@@ -393,7 +393,7 @@ render_type_md :: (fn(t : DocType) -> String)({
           unresolved := ArrayList(String).new();
           mi2 := usize(0);
           nm2 := impl.method_names.len();
-          while(runtime(mi2 < nm2), {
+          while(mi2 < nm2, {
             method_name := match(
               impl.method_names.get(mi2),
               .Some(x) => x,
@@ -416,7 +416,7 @@ render_type_md :: (fn(t : DocType) -> String)({
             unresolved_quoted := ArrayList(String).new();
             ui := usize(0);
             nu := unresolved.len();
-            while(runtime(ui < nu), {
+            while(ui < nu, {
               uname := match(
                 unresolved.get(ui),
                 .Some(x) => x,
@@ -438,7 +438,7 @@ render_type_md :: (fn(t : DocType) -> String)({
     unclaimed_methods := ArrayList(DocFunction).new();
     umi := usize(0);
     unm := t.methods.len();
-    while(runtime(umi < unm), {
+    while(umi < unm, {
       m := match(
         t.methods.get(umi),
         .Some(x) => x,
@@ -456,7 +456,7 @@ render_type_md :: (fn(t : DocType) -> String)({
       lines.push(``);
       mui := usize(0);
       mun := unclaimed_methods.len();
-      while(runtime(mui < mun), {
+      while(mui < mun, {
         m := match(
           unclaimed_methods.get(mui),
           .Some(x) => x,
@@ -523,7 +523,7 @@ render_trait_md :: (fn(t : DocTrait) -> String)({
     lines.push(``);
     i := usize(0);
     n := t.methods.len();
-    while(runtime(i < n), {
+    while(i < n, {
       m := match(
         t.methods.get(i),
         .Some(x) => x,
@@ -539,7 +539,7 @@ render_trait_md :: (fn(t : DocTrait) -> String)({
     impl_quoted := ArrayList(String).new();
     i := usize(0);
     n := t.implementors.len();
-    while(runtime(i < n), {
+    while(i < n, {
       name := match(
         t.implementors.get(i),
         .Some(x) => x,
@@ -615,7 +615,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
       lines.push(`**Types:**`);
       i := usize(0);
       n := mod.types.len();
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           mod.types.get(i),
           .Some(x) => x,
@@ -632,7 +632,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
       lines.push(`**Traits:**`);
       i := usize(0);
       n := mod.traits.len();
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           mod.traits.get(i),
           .Some(x) => x,
@@ -649,7 +649,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
       lines.push(`**Functions:**`);
       i := usize(0);
       n := mod.functions.len();
-      while(runtime(i < n), {
+      while(i < n, {
         f := match(
           mod.functions.get(i),
           .Some(x) => x,
@@ -666,7 +666,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
       lines.push(`**Constants:**`);
       i := usize(0);
       n := mod.constants.len();
-      while(runtime(i < n), {
+      while(i < n, {
         c := match(
           mod.constants.get(i),
           .Some(x) => x,
@@ -687,7 +687,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.types.len();
-    while(runtime(i < n), {
+    while(i < n, {
       t := match(
         mod.types.get(i),
         .Some(x) => x,
@@ -706,7 +706,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.traits.len();
-    while(runtime(i < n), {
+    while(i < n, {
       t := match(
         mod.traits.get(i),
         .Some(x) => x,
@@ -725,7 +725,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.functions.len();
-    while(runtime(i < n), {
+    while(i < n, {
       f := match(
         mod.functions.get(i),
         .Some(x) => x,
@@ -744,7 +744,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.constants.len();
-    while(runtime(i < n), {
+    while(i < n, {
       c := match(
         mod.constants.get(i),
         .Some(x) => x,
@@ -767,7 +767,7 @@ render_index_md :: (fn(model : DocModel) -> String)({
   lines.push(``);
   i := usize(0);
   n := model.modules.len();
-  while(runtime(i < n), {
+  while(i < n, {
     mod := match(
       model.modules.get(i),
       .Some(x) => x,

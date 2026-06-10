@@ -42,22 +42,26 @@ open(import("std/string"));
   clone_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ Token } :: import("../../token.yo");
+{ t_unit, t_type } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   get_all_some_types,
   type_contains_some_type
 } :: import("../../types/utils.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type } :: import("../../types/guards.yo");
+{ convert_comptime_type_to_runtime_type_with_expected } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
-  type_implements_fn
+  type_implements_fn,
+  type_implements_trait_bool
 } :: import("../trait_checking.yo");
 {
   EvalValue,
   eval_value_eq,
   value_to_string,
-  create_type_value
+  create_type_value,
+  create_unknown_val
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -93,7 +97,10 @@ open(import("std/string"));
 } :: import("../../types/compatibility.yo");
 {
   evaluate_function_parameter_type_again,
-  evaluate_function_return_type_again
+  evaluate_function_return_type_again,
+  get_func_param_defaults,
+  get_func_where_constraints,
+  WhereConstraintEntry
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -138,62 +145,65 @@ _module_type_contains_ctl_field :: (
 )(
   match(
     module_type,
-    .ModuleT(_, _, field_labels, field_types) => {
-      n := field_types.len();
-      (fi : usize) = usize(0);
-      (found : bool) = false;
-      while(runtime((fi < n) && (!(found))), {
-        field_ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
-        (field_val_opt : Option(EvalValue)) = match(
-          module_val,
-          .None => Option(EvalValue).None,
-          .Some(mv) => match(
-            mv,
-            .ModuleVal(_, vals) => match(
-              vals.get(fi),
-              .Some(v) => Option(EvalValue).Some(v),
-              .None => Option(EvalValue).None
-            ),
-            _ => Option(EvalValue).None
-          )
-        );
-        // Check if field is a Func type and value is a control function
-        is_func_field := match(field_ty,.Func(_, _, _, _, _, _, _, _, _) => true, _ => false);
-        if(is_func_field, {
-          match(
-            field_val_opt,
-            .Some(fv) => match(
-              fv,
-              .FuncVal(_, _, _, _, _, _, _, _, fid) => {
-                if(is_control_fn(fid.as_str()), {
-                  found = true;
-                });
-              },
-              _ => ()
-            ),
-            .None => ()
-          );
-        });
-        // Recurse into nested module fields
-        is_module_field := match(field_ty,.ModuleT(_, _, _, _) => true, _ => false);
-        if(is_module_field && (!(found)), {
-          (inner_module_val_opt : Option(EvalValue)) = match(
-            field_val_opt,
+    .Struct({ field_labels : field_labels, field_types : field_types, is_source_namespace : m_sns }) => cond(
+      !(m_sns) => false,
+      true => {
+        n := field_types.len();
+        (fi : usize) = usize(0);
+        (found : bool) = false;
+        while((fi < n) && (!(found)), {
+          field_ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          (field_val_opt : Option(EvalValue)) = match(
+            module_val,
             .None => Option(EvalValue).None,
-            .Some(fv) => match(
-              fv,
-              .ModuleVal(_, _) => Option(EvalValue).Some(fv),
+            .Some(mv) => match(
+              mv,
+              .StructVal(_, _, vals) => match(
+                vals.get(fi),
+                .Some(v) => Option(EvalValue).Some(v),
+                .None => Option(EvalValue).None
+              ),
               _ => Option(EvalValue).None
             )
           );
-          if(recur(field_ty, inner_module_val_opt), {
-            found = true;
+          // Check if field is a Func type and value is a control function
+          is_func_field := match(field_ty,.Func({ result : _ }) => true, _ => false);
+          if(is_func_field, {
+            match(
+              field_val_opt,
+              .Some(fv) => match(
+                fv,
+                .FuncVal(_, _, _, _, _, _, _, _, fid) => {
+                  if(is_control_fn(fid.as_str()), {
+                    found = true;
+                  });
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
           });
+          // Recurse into nested module fields
+          is_module_field := match(field_ty,.Struct({ is_source_namespace : f_sns }) => f_sns, _ => false);
+          if(is_module_field && (!(found)), {
+            (inner_module_val_opt : Option(EvalValue)) = match(
+              field_val_opt,
+              .None => Option(EvalValue).None,
+              .Some(fv) => match(
+                fv,
+                .StructVal(_, _, _) => Option(EvalValue).Some(fv),
+                _ => Option(EvalValue).None
+              )
+            );
+            if(recur(field_ty, inner_module_val_opt), {
+              found = true;
+            });
+          });
+          fi = (fi + usize(1));
         });
-        fi = (fi + usize(1));
-      });
-      found
-    },
+        found
+      }
+    ),
     _ => false
   )
 );
@@ -225,7 +235,7 @@ generate_deferred_drop_expressions :: (
   deferred := ArrayList(AstExpr).new();
   (cur_env : Environment) = env;
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       variables_to_drop.get(i),
       .Some(variable) => {
@@ -276,7 +286,7 @@ validate_function_return_type :: (
   some_types := get_all_some_types(return_type);
   n := some_types.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       some_types.get(i),
       .None => (),
@@ -299,7 +309,7 @@ validate_function_return_type :: (
                 (found_transitively : bool) = false;
                 (j : usize) = usize(0);
                 nv := all_vars.len();
-                while(runtime((j < nv) && !(found_transitively)), {
+                while((j < nv) && !(found_transitively), {
                   match(
                     all_vars.get(j),
                     .Some(var) => {
@@ -311,7 +321,7 @@ validate_function_return_type :: (
                             .TypeVal(ty_box) => {
                               transitive := get_all_some_types(ty_box.*);
                               (k : usize) = usize(0);
-                              while(runtime((k < transitive.len()) && !(found_transitively)), {
+                              while((k < transitive.len()) && !(found_transitively), {
                                 match(
                                   transitive.get(k),
                                   .Some(tst) => {
@@ -346,7 +356,7 @@ validate_function_return_type :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(expr),
-                        String.from("Failed to infer the function call return(type.\nPlease consider providing the expected type.)"),
+                        String.from("Failed to infer the function call return type.\nPlease consider providing the expected type."),
                         false,
                         .None
                       )
@@ -440,7 +450,33 @@ check_if_function_parameter_matches_argument :: (
     }
   );
   (caller_env_r : Environment) = arg_info.env;
-  arg_type := arg_info.ty;
+  // Coerce a comptime arg type (comptime_int/float/string) to the
+  // parameter's concrete runtime type before synthesis/compatibility,
+  // mirroring the default-value-site coercion (types/env_lookup.yo). Only
+  // when the parameter type is CONCRETE (not a `SomeT` type variable) —
+  // generic params must bind the raw comptime type via synthesis. Without
+  // this, e.g. `comptime_string.to_string()` (the desugaring of a backtick
+  // template) matched the self arg `comptime_string` against `Self = str`
+  // and `synthesize_types` rejected the `str` vs `comptime_string` tag
+  // mismatch before any coercion could run. `convert_…` returns the type
+  // unchanged for non-comptime inputs, so this is a no-op for normal args.
+  // GUARD: only coerce against a genuine RUNTIME concrete parameter type —
+  // never a `SomeT` type variable, and never a comptime parameter type.
+  // `convert_…` lowers comptime_int→i32 / comptime_float→f64
+  // UNCONDITIONALLY, so coercing against a comptime parameter would break
+  // the (correct) comptime-to-comptime match.
+  (arg_type : TypeValue) = arg_info.ty;
+  pt_is_comptime := (
+    (is_comptime_int_type(resolved_pt) || is_comptime_float_type(resolved_pt))
+    || is_comptime_string_type(resolved_pt)
+  );
+  if((!(is_some_type(resolved_pt))) && (!(pt_is_comptime)), {
+    arg_type = convert_comptime_type_to_runtime_type_with_expected(
+      arg_type,
+      Option(TypeValue).Some(resolved_pt),
+      caller_env_r
+    );
+  });
   arg_value := arg_info.value;
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
@@ -495,7 +531,7 @@ check_if_function_parameter_matches_argument :: (
       dyn(
         format_error_message(
           ast_expr_token(actual_arg),
-          `Type mismatch for parameter "${param_label}"`,
+          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(final_pt)}\n- Got     : ${type_to_string(arg_type)}`,
           false,
           .None
         )
@@ -505,7 +541,7 @@ check_if_function_parameter_matches_argument :: (
   // Step 9: Bind param variable in callee_env.
   param_tok := synthetic_token(param_label, callee_env_r.module_path);
   _ := add_variable_to_env(
-    &(callee_env_r),
+    callee_env_r,
     param_label,
     final_pt,
     arg_value,
@@ -540,7 +576,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
   n := bytes.len();
   result := String.new();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
     is_alnum := (
       ((b >= u8(97)) && (b <= u8(122))) || // a-z
@@ -601,11 +637,11 @@ compute_compile_time_signature :: (
   // Forall type arguments — extract from forall_labels vs arg_values.forall_args
   match(
     func_type,
-    .Func(fl, _, _, _, _, _, _, _, _) => {
+    .Func({ forall_labels : fl }) => {
       n_fl := fl.len();
       n_fa := arg_values.forall_args.len();
       (fpi : usize) = usize(0);
-      while(runtime(fpi < n_fl), {
+      while(fpi < n_fl, {
         val_opt := if(
           fpi < n_fa,
           match(
@@ -652,7 +688,7 @@ compute_compile_time_signature :: (
     .Some(impl_args) => {
       n_ia := impl_args.len();
       (iai : usize) = usize(0);
-      while(runtime(iai < n_ia), {
+      while(iai < n_ia, {
         sig_str := match(
           impl_args.get(iai),
           .Some(ae) => match(
@@ -672,7 +708,7 @@ compute_compile_time_signature :: (
   // with the same compile-time args but different concrete closure capture types.
   n_rt := runtime_param_tys.len();
   (rti : usize) = usize(0);
-  while(runtime(rti < n_rt), {
+  while(rti < n_rt, {
     ptype := match(runtime_param_tys.get(rti),.Some(t) => t,.None => t_unit());
     if(type_contains_some_type(ptype), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_to_string(ptype))}`;
@@ -684,7 +720,7 @@ compute_compile_time_signature :: (
   result := String.new();
   n_parts := parts.len();
   (pi : usize) = usize(0);
-  while(runtime(pi < n_parts), {
+  while(pi < n_parts, {
     if(pi > usize(0), {
       result.push_str("_");
     });
@@ -716,7 +752,7 @@ _find_specialization_cache :: (
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
-  while(runtime((ei < n_entries) && result.is_none()), {
+  while((ei < n_entries) && result.is_none(), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
     match(
       entry_opt,
@@ -724,7 +760,7 @@ _find_specialization_cache :: (
         if(entry.func_id.as_str() == func_id, {
           n_caches := entry.caches.len();
           (ci : usize) = usize(0);
-          while(runtime((ci < n_caches) && result.is_none()), {
+          while((ci < n_caches) && result.is_none(), {
             cache_opt := entry.caches.get(ci);
             match(
               cache_opt,
@@ -735,7 +771,7 @@ _find_specialization_cache :: (
                 ct_match := (n_ct == n_cur_ct);
                 if(ct_match, {
                   (cti : usize) = usize(0);
-                  while(runtime((cti < n_ct) && ct_match), {
+                  while((cti < n_ct) && ct_match, {
                     cached_v := match(cache.compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
                     current_v := match(compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
                     if(!(eval_value_eq(cached_v, current_v)), {
@@ -752,7 +788,7 @@ _find_specialization_cache :: (
                   if(rt_match, {
                     _ := caller_env;
                     (rti : usize) = usize(0);
-                    while(runtime((rti < n_rt) && rt_match), {
+                    while((rti < n_rt) && rt_match, {
                       cached_ty := match(cache.runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
                       current_ty := match(runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
                       if(!(are_types_compatible_exact(cached_ty, current_ty)), {
@@ -799,7 +835,7 @@ _store_specialization_cache :: (
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (found : bool) = false;
-  while(runtime((ei < n_entries) && !(found)), {
+  while((ei < n_entries) && !(found), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
     match(
       entry_opt,
@@ -868,7 +904,7 @@ create_specialized_function_inline :: (
       // Add forall type arguments (always compile-time)
       (fai : usize) = usize(0);
       n_fa := arg_values.forall_args.len();
-      while(runtime(fai < n_fa), {
+      while(fai < n_fa, {
         match(
           arg_values.forall_args.get(fai),
           .Some(ae) => match(
@@ -888,7 +924,7 @@ create_specialized_function_inline :: (
         .Some(impl_args) => {
           (iai : usize) = usize(0);
           n_ia := impl_args.len();
-          while(runtime(iai < n_ia), {
+          while(iai < n_ia, {
             match(
               impl_args.get(iai),
               .Some(ae) => match(
@@ -910,7 +946,7 @@ create_specialized_function_inline :: (
       // This means we track all regular arg types for cache differentiation.
       (ai : usize) = usize(0);
       n_a := arg_values.args.len();
-      while(runtime(ai < n_a), {
+      while(ai < n_a, {
         match(
           arg_values.args.get(ai),
           .Some(ae) => {
@@ -952,7 +988,7 @@ create_specialized_function_inline :: (
               original_func_id : func_id,
               specialized_func_id : specialized_func_id,
               specialized_return_type : evaluate_function_return_type_again(
-                match(func_type,.Func(result : r) => r.*, _ => t_unit()),
+                match(func_type,.Func({ result : r }) => r.*, _ => t_unit()),
                 callee_env,
                 ctx
               ),
@@ -982,7 +1018,7 @@ create_specialized_function_inline :: (
           // Re-use existing captures from original function
           (oci : usize) = usize(0);
           n_oc := cap_names.len();
-          while(runtime(oci < n_oc), {
+          while(oci < n_oc, {
             cn := match(cap_names.get(oci),.Some(s) => s,.None => String.new());
             ct := match(cap_tys.get(oci),.Some(t) => t,.None => t_unit());
             cv := match(cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal);
@@ -993,11 +1029,11 @@ create_specialized_function_inline :: (
           });
           // Add compile-time args as additional captures (forall type bindings)
           (fai2 : usize) = usize(0);
-          n_fl := match(func_type,.Func(fl, _, _, _, _, _, _, _, _) => fl.len(), _ => usize(0));
-          while(runtime(fai2 < n_fl), {
+          n_fl := match(func_type,.Func({ forall_labels : fl }) => fl.len(), _ => usize(0));
+          while(fai2 < n_fl, {
             label := match(
               func_type,
-              .Func(fl, _, _, _, _, _, _, _, _) => {
+              .Func({ forall_labels : fl }) => {
                 r := match(fl.get(fai2),.Some(s) => s,.None => String.new());
                 r
               },
@@ -1113,14 +1149,14 @@ evaluate_ctl_function_body_inline :: (
         fb_ctx.func_type,
         .Some(enclosing_ty) => match(
           enclosing_ty,
-          .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
-          _ => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+          .Func({ result : rb }) => rb.*,
+          _ => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
         ),
-        .None => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+        .None => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
       ),
-      _ => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+      _ => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
     ),
-    .None => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+    .None => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
   );
   // -------------------------------------------------------------------------
   // Determine enclosing return type from definition-site registry.
@@ -1177,13 +1213,13 @@ evaluate_ctl_function_body_inline :: (
   // -------------------------------------------------------------------------
   n_caller_frames := caller_env.frames.len();
   (cfi : usize) = usize(0);
-  while(runtime(cfi < n_caller_frames), {
+  while(cfi < n_caller_frames, {
     match(
       caller_env.frames.get(cfi),
       .Some(caller_frame) => {
         n_vars := caller_frame.variables.len();
         (vi : usize) = usize(0);
-        while(runtime(vi < n_vars), {
+        while(vi < n_vars, {
           match(
             caller_frame.variables.get(vi),
             .Some(caller_var) => {
@@ -1227,17 +1263,17 @@ evaluate_ctl_function_body_inline :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     func_type,
-    .Func(fl, _, _, _, _, _, _, _, _) => fl,
+    .Func({ forall_labels : fl }) => fl,
     _ => ArrayList(String).new()
   );
   forall_types_list := match(
     func_type,
-    .Func(_, ft, _, _, _, _, _, _, _) => ft,
+    .Func({ forall_types : ft }) => ft,
     _ => ArrayList(TypeValue).new()
   );
   n_forall := forall_labels.len();
   (fi2 : usize) = usize(0);
-  while(runtime(fi2 < n_forall), {
+  while(fi2 < n_forall, {
     fl_label := match(forall_labels.get(fi2),.Some(s) => s,.None => String.from(""));
     fl_ty := match(forall_types_list.get(fi2),.Some(t) => t,.None => TypeValue.Unit);
     ctl_tok := synthetic_token(fl_label.clone(), specialized_env.module_path);
@@ -1310,7 +1346,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_cap_vals := ArrayList(EvalValue).new();
   (oci : usize) = usize(0);
   n_oc := orig_cap_names.len();
-  while(runtime(oci < n_oc), {
+  while(oci < n_oc, {
     ctl_cap_names.push(match(orig_cap_names.get(oci),.Some(s) => s,.None => String.new()));
     ctl_cap_tys.push(match(orig_cap_tys.get(oci),.Some(t) => t,.None => TypeValue.Unit));
     ctl_cap_vals.push(match(orig_cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal));
@@ -1318,7 +1354,7 @@ evaluate_ctl_function_body_inline :: (
   });
   // Add forall type bindings as extra captures.
   (fi3 : usize) = usize(0);
-  while(runtime(fi3 < n_forall), {
+  while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3),.Some(s) => s,.None => String.new());
     ft3 := match(forall_types_list.get(fi3),.Some(t) => t,.None => TypeValue.Unit);
     ctl_cap_names.push(fl3.clone());
@@ -1371,6 +1407,124 @@ evaluate_ctl_function_body_inline :: (
 ///   * RC ownership / deferred drop expressions are skipped.
 ///   * Quote parameters are not supported (throw on encounter).
 ///   * Where-clause constraints are skipped (TypeValue has no AstExpr forms).
+/// Validate the registered where-clause constraints of `func_id` against the
+/// parameter bindings now present in `callee_env`. Mirrors TS re-applying
+/// `FunctionType.whereClauseExprs` at every call site once parameters are
+/// bound (helper.ts:1493-1506 → applyWhereClauseConstraints →
+/// validateSingleTraitOnConcreteType, types/function.ts:974): a constraint
+/// whose LHS param resolved to a CONCRETE type must hold — this is what
+/// rejects `Mutex(NonSendObj)` against `where(T <: Send)`. Called from BOTH
+/// call paths: Step 8b of `try_to_call_function_with_arguments` below AND the
+/// inline FuncVal arm in `calls/function.yo` (the same two-path obligation as
+/// the default-args side table).
+///
+/// DOCUMENTED DIVERGENCE (narrower than TS): only MARKER-trait constraints
+/// (traits without methods — Send/Acyclic/user markers) are enforced, and only
+/// against FULLY CONCRETE bound types (no SomeT anywhere in the type). TS
+/// validates every constraint because its `typeImplementsTrait` is complete;
+/// yo-self's still has gaps for (a) method-trait satisfaction on concrete
+/// types (e.g. `K <: (Eq, Hash)` for `String`) and (b) marker derivation
+/// through generic-instantiation fields that still carry constraint-bearing
+/// SomeTs — enforcing those today rejects valid std code (imm/map, hashmap).
+/// Widen as the trait checker closes those gaps.
+validate_where_constraints_for_call :: (
+  fn(
+    func_id : str,
+    callee_env : Environment,
+    tok : Token,
+    exn : Exception
+  ) -> unit
+)({
+  where_constraint_list := get_func_where_constraints(func_id);
+  (wcl_i : usize) = usize(0);
+  while(wcl_i < where_constraint_list.len(), {
+    wce := match(
+      where_constraint_list.get(wcl_i),
+      .Some(e) => e,
+      .None => {
+        wcl_i = (wcl_i + usize(1));
+        continue;
+      }
+    );
+    // Marker traits only: a TraitT none of whose fields is function-typed.
+    trait_is_marker := match(
+      wce.trait_ty,
+      .TraitT(_, _, _, tr_ftys, _, _, _, _) => {
+        (tm_i : usize) = usize(0);
+        (tm_has_method : bool) = false;
+        while((tm_i < tr_ftys.len()) && !(tm_has_method), {
+          match(
+            tr_ftys.get(tm_i),
+            .Some(tf) => if(is_function_type(tf), {
+              tm_has_method = true;
+            }),
+            .None => ()
+          );
+          tm_i = (tm_i + usize(1));
+        });
+        !(tm_has_method)
+      },
+      _ => false
+    );
+    if(!(trait_is_marker), {
+      wcl_i = (wcl_i + usize(1));
+      continue;
+    });
+    lhs_vars := get_variables_from_env(callee_env, wce.lhs_label);
+    if(lhs_vars.len() > usize(0), {
+      match(
+        lhs_vars.get(lhs_vars.len() - usize(1)),
+        .Some(lhs_var) => match(
+          lhs_var.value,
+          .Some(lv) => match(
+            lv,
+            .TypeVal(bound_tb) => {
+              bound_ty := bound_tb.*;
+              // Fully concrete only: a bound type still carrying SomeTs (a
+              // generic instantiation inside an impl body) defers to TS-style
+              // constraint propagation, which yo-self's marker derivation
+              // can't see through yet.
+              if((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0)), {
+                wc_implemented := type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
+                if(wce.is_negated, {
+                  if(wc_implemented, {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          tok,
+                          `Type ${type_to_string(bound_ty)} must NOT implement ${type_to_string(wce.trait_ty)}, but it does.`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                }, {
+                  if(!(wc_implemented), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          tok,
+                          `Type ${type_to_string(bound_ty)} does not implement required trait ${type_to_string(wce.trait_ty)}.`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                });
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    wcl_i = (wcl_i + usize(1));
+  });
+});
 try_to_call_function_with_arguments :: (
   fn(
     func_val : Option(EvalValue),
@@ -1391,7 +1545,7 @@ try_to_call_function_with_arguments :: (
   tok := ast_expr_token(expr);
   match(
     func_type,
-    .Func(fl, ft, pl, pt, il, it, ispr, wt, ret_b) => {
+    .Func({ forall_labels : fl, forall_types : ft, param_labels : pl, param_types : pt, implicit_labels : il, implicit_types : it, implicit_spreads : ispr, where_types : wt, result : ret_b, has_variadic : fn_has_variadic }) => {
       _ := ispr;
       _ := wt;
       // ----------------------------------------------------------------
@@ -1429,7 +1583,7 @@ try_to_call_function_with_arguments :: (
       adjusted_args := ArrayList(AstExpr).new();
       n_total := arg_exprs.len();
       (ai : usize) = regular_start;
-      while(runtime(ai < n_total), {
+      while(ai < n_total, {
         a := match(arg_exprs.get(ai),.Some(x) => x,.None => make_err_expr());
         if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
           using_args_opt =.Some(_h_get_fn_call_args(a));
@@ -1440,15 +1594,54 @@ try_to_call_function_with_arguments :: (
       });
       // ----------------------------------------------------------------
       // Step 3: Argument count check.
+      //
+      // Parameters with a `?= default` are optional and may be omitted at
+      // the call site. The optional flags are looked up (by FuncVal id)
+      // from the side-table populated at definition time. A call is valid
+      // when it supplies at least the required-parameter count and no more
+      // than the total. Omitted trailing optionals are bound to their
+      // declared type below (Step 7).
       // ----------------------------------------------------------------
       n_params := pl.len();
       n_args := adjusted_args.len();
-      if(n_args != n_params, {
+      call_param_defaults := match(
+        func_val,
+        .Some(fvv) => match(
+          fvv,
+          .FuncVal(_, _, _, _, _, _, _, _, fvid) => get_func_param_defaults(fvid.as_str()),
+          _ => ArrayList(Option(EvalValue)).new()
+        ),
+        .None => ArrayList(Option(EvalValue)).new()
+      );
+      (n_required : usize) = n_params;
+      if(call_param_defaults.len() == n_params, {
+        (nr : usize) = usize(0);
+        (ofi : usize) = usize(0);
+        while(ofi < n_params, {
+          match(
+            call_param_defaults.get(ofi),
+            .Some(d) => if(d.is_none(), {
+              nr = (nr + usize(1));
+            }),
+            .None => ()
+          );
+          ofi = (ofi + usize(1));
+        });
+        n_required = nr;
+      });
+      // Variadic functions (C-style `...` externs like `snprintf`) accept any
+      // number of extra arguments — TS skips the count check entirely for
+      // them (`if (!functionType.variadicParameter)`, helper.ts:965).
+      if((!(fn_has_variadic)) && ((n_args < n_required) || (n_args > n_params)), {
+        (count_msg : String) = `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`;
+        if(n_required != n_params, {
+          count_msg = `Argument count mismatch: expected ${n_required.to_string()}..${n_params.to_string()} arguments, got ${n_args.to_string()}`;
+        });
         exn.throw(
           dyn(
             format_error_message(
               tok,
-              `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`,
+              count_msg,
               false,
               .None
             )
@@ -1466,7 +1659,7 @@ try_to_call_function_with_arguments :: (
             fenv := Environment.new(caller_env.module_path);
             (ci : usize) = usize(0);
             n_cap := cn.len();
-            while(runtime(ci < n_cap), {
+            while(ci < n_cap, {
               cname := match(cn.get(ci),.Some(s) => s,.None => String.from(""));
               cty := match(ct.get(ci),.Some(t) => t,.None => t_unit());
               cval := match(
@@ -1476,7 +1669,7 @@ try_to_call_function_with_arguments :: (
               );
               is_ct_cap := match(cval,.Some(_) => true,.None => false);
               _ := add_variable_to_env(
-                &(fenv),
+                fenv,
                 cname,
                 cty,
                 cval,
@@ -1501,8 +1694,85 @@ try_to_call_function_with_arguments :: (
       //         them from an explicit forall(…) argument).
       // ----------------------------------------------------------------
       n_forall := fl.len();
+      // Self-bound markers (TS structural mirror): TS's callee env EXTENDS
+      // the function type's definition env (`pushEnvFrame(functionType.env)`,
+      // helper.ts:1009), whose frames still hold the self-binding
+      // `T := SomeT(T)` for EVERY type variable the signature introduced —
+      // explicit `forall` labels AND implicit ones (`Impl(...)` sugar). That
+      // intact marker is what lets `getValueOfSomeTypeFromEnv` accept the
+      // concrete rebinding `synthesizeTypes` later writes over the LAST
+      // binding (env-lookup.ts:141-167, `thisSomeTypeWasBound`). yo-self's
+      // callee_env is built FRESH (the flattened `Func` TypeValue carries no
+      // definition env), so the markers must be recreated here, for every
+      // distinct SomeT in the signature:
+      //   - forall labels: marker only — the `UnknownVal` call binding added
+      //     by the loop below stays LAST (it is what `_bind_some_type`
+      //     updates), with the marker intact beneath it.
+      //   - non-forall SomeTs (`Impl(...)`): marker + a SECOND self-binding.
+      //     `_bind_some_type` updates the second; the first survives as the
+      //     ownership marker. Skipped when the name is already bound in
+      //     callee_env (e.g. an enclosing impl's type param arriving through
+      //     the FuncVal captures — self-binding would shadow the real value).
+      sig_some_types := get_all_some_types(func_type);
+      {
+        (seen_st_ids : ArrayList(String)) = ArrayList(String).new();
+        (sg_i : usize) = usize(0);
+        while(sg_i < sig_some_types.len(), {
+          sg_st := match(sig_some_types.get(sg_i),.Some(t) => t,.None => t_unit());
+          sg_id := match(sg_st,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+          sg_nm := match(sg_st,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+          (sg_dup : bool) = false;
+          (sd_i : usize) = usize(0);
+          while((sd_i < seen_st_ids.len()) && !(sg_dup), {
+            if(match(seen_st_ids.get(sd_i),.Some(s) => (s == sg_id),.None => false), {
+              sg_dup = true;
+            });
+            sd_i = (sd_i + usize(1));
+          });
+          if((!(sg_dup)) && (sg_nm.len() > usize(0)), {
+            seen_st_ids.push(sg_id);
+            (sg_is_forall : bool) = false;
+            (sf_i : usize) = usize(0);
+            while((sf_i < n_forall) && !(sg_is_forall), {
+              if(match(fl.get(sf_i),.Some(l) => (l == sg_nm),.None => false), {
+                sg_is_forall = true;
+              });
+              sf_i = (sf_i + usize(1));
+            });
+            sg_already_bound := (get_variables_from_env(callee_env, sg_nm).len() > usize(0));
+            if(sg_is_forall || !(sg_already_bound), {
+              _ := add_variable_to_env(
+                callee_env,
+                sg_nm,
+                t_type(),
+                Option(EvalValue).Some(create_type_value(sg_st)),
+                true,
+                false,
+                false,
+                false,
+                synthetic_token(sg_nm, callee_env.module_path)
+              );
+            });
+            if((!(sg_is_forall)) && !(sg_already_bound), {
+              // The updatable second binding for non-forall SomeTs.
+              _ := add_variable_to_env(
+                callee_env,
+                sg_nm,
+                t_type(),
+                Option(EvalValue).Some(create_type_value(sg_st)),
+                true,
+                false,
+                false,
+                false,
+                synthetic_token(sg_nm, callee_env.module_path)
+              );
+            });
+          });
+          sg_i = (sg_i + usize(1));
+        });
+      };
       (fpi : usize) = usize(0);
-      while(runtime(fpi < n_forall), {
+      while(fpi < n_forall, {
         flabel := match(fl.get(fpi),.Some(l) => l,.None => String.from(""));
         ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
@@ -1560,9 +1830,46 @@ try_to_call_function_with_arguments :: (
       (callee_env_m : Environment) = callee_env;
       (caller_env_m : Environment) = caller_env;
       (pi : usize) = usize(0);
-      while(runtime(pi < n_params), {
+      while(pi < n_params, {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
         ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
+        // Omitted optional parameter (no corresponding argument): bind it
+        // to its recorded default value (falling back to an `UnknownVal`
+        // of its declared type if, defensively, no default is recorded).
+        if(pi >= n_args, {
+          (omitted_val : EvalValue) = create_unknown_val(ptype);
+          match(
+            call_param_defaults.get(pi),
+            .Some(d) => match(
+              d,
+              .Some(dv) => {
+                omitted_val = dv;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          _ := add_variable_to_env(
+            callee_env_m,
+            plabel,
+            ptype,
+            Option(EvalValue).Some(omitted_val),
+            false,
+            false,
+            false,
+            false,
+            synthetic_token(plabel, callee_env_m.module_path)
+          );
+          arg_vals.push(
+            ArgEntry(
+              value : Option(EvalValue).Some(omitted_val),
+              parameter_type : ptype,
+              arg_type : ptype
+            )
+          );
+          pi = (pi + usize(1));
+          continue;
+        });
         parg := match(adjusted_args.get(pi),.Some(a) => a,.None => make_err_expr());
         pr := check_if_function_parameter_matches_argument(
           plabel,
@@ -1591,7 +1898,7 @@ try_to_call_function_with_arguments :: (
       // Step 8: Extract resolved forall values from callee_env.
       // ----------------------------------------------------------------
       (fpi2 : usize) = usize(0);
-      while(runtime(fpi2 < n_forall), {
+      while(fpi2 < n_forall, {
         flabel2 := match(fl.get(fpi2),.Some(l) => l,.None => String.from(""));
         ftype2 := match(ft.get(fpi2),.Some(t) => t,.None => t_unit());
         vars2 := get_variables_from_env(callee_env_m, flabel2);
@@ -1620,6 +1927,22 @@ try_to_call_function_with_arguments :: (
         });
         fpi2 = (fpi2 + usize(1));
       });
+      // ----------------------------------------------------------------
+      // Step 8b: Re-apply where-clause constraints now that parameters are
+      // bound. Mirrors helper.ts:1493-1506 (applyWhereClauseConstraints) →
+      // validateSingleTraitOnConcreteType (types/function.ts:974): every
+      // constraint whose LHS param is now bound to a CONCRETE type must be
+      // validated — `Mutex(NonSendObj)` against `where(T <: Send)` is
+      // rejected here.
+      match(
+        func_val,
+        .Some(wfv) => match(
+          wfv,
+          .FuncVal(_, _, _, _, _, _, _, _, wfvid) => validate_where_constraints_for_call(wfvid.as_str(), callee_env_m, tok, exn),
+          _ => ()
+        ),
+        .None => ()
+      );
       // ----------------------------------------------------------------
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
@@ -1652,7 +1975,7 @@ try_to_call_function_with_arguments :: (
       implicit_arg_vals := ArrayList(ArgEntry).new();
       n_impl := il.len();
       (impl_i : usize) = usize(0);
-      while(runtime(impl_i < n_impl), {
+      while(impl_i < n_impl, {
         impl_label := match(il.get(impl_i),.Some(l) => l,.None => String.from(""));
         impl_type := match(it.get(impl_i),.Some(t) => t,.None => t_unit());
         resolved_impl_type := evaluate_function_parameter_type_again(impl_type, callee_env_m, ctx);
@@ -1687,7 +2010,7 @@ try_to_call_function_with_arguments :: (
                         });
                         impl_tok := synthetic_token(impl_label, callee_env_m.module_path);
                         _ := add_variable_to_env(
-                          &(callee_env_m),
+                          callee_env_m,
                           impl_label,
                           resolved_impl_type,
                           .Some(ua_val),
@@ -1728,7 +2051,7 @@ try_to_call_function_with_arguments :: (
           (given_ty : TypeValue) = t_unit();
           (given_name : String) = String.from("");
           (vi : usize) = usize(0);
-          while(runtime((vi < n_cenv) && !(found_given)), {
+          while((vi < n_cenv) && !(found_given), {
             gv_opt := all_cenv_vars.get(vi);
             match(
               gv_opt,
@@ -1767,7 +2090,7 @@ try_to_call_function_with_arguments :: (
             .Some(gv_val) => {
               impl_tok2 := synthetic_token(impl_label, callee_env_m.module_path);
               _ := add_variable_to_env(
-                &(callee_env_m),
+                callee_env_m,
                 impl_label,
                 resolved_impl_type,
                 .Some(gv_val),
@@ -1905,7 +2228,7 @@ try_to_call_function_with_arguments :: (
     },
     _ => {
       // Soft fallback: when the callee's type isn't `.Func(...)` (e.g.
-      // it's a `ModuleT` from an `impl({...})` operator binding like
+      // it's a source-namespace struct from an `impl({...})` operator binding like
       // `(-) :: impl({ Call :: (neg, comptime_neg); })`, or a `SomeT`
       // that hasn't been resolved to a Func yet), return a placeholder
       // `FuncCallResult` with `t_unit()` return instead of aborting
@@ -1935,6 +2258,7 @@ try_to_call_function_with_arguments :: (
 });
 export(try_to_call_function_with_arguments);
 export(check_if_function_parameter_matches_argument);
+export(validate_where_constraints_for_call);
 export(extract_function_value);
 export(validate_function_return_type);
 export(generate_deferred_drop_expressions);

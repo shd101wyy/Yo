@@ -119,3 +119,157 @@ test("slice-flow: comptime-bound string literal flows out as `str`", {
   msg := comptime_str();
   assert(msg.len() == usize(5), "comptime-bound str keeps length");
 });
+// ─────────────────────────────────────────────────────────────────
+// Assignment-boundary flowability
+// (issues/slice-flowability-assignment-escape.md)
+//
+// Flowability is enforced at `=` reassignment too, not only at
+// `return`. A borrowed slice/`str` may only be assigned to a target
+// whose scope it outlives. A value borrowed from a *narrower* inner
+// block assigned to an *outer*-scope binding would dangle when the
+// inner block exits — a use-after-free reachable from safe code.
+// ─────────────────────────────────────────────────────────────────
+// ── (A) `str` borrowed from an inner-block `String`, assigned to an
+//        outer-scope `str` binding. REJECT — the String's buffer is
+//        freed at inner-block end, leaving `s` dangling.
+comptime_expect_error(
+  assign_escape_str :: (fn() -> unit)({
+    (s : str) = "";
+    {
+      x := `inner buffer that gets freed`;
+      s = x.as_str();
+    };
+    ()
+  })
+);
+// ── (B) Same shape with `Slice(i32)` borrowed from an inner-block
+//        `ArrayList`, assigned to an outer-scope `Slice` binding.
+//        REJECT — not `str`-specific; any raw-ptr-carrying value.
+comptime_expect_error(
+  assign_escape_slice :: (fn(seed : Slice(i32)) -> unit)({
+    (cur : Slice(i32)) = seed;
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(
+        inner.as_slice(),
+        .Some(sl) => sl,
+        .None => seed
+      );
+      cur = inner_slice;
+    };
+    ()
+  })
+);
+// ── Positive accept-path helpers (reassignment that is sound) ────
+// Reassigning from a parameter is fine — the caller's storage
+// outlives the call, so it outlives any binding in the callee.
+reassign_slice_from_param :: (fn(s0 : Slice(i32)) -> usize)({
+  (cur : Slice(i32)) = s0;
+  cur = s0;
+  cur.len()
+});
+// Reassigning from a same-scope local is fine — its scope encloses
+// (equals) the target's, so it cannot be freed first.
+reassign_slice_same_scope :: (fn(s0 : Slice(i32)) -> usize)({
+  (cur : Slice(i32)) = s0;
+  a := s0;
+  cur = a;
+  cur.len()
+});
+// Assigning a VARIANT that wraps a flowable slice is accepted — the
+// assignment-flowability check must traverse `.Some(...)` to the wrapped
+// value. Regression guard: without that traversal the variant ctor fell
+// into the function-call path (unresolvable) and was wrongly rejected,
+// breaking e.g. std/collections/hash_map.yo's `result = .Some(ptr &+ i)`
+// iterator (the pointer-arith form is exercised end-to-end by
+// derive_clone_complex.test.yo).
+reassign_option_slice_from_param :: (fn(s0 : Slice(i32)) -> usize)({
+  (cur : Option(Slice(i32))) =.Some(s0);
+  match(cur,.Some(s) => s.len(),.None => usize(0))
+});
+test("slice-flow assign: reassign from a parameter is accepted", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  match(
+    list.as_slice(),
+    .Some(s) => assert(reassign_slice_from_param(s) == usize(2), "param reassign keeps len"),
+    .None => panic("unexpected None")
+  );
+});
+test("slice-flow assign: reassign from a same-scope local is accepted", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  match(
+    list.as_slice(),
+    .Some(s) => assert(reassign_slice_same_scope(s) == usize(3), "same-scope reassign keeps len"),
+    .None => panic("unexpected None")
+  );
+});
+test("slice-flow assign: assigning `.Some(flowable_slice)` is accepted", {
+  list := ArrayList(i32).new();
+  list.push(i32(7));
+  list.push(i32(8));
+  match(
+    list.as_slice(),
+    .Some(s) => assert(reassign_option_slice_from_param(s) == usize(2), "variant-wrapped slice keeps len"),
+    .None => panic("unexpected None")
+  );
+});
+
+// ── Constructor-call flowability at the assignment boundary ──────
+// Regression coverage for the type-constructor flow rule
+// (flowability.ts isTypeCtorCall + the label-strip): a freshly
+// constructed value is flowable iff every raw-pointer-carrying
+// argument is flowable.
+StrHolder :: struct(name : str);
+// Positive: a constructed str-bearing struct whose field comes from a
+// string LITERAL (static storage) is accepted at the assignment
+// boundary. This false-positived before the ctor rule landed
+// (tests/circular_import.test.yo's `Identifier(name : "x")`).
+test("ctor with literal str field is flowable at the assignment boundary", {
+  (h : StrHolder) = StrHolder(name : "ab");
+  h = StrHolder(name : "xyz");
+  assert(h.name.len() == usize(3), "reassigned constructed holder");
+});
+// Negative (soundness): a constructor cannot SMUGGLE a local-backed
+// slice through a labeled argument to an outer-scope binding. The
+// label wrapper must be looked through — skipping it would silently
+// accept the escape.
+comptime_expect_error(
+  assign_ctor_smuggle :: (fn(seed : Slice(i32)) -> unit)({
+    (w : SliceWrapper) = SliceWrapper(s : seed);
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(
+        inner.as_slice(),
+        .Some(sl) => sl,
+        .None => seed
+      );
+      w = SliceWrapper(s : inner_slice);
+    };
+    ()
+  })
+);
+// Negative (soundness): same smuggle through a QUALIFIED variant
+// constructor wrapping the struct constructor.
+comptime_expect_error(
+  assign_variant_ctor_smuggle :: (fn(seed : Slice(i32)) -> unit)({
+    (w : Option(SliceWrapper)) = Option(SliceWrapper).None;
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(
+        inner.as_slice(),
+        .Some(sl) => sl,
+        .None => seed
+      );
+      w = Option(SliceWrapper).Some(SliceWrapper(s : inner_slice));
+    };
+    ()
+  })
+);

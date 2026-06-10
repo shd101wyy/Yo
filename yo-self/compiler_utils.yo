@@ -69,7 +69,7 @@ check_compiler_available :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(compiler);
     cmd.arg(String.from("--version"));
     st := io.await(cmd.status(), io);
@@ -94,7 +94,7 @@ find_available_compiler :: (
     candidates.push(String.from("cl"));
     result := Option(String).None;
     i := usize(0);
-    while(runtime((i < candidates.len()) && (result == Option(String).None)), {
+    while((i < candidates.len()) && (result == Option(String).None), {
       candidate_opt := candidates.get(i);
       match(
         candidate_opt,
@@ -212,7 +212,7 @@ is_liburing_available :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     if(platform != Platform.Linux, {
       return(false);
     });

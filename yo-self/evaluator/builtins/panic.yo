@@ -22,7 +22,7 @@ open(import("std/string"));
 { EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_bool } :: import("../../types/creators.yo");
+{ t_unit, t_bool, t_ptr } :: import("../../types/creators.yo");
 { is_comptime_string_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
@@ -68,19 +68,33 @@ evaluate_panic :: (
       )
     );
   });
-  // Determine the return type: function body → func return type; test/async → unit.
+  // Determine the divergent panic's stand-in type (mirrors panic.ts:57-66):
+  //   1. the propagated expected type (a match arm's sibling-arm type, a
+  //      cond arm, an assignment RHS) when present;
+  //   2. else the enclosing function's return type — wrapped in `*(T)` when
+  //      the return is declared `ref(T)` (panic in tail position of an
+  //      `-> ref(T)` body must produce `*(T)` to match the body's C-ABI
+  //      return; sibling `unsafe(&(...))` arms are `*(T)` too);
+  //   3. test/async blocks → unit.
   (return_ty : TypeValue) = match(
-    fn_ctx.kind,
-    .FunctionBody => match(
-      fn_ctx.func_type,
-      .Some(ty) => match(
-        ty,
-        .Func(_, _, _, _, _, _, _, _, result) => result.*,
-        _ => t_unit()
+    ctx.expected_type,
+    .Some(et) => et.ty,
+    .None => match(
+      fn_ctx.kind,
+      .FunctionBody => match(
+        fn_ctx.func_type,
+        .Some(ty) => match(
+          ty,
+          .Func({ result, result_is_ref }) => cond(
+            result_is_ref => t_ptr(result.*),
+            true => result.*
+          ),
+          _ => t_unit()
+        ),
+        .None => t_unit()
       ),
-      .None => t_unit()
-    ),
-    _ => t_unit()
+      _ => t_unit()
+    )
   );
   // If there's a message argument, evaluate it and validate its type.
   args := match(
@@ -120,13 +134,23 @@ evaluate_panic :: (
         // str type : Type.Struct named "str" (newtype)
         is_str_type := match(
           msg_type,
-          .Struct(_, name, _, _, _, _, _) => (name.as_str() == "str"),
+          .Struct({ name }) => (name.as_str() == "str"),
           _ => false
         );
-        // comptime_string: StrLit value, or unknown value with ComptimeString type
+        // comptime_string: StrLit value, or an UNKNOWN value whose type is
+        // comptime_string — mirrors TS panic.ts:91-93
+        // (`isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)`).
+        // Under def-time body evaluation a `comptime_string` parameter binds
+        // as a typed unknown; dropping it to `false` made `panic(msg)` the
+        // single largest propagated def-eval failure (96 std files).
         is_comptime_str := match(
           msg_value,
-          .Some(v) => match(v,.StrLit(_) => true, _ => false),
+          .Some(v) => match(
+            v,
+            .StrLit(_) => true,
+            .UnknownVal(uty) => is_comptime_string_type(uty.*),
+            _ => false
+          ),
           .None => is_comptime_string_type(msg_type)
         );
         if(!(is_str_type) && !(is_comptime_str), {

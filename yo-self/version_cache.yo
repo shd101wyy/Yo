@@ -48,11 +48,11 @@ _remove_dir_all :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
     entries := io.await(walk_with(path, opts, io), io);
     n := entries.len();
-    while(runtime(n > usize(0)), {
+    while(n > usize(0), {
       n = (n - usize(1));
       match(
         entries.get(n),
@@ -134,7 +134,7 @@ _json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
       depth := i32(1); // already inside the opening '{'
       in_string := false;
       unwind_next := false;
-      while(runtime((pos < json_len) && (depth > i32(0))), {
+      while((pos < json_len) && (depth > i32(0)), {
         byte_opt := bytes.get(pos);
         pos = (pos + usize(1)); // advance BEFORE dispatch
         match(
@@ -226,16 +226,16 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
   result := ArrayList(String).with_capacity(n);
   added := ArrayList(bool).with_capacity(n);
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     added.push(false);
     i = (i + usize(1));
   });
   selected := usize(0);
-  while(runtime(selected < n), {
+  while(selected < n, {
     min_idx := usize(0);
     found := false;
     j := usize(0);
-    while(runtime(j < n), {
+    while(j < n, {
       flag := match(added.get(j),.None => true,.Some(f) => f);
       if(!(flag), {
         if(!(found), {
@@ -280,7 +280,7 @@ is_version_cached :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     version_dir := get_version_cache_dir(version);
     dir_exists := io.await(exists(Path.new(version_dir)), io);
     if(!(dir_exists), {
@@ -319,7 +319,7 @@ list_cached_versions :: (
     exn : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     versions_dir := get_global_versions_cache_dir();
     dir_exists := io.await(exists(Path.new(versions_dir)), io);
     if(!(dir_exists), {
@@ -328,7 +328,7 @@ list_cached_versions :: (
     entries := io.await(read_dir(Path.new(versions_dir)), io);
     versions := ArrayList(String).new();
     i := usize(0);
-    while(runtime(i < entries.len()), {
+    while(i < entries.len(), {
       match(
         entries.get(i),
         .None => (),
@@ -355,7 +355,7 @@ clean_version_cache :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     match(
       version_opt,
       .Some(version) => {
@@ -384,7 +384,7 @@ install_dependencies :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     pkg_json_path := version_dir.concat(String.from("/package.json"));
     pkg_exists := io.await(exists(Path.new(pkg_json_path)), io);
     if(!(pkg_exists), {
@@ -433,7 +433,7 @@ _http_get :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("curl"));
     cmd.arg(String.from("--silent"));
     cmd.arg(String.from("--location"));
@@ -461,7 +461,7 @@ _download_file :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("curl"));
     cmd.arg(String.from("--silent"));
     cmd.arg(String.from("--location"));
@@ -488,7 +488,7 @@ _fetch_tarball_url :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}/${version}`;
     body := io.await(_http_get(pkg_url), io);
     // npm returns {"error":"Not found"} for non-existent versions.
@@ -517,7 +517,7 @@ download_version :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // 1. Fetch tarball URL from npm registry.
     tarball_url := io.await(_fetch_tarball_url(version), io);
     // 2. Create version cache directory.
@@ -569,7 +569,7 @@ ensure_cached_version :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cached := io.await(is_version_cached(version), io);
     if(cached, {
       return(get_version_cache_dir(version));
@@ -585,7 +585,7 @@ fetch_remote_versions :: (
     exn : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}`;
     body := io.await(_http_get(pkg_url), io);
     keys := _json_extract_version_keys(body);
@@ -601,7 +601,7 @@ find_js_runtime :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // Try node first.
     node_cmd := Command.new(String.from("node"));
     node_cmd.arg(String.from("--version"));

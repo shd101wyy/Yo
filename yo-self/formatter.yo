@@ -188,7 +188,7 @@ _trim_trailing_h_ws :: (fn(s : String) -> String)({
   n := bytes.len();
   (i : usize) = n;
   (done : bool) = false;
-  while(runtime((i > usize(0)) && (!(done))), {
+  while((i > usize(0)) && (!(done)), {
     b := match(bytes.get(i - usize(1)),.Some(x) => x,.None => u8(0));
     if((b == u8(32)) || (b == u8(9)), {
       i = (i - usize(1));
@@ -207,7 +207,7 @@ leading_whitespace_length :: (fn(line : str) -> usize)({
   n := line.len();
   (i : usize) = usize(0);
   (done : bool) = false;
-  while(runtime((i < n) && (!(done))), {
+  while((i < n) && (!(done)), {
     b := line.bytes(i);
     cond(
       (b == u8(32)) => {
@@ -236,7 +236,7 @@ previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Op
   (i : usize) = (index - usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while(runtime(!(done)), {
+  while(!(done), {
     match(
       tokens.get(i),
       .None => {
@@ -267,7 +267,7 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
   (i : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while(runtime((i < end_exclusive) && (!(done))), {
+  while((i < end_exclusive) && (!(done)), {
     match(
       tokens.get(i),
       .None => {
@@ -290,7 +290,7 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
 token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
   (i : usize) = start_inclusive;
   (found : bool) = false;
-  while(runtime((i < end_exclusive) && (!(found))), {
+  while((i < end_exclusive) && (!(found)), {
     match(
       tokens.get(i),
       .None => (),
@@ -307,7 +307,7 @@ token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usiz
 has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
-  while(runtime((i < right_index) && (!(found))), {
+  while((i < right_index) && (!(found)), {
     match(
       tokens.get(i),
       .None => (),
@@ -329,7 +329,7 @@ has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_
   (curly_depth : usize) = usize(0);
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
-  while(runtime((i < right_index) && (!(found))), {
+  while((i < right_index) && (!(found)), {
     match(
       tokens.get(i),
       .None => (),
@@ -378,7 +378,7 @@ next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), i
   (next_index : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while(runtime((next_index < n) && (!(done))), {
+  while((next_index < n) && (!(done)), {
     cond(
       skipped_indices.contains(next_index) => (),
       true => {
@@ -397,7 +397,7 @@ find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, 
   stack := ArrayList(usize).new();
   n := tokens.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tokens.get(i),
       .None => (),
@@ -426,7 +426,7 @@ find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, us
   stack := ArrayList(usize).new();
   n := tokens.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tokens.get(i),
       .None => (),
@@ -465,7 +465,7 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
   (bracket_depth : usize) = usize(0);
   n := tokens.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tokens.get(i),
       .None => (),
@@ -529,7 +529,7 @@ find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usiz
   stack := ArrayList(usize).new();
   n := tokens.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tokens.get(i),
       .None => (),
@@ -563,7 +563,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
   stack := ArrayList(usize).new();
   n := tokens.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tokens.get(i),
       .None => (),
@@ -639,7 +639,7 @@ has_top_level_curly_argument :: (
   (previous_top_level : Option(Token)) = Option(Token).None;
   (found : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while(runtime((i < right_index) && (!(found))), {
+  while((i < right_index) && (!(found)), {
     match(
       tokens.get(i),
       .None => (),
@@ -701,7 +701,7 @@ has_top_level_field_block :: (
   (saw_top_level_colon : bool) = false;
   (found : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while(runtime((i < right_index) && (!(found))), {
+  while((i < right_index) && (!(found)), {
     match(
       tokens.get(i),
       .None => (),
@@ -775,7 +775,7 @@ has_direct_top_level_closure_argument :: (
       (saw_closure_operator : bool) = false;
       (found : bool) = false;
       (i : usize) = (left_index + usize(1));
-      while(runtime((i < right_index) && (!(found))), {
+      while((i < right_index) && (!(found)), {
         match(
           tokens.get(i),
           .None => (),
@@ -841,7 +841,7 @@ is_parenthesized_dot_deref :: (
   (inner_count : usize) = usize(0);
   (early_exit : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while(runtime((i < right_index) && (!(early_exit))), {
+  while((i < right_index) && (!(early_exit)), {
     match(
       tokens.get(i),
       .None => (),
@@ -1025,7 +1025,7 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
   // Pass 1: collect all candidates (those that look redundant in isolation).
   n := tokens.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tokens.get(i),
       .None => (),
@@ -1042,7 +1042,7 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
   // We need to iterate candidate_left_indices — HashSet doesn't have iterate
   // so re-walk tokens.
   (j : usize) = usize(0);
-  while(runtime(j < n), {
+  while(j < n, {
     if(candidate_left_indices.contains(j), {
       right_idx := match(matching_parens.get(j),.Some(x) => x,.None => j);
       keep_candidate := !(
@@ -1072,7 +1072,7 @@ find_multiline_paren_indices :: (
   matching_parens := find_matching_paren_indices(tokens);
   n := tokens.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       tokens.get(i),
       .None => (),
@@ -1189,12 +1189,12 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
     n := bytes.len();
     (i : usize) = usize(0);
     (line_start : usize) = usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
       if(b == u8(10), {
         // Emit line: bytes[line_start..i] with trailing whitespace trimmed.
         (end_idx : usize) = i;
-        while(runtime(end_idx > line_start), {
+        while(end_idx > line_start, {
           eb := match(bytes.get(end_idx - usize(1)),.Some(x) => x,.None => u8(0));
           if((eb == u8(32)) || (eb == u8(9)), {
             end_idx = (end_idx - usize(1));
@@ -1211,7 +1211,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
         // Reset line_start to original (we corrupted it above for break)
         // Reconstruct: scan again to find real trimmed bound.
         (real_end : usize) = i;
-        while(runtime(real_end > usize(0)), {
+        while(real_end > usize(0), {
           eb2 := match(bytes.get(real_end - usize(1)),.Some(x) => x,.None => u8(0));
           if(((eb2 == u8(32)) || (eb2 == u8(9))) && (real_end > usize(0)), {
             real_end = (real_end - usize(1));
@@ -1236,7 +1236,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
     n := bytes.len();
     (i : usize) = usize(0);
     (start : usize) = usize(0);
-    while(runtime(i <= n), {
+    while(i <= n, {
       is_end := cond((i == n) => true, true => false);
       is_nl := cond(
         is_end => false,
@@ -1249,7 +1249,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
         // Compute trimmed end
         (end_idx : usize) = i;
         (trimming : bool) = true;
-        while(runtime(trimming && (end_idx > start)), {
+        while(trimming && (end_idx > start), {
           eb := match(bytes.get(end_idx - usize(1)),.Some(x) => x,.None => u8(0));
           if((eb == u8(32)) || (eb == u8(9)), {
             end_idx = (end_idx - usize(1));
@@ -1260,7 +1260,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
         // Slice bytes[start..end_idx] into a String
         (line_str : String) = String.new();
         (k : usize) = start;
-        while(runtime(k < end_idx), {
+        while(k < end_idx, {
           match(
             bytes.get(k),
             .Some(byte_val) => {
@@ -1283,7 +1283,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
     true => {
       (common_indent : Option(usize)) = Option(usize).None;
       (li : usize) = usize(1);
-      while(runtime(li < n_lines), {
+      while(li < n_lines, {
         match(
           lines.get(li),
           .None => (),
@@ -1294,7 +1294,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
               ll_n := ll_bytes.len();
               (lk : usize) = usize(0);
               (ll_done : bool) = false;
-              while(runtime((lk < ll_n) && (!(ll_done))), {
+              while((lk < ll_n) && (!(ll_done)), {
                 lb := match(ll_bytes.get(lk),.Some(x) => x,.None => u8(0));
                 if((lb == u8(32)) || (lb == u8(9)), {
                   lk = (lk + usize(1));
@@ -1335,7 +1335,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
               .None => ()
             );
             (oi : usize) = usize(1);
-            while(runtime(oi < n_lines), {
+            while(oi < n_lines, {
               match(
                 lines.get(oi),
                 .None => (),
@@ -1345,7 +1345,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
                   // If line is blank → ""
                   (lk : usize) = usize(0);
                   (only_ws : bool) = true;
-                  while(runtime((lk < ll_n) && only_ws), {
+                  while((lk < ll_n) && only_ws, {
                     lb := match(ll_bytes.get(lk),.Some(x) => x,.None => u8(0));
                     if((lb == u8(32)) || (lb == u8(9)), {
                       lk = (lk + usize(1));
@@ -1359,7 +1359,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
                     // Drop the first `ci` bytes
                     new_line := String.new();
                     (sk : usize) = ci;
-                    while(runtime(sk < ll_n), {
+                    while(sk < ll_n, {
                       match(
                         ll_bytes.get(sk),
                         .Some(byte_val) => {
@@ -1392,7 +1392,7 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
   (brace_depth : usize) = usize(0);
   (end_index : usize) = n; // default: until EOF
   (done : bool) = false;
-  while(runtime((index < n) && (!(done))), {
+  while((index < n) && (!(done)), {
     char_byte := match(bytes.get(index),.Some(x) => x,.None => u8(0));
     cond(
       (char_byte == u8(92)) => {
@@ -1437,7 +1437,7 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
   // Slice bytes[start..end_index]
   result := String.new();
   (k : usize) = start;
-  while(runtime(k < end_index), {
+  while(k < end_index, {
     match(
       bytes.get(k),
       .Some(byte_val) => {
@@ -1497,7 +1497,7 @@ format_yo_source :: (
       {
         nt := all_tokens.len();
         (ti : usize) = usize(0);
-        while(runtime(ti < nt), {
+        while(ti < nt, {
           match(
             all_tokens.get(ti),
             .Some(t) => if(t.kind != TokenKind.Whitespace, {
@@ -1519,7 +1519,7 @@ format_yo_source :: (
       {
         rn := significant_tokens.len();
         (ri : usize) = usize(0);
-        while(runtime(ri < rn), {
+        while(ri < rn, {
           _r := raw_values.push(raw_token_value(input, significant_tokens, ri));
           ri = (ri + usize(1));
         });
@@ -1547,7 +1547,7 @@ format_yo_source :: (
       // ---------------------------------------------------------------
       n_tokens := significant_tokens.len();
       (index : usize) = usize(0);
-      while(runtime(index < n_tokens), {
+      while(index < n_tokens, {
         cond(
           skipped_paren_indices.contains(index) => {
             index = (index + usize(1));
@@ -1592,7 +1592,7 @@ format_yo_source :: (
                     if(at_line_start, {
                       (sp : usize) = usize(0);
                       space_count := (indent_level * INDENT_SIZE);
-                      while(runtime(sp < space_count), {
+                      while(sp < space_count, {
                         result.push_str(" ");
                         sp = (sp + usize(1));
                       });
@@ -1603,7 +1603,7 @@ format_yo_source :: (
                       rb := raw.as_bytes();
                       (re : usize) = rb.len();
                       (trim : bool) = true;
-                      while(runtime(trim && (re > usize(0))), {
+                      while(trim && (re > usize(0)), {
                         eb := match(rb.get(re - usize(1)),.Some(x) => x,.None => u8(0));
                         if((eb == u8(32)) || ((eb == u8(9)) || ((eb == u8(13)) || (eb == u8(10)))), {
                           re = (re - usize(1));
@@ -1613,7 +1613,7 @@ format_yo_source :: (
                       });
                       tr := String.new();
                       (tk : usize) = usize(0);
-                      while(runtime(tk < re), {
+                      while(tk < re, {
                         match(
                           rb.get(tk),
                           .Some(b) => {
@@ -1645,14 +1645,14 @@ format_yo_source :: (
                         comment_lines := normalize_multiline_block_comment(raw);
                         (cli : usize) = usize(0);
                         cn := comment_lines.len();
-                        while(runtime(cli < cn), {
+                        while(cli < cn, {
                           match(
                             comment_lines.get(cli),
                             .Some(line) => {
                               if(at_line_start, {
                                 (sp2 : usize) = usize(0);
                                 space_count2 := (indent_level * INDENT_SIZE);
-                                while(runtime(sp2 < space_count2), {
+                                while(sp2 < space_count2, {
                                   result.push_str(" ");
                                   sp2 = (sp2 + usize(1));
                                 });
@@ -1678,7 +1678,7 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp3 : usize) = usize(0);
                           space_count3 := (indent_level * INDENT_SIZE);
-                          while(runtime(sp3 < space_count3), {
+                          while(sp3 < space_count3, {
                             result.push_str(" ");
                             sp3 = (sp3 + usize(1));
                           });
@@ -1720,7 +1720,7 @@ format_yo_source :: (
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), {
+                              while(sp < count, {
                                 result.push_str(" ");
                                 sp = (sp + usize(1));
                               });
@@ -1740,7 +1740,7 @@ format_yo_source :: (
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), {
+                              while(sp < count, {
                                 result.push_str(" ");
                                 sp = (sp + usize(1));
                               });
@@ -1760,7 +1760,7 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), {
+                          while(sp < count, {
                             result.push_str(" ");
                             sp = (sp + usize(1));
                           });
@@ -1809,7 +1809,7 @@ format_yo_source :: (
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), {
+                              while(sp < count, {
                                 result.push_str(" ");
                                 sp = (sp + usize(1));
                               });
@@ -1827,7 +1827,7 @@ format_yo_source :: (
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), {
+                              while(sp < count, {
                                 result.push_str(" ");
                                 sp = (sp + usize(1));
                               });
@@ -1850,7 +1850,7 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), {
+                          while(sp < count, {
                             result.push_str(" ");
                             sp = (sp + usize(1));
                           });
@@ -1868,7 +1868,7 @@ format_yo_source :: (
                     if(at_line_start, {
                       (sp : usize) = usize(0);
                       count := (indent_level * INDENT_SIZE);
-                      while(runtime(sp < count), {
+                      while(sp < count, {
                         result.push_str(" ");
                         sp = (sp + usize(1));
                       });
@@ -1896,7 +1896,7 @@ format_yo_source :: (
                     if(at_line_start, {
                       (sp : usize) = usize(0);
                       count := (indent_level * INDENT_SIZE);
-                      while(runtime(sp < count), {
+                      while(sp < count, {
                         result.push_str(" ");
                         sp = (sp + usize(1));
                       });
@@ -1917,7 +1917,7 @@ format_yo_source :: (
                   (token.kind == TokenKind.RParen) => {
                     // close_operator_continuations
                     (closing_done : bool) = false;
-                    while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done))), {
+                    while((continuation_paren.len() > usize(0)) && (!(closing_done)), {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
@@ -1958,7 +1958,7 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), {
+                          while(sp < count, {
                             result.push_str(" ");
                             sp = (sp + usize(1));
                           });
@@ -1978,7 +1978,7 @@ format_yo_source :: (
                   (token.kind == TokenKind.RBracket) => {
                     // close_operator_continuations
                     (closing_done2 : bool) = false;
-                    while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done2))), {
+                    while((continuation_paren.len() > usize(0)) && (!(closing_done2)), {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
@@ -2021,7 +2021,7 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), {
+                          while(sp < count, {
                             result.push_str(" ");
                             sp = (sp + usize(1));
                           });
@@ -2038,7 +2038,7 @@ format_yo_source :: (
                   (token.kind == TokenKind.Comma) => {
                     // close_operator_continuations
                     (closing_done3 : bool) = false;
-                    while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done3))), {
+                    while((continuation_paren.len() > usize(0)) && (!(closing_done3)), {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
@@ -2129,7 +2129,7 @@ format_yo_source :: (
                       true => {
                         // close_operator_continuations
                         (closing_done4 : bool) = false;
-                        while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done4))), {
+                        while((continuation_paren.len() > usize(0)) && (!(closing_done4)), {
                           top_idx := (continuation_paren.len() - usize(1));
                           top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
                           top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
@@ -2215,7 +2215,7 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), {
+                          while(sp < count, {
                             result.push_str(" ");
                             sp = (sp + usize(1));
                           });
@@ -2251,7 +2251,7 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), {
+                          while(sp < count, {
                             result.push_str(" ");
                             sp = (sp + usize(1));
                           });
@@ -2289,7 +2289,7 @@ format_yo_source :: (
                     if(at_line_start, {
                       (sp : usize) = usize(0);
                       count := (indent_level * INDENT_SIZE);
-                      while(runtime(sp < count), {
+                      while(sp < count, {
                         result.push_str(" ");
                         sp = (sp + usize(1));
                       });
@@ -2327,7 +2327,7 @@ collect_yo_files :: (
     exn : Exception
   ) -> unit
 )({
-  is_file_p := io.await(is_file(target_path), io);
+  is_file_p := io.await(is_file(target_path, io), io);
   cond(
     is_file_p => {
       path_str := target_path.to_string();
@@ -2336,12 +2336,12 @@ collect_yo_files :: (
       });
     },
     true => {
-      is_dir_p := io.await(is_dir(target_path), io);
+      is_dir_p := io.await(is_dir(target_path, io), io);
       if(is_dir_p, {
-        entries := io.await(read_dir(target_path), io);
+        entries := io.await(read_dir(target_path, io), IoExn(io : io, exn : exn));
         en := entries.len();
         (ei : usize) = usize(0);
-        while(runtime(ei < en), {
+        while(ei < en, {
           match(
             entries.get(ei),
             .None => (),
@@ -2385,13 +2385,13 @@ find_yo_format_files :: (
   );
   pn := paths_to_format.len();
   (pi : usize) = usize(0);
-  while(runtime(pi < pn), {
+  while(pi < pn, {
     match(
       paths_to_format.get(pi),
       .None => (),
       .Some(p) => {
         path_obj := Path.new(p);
-        path_exists := io.await(exists(path_obj), io);
+        path_exists := io.await(exists(path_obj, io), io);
         if(!(path_exists), {
           exn.throw(dyn(`Path does not exist: ${p}`));
         });
@@ -2417,18 +2417,18 @@ format_yo_files :: (
   changed := ArrayList(String).new();
   fn := files.len();
   (fi : usize) = usize(0);
-  while(runtime(fi < fn), {
+  while(fi < fn, {
     match(
       files.get(fi),
       .None => (),
       .Some(file) => {
-        bytes := io.await(read_file(Path.new(file)), io);
+        bytes := io.await(read_file(Path.new(file), io), IoExn(io : io, exn : exn));
         original := String.from_bytes(bytes);
         formatted := format_yo_source(original, file, exn);
         if(formatted.as_str() != original.as_str(), {
           _r := changed.push(file);
           if(!(options.check), {
-            io.await(write_file(Path.new(file), formatted), io);
+            io.await(write_file(Path.new(file), formatted, io), IoExn(io : io, exn : exn));
           });
         });
       }

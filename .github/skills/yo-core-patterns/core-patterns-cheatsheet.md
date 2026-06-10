@@ -78,6 +78,30 @@ text := match(parsed,
 - Prefer combinators for straight-line transforms: `map`, `and_then`, `map_err`, `or_else`
 - Switch to `match(...)` when branches need different logic or side effects
 
+### Match destructuring: prefer curly `{field}`, avoid positional `_` padding
+
+For a variant with **2+ fields**, destructure by **name** with curly braces —
+name only the fields the arm uses. Do NOT count positions and pad with `_`.
+
+```rust
+// ✅ Curly — names only what you need; order-free; partial matches OK.
+//    Robust: adding a field to the variant later doesn't shift anything.
+match(v,
+  .FuncVal({ func_id }) => use(func_id),          // bind field `func_id`
+  .Struct({ id, name: n }) => use2(id, n),        // rename via `field: alias`
+  .EnumT({ id }) => use3(id),                     // ignore the other 6 fields
+  _ => ()
+)
+
+// ❌ Avoid — positional with many `_`; brittle and unreadable:
+//    .FuncVal(_, _, _, _, _, _, _, _, func_id) => …   // count the 8 _'s!
+```
+
+`{a}` = bind field `a`; `{a: x}` = rename to `x`; `{a: _}` = assert-exists-ignore.
+Empty `{}` and bare `{_}` are rejected. Spec: `tests/match_curly.test.yo`.
+(Full rules: `.github/instructions/yo-syntax.instructions.md` § Match
+destructuring forms.)
+
 ## Collections
 
 ```rust
@@ -303,7 +327,7 @@ node_eq :: (fn(a : Node, b : Node) -> bool)(
             true => {
               (i : usize) = usize(0);
               (ok : bool) = true;
-              while(runtime(((i < acs.len()) && ok)), {
+              while(((i < acs.len()) && ok), {
                 match(acs.get(i),
                   .Some(ac) => match(bcs.get(i),
                     .Some(bc) => { ok = recur(ac, bc); },

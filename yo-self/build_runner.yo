@@ -110,7 +110,7 @@ get_artifact_output_file_name :: (
         has_modularize := false;
         i := usize(0);
         n := c_flags.len();
-        while(runtime(i < n), {
+        while(i < n, {
           if(c_flags(i).contains(String.from("-sMODULARIZE")), {
             has_modularize = true;
           });
@@ -158,7 +158,7 @@ _walk_dag :: (
         deps := ArrayList(String).new();
         i := usize(0);
         n := artifact.linked_artifacts.len();
-        while(runtime(i < n), {
+        while(i < n, {
           linked := artifact.linked_artifacts(i);
           deps.push(linked);
           recur(registry, nodes, visited, linked);
@@ -182,7 +182,7 @@ _walk_dag :: (
         deps := ArrayList(String).new();
         i := usize(0);
         n := step.dependency_names.len();
-        while(runtime(i < n), {
+        while(i < n, {
           dep_name := step.dependency_names(i);
           deps.push(dep_name);
           recur(registry, nodes, visited, dep_name);
@@ -206,7 +206,7 @@ build_dag :: (
   result := ArrayList(DAGNode).new();
   iter := nodes.values();
   more := true;
-  while(runtime(more), {
+  while(more, {
     match(
       iter.next(),
       .None => {
@@ -240,7 +240,7 @@ _dfs_cycle :: (
     .Some(node) => {
       i := usize(0);
       nd := node.depends_on.len();
-      while(runtime(i < nd), {
+      while(i < nd, {
         dep := node.depends_on(i);
         if(!(node_map.contains_key(dep)), {
           i = (i + usize(1));
@@ -269,19 +269,19 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
   node_map := HashMap(String, DAGNode).new();
   i := usize(0);
   n := dag.len();
-  while(runtime(i < n), {
+  while(i < n, {
     node := dag(i);
     node_map.set(node.name, node);
     i = (i + usize(1));
   });
   color := HashMap(String, i32).new();
   i = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     color.set(dag(i).name, _COLOR_WHITE);
     i = (i + usize(1));
   });
   i = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     node_name := dag(i).name;
     if(color.get(node_name).unwrap_or(_COLOR_WHITE) == _COLOR_WHITE, {
       result := _dfs_cycle(node_map, color, node_name);
@@ -309,7 +309,7 @@ compile_artifact :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     effective_target := match(
       ctx.target_triple,
       .Some(t) => t,
@@ -356,14 +356,14 @@ compile_artifact :: (
     );
     i := usize(0);
     n := artifact.c_sources.len();
-    while(runtime(i < n), {
+    while(i < n, {
       cmd.arg(String.from("--extern"));
       cmd.arg(artifact.c_sources(i));
       i = (i + usize(1));
     });
     i = usize(0);
     n = artifact.include_paths.len();
-    while(runtime(i < n), {
+    while(i < n, {
       cmd.arg(String.from("--include"));
       cmd.arg(artifact.include_paths(i));
       i = (i + usize(1));
@@ -394,7 +394,7 @@ run_executable :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     effective_target := match(
       ctx.target_triple,
       .Some(t) => t,
@@ -412,7 +412,7 @@ run_executable :: (
     cmd := Command.new(exe_path.to_string());
     i := usize(0);
     n := args.len();
-    while(runtime(i < n), {
+    while(i < n, {
       cmd.arg(args(i));
       i = (i + usize(1));
     });
@@ -441,7 +441,7 @@ run_test_suite :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("test"));
@@ -479,7 +479,7 @@ execute_node :: (
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     description := String.from(node.name.as_str());
     success := true;
     match(
@@ -580,7 +580,7 @@ execute_dag :: (
     exn : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     results := HashMap(String, StepResult).new();
     n := dag.len();
     if(n == usize(0), return(results));
@@ -588,19 +588,19 @@ execute_dag :: (
     completed := HashMap(String, bool).new();
     // Compute initial in-degrees
     i := usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       node := dag(i);
       if(!(in_degree.contains_key(node.name)), {
         in_degree.set(node.name, i32(0));
       });
       j := usize(0);
       nd := node.depends_on.len();
-      while(runtime(j < nd), {
+      while(j < nd, {
         dep := node.depends_on(j);
         // Only count if dep is in the dag
         k := usize(0);
         dep_in_dag := false;
-        while(runtime(k < n), {
+        while(k < n, {
           if(dag(k).name == dep, {
             dep_in_dag = true;
           });
@@ -615,10 +615,10 @@ execute_dag :: (
       i = (i + usize(1));
     });
     // Kahn's algorithm
-    while(runtime(completed.len() < n), {
+    while(completed.len() < n, {
       ready := ArrayList(DAGNode).new();
       i = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         node := dag(i);
         if(!(completed.contains_key(node.name)) && (in_degree.get(node.name).unwrap_or(i32(0)) == i32(0)), {
           ready.push(node);
@@ -631,7 +631,7 @@ execute_dag :: (
       // Execute ready nodes
       rn := ready.len();
       k := usize(0);
-      while(runtime(k < rn), {
+      while(k < rn, {
         node := ready(k);
         result := io.await(execute_node(node, ctx), io);
         results.set(node.name, result);
@@ -639,17 +639,17 @@ execute_dag :: (
       });
       // Mark complete and update in-degrees
       k = usize(0);
-      while(runtime(k < rn), {
+      while(k < rn, {
         completed_name := ready(k).name;
         completed.set(completed_name, true);
         // Decrement in-degree of all not-yet-completed nodes that depend on this
         m := usize(0);
-        while(runtime(m < n), {
+        while(m < n, {
           other := dag(m);
           if(!(completed.contains_key(other.name)), {
             j := usize(0);
             nd := other.depends_on.len();
-            while(runtime(j < nd), {
+            while(j < nd, {
               dep := other.depends_on(j);
               if(dep == completed_name, {
                 cur := in_degree.get(other.name).unwrap_or(i32(1));
@@ -696,7 +696,7 @@ _print_summary_node :: (
   );
   nd := node.depends_on.len();
   i := usize(0);
-  while(runtime(i < nd), {
+  while(i < nd, {
     dep_name := node.depends_on(i);
     match(
       node_map.get(dep_name),
@@ -729,7 +729,7 @@ print_build_summary :: (
   total := n;
   succeeded := usize(0);
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       results.get(dag(i).name),
       .None => (),
@@ -745,11 +745,11 @@ print_build_summary :: (
   println(`Build Summary: ${succeeded}/${total} steps succeeded`);
   // Find root node and print tree
   i = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     if(dag(i).name == String.from(root_name), {
       node_map := HashMap(String, DAGNode).new();
       j := usize(0);
-      while(runtime(j < n), {
+      while(j < n, {
         nd := dag(j);
         node_map.set(nd.name, nd);
         j = (j + usize(1));
@@ -770,7 +770,7 @@ execute_step :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     match(
       ctx.registry.find_step(step_name),
       .None => {
@@ -778,7 +778,7 @@ execute_step :: (
         names_str := String.new();
         i := usize(0);
         n := available.len();
-        while(runtime(i < n), {
+        while(i < n, {
           if(i > usize(0), names_str.push_str(", "));
           names_str.push_str(available(i).as_str());
           i = (i + usize(1));
@@ -807,7 +807,7 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
   println("");
   i := usize(0);
   n := steps.len();
-  while(runtime(i < n), {
+  while(i < n, {
     step := steps(i);
     is_default := if(step.name == String.from("install"), " (default)", "");
     println(`  ${step.name}${is_default}`);
@@ -840,7 +840,7 @@ evaluate_build_file :: (
     exn : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("build"));
     cmd.arg(String.from("--build-file"));
@@ -849,7 +849,7 @@ evaluate_build_file :: (
     define_keys := ArrayList(String).new();
     key_iter := defines.keys();
     more := true;
-    while(runtime(more), {
+    while(more, {
       match(
         key_iter.next(),
         .None => {
@@ -862,7 +862,7 @@ evaluate_build_file :: (
     });
     i := usize(0);
     n := define_keys.len();
-    while(runtime(i < n), {
+    while(i < n, {
       k := define_keys(i);
       v := defines.get(k).unwrap_or(String.from(""));
       cmd.arg(`-D${k}=${v}`);
@@ -886,7 +886,7 @@ run_build :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     build_file_path := Path.new(options.build_file);
     build_file_exists := io.await(exists(build_file_path), io);
     if(!(build_file_exists), {
@@ -936,7 +936,7 @@ run_build :: (
     }, options.steps);
     i := usize(0);
     n := requested.len();
-    while(runtime(i < n), {
+    while(i < n, {
       io.await(execute_step(requested(i).as_str(), ctx), io);
       i = (i + usize(1));
     });

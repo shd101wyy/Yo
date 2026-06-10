@@ -81,7 +81,7 @@ tuple_apply_deferred_dup :: (
         true => {
           (i : usize) = usize(0);
           (ok : bool) = true;
-          while(runtime((i < dups.len()) && ok), {
+          while((i < dups.len()) && ok, {
             match(
               dups.get(i),
               .None => {
@@ -130,7 +130,7 @@ tuple_args_to_c_with_deferred_dup :: (
   out := String.new();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < args.len()) && ok), {
+  while((i < args.len()) && ok, {
     match(
       args.get(i),
       .None => {
@@ -166,7 +166,7 @@ tuple_args_to_c :: (
   out := String.new();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < args.len()) && ok), {
+  while((i < args.len()) && ok, {
     match(
       args.get(i),
       .None => {
@@ -302,7 +302,7 @@ handle_tuple_literal :: (
   arg_codes := ArrayList(String).new();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       args.get(i),
       .None => {
@@ -326,7 +326,7 @@ handle_tuple_literal :: (
       result := String.from("(struct { ");
       // struct fields: __typeof__(val) _0; __typeof__(val) _1; …
       (j : usize) = usize(0);
-      while(runtime(j < n), {
+      while(j < n, {
         match(
           arg_codes.get(j),
           .None => (),
@@ -343,7 +343,7 @@ handle_tuple_literal :: (
       result.push_str("}){");
       // initialiser: ._0 = a, ._1 = b, …
       (k : usize) = usize(0);
-      while(runtime(k < n), {
+      while(k < n, {
         match(
           arg_codes.get(k),
           .None => (),

@@ -162,7 +162,7 @@ generate_struct_decl :: (
     true => field_types.len()
   );
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     skip_field := match(
       registered_fields,
       .Some(fields) => match(
@@ -204,7 +204,7 @@ all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bo
   n := variant_fields.len();
   (i : usize) = usize(0);
   (all_unit : bool) = true;
-  while(runtime((i < n) && all_unit), {
+  while((i < n) && all_unit, {
     match(
       variant_fields.get(i),
       .None => (),
@@ -334,7 +334,7 @@ emit_simple_enum :: (
   // Variant entries: __YO_ENUM_..._VARIANTNAME = N,
   n := variant_names.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       variant_names.get(i),
       .None => (),
@@ -388,7 +388,7 @@ emit_data_enum :: (
   ctx.emitter.emit_declaration_line("typedef enum {");
   n := variant_names.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       variant_names.get(i),
       .None => (),
@@ -409,7 +409,7 @@ emit_data_enum :: (
   // Data union
   ctx.emitter.emit_declaration_line("typedef union {");
   (j : usize) = usize(0);
-  while(runtime(j < n), {
+  while(j < n, {
     v_name_opt := variant_names.get(j);
     v_fields_opt := variant_fields.get(j);
     match(
@@ -423,7 +423,7 @@ emit_data_enum :: (
           .Some(fields) => {
             nf := fields.len();
             (fi : usize) = usize(0);
-            while(runtime(fi < nf), {
+            while(fi < nf, {
               match(
                 fields.get(fi),
                 .None => (),
@@ -475,7 +475,7 @@ generate_type_decl :: (
 )(
   match(
     type_val,
-    .Struct(id, name, field_labels, field_types, _, _, _) => {
+    .Struct({ id, name, field_labels, field_types }) => {
       c_name := generate_struct_decl(id, name, field_labels, field_types, module_id, type_id, ctx);
       // Populate the codegen types registry so downstream handlers
       // (downcast / dyn / typeid / comptime-value) can resolve this
@@ -671,7 +671,7 @@ generate_rc_fns :: (
 )(
   match(
     type_val,
-    .Struct(_, _, _, _, _, _, _) => {
+    .Struct({ id : _ }) => {
       c_name := struct_c_name(module_id, type_id);
       generate_rc_fns_trivial(c_name.as_str(), true, ctx);
       true

@@ -88,7 +88,7 @@ is_stmt_body_expr :: (fn(expr : AstExpr) -> bool)(
             true => {
               (found : bool) = false;
               (k : usize) = usize(0);
-              while(runtime((k < na) && (!(found))), {
+              while((k < na) && (!(found)), {
                 match(
                   args.get(k),
                   .None => (),
@@ -165,7 +165,7 @@ begin_emit_deferred_drops :: (fn(info : ExprInfo, ctx : CodegenContext, indent :
     .None => (),
     .Some(drop_exprs) => {
       i := usize(0);
-      while(runtime(i < drop_exprs.len()), {
+      while(i < drop_exprs.len(), {
         match(
           drop_exprs.get(i),
           .None => (),
@@ -198,7 +198,7 @@ begin_generate_args_immediate :: (
   i := usize(0);
   ok := true;
   stopped := false;
-  while(runtime((i < args.len()) && (ok && (!(stopped)))), {
+  while((i < args.len()) && (ok && (!(stopped))), {
     match(
       args.get(i),
       .None => {
@@ -239,7 +239,7 @@ begin_generate_statement_args :: (
   inner := begin_indent_inner(indent);
   ok := true;
   i := usize(0);
-  while(runtime((i < args.len()) && ok), {
+  while((i < args.len()) && ok, {
     match(
       args.get(i),
       .None => {

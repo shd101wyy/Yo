@@ -58,7 +58,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
         na := args.len();
         (ia : usize) = usize(0);
         (found_a : bool) = false;
-        while(runtime((ia < na) && (!(found_a))), {
+        while((ia < na) && (!(found_a)), {
           arg_a := match(args.get(ia),.Some(a) => a,.None => make_err_expr());
           is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>",.None);
           if(is_branch_arrow, {
@@ -69,7 +69,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
             );
             ni := inner_args.len();
             (ji : usize) = usize(0);
-            while(runtime((ji < ni) && (!(found_a))), {
+            while((ji < ni) && (!(found_a)), {
               bp := match(inner_args.get(ji),.Some(a) => a,.None => make_err_expr());
               if(recur(bp), {
                 found_a = true;
@@ -94,7 +94,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
       n := args.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && (!(found))), {
+      while((i < n) && (!(found)), {
         arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
         if(recur(arg), {
           found = true;
@@ -137,7 +137,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
         na := args.len();
         (ia : usize) = usize(0);
         (found_a : bool) = false;
-        while(runtime((ia < na) && (!(found_a))), {
+        while((ia < na) && (!(found_a)), {
           arg_a := match(args.get(ia),.Some(a) => a,.None => make_err_expr());
           is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>",.None);
           if(is_branch_arrow, {
@@ -148,7 +148,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
             );
             ni := inner_args.len();
             (ji : usize) = usize(0);
-            while(runtime((ji < ni) && (!(found_a))), {
+            while((ji < ni) && (!(found_a)), {
               bp := match(inner_args.get(ji),.Some(a) => a,.None => make_err_expr());
               if(recur(bp), {
                 found_a = true;
@@ -173,7 +173,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
       n := args.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && (!(found))), {
+      while((i < n) && (!(found)), {
         arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
         if(recur(arg), {
           found = true;
@@ -222,7 +222,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
         });
         (n_cm : usize) = args.len();
         (i_cm : usize) = usize(0);
-        while(runtime(i_cm < n_cm), {
+        while(i_cm < n_cm, {
           arg := match(args.get(i_cm),.Some(a) => a,.None => make_err_expr());
           if(ast_expr_is_fn_call_of(arg, "=>",.None), {
             // Branch arrow: recurse into each child (condition and body)
@@ -232,7 +232,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
               .FnCall(_, _, branch_args, _, _) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
-                while(runtime(j < n_ba), {
+                while(j < n_ba, {
                   ba := match(branch_args.get(j),.Some(a) => a,.None => make_err_expr());
                   if(recur(ba), {
                     return(true);
@@ -256,7 +256,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
       });
       (n : usize) = args.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
         if(recur(arg), {
           return(true);

@@ -32,7 +32,7 @@ open(import("std/string"));
 { EvalContext } :: import("../context.yo");
 { TypeField, register_struct_fields } :: import("../types/field.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { random_id } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
@@ -93,6 +93,9 @@ evaluate_anonymous_struct_value :: (
     ArrayList(TypeValue).new(),
     false,
     false,
+    false,
+    String.from(""),
+    ArrayList(TypeValue).new(),
     false
   );
   // Collect field labels, types, values
@@ -103,7 +106,7 @@ evaluate_anonymous_struct_value :: (
   runtime_arg_exprs := ArrayList(AstExpr).new();
   n := args.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // Check if arg is a labeled pair `field: val` (infix `:` with 2 args)
     is_labeled := (
@@ -137,7 +140,7 @@ evaluate_anonymous_struct_value :: (
     // Evaluate the value expression with SelfType = prelim_ty
     old_self := ctx.self_type;
     ctx.self_type = Option(TypeValue).Some(prelim_ty);
-    evaluated_arg := evaluate_expression(value_expr, cur_env, ctx, exn);
+    evaluated_arg := evaluate_expression(value_expr, cur_env, ctx);
     ctx.self_type = old_self;
     set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
     // Extract info from expr_info_table
@@ -195,6 +198,9 @@ evaluate_anonymous_struct_value :: (
     field_types,
     false,
     false,
+    false,
+    String.from(""),
+    ArrayList(TypeValue).new(),
     false
   );
   // Register struct fields in global registry
@@ -203,7 +209,7 @@ evaluate_anonymous_struct_value :: (
   all_comptime := {
     (ac : bool) = true;
     (ai : usize) = usize(0);
-    while(runtime((ai < field_values.len()) && ac), {
+    while((ai < field_values.len()) && ac, {
       match(
         field_values.get(ai),
         .None => {
@@ -226,7 +232,7 @@ evaluate_anonymous_struct_value :: (
       sv_names := ArrayList(String).new();
       sv_vals := ArrayList(EvalValue).new();
       (si : usize) = usize(0);
-      while(runtime(si < field_labels.len()), {
+      while(si < field_labels.len(), {
         match(
           field_labels.get(si),
           .Some(l) => {

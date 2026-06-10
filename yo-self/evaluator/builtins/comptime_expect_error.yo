@@ -25,8 +25,31 @@ open(import("std/string"));
 { EvalContext } :: import("../context.yo");
 { format_error_message } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
-{ expr_info_table_get } :: import("../../expr_info.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ expr_info_table_get, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ set_propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+/// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
+/// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
+/// `Exception` whose `throw` unwinds this helper with `true`. If the eval
+/// completes without throwing, control reaches the final `false`. This is the
+/// `try_populate_expr_info_table` (main.yo) pattern — a local unwinding exn that
+/// does NOT capture outer params, so it sidesteps the codegen limitation that
+/// disabled the original inline handler. It restores the error-DETECTION
+/// `comptime_expect_error` needs (TS uses a plain `try/catch`,
+/// comptime-expect-error.ts:23-42; yo-self can't try/catch + continue in one
+/// frame, hence the bool-returning helper).
+_comptime_expect_error_arg_threw :: (
+  fn(arg_expr : AstExpr, env : Environment, ctx : EvalContext) -> bool
+)({
+  local_exn := Exception(
+    throw : (
+      (_err) -> unwind(true)
+    )
+  );
+  _r := evaluate_expression_raw(arg_expr, env, ctx, local_exn);
+  false
+});
 evaluate_comptime_expect_error :: (
   fn(
     expr : AstExpr,
@@ -49,11 +72,27 @@ evaluate_comptime_expect_error :: (
       return(expr);
     }
   );
-  // Try to evaluate arg_expr; if a compile error is thrown that's expected — set unit and return.
-  // Phase 3 TODO: restore inner exception handler when codegen supports closure capture of outer params.
-  // For now, use evaluate_expression (panic on error) — comptime_expect_error is limited to panicking
-  // on unexpected success only. The error-detection path requires the inner_exn pattern.
-  evaluate_expression(arg_expr, env, ctx);
+  // Evaluate the argument (a CLONE — TS `cloneExpr`s it, comptime-expect-error.ts:20
+  // — so a partial/aborted eval doesn't pollute the original expr's ExprInfo); if
+  // it throws a compile error, that's EXPECTED — set unit and return successfully.
+  // Mirrors TS `comptime-expect-error.ts:23-42`.
+  //
+  // Enable "propagate all def-time body-eval errors" mode for the duration of the
+  // argument eval: many rejected forms (e.g. an unwrapped `extern "c"` call) throw
+  // inside a function BODY, which `_trial_eval_fn_body` normally swallows at
+  // definition time (the def-eval wall). Without this, those errors never reach
+  // the catch below and `comptime_expect_error` wrongly reports success. The flag
+  // is cleared unconditionally on return (the helper's local-unwinding exn returns
+  // control here), so no other def-time eval is affected.
+  set_propagate_def_time_errors(true);
+  arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
+  set_propagate_def_time_errors(false);
+  if(arg_threw, {
+    out_unit := new_expr_info(env, t_unit());
+    out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unit);
+    return(expr);
+  });
   // No error was thrown — evaluate optional message argument for a better diagnostic.
   match(
     args.get(usize(1)),

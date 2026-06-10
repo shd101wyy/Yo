@@ -46,8 +46,8 @@ open(import("std/fmt"));
 } :: import("../../types/utils.yo");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ TokenKind } :: import("../../token.yo");
 { evaluate_expression } :: import("./expr.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Return type
 // ---------------------------------------------------------------------------
@@ -59,24 +59,6 @@ BindingResult :: object(
   variable_expr : AstExpr,
   /// The plain string name of the variable being declared.
   variable_name : String
-);
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-/// Return `true` if `expr` is either:
-///   * an Atom whose token kind is Identifier, or
-///   * any expression whose token kind is Operator.
-///
-/// Mirrors `isValidVariableName` in `src/evaluator/utils.ts`.
-is_valid_variable_name :: (fn(expr : AstExpr) -> bool)(
-  match(
-    expr,
-    .Atom(_, tok) => (
-      (tok.kind == TokenKind.Identifier) ||
-        (tok.kind == TokenKind.Operator)
-    ),
-    .FnCall(_, _, _, _, tok) => (tok.kind == TokenKind.Operator)
-  )
 );
 // ---------------------------------------------------------------------------
 // evaluate_binding
@@ -140,7 +122,10 @@ evaluate_binding :: (
   });
   rhs_info := match(rhs_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
   // Update env from rhs evaluation.
-  env = rhs_info.env;
+  env.frames = rhs_info.env.frames;
+  env.module_path = rhs_info.env.module_path;
+  env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+  env.input_string = rhs_info.env.input_string;
   // Rhs must evaluate to a TypeValue.
   if(!(is_type_value(rhs_info.value)), {
     exn.throw(
@@ -168,7 +153,7 @@ evaluate_binding :: (
   // so this check only applies when a future `UnknownLen` variant is added.
   // (TS: `isArrayType(t) && isUnknownValue(t.length)` — skipped for now.)
   // Prohibit void type.
-  prohibit_void_type(user_defined_type, ast_expr_token(rhs));
+  prohibit_void_type(user_defined_type, ast_expr_token(rhs), exn);
   // Strip optional `comptime(...)` wrapper from lhs.
   (is_compile_time_only : bool) = false;
   (lhs : AstExpr) = lhs_arg;
@@ -372,4 +357,4 @@ evaluate_binding :: (
     variable_name : variable_name
   )
 });
-export(BindingResult, evaluate_binding, is_valid_variable_name);
+export(BindingResult, evaluate_binding);

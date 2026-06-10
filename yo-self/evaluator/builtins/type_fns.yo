@@ -249,7 +249,7 @@ evaluate_yo_are_types_compatible :: (
       )
     );
   });
-  expected_type := _extract_type_val(arg0, info_0, "__yo_are_types_compatible");
+  expected_type := _extract_type_val(arg0, info_0, "__yo_are_types_compatible", exn);
   cur_env := info_0.env;
   // Evaluate given type.
   ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -286,7 +286,7 @@ evaluate_yo_are_types_compatible :: (
       )
     );
   });
-  given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible");
+  given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible", exn);
   cur_env = info_1.env;
   // are_types_compatible(actual, expected) — yo-self param order
   compatible := are_types_compatible(given_type, expected_type);
@@ -350,7 +350,7 @@ evaluate_yo_are_types_equal :: (
       new_expr_info(env, t_unit())
     }
   );
-  type_a := _extract_type_val(arg0, info_0, "__yo_are_types_equal");
+  type_a := _extract_type_val(arg0, info_0, "__yo_are_types_equal", exn);
   cur_env := info_0.env;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
@@ -374,7 +374,7 @@ evaluate_yo_are_types_equal :: (
       new_expr_info(cur_env, t_unit())
     }
   );
-  type_b := _extract_type_val(arg1, info_1, "__yo_are_types_equal");
+  type_b := _extract_type_val(arg1, info_1, "__yo_are_types_equal", exn);
   cur_env = info_1.env;
   // Use exact match (requireExactMatch = true in TS).
   equal := are_types_compatible_exact(type_a, type_b);
@@ -438,7 +438,7 @@ evaluate_yo_type_contains_rc_type :: (
       )
     );
   });
-  type_val := _extract_type_val(arg0, arg_info, "__yo_type_contains_rc_type");
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_contains_rc_type", exn);
   flag := type_contains_rc_type(type_val);
   out_info := new_expr_info(arg_info.env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
@@ -500,7 +500,7 @@ evaluate_yo_type_can_form_rc_cycle :: (
       )
     );
   });
-  type_val := _extract_type_val(arg0, arg_info, "__yo_type_can_form_rc_cycle");
+  type_val := _extract_type_val(arg0, arg_info, "__yo_type_can_form_rc_cycle", exn);
   flag := can_type_form_rc_cycle(type_val);
   out_info := new_expr_info(arg_info.env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
@@ -716,14 +716,17 @@ _ti_eval_code :: (
   code_expr := generate_expr_from_code(code.as_str(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
-  result_ast := evaluate_expression(code_expr, env_ptr.*, ctx);
+  result_ast := evaluate_expression(code_expr, env_ptr, ctx);
   ctx.force_compile_time_bindings = old_force;
   result_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(result_ast)),
     .Some(i) => i,
-    .None => new_expr_info(env_ptr.*, t_unit())
+    .None => new_expr_info(env_ptr, t_unit())
   );
-  env_ptr.* = result_info.env;
+  env_ptr.frames = result_info.env.frames;
+  env_ptr.module_path = result_info.env.module_path;
+  env_ptr.function_declaration_frame_level = result_info.env.function_declaration_frame_level;
+  env_ptr.input_string = result_info.env.input_string;
   result_info.value
 });
 /// Build a ComptimeList from EvalValues.  If values is non-empty, the element
@@ -744,14 +747,17 @@ _ti_bind_comptime_list :: (
     type_ast := generate_expr_from_code(type_name.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
-    type_result_ast := evaluate_expression(type_ast, env_ptr.*, ctx);
+    type_result_ast := evaluate_expression(type_ast, env_ptr, ctx);
     ctx.force_compile_time_bindings = old_force;
     type_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(type_result_ast)),
       .Some(i) => i,
-      .None => new_expr_info(env_ptr.*, t_unit())
+      .None => new_expr_info(env_ptr, t_unit())
     );
-    env_ptr.* = type_info.env;
+    env_ptr.frames = type_info.env.frames;
+    env_ptr.module_path = type_info.env.module_path;
+    env_ptr.function_declaration_frame_level = type_info.env.function_declaration_frame_level;
+    env_ptr.input_string = type_info.env.input_string;
     match(
       type_info.value,
       .Some(v) => match(v,.TypeVal(tv) => tv.*, _ => t_unit()),
@@ -808,7 +814,7 @@ _ti_bind_type_field_list :: (
   fi_vals := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   n := labels.len();
-  while(runtime(i < n), {
+  while(i < n, {
     label := match(labels.get(i),.Some(l) => l,.None => String.from(""));
     field_ty := match(types.get(i),.Some(t) => t,.None => t_unit());
     fi_val := _ti_build_type_field_info(env_ptr, label, field_ty, ctx, exn);
@@ -858,7 +864,7 @@ _ti_bind_variant_info_list :: (
   vi_vals := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   n := variant_names.len();
-  while(runtime(i < n), {
+  while(i < n, {
     v_name := match(variant_names.get(i),.Some(nm) => nm,.None => String.from(""));
     v_fields := match(variant_fields.get(i),.Some(f) => f,.None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(i),.Some(l) => l,.None => ArrayList(String).new());
@@ -991,7 +997,7 @@ evaluate_yo_type_get_info :: (
       cn := _ti_bind_type(local_env, element_box.*, ctx);
       (String.from("TypeInfo.Slice(") + cn) + String.from(")")
     },
-    .Array(element_box, length) => {
+    .Array(element_box, length, _) => {
       cn := _ti_bind_type(local_env, element_box.*, ctx);
       (((String.from("TypeInfo.Array(") + cn) + String.from(", ")) + length.to_string()) + String.from(")")
     },
@@ -1007,7 +1013,7 @@ evaluate_yo_type_get_info :: (
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
     },
-    .Struct(_, _, labels, types, is_ref, is_atomic, is_newtype) => {
+    .Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype }) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       kind_str := cond(
         is_newtype => String.from("StructKind.NewType"),
@@ -1024,10 +1030,6 @@ evaluate_yo_type_get_info :: (
     .Union(_, labels, types) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
-    },
-    .ModuleT(_, _, labels, types) => {
-      fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
-      (String.from("TypeInfo.Module(") + fl_name) + String.from(")")
     },
     _ => {
       exn.throw(
@@ -1138,7 +1140,7 @@ evaluate_comptime_eval :: (
   code_exprs := generate_exprs_from_code(code_str.as_str(), exn);
   (ci : usize) = usize(0);
   n_exprs := code_exprs.len();
-  while(runtime(ci < n_exprs), {
+  while(ci < n_exprs, {
     code_expr := match(code_exprs.get(ci),.Some(e) => e,.None => make_err_expr());
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = false;
@@ -1457,12 +1459,12 @@ evaluate_type_join_fields :: (
   // Collect struct field label/type lists.
   struct_labels := match(
     target_type,
-    .Struct(_, _, ls, _, _, _, _) => ls,
+    .Struct({ field_labels : ls }) => ls,
     _ => ArrayList(String).new()
   );
   struct_types := match(
     target_type,
-    .Struct(_, _, _, ts, _, _, _) => ts,
+    .Struct({ field_types : ts }) => ts,
     _ => ArrayList(TypeValue).new()
   );
   n_fields := struct_labels.len();
@@ -1481,7 +1483,7 @@ evaluate_type_join_fields :: (
   // For each field, build FieldInfo and call mapper.
   result_exprs := ArrayList(AstExpr).new();
   (si : usize) = usize(0);
-  while(runtime(si < n_fields), {
+  while(si < n_fields, {
     label := match(struct_labels.get(si),.Some(l) => l,.None => String.from(""));
     field_ty := match(struct_types.get(si),.Some(t) => t,.None => t_unit());
     // Build FieldInfo("label", type_var).
@@ -1507,9 +1509,12 @@ evaluate_type_join_fields :: (
     call_code := (((mapper_name + String.from("(")) + fi_name) + String.from(")"));
     call_ast := generate_expr_from_code(call_code.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
+    old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
     call_result := evaluate_expression(call_ast, local_env, ctx);
     ctx.force_compile_time_bindings = old_force;
+    ctx.expected_type = old_expected;
     call_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
       .Some(i) => i,
@@ -1556,7 +1561,7 @@ evaluate_type_join_fields :: (
   tok := ast_expr_token(combiner_expr);
   (acc_expr : AstExpr) = match(result_exprs.get(usize(0)),.Some(e) => e,.None => make_err_expr());
   (ri : usize) = usize(1);
-  while(runtime(ri < result_exprs.len()), {
+  while(ri < result_exprs.len(), {
     rhs := match(result_exprs.get(ri),.Some(e) => e,.None => make_err_expr());
     combine_args := ArrayList(AstExpr).new();
     _p1 := combine_args.push(acc_expr);
@@ -1713,7 +1718,7 @@ evaluate_type_map_variants :: (
   result_vals := ArrayList(EvalValue).new();
   (vi : usize) = usize(0);
   n_variants := variant_names.len();
-  while(runtime(vi < n_variants), {
+  while(vi < n_variants, {
     v_name := match(variant_names.get(vi),.Some(nm) => nm,.None => String.from(""));
     v_fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
@@ -1736,9 +1741,12 @@ evaluate_type_map_variants :: (
     call_code := (((mapper_name + String.from("(")) + vi_name) + String.from(")"));
     call_ast := generate_expr_from_code(call_code.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
+    old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
     call_result := evaluate_expression(call_ast, local_env, ctx);
     ctx.force_compile_time_bindings = old_force;
+    ctx.expected_type = old_expected;
     call_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
       .Some(i) => i,

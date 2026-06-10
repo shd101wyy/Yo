@@ -12,6 +12,7 @@ open(import("std/error"));
 {
   AstExpr,
   ExprId,
+  alloc_global_expr_id,
   BK_TUPLE,
   BK_TUPLE_TYPE,
   BK_ARRAY,
@@ -67,7 +68,7 @@ impl(
         sb.write_str("\n  |");
         (k : usize) = usize(0);
         // pad column + 3 spaces (to align under first non-space char of source line)
-        while(runtime(k < self.column), {
+        while(k < self.column, {
           sb.write_byte(u8(32));
           k = (k + usize(1));
         });
@@ -108,6 +109,13 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseErro
     source_line : String.from("")
   )
 );
+// Per-process monotonic counter for AstExpr ids. Each Parser instance
+// pulls from this so ids are unique across files in multi-file `check`
+// (otherwise inner.yo's id=N and index.yo's id=N collide in the
+// expr_info_table and the second-parsed file's import value gets stamped
+// over by the first-parsed file's matching-id expression — observed as
+// `import("./rune.yo")` resolving to `i32` at export-spread time).
+// Global expr-id counter moved to expr.yo (shared with synthesized nodes).
 Parser :: struct(
   input_string : String,
   module_path : String,
@@ -137,7 +145,7 @@ impl(
   }),
   get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
   alloc_id : (fn(ref(self) : Self) -> ExprId)({
-    id := self.next_expr_id;
+    id := alloc_global_expr_id();
     self.next_expr_id = (self.next_expr_id + usize(1));
     id
   }),
@@ -167,7 +175,7 @@ impl(
   skip_ws_fwd : (fn(ref(self) : Self, index : usize) -> usize)({
     i := index;
     n := self.tokens.len();
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         self.tokens.get(i),
         .None => {
@@ -186,7 +194,7 @@ impl(
   }),
   skip_ws_bwd : (fn(ref(self) : Self, index : usize) -> usize)({
     i := index;
-    while(runtime(true), {
+    while(true, {
       match(
         self.tokens.get(i),
         .None => {
@@ -210,7 +218,7 @@ impl(
     nl_str := String.from("\n");
     i := start;
     result := false;
-    while(runtime(i < end), {
+    while(i < end, {
       match(
         self.tokens.get(i),
         .None => {
@@ -235,7 +243,7 @@ impl(
     j := op_idx;
     result := false;
     scan_done := false;
-    while(runtime(scan_done == false), {
+    while(scan_done == false, {
       if(j == usize(0), {
         result = true;
         scan_done = true;
@@ -251,7 +259,7 @@ impl(
               // Found newline — check tokens[j+1..op_idx) are all whitespace
               all_ws := true;
               k := (j + usize(1));
-              while(runtime(k < op_idx), {
+              while(k < op_idx, {
                 match(
                   self.tokens.get(k),
                   .None => {
@@ -333,7 +341,7 @@ impl(
     ts_chars := ArrayList(rune).new();
     {
       c_iter := template_value.chars();
-      while(runtime(true), {
+      while(true, {
         match(
           c_iter.next(),
           .None => {
@@ -351,7 +359,7 @@ impl(
     part_content := ArrayList(String).new();
     cur_sb := StringBuilder.new();
     i := usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       c := match(ts_chars.get(i),.Some(r) => r,.None => rune(u32(0)));
       cond(
         // Escaped dollar: \$  →  $
@@ -381,7 +389,7 @@ impl(
           brace_depth := usize(1);
           expr_sb := StringBuilder.new();
           j := (i + usize(2));
-          while(runtime((j < n) && (brace_depth > usize(0))), {
+          while((j < n) && (brace_depth > usize(0)), {
             cj := match(ts_chars.get(j),.Some(r) => r,.None => rune(u32(0)));
             cond(
               (cj.char == u32(0x7B)) => {
@@ -429,18 +437,35 @@ impl(
     dot_tok := self.make_syn_tok(TokenKind.Dot, String.from("."));
     plus_tok := self.make_syn_tok(TokenKind.Operator, String.from("+"));
     to_str_tok := self.make_syn_tok(TokenKind.Identifier, String.from("to_string"));
-    // Helper: build `e.to_string()` — takes explicit params since local fns can't capture outer values
-    make_ts_call :: (fn(e : AstExpr, d_tok : Token, ts_tok : Token, outer_tok : Token) -> AstExpr)({
+    // Helper: build `e.to_string()` — takes explicit params since local fns
+    // can't capture outer values. The four synthetic sub-expressions need
+    // UNIQUE expr ids (passed in via `id_*`): hardcoding `usize(0)` made
+    // every template-string sub-expr collide on id 0 in the per-ctx
+    // `expr_info_table`, corrupting their evaluated types (a downstream
+    // `.to_string()` dispatch then saw garbage and failed to unify). Mirrors
+    // the global-expr-id collision fixed in commit 354b235b.
+    make_ts_call :: (
+      fn(
+        e : AstExpr,
+        d_tok : Token,
+        ts_tok : Token,
+        outer_tok : Token,
+        id_ts_atom : usize,
+        id_dot_atom : usize,
+        id_prop : usize,
+        id_outer : usize
+      ) -> AstExpr
+    )({
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e);
-      prop_args.push(.Atom(usize(0), ts_tok));
-      (prop : AstExpr) =.FnCall(usize(0), box(.Atom(usize(0), d_tok)), prop_args, true, d_tok);
-      .FnCall(usize(0), box(prop), ArrayList(AstExpr).new(), false, outer_tok)
+      prop_args.push(.Atom(id_ts_atom, ts_tok));
+      (prop : AstExpr) =.FnCall(id_prop, box(.Atom(id_dot_atom, d_tok)), prop_args, true, d_tok);
+      .FnCall(id_outer, box(prop), ArrayList(AstExpr).new(), false, outer_tok)
     });
     num_parts := part_content.len();
     (result_expr_opt : Option(AstExpr)) =.None;
     pi := usize(0);
-    while(runtime(pi < num_parts), {
+    while(pi < num_parts, {
       is_expr := match(part_is_expr.get(pi),.Some(b) => b,.None => false);
       content := match(part_content.get(pi),.Some(s) => s,.None => String.from(""));
       (part_expr : AstExpr) = cond(
@@ -458,7 +483,7 @@ impl(
               return(ParseResult(expr : make_err_expr(), index : (index + usize(1))));
             }
           );
-          make_ts_call(inner_expr, dot_tok, to_str_tok, tok)
+          make_ts_call(inner_expr, dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
         },
         true => {
           // Literal string part: "content".to_string()
@@ -473,7 +498,7 @@ impl(
             module_path : tok.module_path,
             input : tok.input
           );
-          make_ts_call(.Atom(self.alloc_id(), str_tok), dot_tok, to_str_tok, tok)
+          make_ts_call(.Atom(self.alloc_id(), str_tok), dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
         }
       );
       result_expr_opt = match(
@@ -518,7 +543,7 @@ impl(
         return(FnArgsResult(args : args, index : (idx + usize(1))));
       });
     });
-    while(runtime(true), {
+    while(true, {
       arg_pr := self.parse_expression(idx, exn);
       args.push(arg_pr.expr);
       idx = arg_pr.index;
@@ -532,6 +557,22 @@ impl(
       cond(
         (curr.kind == TokenKind.Comma) => {
           idx = (idx + usize(1));
+          // Accept trailing comma: skip whitespace, check for RParen.
+          nxt_idx := self.skip_ws_fwd(idx);
+          nxt := match(
+            self.tokens.get(nxt_idx),
+            .Some(t) => t,
+            .None => {
+              return(FnArgsResult(args : args, index : nxt_idx));
+            }
+          );
+          is_rp := (nxt.kind == TokenKind.RParen);
+          cond(
+            is_rp => {
+              return(FnArgsResult(args : args, index : (nxt_idx + usize(1))));
+            },
+            true => ()
+          );
         },
         (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
           return(FnArgsResult(args : args, index : idx));
@@ -626,7 +667,7 @@ impl(
     (separator_is_comma : Option(bool)) =.None;
     args := ArrayList(AstExpr).new();
     args.push(expr);
-    while(runtime(true), {
+    while(true, {
       (curr : Token) = match(
         self.tokens.get(idx),
         .None => exn.throw(dyn(make_parse_error(tok, `expected ) or , for tuple`))),
@@ -709,7 +750,7 @@ impl(
     idx := (index + usize(1));
     (separator_is_comma : Option(bool)) =.None;
     args := ArrayList(AstExpr).new();
-    while(runtime(true), {
+    while(true, {
       (curr : Token) = match(
         self.tokens.get(idx),
         .None => exn.throw(dyn(make_parse_error(tok, `expected ] or , for array`))),
@@ -819,7 +860,7 @@ impl(
     args := ArrayList(AstExpr).new();
     (separator_is_comma : Option(bool)) =.None;
     idx := (index + usize(1));
-    while(runtime(true), {
+    while(true, {
       idx = self.skip_ws_fwd(idx);
       (curr : Token) = match(
         self.tokens.get(idx),
@@ -908,7 +949,7 @@ impl(
       is_comma => {
         (vi : usize) = usize(0);
         vn := args.len();
-        while(runtime(vi < vn), {
+        while(vi < vn, {
           match(
             args.get(vi),
             .None => (),
@@ -933,7 +974,7 @@ impl(
         n_args := args.len();
         final_args := ArrayList(AstExpr).new();
         ai := usize(0);
-        while(runtime(ai < n_args), {
+        while(ai < n_args, {
           match(
             args.get(ai),
             .None => {
@@ -1182,7 +1223,7 @@ impl(
         // Accumulate further immediate dot-chains (no whitespace)
         (cur_expr : AstExpr) =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_fn_tok)), init_args, init_infix, dot_fn_tok);
         cur_idx := rhs_idx;
-        while(runtime(true), {
+        while(true, {
           match(
             self.tokens.get(cur_idx),
             .None => {
@@ -1298,7 +1339,7 @@ impl(
     idx := usize(0);
     n := self.tokens.len();
     exprs := ArrayList(AstExpr).new();
-    while(runtime(idx < n), {
+    while(idx < n, {
       match(
         self.tokens.get(idx),
         .None => {
@@ -1374,7 +1415,7 @@ impl(
       result.push(import_expr);
       i := usize(0);
       n := self.program.len();
-      while(runtime(i < n), {
+      while(i < n, {
         match(
           self.program.get(i),
           .None => {

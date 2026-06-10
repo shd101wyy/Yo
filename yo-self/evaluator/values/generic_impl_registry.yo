@@ -103,7 +103,7 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
   (key_idx : Option(usize)) = Option(usize).None;
   (ki : usize) = usize(0);
   (n_keys : usize) = g_impl_registry_keys.len();
-  while(runtime(ki < n_keys), {
+  while(ki < n_keys, {
     existing_key := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
     if(existing_key.as_str() == key.as_str(), {
       key_idx = Option(usize).Some(ki);
@@ -167,7 +167,7 @@ try_match_generic_impl :: (
   _ := unify_env.push_frame(false);
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
-  while(runtime(ui < n_forall), {
+  while(ui < n_forall, {
     fa_name := match(
       entry.forall_names.get(ui),
       .Some(n) => n,
@@ -225,7 +225,7 @@ try_match_generic_impl :: (
   // Verify each forall param was actually bound to a concrete type.
   (all_bound : bool) = true;
   (vi : usize) = usize(0);
-  while(runtime((vi < n_forall) && all_bound), {
+  while((vi < n_forall) && all_bound, {
     fa_name2 := match(
       entry.forall_names.get(vi),
       .Some(n) => n,
@@ -303,7 +303,7 @@ find_matching_generic_impl :: (
   (entry_list_opt : Option(ArrayList(GenericImplEntry))) = Option(ArrayList(GenericImplEntry)).None;
   (ki : usize) = usize(0);
   (n_keys : usize) = g_impl_registry_keys.len();
-  while(runtime(ki < n_keys), {
+  while(ki < n_keys, {
     k := match(g_impl_registry_keys.get(ki),.Some(k) => k,.None => String.from(""));
     if(k.as_str() == key.as_str(), {
       entry_list_opt = g_impl_registry_entry_lists.get(ki);
@@ -320,7 +320,7 @@ find_matching_generic_impl :: (
   );
   (n_entries : usize) = entries.len();
   (ei : usize) = usize(0);
-  while(runtime(ei < n_entries), {
+  while(ei < n_entries, {
     entry := match(
       entries.get(ei),
       .Some(e) => e,
@@ -371,7 +371,7 @@ find_methods_from_generic_impls :: (
   // Iterate all key buckets.
   n_keys := g_impl_registry_keys.len();
   (ki : usize) = usize(0);
-  while(runtime(ki < n_keys), {
+  while(ki < n_keys, {
     entry_list := match(
       g_impl_registry_entry_lists.get(ki),
       .Some(l) => l,
@@ -382,7 +382,7 @@ find_methods_from_generic_impls :: (
     );
     n_entries := entry_list.len();
     (ei : usize) = usize(0);
-    while(runtime(ei < n_entries), {
+    while(ei < n_entries, {
       entry := match(
         entry_list.get(ei),
         .Some(e) => e,
@@ -398,7 +398,7 @@ find_methods_from_generic_impls :: (
       // Found a matching impl — search for the method field.
       n_fields := entry.field_names.len();
       (fi : usize) = usize(0);
-      while(runtime(fi < n_fields), {
+      while(fi < n_fields, {
         fname := match(
           entry.field_names.get(fi),
           .Some(n) => n,

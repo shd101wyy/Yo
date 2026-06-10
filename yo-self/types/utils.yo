@@ -29,8 +29,9 @@
 //! type_requires_inference (`false` — yo-self Array length is always
 //! concretely known), type_contains_some_type (top-level only;
 //! recursive descent in `_collect_some_types_into`), get_all_some_types,
-//! get_size_of_type / get_alignment_of_type (primitive/pointer/array;
-//! Struct/EnumT/Union return `.None` for the bootstrap codegen path).
+//! get_size_of_type / get_alignment_of_type (full: primitive/pointer/array
+//! plus Struct/Tuple/Union/EnumT C-layout aggregate sizing — recursion broken
+//! via the `g_size_of_type_fn` / `g_alignment_of_type_fn` slots).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
@@ -44,7 +45,9 @@ open(import("std/fmt"));
   is_comptime_int_type,
   is_comptime_float_type,
   is_some_type,
-  is_rc_type
+  is_rc_type,
+  is_object_type,
+  is_dyn_type
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -151,7 +154,7 @@ prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> uni
         dyn(
           format_error_message(
             token,
-            `Void type is not allowed here. Void is only usable as a function return(type.)`,
+            `Void type is not allowed here. Void is only usable as a function return type.`,
             false,
             .None
           )
@@ -311,7 +314,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while(runtime((i < fields.len()) && !(found)), {
+        while((i < fields.len()) && !(found), {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -329,7 +332,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Union(name : _, field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while(runtime((i < fields.len()) && !(found)), {
+        while((i < fields.len()) && !(found), {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -344,10 +347,10 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         found
       },
       // Struct — check all field types
-      .Struct(id : _, name : _, field_labels : _, field_types : fields, is_reference_semantics : _, is_atomic_rc : _, is_newtype : _) => {
+      .Struct({ field_types : fields }) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while(runtime((i < fields.len()) && !(found)), {
+        while((i < fields.len()) && !(found), {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -365,12 +368,12 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .EnumT(id : _, name : _, variant_names : _, variant_fields : all_fields, selected_variant_name : _, variant_field_labels : _, variant_discriminants : _) => {
         (found : bool) = false;
         (vi : usize) = usize(0);
-        while(runtime((vi < all_fields.len()) && !(found)), {
+        while((vi < all_fields.len()) && !(found), {
           match(
             all_fields.get(vi),
             .Some(v_fields) => {
               (fi : usize) = usize(0);
-              while(runtime((fi < v_fields.len()) && !(found)), {
+              while((fi < v_fields.len()) && !(found), {
                 match(
                   v_fields.get(fi),
                   .Some(ft) => {
@@ -393,10 +396,8 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .IsoT(child : child) => recur(child.*, depth + u32(1)),
       // SomeT — conservatively true (unresolved generic)
       .SomeT(required_trait_types : _) => true,
-      // Module — false (modules don't own references)
-      .ModuleT(id : _, name : _, field_labels : _, field_types : _) => false,
       // Function — false (functions are not reference types)
-      .Func(forall_labels : _) => false,
+      .Func({ result : _ }) => false,
       // Everything else — false
       _ => false
     )
@@ -410,6 +411,111 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
 /// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
 type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0))
+);
+/// Depth-limited inner walk for `type_is_control_bound`. A depth cap (not a
+/// checkedTypes identity set, which yo-self's value-typed `TypeValue` can't do
+/// cheaply) guards self-referential types — same approach as
+/// `_type_contains_rc_inner`.
+_type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
+  cond(
+    (depth > u32(8)) => false,
+    true => match(
+      ty,
+      // Only a `ctl(...) -> ret` function value is itself control-bound. A
+      // regular `fn(...)` is a plain fn pointer — even if its params/return
+      // reference `ctl`, the value does not carry a CF (it merely calls one
+      // the caller provides). Mirrors function.ts: `return isControl === true`.
+      .Func({ is_control : ic }) => ic,
+      // Aggregates — control-bound iff any field is.
+      .Struct({ field_types : fields }) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !(found), {
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Tuple(field_labels : _, field_types : fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !(found), {
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Union(name : _, field_labels : _, field_types : fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !(found), {
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      .EnumT(id : _, name : _, variant_names : _, variant_fields : all_fields, selected_variant_name : _, variant_field_labels : _, variant_discriminants : _) => {
+        (found : bool) = false;
+        (vi : usize) = usize(0);
+        while((vi < all_fields.len()) && !(found), {
+          match(
+            all_fields.get(vi),
+            .Some(v_fields) => {
+              (fi : usize) = usize(0);
+              while((fi < v_fields.len()) && !(found), {
+                match(
+                  v_fields.get(fi),
+                  .Some(ft) => if(recur(ft, depth + u32(1)), {
+                    found = true;
+                  }),
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
+      // control-bound — `*(Raise)` must be rejected).
+      .Array(element : elem, length : _, length_var : _) => recur(elem.*, depth + u32(1)),
+      .Slice(element : elem) => recur(elem.*, depth + u32(1)),
+      .Pointer(pointee : p) => recur(p.*, depth + u32(1)),
+      // SomeT carries no resolved concrete type in yo-self → conservatively
+      // false (mirrors TS returning false when `resolvedConcreteType` is unset).
+      _ => false
+    )
+  )
+);
+/// Return `true` if `ty` is control-bound — i.e. it IS, or transitively
+/// contains, a `ctl(...) -> ret` control-function type. Such a value is
+/// frame-bound (its body may `unwind` out of the install frame), so it must
+/// not escape: be bound at module level, captured by a closure, or have a
+/// pointer formed to it (the §4 escape-boundary / ctl rules in the algebraic
+/// effects analysis). Mirrors `typeIsControlBound` in `src/types/utils.ts`.
+type_is_control_bound :: (fn(ty : TypeValue) -> bool)(
+  _type_is_control_bound_inner(ty, u32(0))
 );
 /// Return `true` if the type can form an RC reference cycle.
 /// Full implementation needs `typeImplementsAcyclic` (Phase 3).
@@ -446,10 +552,28 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
 );
 /// Internal helper: recursively collect all SomeT instances from `ty` into `acc`.
 /// Phase 3: no cycle detection (safe for acyclic TypeValue trees).
+/// True iff `id` is already in `visited` (linear scan; visited lists are tiny).
+_id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
+  (i : usize) = usize(0);
+  n := visited.len();
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      visited.get(i),
+      .Some(v) => if(v == id, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 _collect_some_types_into :: (
   fn(
     ty : TypeValue,
-    acc : ArrayList(TypeValue)
+    acc : ArrayList(TypeValue),
+    visited_ids : ArrayList(String)
   ) -> unit
 )(
   match(
@@ -458,75 +582,86 @@ _collect_some_types_into :: (
       acc.push(ty);
     },
     .TypeAppT(constructor : con, args : args_list) => {
-      recur(con.*, acc);
+      recur(con.*, acc, visited_ids);
       (i : usize) = usize(0);
       n := args_list.len();
-      while(runtime(i < n), {
-        match(args_list.get(i),.Some(a) => recur(a, acc),.None => ());
+      while(i < n, {
+        match(args_list.get(i),.Some(a) => recur(a, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
     },
-    .Array(element : el, _) => {
-      recur(el.*, acc);
+    .Array(element : el, _, _) => {
+      recur(el.*, acc, visited_ids);
     },
     .Slice(element : el) => {
-      recur(el.*, acc);
+      recur(el.*, acc, visited_ids);
     },
     .Pointer(pointee : pt) => {
-      recur(pt.*, acc);
+      recur(pt.*, acc, visited_ids);
     },
     .IsoT(child : ch) => {
-      recur(ch.*, acc);
+      recur(ch.*, acc, visited_ids);
     },
-    .Func(forall_types : ftys, param_types : ptys, result : res) => {
+    .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
       (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
+      while(i < ftys.len(), {
+        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
       (j : usize) = usize(0);
-      while(runtime(j < ptys.len()), {
-        match(ptys.get(j),.Some(pt) => recur(pt, acc),.None => ());
+      while(j < ptys.len(), {
+        match(ptys.get(j),.Some(pt) => recur(pt, acc, visited_ids),.None => ());
         j = (j + usize(1));
       });
-      recur(res.*, acc);
+      recur(res.*, acc, visited_ids);
     },
     .Tuple(_, field_types : ftys) => {
       (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
+      while(i < ftys.len(), {
+        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
     },
-    .Struct(_, _, _, field_types : ftys, _, _, _) => {
+    .Struct({ id : st_id, field_types : ftys }) => {
+      // Cycle guard — recursive struct types (e.g. a branch node whose
+      // children point back at the same struct) form a CYCLIC TypeValue
+      // graph; an unguarded field walk recurses forever (pure-SIGSEGV,
+      // no message). Same class of bug as `substitute()`'s
+      // `visited_trait_ids` guard.
+      if(_id_already_visited(visited_ids, st_id), {
+        return(());
+      });
+      if(st_id.len() > usize(0), {
+        visited_ids.push(st_id.clone());
+      });
       (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
+      while(i < ftys.len(), {
+        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
         i = (i + usize(1));
       });
     },
-    .EnumT(_, _, _, variant_fields : vfs, _, _, _) => {
+    .EnumT(en_id, _, _, vfs, _, _, _) => {
+      // Cycle guard — see the Struct arm above.
+      if(_id_already_visited(visited_ids, en_id), {
+        return(());
+      });
+      if(en_id.len() > usize(0), {
+        visited_ids.push(en_id.clone());
+      });
       (vi : usize) = usize(0);
-      while(runtime(vi < vfs.len()), {
+      while(vi < vfs.len(), {
         match(
           vfs.get(vi),
           .Some(field_list) => {
             (fi : usize) = usize(0);
-            while(runtime(fi < field_list.len()), {
-              match(field_list.get(fi),.Some(ft) => recur(ft, acc),.None => ());
+            while(fi < field_list.len(), {
+              match(field_list.get(fi),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
               fi = (fi + usize(1));
             });
           },
           .None => ()
         );
         vi = (vi + usize(1));
-      });
-    },
-    .ModuleT(_, _, _, field_types : ftys) => {
-      (i : usize) = usize(0);
-      while(runtime(i < ftys.len()), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc),.None => ());
-        i = (i + usize(1));
       });
     },
     _ => ()
@@ -538,7 +673,8 @@ _collect_some_types_into :: (
 /// Mirrors `getAllSomeTypes` in `src/types/utils.ts`.
 get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   acc := ArrayList(TypeValue).new();
-  _collect_some_types_into(ty, acc);
+  visited_ids := ArrayList(String).new();
+  _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
 // ---------------------------------------------------------------------------
@@ -555,6 +691,177 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
 // Return values:
 //   get_size_of_type      → size in **bits** (`.None` = unknown)
 //   get_alignment_of_type → alignment in **bytes** (`.None` = unknown)
+// Function-pointer slots breaking the mutual recursion between
+// `get_size_of_type`/`get_alignment_of_type` and the `_aggregate_size`/
+// `_max_field_alignment` helpers (which must be defined BEFORE the public
+// functions that call them, yet need to recurse back into them). Same pattern
+// as `hierarchy.yo`'s `g_type_of_type_visited_fn`. Assigned at module top level
+// after both functions are defined.
+SizeFn :: (fn(ty : TypeValue) -> Option(usize));
+(g_size_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
+(g_alignment_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
+_size_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
+  match(g_size_of_type_fn,.Some(f) => f(ty),.None => Option(usize).None)
+);
+_align_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
+  match(g_alignment_of_type_fn,.Some(f) => f(ty),.None => Option(usize).None)
+);
+/// Larger of two `usize`.
+_max_usize :: (fn(a : usize, b : usize) -> usize)(cond((a >= b) => a, true => b));
+/// `ceil(offset / align) * align` for `align >= 1` (round `offset` up to a
+/// multiple of `align`). Integer-only.
+_round_up :: (fn(offset : usize, align : usize) -> usize)(
+  cond(
+    (align == usize(0)) => offset,
+    true => ((((offset + align) - usize(1)) / align) * align)
+  )
+);
+/// `ceil(log2(n))` — smallest `b` with `2^b >= n`. `n <= 1 → 0`.
+_ceil_log2 :: (fn(n : usize) -> usize)({
+  (b : usize) = usize(0);
+  (pow : usize) = usize(1);
+  while(pow < n, {
+    pow = (pow * usize(2));
+    b = (b + usize(1));
+  });
+  b
+});
+/// Max alignment (bytes) across a field-type list; `.None` if any is unknown.
+/// Recurses into `get_alignment_of_type` via the `g_alignment_of_type_fn` slot
+/// (set at module top level) to break the mutual forward reference.
+_max_field_alignment :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
+  (acc : usize) = usize(1);
+  (unknown : bool) = false;
+  (i : usize) = usize(0);
+  n := fts.len();
+  while((i < n) && !(unknown), {
+    ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    match(
+      _align_via_slot(ft),
+      .Some(a) => {
+        acc = _max_usize(acc, a);
+      },
+      .None => {
+        unknown = true;
+      }
+    );
+    i = (i + usize(1));
+  });
+  cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+});
+/// Aggregate size (in BITS) of a sequence of fields laid out with C-style
+/// alignment padding, then padded to the aggregate's own alignment. Mirrors
+/// the body of TS `getStructTypeSize` / `getTupleTypeSize`. `.None` if any
+/// field size/alignment is unknown. Recurses via the size/alignment slots.
+_aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
+  (offset_bytes : usize) = usize(0);
+  (max_align : usize) = usize(1);
+  (unknown : bool) = false;
+  (i : usize) = usize(0);
+  n := fts.len();
+  while((i < n) && !(unknown), {
+    ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    match(
+      _size_via_slot(ft),
+      .Some(fbits) => match(
+        _align_via_slot(ft),
+        .Some(fa) => {
+          fbytes := ((fbits + usize(7)) / usize(8));
+          offset_bytes = _round_up(offset_bytes, fa);
+          offset_bytes = (offset_bytes + fbytes);
+          max_align = _max_usize(max_align, fa);
+        },
+        .None => {
+          unknown = true;
+        }
+      ),
+      .None => {
+        unknown = true;
+      }
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    unknown => Option(usize).None,
+    true => Option(usize).Some(usize(_round_up(offset_bytes, max_align) * usize(8)))
+  )
+});
+/// Return the alignment of `ty` in bytes, or `.None` if not statically known.
+/// Mirrors `getAlignmentOfType` in `src/types/utils.ts`. Recurses into itself
+/// via `recur` and into the field helpers defined just above.
+get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
+  match(
+    ty,
+    // comptime-only types have minimal alignment
+    .Unit =>.Some(usize(1)),
+    .ComptimeInt =>.Some(usize(1)),
+    .ComptimeFloat =>.Some(usize(1)),
+    .ComptimeString =>.Some(usize(1)),
+    .Void =>.Some(usize(1)),
+    .TypeUni(_) =>.Some(usize(1)),
+    // Bool: 1 byte aligned
+    .BoolT =>.Some(usize(1)),
+    // Platform-sized integers: pointer-aligned
+    .Usize =>.Some(usize(get_target_pointer_size_bytes())),
+    .Isize =>.Some(usize(get_target_pointer_size_bytes())),
+    // Fixed-width integers: bits/8 bytes
+    .Int({ bits : b }) =>.Some(usize(u32(b) / u32(8))),
+    // Floating-point: bits/8 bytes
+    .Float({ bits : b }) =>.Some(usize(u32(b) / u32(8))),
+    // C platform-dependent integers — return `.None`
+    .CChar =>.None,
+    .CShort =>.None,
+    .CUShort =>.None,
+    .CInt =>.None,
+    .CUInt =>.None,
+    .CLong =>.None,
+    .CULong =>.None,
+    .CLongLong =>.None,
+    .CULongLong =>.None,
+    .CLongDouble =>.None,
+    // Pointer and function types: pointer-aligned
+    .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
+    .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bytes())),
+    // Array: element alignment
+    .Array({ element : el }) => recur(el.*),
+    // Slice: pointer-aligned (fat pointer)
+    .Slice(_) =>.Some(usize(get_target_pointer_size_bytes())),
+    // Struct: reference-semantics (object) → pointer-aligned; newtype →
+    // inner field's alignment; otherwise the max field alignment.
+    .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
+      cond(
+        s_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
+        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)),.Some(f0) => recur(f0),.None => Option(usize).None),
+        true => _max_field_alignment(sfts)
+      ),
+    // Tuple: max field alignment.
+    .Tuple({ field_types : tfts }) => _max_field_alignment(tfts),
+    // Union: max field alignment.
+    .Union({ field_types : ufts }) => _max_field_alignment(ufts),
+    // Enum: max alignment across all variants' fields.
+    .EnumT({ variant_fields : evf }) => {
+      (acc : usize) = usize(1);
+      (unknown : bool) = false;
+      (vi : usize) = usize(0);
+      n_v := evf.len();
+      while((vi < n_v) && !(unknown), {
+        vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        match(
+          _max_field_alignment(vf),
+          .Some(a) => {
+            acc = _max_usize(acc, a);
+          },
+          .None => {
+            unknown = true;
+          }
+        );
+        vi = (vi + usize(1));
+      });
+      cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+    },
+    _ =>.None
+  )
+);
 /// Return the size of `ty` in bits, or `.None` if not statically known.
 /// Mirrors `getSizeOfType` in `src/types/utils.ts`.
 get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
@@ -573,9 +880,9 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .Usize =>.Some(usize(get_target_pointer_size_bits())),
     .Isize =>.Some(usize(get_target_pointer_size_bits())),
     // Fixed-width integers
-    .Int(bits : b, _) =>.Some(usize(b)),
+    .Int({ bits : b }) =>.Some(usize(b)),
     // Floating-point
-    .Float(bits : b) =>.Some(usize(b)),
+    .Float({ bits : b }) =>.Some(usize(b)),
     // C platform-dependent integers — return `.None` (platform-specific)
     .CChar =>.None,
     .CShort =>.None,
@@ -589,62 +896,251 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .CLongDouble =>.None,
     // Pointer and function types are pointer-sized
     .Pointer(_) =>.Some(usize(get_target_pointer_size_bits())),
-    .Func(_, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bits())),
+    .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
-    .Array(element : el, length : n) => match(
+    .Array({ element : el, length : n }) => match(
       recur(el.*),
       .Some(elem_bits) =>.Some(elem_bits * n),
       .None =>.None
     ),
     // Slice: fat pointer (pointer + length) = 2 × pointer size
     .Slice(_) =>.Some(usize(u32(2) * get_target_pointer_size_bits())),
-    // Complex types : Type.Struct / EnumT / Union / Tuple require is_newtype /
-    // is_reference_semantics — return `.None` until Phase 3.
+    // Struct: reference-semantics (object) → pointer-sized; newtype → inner
+    // field's size; otherwise the C-laid-out aggregate size.
+    .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
+      cond(
+        s_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
+        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)),.Some(f0) => recur(f0),.None => Option(usize).None),
+        true => _aggregate_size(sfts)
+      ),
+    // Tuple: C-laid-out aggregate size.
+    .Tuple({ field_types : tfts }) => _aggregate_size(tfts),
+    // Union: max field size (overlapping storage).
+    .Union({ field_types : ufts }) => {
+      (acc : usize) = usize(0);
+      (unknown : bool) = false;
+      (i : usize) = usize(0);
+      n := ufts.len();
+      while((i < n) && !(unknown), {
+        ft := match(ufts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        match(
+          recur(ft),
+          .Some(s) => {
+            acc = _max_usize(acc, s);
+          },
+          .None => {
+            unknown = true;
+          }
+        );
+        i = (i + usize(1));
+      });
+      cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+    },
+    // Enum: tag (sized by variant count) + the largest variant payload, with
+    // alignment. Mirrors TS `getEnumTypeSize`.
+    .EnumT({ variant_fields : evf }) => {
+      (max_data : usize) = usize(0);
+      (max_align_bits : usize) = usize(0);
+      (unknown : bool) = false;
+      (vi : usize) = usize(0);
+      n_v := evf.len();
+      while((vi < n_v) && !(unknown), {
+        vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        match(
+          _aggregate_size(vf),
+          .Some(vbits) => match(
+            _max_field_alignment(vf),
+            .Some(va_bytes) => {
+              max_data = _max_usize(max_data, vbits);
+              max_align_bits = _max_usize(max_align_bits, va_bytes * usize(8));
+            },
+            .None => {
+              unknown = true;
+            }
+          ),
+          .None => {
+            unknown = true;
+          }
+        );
+        vi = (vi + usize(1));
+      });
+      cond(
+        unknown => Option(usize).None,
+        true => {
+          tag_bits := _round_up(_ceil_log2(n_v), usize(8));
+          data_align_bits := _max_usize(max_align_bits, usize(8));
+          struct_align_bits := _max_usize(usize(32), data_align_bits);
+          // Pad tag end up to data alignment, add data, then pad total to
+          // struct alignment (all in bits; alignments are byte multiples ×8).
+          after_tag := _round_up(tag_bits, data_align_bits);
+          total_before := (after_tag + max_data);
+          Option(usize).Some(usize(_round_up(total_before, struct_align_bits)))
+        }
+      )
+    },
     _ =>.None
   )
 );
-/// Return the alignment of `ty` in bytes, or `.None` if not statically known.
-/// Mirrors `getAlignmentOfType` in `src/types/utils.ts`.
-get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
-  match(
-    ty,
-    // comptime-only types have minimal alignment
-    .Unit =>.Some(usize(1)),
-    .ComptimeInt =>.Some(usize(1)),
-    .ComptimeFloat =>.Some(usize(1)),
-    .ComptimeString =>.Some(usize(1)),
-    .Void =>.Some(usize(1)),
-    .TypeUni(_) =>.Some(usize(1)),
-    // Bool: 1 byte aligned
-    .BoolT =>.Some(usize(1)),
-    // Platform-sized integers: pointer-aligned
-    .Usize =>.Some(usize(get_target_pointer_size_bytes())),
-    .Isize =>.Some(usize(get_target_pointer_size_bytes())),
-    // Fixed-width integers: bits/8 bytes
-    .Int(bits : b, _) =>.Some(usize(u32(b) / u32(8))),
-    // Floating-point: bits/8 bytes
-    .Float(bits : b) =>.Some(usize(u32(b) / u32(8))),
-    // C platform-dependent integers — return `.None`
-    .CChar =>.None,
-    .CShort =>.None,
-    .CUShort =>.None,
-    .CInt =>.None,
-    .CUInt =>.None,
-    .CLong =>.None,
-    .CULong =>.None,
-    .CLongLong =>.None,
-    .CULongLong =>.None,
-    .CLongDouble =>.None,
-    // Pointer and function types: pointer-aligned
-    .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
-    .Func(_, _, _, _, _, _, _, _, _) =>.Some(usize(get_target_pointer_size_bytes())),
-    // Array: element alignment
-    .Array(element : el, _) => recur(el.*),
-    // Slice: pointer-aligned (fat pointer)
-    .Slice(_) =>.Some(usize(get_target_pointer_size_bytes())),
-    // Complex types: return `.None` until Phase 3
-    _ =>.None
+// Wire the function-pointer slots now that both functions are defined. Assigned
+// at module top level (not inside a closure) per the captured-global rule.
+g_size_of_type_fn = Option(SizeFn).Some(get_size_of_type);
+g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
+// ---------------------------------------------------------------------------
+// Raw-pointer / slice-source representation predicates (for flow analysis)
+// ---------------------------------------------------------------------------
+/// Internal: does `ty`'s representation transitively contain a raw pointer
+/// (`Ptr`/`Slice`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
+/// buffer alive across a value return). `depth` caps recursion in place of TS's
+/// object-identity `checkedTypes` set (yo-self `TypeValue` is value-semantic).
+/// Field loops are inlined (via `recur`) to avoid a mutual forward reference.
+/// Mirrors `typeRepresentationContainsRawPtr` in `src/types/utils.ts`.
+_type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
+  cond(
+    (depth == usize(0)) => false,
+    is_object_type(ty) => false,
+    is_dyn_type(ty) => false,
+    true => match(
+      ty,
+      .Pointer(_) => true,
+      .Slice(_) => true,
+      .Struct({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Tuple({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Union({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .EnumT({ variant_fields : vfs }) => {
+        (vi : usize) = usize(0);
+        (found : bool) = false;
+        while((vi < vfs.len()) && !(found), {
+          vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while((fi < vf.len()) && !(found), {
+            ft := match(vf.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            if(recur(ft, depth - usize(1)), {
+              found = true;
+            });
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      .Array({ element : el }) => recur(el.*, depth - usize(1)),
+      _ => false
+    )
   )
+);
+/// Does `ty`'s representation transitively contain a raw pointer? `object`/`Dyn`
+/// are safe leaves (Rc-managed). Public entry; caps recursion depth at 40.
+type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)(
+  _type_repr_contains_raw_ptr(ty, usize(40))
+);
+/// Internal: sibling of `_type_repr_contains_raw_ptr` that ALSO treats
+/// `object`/`Dyn` as a "yes" leaf — used by the slice-flowability arg-source
+/// check. Mirrors `typeMayProvideSliceSource` in `src/types/utils.ts`.
+_type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
+  cond(
+    (depth == usize(0)) => false,
+    is_object_type(ty) => true,
+    is_dyn_type(ty) => true,
+    true => match(
+      ty,
+      .Pointer(_) => true,
+      .Slice(_) => true,
+      .Struct({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Tuple({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Union({ field_types : fts }) => {
+        (i : usize) = usize(0);
+        (found : bool) = false;
+        while((i < fts.len()) && !(found), {
+          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          i = (i + usize(1));
+        });
+        found
+      },
+      .EnumT({ variant_fields : vfs }) => {
+        (vi : usize) = usize(0);
+        (found : bool) = false;
+        while((vi < vfs.len()) && !(found), {
+          vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while((fi < vf.len()) && !(found), {
+            ft := match(vf.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            if(recur(ft, depth - usize(1)), {
+              found = true;
+            });
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      .Array({ element : el }) => recur(el.*, depth - usize(1)),
+      _ => false
+    )
+  )
+);
+/// May `ty` provide the source storage for a returned slice's pointer? Like
+/// `type_representation_contains_raw_ptr`, but `object`/`Dyn` ALSO count.
+/// Public entry; caps recursion depth at 40.
+type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)(
+  _type_provides_slice_source(ty, usize(40))
 );
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
@@ -661,8 +1157,10 @@ export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
 export(type_contains_rc_type);
+export(type_is_control_bound);
 export(can_type_form_rc_cycle);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
 export(get_size_of_type, get_alignment_of_type);
+export(type_representation_contains_raw_ptr, type_may_provide_slice_source);

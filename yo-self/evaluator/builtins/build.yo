@@ -23,9 +23,22 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { AnyError, Exception } :: import("std/error");
-{ AstExpr, ast_expr_token, make_err_expr } :: import("../../expr.yo");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call_of,
+  BF_YO_BUILD_TARGET_HOST,
+  BF_YO_BUILD_TARGET_PARSE,
+  BF_YO_BUILD_OPTION,
+  BF_YO_BUILD_DEP_MODULE
+} :: import("../../expr.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../../value.yo");
+{ t_unit, t_comptime_string } :: import("../../types/creators.yo");
+{ host_target, parse_target, TargetInfo } :: import("../../target.yo");
 { format_error_message } :: import("../../error.yo");
 // ---------------------------------------------------------------------------
 // Data types  (mirrors TypeScript interfaces in build.ts)
@@ -159,7 +172,7 @@ impl(
     )
   ),
   register_executable : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str());
+    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
@@ -185,7 +198,7 @@ impl(
     );
   }),
   register_static_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str());
+    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
@@ -211,7 +224,7 @@ impl(
     );
   }),
   register_shared_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str());
+    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,
@@ -262,13 +275,13 @@ impl(
     new_steps := ArrayList(BuildStep).new();
     i := usize(0);
     n := self.steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       step := self.steps(i);
       if(step.name == String.from(step_name), {
         already := false;
         j := usize(0);
         m := step.dependency_names.len();
-        while(runtime(j < m), {
+        while(j < m, {
           if(step.dependency_names(j) == dep_name, {
             already = true;
           });
@@ -299,7 +312,7 @@ impl(
     already := false;
     i := usize(0);
     n := self.dependency_artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       r := self.dependency_artifacts(i);
       if((r.dependency_name == ref.dependency_name) && (r.artifact_name == ref.artifact_name), {
         already = true;
@@ -316,7 +329,7 @@ impl(
   register_module : (fn(ref(self) : Self, entry : BuildModuleEntry) -> unit)({
     i := usize(0);
     n := self.modules.len();
-    while(runtime(i < n), {
+    while(i < n, {
       if(self.modules(i).name == entry.name, return(()));
       i = (i + usize(1));
     });
@@ -327,13 +340,13 @@ impl(
     new_artifacts := ArrayList(BuildArtifact).new();
     i := usize(0);
     n := self.artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       art := self.artifacts(i);
       if(art.name == String.from(artifact_name), {
         already := false;
         j := usize(0);
         m := art.linked_artifacts.len();
-        while(runtime(j < m), {
+        while(j < m, {
           if(art.linked_artifacts(j) == library_name, {
             already = true;
           });
@@ -357,7 +370,7 @@ impl(
   find_artifact : (fn(ref(self) : Self, name : str) -> Option(BuildArtifact))({
     i := usize(0);
     n := self.artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       a := self.artifacts(i);
       if(a.name == String.from(name), return(Option(BuildArtifact).Some(a)));
       i = (i + usize(1));
@@ -367,7 +380,7 @@ impl(
   find_test : (fn(ref(self) : Self, name : str) -> Option(BuildTestSuite))({
     i := usize(0);
     n := self.test_suites.len();
-    while(runtime(i < n), {
+    while(i < n, {
       t := self.test_suites(i);
       if(t.name == String.from(name), return(Option(BuildTestSuite).Some(t)));
       i = (i + usize(1));
@@ -377,7 +390,7 @@ impl(
   find_run_step : (fn(ref(self) : Self, name : str) -> Option(BuildRunStep))({
     i := usize(0);
     n := self.run_steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       r := self.run_steps(i);
       if(r.name == String.from(name), return(Option(BuildRunStep).Some(r)));
       i = (i + usize(1));
@@ -387,7 +400,7 @@ impl(
   find_step : (fn(ref(self) : Self, name : str) -> Option(BuildStep))({
     i := usize(0);
     n := self.steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       s := self.steps(i);
       if(s.name == String.from(name), return(Option(BuildStep).Some(s)));
       i = (i + usize(1));
@@ -397,7 +410,7 @@ impl(
   find_documentation : (fn(ref(self) : Self, name : str) -> Option(BuildDocConfig))({
     i := usize(0);
     n := self.doc_configs.len();
-    while(runtime(i < n), {
+    while(i < n, {
       d := self.doc_configs(i);
       if(d.name == String.from(name), return(Option(BuildDocConfig).Some(d)));
       i = (i + usize(1));
@@ -407,7 +420,7 @@ impl(
   find_module : (fn(ref(self) : Self, name : str) -> Option(BuildModuleEntry))({
     i := usize(0);
     n := self.modules.len();
-    while(runtime(i < n), {
+    while(i < n, {
       m := self.modules(i);
       if(m.name == String.from(name), return(Option(BuildModuleEntry).Some(m)));
       i = (i + usize(1));
@@ -417,7 +430,7 @@ impl(
   find_dependency : (fn(ref(self) : Self, name : str) -> Option(BuildGitDependency))({
     i := usize(0);
     n := self.dependencies.len();
-    while(runtime(i < n), {
+    while(i < n, {
       d := self.dependencies(i);
       if(d.name == String.from(name), return(Option(BuildGitDependency).Some(d)));
       i = (i + usize(1));
@@ -427,7 +440,7 @@ impl(
   find_path_dependency : (fn(ref(self) : Self, name : str) -> Option(BuildPathDependency))({
     i := usize(0);
     n := self.path_dependencies.len();
-    while(runtime(i < n), {
+    while(i < n, {
       d := self.path_dependencies(i);
       if(d.name == String.from(name), return(Option(BuildPathDependency).Some(d)));
       i = (i + usize(1));
@@ -437,7 +450,7 @@ impl(
   find_system_library : (fn(ref(self) : Self, name : str) -> Option(BuildSystemLibrary))({
     i := usize(0);
     n := self.system_libraries.len();
-    while(runtime(i < n), {
+    while(i < n, {
       l := self.system_libraries(i);
       if(l.name == String.from(name), return(Option(BuildSystemLibrary).Some(l)));
       i = (i + usize(1));
@@ -448,7 +461,7 @@ impl(
     names := ArrayList(String).new();
     i := usize(0);
     n := self.steps.len();
-    while(runtime(i < n), {
+    while(i < n, {
       names.push(self.steps(i).name);
       i = (i + usize(1));
     });
@@ -508,7 +521,7 @@ impl(
   _check_duplicate_artifact_name : (fn(ref(self) : Self, name : str, exn : Exception) -> unit)({
     i := usize(0);
     n := self.artifacts.len();
-    while(runtime(i < n), {
+    while(i < n, {
       a := self.artifacts(i);
       if(a.name == String.from(name), {
         kind_str := match(
@@ -524,15 +537,136 @@ impl(
   })
 );
 // ---------------------------------------------------------------------------
-// evaluate_yo_build_functions  (Phase 3 stub)
+// evaluate_yo_build_functions
 // ---------------------------------------------------------------------------
-/// Dispatch the `__yo_build_*` evaluator builtins to mutators on the
-/// build registry that the evaluator carries in its context. Full
-/// implementation is Phase 3 — currently throws to signal "not yet
-/// implemented" so callers fall back to the bootstrap path.
-///
-/// 1-to-1 with `evaluateYoBuildFunctions` in
+/// Read arg `idx`'s resolved comptime value from the expr-info table.
+/// Args are pre-evaluated by the `_expr.yo` dispatch before this runs.
+_build_arg_value :: (
+  fn(args : ArrayList(AstExpr), idx : usize, ctx : EvalContext) -> Option(EvalValue)
+)(
+  match(
+    args.get(idx),
+    .Some(a) => match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)),
+      .Some(info) => info.value,
+      .None => Option(EvalValue).None
+    ),
+    .None => Option(EvalValue).None
+  )
+);
+/// True when any argument's value is missing or `UnknownVal` — i.e. this
+/// is a function-definition type-check ("trial") run rather than a real
+/// call with concrete comptime args. Mirrors `isTrialEvaluation` in
+/// `build.ts`. During `check`, build calls inside function bodies are
+/// always trial (their comptime params are `UnknownVal`).
+_build_is_trial :: (
+  fn(args : ArrayList(AstExpr), ctx : EvalContext) -> bool
+)({
+  (i : usize) = usize(0);
+  (trial : bool) = false;
+  while((i < args.len()) && !(trial), {
+    match(
+      _build_arg_value(args, i, ctx),
+      .None => {
+        trial = true;
+      },
+      .Some(v) => match(
+        v,
+        .UnknownVal(_) => {
+          trial = true;
+        },
+        _ => ()
+      )
+    );
+    i = (i + usize(1));
+  });
+  trial
+});
+/// Set the expr's result to `unit`. Mirrors `makeUnitResult`.
+_build_unit_result :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> AstExpr
+)({
+  info := new_expr_info(env, t_unit());
+  info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+/// Set the expr's result to a `comptime_string` carrying `value`.
+/// Mirrors `makeComptimeStringResult`. `StrLit` stores the quoted source
+/// form (see `builtins/process.yo`), so `value` is wrapped in quotes.
+_build_string_result :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext, value : String) -> AstExpr
+)({
+  raw := ((String.from("\"") + value) + String.from("\""));
+  info := new_expr_info(env, t_comptime_string());
+  info.value = Option(EvalValue).Some(EvalValue.StrLit(raw));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+/// Extract the (unquoted) comptime-string content of arg `idx`, throwing
+/// the build-function arg-type error otherwise. Mirrors
+/// `extractComptimeString`.
+_build_extract_string :: (
+  fn(
+    args : ArrayList(AstExpr),
+    idx : usize,
+    param : str,
+    expr : AstExpr,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)(
+  match(
+    _build_arg_value(args, idx, ctx),
+    .Some(v) => match(
+      v,
+      .StrLit(raw) => {
+        n := raw.len();
+        if(n < usize(2), String.new(), raw.substring(usize(1), n - usize(1)))
+      },
+      _ => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Build function: expected comptime_string for "${param}", got non-string`,
+              false,
+              .None
+            )
+          )
+        );
+        String.new()
+      }
+    ),
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Build function: expected comptime_string for "${param}", got undefined`,
+            false,
+            .None
+          )
+        )
+      );
+      String.new()
+    }
+  )
+);
+/// Dispatch the `__yo_build_*` evaluator builtins to their comptime
+/// result. 1-to-1 with `evaluateYoBuildFunctions` in
 /// `src/evaluator/builtins/build.ts`.
+///
+/// **Scope note.** The build *registry* (which these builtins populate in
+/// the TS reference for the build runner) is out of scope for the
+/// evaluator/`check` milestone — see plans/BOOTSTRAPPING_EVALUATOR.md (no
+/// build-runner self-hosting). During `check`, every build-function call
+/// inside a function body is a "trial" evaluation (its comptime params are
+/// `UnknownVal`), and even the TS reference skips the registry on the
+/// trial path. So this handler validates arguments and returns each
+/// builtin's correct comptime TYPE (so a `build.yo` type-checks); it does
+/// not populate the `BuildRegistry`. The registry mutators above remain
+/// for when the build runner is ported.
 evaluate_yo_build_functions :: (
   fn(
     expr : AstExpr,
@@ -541,19 +675,99 @@ evaluate_yo_build_functions :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _ := env;
-  _ := ctx;
-  exn.throw(
-    dyn(
-      format_error_message(
-        ast_expr_token(expr),
-        String.from("evaluate_yo_build_functions: not yet implemented (Phase 3)"),
-        false,
-        .None
-      )
-    )
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-  make_err_expr()
+  // ── Trial evaluation (function-definition type-check) ───────────────
+  // Mirror build.ts: target_host returns the host triple, option returns
+  // "", everything else returns unit — no registry interaction.
+  if(_build_is_trial(args, ctx), {
+    if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, Option(usize).None), {
+      return(_build_string_result(expr, env, ctx, host_target().triple));
+    });
+    if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
+      return(_build_string_result(expr, env, ctx, String.new()));
+    });
+    return(_build_unit_result(expr, env, ctx));
+  });
+  // ── Real evaluation (concrete comptime args) ────────────────────────
+  // String-returning builtins.
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, Option(usize).None), {
+    return(_build_string_result(expr, env, ctx, host_target().triple));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_PARSE, Option(usize).None), {
+    if(args.len() != usize(1), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `__yo_build_target_parse expects 1 argument (triple), got ${args.len()}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    triple := _build_extract_string(args, usize(0), "triple", expr, ctx, exn);
+    parsed := match(
+      parse_target(triple),
+      .Ok(t) => t.triple,
+      .Err(_) => triple
+    );
+    return(_build_string_result(expr, env, ctx, parsed));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
+    if(args.len() < usize(3), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `__yo_build_option expects 3 arguments (name, description, default), got ${args.len()}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    _opt_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
+    _opt_desc := _build_extract_string(args, usize(1), "description", expr, ctx, exn);
+    default_value := _build_extract_string(args, usize(2), "default", expr, ctx, exn);
+    // No CLI overrides during `check` — return the declared default.
+    return(_build_string_result(expr, env, ctx, default_value));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, Option(usize).None), {
+    if(args.len() < usize(2), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `__yo_build_dep_module expects 2 arguments (dependency_name, module_name), got ${args.len()}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    dep_name := _build_extract_string(args, usize(0), "dependency_name", expr, ctx, exn);
+    mod_name := _build_extract_string(args, usize(1), "module_name", expr, ctx, exn);
+    // Encode as "dep_name<NUL>module_name" (decoded by the build
+    // runner's add_import handling). Mirrors build.ts. The NUL byte is
+    // built at runtime via push_byte rather than as a string literal: a
+    // literal NUL lowers to a C universal-character-name the C compiler
+    // rejects ("refers to a control character").
+    nul_sep := String.new();
+    nul_sep.push_byte(u8(0));
+    encoded := ((dep_name + nul_sep) + mod_name);
+    return(_build_string_result(expr, env, ctx, encoded));
+  });
+  // All other build builtins return unit (executable, static_library,
+  // shared_library, link, link_system_library, test, run, step, doc,
+  // step_depend_on, dependency, path_dependency, system_library,
+  // dep_artifact, module, module_link, add_import, add_cflags). Registry
+  // population is deferred (see the scope note above).
+  _build_unit_result(expr, env, ctx)
 });
 // ---------------------------------------------------------------------------
 // Exports

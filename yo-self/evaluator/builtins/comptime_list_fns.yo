@@ -24,7 +24,8 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
+{ random_id } :: import("../../utils.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize, t_type } :: import("../../types/creators.yo");
 { is_comptime_list_type } :: import("../../types/guards.yo");
@@ -104,7 +105,15 @@ evaluate_yo_comptime_list_car :: (
     }
   );
   out_info := new_expr_info(cur_env, child_ty);
-  out_info.value =.Some(create_unknown_val(child_ty));
+  // Named variant: promotes an unknown ELEMENT of a ComptimeList(Type) to
+  // `TypeVal(SomeT)` — TS passes `__comptime_list_car_${randomId}` here
+  // (comptime-list-fns.ts:80) and createUnknownValue returns a TypeValue
+  // for Type-universe slots. Without it, `types.first()` on an unknown
+  // variadic list yielded a bare UnknownVal that
+  // `__yo_are_types_compatible` rejects (tests/variadic_comptime).
+  car_unk_name := String.from("__comptime_list_car_");
+  car_unk_name.push_str(random_id(env.module_path).as_str());
+  out_info.value =.Some(create_unknown_val_with_name(child_ty, car_unk_name));
   match(
     list_val,
     .ComptimeListVal(elements) => {
@@ -214,7 +223,7 @@ evaluate_yo_comptime_list_cdr :: (
         new_elems := ArrayList(EvalValue).new();
         (i : usize) = usize(1);
         n := elements.len();
-        while(runtime(i < n), {
+        while(i < n, {
           match(
             elements.get(i),
             .Some(e) => {
@@ -379,7 +388,7 @@ evaluate_yo_comptime_list_cons :: (
       new_elems.push(car_val);
       (i : usize) = usize(0);
       n := elements.len();
-      while(runtime(i < n), {
+      while(i < n, {
         match(
           elements.get(i),
           .Some(e) => {
@@ -544,7 +553,7 @@ evaluate_yo_comptime_list_append :: (
         new_elems := ArrayList(EvalValue).new();
         (i1 : usize) = usize(0);
         n1 := first_elems.len();
-        while(runtime(i1 < n1), {
+        while(i1 < n1, {
           match(
             first_elems.get(i1),
             .Some(e) => {
@@ -556,7 +565,7 @@ evaluate_yo_comptime_list_append :: (
         });
         (i2 : usize) = usize(0);
         n2 := second_elems.len();
-        while(runtime(i2 < n2), {
+        while(i2 < n2, {
           match(
             second_elems.get(i2),
             .Some(e) => {
@@ -802,7 +811,11 @@ evaluate_yo_comptime_list_get :: (
   });
   child_ty := match(list_info.ty,.ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
   (cur_env : Environment) = list_info.env;
-  (out_val : Option(EvalValue)) =.Some(create_unknown_val(child_ty));
+  // Same named promotion as the car builtin above (TS
+  // comptime-list-fns.ts:606).
+  get_unk_name := String.from("__comptime_list_get_");
+  get_unk_name.push_str(random_id(env.module_path).as_str());
+  (out_val : Option(EvalValue)) =.Some(create_unknown_val_with_name(child_ty, get_unk_name));
   match(
     list_info.value,
     .Some(list_v) => match(

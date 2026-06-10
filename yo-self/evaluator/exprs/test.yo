@@ -50,10 +50,51 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { Exception } :: import("std/error");
+// ---------------------------------------------------------------------------
+// _trial_eval_test_body
+// ---------------------------------------------------------------------------
+/// Trial-evaluate a test body in a synthetic function-body context.
+///
+/// Under explicit effects the test runner generates `main :: (fn(io : Io,
+/// exn : Exception) -> unit)({ …test body… })` and inlines test bodies into
+/// it; that is where the *authoritative* type check happens at build time.
+/// This trial evaluation just surfaces obvious mistakes earlier — but it runs
+/// from a test-block context that takes a different generic-inference path
+/// than a real function body, and some valid patterns (e.g. a call to a
+/// locally-defined `cond`-with-`throw` function) fail in the trial even
+/// though they compile fine in the real `main` wrapper.
+///
+/// A local exception handler swallows any error from the trial: it unwinds
+/// this helper, so trial-eval errors are non-fatal and test extraction
+/// proceeds. Mirrors the `try { … } catch {}` in
+/// `src/evaluator/exprs/test.ts`. On success, attaches `original_body` to the
+/// body's `ExprInfo` when the body has unit type (also matching TypeScript).
+_trial_eval_test_body :: (
+  fn(
+    body : AstExpr,
+    original_body : AstExpr,
+    env : Environment,
+    ctx : EvalContext
+  ) -> unit
+)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  match(
+    body_info_opt,
+    .Some(body_info) => {
+      if(is_unit_type(body_info.ty), {
+        body_info.original_expr = Option(AstExpr).Some(original_body);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated), body_info);
+      });
+    },
+    .None => ()
+  );
+  ()
+});
 // ---------------------------------------------------------------------------
 // evaluate_test
 // ---------------------------------------------------------------------------
@@ -130,7 +171,10 @@ evaluate_test :: (
   });
   name_info := match(name_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
   // Update env from the name evaluation.
-  env = name_info.env;
+  env.frames = name_info.env.frames;
+  env.module_path = name_info.env.module_path;
+  env.function_declaration_frame_level = name_info.env.function_declaration_frame_level;
+  env.input_string = name_info.env.input_string;
   // Validate test name is a comptime string.
   name_is_str_lit := match(
     name_info.value,
@@ -194,6 +238,9 @@ evaluate_test :: (
     ),
     .None => io_module_var.ty
   );
+  // Save frame count to restore after the (best-effort) trial evaluation,
+  // which may push frames and then unwind on a swallowed error.
+  saved_frames_len := env.frames.len();
   // Push a new frame for the test body (isolates io variable from outer scope).
   _frame_idx := env.push_frame(false);
   // Add the implicit `io : Io` variable to the new frame.
@@ -225,43 +272,17 @@ evaluate_test :: (
       eval_env : env
     )
   );
-  // Evaluate the test body to catch compile-time errors.
-  evaluated_test_body_expr := evaluate_expression(test_body_expr, env, ctx);
+  // Trial-evaluate the body (best effort; errors are swallowed — see the
+  // helper). This surfaces obvious mistakes early; the authoritative check
+  // is the test runner's compile step. Matches TypeScript's `try/catch`.
+  _trial_eval_test_body(test_body_expr, original_test_body_expr, env, ctx);
   // Restore context.
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
-  // Pop the frame to restore env to pre-test state.
-  env.pop_frame();
-  // Validate that the test body returns unit.
-  body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_body_expr));
-  if(!(body_info_opt.is_some()), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(test_body_expr),
-          `Failed to evaluate test body: ${ast_expr_to_string(test_body_expr)}`,
-          false,
-          .None
-        )
-      )
-    );
+  // Restore env to its pre-test frame state: pops the implicit-io frame and
+  // any frames left behind by a trial evaluation that unwound on error.
+  while(env.frames.len() > saved_frames_len, {
+    env.pop_frame();
   });
-  body_info := match(body_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
-  if(!(is_unit_type(body_info.ty)), {
-    body_ty_str := type_to_string(body_info.ty);
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(test_body_expr),
-          `Test body must have 'unit' type, got ${body_ty_str}`,
-          false,
-          .None
-        )
-      )
-    );
-  });
-  // Attach originalExpr to the body ExprInfo (used by test codegen).
-  body_info.original_expr = Option(AstExpr).Some(original_test_body_expr);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated_test_body_expr), body_info);
   // NOTE: Don't propagate env (matches TypeScript behavior).
   // Return unit — test has no compile-time value.
   result_info := new_expr_info(env, t_unit());

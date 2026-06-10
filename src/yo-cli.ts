@@ -50,29 +50,46 @@ const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 // `.yo`) or a directory (walked recursively; `.test.yo` files are included
 // since their bodies are evaluator-typecheckable; noisy infrastructure dirs
 // like `node_modules` / `.git` are skipped).
-function collectCheckFiles(targetPath: string): string[] {
+function collectCheckFiles(
+  targetPath: string,
+  excludePaths: string[] = []
+): string[] {
   const absolutePath = path.resolve(targetPath);
+  // Resolve excludes to absolute paths; a path is excluded if it equals an
+  // exclude or lives under one (so `--exclude yo-self/tests` skips the whole
+  // subtree). Lets a single directory `check` skip known-broken sub-trees
+  // instead of falling back to slow per-file checking.
+  const excludes = excludePaths.map((e) => path.resolve(e));
+  const isExcluded = (p: string): boolean =>
+    excludes.some((ex) => p === ex || p.startsWith(ex + path.sep));
   const stats = fs.statSync(absolutePath);
   if (stats.isFile()) {
     if (!absolutePath.endsWith(".yo")) {
       console.error(`check: not a .yo file: ${absolutePath}`);
       process.exit(1);
     }
-    return [absolutePath];
+    return isExcluded(absolutePath) ? [] : [absolutePath];
   }
   if (stats.isDirectory()) {
     const out: string[] = [];
-    walkCheckDir(absolutePath, out);
+    walkCheckDir(absolutePath, out, isExcluded);
     out.sort();
     return out;
   }
   return [];
 }
 
-function walkCheckDir(dir: string, out: string[]): void {
+function walkCheckDir(
+  dir: string,
+  out: string[],
+  isExcluded: (p: string) => boolean = () => false
+): void {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
+    if (isExcluded(full)) {
+      continue;
+    }
     if (entry.isDirectory()) {
       if (
         ![
@@ -83,9 +100,16 @@ function walkCheckDir(dir: string, out: string[]): void {
           "outdated",
         ].includes(entry.name)
       ) {
-        walkCheckDir(full, out);
+        walkCheckDir(full, out, isExcluded);
       }
-    } else if (entry.isFile() && entry.name.endsWith(".yo")) {
+    } else if (
+      entry.isFile() &&
+      entry.name.endsWith(".yo") &&
+      // Skip dot-prefixed `.yo` files — these are auto-generated, not-yet-
+      // cleaned-up test-batch artifacts (`.yo_test_batch_<ts>_<rand>.yo`),
+      // not source files, and shouldn't be type-checked.
+      !entry.name.startsWith(".")
+    ) {
       out.push(full);
     }
   }
@@ -517,6 +541,12 @@ yo --version                     Show version number
           type: "string",
           demandOption: true,
         });
+        _yargs.option("exclude", {
+          type: "array",
+          describe:
+            "Path(s) to exclude when checking a directory (file or sub-directory; repeatable)",
+          default: [],
+        });
       },
       (argv) => {
         // `check` is `compile` with `--skip-codegen --skip-c-compiler`
@@ -528,7 +558,10 @@ yo --version                     Show version number
           console.error(`check: path does not exist: ${targetPath}`);
           process.exit(1);
         }
-        const files = collectCheckFiles(targetPath);
+        const excludePaths = (
+          (argv.exclude as unknown[] | undefined) ?? []
+        ).map((e) => String(e));
+        const files = collectCheckFiles(targetPath, excludePaths);
         if (files.length === 0) {
           console.error(`check: no .yo files found at ${targetPath}`);
           process.exit(1);

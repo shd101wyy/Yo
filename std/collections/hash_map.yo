@@ -573,11 +573,18 @@ impl(
   )
 );
 /**
-* Keys iterator - wraps HashMapIter and yields only the keys
+* Keys iterator - scans ctrl bytes directly and yields only the keys.
+*
+* NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
+* `self._inner.next()` — but a method call on a struct FIELD of `ref(self)`
+* advances a COPY of the field, so `_index` never moved and manual
+* `it.next()` loops yielded the first key forever (`for(...)` masked it).
+* Scan directly instead, mirroring `HashMapIterPtr`.
 */
 HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _inner : HashMapIter(K, V)
+    _map : HashMap(K, V),
+    _index : usize
   )
 );
 impl(
@@ -587,10 +594,23 @@ impl(
   Iterator(
     Item : K,
     next : (fn(ref(self) : Self) -> Option(K))(
-      match(
-        self._inner.next(),
-        .None =>.None,
-        .Some(bucket) =>.Some(bucket.key)
+      cond(
+        (self._map.capacity == usize(0)) =>.None,
+        true => {
+          ctrl_ptr := self._map.ctrl.unwrap();
+          data_ptr := self._map.data.unwrap();
+          result := Option(K).None;
+          while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
+            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            cond(
+              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                result =.Some((data_ptr &+ self._index).*.key);
+              },
+              true => ()
+            );
+          });
+          result
+        }
       )
     )
   )
@@ -600,15 +620,19 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   keys : (fn(self : Self) -> HashMapKeys(K, V))(
-    HashMapKeys(K, V)(_inner : HashMapIter(K, V)(_map : self, _index : usize(0)))
+    HashMapKeys(K, V)(_map : self, _index : usize(0))
   )
 );
 /**
-* Values iterator - wraps HashMapIter and yields only the values
+* Values iterator - scans ctrl bytes directly and yields only the values.
+*
+* NOTE: Same direct-scan structure as `HashMapKeys` — see the note there for
+* why the wrapped-`_inner` delegation form was replaced.
 */
 HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _inner : HashMapIter(K, V)
+    _map : HashMap(K, V),
+    _index : usize
   )
 );
 impl(
@@ -618,10 +642,23 @@ impl(
   Iterator(
     Item : V,
     next : (fn(ref(self) : Self) -> Option(V))(
-      match(
-        self._inner.next(),
-        .None =>.None,
-        .Some(bucket) =>.Some(bucket.value)
+      cond(
+        (self._map.capacity == usize(0)) =>.None,
+        true => {
+          ctrl_ptr := self._map.ctrl.unwrap();
+          data_ptr := self._map.data.unwrap();
+          result := Option(V).None;
+          while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
+            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            cond(
+              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                result =.Some((data_ptr &+ self._index).*.value);
+              },
+              true => ()
+            );
+          });
+          result
+        }
       )
     )
   )
@@ -631,7 +668,7 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   values : (fn(self : Self) -> HashMapValues(K, V))(
-    HashMapValues(K, V)(_inner : HashMapIter(K, V)(_map : self, _index : usize(0)))
+    HashMapValues(K, V)(_map : self, _index : usize(0))
   )
 );
 impl(

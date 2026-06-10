@@ -128,6 +128,7 @@ open(import("std/fmt"));
 } :: import("../value.yo");
 { random_id } :: import("../utils.yo");
 { parse_raw_int, parse_raw_float } :: import("./utils.yo");
+{ decode_str_lit_escapes } :: import("./values/string.yo");
 {
   register_macro_quoted_params,
   register_macro_return_is_unquote,
@@ -254,7 +255,6 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .BreakVal => true,
     .ContinueVal => true,
     .TypeVal(_) => true,
-    .ModuleVal(_, _) => true,
     // Phase 2h variants
     .TupleVal(_) => true,
     .ArrayVal(_) => true,
@@ -343,7 +343,7 @@ eval_atom :: (fn(tok : Token, env : Environment) -> Option(EvalResult))(
     (tok.kind == TokenKind.Float) =>
       .Some(eval_result(.FloatLit(tok.value), t_comptime_float())),
     (tok.kind == TokenKind.StringLit) =>
-      .Some(eval_result(.StrLit(tok.value), t_comptime_string())),
+      .Some(eval_result(.StrLit(decode_str_lit_escapes(tok.value)), t_comptime_string())),
     (tok.kind == TokenKind.TemplateString) =>
       .Some(eval_result(.StrLit(tok.value), t_comptime_string())),
     (tok.kind == TokenKind.CharLit) =>
@@ -375,7 +375,6 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .BreakVal => t_unit(),
     .ContinueVal => t_unit(),
     .TypeVal(_) => t_type(),
-    .ModuleVal(_, _) => t_unit(),
     // Phase 2h variants
     .TupleVal(_) => t_unit(),
     .ArrayVal(_) => t_unit(),
@@ -463,7 +462,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                               n_sh := sh_vargs.len();
                               (i_sh : usize) = usize(0);
                               (ok_sh : bool) = true;
-                              while(runtime((i_sh < n_sh) && ok_sh), {
+                              while((i_sh < n_sh) && ok_sh, {
                                 match(
                                   sh_sfields.get(i_sh),
                                   .Some(sh_fval) =>
@@ -539,7 +538,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                       n_bind := pat_args.len();
                       (i : usize) = usize(0);
                       (ok : bool) = true;
-                      while(runtime((i < n_bind) && ok), {
+                      while((i < n_bind) && ok, {
                         match(
                           sfields.get(i),
                           .Some(field_val) =>
@@ -619,7 +618,7 @@ call_funcval_with_args :: (
               fresh_fn_env := Environment.new(String.from(""));
               n_cap_h := cap_names.len();
               (chi : usize) = usize(0);
-              while(runtime(chi < n_cap_h), {
+              while(chi < n_cap_h, {
                 match(
                   cap_names.get(chi),
                   .Some(cn) =>
@@ -656,14 +655,14 @@ call_funcval_with_args :: (
               // annotated with F; use that argument's type to bind F = TypeVal(ty).
               n_forall_h := forall_names_h.len();
               (fa_i_h : usize) = usize(0);
-              while(runtime(fa_i_h < n_forall_h), {
+              while(fa_i_h < n_forall_h, {
                 match(
                   forall_names_h.get(fa_i_h),
                   .Some(fa_name) => {
                     n_ptn_h := param_type_names_h.len();
                     (ptn_i_h : usize) = usize(0);
                     (fa_bound_h : bool) = false;
-                    while(runtime((ptn_i_h < n_ptn_h) && (!(fa_bound_h))), {
+                    while((ptn_i_h < n_ptn_h) && (!(fa_bound_h)), {
                       match(
                         param_type_names_h.get(ptn_i_h),
                         .Some(ptn) => {
@@ -696,7 +695,7 @@ call_funcval_with_args :: (
                 fa_i_h = (fa_i_h + usize(1));
               });
               (pi : usize) = usize(0);
-              while(runtime(pi < n_p), {
+              while(pi < n_p, {
                 match(
                   params.get(pi),
                   .Some(pname) =>
@@ -718,7 +717,7 @@ call_funcval_with_args :: (
               });
               // Phase 3o: bind evidence params — args[n_p..n_p+n_ev]
               (evi : usize) = usize(0);
-              while(runtime(evi < n_ev), {
+              while(evi < n_ev, {
                 match(
                   evidence_params_h.get(evi),
                   .Some(ev_pname) =>
@@ -877,7 +876,7 @@ handle_struct_field_mutation :: (
                                       (fi : usize) = usize(0);
                                       (fidx : Option(usize)) = Option(usize).None;
                                       (sf_fnd : bool) = false;
-                                      while(runtime((fi < n_sf) && (!(sf_fnd))), {
+                                      while((fi < n_sf) && (!(sf_fnd)), {
                                         match(
                                           sfnames.get(fi),
                                           .Some(sfn) => {
@@ -899,7 +898,7 @@ handle_struct_field_mutation :: (
                                         .Some(target_idx) => {
                                           new_fvals := ArrayList(EvalValue).new();
                                           (k : usize) = usize(0);
-                                          while(runtime(k < n_sf), {
+                                          while(k < n_sf, {
                                             cond(
                                               (k == target_idx) => {
                                                 new_fvals.push(rhs_res.value);
@@ -956,7 +955,7 @@ eval_values_equal :: (fn(a : EvalValue, b : EvalValue) -> bool)(
             n_ef := fields_a.len();
             (ei : usize) = usize(0);
             (all_eq : bool) = true;
-            while(runtime((ei < n_ef) && all_eq), {
+            while((ei < n_ef) && all_eq, {
               match(
                 fields_a.get(ei),
                 .Some(fa) => match(
@@ -989,7 +988,7 @@ eval_values_equal :: (fn(a : EvalValue, b : EvalValue) -> bool)(
             n_sf := vals_a.len();
             (si : usize) = usize(0);
             (s_eq : bool) = true;
-            while(runtime((si < n_sf) && s_eq), {
+            while((si < n_sf) && s_eq, {
               match(
                 vals_a.get(si),
                 .Some(sfa) => match(
@@ -1021,7 +1020,7 @@ eval_values_equal :: (fn(a : EvalValue, b : EvalValue) -> bool)(
             n_ai := items_a.len();
             (ai : usize) = usize(0);
             (a_eq : bool) = true;
-            while(runtime((ai < n_ai) && a_eq), {
+            while((ai < n_ai) && a_eq, {
               match(
                 items_a.get(ai),
                 .Some(aia) => match(
@@ -1128,7 +1127,7 @@ handle_method_dispatch :: (
                 (out : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
                 (k : usize) = usize(0);
                 m := fargs.len();
-                while(runtime(k < m), {
+                while(k < m, {
                   match(
                     fargs.get(k),
                     .Some(ae) => {
@@ -1175,7 +1174,7 @@ handle_method_dispatch :: (
               (rest : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
               (kk : usize) = usize(1);
               mm := elems_d.len();
-              while(runtime(kk < mm), {
+              while(kk < mm, {
                 match(
                   elems_d.get(kk),
                   .Some(ev) => {
@@ -1854,7 +1853,7 @@ handle_method_dispatch :: (
               );
               (found : bool) = false;
               (ci : usize) = usize(0);
-              while(runtime((ci < av_items_c.len()) && (!(found))), {
+              while((ci < av_items_c.len()) && (!(found)), {
                 match(
                   av_items_c.get(ci),
                   .Some(item) => {
@@ -1899,7 +1898,7 @@ handle_method_dispatch :: (
               sep_inner := cond((sep_str.len() >= usize(2)) => sep_str.substring(usize(1), sep_str.len() - usize(1)), true => sep_str);
               (result_j : String) = String.from("");
               (ji : usize) = usize(0);
-              while(runtime(ji < av_items_j.len()), {
+              while(ji < av_items_j.len(), {
                 match(
                   av_items_j.get(ji),
                   .Some(jitem) => {
@@ -2014,7 +2013,7 @@ handle_method_dispatch :: (
               n_m := av_items_m.len();
               (mi : usize) = usize(0);
               (m_ok : bool) = true;
-              while(runtime((mi < n_m) && m_ok), {
+              while((mi < n_m) && m_ok, {
                 match(
                   av_items_m.get(mi),
                   .Some(item_m) => {
@@ -2073,7 +2072,7 @@ handle_method_dispatch :: (
               n_fl := av_items_fl.len();
               (fi2 : usize) = usize(0);
               (f_ok : bool) = true;
-              while(runtime((fi2 < n_fl) && f_ok), {
+              while((fi2 < n_fl) && f_ok, {
                 match(
                   av_items_fl.get(fi2),
                   .Some(item_f) => {
@@ -2156,7 +2155,7 @@ handle_method_dispatch :: (
               n_fo := av_items_fo.len();
               (foi : usize) = usize(0);
               (fo_ok : bool) = true;
-              while(runtime((foi < n_fo) && fo_ok), {
+              while((foi < n_fo) && fo_ok, {
                 match(
                   av_items_fo.get(foi),
                   .Some(item_fo) => {
@@ -2215,7 +2214,7 @@ handle_method_dispatch :: (
               n_an := av_items_an.len();
               (ani : usize) = usize(0);
               (found_an : bool) = false;
-              while(runtime((ani < n_an) && (!(found_an))), {
+              while((ani < n_an) && (!(found_an)), {
                 match(
                   av_items_an.get(ani),
                   .Some(item_an) => {
@@ -2266,7 +2265,7 @@ handle_method_dispatch :: (
               n_al := av_items_al.len();
               (ali : usize) = usize(0);
               (all_true : bool) = true;
-              while(runtime((ali < n_al) && all_true), {
+              while((ali < n_al) && all_true, {
                 match(
                   av_items_al.get(ali),
                   .Some(item_al) => {
@@ -2322,7 +2321,7 @@ handle_method_dispatch :: (
               );
               result_arr_co := ArrayList(EvalValue).new();
               (coi : usize) = usize(0);
-              while(runtime(coi < av_items_co.len()), {
+              while(coi < av_items_co.len(), {
                 match(
                   av_items_co.get(coi),
                   .Some(v) => {
@@ -2336,7 +2335,7 @@ handle_method_dispatch :: (
                 other_val,
                 .ArrayVal(other_items) => {
                   (coj : usize) = usize(0);
-                  while(runtime(coj < other_items.len()), {
+                  while(coj < other_items.len(), {
                     match(
                       other_items.get(coj),
                       .Some(v) => {
@@ -2369,7 +2368,7 @@ handle_method_dispatch :: (
                 true => {
                   (rvi : usize) = (n_rv - usize(1));
                   (rv_done : bool) = false;
-                  while(runtime(!(rv_done)), {
+                  while(!(rv_done), {
                     match(
                       av_items_rv.get(rvi),
                       .Some(v) => {
@@ -2430,7 +2429,7 @@ handle_method_dispatch :: (
                   result_arr_rm := ArrayList(EvalValue).new();
                   (rmi : usize) = usize(0);
                   rm_n := av_items_rm.len();
-                  while(runtime(rmi < rm_n), {
+                  while(rmi < rm_n, {
                     cond(
                       (rmi == idx_u) => (),
                       true => match(
@@ -2500,7 +2499,7 @@ handle_method_dispatch :: (
                   result_arr_st := ArrayList(EvalValue).new();
                   (sti : usize) = usize(0);
                   st_n := av_items_st.len();
-                  while(runtime(sti < st_n), {
+                  while(sti < st_n, {
                     cond(
                       (sti == idx_u_st) => {
                         result_arr_st.push(new_val_st);
@@ -2950,7 +2949,7 @@ handle_method_dispatch :: (
                   result_ab := ArrayList(EvalValue).new();
                   (abi : usize) = usize(0);
                   ab_len := bytes_ab.len();
-                  while(runtime(abi < ab_len), {
+                  while(abi < ab_len, {
                     match(
                       bytes_ab.get(abi),
                       .Some(b) => {
@@ -3011,7 +3010,7 @@ handle_method_dispatch :: (
               n_fi := av_items_fi.len();
               (fii : usize) = usize(0);
               (found_fi : Option(EvalValue)) = Option(EvalValue).None;
-              while(runtime((fii < n_fi) && (found_fi.is_none())), {
+              while((fii < n_fi) && (found_fi.is_none()), {
                 match(
                   av_items_fi.get(fii),
                   .Some(elem_fi) => {
@@ -3062,7 +3061,7 @@ handle_method_dispatch :: (
               result_en := ArrayList(EvalValue).new();
               n_en := av_items_en.len();
               (eni : usize) = usize(0);
-              while(runtime(eni < n_en), {
+              while(eni < n_en, {
                 match(
                   av_items_en.get(eni),
                   .Some(elem_en) => {
@@ -3113,7 +3112,7 @@ handle_method_dispatch :: (
                   n_oz := av_other_z.len();
                   min_z := cond((n_z < n_oz) => n_z, true => n_oz);
                   (zi : usize) = usize(0);
-                  while(runtime(zi < min_z), {
+                  while(zi < min_z, {
                     match(
                       av_items_z.get(zi),
                       .Some(lv_z) =>
@@ -3214,7 +3213,7 @@ handle_method_dispatch :: (
               actual_end_sl := cond((end_sl > n_sl) => n_sl, true => end_sl);
               result_sl := ArrayList(EvalValue).new();
               (sli : usize) = start_sl;
-              while(runtime(sli < actual_end_sl), {
+              while(sli < actual_end_sl, {
                 match(
                   av_items_sl.get(sli),
                   .Some(elem_sl) => {
@@ -3254,7 +3253,7 @@ handle_method_dispatch :: (
               n_io := av_items_io.len();
               (ioi : usize) = usize(0);
               (found_idx_io : Option(EvalValue)) = Option(EvalValue).None;
-              while(runtime((ioi < n_io) && (found_idx_io.is_none())), {
+              while((ioi < n_io) && (found_idx_io.is_none()), {
                 match(
                   av_items_io.get(ioi),
                   .Some(elem_io) => {
@@ -3315,7 +3314,7 @@ handle_method_dispatch :: (
               result_fm := ArrayList(EvalValue).new();
               n_fm := av_items_fm.len();
               (fmi : usize) = usize(0);
-              while(runtime(fmi < n_fm), {
+              while(fmi < n_fm, {
                 match(
                   av_items_fm.get(fmi),
                   .Some(elem_fm) => {
@@ -3329,7 +3328,7 @@ handle_method_dispatch :: (
                           // Flatten: push each element from inner array
                           n_inner_fm := inner_arr_fm.len();
                           (ifmi : usize) = usize(0);
-                          while(runtime(ifmi < n_inner_fm), {
+                          while(ifmi < n_inner_fm, {
                             match(
                               inner_arr_fm.get(ifmi),
                               .Some(inner_el) => {
@@ -3413,7 +3412,7 @@ handle_method_dispatch :: (
                     .Some(count_i64) => {
                       (result_rp : String) = String.from("");
                       (ri : i64) = i64(0);
-                      while(runtime(ri < count_i64), {
+                      while(ri < count_i64, {
                         result_rp = (result_rp + inner_rp);
                         ri = (ri + i64(1));
                       });
@@ -3838,7 +3837,7 @@ handle_method_dispatch :: (
                   parts := inner_sp.split(delim_inner);
                   result_arr := ArrayList(EvalValue).new();
                   (spi : usize) = usize(0);
-                  while(runtime(spi < parts.len()), {
+                  while(spi < parts.len(), {
                     match(
                       parts.get(spi),
                       .Some(part) => {
@@ -3877,7 +3876,7 @@ handle_method_dispatch :: (
           n_ca := method_call_args.len();
           (cai : usize) = usize(0);
           (caok : bool) = true;
-          while(runtime((cai < n_ca) && caok), {
+          while((cai < n_ca) && caok, {
             match(
               method_call_args.get(cai),
               .Some(aexpr) =>
@@ -3933,7 +3932,7 @@ handle_impl_form :: (
           n_margs := args.len();
           (mi : usize) = usize(1);
           (mok : bool) = true;
-          while(runtime((mi < n_margs) && mok), {
+          while((mi < n_margs) && mok, {
             match(
               args.get(mi),
               .Some(meth_expr) =>
@@ -3994,7 +3993,7 @@ handle_impl_form :: (
                         // ToString(to_string: fn_def). Iterate its args and
                         // register any colon-pair method impls.
                         (tmi : usize) = usize(0);
-                        while(runtime((tmi < colon_args.len()) && mok), {
+                        while((tmi < colon_args.len()) && mok, {
                           match(
                             colon_args.get(tmi),
                             .Some(inner_expr) =>
@@ -4080,9 +4079,9 @@ handle_impl_form :: (
 ///
 /// Iterates `exprs`, evaluating each one through `g_eval_fn`. When an
 /// `export(name1, name2, …)` call is encountered the named variables are
-/// looked up in `env` and appended to the result `ModuleVal`.
+/// looked up in `env` and appended to the result source-namespace StructVal.
 ///
-/// Returns `Some(ModuleVal(names, values))` on success, or `None` if
+/// Returns a source-namespace `StructVal` on success, or `None` if
 /// `g_eval_fn` is not set or any expression fails to evaluate.
 evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Option(EvalValue))({
   names := ArrayList(String).new();
@@ -4090,7 +4089,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Op
   n := exprs.len();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       exprs.get(i),
       .Some(expr) =>
@@ -4105,7 +4104,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Op
                   (ftok.value.as_str() == BK_EXPORT) => {
                     j := usize(0);
                     nj := fargs.len();
-                    while(runtime((j < nj) && ok), {
+                    while((j < nj) && ok, {
                       match(
                         fargs.get(j),
                         .Some(export_expr) =>
@@ -4213,7 +4212,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Op
     i = (i + usize(1));
   });
   cond(
-    ok =>.Some(.ModuleVal(names, values)),
+    ok =>.Some(.StructVal(`source_namespace_${random_id(env.module_path)}`, names, values)),
     true => Option(EvalValue).None
   )
 });
@@ -4238,7 +4237,7 @@ handle_anon_struct_form :: (
   fv_as := ArrayList(EvalValue).new();
   (as_i : usize) = usize(0);
   (as_ok : bool) = true;
-  while(runtime((as_i < n_as) && as_ok), {
+  while((as_i < n_as) && as_ok, {
     match(
       args.get(as_i),
       .Some(as_arg) =>
@@ -4610,7 +4609,7 @@ handle_enum_def :: (
       (ok : bool) = true;
       n := args.len();
       (i : usize) = usize(0);
-      while(runtime((i < n) && ok), {
+      while((i < n) && ok, {
         match(
           args.get(i),
           .Some(variant_expr) => {
@@ -4707,7 +4706,7 @@ handle_enum_def :: (
                     n_vf := vfield_args.len();
                     (vfi : usize) = usize(0);
                     (vfok : bool) = true;
-                    while(runtime((vfi < n_vf) && vfok), {
+                    while((vfi < n_vf) && vfok, {
                       match(
                         vfield_args.get(vfi),
                         .Some(field_e) => {
@@ -4828,7 +4827,7 @@ handle_struct_def :: (
       (ok : bool) = true;
       n := args.len();
       (i : usize) = usize(0);
-      while(runtime((i < n) && ok), {
+      while((i < n) && ok, {
         match(
           args.get(i),
           .Some(field_expr) => {
@@ -4907,7 +4906,10 @@ handle_struct_def :: (
                     f_types,
                     is_ref_sem,
                     false,
-                    is_newtype
+                    is_newtype,
+                    String.from(""),
+                    ArrayList(TypeValue).new(),
+                    false
                   )
                 )
               ),
@@ -4934,7 +4936,7 @@ handle_union_def :: (
       (ok : bool) = true;
       n := args.len();
       (i : usize) = usize(0);
-      while(runtime((i < n) && ok), {
+      while((i < n) && ok, {
         match(
           args.get(i),
           .Some(field_expr) => {
@@ -5105,7 +5107,7 @@ splice_unquote :: (fn(e : AstExpr, env : Environment) -> AstExpr)(
           new_args := ArrayList(AstExpr).new();
           n_su := args.len();
           (i_su : usize) = usize(0);
-          while(runtime(i_su < n_su), {
+          while(i_su < n_su, {
             match(
               args.get(i_su),
               .Some(child) => {
@@ -5243,7 +5245,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           n_sh_vn_sr := args.len();
                           (sh_vi_sr : usize) = usize(0);
                           (sh_vok_sr : bool) = true;
-                          while(runtime((sh_vi_sr < n_sh_vn_sr) && sh_vok_sr), {
+                          while((sh_vi_sr < n_sh_vn_sr) && sh_vok_sr, {
                             match(
                               args.get(sh_vi_sr),
                               .Some(sh_va_expr_sr) =>
@@ -5294,7 +5296,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       fields := ArrayList(EvalValue).new();
                       (i : usize) = usize(0);
                       (ok : bool) = true;
-                      while(runtime((i < n_args) && ok), {
+                      while((i < n_args) && ok, {
                         match(
                           args.get(i),
                           .Some(arg_expr) =>
@@ -5359,7 +5361,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               (pi : usize) = usize(0);
                               n_p := fn_params_list.len();
                               (param_ok : bool) = true;
-                              while(runtime((pi < n_p) && param_ok), {
+                              while((pi < n_p) && param_ok, {
                                 match(
                                   fn_params_list.get(pi),
                                   .Some(pd) =>
@@ -5507,13 +5509,13 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                       cap_vals_f := ArrayList(EvalValue).new();
                                       n_cf := env.frames.len();
                                       (cfi : usize) = usize(0);
-                                      while(runtime(cfi < n_cf), {
+                                      while(cfi < n_cf, {
                                         match(
                                           env.frames.get(cfi),
                                           .Some(frame) => {
                                             n_cv := frame.variables.len();
                                             (cvi : usize) = usize(0);
-                                            while(runtime(cvi < n_cv), {
+                                            while(cvi < n_cv, {
                                               match(
                                                 frame.variables.get(cvi),
                                                 .Some(v) => {
@@ -5616,7 +5618,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
               n_tup := args.len();
               (ti : usize) = usize(0);
               (tup_ok : bool) = true;
-              while(runtime((ti < n_tup) && tup_ok), {
+              while((ti < n_tup) && tup_ok, {
                 match(
                   args.get(ti),
                   .Some(tup_arg) =>
@@ -5657,7 +5659,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   (returning : bool) = false;
                   (breaking : bool) = false;
                   (continuing : bool) = false;
-                  while(runtime(((i < n) && (!(had_error))) && (((!(returning)) && (!(breaking))) && (!(continuing)))), {
+                  while(((i < n) && (!(had_error))) && (((!(returning)) && (!(breaking))) && (!(continuing))), {
                     match(
                       args.get(i),
                       .Some(stmt) =>
@@ -5702,7 +5704,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
               n := args.len();
               (result : Option(EvalResult)) = Option(EvalResult).None;
               (i : usize) = usize(0);
-              while(runtime(i < n), {
+              while(i < n, {
                 match(
                   args.get(i),
                   .Some(arm) =>
@@ -5796,7 +5798,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                             .StructVal(_, _, svals) => {
                                               nd := colon_args_a.len();
                                               (di2 : usize) = usize(0);
-                                              while(runtime(di2 < nd), {
+                                              while(di2 < nd, {
                                                 match(
                                                   colon_args_a.get(di2),
                                                   .Some(de) => match(
@@ -6456,7 +6458,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           (fi : usize) = usize(0);
                           (found_v : Option(EvalValue)) = Option(EvalValue).None;
                           (found_done : bool) = false;
-                          while(runtime((fi < n_f) && (!(found_done))), {
+                          while((fi < n_f) && (!(found_done)), {
                             match(
                               fnames.get(fi),
                               .Some(fn_s) => {
@@ -6545,7 +6547,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                     n_tvargs := method_call_args2.len();
                                     (tvi : usize) = usize(0);
                                     (tvok : bool) = true;
-                                    while(runtime((tvi < n_tvargs) && tvok), {
+                                    while((tvi < n_tvargs) && tvok, {
                                       match(
                                         method_call_args2.get(tvi),
                                         .Some(tvarg_expr) =>
@@ -6610,7 +6612,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           n_vargs := vargs.len();
                           (vi : usize) = usize(0);
                           (vok : bool) = true;
-                          while(runtime((vi < n_vargs) && vok), {
+                          while((vi < n_vargs) && vok, {
                             match(
                               vargs.get(vi),
                               .Some(varg_expr) =>
@@ -6655,7 +6657,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       (arm_i : usize) = usize(1);
                       (match_result : Option(EvalResult)) = Option(EvalResult).None;
                       (matched : bool) = false;
-                      while(runtime((arm_i < n_arms) && (!(matched))), {
+                      while((arm_i < n_arms) && (!(matched)), {
                         match(
                           args.get(arm_i),
                           .Some(arm_expr) =>
@@ -6754,7 +6756,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       (last : EvalResult) = eval_result(.UnitVal, t_unit());
                       (keep_going : bool) = true;
                       (iter_count : i64) = i64(0);
-                      while(runtime(keep_going), {
+                      while(keep_going, {
                         cond(
                           (iter_count >= i64(10000)) => {
                             keep_going = false;
@@ -7012,7 +7014,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   (fi : usize) = usize(0);
                                   (last_fe : EvalResult) = eval_result(.UnitVal, t_unit());
                                   (for_ok : bool) = true;
-                                  while(runtime((fi < n_fe) && for_ok), {
+                                  while((fi < n_fe) && for_ok, {
                                     match(
                                       elements.get(fi),
                                       .None => {
@@ -7082,7 +7084,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           n_recur_args := args.len();
                           (ri : usize) = usize(0);
                           (rok : bool) = true;
-                          while(runtime((ri < n_recur_args) && rok), {
+                          while((ri < n_recur_args) && rok, {
                             match(
                               args.get(ri),
                               .Some(arg_expr) =>
@@ -7156,11 +7158,11 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                           match(
                                             rhs_res.value,
                                             // Destructure a ModuleVal
-                                            .ModuleVal(mnames, mvals) => {
+                                            .StructVal(_, mnames, mvals) => {
                                               (di : usize) = usize(0);
                                               dn := lhs_args.len();
                                               (dok : bool) = true;
-                                              while(runtime((di < dn) && dok), {
+                                              while((di < dn) && dok, {
                                                 match(
                                                   lhs_args.get(di),
                                                   .Some(name_expr) =>
@@ -7171,7 +7173,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                                         (dj : usize) = usize(0);
                                                         dm := mnames.len();
                                                         (dfound : bool) = false;
-                                                        while(runtime((dj < dm) && (!(dfound))), {
+                                                        while((dj < dm) && (!(dfound)), {
                                                           match(
                                                             mnames.get(dj),
                                                             .Some(mname) =>
@@ -7291,10 +7293,10 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     .Some(mod_res) =>
                       match(
                         mod_res.value,
-                        .ModuleVal(mnames, mvals) => {
+                        .StructVal(_, mnames, mvals) => {
                           (oi : usize) = usize(0);
                           on := mnames.len();
-                          while(runtime(oi < on), {
+                          while(oi < on, {
                             match(
                               mnames.get(oi),
                               .Some(mname) =>
@@ -7589,7 +7591,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
               n_ae := args.len();
               (ae_i : usize) = usize(0);
               (ae_ok : bool) = true;
-              while(runtime((ae_i < n_ae) && ae_ok), {
+              while((ae_i < n_ae) && ae_ok, {
                 match(
                   args.get(ae_i),
                   .Some(ae_expr) =>
@@ -7651,7 +7653,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                     // (x, y, z) — multiple params
                                     (pi : usize) = usize(0);
                                     pn := pargs.len();
-                                    while(runtime(pi < pn), {
+                                    while(pi < pn, {
                                       match(
                                         pargs.get(pi),
                                         .Some(pe) =>
@@ -7716,7 +7718,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   (pftok.value.as_str() == "fn") => {
                                     (fpi : usize) = usize(0);
                                     fpn := pargs.len();
-                                    while(runtime(fpi < fpn), {
+                                    while(fpi < fpn, {
                                       match(
                                         pargs.get(fpi),
                                         .Some(fpe) =>
@@ -7761,13 +7763,13 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         cap_vals_f := ArrayList(EvalValue).new();
                         n_frames := env.frames.len();
                         (cfi : usize) = usize(0);
-                        while(runtime(cfi < n_frames), {
+                        while(cfi < n_frames, {
                           match(
                             env.frames.get(cfi),
                             .Some(frame) => {
                               n_cv := frame.variables.len();
                               (cvi : usize) = usize(0);
-                              while(runtime(cvi < n_cv), {
+                              while(cvi < n_cv, {
                                 match(
                                   frame.variables.get(cvi),
                                   .Some(v) => {
@@ -7843,7 +7845,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   (pft.value.as_str() == BK_TUPLE) => {
                                     np := pfa.len();
                                     (pi : usize) = usize(0);
-                                    while(runtime(pi < np), {
+                                    while(pi < np, {
                                       match(
                                         pfa.get(pi),
                                         .Some(pe) =>
@@ -7896,13 +7898,13 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         cv_m := ArrayList(EvalValue).new();
                         nf_m := env.frames.len();
                         (fi_m : usize) = usize(0);
-                        while(runtime(fi_m < nf_m), {
+                        while(fi_m < nf_m, {
                           match(
                             env.frames.get(fi_m),
                             .Some(frame_m) => {
                               nv_m := frame_m.variables.len();
                               (vi_m : usize) = usize(0);
-                              while(runtime(vi_m < nv_m), {
+                              while(vi_m < nv_m, {
                                 match(
                                   frame_m.variables.get(vi_m),
                                   .Some(v_m) => {
@@ -8016,7 +8018,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   n_named := args.len();
                   (si : usize) = usize(0);
                   (sok : bool) = true;
-                  while(runtime((si < n_named) && sok), {
+                  while((si < n_named) && sok, {
                     match(
                       args.get(si),
                       .Some(arg_e) =>
@@ -8093,7 +8095,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               n_gargs := args.len();
                               (gi : usize) = usize(0);
                               (gok : bool) = true;
-                              while(runtime((gi < n_gargs) && gok), {
+                              while((gi < n_gargs) && gok, {
                                 match(
                                   args.get(gi),
                                   .Some(arg_expr) =>

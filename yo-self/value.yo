@@ -109,13 +109,6 @@ EvalValue :: enum(
   /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
   /// `field_names` and `field_values` are parallel arrays in field-declaration order.
   StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self)),
-  /// A module value produced by evaluating a module body (Phase 3m).
-  ///
-  /// `names` and `values` are parallel arrays of exported identifiers and
-  /// their compile-time values, in export-statement order. When a module
-  /// exports a runtime variable the corresponding `values` entry is
-  /// `VarRef(name)` (comptime value unknown).
-  ModuleVal(names : ArrayList(String), values : ArrayList(Self)),
   // Phase 2h — remaining value types from src/value.ts ----------------------
   /// An anonymous tuple value.
   ///
@@ -222,7 +215,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n := afs.len();
               (i : usize) = usize(0);
               (ok : bool) = true;
-              while(runtime((i < n) && ok), {
+              while((i < n) && ok, {
                 match(
                   afs.get(i),
                   .Some(af) =>
@@ -264,7 +257,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_sf := anames.len();
               (sf_i : usize) = usize(0);
               (sf_ok : bool) = true;
-              while(runtime((sf_i < n_sf) && sf_ok), {
+              while((sf_i < n_sf) && sf_ok, {
                 match(
                   anames.get(sf_i),
                   .Some(an_s) =>
@@ -314,67 +307,6 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-    .ModuleVal(an, av) =>
-      match(
-        b,
-        .ModuleVal(bn, bv) =>
-          cond(
-            (an.len() != bn.len()) => false,
-            (av.len() != bv.len()) => false,
-            true => {
-              n_m := an.len();
-              (m_i : usize) = usize(0);
-              (m_ok : bool) = true;
-              while(runtime((m_i < n_m) && m_ok), {
-                match(
-                  an.get(m_i),
-                  .Some(an_s) =>
-                    match(
-                      bn.get(m_i),
-                      .Some(bn_s) => {
-                        cond(
-                          (!(an_s.as_str() == bn_s.as_str())) => {
-                            m_ok = false;
-                          },
-                          true => ()
-                        );
-                      },
-                      .None => {
-                        m_ok = false;
-                      }
-                    ),
-                  .None => {
-                    m_ok = false;
-                  }
-                );
-                match(
-                  av.get(m_i),
-                  .Some(av_v) =>
-                    match(
-                      bv.get(m_i),
-                      .Some(bv_v) => {
-                        cond(
-                          (!(recur(av_v, bv_v))) => {
-                            m_ok = false;
-                          },
-                          true => ()
-                        );
-                      },
-                      .None => {
-                        m_ok = false;
-                      }
-                    ),
-                  .None => {
-                    m_ok = false;
-                  }
-                );
-                m_i = (m_i + usize(1));
-              });
-              m_ok
-            }
-          ),
-        _ => false
-      ),
     // Phase 2h variants ---------------------------------------------------------
     .TupleVal(afs) =>
       match(
@@ -386,7 +318,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_tv := afs.len();
               (tv_i : usize) = usize(0);
               (tv_ok : bool) = true;
-              while(runtime((tv_i < n_tv) && tv_ok), {
+              while((tv_i < n_tv) && tv_ok, {
                 match(
                   afs.get(tv_i),
                   .Some(af) =>
@@ -420,7 +352,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_av := aes.len();
               (av_i : usize) = usize(0);
               (av_ok : bool) = true;
-              while(runtime((av_i < n_av) && av_ok), {
+              while((av_i < n_av) && av_ok, {
                 match(
                   aes.get(av_i),
                   .Some(ae) =>
@@ -460,7 +392,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                       n_sl := (aei - asi);
                       (sl_i : usize) = usize(0);
                       (sl_ok : bool) = true;
-                      while(runtime((sl_i < n_sl) && sl_ok), {
+                      while((sl_i < n_sl) && sl_ok, {
                         a_idx := (asi + sl_i);
                         b_idx := (bsi + sl_i);
                         match(
@@ -504,7 +436,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_tr := afnames.len();
               (tr_i : usize) = usize(0);
               (tr_ok : bool) = true;
-              while(runtime((tr_i < n_tr) && tr_ok), {
+              while((tr_i < n_tr) && tr_ok, {
                 match(
                   afnames.get(tr_i),
                   .Some(an_s) =>
@@ -572,7 +504,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_cl := aes.len();
               (cl_i : usize) = usize(0);
               (cl_ok : bool) = true;
-              while(runtime((cl_i < n_cl) && cl_ok), {
+              while((cl_i < n_cl) && cl_ok, {
                 match(
                   aes.get(cl_i),
                   .Some(ae) =>
@@ -642,7 +574,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           parts := String.from("");
           (fi : usize) = usize(0);
           n_f := fields.len();
-          while(runtime(fi < n_f), {
+          while(fi < n_f, {
             cond(
               (fi > usize(0)) => {
                 parts = `${parts}, `;
@@ -666,7 +598,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       param_str := String.from("");
       (pi : usize) = usize(0);
       n_p := params.len();
-      while(runtime(pi < n_p), {
+      while(pi < n_p, {
         cond(
           (pi > usize(0)) => {
             param_str = `${param_str}, `;
@@ -695,7 +627,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       parts_sv := String.from("");
       (svi : usize) = usize(0);
       n_sv := field_names.len();
-      while(runtime(svi < n_sv), {
+      while(svi < n_sv, {
         cond(
           (svi > usize(0)) => {
             parts_sv = `${parts_sv}, `;
@@ -722,37 +654,6 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       });
       `${ty_name}(${parts_sv})`
     },
-    .ModuleVal(names, values) => {
-      parts_mv := String.from("");
-      (mvi : usize) = usize(0);
-      n_mv := names.len();
-      while(runtime(mvi < n_mv), {
-        cond(
-          (mvi > usize(0)) => {
-            parts_mv = `${parts_mv}, `;
-          },
-          true => ()
-        );
-        match(
-          names.get(mvi),
-          .Some(mn) => {
-            match(
-              values.get(mvi),
-              .Some(mv_v) => {
-                mvvs := recur(mv_v);
-                parts_mv = `${parts_mv}${mn}: ${mvvs}`;
-              },
-              .None => {
-                parts_mv = `${parts_mv}${mn}`;
-              }
-            );
-          },
-          .None => ()
-        );
-        mvi = (mvi + usize(1));
-      });
-      `module(${parts_mv})`
-    },
     .TupleVal(fields) => {
       n_tup := fields.len();
       cond(
@@ -760,7 +661,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
         true => {
           parts_tup := String.from("");
           (ti : usize) = usize(0);
-          while(runtime(ti < n_tup), {
+          while(ti < n_tup, {
             cond(
               (ti > usize(0)) => {
                 parts_tup = `${parts_tup}, `;
@@ -788,7 +689,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       n_arr := elements.len();
       parts_arr := String.from("");
       (arri : usize) = usize(0);
-      while(runtime(arri < n_arr), {
+      while(arri < n_arr, {
         cond(
           (arri > usize(0)) => {
             parts_arr = `${parts_arr}, `;
@@ -817,7 +718,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           n_sl_vs := (end_idx - start_idx);
           parts_sl := String.from("");
           (sli : usize) = usize(0);
-          while(runtime(sli < n_sl_vs), {
+          while(sli < n_sl_vs, {
             cond(
               (sli > usize(0)) => {
                 parts_sl = `${parts_sl}, `;
@@ -860,7 +761,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       parts_tr := String.from("");
       (tri : usize) = usize(0);
       n_tr_f := field_names.len();
-      while(runtime(tri < n_tr_f), {
+      while(tri < n_tr_f, {
         cond(
           (tri > usize(0)) => {
             parts_tr = `${parts_tr}, `;
@@ -898,7 +799,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       parts_cl := String.from("");
       (cli : usize) = usize(0);
       n_cl_vs := elements.len();
-      while(runtime(cli < n_cl_vs), {
+      while(cli < n_cl_vs, {
         cond(
           (cli > usize(0)) => {
             parts_cl = `${parts_cl}, `;
@@ -940,7 +841,11 @@ is_break_val :: (fn(v : EvalValue) -> bool)(match(v,.BreakVal => true, _ => fals
 is_continue_val :: (fn(v : EvalValue) -> bool)(match(v,.ContinueVal => true, _ => false));
 is_type_val :: (fn(v : EvalValue) -> bool)(match(v,.TypeVal(_) => true, _ => false));
 is_struct_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(_, _, _) => true, _ => false));
-is_module_val :: (fn(v : EvalValue) -> bool)(match(v,.ModuleVal(_, _) => true, _ => false));
+/// True for source-namespace struct values (anonymous modules / imports).
+/// TS has no module value kind — modules are StructValues with a
+/// source-namespace type (plans/MODULE_AS_STRUCT_ALIGNMENT.md); the
+/// generated `source_namespace_` ty_name prefix is the value-side marker.
+is_module_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
 is_tuple_val :: (fn(v : EvalValue) -> bool)(match(v,.TupleVal(_) => true, _ => false));
 is_array_val :: (fn(v : EvalValue) -> bool)(match(v,.ArrayVal(_) => true, _ => false));
 is_slice_val :: (fn(v : EvalValue) -> bool)(match(v,.SliceVal(_, _, _) => true, _ => false));
@@ -1027,9 +932,9 @@ create_type_value :: (fn(ty : TypeValue) -> EvalValue)(
 );
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
-/// Mirrors the contract of "ModuleValue.type" / "StructValue.type" in
-/// `src/value.ts`: yo-self's `ModuleVal` does not currently carry a parallel
-/// type list, so handlers like `evaluate_open` recover per-field types by
+/// Mirrors the contract of "StructValue.type" in `src/value.ts`: yo-self
+/// values do not carry a parallel type reference, so handlers like
+/// `evaluate_open` recover per-field types by
 /// inspecting each exported value. The mapping is deliberately conservative:
 /// for value variants whose type is not directly recoverable we fall back to
 /// `t_unit()`, which matches the production behavior of treating such fields
@@ -1044,10 +949,17 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .StrLit(_) => t_comptime_string(),
     .TypeVal(_) => t_type(),
     .StructVal(name, labels, vals) => {
-      // Reconstruct a Struct type from parallel field info.
+      // Reconstruct a Struct type from parallel field info. Source-namespace
+      // struct values (anonymous modules / imports — TS `SourceNamespaceType`)
+      // carry their generated `source_namespace_<id>` as `ty_name`; recover
+      // the `is_source_namespace` flag from that marker (the producer puts
+      // the id in the type's ID slot and leaves the name empty — mirror that
+      // here). Name-prefix detection is the stand-in for TS's `value.type`
+      // back-reference (yo-self values don't carry their type).
+      is_sns := name.starts_with(`source_namespace_`);
       tys := ArrayList(TypeValue).new();
       i := usize(0);
-      while(runtime(i < vals.len()), {
+      while(i < vals.len(), {
         match(
           vals.get(i),
           .Some(fv) => tys.push(recur(fv)),
@@ -1055,20 +967,10 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
         );
         i = (i + usize(1));
       });
-      .Struct(String.from(""), name, labels, tys, false, false, false)
-    },
-    .ModuleVal(names, vals) => {
-      tys := ArrayList(TypeValue).new();
-      i := usize(0);
-      while(runtime(i < vals.len()), {
-        match(
-          vals.get(i),
-          .Some(fv) => tys.push(recur(fv)),
-          .None => tys.push(t_unit())
-        );
-        i = (i + usize(1));
-      });
-      .ModuleT(String.from(""), String.from(""), names, tys)
+      cond(
+        is_sns =>.Struct(name, String.from(""), labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), true),
+        true =>.Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
+      )
     },
     .UnknownVal(ty) => ty.*,
     _ => t_unit()
@@ -1088,3 +990,38 @@ export(
 );
 export(is_type_value, create_unknown_val, create_unknown_val_with_name);
 export(eval_value_eq);
+// ---------------------------------------------------------------------------
+// Enum constructor-func-id side-table. `TypeValue.EnumT` has no
+// `constructor_func_id` field (only `Struct` does), so two instantiations of
+// the same generic enum (`Option(X)`/`Option(Y)`) — distinct fresh ids — can't
+// be recognized as the same constructor in synthesis. Records `enum_id ->
+// func_id` whenever a comptime type-constructor call returns an `EnumT`
+// (populated by `evaluate_comptime_fn_call`); the synthesizer's enum
+// same_constructor guard reads it. Lives here (leaf both comptime_fn and
+// synthesizer import, no cycle). `substitute()` preserves enum id → key stays
+// valid across specialization. Mirrors `Struct.constructor_func_id`.
+// ---------------------------------------------------------------------------
+EnumCfidEntry :: object(enum_id : String, func_id : String);
+(g_enum_cfids : ArrayList(EnumCfidEntry)) = ArrayList(EnumCfidEntry).new();
+register_enum_cfid :: (fn(enum_id : String, func_id : String) -> unit)({
+  if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)), {
+    _ := g_enum_cfids.push(EnumCfidEntry(enum_id : enum_id, func_id : func_id));
+  });
+});
+lookup_enum_cfid :: (fn(enum_id : String) -> String)({
+  (i : usize) = usize(0);
+  n := g_enum_cfids.len();
+  (r : String) = String.from("");
+  while((i < n) && (r.len() == usize(0)), {
+    match(
+      g_enum_cfids.get(i),
+      .Some(e) => if(e.enum_id.as_str() == enum_id.as_str(), {
+        r = e.func_id.clone();
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  r
+});
+export(register_enum_cfid, lookup_enum_cfid);

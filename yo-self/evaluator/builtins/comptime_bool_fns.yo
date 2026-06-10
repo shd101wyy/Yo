@@ -28,7 +28,8 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, is_bool_val, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_bool_val, create_unknown_val, type_of_eval_value }
+:: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool, t_comptime_string } :: import("../../types/creators.yo");
 { is_bool_type } :: import("../../types/guards.yo");
@@ -107,7 +108,7 @@ evaluate_yo_comptime_boolean_functions :: (
         return(expr);
       }
     );
-    ai := eval_bool_arg(arg0, env, ctx);
+    ai := eval_bool_arg(arg0, env, ctx, exn);
     (cur_env : Environment) = ai.env;
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
@@ -141,7 +142,11 @@ evaluate_yo_comptime_boolean_functions :: (
         EvalValue.UnitVal
       }
     );
-    result_ty := match(result_val,.StrLit(_) => t_comptime_string(), _ => t_bool());
+    // Result type from the VALUE'S TYPE (mirrors TS `type: value.type`,
+    // comptime-bool-fns.ts:91), NOT the value tag: `to_comptime_string` on an
+    // unknown bool builds `UnknownVal(comptime_string)`, which a tag-based match
+    // (UnknownVal ≠ StrLit) wrongly typed `bool`.
+    result_ty := type_of_eval_value(result_val);
     out_info := new_expr_info(cur_env, result_ty);
     out_info.value =.Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -161,8 +166,8 @@ evaluate_yo_comptime_boolean_functions :: (
         return(expr);
       }
     );
-    lhs_info := eval_bool_arg(arg0, env, ctx);
-    rhs_info := eval_bool_arg(arg1, lhs_info.env, ctx);
+    lhs_info := eval_bool_arg(arg0, env, ctx, exn);
+    rhs_info := eval_bool_arg(arg1, lhs_info.env, ctx, exn);
     (cur_env : Environment) = rhs_info.env;
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;

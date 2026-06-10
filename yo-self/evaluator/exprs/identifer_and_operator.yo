@@ -15,7 +15,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set }
 :: import("../../expr_info.yo");
-{ Token } :: import("../../token.yo");
+{ Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
 :: import("../context.yo");
@@ -145,16 +145,31 @@ evaluate_identifier_and_operator :: (
   identifier_string := token.value;
   variables := get_variables_from_env(env, identifier_string);
   if(variables.len() == usize(0), {
-    // Soft fallback: when the identifier isn't bound, emit an
-    // `UnknownVal` of `t_unit()` so the surrounding eval continues.
-    // Prelude pre-load hits this for operator-trait names like `==`
-    // (bound to `impl({...})` in a way the bootstrap's lookup can't
-    // yet resolve), and the strict throw used to abort the entire
-    // run_check at the first such occurrence. Tracked in
-    // `issues/yo-self-evaluator-gaps.md` (operator-trait dispatch).
-    fallback_info := new_expr_info(env, t_unit());
-    fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
+    // Unresolved OPERATOR names keep the soft fallback: prelude pre-load
+    // hits this for operator-trait names like `==` (bound to
+    // `impl({...})` in a way the bootstrap's lookup can't yet resolve).
+    // Tracked in `issues/yo-self-evaluator-gaps.md`.
+    if(string_is_operator(identifier_string.as_str()), {
+      fallback_info := new_expr_info(env, t_unit());
+      fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
+      return(expr);
+    });
+    // Ordinary identifiers throw, mirroring TS `Variable "X" not found.`
+    // (env-lookup error). The previous unconditional soft fallback let
+    // `ref(i32)` in expression position evaluate to unknown-unit and the
+    // surrounding type application succeed — tests/ref_return.test.yo's
+    // comptime_expect_error then saw no error.
+    exn.throw(
+      dyn(
+        format_error_message(
+          token,
+          `Variable "${identifier_string}" not found.`,
+          false,
+          Option(ErrorKind).None
+        )
+      )
+    );
     return(expr);
   });
   variable := match(

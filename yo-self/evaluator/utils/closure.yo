@@ -132,7 +132,7 @@ enrich_captured_variables :: (
   result := HashMap(String, FuncCapturedVarInfo).new();
   key_iter := captured_variables.keys();
   (more : bool) = true;
-  while(runtime(more), {
+  while(more, {
     match(
       key_iter.next(),
       .None => {
@@ -151,7 +151,7 @@ enrich_captured_variables :: (
               vars := get_variables_from_env(env, String.from(var_name.as_str()));
               m := vars.len();
               (j : usize) = usize(0);
-              while(runtime(j < m), {
+              while(j < m, {
                 match(
                   vars.get(j),
                   .None => (),
@@ -229,7 +229,7 @@ create_capture_type_and_value :: (
         cvwv := match(captured_vars_with_values,.Some(m) => m,.None => HashMap(String, FuncCapturedVarInfo).new());
         key_iter := cvwv.keys();
         (more_keys : bool) = true;
-        while(runtime(more_keys), {
+        while(more_keys, {
           match(
             key_iter.next(),
             .None => {
@@ -269,6 +269,9 @@ create_capture_type_and_value :: (
         field_types,
         false,
         false,
+        false,
+        String.from(""),
+        ArrayList(TypeValue).new(),
         false
       );
       // Auto-derive trait markers for the capture struct.
@@ -285,7 +288,7 @@ create_capture_type_and_value :: (
       n_caps := cap_values.len();
       (all_known : bool) = true;
       (cv_i : usize) = usize(0);
-      while(runtime(cv_i < n_caps), {
+      while(cv_i < n_caps, {
         match(
           cap_values.get(cv_i),
           .None => (),
@@ -305,7 +308,7 @@ create_capture_type_and_value :: (
       cap_struct_val := if(all_known, {
         concrete_vals := ArrayList(EvalValue).new();
         (ci : usize) = usize(0);
-        while(runtime(ci < n_caps), {
+        while(ci < n_caps, {
           match(
             cap_values.get(ci),
             .None => (),

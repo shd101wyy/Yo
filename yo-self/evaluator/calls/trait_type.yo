@@ -81,7 +81,7 @@ try_to_specialize_trait_type :: (
   (caller_env : Environment) = caller_env_in;
   n_args := arg_exprs.len();
   (j : usize) = usize(0);
-  while(runtime(j < n_args), {
+  while(j < n_args, {
     arg_opt := arg_exprs.get(j);
     arg := match(
       arg_opt,
@@ -137,7 +137,7 @@ try_to_specialize_trait_type :: (
     // Check field exists in the trait.
     (field_exists : bool) = false;
     (li : usize) = usize(0);
-    while(runtime(li < field_labels.len()), {
+    while(li < field_labels.len(), {
       match(
         field_labels.get(li),
         .Some(fl) => {
@@ -164,7 +164,7 @@ try_to_specialize_trait_type :: (
     // Check it's an associated type (in assoc_type_names).
     (is_assoc : bool) = false;
     (ai : usize) = usize(0);
-    while(runtime(ai < assoc_type_names.len()), {
+    while(ai < assoc_type_names.len(), {
       match(
         assoc_type_names.get(ai),
         .Some(an) => {
@@ -274,21 +274,21 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Pre-allocate value slots.
   (field_values : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (i_init : usize) = usize(0);
-  while(runtime(i_init < n_fields), {
+  while(i_init < n_fields, {
     field_values.push(Option(EvalValue).None);
     i_init = (i_init + usize(1));
   });
   (caller_env : Environment) = caller_env_in;
   // For each trait field, find the matching arg by label.
   (i : usize) = usize(0);
-  while(runtime(i < n_fields), {
+  while(i < n_fields, {
     field_label_opt := field_labels.get(i);
     field_type_opt := field_types.get(i);
     field_label := match(field_label_opt,.Some(s) => s,.None => String.from(""));
     field_type := match(field_type_opt,.Some(t) => t,.None => TypeValue.Unit);
     (found_arg : bool) = false;
     (j : usize) = usize(0);
-    while(runtime(j < n_args), {
+    while(j < n_args, {
       arg_expr_opt := arg_exprs.get(j);
       arg_expr := match(arg_expr_opt,.Some(a) => a,.None => trait_expr);
       // Each arg must be a `label: value` colon call.
@@ -338,7 +338,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       // Validate label exists in the trait.
       (label_exists : bool) = false;
       (li : usize) = usize(0);
-      while(runtime(li < n_fields), {
+      while(li < n_fields, {
         match(
           field_labels.get(li),
           .Some(fl) => {
@@ -424,7 +424,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Build result names for the TraitVal.
   (result_names : ArrayList(String)) = ArrayList(String).new();
   (k : usize) = usize(0);
-  while(runtime(k < n_fields), {
+  while(k < n_fields, {
     match(
       field_labels.get(k),
       .Some(lbl) => {

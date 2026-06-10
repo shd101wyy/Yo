@@ -3,10 +3,11 @@
 //! 1:1 port of `src/evaluator/exprs/c-include.ts` (189 lines).
 //!
 //! Phase 2av: fully ported — calls `evaluate_module_field` and adds fields to
-//! the environment.  The `is_extern`, `cInclude`, and `externName` metadata
-//! mutations from TypeScript are intentionally skipped: yo-self's `TypeValue`
-//! enum has no such fields, and that metadata is only needed by codegen (which
-//! yo-self does not perform).
+//! the environment.  The `is_extern`/`externName` markers ARE ported (onto the
+//! `Func` variant): the extern-call `unsafe(...)` gate in `calls/function.yo`
+//! reads them to require `c_include`d FFI call sites be wrapped in `unsafe(...)`
+//! (plans/EXTERN_UNSAFE_WRAP.md). Only `cInclude` (a codegen concern) stays
+//! skipped.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 {
@@ -23,10 +24,11 @@ open(import("std/string"));
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_some_t } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { evaluate_expression } :: import("./expr.yo");
 { EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -44,6 +46,32 @@ evaluate_c_include :: (
         format_error_message(
           ast_expr_token(expr),
           `Expected c_include, got ${ast_expr_token(expr).value}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  // Privilege gate (mirrors evaluate_extern). `c_include(...)` brings C
+  // header symbols into scope as `extern "c"` declarations; safe code
+  // (no `pragma(Pragma.AllowUnsafe);`) must not be able to do this. The
+  // call-site gate in `function.yo` catches actual calls, but type-level
+  // uses (an imported extern Type in a field/trait bound) would slip
+  // through. Mirrors `c-include.ts:46-66`.
+  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone()))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `'c_include(...)' is not available in safe code.
+
+C header imports declare 'extern "c"' symbols, which are outside Yo's
+type-checking reach. To use them, declare at the top of this file:
+
+    pragma(Pragma.AllowUnsafe);
+
+User code should normally call stdlib wrappers (e.g. functions in
+'std/sys', 'std/fs') instead of pulling in C headers directly.`,
           false,
           .None
         )
@@ -70,7 +98,10 @@ evaluate_c_include :: (
   evaluated_hdr := evaluate_expression(c_header_file_arg, env, ctx);
   hdr_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_hdr));
   hdr_info := match(hdr_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
-  env = hdr_info.env;
+  env.frames = hdr_info.env.frames;
+  env.module_path = hdr_info.env.module_path;
+  env.function_declaration_frame_level = hdr_info.env.function_declaration_frame_level;
+  env.input_string = hdr_info.env.input_string;
   raw_hdr := match(
     hdr_info.value,
     .Some(v) => match(
@@ -128,13 +159,13 @@ evaluate_c_include :: (
   field_types := ArrayList(TypeValue).new();
   (args_idx : usize) = usize(1);
   (field_idx : usize) = usize(0);
-  while(runtime(args_idx < all_args.len()), {
+  while(args_idx < all_args.len(), {
     arg := match(all_args.get(args_idx),.Some(a) => a,.None => expr);
     result := evaluate_module_field(arg, field_idx, env, ctx, false, exn);
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while(runtime((dup_idx < field_labels.len()) && !(has_dup)), {
+    while((dup_idx < field_labels.len()) && !(has_dup), {
       existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
       if(existing.as_str() == result.label.as_str(), {
         has_dup = true;
@@ -162,22 +193,76 @@ evaluate_c_include :: (
         )
       );
     });
+    // Stamp the FFI marker (`is_extern = "c"`, `extern_name = label`) onto
+    // function field types so the extern-call `unsafe(...)` gate
+    // (calls/function.yo) can identify calls to this `c_include`d symbol.
+    // Mirrors `c-include.ts:138-145` (the `isFunctionType` branch). Non-`Func`
+    // field types (type declarations like `time_t : Type`) carry no
+    // `is_extern` slot and are never called. `cInclude` is codegen-only.
+    field_ty_with_extern := match(
+      result.field_type,
+      .Func({
+        forall_labels : fls,
+        forall_types : fts,
+        param_labels : pls,
+        param_types : pts,
+        implicit_labels : ils,
+        implicit_types : its,
+        implicit_spreads : isp,
+        where_types : wts,
+        result : ret,
+        result_is_comptime_only : rico,
+        param_is_ref : pir,
+        result_is_ref : rir,
+        has_variadic : hv,
+        is_control : ic
+      }) => TypeValue.Func(
+        fls,
+        fts,
+        pls,
+        pts,
+        ils,
+        its,
+        isp,
+        wts,
+        ret,
+        rico,
+        pir,
+        rir,
+        hv,
+        Option(String).Some(String.from("c")),
+        Option(String).Some(String.from(result.label.as_str())),
+        ic
+      ),
+      _ => result.field_type
+    );
     field_labels.push(String.from(result.label.as_str()));
-    field_types.push(result.field_type);
-    env = result.env;
-    // NOTE: TypeScript sets is_extern/"c" and cInclude/externName on the type here.
-    // yo-self skips that mutation — TypeValue has no such fields (codegen-only metadata).
+    field_types.push(field_ty_with_extern);
+    env.frames = result.env.frames;
+    env.module_path = result.env.module_path;
+    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env.input_string = result.env.input_string;
+    // If the field type is Type (TypeUni(0)), this is a type declaration (e.g. time_t : Type).
+    // Create a SomeType placeholder so the identifier can be used in type expressions.
+    (field_val : EvalValue) = match(
+      result.field_type,
+      .TypeUni(level) => cond(
+        (level == usize(0)) =>.TypeVal(Box(TypeValue)(t_some_t(result.label.clone(), usize(0)))),
+        true => create_unknown_val_with_name(result.field_type, result.label.clone())
+      ),
+      _ => create_unknown_val_with_name(field_ty_with_extern, result.label.clone())
+    );
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
       env,
       String.from(result.label.as_str()),
-      result.field_type,
-      Option(EvalValue).Some(create_unknown_val_with_name(result.field_type, String.from(result.label.as_str()))),
+      field_ty_with_extern,
+      Option(EvalValue).Some(field_val),
       true,
       // is_compile_time_only
       false,
       // is_reassignable
-      type_contains_rc_type(result.field_type),
+      type_contains_rc_type(field_ty_with_extern),
       // is_owning_the_rc_value
       false,
       // is_implicit

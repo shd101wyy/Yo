@@ -7,16 +7,27 @@
 //!   `(params) => body`   — closure (expected type must be SomeT or FnTraitT with Fn trait)
 //!   `(params) =>> body`  — async closure (like `=>` but marks io.async context)
 //!
+//! Definition-time body evaluation IS ported (the closure-body def-eval
+//! wall, mirrors anonymous-function.ts:766-852): non-generic bodies evaluate
+//! at definition time under a function-body context (captured_variables
+//! populated via track_variable_usage), guarded by the capture-free trial
+//! swallow. Post-eval gates: regular-fn-no-capture (ts:867), §4 rule 1
+//! unwind-needs-ctl (ts:894), Phase B ref-capture + control-bound-capture
+//! rejection (ts:1078-1110).
+//!
 //! Phase 3 simplifications (vs full TypeScript port):
-//!   - Capture struct creation skipped (cap_names/cap_tys/cap_vals are empty)
 //!   - substituteSomeTypesFromEnv skipped
-//!   - evaluatedBodyContainsEscape skipped
 //!   - analyzeCtfeCapability skipped
 //!   - await analysis skipped
 //!   - Effect row spread expansion skipped (uses existing implicit params as-is)
+//!   - checkDeferredGenericReturnType skipped for deferred (generic) bodies
+//!   - return-type-vs-body compatibility check skipped (would over-fire on
+//!     def-eval porting gaps; the swallow philosophy admits only
+//!     deliberately-gated rejections)
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 {
   AstExpr,
   ast_expr_token,
@@ -34,8 +45,10 @@ open(import("std/string"));
 {
   Environment,
   add_variable_to_env,
-  synthetic_token
+  synthetic_token,
+  snapshot_env
 } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple } :: import("../../types/creators.yo");
 {
@@ -43,13 +56,25 @@ open(import("std/string"));
   create_unknown_val
 } :: import("../../value.yo");
 {
-  EvalContext
+  EvalContext,
+  CapturedVarInfo
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { register_definition_site_return } :: import("../../function_value.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ create_function_body_evaluation_context } :: import("../calls/function_type.yo");
+{ evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
+{ get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{
+  clear_flow_violation,
+  flow_violation_pending,
+  flow_violation_message,
+  propagate_def_time_errors
+} :: import("../../types/flowability.yo");
 /// Walk a parameter-declaration AST (`(a, b)` tuple or single atom)
 /// and append each param-name token-value to `out`. Used to
 /// synthesize a default Func type when no `expected_type` is in
@@ -69,7 +94,7 @@ _collect_anon_param_names :: (
         (ptok.value.as_str() == BK_TUPLE) => {
           (i : usize) = usize(0);
           n := args.len();
-          while(runtime(i < n), {
+          while(i < n, {
             match(
               args.get(i),
               .Some(a) => match(
@@ -126,7 +151,7 @@ _synthesize_default_func_type :: (
   param_types := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   n := names.len();
-  while(runtime(i < n), {
+  while(i < n, {
     name := match(names.get(i),.Some(s) => s,.None => String.from("_p"));
     param_types.push(t_some_t(name, frame_level));
     i = (i + usize(1));
@@ -205,11 +230,169 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
       // no effect row spreads
       ArrayList(TypeValue).new(),
       // no where types
-      cr_box
+      cr_box,
+      false,
+      // result_is_comptime_only — Fn-trait-derived closure type (runtime)
+      ArrayList(bool).new(),
+      // param_is_ref
+      false,
+      // result_is_ref
+      false,
+      // has_variadic
+      Option(String).None,
+      // is_extern — Fn-trait-derived closure type is not FFI
+      Option(String).None,
+      // extern_name
+      false // is_control — Fn-trait-derived closure type is `fn`, not `ctl`
     ),
     _ => TypeValue.Unit
   )
 );
+/// Trial-evaluate an anonymous-function body at definition time, swallowing
+/// any eval error. Replicates `_trial_eval_fn_body` (calls/function_type.yo)
+/// — the swallow handler must be a capture-free `->` effect handler, so the
+/// helper cannot be shared by closing over locals; see the def-eval-wall
+/// notes there. On success the evaluated body is pushed to `out`; on error
+/// the swallowing exception unwinds THIS helper (returning unit, `out` stays
+/// empty). A deliberate gate rejection inside the body flags
+/// `flow_violation_pending()` before throwing; the caller re-raises it.
+_trial_eval_anon_body :: (
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+)({
+  clear_flow_violation();
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  ___ := out.push(evaluated);
+});
+/// Post-body-eval capture checks. Mirrors anonymous-function.ts:
+///   - :867-878 — a regular function (`->`) cannot capture outer runtime
+///     variables (codegen would emit a standalone C function with no capture
+///     params → undeclared identifiers). Only TRUE outer captures count:
+///     `frame_level < outer_frames_len` (params live AT outer_frames_len).
+///   - :1078-1087 — Phase B non-escape: a closure cannot capture a `ref`
+///     binding (second-class reference; the closure could outlive the frame).
+///   - :1088-1110 — §4 rule 4: a closure cannot capture a value of
+///     control-bound type (the captured ctl handler would escape its install
+///     frame with the closure).
+/// `env` still carries the parameter frame; `outer_frames_len` is the frame
+/// count from BEFORE it was pushed.
+_check_anon_fn_captures :: (
+  fn(
+    caps : HashMap(String, CapturedVarInfo),
+    env : Environment,
+    is_closure : bool,
+    outer_frames_len : usize,
+    tok : Token,
+    exn : Exception
+  ) -> unit
+)({
+  if(!(is_closure), {
+    (names : String) = String.new();
+    key_iter := caps.keys();
+    (more : bool) = true;
+    while(more, {
+      match(
+        key_iter.next(),
+        .None => {
+          more = false;
+        },
+        .Some(k) => {
+          match(
+            caps.get(String.from(k.as_str())),
+            .Some(ci) => if(ci.frame_level < outer_frames_len, {
+              if(names.len() > usize(0), {
+                names = `${names}, `;
+              });
+              names = `${names}${k}`;
+            }),
+            .None => ()
+          );
+        }
+      );
+    });
+    if(names.len() > usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `A regular function (using ->) cannot capture outer runtime variables: ${names}.
+Use a closure (=> syntax) instead, or refactor the handler to not reference outer variables.
+If this is an effect handler (e.g. Exception.throw), the handler type only accepts -> functions,
+so only builtin functions (panic, escape) and local variables are accessible.`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    return(());
+  });
+  key_iter2 := caps.keys();
+  (more2 : bool) = true;
+  while(more2, {
+    match(
+      key_iter2.next(),
+      .None => {
+        more2 = false;
+      },
+      .Some(k) => {
+        match(
+          caps.get(String.from(k.as_str())),
+          .Some(ci) => {
+            // Mirror TS: `if (captureInfo.frameLevel >= env.frames.length)
+            // continue` — only true outer captures are checked.
+            if(ci.frame_level < outer_frames_len, {
+              match(
+                env.frames.get(ci.frame_level),
+                .Some(frame) => {
+                  (vi : usize) = usize(0);
+                  n_v := frame.variables.len();
+                  while(vi < n_v, {
+                    match(
+                      frame.variables.get(vi),
+                      .Some(v) => if(v.name.as_str() == k.as_str(), {
+                        if(v.is_ref, {
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ci.token,
+                                `Cannot capture ref binding '${k}' in a closure. \`ref(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
+                        });
+                        if((!(v.is_compile_time_only)) && type_is_control_bound(v.ty), {
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ci.token,
+                                `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(v.ty)}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+
+Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
+                        });
+                      }),
+                      .None => ()
+                    );
+                    vi = (vi + usize(1));
+                  });
+                },
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+      }
+    );
+  });
+});
 evaluate_anonymous_function_implementation :: (
   fn(
     expr : AstExpr,
@@ -269,7 +452,7 @@ evaluate_anonymous_function_implementation :: (
   // For SomeT: extract FnTraitT via trait_checking, then convert to Func.
   function_type_opt := match(
     expected_ty,
-    .Func(_, _, _, _, _, _, _, _, _) => Option(TypeValue).Some(expected_ty),
+    .Func({ result : _ }) => Option(TypeValue).Some(expected_ty),
     .FnTraitT(_, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
     .SomeT(_, _, _, _, _, _, _, _, _, _) => {
       fn_trait_opt := extract_fn_trait_from_type(expected_ty);
@@ -303,32 +486,32 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     function_type,
-    .Func(fl, _, _, _, _, _, _, _, _) => fl,
+    .Func({ forall_labels : fl }) => fl,
     _ => ArrayList(String).new()
   );
   param_labels := match(
     function_type,
-    .Func(_, _, pl, _, _, _, _, _, _) => pl,
+    .Func({ param_labels : pl }) => pl,
     _ => ArrayList(String).new()
   );
   param_types := match(
     function_type,
-    .Func(_, _, _, pt, _, _, _, _, _) => pt,
+    .Func({ param_types : pt }) => pt,
     _ => ArrayList(TypeValue).new()
   );
   implicit_labels := match(
     function_type,
-    .Func(_, _, _, _, il, _, _, _, _) => il,
+    .Func({ implicit_labels : il }) => il,
     _ => ArrayList(String).new()
   );
   implicit_types := match(
     function_type,
-    .Func(_, _, _, _, _, it, _, _, _) => it,
+    .Func({ implicit_types : it }) => it,
     _ => ArrayList(TypeValue).new()
   );
   result_box := match(
     function_type,
-    .Func(_, _, _, _, _, _, _, _, rb) => rb,
+    .Func({ result : rb }) => rb,
     _ => box(TypeValue.Unit)
   );
   // -------------------------------------------------------------------------
@@ -367,7 +550,7 @@ evaluate_anonymous_function_implementation :: (
   regular_param_exprs := ArrayList(AstExpr).new();
   (sep_i : usize) = usize(0);
   n_raw := raw_param_exprs.len();
-  while(runtime(sep_i < n_raw), {
+  while(sep_i < n_raw, {
     pe := match(raw_param_exprs.get(sep_i),.Some(a) => a,.None => make_err_expr());
     is_forall_call := ast_expr_is_fn_call_of(pe, "forall",.None);
     is_using_call := ast_expr_is_fn_call_of(pe, "using",.None);
@@ -375,7 +558,7 @@ evaluate_anonymous_function_implementation :: (
       is_forall_call => {
         fa := match(pe,.FnCall(_, _, fa_args, _, _) => fa_args,.Atom(_, _) => ArrayList(AstExpr).new());
         (fi : usize) = usize(0);
-        while(runtime(fi < fa.len()), {
+        while(fi < fa.len(), {
           fpe := match(fa.get(fi),.Some(a) => a,.None => make_err_expr());
           forall_param_exprs.push(fpe);
           fi = (fi + usize(1));
@@ -384,7 +567,7 @@ evaluate_anonymous_function_implementation :: (
       is_using_call => {
         ua := match(pe,.FnCall(_, _, ua_args, _, _) => ua_args,.Atom(_, _) => ArrayList(AstExpr).new());
         (ui : usize) = usize(0);
-        while(runtime(ui < ua.len()), {
+        while(ui < ua.len(), {
           upe := match(ua.get(ui),.Some(a) => a,.None => make_err_expr());
           using_param_exprs.push(upe);
           ui = (ui + usize(1));
@@ -426,13 +609,13 @@ evaluate_anonymous_function_implementation :: (
   cap_vals := ArrayList(EvalValue).new();
   n_cap_fr := env.frames.len();
   (cap_fi : usize) = usize(0);
-  while(runtime(cap_fi < n_cap_fr), {
+  while(cap_fi < n_cap_fr, {
     match(
       env.frames.get(cap_fi),
       .Some(cap_frame) => {
         n_cap_v := cap_frame.variables.len();
         (cap_vi : usize) = usize(0);
-        while(runtime(cap_vi < n_cap_v), {
+        while(cap_vi < n_cap_v, {
           match(
             cap_frame.variables.get(cap_vi),
             .Some(cv) => {
@@ -468,7 +651,7 @@ evaluate_anonymous_function_implementation :: (
   // Each forall type variable is bound as a compile-time unknown SomeT.
   // -------------------------------------------------------------------------
   (fa_env_i : usize) = usize(0);
-  while(runtime(fa_env_i < forall_labels.len()), {
+  while(fa_env_i < forall_labels.len(), {
     fl_name := match(forall_labels.get(fa_env_i),.Some(n) => n,.None => String.from(""));
     fl_ty := TypeValue.SomeT(
       fl_name.clone(),
@@ -500,7 +683,7 @@ evaluate_anonymous_function_implementation :: (
   // Add implicit (using) parameters to the environment.
   // -------------------------------------------------------------------------
   (il_env_i : usize) = usize(0);
-  while(runtime(il_env_i < implicit_labels.len()), {
+  while(il_env_i < implicit_labels.len(), {
     il_name := match(implicit_labels.get(il_env_i),.Some(n) => n,.None => String.from(""));
     il_ty := match(implicit_types.get(il_env_i),.Some(t) => t,.None => TypeValue.Unit);
     il_tok := synthetic_token(il_name.clone(), env.module_path);
@@ -526,7 +709,7 @@ evaluate_anonymous_function_implementation :: (
   param_type_names := ArrayList(String).new();
   actual_param_labels := ArrayList(String).new();
   (rp_i : usize) = usize(0);
-  while(runtime(rp_i < n_regular), {
+  while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i),.Some(a) => a,.None => make_err_expr());
     exp_label := match(param_labels.get(rp_i),.Some(n) => n,.None => String.from(""));
     rp_ty := match(param_types.get(rp_i),.Some(t) => t,.None => TypeValue.Unit);
@@ -562,6 +745,9 @@ evaluate_anonymous_function_implementation :: (
     is_creating_closure => (String.from("closure_") + random_id(env.module_path)),
     true => (String.from("fn_") + random_id(env.module_path))
   );
+  // Clone taken BEFORE `box(body_expr)` below moves the body into the
+  // FuncVal; the definition-time body evaluation further down needs it.
+  body_for_def_eval := body_expr.clone();
   func_val := EvalValue.FuncVal(
     forall_labels,
     actual_param_labels,
@@ -586,7 +772,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(enclosing_func_ty) => {
           enclosing_return_ty := match(
             enclosing_func_ty,
-            .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
+            .Func({ result : rb }) => rb.*,
             _ => TypeValue.Unit
           );
           register_definition_site_return(func_id.clone(), enclosing_return_ty);
@@ -598,11 +784,126 @@ evaluate_anonymous_function_implementation :: (
     .None => ()
   );
   // -------------------------------------------------------------------------
-  // Create a function-body evaluation context and evaluate the body.
-  // Phase 3: body evaluation is deferred to call time (like
-  // try_to_implement_function_by_function_type). This means return-type
-  // mismatches inside the body are not caught at definition time.
+  // Definition-time body evaluation (closure-body def-eval wall).
+  //
+  // Mirrors anonymous-function.ts:766-852: a NON-GENERIC anonymous function
+  // evaluates its body NOW, under a function-body evaluation context whose
+  // `captured_variables` map records every outer-variable reference
+  // (identifier lookup calls `track_variable_usage`). Generic bodies stay
+  // deferred, mirroring `shouldDeferBodyEvaluation` (forall params, or a
+  // param type carrying SomeTs).
+  //
+  // Eval errors are SWALLOWED by the capture-free trial wrapper (the
+  // def-eval-wall pattern — yo-self porting gaps must not reject valid
+  // bodies). Deliberate rejections surface through three channels:
+  //   1. a flow violation flagged inside the body (binding-site checks) is
+  //      re-raised here via the real `exn`;
+  //   2. under `propagate_def_time_errors()` (a `comptime_expect_error`
+  //      argument eval) a swallowed body error is re-raised so the expected
+  //      error is observed;
+  //   3. the post-eval gates below (unwind-needs-ctl, capture checks) throw
+  //      via the real `exn` directly.
   // -------------------------------------------------------------------------
+  (should_defer_body : bool) = (forall_labels.len() > usize(0));
+  if(!(should_defer_body), {
+    (sd_i : usize) = usize(0);
+    while((sd_i < param_types.len()) && !(should_defer_body), {
+      sd_pt := match(param_types.get(sd_i),.Some(t) => t,.None => t_unit());
+      if(get_all_some_types(sd_pt).len() > usize(0), {
+        should_defer_body = true;
+      });
+      sd_i = (sd_i + usize(1));
+    });
+  });
+  if(!(should_defer_body), {
+    // A separate preliminary FuncVal for the body-eval context (EvalValue is
+    // not Clone; `func_val` above is consumed by the ExprInfo below). Same
+    // pattern as closure_type.yo's `func_val_pre`.
+    body_ctx_func_val := EvalValue.FuncVal(
+      ArrayList(String).new(),
+      ArrayList(String).new(),
+      ArrayList(String).new(),
+      ArrayList(String).new(),
+      box(body_for_def_eval.clone()),
+      ArrayList(String).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(EvalValue).new(),
+      func_id.clone()
+    );
+    // The body evaluates against a SNAPSHOT of the live env (the param frame
+    // is in scope; frame-list mutations during body eval cannot corrupt the
+    // outer env's frame list — see snapshot_env / the recorded-env-aliasing
+    // issue). TS evaluates in the live env and restores `outerEnv` after
+    // (anonymous-function.ts:1062) — the snapshot gives the same net effect.
+    body_eval_env := snapshot_env(env);
+    body_eval_ctx := create_function_body_evaluation_context(
+      function_type,
+      body_ctx_func_val,
+      body_eval_env,
+      ctx
+    );
+    anon_body_out := ArrayList(AstExpr).new();
+    _trial_eval_anon_body(body_for_def_eval, body_eval_env, body_eval_ctx, anon_body_out);
+    // Channel 1: re-raise a flow violation the trial swallow ate (a
+    // deliberate binding-site rejection inside the body). Mirrors the
+    // def-time caller in calls/function_type.yo:601.
+    if(flow_violation_pending(), {
+      anon_viol_msg := flow_violation_message();
+      clear_flow_violation();
+      exn.throw(dyn(format_error_message(tok, anon_viol_msg, false,.None)));
+    });
+    // Channel 2: comptime_expect_error observation — when the body eval
+    // THREW (empty `out`) and propagate mode is on, re-raise so the
+    // expected error reaches the comptime_expect_error catch.
+    if(propagate_def_time_errors() && (anon_body_out.len() == usize(0)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            String.from("Anonymous function body raised a compile-time error during definition-time evaluation."),
+            false,
+            .None
+          )
+        )
+      );
+    });
+    // §4 typing rule 1 (anonymous-function.ts:894-900): `unwind` is only
+    // valid in a `ctl(...) -> ret` body. A `fn(...) -> ret` body containing
+    // `unwind` is a type error. Closures are exempt (TS checks isClosure).
+    fn_type_is_control := match(
+      function_type,
+      .Func({ is_control : ic }) => ic,
+      _ => false
+    );
+    match(
+      anon_body_out.get(usize(0)),
+      .Some(anon_eb) => {
+        if(evaluated_body_contains_unwind(anon_eb) && ((!(fn_type_is_control)) && (!(is_creating_closure))), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                tok,
+                String.from("`unwind` is only valid inside a control-function body. This function is declared with `fn(...) -> ret`; change the declared type to `ctl(...) -> ret` if the body needs to unwind."),
+                false,
+                .None
+              )
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+    // Capture checks (regular-fn-no-capture; Phase B ref-capture +
+    // control-bound-capture for closures). `n_cap_fr` is the outer frame
+    // count from before the parameter frame was pushed.
+    match(
+      body_eval_ctx.captured_variables,
+      .Some(anon_caps) => if(anon_caps.len() > usize(0), {
+        _check_anon_fn_captures(anon_caps, env, is_creating_closure, n_cap_fr, tok, exn);
+      }),
+      .None => ()
+    );
+  });
   // -------------------------------------------------------------------------
   // Restore the parameter frame.
   // -------------------------------------------------------------------------

@@ -122,8 +122,8 @@ ci_child_of_comptime_list_ty :: (fn(ty : TypeValue) -> TypeValue)(
 ci_child_of_array_ty :: (fn(ty : TypeValue) -> TypeValue)(
   match(
     ty,
-    .Array(cb, _) => cb.*,
-    .Pointer(pb) => match(pb.*,.Array(cb, _) => cb.*, _ => ty),
+    .Array(cb, _, _) => cb.*,
+    .Pointer(pb) => match(pb.*,.Array(cb, _, _) => cb.*, _ => ty),
     _ => ty
   )
 );
@@ -144,13 +144,13 @@ ci_elem_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
     .Pointer(pb) => {
       inner := pb.*;
       cond(
-        is_array_type(inner) => t_ptr(match(inner,.Array(cb, _) => cb.*, _ => inner)),
+        is_array_type(inner) => t_ptr(match(inner,.Array(cb, _, _) => cb.*, _ => inner)),
         is_slice_type(inner) => t_ptr(match(inner,.Slice(cb) => cb.*, _ => inner)),
         is_comptime_list_type(inner) => t_ptr(match(inner,.ComptimeListT(cb) => cb.*, _ => inner)),
         true => ty
       )
     },
-    .Array(cb, _) => t_ptr(cb.*),
+    .Array(cb, _, _) => t_ptr(cb.*),
     .Slice(cb) => t_ptr(cb.*),
     .ComptimeListT(cb) => t_ptr(cb.*),
     _ => ty
@@ -165,13 +165,13 @@ ci_range_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
       inner := pb.*;
       cond(
         is_array_type(inner) => {
-          elem := match(inner,.Array(cb, _) => cb.*, _ => inner);
+          elem := match(inner,.Array(cb, _, _) => cb.*, _ => inner);
           t_ptr(t_slice(elem))
         },
         true => ty
       )
     },
-    .Array(cb, _) => t_ptr(t_slice(cb.*)),
+    .Array(cb, _, _) => t_ptr(t_slice(cb.*)),
     .Slice(_) => t_ptr(ty),
     _ => ty
   )
@@ -305,9 +305,9 @@ ci_eval_list_index :: (
       return(expr);
     }
   );
-  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list index"));
+  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list index"), exn);
   (cur_env : Environment) = self_info.env;
-  idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime list index"));
+  idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime list index"), exn);
   cur_env = idx_info.env;
   list_ev_opt := ci_resolve_comptime_list(self_info.value);
   fallback_ty := ci_elem_return_ty(self_info.ty);
@@ -441,9 +441,9 @@ ci_eval_list_range_index :: (
       return(expr);
     }
   );
-  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list range index"));
+  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list range index"), exn);
   (cur_env : Environment) = self_info.env;
-  range_info := ci_eval_arg(range_arg, cur_env, ctx, String.from("Failed to evaluate range for comptime list range index"));
+  range_info := ci_eval_arg(range_arg, cur_env, ctx, String.from("Failed to evaluate range for comptime list range index"), exn);
   cur_env = range_info.env;
   fallback_ty := ci_list_range_return_ty(self_info.ty);
   // Fallback when range value is unknown or not a struct.
@@ -537,7 +537,7 @@ ci_eval_list_range_index :: (
       });
       sliced := ArrayList(EvalValue).new();
       (i : usize) = start_idx;
-      while(runtime(i < end_idx), {
+      while(i < end_idx, {
         match(
           list_elems.get(i),
           .Some(v) => {
@@ -593,9 +593,9 @@ ci_eval_array_slice_index :: (
       return(expr);
     }
   );
-  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime array/slice index"));
+  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime array/slice index"), exn);
   (cur_env : Environment) = self_info.env;
-  idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime array/slice index"));
+  idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime array/slice index"), exn);
   cur_env = idx_info.env;
   // ----- Slice branch -----
   if(is_slice, {
@@ -846,9 +846,9 @@ ci_eval_array_slice_range_index :: (
       return(expr);
     }
   );
-  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime range index"));
+  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime range index"), exn);
   (cur_env : Environment) = self_info.env;
-  range_info := ci_eval_arg(range_arg, cur_env, ctx, String.from("Failed to evaluate range index for comptime index"));
+  range_info := ci_eval_arg(range_arg, cur_env, ctx, String.from("Failed to evaluate range index for comptime index"), exn);
   cur_env = range_info.env;
   // Fallback when range value is unknown or not a struct.
   range_is_known := match(
@@ -1068,9 +1068,9 @@ ci_eval_string_index :: (
       return(expr);
     }
   );
-  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime string index"));
+  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime string index"), exn);
   (cur_env : Environment) = self_info.env;
-  idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime string index"));
+  idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime string index"), exn);
   cur_env = idx_info.env;
   result_ty := self_info.ty;
   // If self is not a known comptime_string, set no value.
@@ -1245,40 +1245,40 @@ evaluate_yo_comptime_index_functions :: (
   ) -> AstExpr
 )({
   if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX,.None), {
-    return(ci_eval_list_index(expr, env, ctx));
+    return(ci_eval_list_index(expr, env, ctx, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE,.None), {
-    return(ci_eval_list_range_index(expr, env, ctx, false));
+    return(ci_eval_list_range_index(expr, env, ctx, false, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE,.None), {
-    return(ci_eval_list_range_index(expr, env, ctx, true));
+    return(ci_eval_list_range_index(expr, env, ctx, true, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX,.None), {
-    return(ci_eval_array_slice_index(expr, env, ctx, false));
+    return(ci_eval_array_slice_index(expr, env, ctx, false, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX,.None), {
-    return(ci_eval_array_slice_index(expr, env, ctx, true));
+    return(ci_eval_array_slice_index(expr, env, ctx, true, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX_RANGE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, false, false));
+    return(ci_eval_array_slice_range_index(expr, env, ctx, false, false, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, false, true));
+    return(ci_eval_array_slice_range_index(expr, env, ctx, false, true, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX_RANGE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, true, false));
+    return(ci_eval_array_slice_range_index(expr, env, ctx, true, false, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, true, true));
+    return(ci_eval_array_slice_range_index(expr, env, ctx, true, true, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX,.None), {
-    return(ci_eval_string_index(expr, env, ctx, false, false));
+    return(ci_eval_string_index(expr, env, ctx, false, false, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE,.None), {
-    return(ci_eval_string_index(expr, env, ctx, true, false));
+    return(ci_eval_string_index(expr, env, ctx, true, false, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,.None), {
-    return(ci_eval_string_index(expr, env, ctx, true, true));
+    return(ci_eval_string_index(expr, env, ctx, true, true, exn));
   });
   exn.throw(
     dyn(

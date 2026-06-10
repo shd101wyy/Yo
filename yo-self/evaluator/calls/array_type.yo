@@ -50,7 +50,7 @@ try_to_implement_array_by_array_type :: (
   // Extract element type and concrete length from TypeValue.Array.
   elem_type := match(
     array_type,
-    .Array(elem_box, _) => elem_box.*,
+    .Array(elem_box, _, _) => elem_box.*,
     _ => {
       exn.throw(
         dyn(
@@ -67,7 +67,7 @@ try_to_implement_array_by_array_type :: (
   );
   expected_len := match(
     array_type,
-    .Array(_, len) => len,
+    .Array(_, len, _) => len,
     _ => usize(0)
   );
   // Validate argument count matches array length.
@@ -94,7 +94,7 @@ try_to_implement_array_by_array_type :: (
   (env : Environment) = caller_env;
   (expected_element_type : TypeValue) = elem_type;
   (i : usize) = usize(0);
-  while(runtime(i < n_args), {
+  while(i < n_args, {
     arg_expr := match(
       arg_exprs.get(i),
       .Some(a) => a,
@@ -122,7 +122,10 @@ try_to_implement_array_by_array_type :: (
     });
     arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, expected_element_type));
     set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
-    env = arg_info.env;
+    env.frames = arg_info.env.frames;
+    env.module_path = arg_info.env.module_path;
+    env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+    env.input_string = arg_info.env.input_string;
     // For first element: if expected element type is Array with unknown-length child,
     // update expected element type based on actual evaluated type.
     if((i == usize(0)) && is_array_type(expected_element_type), {
@@ -157,7 +160,7 @@ try_to_implement_array_by_array_type :: (
   });
   // Store result in expr_info_table.
   // Re-use array_type but with refined element type (may have been updated from first element).
-  final_array_type := TypeValue.Array(box(expected_element_type), expected_len);
+  final_array_type := TypeValue.Array(box(expected_element_type), expected_len, String.from(""));
   out_info := new_expr_info(env, final_array_type);
   out_info.value =.Some(EvalValue.ArrayVal(elements));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

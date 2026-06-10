@@ -77,14 +77,14 @@ evaluate_union_type :: (
   field_types := ArrayList(TypeValue).new();
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
-  while(runtime(i < args.len()), {
+  while(i < args.len(), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     result := evaluate_type_field(arg, i, env_mut, ctx, "union", exn);
     field := result.field;
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while(runtime((dup_idx < field_labels.len()) && !(has_dup)), {
+    while((dup_idx < field_labels.len()) && !(has_dup), {
       existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
       if(existing == field.label, {
         has_dup = true;
@@ -151,7 +151,10 @@ evaluate_union_type :: (
     field_labels.push(String.from(field.label.as_str()));
     field_types.push(field.ty);
     fields.push(field);
-    env_mut = result.env;
+    env_mut.frames = result.env.frames;
+    env_mut.module_path = result.env.module_path;
+    env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env_mut.input_string = result.env.input_string;
     i = (i + usize(1));
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).

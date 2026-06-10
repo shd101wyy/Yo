@@ -205,7 +205,7 @@ is_effect_call_ :: (
       access_path_rev := ArrayList(String).new();
       current := func_expr;
       go := true;
-      while(runtime(go), {
+      while(go, {
         cur_clone := current.clone();
         is_dot_call := ast_expr_is_fn_call_of(cur_clone, ".", Option(usize).None);
         if(!(is_dot_call), {
@@ -267,7 +267,7 @@ is_effect_call_ :: (
       // Compare: access_path_rev (leaf→root) vs fp (root→leaf)
       i := usize(0);
       matched := true;
-      while(runtime(i < n), {
+      while(i < n, {
         rev_s := match(
           access_path_rev.get(i),
           .Some(s) => s,
@@ -383,7 +383,7 @@ has_effect_in_spread_ :: (
         n := implicit_labels.len();
         i := usize(0);
         found := false;
-        while(runtime(i < n), {
+        while(i < n, {
           label := match(implicit_labels.get(i),.Some(l) => l,.None => String.from(""));
           ty := match(implicit_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
           if((label == effect_param_name) && ((is_function_type(ty.clone()) || is_module_type(ty.clone())) || is_struct_type(ty)), {
@@ -439,11 +439,11 @@ is_transitive_effect_call_ :: (
   if(is_function_type(func_type.clone()), {
     result := match(
       func_type,
-      .Func(_, _, _, _, implicit_labels, implicit_types, implicit_spreads, _, _) => {
+      .Func({ implicit_labels, implicit_types, implicit_spreads }) => {
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
-        while(runtime(i < n), {
+        while(i < n, {
           label := match(implicit_labels.get(i),.Some(l) => l,.None => String.from(""));
           ty := match(implicit_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
           is_spread := match(implicit_spreads.get(i),.Some(s) => s,.None => false);
@@ -492,7 +492,7 @@ is_transitive_effect_call_ :: (
         .FnTraitT(_, _, _, _, implicit_labels, implicit_types, implicit_spreads) => {
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
-          while(runtime(i2 < n2), {
+          while(i2 < n2, {
             label := match(implicit_labels.get(i2),.Some(l) => l,.None => String.from(""));
             ty := match(implicit_types.get(i2),.Some(t) => t,.None => TypeValue.Unit);
             is_spread := match(implicit_spreads.get(i2),.Some(s) => s,.None => false);
@@ -565,7 +565,7 @@ detect_effect_expr_ :: (
       .FnCall(_, _, args, _, _) => {
         n := args.len();
         ai := usize(0);
-        while(runtime(ai < n), {
+        while(ai < n, {
           arg := match(
             args.get(ai),
             .Some(a) => a,
@@ -592,10 +592,10 @@ detect_effect_expr_ :: (
         .None => (),
         .Some(fn_type) => match(
           fn_type,
-          .Func(_, _, _, param_types, _, _, _, _, _) => {
+          .Func({ param_types }) => {
             pn := param_types.len();
             pi := usize(0);
-            while(runtime(pi < pn), {
+            while(pi < pn, {
               pt := match(
                 param_types.get(pi),
                 .Some(t) => t,
@@ -624,7 +624,7 @@ detect_effect_expr_ :: (
         .None => Option(TypeValue).None,
         .Some(fn_type) => match(
           fn_type,
-          .Func(_, _, _, _, _, _, _, _, result) => Option(TypeValue).Some(result.*),
+          .Func({ result }) => Option(TypeValue).Some(result.*),
           _ => Option(TypeValue).None
         )
       );
@@ -694,10 +694,10 @@ detect_effect_expr_ :: (
           transitive_arg_types := ArrayList(TypeValue).new();
           match(
             ctl_type.clone(),
-            .Func(_, _, _, param_types, _, _, _, _, _) => {
+            .Func({ param_types }) => {
               pn := param_types.len();
               pi := usize(0);
-              while(runtime(pi < pn), {
+              while(pi < pn, {
                 pt := match(
                   param_types.get(pi),
                   .Some(t) => t,
@@ -716,7 +716,7 @@ detect_effect_expr_ :: (
           transitive_result_type_opt := cond(
             via_closure => match(
               ctl_type,
-              .Func(_, _, _, _, _, _, _, _, result) => Option(TypeValue).Some(result.*),
+              .Func({ result }) => Option(TypeValue).Some(result.*),
               _ => Option(TypeValue).None
             ),
             true => match(
@@ -815,7 +815,7 @@ analyze_effect_call_points :: (
   effect_call_points := ArrayList(EffectCallPoint).new();
   n_pts := result.suspension_points.len();
   (pi : usize) = usize(0);
-  while(runtime(pi < n_pts), {
+  while(pi < n_pts, {
     sp := match(
       result.suspension_points.get(pi),
       .None => {
@@ -851,7 +851,7 @@ analyze_effect_call_points :: (
   captured_variables := ArrayList(EffectCapturedVariable).new();
   n_cv := result.captured_variables.len();
   (ci : usize) = usize(0);
-  while(runtime(ci < n_cv), {
+  while(ci < n_cv, {
     sv := match(
       result.captured_variables.get(ci),
       .None => {

@@ -43,7 +43,7 @@ _all_fields_implement_send :: (fn(field_types : ArrayList(TypeValue), env : Envi
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while(runtime((i < n) && all_ok), {
+  while((i < n) && all_ok, {
     ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
     if(!(type_implements_send(ft, env)), {
       all_ok = false;
@@ -56,7 +56,7 @@ _all_fields_implement_acyclic :: (fn(field_types : ArrayList(TypeValue), env : E
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while(runtime((i < n) && all_ok), {
+  while((i < n) && all_ok, {
     ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
     if(!(type_implements_acyclic(ft, env)), {
       all_ok = false;
@@ -69,7 +69,7 @@ _all_fields_implement_comptime :: (fn(field_types : ArrayList(TypeValue), env : 
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while(runtime((i < n) && all_ok), {
+  while((i < n) && all_ok, {
     ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
     if(!(type_implements_comptime(ft, env)), {
       all_ok = false;
@@ -82,7 +82,7 @@ _all_fields_implement_runtime :: (fn(field_types : ArrayList(TypeValue), env : E
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while(runtime((i < n) && all_ok), {
+  while((i < n) && all_ok, {
     ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
     if(!(type_implements_runtime_full(ft, env)), {
       all_ok = false;
@@ -120,12 +120,12 @@ auto_derive_traits_for_struct_type :: (
   // Struct (value) types: all fields must be Send.
   if(!(is_reference_semantics && !(is_atomic_rc)), {
     if(_all_fields_implement_send(field_types, env), {
-      register_type_trait(struct_id, "Send");
+      register_type_trait(struct_id, "Send", env);
     });
   });
   // Rc — object types only.
   if(is_reference_semantics, {
-    register_type_trait(struct_id, "Rc");
+    register_type_trait(struct_id, "Rc", env);
   });
   // Acyclic.
   // Object types: if not a cycle root.
@@ -136,20 +136,20 @@ auto_derive_traits_for_struct_type :: (
     _all_fields_implement_acyclic(field_types, env)
   );
   if(is_acyclic, {
-    register_type_trait(struct_id, "Acyclic");
+    register_type_trait(struct_id, "Acyclic", env);
   });
   // Comptime — object types never; struct types if all fields Comptime.
   if(!(is_reference_semantics), {
     if(_all_fields_implement_comptime(field_types, env), {
-      register_type_trait(struct_id, "Comptime");
+      register_type_trait(struct_id, "Comptime", env);
     });
   });
   // Runtime — object types always; struct types if all fields Runtime.
   if(is_reference_semantics, {
-    register_type_trait(struct_id, "Runtime");
+    register_type_trait(struct_id, "Runtime", env);
   }, {
     if(_all_fields_implement_runtime(field_types, env), {
-      register_type_trait(struct_id, "Runtime");
+      register_type_trait(struct_id, "Runtime", env);
     });
   });
   // End Send derivation cycle guard.
@@ -163,11 +163,11 @@ _flatten_variant_fields :: (fn(variant_fields : ArrayList(ArrayList(TypeValue)))
   result := ArrayList(TypeValue).new();
   n := variant_fields.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     vf := match(variant_fields.get(i),.Some(f) => f,.None => ArrayList(TypeValue).new());
     m := vf.len();
     (j : usize) = usize(0);
-    while(runtime(j < m), {
+    while(j < m, {
       ft := match(vf.get(j),.Some(t) => t,.None => TypeValue.Unit);
       ___ := result.push(ft);
       j = (j + usize(1));
@@ -193,19 +193,19 @@ auto_derive_traits_for_enum_type :: (
   all_field_types := _flatten_variant_fields(variant_fields);
   // Send: all fields Send.
   if(_all_fields_implement_send(all_field_types, env), {
-    register_type_trait(enum_id, "Send");
+    register_type_trait(enum_id, "Send", env);
   });
   // Acyclic: all fields Acyclic.
   if(_all_fields_implement_acyclic(all_field_types, env), {
-    register_type_trait(enum_id, "Acyclic");
+    register_type_trait(enum_id, "Acyclic", env);
   });
   // Comptime: all fields Comptime.
   if(_all_fields_implement_comptime(all_field_types, env), {
-    register_type_trait(enum_id, "Comptime");
+    register_type_trait(enum_id, "Comptime", env);
   });
   // Runtime: all fields Runtime.
   if(_all_fields_implement_runtime(all_field_types, env), {
-    register_type_trait(enum_id, "Runtime");
+    register_type_trait(enum_id, "Runtime", env);
   });
 });
 // ---------------------------------------------------------------------------
@@ -226,19 +226,19 @@ auto_derive_traits_for_union_type :: (
 )({
   // Send: all fields Send.
   if(_all_fields_implement_send(field_types, env), {
-    register_type_trait(union_id, "Send");
+    register_type_trait(union_id, "Send", env);
   });
   // Acyclic: all fields Acyclic.
   if(_all_fields_implement_acyclic(field_types, env), {
-    register_type_trait(union_id, "Acyclic");
+    register_type_trait(union_id, "Acyclic", env);
   });
   // Comptime: all fields Comptime.
   if(_all_fields_implement_comptime(field_types, env), {
-    register_type_trait(union_id, "Comptime");
+    register_type_trait(union_id, "Comptime", env);
   });
   // Runtime: all fields Runtime.
   if(_all_fields_implement_runtime(field_types, env), {
-    register_type_trait(union_id, "Runtime");
+    register_type_trait(union_id, "Runtime", env);
   });
 });
 export(auto_derive_traits_for_struct_type);

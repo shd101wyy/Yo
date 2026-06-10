@@ -8,15 +8,14 @@
 //! For runtime values: looks up the index method and returns UnknownVal.
 //!
 //! Phase 3u simplifications:
-//!   - _find_all_index_methods: only checks TraitT direct fields (no generic impls)
 //!   - _check_range_type: uses struct name heuristic (no CTFE resolution)
 //!   - Custom type ComptimeIndex: not yet implemented (Phase 4)
-//!   - has_index_impl: returns true for Array/Slice, false otherwise
+//!   - has_index_impl: Array/Slice fast path + trait-field/registry method lookup
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_receiver_methods_by_name_from_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_slice } :: import("../../types/creators.yo");
 { is_array_type, is_slice_type, is_pointer_type, is_trait_type } :: import("../../types/guards.yo");
@@ -79,7 +78,7 @@ _str_quote :: (fn(s : String) -> String)(
 _check_range_type :: (fn(arg_type : TypeValue) -> _RangeCheck)(
   match(
     arg_type,
-    .Struct(_, name, _, _, _, _, _) => {
+    .Struct({ name }) => {
       is_incl := name.starts_with(`RangeInclusive`);
       is_rng := (is_incl || name.starts_with(`Range`));
       _RangeCheck(is_range : is_rng, is_inclusive : is_incl)
@@ -166,13 +165,14 @@ _extract_range_indices :: (
 // ---------------------------------------------------------------------------
 // _find_all_index_methods
 // ---------------------------------------------------------------------------
-/// Find all `index` methods on a concrete type.
-///
-/// Phase 3u simplification: only checks TraitT direct fields.
-/// No generic impl registry (not yet ported to yo-self).
+/// Find all `index` methods on a concrete type: TraitT receivers expose them
+/// as direct trait fields; struct/object receivers resolve through the
+/// trait-methods registry + generic-impl fallback (the yo-self mirror of TS
+/// `concreteType.trait.fields`).
 _find_all_index_methods :: (
   fn(
-    concrete_type : TypeValue
+    concrete_type : TypeValue,
+    env : Environment
   ) -> ArrayList(_IndexMethodEntry)
 )({
   result := ArrayList(_IndexMethodEntry).new();
@@ -181,7 +181,7 @@ _find_all_index_methods :: (
     .TraitT(_, _, field_labels, field_types, _, _, _, _) => {
       n := field_labels.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         lbl_opt := field_labels.get(i);
         ty_opt := field_types.get(i);
         match(
@@ -191,7 +191,7 @@ _find_all_index_methods :: (
               match(
                 ty_opt,
                 .Some(fty) => {
-                  if(match(fty,.Func(result : _) => true, _ => false), {
+                  if(match(fty,.Func({ result : _ }) => true, _ => false), {
                     result.push(
                       _IndexMethodEntry(
                         method_type : fty,
@@ -211,6 +211,35 @@ _find_all_index_methods :: (
     },
     _ => ()
   );
+  // Registry lookup for non-trait receivers (structs/objects like
+  // `ArrayList(u8)`): TS reads `concreteType.trait.fields` directly
+  // (index-trait.ts:76-90); yo-self's trait-methods registry + generic-impl
+  // fallback is the mirror of that slot. Post method-type specialization,
+  // generic-impl candidates arrive concrete (e.g.
+  // `index : fn(self : *(ArrayList(u8)), idx : usize) -> *(u8)`). Without
+  // this, `x(i)` on a struct receiver with an unknown value soft-fell to
+  // `unit` under def-eval, poisoning every comparison built on it.
+  if(result.len() == usize(0), {
+    reg_methods := get_receiver_methods_by_name_from_env(env, String.from("index"), concrete_type, false);
+    (ri : usize) = usize(0);
+    while(ri < reg_methods.len(), {
+      match(
+        reg_methods.get(ri),
+        .Some(m) => {
+          if(match(m.ty,.Func({ result : _ }) => true, _ => false), {
+            result.push(
+              _IndexMethodEntry(
+                method_type : m.ty,
+                method_value : m.value
+              )
+            );
+          });
+        },
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+  });
   result
 });
 // ---------------------------------------------------------------------------
@@ -221,20 +250,21 @@ _find_all_index_methods :: (
 _find_index_method :: (
   fn(
     concrete_type : TypeValue,
-    arg_type : TypeValue
+    arg_type : TypeValue,
+    env : Environment
   ) -> Option(_IndexMethodEntry)
 )({
-  methods := _find_all_index_methods(concrete_type);
+  methods := _find_all_index_methods(concrete_type, env);
   n := methods.len();
   (i : usize) = usize(0);
   (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
-  while(runtime((i < n) && found.is_none()), {
+  while((i < n) && found.is_none(), {
     match(
       methods.get(i),
       .Some(m) => {
         match(
           m.method_type,
-          .Func(_, _, _, param_types, _, _, _, _, result_box) => {
+          .Func({ param_types, result : result_box, param_is_ref }) => {
             if(param_types.len() == usize(2), {
               p0_opt := param_types.get(usize(0));
               p1_opt := param_types.get(usize(1));
@@ -245,10 +275,20 @@ _find_index_method :: (
                     p1_opt,
                     .Some(p1) => {
                       ret_ty := result_box.*;
+                      // self must be a pointer type OR a `ref` parameter —
+                      // both `(self : *(Self), ...)` and the modern
+                      // `(ref(self) : Self, ...)` shape are accepted
+                      // (TS index-trait.ts:153 `!isPtrType(selfParam.type)
+                      // && !selfParam.isRef`).
                       p0_is_ptr := is_pointer_type(p0);
+                      p0_is_ref := match(
+                        param_is_ref.get(usize(0)),
+                        .Some(b) => b,
+                        .None => false
+                      );
                       p1_compatible := are_types_compatible(p1, arg_type);
                       ret_is_ptr := is_pointer_type(ret_ty);
-                      if((p0_is_ptr && p1_compatible) && ret_is_ptr, {
+                      if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
                         found = Option(_IndexMethodEntry).Some(m);
                       });
                     },
@@ -287,7 +327,7 @@ _try_comptime_range_slicing :: (
 )({
   elem_ty := match(
     value_type,
-    .Array(et, _) => et.*,
+    .Array(et, _, _) => et.*,
     .Slice(et) => et.*,
     _ => t_unit()
   );
@@ -448,7 +488,7 @@ _try_comptime_element_access :: (
 )({
   elem_ty := match(
     value_type,
-    .Array(et, _) => et.*,
+    .Array(et, _, _) => et.*,
     .Slice(et) => et.*,
     _ => t_unit()
   );
@@ -687,7 +727,8 @@ _try_comptime_array_slice_index :: (
         array_val,
         slice_val,
         value_type,
-        caller_env
+        caller_env,
+        exn
       )
     );
   });
@@ -697,7 +738,8 @@ _try_comptime_array_slice_index :: (
     array_val,
     slice_val,
     value_type,
-    caller_env
+    caller_env,
+    exn
   )
 });
 // ---------------------------------------------------------------------------
@@ -897,7 +939,8 @@ _try_comptime_string_index :: (
     arg_val,
     arg_expr,
     rc.is_range,
-    rc.is_inclusive
+    rc.is_inclusive,
+    exn
   );
   result_ty := TypeValue.ComptimeString;
   ptr_result_ty := t_ptr(result_ty);
@@ -998,7 +1041,8 @@ try_to_call_with_index_trait :: (
       slice_val,
       value_type,
       caller_env,
-      ctx
+      ctx,
+      exn
     );
     match(
       ct_result,
@@ -1018,7 +1062,7 @@ try_to_call_with_index_trait :: (
         raw.substring(usize(1), rn - usize(1)),
         String.new()
       );
-      result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx);
+      result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx, exn);
       return(result);
     },
     .None => ()
@@ -1050,7 +1094,7 @@ try_to_call_with_index_trait :: (
   if(is_arr_or_slice_ty, {
     elem_ty := match(
       value_type,
-      .Array(et, _) => et.*,
+      .Array(et, _, _) => et.*,
       .Slice(et) => et.*,
       _ => t_unit()
     );
@@ -1069,7 +1113,7 @@ try_to_call_with_index_trait :: (
   });
   // For custom types: find the index method via trait lookup
   arg_type := arg_info.ty;
-  method_opt := _find_index_method(value_type, arg_type);
+  method_opt := _find_index_method(value_type, arg_type, caller_env);
   method := match(
     method_opt,
     .Some(m) => m,
@@ -1093,7 +1137,7 @@ try_to_call_with_index_trait :: (
   // Get the output type: index method returns *(Output), deref to get Output
   ret_ty := match(
     method.method_type,
-    .Func(_, _, _, _, _, _, _, _, result_box) => result_box.*,
+    .Func({ result : result_box }) => result_box.*,
     _ => t_unit()
   );
   output_ty := match(
@@ -1117,8 +1161,8 @@ try_to_call_with_index_trait :: (
 // ---------------------------------------------------------------------------
 /// Check if a type has any matching Index impl for a given set of argument expressions.
 ///
-/// Phase 3u: Returns true for Array/Slice (fast path). Returns false for custom
-/// types (no generic impl registry in yo-self yet).
+/// Array/Slice fast path; custom types resolve `index` methods through the
+/// trait-field scan + trait-methods registry (generic-impl fallback included).
 ///
 /// Mirrors `hasIndexImpl` in `src/evaluator/calls/index-trait.ts`.
 has_index_impl :: (
@@ -1129,7 +1173,6 @@ has_index_impl :: (
     ctx : EvalContext
   ) -> bool
 )({
-  _ := caller_env;
   _ := ctx;
   if(arg_exprs.len() != usize(1), {
     return(false);
@@ -1138,8 +1181,8 @@ has_index_impl :: (
   if(is_array_type(concrete_type) || is_slice_type(concrete_type), {
     return(true);
   });
-  // Check for trait-direct methods (Phase 3u: no generic impls)
-  methods := _find_all_index_methods(concrete_type);
+  // Trait-field + registry/generic-impl method lookup.
+  methods := _find_all_index_methods(concrete_type, caller_env);
   methods.len() > usize(0)
 });
 export(try_to_call_with_index_trait);

@@ -247,12 +247,10 @@ find_rc_value_owner_relationship :: (
       );
       visited := HashSet(String).new();
       // Follow the chain until we find an owning variable or it breaks.
-      while(runtime(
-        match(
-          candidate_opt,
-          .Some(c) => c.is_owning_the_same_rc_value_as.is_some(),
-          .None => false
-        )
+      while(match(
+        candidate_opt,
+        .Some(c) => c.is_owning_the_same_rc_value_as.is_some(),
+        .None => false
       ), {
         match(
           candidate_opt,
@@ -309,7 +307,7 @@ throw_expr_is_implicit_variable_error :: (
     .Some(rhs_info) => {
       n := rhs_info.path_collection.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         path := match(rhs_info.path_collection.get(i),.Some(p) => p,.None => ArrayList(String).new());
         if(path.len() > usize(0), {
           match(
@@ -649,11 +647,19 @@ merge_and_check_envs :: (
   if(bodies.len() == usize(0), {
     return(env);
   });
+  // Zero-frame env guard: `frames.len() - 1` UNDERFLOWS to 2^64-1 and the
+  // per-frame loop below spins (effectively) forever calling
+  // `frames.get(i)` → `.None` → continue (std/glob.yo never finished one
+  // check). TS's `for (let i = 0; i <= envs.length - 1; ...)` simply does
+  // not run when the env has no frames — mirror that.
+  if(env.frames.len() == usize(0), {
+    return(env);
+  });
   max_frame_level := (env.frames.len() - usize(1));
   // Collect case environments from the expr_info_table.
   case_envs := ArrayList(Environment).new();
   (bi : usize) = usize(0);
-  while(runtime(bi < bodies.len()), {
+  while(bi < bodies.len(), {
     body := match(bodies.get(bi),.Some(b) => b,.None => make_err_expr());
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(body));
     match(
@@ -676,11 +682,28 @@ merge_and_check_envs :: (
     );
     bi = (bi + usize(1));
   });
-  // Verify that every case env has the same frame depth as the base env.
+  // Verify that every case env has the SAME frame depth as the others.
+  //
+  // TS compares each `caseEnv.frames.length-1` to `maxFrameLevel` (the OUTER
+  // env's), because in TS an arm body's `.$.env` sits at the outer frame level.
+  // In yo-self each cond/match arm body is evaluated under a per-arm
+  // `push_frame` (cond.yo / match.yo), and the recorded-`ExprInfo.env` SNAPSHOT
+  // (issues/yo-self-recorded-env-aliasing.md) is taken DURING the arm eval, so
+  // every arm env is one frame DEEPER than the outer env — uniformly. Comparing
+  // to the outer `max_frame_level` would then spuriously throw for EVERY
+  // cond/match (swallowed at def-time, but it aborts the enclosing fn body —
+  // breaking in-body slice/ref flow gates and assign-escape detection, e.g.
+  // slice_flowability's `assign_escape_slice`). Compare each arm to the FIRST
+  // arm's depth instead: still catches a genuine inter-arm frame-level
+  // inconsistency, but is robust to the uniform arm-frame offset. The per-frame
+  // ownership loop below keeps using the outer `max_frame_level`, so it scans
+  // exactly the outer frames (present in every arm env) and skips the transient
+  // per-arm frame.
+  base_case_depth := match(case_envs.get(usize(0)),.Some(e0) => e0.frames.len(),.None => env.frames.len());
   (ci : usize) = usize(0);
-  while(runtime(ci < case_envs.len()), {
+  while(ci < case_envs.len(), {
     case_env := match(case_envs.get(ci),.Some(e) => e,.None => env);
-    if((case_env.frames.len() - usize(1)) != max_frame_level, {
+    if(case_env.frames.len() != base_case_depth, {
       exn.throw(
         dyn(
           format_error_message(
@@ -696,7 +719,7 @@ merge_and_check_envs :: (
   });
   // Process each frame level from 0 to max_frame_level (inclusive).
   (frame_i : usize) = usize(0);
-  while(runtime(frame_i <= max_frame_level), {
+  while(frame_i <= max_frame_level, {
     frame_opt := env.frames.get(frame_i);
     match(
       frame_opt,
@@ -707,7 +730,7 @@ merge_and_check_envs :: (
         // base env frame (only for non-innermost frames).
         // ---------------------------------------------------------------
         (cj : usize) = usize(0);
-        while(runtime(cj < case_envs.len()), {
+        while(cj < case_envs.len(), {
           case_env := match(case_envs.get(cj),.Some(e) => e,.None => env);
           case_frame := match(case_env.frames.get(frame_i),.Some(f) => f,.None => new_frame(false));
           case_vars_len := case_frame.variables.len();
@@ -718,7 +741,7 @@ merge_and_check_envs :: (
                 // Check whether all extra variables are temp variables.
                 (all_temps : bool) = true;
                 (ek : usize) = base_vars_len;
-                while(runtime(ek < case_vars_len), {
+                while(ek < case_vars_len, {
                   extra_var := match(case_frame.variables.get(ek),.Some(v) => v,.None => make_err_variable(env));
                   if(!(is_temp_variable_name(env.module_path, extra_var.name)), {
                     all_temps = false;
@@ -729,7 +752,7 @@ merge_and_check_envs :: (
                   // Adopt extra temps into the base env frame. Adopted temps
                   // must NOT own RC values (each branch handles its own drops).
                   (ek2 : usize) = base_vars_len;
-                  while(runtime(ek2 < case_vars_len), {
+                  while(ek2 < case_vars_len, {
                     extra_var2 := match(case_frame.variables.get(ek2),.Some(v) => v,.None => make_err_variable(env));
                     extra_var2.is_owning_the_rc_value = false;
                     {
@@ -766,7 +789,7 @@ merge_and_check_envs :: (
           });
           // Check variable name consistency.
           (kk : usize) = usize(0);
-          while(runtime(kk < frame.variables.len()), {
+          while(kk < frame.variables.len(), {
             base_var := match(frame.variables.get(kk),.Some(v) => v,.None => make_err_variable(env));
             case_var_k := match(case_frame.variables.get(kk),.Some(v) => v,.None => make_err_variable(env));
             if(((base_var.name != case_var_k.name) && !(is_temp_variable_name(env.module_path, base_var.name))) && !(is_temp_variable_name(env.module_path, case_var_k.name)), {
@@ -789,7 +812,7 @@ merge_and_check_envs :: (
         // For each variable column, check and propagate state.
         // ---------------------------------------------------------------
         (var_j : usize) = usize(0);
-        while(runtime(var_j < frame.variables.len()), {
+        while(var_j < frame.variables.len(), {
           base_var := match(frame.variables.get(var_j),.Some(v) => v,.None => make_err_variable(env));
           var_name := base_var.name;
           // Collect per-case values for this variable.
@@ -799,7 +822,7 @@ merge_and_check_envs :: (
           var_ids := ArrayList(String).new();
           case_types := ArrayList(TypeValue).new();
           (ck : usize) = usize(0);
-          while(runtime(ck < case_envs.len()), {
+          while(ck < case_envs.len(), {
             case_env := match(case_envs.get(ck),.Some(e) => e,.None => env);
             case_frame_k := match(case_env.frames.get(frame_i),.Some(f) => f,.None => new_frame(false));
             case_var := match(case_frame_k.variables.get(var_j),.Some(v) => v,.None => make_err_variable(env));
@@ -857,7 +880,7 @@ merge_and_check_envs :: (
             (all_init : bool) = true;
             (any_init : bool) = false;
             (init_i : usize) = usize(0);
-            while(runtime(init_i < n_cases), {
+            while(init_i < n_cases, {
               tok_opt := match(initialized_at_tokens.get(init_i),.Some(v) => v,.None => Option(Token).None);
               match(
                 tok_opt,
@@ -884,7 +907,7 @@ merge_and_check_envs :: (
             if(any_init && !(all_init), {
               err_list := ArrayList(TokenAndError).new();
               (ei : usize) = usize(0);
-              while(runtime(ei < n_cases), {
+              while(ei < n_cases, {
                 tok_opt := match(initialized_at_tokens.get(ei),.Some(v) => v,.None => Option(Token).None);
                 body_tok := ast_expr_token(match(bodies.get(ei),.Some(b) => b,.None => make_err_expr()));
                 msg := cond(
@@ -924,7 +947,7 @@ merge_and_check_envs :: (
             (all_consumed : bool) = true;
             (any_consumed : bool) = false;
             (cons_i : usize) = usize(0);
-            while(runtime(cons_i < n_cases), {
+            while(cons_i < n_cases, {
               tok_opt := match(consumed_at_tokens.get(cons_i),.Some(v) => v,.None => Option(Token).None);
               match(
                 tok_opt,
@@ -951,7 +974,7 @@ merge_and_check_envs :: (
             if(any_consumed && !(all_consumed), {
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
-              while(runtime(eci < n_cases), {
+              while(eci < n_cases, {
                 tok_opt := match(consumed_at_tokens.get(eci),.Some(v) => v,.None => Option(Token).None);
                 body_tok := ast_expr_token(match(bodies.get(eci),.Some(b) => b,.None => make_err_expr()));
                 msg := cond(
@@ -973,7 +996,7 @@ merge_and_check_envs :: (
           (all_owning : bool) = true;
           (any_owning : bool) = false;
           (ow_i : usize) = usize(0);
-          while(runtime(ow_i < n_cases), {
+          while(ow_i < n_cases, {
             tok_opt := match(owning_at_tokens.get(ow_i),.Some(v) => v,.None => Option(Token).None);
             match(
               tok_opt,
@@ -994,7 +1017,7 @@ merge_and_check_envs :: (
           if((any_owning && !(all_owning)) && !(base_var.is_owning_the_rc_value), {
             err_list := ArrayList(TokenAndError).new();
             (oei : usize) = usize(0);
-            while(runtime(oei < n_cases), {
+            while(oei < n_cases, {
               tok_opt := match(owning_at_tokens.get(oei),.Some(v) => v,.None => Option(Token).None);
               body_tok := ast_expr_token(match(bodies.get(oei),.Some(b) => b,.None => make_err_expr()));
               msg := cond(
@@ -1015,7 +1038,7 @@ merge_and_check_envs :: (
           original_id := base_var.id;
           (has_reassignment : bool) = false;
           (rid_i : usize) = usize(0);
-          while(runtime(rid_i < n_cases), {
+          while(rid_i < n_cases, {
             case_id := match(var_ids.get(rid_i),.Some(s) => s,.None => String.from(""));
             if(case_id != original_id, {
               has_reassignment = true;
@@ -1194,7 +1217,7 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
       (result : i64) = i64(0);
       (i : usize) = start;
       (ok : bool) = true;
-      while(runtime((i < n) && ok), {
+      while((i < n) && ok, {
         match(
           bytes.get(i),
           .Some(b) =>

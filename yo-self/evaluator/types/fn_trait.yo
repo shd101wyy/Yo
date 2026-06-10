@@ -109,7 +109,7 @@ evaluate_fn_trait_type :: (
           dyn(
             format_error_message(
               ast_expr_token(return_type_expr),
-              `Expected a type for Fn return(type, got:\n${ast_expr_to_string(return_type_expr)})`,
+              `Expected a type for Fn return type, got:\n${ast_expr_to_string(return_type_expr)}`,
               false,
               .None
             )
@@ -127,7 +127,7 @@ evaluate_fn_trait_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("Failed to evaluate return(type for Fn trait.)"),
+            String.from("Failed to evaluate return type for Fn trait."),
             false,
             .None
           )
@@ -142,7 +142,7 @@ evaluate_fn_trait_type :: (
   call_param_labels := ArrayList(String).new();
   call_param_types := ArrayList(TypeValue).new();
   (pi : usize) = usize(0);
-  while(runtime(pi < params_result.params.len()), {
+  while(pi < params_result.params.len(), {
     p := match(
       params_result.params.get(pi),
       .Some(x) => x,
@@ -159,7 +159,7 @@ evaluate_fn_trait_type :: (
   implicit_types := ArrayList(TypeValue).new();
   implicit_spreads := ArrayList(bool).new();
   (ii : usize) = usize(0);
-  while(runtime(ii < params_result.implicit_params.len()), {
+  while(ii < params_result.implicit_params.len(), {
     ip := match(
       params_result.implicit_params.get(ii),
       .Some(x) => x,

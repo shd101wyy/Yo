@@ -51,6 +51,18 @@ BF_PRAGMA :: "pragma";
 BF_DROP :: "___drop";
 BF_DUP :: "___dup";
 BF_VA_START :: "va_start";
+/// Phase 0 of plans/FORMAL_VERIFICATION.md — contract builtins. Evaluated as
+/// no-op markers (their args are evaluated; the call returns `unit`).
+/// `requires`/`ensures` in a function SIGNATURE are extracted + lowered to
+/// runtime asserts by the function-type evaluator; these handlers fire when the
+/// builtins appear in EXPRESSION position. `ghost_fn`/`old` are transparent
+/// pass-throughs. Mirrors `BuiltinFunctions` in `src/expr.ts:1321`.
+BF_REQUIRES :: "requires";
+BF_ENSURES :: "ensures";
+BF_INVARIANT :: "invariant";
+BF_GHOST :: "ghost";
+BF_GHOST_FN :: "ghost_fn";
+BF_OLD :: "old";
 BF_ADDRESS_OF :: "&";
 BF_ARRAY_FILL :: "__yo_array_fill";
 BF_DERIVE :: "derive";
@@ -262,6 +274,7 @@ BK_OP_OR :: "||";
 BK_QUOTE :: "quote";
 BK_GENSYM :: "gensym";
 BK_COMPTIME_LIST_VAL :: "comptime_list";
+BK_REF :: "ref";
 /// A stable identifier for an AST expression node. Assigned during parsing.
 ExprId :: usize;
 /// An AST expression node. There are exactly two kinds:
@@ -272,6 +285,48 @@ AstExpr :: enum(
   FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), is_infix : bool, token : Token)
 );
 derive(AstExpr, Clone);
+/// Global expression-id counter — moved here from parser.yo so SYNTHESIZED
+/// nodes (gensym, quote expansions, fresh-id clones below) can mint ids
+/// from the SAME sequence as parsed nodes. In TS, per-node eval data lives
+/// on the object (`expr.$`) so object identity is the key; yo-self keys
+/// the ExprInfo table by this id — every distinct evaluated node MUST have
+/// a distinct id or table writes drop values other holders still use.
+(g_next_global_expr_id : usize) = usize(0);
+/// Mint a fresh ExprId (parser nodes and synthesized nodes share the
+/// sequence).
+alloc_global_expr_id :: (fn() -> ExprId)({
+  id := g_next_global_expr_id;
+  g_next_global_expr_id = (g_next_global_expr_id + usize(1));
+  id
+});
+/// Deep-clone an expression giving every node a FRESH id — the faithful
+/// mirror of TS `cloneExpr` (expr.ts:513), which creates new objects and
+/// therefore new `$` slots. The derived `AstExpr` Clone keeps ids, so a
+/// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
+/// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs,
+/// macro templates/expansions, and quoted-argument binding.
+clone_expr_fresh_ids :: (fn(e : AstExpr) -> AstExpr)(
+  match(
+    e,
+    .Atom(_, tok) => AstExpr.Atom(alloc_global_expr_id(), tok.clone()),
+    .FnCall(_, func_box, args, is_infix, tok) => {
+      new_args := ArrayList(AstExpr).new();
+      (ci : usize) = usize(0);
+      n := args.len();
+      while(ci < n, {
+        match(
+          args.get(ci),
+          .Some(a) => {
+            new_args.push(recur(a));
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      AstExpr.FnCall(alloc_global_expr_id(), box(recur(func_box.*)), new_args, is_infix, tok.clone())
+    }
+  )
+);
 /// Build a placeholder Atom expression used as a fallback in error paths.
 make_err_expr :: (fn() -> AstExpr)(
   .Atom(
@@ -405,7 +460,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               func_str := recur(func_box.*);
               sb := StringBuilder.new();
               i := usize(0);
-              while(runtime(i < n), {
+              while(i < n, {
                 if(i > usize(0), {
                   sb.write_str(", ");
                 });
@@ -420,7 +475,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
         func_is_tuple_kw => {
           sb := StringBuilder.new();
           i := usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             if(i > usize(0), {
               sb.write_str(", ");
             });
@@ -443,7 +498,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
           );
           sb := StringBuilder.new();
           i := usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             if(i > usize(0), {
               sb.write_str(", ");
             });
@@ -483,7 +538,7 @@ ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
     .Atom(_, tok) => {
       n := values.len();
       i := usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         v := match(values.get(i),.Some(s) => s,.None => "~unreachable~");
         if(tok.value == String.from(v), {
           return(true);
@@ -534,7 +589,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
           n := func_names.len();
           i := usize(0);
           found := false;
-          while(runtime(i < n), {
+          while(i < n, {
             v := match(func_names.get(i),.Some(s) => s,.None => "~unreachable~");
             if(tok.value == String.from(v), {
               found = true;
@@ -584,7 +639,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
           return(false);
         });
         i := usize(0);
-        while(runtime(i < n1), {
+        while(i < n1, {
           a1 := match(args1.get(i),.Some(a) => a,.None => make_err_expr());
           a2 := match(args2.get(i),.Some(a) => a,.None => make_err_expr());
           if(!(recur(a1, a2)), {
@@ -637,9 +692,10 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
 export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
 export(BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
-export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL);
+export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF);
 export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL);
 export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
+export(BF_REQUIRES, BF_ENSURES, BF_INVARIANT, BF_GHOST, BF_GHOST_FN, BF_OLD);
 export(BF_UNSAFE, BF_PRAGMA);
 export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_RC, BF_THE, BF_DOWNCAST);
 export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
@@ -808,3 +864,4 @@ export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
+export(alloc_global_expr_id, clone_expr_fresh_ids);

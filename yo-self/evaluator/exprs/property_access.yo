@@ -43,14 +43,15 @@ open(import("std/string"));
   is_type_value
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0 } :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
-{ is_valid_variable_name } :: import("./binding.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
 { find_methods_from_generic_impls, MethodCandidate }
@@ -66,7 +67,7 @@ find_last_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(u
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       labels.get(i),
       .Some(lbl) => {
@@ -86,7 +87,7 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  while(runtime((i < n) && result.is_none()), {
+  while((i < n) && result.is_none(), {
     match(
       labels.get(i),
       .Some(lbl) => {
@@ -118,13 +119,13 @@ build_field_path_collection :: (
   result := ArrayList(ArrayList(String)).new();
   if(obj_pc.len() > usize(0), {
     (bpc_i : usize) = usize(0);
-    while(runtime(bpc_i < obj_pc.len()), {
+    while(bpc_i < obj_pc.len(), {
       match(
         obj_pc.get(bpc_i),
         .Some(old_path) => {
           new_path := ArrayList(String).new();
           (bpc_j : usize) = usize(0);
-          while(runtime(bpc_j < old_path.len()), {
+          while(bpc_j < old_path.len(), {
             match(
               old_path.get(bpc_j),
               .Some(seg) => {
@@ -149,6 +150,88 @@ build_field_path_collection :: (
     result.push(base_path);
   });
   result
+});
+/// Try to resolve `<TypeVal>.<prop_name>` as an ASSOCIATED TYPE.
+///
+/// Associated types (e.g. `Self.Output` from `impl(JsonValue,
+/// Index(String)(Output : JsonValue, …))`) are registered in the
+/// type-trait-methods registry keyed by the receiver type's id, with a
+/// `TypeVal` value. During generic-impl specialization they may also be
+/// bound directly in the env. This mirrors the assoc-type fallbacks in
+/// the struct/union branch (and TS `property-access.ts`'s
+/// `isEvaluatingGenericImplSpecialization` + associated-type lookups).
+///
+/// On success, sets ExprInfo on both `expr` and `property_expr` and
+/// returns `true`; otherwise returns `false` (caller proceeds to its
+/// not-found handling). Used by the EnumT branch — without it,
+/// `Self.Output` on an enum receiver wrongly errors as a missing enum
+/// variant before any associated-type lookup runs.
+_try_resolve_associated_type :: (
+  fn(
+    type_val_inner : TypeValue,
+    prop_name : String,
+    expr : AstExpr,
+    property_expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext
+  ) -> bool
+)({
+  // (a) During generic-impl specialization the assoc type may be bound
+  //     directly in the env (mirrors TS isEvaluatingGenericImplSpecialization).
+  if(ctx.is_evaluating_generic_impl_specialization, {
+    spec_vars := get_variables_from_env(env, prop_name);
+    n_spec := spec_vars.len();
+    if(n_spec > usize(0), {
+      match(
+        spec_vars.get(n_spec - usize(1)),
+        .Some(last_spec) => {
+          if(is_type_value(last_spec.value), {
+            match(
+              last_spec.value,
+              .Some(spec_tv) => {
+                out_spec := new_expr_info(env, type_of_eval_value(spec_tv));
+                out_spec.value = Option(EvalValue).Some(spec_tv);
+                out_spec.is_accessing_property = Option(bool).Some(true);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec);
+                return(true);
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+    });
+  });
+  // (b) Look up in the type-trait-methods registry — covers impl-provided
+  //     associated types (the `Output : JsonValue` field is registered
+  //     under JsonValue's type id before the `index` method is evaluated).
+  type_id := type_id_or_empty(type_val_inner);
+  if(type_id != String.from(""), {
+    registry_methods := get_type_trait_methods_by_name(type_id, prop_name);
+    (rm_idx : usize) = usize(0);
+    while(rm_idx < registry_methods.len(), {
+      match(
+        registry_methods.get(rm_idx),
+        .Some(rm) => match(
+          rm.value,
+          .Some(rmv) => {
+            out_rm := new_expr_info(env, rm.ty);
+            out_rm.value = Option(EvalValue).Some(rmv);
+            out_rm.is_accessing_property = Option(bool).Some(true);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rm);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rm);
+            return(true);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      rm_idx = (rm_idx + usize(1));
+    });
+  });
+  false
 });
 // ---------------------------------------------------------------------------
 // evaluate_property_access
@@ -175,6 +258,33 @@ evaluate_property_access :: (
       )
     );
     return(expr);
+  });
+  // -------------------------------------------------------------------------
+  // Short-circuit: Type.<KindName> — kind-constraint syntactic sugar.
+  // -------------------------------------------------------------------------
+  dot_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  if(dot_args.len() == usize(2), {
+    obj_expr := match(dot_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    prop_expr := match(dot_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+    if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value.as_str() == "Type")) && ast_expr_is_atom(prop_expr), {
+      kind_name := ast_expr_token(prop_expr).value.as_str();
+      (is_kind : bool) = cond(
+        (kind_name == "Struct") => true,
+        (kind_name == "Enum") => true,
+        (kind_name == "Union") => true,
+        (kind_name == "Trait") => true,
+        (kind_name == "Function") => true,
+        true => false
+      );
+      if(is_kind, {
+        // RAW so an inner error PROPAGATES — the non-raw wrapper
+        // catches + prints + CONTINUES with a missing ExprInfo, and the
+        // caller then proceeds on corrupted state (the SIGTRAP-in-malloc
+        // crash class; see yo-self-test-trial-eval-swallow memory).
+        evaluated := evaluate_expression_raw(obj_expr, env, ctx, exn);
+        return(evaluated);
+      });
+    });
   });
   // -------------------------------------------------------------------------
   // 1-arg shorthand: `.Red` — infer enum type from context.
@@ -238,7 +348,11 @@ evaluate_property_access :: (
         });
         variant_name_1 := ast_expr_token(prop_expr_1).value;
         match(
-          exp_ctx_1.ty,
+          // Resolve an in-definition Self shell (enum.yo) so the variant
+          // lookup sees the finalized enum (`.Table(...)` shorthand where
+          // the expected `T` came from an `ArrayList(Self)` instantiation,
+          // std/encoding/toml.yo).
+          resolve_enum_shell(exp_ctx_1.ty),
           .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1) => {
             // Find the variant.
             fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.as_str());
@@ -345,14 +459,18 @@ evaluate_property_access :: (
   // property result, not the object itself).
   old_expected_type := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
-  object_expr = evaluate_expression(object_expr, env, ctx);
+  // RAW — see the comment at the `is_kind` early-return above.
+  object_expr = evaluate_expression_raw(object_expr, env, ctx, exn);
   ctx.expected_type = old_expected_type;
   // Update env from the evaluated object's ExprInfo.
   obj_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr));
   match(
     obj_info_opt,
     .Some(oi) => {
-      env = oi.env;
+      env.frames = oi.env.frames;
+      env.module_path = oi.env.module_path;
+      env.function_declaration_frame_level = oi.env.function_declaration_frame_level;
+      env.input_string = oi.env.input_string;
     },
     .None => ()
   );
@@ -365,6 +483,25 @@ evaluate_property_access :: (
       obj_ty_deref,
       .Some(ot) => {
         if(is_pointer_type(ot), {
+          // Memory-safety gate: pointer dereference requires `unsafe(...)`.
+          // Files under std/ and yo-self/ are implicitly unsafe-capable.
+          // Mirrors `property-access.ts:298-310`.
+          if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())))), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(property_expr),
+                  `Pointer dereference requires 'unsafe(...)'.
+
+Wrap as: unsafe(${ast_expr_to_string(object_expr)}.*)
+
+Raw pointer operations may dereference invalid memory.`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
           base_ty_deref := match(ot,.Pointer(pt) => pt.*, _ => t_unit());
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
@@ -435,6 +572,115 @@ evaluate_property_access :: (
       ),
       .None => t_unit()
     );
+    // --- TypeVal + primitive (Int/Float/Usize/Isize/Bool/C-types) --------
+    // `impl(usize, MAX : ...)`, `impl(i32, MIN : ...)`, etc. register
+    // their fields in the trait-method registry keyed by the synthetic
+    // primitive ids (see `type_id_or_empty`). Look them up here so
+    // expressions like `usize.MAX` resolve to the registered value.
+    // None of the specific `is_*_type` branches below match primitives,
+    // so without this path the lookup falls through to the runtime
+    // method-dispatch slow path and the comptime value is lost.
+    if(ast_expr_is_atom(property_expr) &&
+      !(is_enum_type(type_val_inner)) &&
+        !(is_struct_type(type_val_inner)) &&
+          !(is_union_type(type_val_inner)) &&
+            !(is_module_type(type_val_inner)) &&
+              !(is_some_type(type_val_inner)), {
+      prim_type_id := type_id_or_empty(type_val_inner);
+      if(prim_type_id != String.from(""), {
+        prim_prop_name := ast_expr_token(property_expr).value;
+        prim_methods := get_type_trait_methods_by_name(prim_type_id, prim_prop_name);
+        if(prim_methods.len() > usize(0), {
+          (pm_idx : usize) = usize(0);
+          (pm_done : bool) = false;
+          while((pm_idx < prim_methods.len()) && !(pm_done), {
+            match(
+              prim_methods.get(pm_idx),
+              .Some(pm) => match(
+                pm.value,
+                .Some(pmv) => {
+                  out_prim := new_expr_info(env, pm.ty);
+                  out_prim.value = Option(EvalValue).Some(pmv);
+                  out_prim.is_accessing_property = Option(bool).Some(true);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_prim);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_prim);
+                  pm_done = true;
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            pm_idx = (pm_idx + usize(1));
+          });
+          if(pm_done, {
+            return(expr);
+          });
+        });
+      });
+      // Generic-impl fallback for non-struct TYPE receivers (Array/Slice/
+      // primitives whose impls are generic) — `Array(u8, 2).fill` resolves
+      // through the inherent generic impl `impl(forall(T, U), Array(T, U),
+      // fill : ...)`, which lives in the generic-impl registry, not the
+      // id-keyed trait-methods registry (Array types have no id). Mirrors
+      // the struct branch's `findMethodsFromGenericImpls` lookup
+      // (property-access.ts:526-546); single candidate only — multiple
+      // candidates defer to function.yo's arg-type disambiguation.
+      pr_prop_name := ast_expr_token(property_expr).value;
+      generic_methods_pr := find_methods_from_generic_impls(type_val_inner, pr_prop_name, env);
+      if(generic_methods_pr.len() == usize(1), {
+        method_pr := match(
+          generic_methods_pr.get(usize(0)),
+          .Some(m) => m,
+          .None => {
+            return(expr);
+          }
+        );
+        out_gm_pr := new_expr_info(env, method_pr.method_type);
+        out_gm_pr.value = method_pr.method_value;
+        out_gm_pr.is_accessing_property = Option(bool).Some(true);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_pr);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_pr);
+        return(expr);
+      });
+    });
+    // --- TypeVal + working-trait associated-type fallback ------------------
+    // While an `impl(...)` trait constructor's fields are being evaluated,
+    // `Self.X` must resolve to fields already bound in the SAME trait entry
+    // (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`).
+    // Mirrors TS attaching the progressively-updated `workingTraitType` to
+    // `receiverType.trait` (trait-type.ts:151-203); yo-self TypeValues have
+    // value semantics (no trait slot), so the in-flight bindings live on
+    // the context (`current_impl_trait_field_*`). Scoped to literal `Self`
+    // receivers — the only spelling these in-impl references use — so
+    // unrelated TypeVal property accesses are untouched.
+    if((ast_expr_is_atom(property_expr) && ast_expr_is_atom(object_expr)) &&
+      (ast_expr_token(object_expr).value.as_str() == "Self"), {
+      wt_prop := ast_expr_token(property_expr).value;
+      n_wt := ctx.current_impl_trait_field_labels.len();
+      (wt_i : usize) = usize(0);
+      while(wt_i < n_wt, {
+        wt_lbl := match(ctx.current_impl_trait_field_labels.get(wt_i),.Some(l) => l,.None => String.from(""));
+        if(wt_lbl == wt_prop, {
+          match(
+            ctx.current_impl_trait_field_types.get(wt_i),
+            .Some(wt_ty) => {
+              // Entries are associated TYPES (`Output : u8`); the info's
+              // own type is the plain meta type — walking the type graph
+              // (type_of_eval_value) crashes on CYCLIC recursive types
+              // like JsonValue.
+              out_wt := new_expr_info(env, t_type());
+              out_wt.value = Option(EvalValue).Some(create_type_value(wt_ty));
+              out_wt.is_accessing_property = Option(bool).Some(true);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wt);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_wt);
+              return(expr);
+            },
+            .None => ()
+          );
+        });
+        wt_i = (wt_i + usize(1));
+      });
+    });
     // --- TypeVal + EnumT --------------------------------------------------
     if(is_enum_type(type_val_inner), {
       if(!(ast_expr_is_atom(property_expr)), {
@@ -452,13 +698,19 @@ evaluate_property_access :: (
       });
       variant_name_tv := ast_expr_token(property_expr).value;
       match(
-        type_val_inner,
+        // Same Self-shell resolution as the shorthand path above.
+        resolve_enum_shell(type_val_inner),
         .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs) => {
           fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.as_str());
           match(
             fidx_tv_en,
             .None => {
-              // Generic methods stub returns empty — throw directly.
+              // Not an enum variant — try resolving as an associated type
+              // (e.g. `Self.Output` from `impl(JsonValue, Index(String)(
+              // Output : JsonValue, …))`). Only throw if that also fails.
+              if(_try_resolve_associated_type(type_val_inner, variant_name_tv, expr, property_expr, env, ctx), {
+                return(expr);
+              });
               exn.throw(
                 dyn(
                   format_error_message(
@@ -529,13 +781,13 @@ evaluate_property_access :: (
       prop_name_su := ast_expr_token(property_expr).value;
       su_labels := match(
         type_val_inner,
-        .Struct(_, _, labels, _, _, _, _) => labels,
+        .Struct({ field_labels : labels }) => labels,
         .Union(_, labels, _) => labels,
         _ => ArrayList(String).new()
       );
       su_types := match(
         type_val_inner,
-        .Struct(_, _, _, types, _, _, _) => types,
+        .Struct({ field_types : types }) => types,
         .Union(_, _, types) => types,
         _ => ArrayList(TypeValue).new()
       );
@@ -617,7 +869,7 @@ evaluate_property_access :: (
         if(registry_methods.len() > usize(0), {
           (rm_idx : usize) = usize(0);
           (rm_done : bool) = false;
-          while(runtime((rm_idx < registry_methods.len()) && !(rm_done)), {
+          while((rm_idx < registry_methods.len()) && !(rm_done), {
             match(
               registry_methods.get(rm_idx),
               .Some(rm) => {
@@ -670,12 +922,12 @@ evaluate_property_access :: (
       prop_name_mt := ast_expr_token(property_expr).value;
       mt_labels := match(
         type_val_inner,
-        .ModuleT(_, _, labels, _) => labels,
+        .Struct({ field_labels : labels }) => labels,
         _ => ArrayList(String).new()
       );
       mt_types := match(
         type_val_inner,
-        .ModuleT(_, _, _, types) => types,
+        .Struct({ field_types : types }) => types,
         _ => ArrayList(TypeValue).new()
       );
       fidx_mt := find_first_field_index(mt_labels, prop_name_mt.as_str());
@@ -769,7 +1021,7 @@ evaluate_property_access :: (
         // a fallback (covers `Self.X` during trait declaration).
         candidate_traits := ArrayList(TypeValue).new();
         (st_idx0 : usize) = usize(0);
-        while(runtime(st_idx0 < st_rtt.len()), {
+        while(st_idx0 < st_rtt.len(), {
           match(
             st_rtt.get(st_idx0),
             .Some(t) => {
@@ -789,7 +1041,7 @@ evaluate_property_access :: (
         (st_found : bool) = false;
         (st_idx : usize) = usize(0);
         st_n := candidate_traits.len();
-        while(runtime((st_idx < st_n) && !(st_found)), {
+        while((st_idx < st_n) && !(st_found), {
           st_trait := match(candidate_traits.get(st_idx),.Some(t) => t,.None => t_unit());
           if(is_trait_type(st_trait), {
             st_labels := match(
@@ -850,7 +1102,7 @@ evaluate_property_access :: (
   original_obj_ty := obj_ty_main;
   (base_ty : TypeValue) = obj_ty_main;
   // Dereference pointer chain (TS: while (isPtrType(objectType))).
-  while(runtime(is_pointer_type(base_ty)), {
+  while(is_pointer_type(base_ty), {
     match(
       base_ty,
       .Pointer(pt) => {
@@ -867,14 +1119,14 @@ evaluate_property_access :: (
     fields_labels := match(
       base_ty,
       .Tuple(labels, _) => labels,
-      .Struct(_, _, labels, _, _, _, _) => labels,
+      .Struct({ field_labels : labels }) => labels,
       .Union(_, labels, _) => labels,
       _ => ArrayList(String).new()
     );
     fields_types := match(
       base_ty,
       .Tuple(_, types) => types,
-      .Struct(_, _, _, types, _, _, _) => types,
+      .Struct({ field_types : types }) => types,
       .Union(_, _, types) => types,
       _ => ArrayList(TypeValue).new()
     );
@@ -1100,12 +1352,12 @@ evaluate_property_access :: (
         mod_label := ast_expr_token(property_expr).value;
         mod_labels_rt := match(
           base_ty,
-          .ModuleT(_, _, labels, _) => labels,
+          .Struct({ field_labels : labels }) => labels,
           _ => ArrayList(String).new()
         );
         mod_types_rt := match(
           base_ty,
-          .ModuleT(_, _, _, types) => types,
+          .Struct({ field_types : types }) => types,
           _ => ArrayList(TypeValue).new()
         );
         mod_fidx := find_first_field_index(mod_labels_rt, mod_label.as_str());
@@ -1150,7 +1402,7 @@ evaluate_property_access :: (
                   .UnknownVal(_) => {
                     out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
                   },
-                  .ModuleVal(_, mvals) => {
+                  .StructVal(_, _, mvals) => {
                     match(
                       mvals.get(fi_mod),
                       .Some(mfv) => {

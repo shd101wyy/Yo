@@ -69,6 +69,30 @@ function structSomeTypeIsOnlyInFunctionFields(
   }
   return true;
 }
+
+/** Check if an enum's SomeType content is only in function-typed variant fields. */
+function enumSomeTypeIsOnlyInFunctionFields(
+  type: Type,
+  visited: Set<string> = new Set()
+): boolean {
+  if (!isEnumType(type)) return false;
+  if (visited.has(type.id)) return true;
+  visited.add(type.id);
+  for (const variant of type.variants) {
+    if (!variant.fields) continue;
+    for (const field of variant.fields) {
+      if (isFunctionType(field.type)) continue;
+      if (
+        isStructType(field.type) &&
+        structSomeTypeIsOnlyInFunctionFields(field.type, visited)
+      ) {
+        continue;
+      }
+      if (typeContainsSomeType(field.type)) return false;
+    }
+  }
+  return true;
+}
 import {
   isFunctionValue,
   isStructValue,
@@ -106,6 +130,10 @@ export function collectRequiredTypes(
 
       // Collect types from function body expressions
       collectTypesFromExpr(value.body, context);
+    } else if (value.type && !isFunctionType(value.type)) {
+      // Collect types from module-level non-function field declarations
+      // (e.g., mutable globals like g_evaluate_expression_raw).
+      collectType(value.type, context);
     }
   }
 
@@ -373,12 +401,13 @@ export function collectType(type: Type, context: CodeGenContext): void {
   }
 
   // Skip collecting any types that contain SomeType (generic type parameters).
-  // Exception: struct types whose only SomeType content lives inside
-  // function-typed fields (e.g., Io, Exception with forall fn-ptr fields).
-  // Such structs are concrete at C level — the fn-ptr fields are
-  // type-erased at the C ABI; the containing struct is registerable.
+  // Exception: struct or enum types whose only SomeType content lives inside
+  // function-typed fields (e.g., Option(EvaluateExprRawFn) with fn-typed variant).
   if (typeContainsSomeType(type)) {
-    if (!isStructType(type) || !structSomeTypeIsOnlyInFunctionFields(type)) {
+    if (
+      !(isStructType(type) && structSomeTypeIsOnlyInFunctionFields(type)) &&
+      !(isEnumType(type) && enumSomeTypeIsOnlyInFunctionFields(type))
+    ) {
       return;
     }
   }
@@ -423,6 +452,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
       for (const variant of type.variants) {
         if (variant.fields) {
           for (const field of variant.fields) {
+            if (isFunctionType(field.type)) continue;
             collectType(field.type, context);
           }
         }

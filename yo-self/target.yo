@@ -151,48 +151,11 @@ _build_target_info :: (fn(a : Arch, o : Os, abi : Option(Abi)) -> TargetInfo)(
 );
 // ── Linux musl detection ──────────────────────────────────────────────
 /// Detect whether the host Linux system uses musl libc.
-/// Checks /lib for files starting with "ld-musl-".
-/// On non-Linux or if /lib is unreadable, returns Abi.Gnu.
-detect_linux_abi :: (
-  fn(
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(Abi, IoExn))
-)(
-  io.async(
-    (io, exn) =>
-      if(platform != Platform.Linux, Abi.Gnu, {
-        try_exn := Exception(
-          throw : (
-            (err) -> {
-              return(ArrayList(DirEntry).new());
-            }
-          )
-        );
-        entries := io.await(read_dir(Path.new(String.from("/lib")), io, try_exn), io);
-        n := entries.len();
-        k := usize(0);
-        found_musl := false;
-        while(k < n, {
-          e_opt := entries.get(k);
-          e := match(
-            e_opt,
-            .None => {
-              k = n;
-              break;
-            },
-            .Some(p) => p
-          );
-          if(e.name.starts_with(String.from("ld-musl-")), {
-            found_musl = true;
-            break;
-          });
-          k = (k + usize(1));
-        });
-        if(found_musl, Abi.Musl, Abi.Gnu)
-      })
-  )
-);
+/// Currently returns Abi.Gnu — musl detection via /lib filesystem reads
+/// requires synchronous I/O which is not yet available in yo-self's
+/// compile-time evaluation (Phase 1 tracker).
+/// TS: `detectLinuxAbi` in `src/target.ts`.
+detect_linux_abi :: (fn() -> Abi)(Abi.Gnu);
 // ── Host detection ────────────────────────────────────────────────────
 /// Detect the host machine's platform and architecture from compile-time constants.
 detect_host :: (fn() -> HostInfo)({
@@ -216,26 +179,20 @@ detect_host :: (fn() -> HostInfo)({
   HostInfo(platform : host_os, arch : host_arch)
 });
 /// Return a TargetInfo representing the host machine (native compilation).
-/// Async because Linux ABI detection reads the filesystem.
-host_target :: (
-  fn(
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(TargetInfo, IoExn))
-)(
-  io.async((io, exn) => {
-    host := detect_host();
-    linux_abi := io.await(detect_linux_abi(), io);
-    abi := cond(
-      (host.platform == Os.Linux) => Option(Abi).Some(linux_abi),
-      (host.platform == Os.Windows) => Option(Abi).Some(Abi.Msvc),
-      (host.platform == Os.Wasi) => Option(Abi).Some(Abi.Wasm_),
-      (host.platform == Os.Emscripten) => Option(Abi).Some(Abi.Wasm_),
-      true => Option(Abi).None
-    );
-    _build_target_info(host.arch, host.platform, abi)
-  })
-);
+/// Synchronous (matching TS `hostTarget` in `src/target.ts`).
+/// Linux musl detection is deferred to Phase 1.
+host_target :: (fn() -> TargetInfo)({
+  host := detect_host();
+  linux_abi := detect_linux_abi();
+  abi := cond(
+    (host.platform == Os.Linux) => Option(Abi).Some(linux_abi),
+    (host.platform == Os.Windows) => Option(Abi).Some(Abi.Msvc),
+    (host.platform == Os.Wasi) => Option(Abi).Some(Abi.Wasm_),
+    (host.platform == Os.Emscripten) => Option(Abi).Some(Abi.Wasm_),
+    true => Option(Abi).None
+  );
+  _build_target_info(host.arch, host.platform, abi)
+});
 // ── Parse target triple ───────────────────────────────────────────────
 /// Parse a target triple string like "x86_64-linux-gnu" into a TargetInfo.
 /// Returns Err(message) on invalid input.

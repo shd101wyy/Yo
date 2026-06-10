@@ -8,7 +8,10 @@
 /// `ref(r) := helper(...)` site is what the macro/test framework
 /// actually compiles against.
 pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
 Point :: struct(x : i32, y : i32);
+/// Enum element type for the project-borrow regression test below.
+RefBindEnum :: enum(A(v : i32), B(w : i32));
 /// Helper: returns `ref(i32)` rooted in `p.x`. Flowability rule R2
 /// (field of flowable is flowable) admits `p.x` because `p` is the
 /// `ref`-bound parameter. `&(p.x)` is the C-ABI place expression
@@ -67,3 +70,28 @@ test("Phase B — ref binding survives reassignment of underlying field", {
 // limitation — the workaround is to make the intermediate body
 // explicitly produce `*(T)` via `unsafe(&(...))`. Tracked as Phase B
 // follow-up work.
+// Regression for issues/fixed/ref-binding-from-project-enum-codegen.md:
+// `ref(name) := arr.project(i)` on an ArrayList of ENUM elements must bind
+// the element pointer directly (borrow), not deref + __dup the pointee into
+// a value. The old codegen emitted `T value = __dup(*ptr); T* name = value;`
+// — invalid C for enum/struct elements (and a spurious clone even if it had
+// compiled). Scalars escaped because they are never dup'd.
+test("Phase B — ref(name) := project borrows ArrayList enum element (no clone)", {
+  list := ArrayList(RefBindEnum).new();
+  list.push(RefBindEnum.A(i32(7)));
+  list.push(RefBindEnum.B(i32(9)));
+  // Borrow the first element by reference and read through it.
+  ref(first) := list.project(usize(0));
+  v0 := match(first,.A(v) => v,.B(w) => w);
+  assert(v0 == i32(7), "borrowed first enum element reads 7");
+  // Writing through the ref mutates the element in place (proves it is a
+  // borrow of the live element, not a clone).
+  first = RefBindEnum.A(i32(100));
+  ref(again) := list.project(usize(0));
+  v0b := match(again,.A(v) => v,.B(w) => w);
+  assert(v0b == i32(100), "write through ref-binding mutated the element in place");
+  // The second element is unaffected.
+  ref(second) := list.project(usize(1));
+  v1 := match(second,.A(v) => v,.B(w) => w);
+  assert(v1 == i32(9), "borrowed second enum element reads 9");
+});

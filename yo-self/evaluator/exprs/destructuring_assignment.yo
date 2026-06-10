@@ -42,7 +42,7 @@ open(import("std/string"));
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
-{ is_valid_variable_name } :: import("./binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ DestructuringResult :: object(
 _label_already_seen :: (fn(seen : ArrayList(String), label : str) -> bool)({
   i := usize(0);
   (found : bool) = false;
-  while(runtime((i < seen.len()) && !(found)), {
+  while((i < seen.len()) && !(found), {
     match(
       seen.get(i),
       .Some(s) => {
@@ -82,7 +82,6 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
   match(
     v,
     .StructVal(_, _, field_values) => field_values.get(index),
-    .ModuleVal(_, values) => values.get(index),
     .EnumVal(_, fields) => fields.get(index),
     .TupleVal(fields) => fields.get(index),
     _ => Option(EvalValue).None
@@ -93,7 +92,7 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
 _find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
   i := usize(0);
   (result : Option(usize)) = Option(usize).None;
-  while(runtime((i < field_labels.len()) && match(result,.None => true, _ => false)), {
+  while((i < field_labels.len()) && match(result,.None => true, _ => false), {
     match(
       field_labels.get(i),
       .Some(s) => {
@@ -120,7 +119,7 @@ _find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Optio
 ///   - `seen_labels: ArrayList(String)` + `runtime_destructurings` replace
 ///     `destructuredRhsFields: Record<string, RuntimeDestructuring>`
 ///   - ExprInfo is recorded via `ctx.expr_info_table` instead of `expr.$`
-///   - No `rhsValue.isLoading` check (not in yo-self ModuleVal)
+///   - No `rhsValue.isLoading` check (not carried on yo-self struct values)
 handle_member_destructuring :: (
   fn(
     lhs_func : AstExpr,
@@ -182,7 +181,7 @@ handle_member_destructuring :: (
   seen_labels := ArrayList(String).new();
   runtime_destructurings := ArrayList(RuntimeDestructuring).new();
   (i : usize) = usize(0);
-  while(runtime(i < lhs_fields.len()), {
+  while(i < lhs_fields.len(), {
     lhs_field := match(lhs_fields.get(i),.Some(f) => f,.None => make_err_expr());
     (field_index : usize) = i; // default: positional
     (field_value_opt : Option(EvalValue)) = Option(EvalValue).None;
@@ -236,7 +235,7 @@ handle_member_destructuring :: (
       });
       // Spread: destructure all rhs fields not yet seen.
       (j : usize) = usize(0);
-      while(runtime(j < rhs_field_labels.len()), {
+      while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get(j),.Some(l) => l,.None => String.from(""));
         fty := match(rhs_field_types.get(j),.Some(t) => t,.None => TypeValue.Unit);
         if(!(_label_already_seen(seen_labels, flab.as_str())), {
@@ -592,16 +591,14 @@ evaluate_destructuring_assignment :: (
   if(is_struct_union_module && ast_expr_is_fn_call(lhs), {
     field_labels_opt := match(
       rhs_type,
-      .Struct(_, _, fl, _, _, _, _) => Option(ArrayList(String)).Some(fl),
+      .Struct({ field_labels : fl }) => Option(ArrayList(String)).Some(fl),
       .Union(_, fl, _) => Option(ArrayList(String)).Some(fl),
-      .ModuleT(_, _, fl, _) => Option(ArrayList(String)).Some(fl),
       _ => Option(ArrayList(String)).None
     );
     field_types_opt := match(
       rhs_type,
-      .Struct(_, _, _, ft, _, _, _) => Option(ArrayList(TypeValue)).Some(ft),
+      .Struct({ field_types : ft }) => Option(ArrayList(TypeValue)).Some(ft),
       .Union(_, _, ft) => Option(ArrayList(TypeValue)).Some(ft),
-      .ModuleT(_, _, _, ft) => Option(ArrayList(TypeValue)).Some(ft),
       _ => Option(ArrayList(TypeValue)).None
     );
     field_labels := match(field_labels_opt,.Some(l) => l,.None => ArrayList(String).new());
@@ -710,7 +707,7 @@ evaluate_destructuring_assignment :: (
     field_labels := ArrayList(String).new();
     field_types := selected_fields;
     (fi : usize) = usize(0);
-    while(runtime(fi < field_types.len()), {
+    while(fi < field_types.len(), {
       ___ := field_labels.push(fi.to_string());
       fi = (fi + usize(1));
     });

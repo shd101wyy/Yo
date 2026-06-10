@@ -170,3 +170,30 @@ test("Test ResumableException with custom MathError enum", {
   result = safe_divide(10, 0, exn);
   assert(result == 888, "Expected division by zero to resume with value 888");
 });
+// Regression for issues/codegen-exn-throw-ref-self-while-hang.md:
+// when an `exn : Exception` parameter is locally bound at the caller, the
+// call site is the unwind install point — it must clear __yo_effect_escaped
+// and read __yo_unwind_value, not just propagate the flag to its own caller.
+// Symptom of the bug was that an outer `assert(...)` after the install fn
+// returned was silently skipped because the stale flag short-circuited it.
+test("Exception install-point clears __yo_effect_escaped after unwind", {
+  do_throw :: (fn(exn : Exception) -> bool)({
+    exn.throw(dyn(`boom`));
+    true
+  });
+  call_with_local :: (fn() -> bool)({
+    local_exn := Exception(throw : ((_e) -> unwind(false)));
+    _r := do_throw(local_exn);
+    true
+  });
+  reached_after := Box(i32)(0);
+  r1 := call_with_local();
+  // call_with_local must return false (the unwind value), not its default.
+  assert(r1 == false, "install point should yield the unwind value");
+  // Code after the install fn must actually execute — i.e. the flag was
+  // cleared at the install point and did NOT propagate further.
+  reached_after.* = i32(1);
+  r2 := call_with_local();
+  assert(r2 == false, "second call must also unwind cleanly");
+  assert(reached_after.* == i32(1), "post-install code must run");
+});

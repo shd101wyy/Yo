@@ -28,6 +28,7 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
 evaluate_address_call :: (
   fn(
@@ -51,7 +52,30 @@ evaluate_address_call :: (
       return(expr);
     }
   );
+  // Phase C structural gate: `&(expr)` produces a raw pointer value (`*(T)`).
+  // In safe code that value would have type `*(T)`, which the surrounding rules
+  // forbid. Reject at the construction site so the diagnostic points at `&(...)`
+  // rather than some downstream use. Mirrors ptr-fns.ts:45-61.
+  ptok := ast_expr_token(expr);
+  if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.clone())))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ptok,
+          `Taking an address with '&(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use the 'ref(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
   // Adjust expected type: if expected is a pointer, use the pointee type.
+  // Build a FRESH ExpectedTypeCtx (mirrors TS ptr-fns.ts:69
+  // `{...expectedType, type: childType}`) — ExpectedTypeCtx is an
+  // `object` (reference semantics), so mutating an alias of the current
+  // one would corrupt the EXPECTED TYPE captured by enclosing
+  // expressions (e.g. a match arm's `et.ty` became the pointee, making
+  // `.None => panic(...)` arms fail "Expected u8, Actual *(u8)").
   old_expected := ctx.expected_type;
   match(
     ctx.expected_type,
@@ -59,9 +83,9 @@ evaluate_address_call :: (
       match(
         ectx.ty,
         .Pointer(pointee_box) => {
-          (new_ectx : ExpectedTypeCtx) = ectx;
-          new_ectx.ty = pointee_box.*;
-          ctx.expected_type = Option(ExpectedTypeCtx).Some(new_ectx);
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(
+            ExpectedTypeCtx(ty : pointee_box.*, env : ectx.env)
+          );
         },
         _ => ()
       );

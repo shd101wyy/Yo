@@ -599,3 +599,112 @@ Comptime array indexing returns an `arrayElementRef` that enables:
 
 - `arr(0) = val` — compile-time mutation via `assignment.ts`
 - `&(arr(0))` — compile-time pointer creation via `ptr-fns.ts`
+
+## Self-hosted compiler porting pitfalls
+
+When porting `src/*.ts` → `yo-self/*.yo`, these patterns cause silent drift
+that `yo-cli check` will catch:
+
+### Object parameters: never use `&()` for Environment/EvalContext
+
+`Environment` and `EvalContext` are `object(...)` types (reference-counted),
+not value types. Mutations to an object's fields are visible to all
+holders of the reference. Using `&(env)` creates a pointer-to-pointer
+(`*(Environment)`) which won't match `Environment`.
+
+```rust
+// WRONG — unnecessary &() creates type mismatch:
+_some_fn(&(ee), &(ge));
+
+// CORRECT — just pass the object reference:
+_some_fn(ee, ge);
+```
+
+### Reassigning Effect-handler parameters: use field-level copy
+
+Function parameters in Yo are immutable. To "reassign" an effect-handler
+variable that was passed in (e.g., `env`, `expected_env`, `env_mut`),
+use field-level assignment instead of variable reassignment:
+
+```rust
+// WRONG — cannot reassign parameter:
+env_mut = result.env;
+
+// CORRECT — mutate fields of the referenced object:
+env_mut.frames = result.env.frames;
+env_mut.module_path = result.env.module_path;
+env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
+env_mut.input_string = result.env.input_string;
+```
+
+### `io.async` closures: one parameter, effects struct
+
+`io.async`'s signature is `Impl(Fn(e : E) -> T)`. The closure takes exactly
+one parameter — the **effects struct** `e : E`. When the future needs
+`IoExn` effects, the parameter type is `IoExn`, and all effect operations
+go through `e.io` and `e.exn`. The closure body must NOT capture `io` or
+`exn` from the enclosing scope (CTL values cannot be captured).
+
+```rust
+// WRONG — two parameters:
+io.async((io, exn) => { ... });
+
+// WRONG — captures enclosing io (CTL capture error):
+io.async((e : IoExn) => {
+  io.await(future, io);  // captured io!
+});
+
+// CORRECT — all effects through e:
+io.async((e : IoExn) => {
+  e.io.await(create_dir_all(path, e.io), e);
+  e.exn.throw(dyn("error"));
+});
+```
+
+For `Io`-only futures, use `(io : Io) =>` — just the `Io` handler:
+
+```rust
+// Io-only future: closure parameter is just Io
+io.async((io : Io) => {
+  io.await(some_io_future(io), io);
+});
+```
+
+### `io.await` effect records: match the future's effects type
+
+`io.await(future, e)` takes `e : E` where `E` matches the future's effects:
+
+- `Future(T, Io)` → `io.await(future, io)`
+- `Future(T, IoExn)` → `e.io.await(future, e)` (using `e : IoExn`)
+- Low-level IO futures (`IO_*`) → `io.await(future, io)` only
+
+### Exception threading: always add `exn` to calls
+
+The self-hosted evaluator threads `Exception` explicitly as the last
+parameter of every function that may error. When porting from TS (where
+`throw` is built-in), add `exn : Exception` as the last parameter and
+pass it to all callees:
+
+```rust
+// TS: throw format_error_message(...)
+// Yo: exn.throw(dyn(format_error_message(...)))
+
+// TS: evaluateTypeAnnotation(expr, env, ctx)
+// Yo: evaluate_type_annotation(expr, env, ctx, exn)
+```
+
+### `.*` pointer dereference in check mode
+
+`env_ptr.*` and other `.*` patterns are C-level pointer operations.
+In `check` mode (no codegen), write field-level operations directly
+on the object reference:
+
+```rust
+// WRONG — C pointer deref fails in check:
+env_ptr.* = info.env;
+
+// CORRECT — field mutation on object reference:
+env_ptr.frames = info.env.frames;
+env_ptr.module_path = info.env.module_path;
+// ... etc
+```

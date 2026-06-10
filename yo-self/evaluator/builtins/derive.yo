@@ -28,7 +28,8 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type } :: import("../../types/creators.yo");
-{ EvalValue } :: import("../../value.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { EvalContext, FuncOrAsyncBlockCtx } :: import("../context.yo");
 {
   ExprInfo,
@@ -106,7 +107,7 @@ call_registered_derive_rule :: (
     trait_arg_expr,
     .FnCall(_, _, ta_args, _, _) => {
       (ti : usize) = usize(0);
-      while(runtime(ti < ta_args.len()), {
+      while(ti < ta_args.len(), {
         match(
           ta_args.get(ti),
           .Some(ta) => {
@@ -141,10 +142,28 @@ call_registered_derive_rule :: (
       arg0 := new_expr_info(caller_env, t_type());
       arg0.value = Option(EvalValue).Some(EvalValue.TypeVal(box(target_type.clone())));
       evaled_arg_infos.push(arg0);
-      arg1 := new_expr_info(caller_env, t_unit());
+      // The ctx/trait_params arg ExprInfos must carry their DECLARED types
+      // (DeriveContext / ComptimeList(Expr)) — NOT t_unit(). The param
+      // binding below uses `arg_inf.ty` as the bound variable's type, and
+      // `ctx.make_impl(...)` resolves `make_impl` by the receiver type's id
+      // (env.yo get_receiver_methods); a `unit`-typed `ctx` finds no method.
+      // Evaluate the type exprs to get the SAME ids the `impl(DeriveContext,
+      // …)` registration used. Mirrors TS evaluating `DeriveContext(...)` to
+      // obtain the real type (derive.ts:608-625).
+      dc_type := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("DeriveContext").as_str(), exn), caller_env, ctx))),
+        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
+        .None => t_unit()
+      );
+      tps_type := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("ComptimeList(Expr)").as_str(), exn), caller_env, ctx))),
+        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
+        .None => t_unit()
+      );
+      arg1 := new_expr_info(caller_env, dc_type);
       arg1.value = Option(EvalValue).Some(dc_ev);
       evaled_arg_infos.push(arg1);
-      arg2 := new_expr_info(caller_env, t_unit());
+      arg2 := new_expr_info(caller_env, tps_type);
       arg2.value = Option(EvalValue).Some(trait_params_ev);
       evaled_arg_infos.push(arg2);
       // Build a fresh environment for the function body.
@@ -152,7 +171,7 @@ call_registered_derive_rule :: (
       // Bind captures.
       (cap_i : usize) = usize(0);
       n_cap := cap_names.len();
-      while(runtime(cap_i < n_cap), {
+      while(cap_i < n_cap, {
         cn := match(cap_names.get(cap_i),.Some(n) => n,.None => String.from(""));
         ct := match(cap_tys.get(cap_i),.Some(t) => t,.None => t_unit());
         cap_v := match(
@@ -201,12 +220,12 @@ call_registered_derive_rule :: (
       // Infer forall type params from argument types.
       n_forall := forall_names.len();
       (fa_i : usize) = usize(0);
-      while(runtime(fa_i < n_forall), {
+      while(fa_i < n_forall, {
         fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
         n_ptn := param_type_names.len();
         (ptn_i : usize) = usize(0);
         (fa_bound : bool) = false;
-        while(runtime((ptn_i < n_ptn) && (!(fa_bound))), {
+        while((ptn_i < n_ptn) && (!(fa_bound)), {
           ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
           if(ptn.as_str() == fa_name.as_str(), {
             arg_inf := match(
@@ -233,7 +252,7 @@ call_registered_derive_rule :: (
       });
       // Bind regular params.
       (pi : usize) = usize(0);
-      while(runtime(pi < n_p), {
+      while(pi < n_p, {
         pname := match(param_names.get(pi),.Some(n) => n,.None => String.from(""));
         arg_inf := match(evaled_arg_infos.get(pi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
         is_ct := match(arg_inf.value,.Some(_) => true,.None => false);
@@ -252,7 +271,7 @@ call_registered_derive_rule :: (
       });
       // Bind evidence params.
       (evi : usize) = usize(0);
-      while(runtime(evi < n_ev), {
+      while(evi < n_ev, {
         ev_name := match(evidence_names.get(evi),.Some(n) => n,.None => String.from(""));
         ev_inf := match(evaled_arg_infos.get(n_p + evi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
         is_ct_ev := match(ev_inf.value,.Some(_) => true,.None => false);
@@ -490,7 +509,7 @@ evaluate_derive :: (
     );
     _fr := env.push_frame(false);
     (fpi : usize) = usize(0);
-    while(runtime(fpi < forall_params.len()), {
+    while(fpi < forall_params.len(), {
       fp := match(forall_params.get(fpi),.Some(a) => a,.None => make_err_expr());
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
@@ -510,7 +529,11 @@ evaluate_derive :: (
         )
       );
       if(fp_name.len() > usize(0), {
-        unknown_val := EvalValue.UnknownVal(box(TypeValue.TypeUni(usize(0))));
+        // Mirror TS `createUnknownValue(createType0(), { variableName })`: a
+        // Type-universe slot promotes to `TypeVal(SomeType(name))` so the target
+        // type expression (e.g. `DRPair(T1, T2)`) instantiates a real struct
+        // instead of failing on a bare `UnknownVal(Type)`.
+        unknown_val := create_unknown_val_with_name(TypeValue.TypeUni(usize(0)), fp_name);
         _add_fp := add_variable_to_env(
           env,
           fp_name,
@@ -611,7 +634,7 @@ evaluate_derive :: (
   // Verify the target is a Struct or EnumT.
   match(
     target_type,
-    .Struct(_, _, _, _, _, _, _) => (),
+    .Struct({ id : _ }) => (),
     .EnumT(_, _, _, _, _, _, _) => (),
     _ => {
       exn.throw(
@@ -658,7 +681,7 @@ evaluate_derive :: (
   });
   // Process each trait argument.
   (result_env : Environment) = env;
-  while(runtime(arg_idx < n_args), {
+  while(arg_idx < n_args, {
     trait_arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
     result_env = process_trait_arg(
       trait_arg,

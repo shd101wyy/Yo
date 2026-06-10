@@ -3,17 +3,19 @@
 //! Phase 3 — full implementation.
 //! 1:1 port of `src/evaluator/values/anonymous-module.ts`.
 //!
-//! Evaluates module-body expressions and produces a `ModuleVal` + `ModuleT`.
+//! Evaluates module-body expressions and produces a source-namespace STRUCT
+//! type + StructVal (TS: SourceNamespaceType = StructType + isSourceNamespace,
+//! createSourceNamespaceType, creators.ts:755; the per-module value is a
+//! StructValue). See plans/MODULE_AS_STRUCT_ALIGNMENT.md.
 //!
 //! Key differences from TypeScript:
-//!   - `ModuleType.fields` (rich array with assignedValue) → separate `field_labels` /
-//!     `field_types` arrays (matching yo-self's `TypeValue.ModuleT` shape).
-//!   - `ModuleValue.fields` (nullable) → `ArrayList(EvalValue)` (always has a value;
-//!     uses `UnitVal` as placeholder for fields with no comptime value).
+//!   - `StructType.fields` (rich array with assignedValue) → separate
+//!     `field_labels` / `field_types` arrays + the paired StructVal (yo-self
+//!     keeps types and values split; TypeValue cannot reference EvalValue).
 //!   - `allowPartialModule`: supported via inner exception handler.
 //!   - `registerPartialModule`: not supported (VSCode-extension-only feature).
-//!   - `moduleLevelInitExprs`: not tracked (not in yo-self's `EvalValue.ModuleVal`).
-//!   - `moduleValue.isLoading`: not in yo-self's `EvalValue.ModuleVal`, skipped.
+//!   - `moduleLevelInitExprs`: not tracked.
+//!   - `moduleValue.isLoading`: not carried, skipped.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -41,8 +43,9 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
 { EvalContext } :: import("../context.yo");
+{ random_id } :: import("../../utils.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ is_valid_variable_name } :: import("../utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Result type for `evaluate_anonymous_module_begin_exprs`.
@@ -60,7 +63,7 @@ _find_field_label_index :: (fn(field_labels : ArrayList(String), label : str) ->
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := field_labels.len();
-  while(runtime((i < n) && idx.is_none()), {
+  while((i < n) && idx.is_none(), {
     match(
       field_labels.get(i),
       .Some(lbl) => if(lbl.as_str() == label, {
@@ -77,7 +80,7 @@ _is_excluded_label :: (fn(excluded : ArrayList(String), label : str) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := excluded.len();
-  while(runtime((i < n) && !(found)), {
+  while((i < n) && !(found), {
     match(
       excluded.get(i),
       .Some(lbl) => if(lbl.as_str() == label, {
@@ -90,7 +93,7 @@ _is_excluded_label :: (fn(excluded : ArrayList(String), label : str) -> bool)({
   found
 });
 /// Evaluate a list of module-body expressions (the body of a `module { ... }` block)
-/// and produce a `ModuleVal` + `ModuleT`.
+/// and produce a source-namespace StructVal + Struct type.
 ///
 /// Mirrors `evaluateAnonymousModuleBeginExprs` in
 /// `src/evaluator/values/anonymous-module.ts`.
@@ -100,12 +103,13 @@ evaluate_anonymous_module_begin_exprs :: (
     init_env : Environment,
     ctx : EvalContext,
     allow_partial_module : bool,
+    keep_frame_at_end : bool,
     exn : Exception
   ) -> AnonModuleResult
 )({
   // Mutable local copy — mirrors TypeScript's `let env = inEnv`.
   (env : Environment) = init_env;
-  // Parallel arrays that together build `TypeValue.ModuleT` and `EvalValue.ModuleVal`.
+  // Parallel arrays that together build the source-namespace Struct + StructVal.
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   module_names := ArrayList(String).new();
@@ -117,7 +121,7 @@ evaluate_anonymous_module_begin_exprs :: (
   // Evaluate each expression in the module body
   (i : usize) = usize(0);
   n := begin_exprs.len();
-  while(runtime((i < n) && !(should_stop)), {
+  while((i < n) && !(should_stop), {
     match(
       begin_exprs.get(i),
       .None => {
@@ -133,7 +137,7 @@ evaluate_anonymous_module_begin_exprs :: (
           export_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
           (j : usize) = usize(0);
           nj := export_args.len();
-          while(runtime((j < nj) && !(should_stop)), {
+          while((j < nj) && !(should_stop), {
             match(
               export_args.get(j),
               .None => {
@@ -169,7 +173,10 @@ evaluate_anonymous_module_begin_exprs :: (
                       );
                     });
                     ext_info := match(ext_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
-                    env = ext_info.env;
+                    env.frames = ext_info.env.frames;
+                    env.module_path = ext_info.env.module_path;
+                    env.function_declaration_frame_level = ext_info.env.function_declaration_frame_level;
+                    env.input_string = ext_info.env.input_string;
                     ext_mod_type := ext_info.ty;
                     if(!(is_module_type(ext_mod_type)), {
                       exn.throw(
@@ -183,12 +190,12 @@ evaluate_anonymous_module_begin_exprs :: (
                         )
                       );
                     });
-                    // Extract the ModuleVal if available
+                    // Extract the source-namespace StructVal if available
                     ext_mod_val_opt := match(
                       ext_info.value,
                       .Some(inner_v) => match(
                         inner_v,
-                        .ModuleVal(ns, vs) => Option(EvalValue).Some(EvalValue.ModuleVal(ns, vs)),
+                        .StructVal(sn, ns, vs) => Option(EvalValue).Some(EvalValue.StructVal(sn, ns, vs)),
                         _ => Option(EvalValue).None
                       ),
                       .None => Option(EvalValue).None
@@ -225,7 +232,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             // Verify label exists in ext_mod_type
                             match(
                               ext_mod_type,
-                              .ModuleT(_, _, efls, _) => {
+                              .Struct({ field_labels : efls }) => {
                                 if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
                                   exn.throw(
                                     dyn(
@@ -251,7 +258,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             tuple_args := match(exclude_expr,.FnCall(_, _, ta, _, _) => ta, _ => ArrayList(AstExpr).new());
                             (k : usize) = usize(0);
                             nk := tuple_args.len();
-                            while(runtime((k < nk) && !(should_stop)), {
+                            while((k < nk) && !(should_stop), {
                               match(
                                 tuple_args.get(k),
                                 .None => {
@@ -273,7 +280,7 @@ evaluate_anonymous_module_begin_exprs :: (
                                   lbl := ast_expr_token(member_expr).value.clone();
                                   match(
                                     ext_mod_type,
-                                    .ModuleT(_, _, efls, _) => {
+                                    .Struct({ field_labels : efls }) => {
                                       if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
                                         exn.throw(
                                           dyn(
@@ -313,10 +320,10 @@ evaluate_anonymous_module_begin_exprs :: (
                     // Iterate over fields of the extended module and add non-excluded ones
                     match(
                       ext_mod_type,
-                      .ModuleT(_, _, efls, efts) => {
+                      .Struct({ field_labels : efls, field_types : efts }) => {
                         (k : usize) = usize(0);
                         nk := efls.len();
-                        while(runtime((k < nk) && !(should_stop)), {
+                        while((k < nk) && !(should_stop), {
                           ext_label := match(efls.get(k),.Some(l) => l,.None => String.from(""));
                           ext_type := match(efts.get(k),.Some(t) => t,.None => TypeValue.Unit);
                           if(!(_is_excluded_label(excluded_labels, ext_label.as_str())), {
@@ -338,7 +345,7 @@ evaluate_anonymous_module_begin_exprs :: (
                               ext_mod_val_opt,
                               .Some(inner_mv) => match(
                                 inner_mv,
-                                .ModuleVal(_, vs) => match(vs.get(k),.Some(v) => v,.None => EvalValue.UnitVal),
+                                .StructVal(_, _, vs) => match(vs.get(k),.Some(v) => v,.None => EvalValue.UnitVal),
                                 _ => EvalValue.UnitVal
                               ),
                               .None => EvalValue.UnitVal
@@ -519,7 +526,10 @@ evaluate_anonymous_module_begin_exprs :: (
           match(
             info_opt,
             .Some(info) => {
-              env = info.env;
+              env.frames = info.env.frames;
+              env.module_path = info.env.module_path;
+              env.function_declaration_frame_level = info.env.function_declaration_frame_level;
+              env.input_string = info.env.input_string;
             },
             .None => ()
           );
@@ -530,11 +540,37 @@ evaluate_anonymous_module_begin_exprs :: (
   });
   // Pop the env frame (only if no partial error)
   // NOTE: pop_exn handler omitted — see allow_partial_module note above.
-  if(partial_error.is_none(), {
+  // When `keep_frame_at_end` is true the caller intends to keep the
+  // module-body bindings live in `env` (e.g. multi-file `check` that
+  // caches the prelude env across files); skip the pop.
+  if(partial_error.is_none() && !(keep_frame_at_end), {
     env.pop_frame();
   });
-  module_type := TypeValue.ModuleT(String.from(""), String.from(""), field_labels, field_types);
-  module_val := EvalValue.ModuleVal(module_names, module_vals);
+  // Source-namespace STRUCT — TS has no module type: anonymous modules are
+  // `StructType & { isSourceNamespace: true }` (`createSourceNamespaceType`,
+  // src/types/creators.ts:755), paired here with a StructVal because yo-self
+  // keeps types and values split (TS rides `assignedValue` on the type's
+  // fields; the TypeValue layer cannot reference EvalValue). See
+  // plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+  sns_id := `source_namespace_${random_id(env.module_path)}`;
+  module_type := TypeValue.Struct(
+    String.from(sns_id.as_str()),
+    String.from(""),
+    field_labels,
+    field_types,
+    false,
+    // is_reference_semantics
+    false,
+    // is_atomic_rc
+    false,
+    // is_newtype
+    String.from(""),
+    // constructor_func_id
+    ArrayList(TypeValue).new(),
+    // type_arguments
+    true // is_source_namespace
+  );
+  module_val := EvalValue.StructVal(String.from(sns_id.as_str()), module_names, module_vals);
   AnonModuleResult(
     module_value : module_val,
     module_type : module_type,

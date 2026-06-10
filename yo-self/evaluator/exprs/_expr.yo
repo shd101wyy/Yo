@@ -65,6 +65,14 @@ open(import("std/fmt"));
   BK_CONST,
   BF_TYPEOF,
   BF_SIZEOF,
+  BF_UNSAFE,
+  BF_PRAGMA,
+  BF_REQUIRES,
+  BF_ENSURES,
+  BF_INVARIANT,
+  BF_GHOST,
+  BF_GHOST_FN,
+  BF_OLD,
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
@@ -307,6 +315,16 @@ open(import("std/fmt"));
   evaluate_yo_some_type_dup
 } :: import("../builtins/rc_fns.yo");
 { evaluate_size_of } :: import("../builtins/sizeof.yo");
+{ evaluate_unsafe } :: import("../builtins/unsafe.yo");
+{ evaluate_pragma } :: import("../builtins/pragma.yo");
+{
+  evaluate_requires,
+  evaluate_ensures,
+  evaluate_invariant,
+  evaluate_ghost,
+  evaluate_ghost_fn,
+  evaluate_old
+} :: import("../builtins/contracts.yo");
 { evaluate_the } :: import("../builtins/the.yo");
 {
   evaluate_yo_are_types_compatible,
@@ -564,6 +582,22 @@ _evaluate_expression :: (
           evaluate_typeof(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_SIZEOF,.None) =>
           evaluate_size_of(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_UNSAFE,.None) =>
+          evaluate_unsafe(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_PRAGMA,.None) =>
+          evaluate_pragma(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_REQUIRES,.None) =>
+          evaluate_requires(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_ENSURES,.None) =>
+          evaluate_ensures(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_INVARIANT,.None) =>
+          evaluate_invariant(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_GHOST,.None) =>
+          evaluate_ghost(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_GHOST_FN,.None) =>
+          evaluate_ghost_fn(expr, env, ctx, exn),
+        ast_expr_is_fn_call_of(expr, BF_OLD,.None) =>
+          evaluate_old(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_ALIGNOF,.None) =>
           evaluate_align_of(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_TYPEID,.None) =>
@@ -794,9 +828,30 @@ _evaluate_expression :: (
                                                 ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS,.None) ||
                                                   ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE,.None) ||
                                                     ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC,.None)
-        ) =>
-          // TODO Phase 3: pre-evaluate args before dispatching (mirrors TypeScript's for loop)
-          evaluate_yo_build_functions(expr, env, ctx, exn),
+        ) => {
+          // Pre-evaluate args before dispatching — the build builtins read
+          // each arg's resolved comptime value from the expr-info table.
+          // Mirrors the for-loop before `evaluateYoBuildFunctions` in TS
+          // `_expr.ts`. Mutating the args ArrayList in place updates
+          // `expr.args` (FnCall holds it by reference).
+          build_call_args := match(
+            expr,
+            .FnCall(_, _, a, _, _) => a,
+            .Atom(_, _) => ArrayList(AstExpr).new()
+          );
+          (bca_i : usize) = usize(0);
+          while(bca_i < build_call_args.len(), {
+            match(
+              build_call_args.get(bca_i),
+              .Some(ba) => {
+                build_call_args(bca_i) = recur(ba, env, ctx, exn);
+              },
+              .None => ()
+            );
+            bca_i = (bca_i + usize(1));
+          });
+          evaluate_yo_build_functions(expr, env, ctx, exn)
+        },
         ast_expr_is_fn_call_of(expr, BK_WHILE,.None) =>
           evaluate_while(expr, env, ctx, usize(0), exn),
         ast_expr_is_fn_call_of(expr, BF_VA_START,.None) =>
@@ -834,7 +889,10 @@ _evaluate_expression_wrapper :: (
     throw : (
       (err) -> {
         eprintln(`evaluate_expression: ${err.to_string()}`);
-        panic("evaluate_expression: aborting after error")
+        // During check, don't abort — let the caller handle the error.
+        // Abort only in non-check contexts (the raw evaluator path
+        // provides its own exn handler).
+        unwind(make_err_expr())
       }
     )
   );

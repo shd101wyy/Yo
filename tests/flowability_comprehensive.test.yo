@@ -1,0 +1,253 @@
+/// Comprehensive flowability soundness coverage.
+///
+/// Flowability is Yo's "safe by default" memory-safety check: a value whose
+/// representation transitively carries a RAW pointer (`Slice(T)`, `str`,
+/// `*(T)`, or a struct/tuple/enum/array wrapping one) may only be placed into
+/// storage that OUTLIVES it. The check is enforced at five sites:
+///
+///   1. function `-> ref(T)` return position           (function-type.ts)
+///   2. function value-return carrying a raw ptr        (function-type.ts)
+///   3. `ref(name) := expr` binding site                (init-assignment.ts)
+///   4. simple `name = expr` reassignment               (assignment.ts)
+///   5. field / index / destructure write `a.f = / arr(i) = / (a,b) =`
+///                                                       (assignment.ts)
+///
+/// The rules (see docs/en-US/FLOWABILITY.md):
+///   R1   a `ref`-bound name (and, at binding/assignment sites, an
+///        enclosing-scope local / parameter / comptime / literal)
+///   R2   `base.field` — flowable iff `base` is
+///   R3   a call returning ref/slice — iff its ref/slice-source args are
+///   R4   `cond`/`match` — iff every arm is
+///   ctor `.Variant(a)` / `Struct(f : a)` / `(a, b)` — iff every
+///        raw-ptr-carrying argument/element is
+///
+/// Negatives use `comptime_expect_error` to PIN the rejection; positives are
+/// plain definitions / `test`s that must compile and run.
+///
+/// NOTE: this file must NOT declare `pragma(Pragma.AllowUnsafe);` — that flag
+/// exempts the whole file from the slice/ref flow gates (privileged code opts
+/// out of the safe-by-default checks), which would make every negative below
+/// vacuously "pass". `Slice(T)`/`str`/`ArrayList` are all SAFE types and need
+/// no pragma. The pragma-exemption itself is covered separately.
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/collections/array_list"));
+
+SliceBox :: struct(s : Slice(i32));
+NestedBox :: struct(inner : SliceBox);
+
+// ============================================================================
+// Site 3 — `ref(name) := expr` binding site
+// ============================================================================
+// A ref-binding rooted in a `ref` parameter is flowable.
+ref_bind_from_ref_param :: (fn(ref(p) : i32) -> i32)({
+  ref(r) := p;
+  r
+});
+// A ref-binding rooted in a SAME-FRAME local is accepted (the borrow's scope
+// is bounded by the local's frame — R1' binding-site rule).
+ref_bind_from_local :: (fn() -> i32)({
+  x := i32(5);
+  ref(r) := x;
+  r
+});
+
+// ============================================================================
+// Site 1/2 — function return position
+// ============================================================================
+// Returning a slice rooted in a `ref` parameter: flowable.
+return_slice_from_ref_param :: (fn(ref(buf) : Slice(i32)) -> Slice(i32))(buf);
+// Returning a slice rooted in a non-`ref` parameter: flowable (caller's value
+// outlives the call).
+return_slice_from_param :: (fn(buf : Slice(i32)) -> Slice(i32))(buf);
+// NEGATIVE: returning a slice into a LOCAL ArrayList's buffer — the buffer
+// dies with the frame.
+comptime_expect_error(
+  return_local_slice :: (fn(seed : Slice(i32)) -> Slice(i32))({
+    inner := ArrayList(i32).new();
+    inner.push(i32(7));
+    match(inner.as_slice(),.Some(sl) => sl,.None => seed)
+  })
+);
+// NEGATIVE: returning a STRUCT wrapping a local-backed slice.
+comptime_expect_error(
+  return_local_slicebox :: (fn(seed : Slice(i32)) -> SliceBox)({
+    inner := ArrayList(i32).new();
+    inner.push(i32(7));
+    s := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+    SliceBox(s : s)
+  })
+);
+
+// ============================================================================
+// R4 — cond / match arms (return position)
+// ============================================================================
+// POSITIVE: every arm roots in the `ref` parameter.
+return_cond_all_flowable :: (fn(ref(buf) : Slice(i32), pick : bool) -> Slice(i32))(
+  cond(
+    pick => buf,
+    true => buf
+  )
+);
+// NEGATIVE: one arm roots in a local buffer.
+comptime_expect_error(
+  return_cond_one_bad :: (fn(seed : Slice(i32), pick : bool) -> Slice(i32))({
+    inner := ArrayList(i32).new();
+    inner.push(i32(7));
+    bad := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+    cond(
+      pick => seed,
+      true => bad
+    )
+  })
+);
+
+// ============================================================================
+// Site 4 — simple `name = expr` reassignment
+// ============================================================================
+// NEGATIVE: reassign an OUTER-scope slice binding from an inner-block local.
+comptime_expect_error(
+  assign_escape_simple :: (fn(seed : Slice(i32)) -> unit)({
+    (cur : Slice(i32)) = seed;
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+      cur = inner_slice;
+    };
+    ()
+  })
+);
+// POSITIVE: reassign from a parameter (outlives the call).
+assign_from_param_ok :: (fn(seed : Slice(i32), seed2 : Slice(i32)) -> unit)({
+  (cur : Slice(i32)) = seed;
+  cur = seed2;
+  ()
+});
+
+// ============================================================================
+// Site 5 — field-write `holder.s = expr`  (regression: was UNGATED)
+// ============================================================================
+// NEGATIVE: store an inner-block local slice into a local struct's field.
+comptime_expect_error(
+  field_write_escape :: (fn(seed : Slice(i32)) -> unit)({
+    (holder : SliceBox) = SliceBox(s : seed);
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+      holder.s = inner_slice;
+    };
+    ()
+  })
+);
+// NEGATIVE: store an inner-block local slice into a `ref`-parameter struct
+// field (escapes to the caller's storage).
+comptime_expect_error(
+  field_write_ref_param_escape :: (fn(ref(h) : SliceBox, seed : Slice(i32)) -> unit)({
+    inner := ArrayList(i32).new();
+    inner.push(i32(7));
+    inner_slice := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+    h.s = inner_slice;
+  })
+);
+// NEGATIVE: nested field projection `nest.inner.s = local`.
+comptime_expect_error(
+  nested_field_write_escape :: (fn(seed : Slice(i32)) -> unit)({
+    (nest : NestedBox) = NestedBox(inner : SliceBox(s : seed));
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+      nest.inner.s = inner_slice;
+    };
+    ()
+  })
+);
+// POSITIVE: field write from a `ref` parameter into a local struct.
+field_write_from_ref_param :: (fn(ref(src) : Slice(i32)) -> unit)({
+  (holder : SliceBox) = SliceBox(s : src);
+  holder.s = src;
+  ()
+});
+
+// ============================================================================
+// Site 5 — destructuring-assignment `(a, b) = (..., ...)`
+// ============================================================================
+// NEGATIVE: destructure a local-backed slice into an outer binding.
+comptime_expect_error(
+  destructure_escape :: (fn(seed : Slice(i32)) -> unit)({
+    (a : Slice(i32)) = seed;
+    (b : i32) = i32(0);
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+      (a, b) = (inner_slice, i32(1));
+    };
+    ()
+  })
+);
+// POSITIVE: destructure from parameter sources.
+destructure_from_params_ok :: (fn(s1 : Slice(i32), s2 : Slice(i32)) -> unit)({
+  (a : Slice(i32)) = s1;
+  (b : Slice(i32)) = s1;
+  (a, b) = (s2, s1);
+  ()
+});
+
+// ============================================================================
+// ctor argument rules — struct / variant / tuple smuggling
+// ============================================================================
+// NEGATIVE: smuggle a local slice through a struct ctor stored to an outer
+// binding.
+comptime_expect_error(
+  ctor_smuggle :: (fn(seed : Slice(i32)) -> unit)({
+    (w : SliceBox) = SliceBox(s : seed);
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+      w = SliceBox(s : inner_slice);
+    };
+    ()
+  })
+);
+// NEGATIVE: smuggle through a qualified variant ctor.
+comptime_expect_error(
+  variant_ctor_smuggle :: (fn(seed : Slice(i32)) -> unit)({
+    (w : Option(SliceBox)) = Option(SliceBox).None;
+    {
+      inner := ArrayList(i32).new();
+      inner.push(i32(7));
+      inner_slice := match(inner.as_slice(),.Some(sl) => sl,.None => seed);
+      w = Option(SliceBox).Some(SliceBox(s : inner_slice));
+    };
+    ()
+  })
+);
+// POSITIVE: a literal-str-backed struct is flowable (static storage).
+StrHolder :: struct(name : str);
+str_ctor_flowable :: (fn() -> unit)({
+  (h : StrHolder) = StrHolder(name : "ab");
+  h = StrHolder(name : "xyz");
+  ()
+});
+
+// ============================================================================
+// Runtime smoke: the accepted (sound) forms actually work end to end.
+// ============================================================================
+test("flowable slice round-trips through a ref parameter", {
+  data := ArrayList(i32).new();
+  data.push(i32(10));
+  data.push(i32(20));
+  s := match(data.as_slice(),.Some(sl) => sl,.None => panic("empty"));
+  out := return_slice_from_param(s);
+  assert(out(usize(0)) == i32(10), "slice element 0 round-trips");
+  assert(out(usize(1)) == i32(20), "slice element 1 round-trips");
+});
+test("str-backed struct reassignment compiles and reads", {
+  h := StrHolder(name : "hello");
+  h = StrHolder(name : "world!");
+  assert(h.name.len() == usize(6), "reassigned str-holder length");
+});

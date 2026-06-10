@@ -1,4 +1,5 @@
 import { exprIsFunctionCall, exprToString, type FnCallExpr } from "../../expr";
+import { getVariablesFromEnv } from "../../env";
 import type { FunctionGenerationContext } from "../functions/context";
 import { isUnitType } from "../../types/guards";
 import {
@@ -28,7 +29,27 @@ export function generateRecur(
     // Generate recur call with arguments and dup handling
     const argsList = runtimeArgExprs
       .map((arg) => {
-        const argCode = generateExpr(arg, indent, context);
+        let argCode = generateExpr(arg, indent, context);
+
+        // For ref parameters (e.g., `ref(self) : Self`), generateExpr
+        // returns `(*self)`. Strip the dereference so the pointer is passed
+        // directly to the recursive call — the callee also expects a pointer,
+        // not a value. Mirrors the same logic in other-fn-call.ts line 589.
+        if (
+          arg.$?.variableName &&
+          arg.$?.env &&
+          argCode.startsWith("(*") &&
+          argCode.endsWith(")")
+        ) {
+          const variables = getVariablesFromEnv(arg.$.env, arg.$.variableName);
+          if (variables.length > 0 && variables[variables.length - 1]!.isRef) {
+            // Extract the raw variable name from (*name)
+            const match = argCode.match(/^\(\*(.+)\)$/);
+            if (match) {
+              argCode = match[1]!;
+            }
+          }
+        }
 
         // Handle deferred dup expressions for recur arguments
         if (

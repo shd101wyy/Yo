@@ -50,7 +50,7 @@ import {
   typeMayProvideSliceSource,
   typeRepresentationContainsRawPtr,
 } from "../../types/utils";
-import { isFunctionValue } from "../../value";
+import { isFunctionValue, isTypeValue } from "../../value";
 import { getVariablesFromEnv } from "../../env";
 
 /**
@@ -84,6 +84,15 @@ function unwrapBeginBlocks(expr: Expr): Expr {
  *    lifetime is bounded by its block, which is bounded by the local's
  *    frame, so the source can't go away before the borrow does). The
  *    strict R1 (ref-bound only) still applies elsewhere.
+ *  - `maxLocalFrameLevel`: refines `allowSameFrameLocal` with a scope
+ *    bound. A `=` reassignment (unlike `:=`) targets a binding that may
+ *    live in an *outer* block than the current one; a local source in an
+ *    *inner* block would then dangle when its block exits. The assignment
+ *    site passes the target binding's `frameLevel` here, and a same-frame
+ *    local is accepted only when its `frameLevel <= maxLocalFrameLevel`
+ *    (i.e. the source's scope encloses — outlives — the target's). When
+ *    unset, `allowSameFrameLocal` accepts any non-module local (the
+ *    `:=` binding-site semantics, where the new binding is innermost).
  *  - `allowParameterSource`: passed by the slice-flowability check
  *    (`plans/SLICE_FLOWABILITY.md`). Accepts a name reference whose
  *    binding is a parameter of the current function (any parameter,
@@ -102,11 +111,20 @@ export function isFlowableExpr(
     allowSameFrameLocal?: boolean;
     allowParameterSource?: boolean;
     allowComptimeSource?: boolean;
+    maxLocalFrameLevel?: number;
   } = {}
 ): boolean {
   // Strip any outer `begin(...)` wrapper(s). Single-expression
   // bodies after evaluation often appear as `begin((expr))`.
   expr = unwrapBeginBlocks(expr);
+
+  // Strip a `label : value` wrapper — labeled arguments (constructor
+  // fields `Identifier(name : "x")`, named call args) are transparent
+  // for flow purposes; the VALUE side is what flows.
+  if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":", 2)) {
+    const labeledValue = expr.args[1];
+    if (labeledValue) return isFlowableExpr(labeledValue, options);
+  }
 
   // Divergent expressions never actually yield a value to the
   // surrounding expression — `panic(...)`, `return(...)`,
@@ -167,8 +185,20 @@ export function isFlowableExpr(
     // the borrow does. The strict R1 (ref-bound only) still applies
     // at function-return sites; only the `ref(name) := …` binding-
     // site call from `init-assignment.ts` passes `allowSameFrameLocal`.
+    //
+    // `maxLocalFrameLevel` (assignment site): the source local is only
+    // sound if its scope encloses the assignment target's — i.e. its
+    // frame level is no deeper than the target's. A deeper (inner-block)
+    // local would be freed when its block exits, dangling the slice
+    // stored in the outer-scope target. Fall through (don't hard-fail)
+    // so a binding that is also a parameter/comptime can still match.
     if (options.allowSameFrameLocal && !v.isModuleLevel) {
-      return true;
+      if (
+        options.maxLocalFrameLevel === undefined ||
+        v.frameLevel <= options.maxLocalFrameLevel
+      ) {
+        return true;
+      }
     }
     // R1'' (slice-flowability only): a parameter of the enclosing
     // function counts as flowable when the slice-flowability check
@@ -193,6 +223,12 @@ export function isFlowableExpr(
   //     other shapes never appear in a return-position projection
   //     chain, so we ignore them here.
   if (exprIsFunctionCallOf(call, ".", 2)) {
+    // A `.`/2 whose receiver evaluates to a TYPE is a no-argument qualified
+    // variant constructor (`Option(str).None`), NOT a field projection. It
+    // carries no smuggled pointer, so it is flowable. Only a value receiver is
+    // a real field projection (`value.field`), flowable iff the base is.
+    const r2RecvValue = call.args[0]?.$?.value;
+    if (r2RecvValue && isTypeValue(r2RecvValue)) return true;
     return isFlowableExpr(call.args[0]!, options);
   }
 
@@ -229,6 +265,105 @@ export function isFlowableExpr(
         const armBody = (arm as FnCallExpr).args[1]!;
         if (!isFlowableExpr(armBody, options)) return false;
       } else {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Pointer arithmetic: `base &+ offset` / `base &- offset` (only legal
+  // in `pragma(Pragma.AllowUnsafe)` files) yields a pointer into the SAME
+  // storage as `base`, displaced by an integer index. The result is
+  // flowable iff the base pointer is flowable — the offset is a plain
+  // integer and introduces no new storage root. Without this, an
+  // assignment like `result = .Some(data_ptr &+ i)` in a hand-written
+  // unsafe iterator (e.g. std/collections/hash_map.yo) is wrongly rejected
+  // even though `data_ptr` roots back to a `ref(self)` field.
+  if (
+    exprIsFunctionCallOf(call, "&+", 2) ||
+    exprIsFunctionCallOf(call, "&-", 2)
+  ) {
+    return isFlowableExpr(call.args[0]!, options);
+  }
+
+  // Enum/variant construction: `.Variant(args...)`. The callee is the
+  // variant selector `.Variant`, which is itself parsed as a 1-arg `.`
+  // call (`.(Variant)`) — i.e. `call.func` is a `.`/1 function call (or,
+  // defensively, a `.`-typed atom). The constructed value can only carry
+  // a raw pointer through its arguments, so it is flowable iff every
+  // argument whose own representation carries a raw pointer is flowable.
+  // Tag-only and numeric args can't smuggle a dangling reference, so they
+  // don't constrain flowability.
+  // The QUALIFIED form `Enum.Variant(args...)` parses as a call whose `call.func`
+  // is a `.`/2 access (`Option(str).Some`) — NOT the `.`/1 selector above. Its
+  // receiver (args[0]) evaluates to a TYPE value. The selector node carries no
+  // resolved constructor FunctionType, so the R3 path below cannot resolve the
+  // callee and would wrongly reject (e.g. `cond(... => Option(str).Some("a"))`
+  // returning a static-string Option). Treat it as a constructor: flowable iff
+  // every raw-pointer-carrying argument is flowable — the same rule as the
+  // shorthand `.Variant(args)` form.
+  const isQualifiedVariantCtor =
+    exprIsFunctionCall(call.func) &&
+    exprIsFunctionCallOf(call.func as FnCallExpr, ".", 2) &&
+    (() => {
+      const recvValue = (call.func as FnCallExpr).args[0]?.$?.value;
+      return !!recvValue && isTypeValue(recvValue);
+    })();
+  // Plain struct/type constructor: the CALLEE itself evaluates to a TYPE
+  // value (`Identifier(name : "x")` where `Identifier :: struct(name : str)`).
+  // Same reasoning as the variant-ctor forms: a freshly constructed value can
+  // only carry a raw pointer through its arguments, so it is flowable iff
+  // every raw-pointer-carrying argument is flowable. Without this, assigning
+  // a constructed str-bearing struct (`(id : Identifier) = Identifier(name :
+  // "x")`) false-positived at the assignment flow gate.
+  const isTypeCtorCall =
+    !!call.func.$?.value && isTypeValue(call.func.$.value);
+  const isVariantCtor =
+    (exprIsFunctionCall(call.func) &&
+      exprIsFunctionCallOf(call.func as FnCallExpr, ".", 1)) ||
+    (exprIsAtom(call.func) && call.func.token.type === TokenType.Dot) ||
+    isQualifiedVariantCtor ||
+    isTypeCtorCall;
+  if (isVariantCtor) {
+    for (let a of call.args) {
+      // Look THROUGH a `label : value` wrapper: the labeled pair node may
+      // carry no `$` type of its own, which would silently SKIP the check
+      // and accept a constructor smuggling a local-backed slice
+      // (`SliceWrapper(s : localSlice)`). The VALUE side is what flows.
+      if (exprIsFunctionCall(a) && exprIsFunctionCallOf(a, ":", 2)) {
+        a = (a as FnCallExpr).args[1] ?? a;
+      }
+      const aType = a.$?.type;
+      if (
+        aType &&
+        typeRepresentationContainsRawPtr(aType) &&
+        !isFlowableExpr(a, options)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Tuple construction: `(e0, e1, ...)` parses as a `tuple(...)` call. A
+  // freshly built tuple can only carry a raw pointer through its elements
+  // (same reasoning as struct/variant ctors), so it is flowable iff every
+  // element whose own representation carries a raw pointer is flowable.
+  // Needed for destructuring-assignment targets — `(a, b) = (seed, 1)` where
+  // `a : Slice` — whose RHS is a tuple literal; without this the whole-tuple
+  // raw-ptr gate would wrongly reject a flowable element source.
+  if (exprIsFunctionCallOf(call, BuiltinKeywords.tuple)) {
+    for (let a of call.args) {
+      // `tuple(...)` elements may be `label : value` (named tuple fields).
+      if (exprIsFunctionCall(a) && exprIsFunctionCallOf(a, ":", 2)) {
+        a = (a as FnCallExpr).args[1] ?? a;
+      }
+      const aType = a.$?.type;
+      if (
+        aType &&
+        typeRepresentationContainsRawPtr(aType) &&
+        !isFlowableExpr(a, options)
+      ) {
         return false;
       }
     }

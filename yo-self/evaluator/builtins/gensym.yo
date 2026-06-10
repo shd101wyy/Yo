@@ -10,7 +10,8 @@ open(import("std/string"));
   AstExpr,
   ast_expr_token,
   ast_expr_id,
-  ast_expr_to_string
+  ast_expr_to_string,
+  alloc_global_expr_id
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -134,8 +135,10 @@ evaluate_gensym :: (
   symbol := (prefix + String.from(random_id(env.module_path).as_str()));
   // Build a new Atom expression representing the generated identifier.
   tok := ast_expr_token(expr);
+  // Fresh id — id-0 synthesized atoms all collide in the ExprInfo table
+  // (every gensym'd node overwrote key 0, dropping live values).
   atom_expr := AstExpr.Atom(
-    usize(0),
+    alloc_global_expr_id(),
     Token(
       kind : TokenKind.Identifier,
       value : symbol,

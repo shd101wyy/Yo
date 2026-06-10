@@ -68,16 +68,22 @@ try_to_implement_module_with_arguments_by_module_type :: (
     exn : Exception
   ) -> ModuleTypeCallResult
 )({
-  // Extract field labels and types from ModuleT.
+  // Extract field labels and types from the source-namespace Struct
+  // (TS: SourceNamespaceType, record-type.ts:37).
   field_labels := match(
     module_type,
-    .ModuleT(_, _, labels, _) => labels,
+    .Struct({ field_labels : labels }) => labels,
     _ => ArrayList(String).new()
   );
   field_types := match(
     module_type,
-    .ModuleT(_, _, _, types) => types,
+    .Struct({ field_types : types }) => types,
     _ => ArrayList(TypeValue).new()
+  );
+  sns_ty_id := match(
+    module_type,
+    .Struct({ id : sid }) => sid,
+    _ => String.from("")
   );
   n_fields := field_labels.len();
   n_args := arg_exprs.len();
@@ -96,21 +102,21 @@ try_to_implement_module_with_arguments_by_module_type :: (
   // Pre-allocate values and result name/value lists.
   (values : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (i_init : usize) = usize(0);
-  while(runtime(i_init < n_fields), {
+  while(i_init < n_fields, {
     values.push(Option(EvalValue).None);
     i_init = (i_init + usize(1));
   });
   (caller_env : Environment) = caller_env_in;
   // For each module field, find the matching arg by label.
   (i : usize) = usize(0);
-  while(runtime(i < n_fields), {
+  while(i < n_fields, {
     field_label_opt := field_labels.get(i);
     field_type_opt := field_types.get(i);
     field_label := match(field_label_opt,.Some(s) => s,.None => String.from(""));
     field_type := match(field_type_opt,.Some(t) => t,.None => TypeValue.Unit);
     (found_arg : bool) = false;
     (j : usize) = usize(0);
-    while(runtime(j < n_args), {
+    while(j < n_args, {
       arg_expr_opt := arg_exprs.get(j);
       arg_expr := match(arg_expr_opt,.Some(a) => a,.None => module_expr);
       // Each arg must be a `label: value` colon call.
@@ -162,7 +168,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
       // Validate the label exists in the module type.
       (label_exists_in_type : bool) = false;
       (li : usize) = usize(0);
-      while(runtime(li < n_fields), {
+      while(li < n_fields, {
         match(
           field_labels.get(li),
           .Some(fl) => {
@@ -250,7 +256,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
   (result_names : ArrayList(String)) = ArrayList(String).new();
   (result_values : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
   (k : usize) = usize(0);
-  while(runtime(k < n_fields), {
+  while(k < n_fields, {
     match(
       field_labels.get(k),
       .Some(lbl) => {
@@ -270,7 +276,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     );
     k = (k + usize(1));
   });
-  module_val := EvalValue.ModuleVal(result_names, result_values);
+  module_val := EvalValue.StructVal(String.from(sns_ty_id.as_str()), result_names, result_values);
   ModuleTypeCallResult(module_value : module_val, caller_env : caller_env)
 });
 export(try_to_implement_module_with_arguments_by_module_type);

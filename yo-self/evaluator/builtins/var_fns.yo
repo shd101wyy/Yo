@@ -160,7 +160,7 @@ evaluate_yo_var_has_other_aliases :: (
             // Check if any frame variable points to this variable as its RC alias.
             target_id := variable.id;
             (fi : usize) = cur_env.frames.len();
-            while(runtime(fi > usize(0)), {
+            while(fi > usize(0), {
               fi = (fi - usize(1));
               frame := match(
                 cur_env.frames.get(fi),
@@ -171,7 +171,7 @@ evaluate_yo_var_has_other_aliases :: (
               );
               n_fvars := frame.variables.len();
               (fj : usize) = usize(0);
-              while(runtime(fj < n_fvars), {
+              while(fj < n_fvars, {
                 fvar := match(
                   frame.variables.get(fj),
                   .Some(v) => v,

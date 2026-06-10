@@ -28,7 +28,8 @@ open(import("std/string"));
   BK_ASSIGN,
   BK_COND,
   BK_MATCH,
-  BK_BEGIN
+  BK_BEGIN,
+  BF_DOT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -49,7 +50,7 @@ open(import("std/string"));
   update_existing_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage } :: import("../context.yo");
 {
   EvalValue,
   is_struct_val,
@@ -65,12 +66,21 @@ open(import("std/string"));
 {
   is_comptime_int_type,
   is_comptime_float_type,
-  is_comptime_string_type
+  is_comptime_string_type,
+  is_atomic_object_type,
+  is_some_type
 } :: import("../../types/guards.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{
+  convert_comptime_type_to_runtime_type,
+  get_value_of_some_type_from_env
+} :: import("../../types/env_lookup.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ is_flowable_expr, FlowOptions, flag_flow_violation }
+:: import("../../types/flowability.yo");
+{ type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding } :: import("./binding.yo");
 {
   require_expr_not_consumed,
@@ -152,7 +162,7 @@ rebuild_list_with_index :: (
   result := ArrayList(EvalValue).new();
   n := vals.len();
   (k : usize) = usize(0);
-  while(runtime(k < n), {
+  while(k < n, {
     old_v := match(vals.get(k),.Some(v) => v,.None => EvalValue.UnitVal);
     if(k == idx, {
       ___ := result.push(new_val);
@@ -194,9 +204,61 @@ make_variable_with_value :: (
     is_from_effect_spread : v.is_from_effect_spread,
     is_effect_param : v.is_effect_param,
     is_module_level : v.is_module_level,
-    doc_comment : v.doc_comment
+    doc_comment : v.doc_comment,
+    is_ref : false,
+    is_parameter : false
   )
 );
+// ---------------------------------------------------------------------------
+// get_root_expr_of_field_access
+// ---------------------------------------------------------------------------
+/// Walk a chained field/index access down to its root atom.
+/// For `a.b.c`, returns the `a` atom. For a bare atom `x`, returns it
+/// unchanged. Mirrors `getRootExprOfFieldAccess` in `src/evaluator/utils.ts`.
+get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
+  if(
+    (ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT,.None)) && (match(expr,.FnCall(_, _, args, _, _) => args.len(),.Atom(_, _) => usize(0)) >= usize(2)),
+    recur(match(expr,.FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => expr),.Atom(_, _) => expr)),
+    expr
+  )
+);
+// ---------------------------------------------------------------------------
+// get_atomic_object_root_type
+// ---------------------------------------------------------------------------
+/// Phase O (THREAD_SAFETY): if a field-access expression's root has
+/// `atomic object` type, writes through it are forbidden in safe code.
+/// Returns the root type if it's an atomic object, `None` otherwise.
+/// Resolves SomeType (e.g. `Self`) to concrete types before checking.
+/// Mirrors `getAtomicObjectRootType` in `src/evaluator/utils.ts`.
+get_atomic_object_root_type :: (
+  fn(root_expr : AstExpr, env : Environment) -> Option(TypeValue)
+)({
+  if(!(ast_expr_is_atom(root_expr)), {
+    return(Option(TypeValue).None);
+  });
+  var_name := ast_expr_token(root_expr).value;
+  if(var_name.is_empty(), {
+    return(Option(TypeValue).None);
+  });
+  variables := get_variables_from_env(env, String.from(var_name.as_str()));
+  if(variables.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  (root_type : TypeValue) = match(
+    variables.get(variables.len() - usize(1)),
+    .Some(v) => v.ty,
+    .None => return(Option(TypeValue).None)
+  );
+  // Resolve SomeType (e.g. Self) to its concrete type.
+  if(is_some_type(root_type), {
+    root_type = get_value_of_some_type_from_env(env, root_type);
+  });
+  if(
+    is_atomic_object_type(root_type),
+    Option(TypeValue).Some(root_type),
+    Option(TypeValue).None
+  )
+});
 // ---------------------------------------------------------------------------
 // evaluate_assignment
 // ---------------------------------------------------------------------------
@@ -251,12 +313,32 @@ evaluate_assignment :: (
   // `src/evaluator/exprs/assignment.ts`).
   // -----------------------------------------------------------------------
   if(!(is_atom_lhs || is_typed_binding_lhs), {
+    // Phase O: Forbid writing through atomic-object fields in safe code.
+    if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).module_path.clone()))), {
+      root_expr := get_root_expr_of_field_access(lhs);
+      match(
+        get_atomic_object_root_type(root_expr, env),
+        .Some(atomic_obj_type) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(lhs),
+                `Cannot write to field of atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`,
+                false,
+                .None
+              )
+            )
+          );
+        },
+        .None => ()
+      );
+    });
     // Step 1 — Evaluate LHS with is_lhs_of_assignment = true
     saved_expected := ctx.expected_type;
     saved_is_lhs := ctx.is_lhs_of_assignment;
     ctx.expected_type = Option(ExpectedTypeCtx).None;
     ctx.is_lhs_of_assignment = true;
-    evaluated_lhs := evaluate_expression(lhs, env, ctx);
+    evaluated_lhs := evaluate_expression_raw(lhs, env, ctx, exn);
     ctx.expected_type = saved_expected;
     ctx.is_lhs_of_assignment = saved_is_lhs;
     lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
@@ -276,7 +358,7 @@ evaluate_assignment :: (
     expected_ty := lhs_info.ty;
     // Step 2 — Evaluate RHS with expected type from LHS
     ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : expected_ty, env : env));
-    prop_rhs := evaluate_expression(rhs, env, ctx);
+    prop_rhs := evaluate_expression_raw(rhs, env, ctx, exn);
     ctx.expected_type = saved_expected;
     prop_rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(prop_rhs));
     if(prop_rhs_info_opt.is_none(), {
@@ -296,10 +378,13 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env = prop_rhs_info.env;
+    env.frames = prop_rhs_info.env.frames;
+    env.module_path = prop_rhs_info.env.module_path;
+    env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
+    env.input_string = prop_rhs_info.env.input_string;
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
-    require_expr_not_consumed(prop_rhs, env, ctx);
-    throw_expr_is_implicit_variable_error(prop_rhs, env, ctx);
+    require_expr_not_consumed(prop_rhs, env, ctx, exn);
+    throw_expr_is_implicit_variable_error(prop_rhs, env, ctx, exn);
     set_expr_as_needs_to_call_dup(prop_rhs, ctx);
     // Re-read rhs info after potential mutations by the above helpers.
     prop_rhs_info = match(
@@ -307,7 +392,57 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env = prop_rhs_info.env;
+    env.frames = prop_rhs_info.env.frames;
+    env.module_path = prop_rhs_info.env.module_path;
+    env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
+    env.input_string = prop_rhs_info.env.input_string;
+    // Step 3b — Slice-flowability at the FIELD/INDEX-write boundary (the
+    // sibling of the simple-variable gate). Writing a raw-pointer-carrying
+    // value (`Slice`/`str`/aggregate) into `holder.s` / `arr(0)` must root
+    // the RHS in storage that outlives the field's CONTAINER, else the slice
+    // outlives its backing through the container (a use-after-free reachable
+    // from safe code). The container's lifetime is that of the access chain's
+    // root binding (`holder`/`arr`): pass its frame level as
+    // `max_local_frame_level` so an inner-block local source is rejected while
+    // a `ref` param / enclosing-scope local / parameter / comptime is
+    // accepted. Mirrors src/evaluator/exprs/assignment.ts. Throws directly
+    // (this path runs at module/test level — not behind the def-eval swallow).
+    if(type_representation_contains_raw_ptr(expected_ty) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).module_path.clone())))), {
+      prop_root_expr := get_root_expr_of_field_access(lhs);
+      (container_frame_level : i64) = i64(-(1));
+      if(ast_expr_is_atom(prop_root_expr), {
+        prop_root_vars := get_variables_from_env(env, ast_expr_token(prop_root_expr).value.clone());
+        if(prop_root_vars.len() > usize(0), {
+          match(
+            prop_root_vars.get(prop_root_vars.len() - usize(1)),
+            .Some(rv) => {
+              container_frame_level = i64(rv.frame_level);
+            },
+            .None => ()
+          );
+        });
+      });
+      (prop_max_local : Option(usize)) = cond(
+        (container_frame_level < i64(0)) => Option(usize).Some(usize(0)),
+        true => Option(usize).Some(usize(container_frame_level))
+      );
+      // container_frame_level < 0 (unresolvable root) → strictest: use 0 as a
+      // bound that no real inner-block local can be <= unless module-level,
+      // and rely on parameter/comptime/ref sources still being accepted.
+      prop_flow_opts := FlowOptions(
+        allow_same_frame_local : (container_frame_level >= i64(0)),
+        allow_parameter_source : true,
+        allow_comptime_source : true,
+        max_local_frame_level : prop_max_local
+      );
+      if(!(is_flowable_expr(prop_rhs, ctx, prop_flow_opts)), {
+        prop_viol_msg := `Writing into '${ast_expr_to_string(lhs)}' (type '${type_to_string(expected_ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives the field's container. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nThis would let the slice/pointer outlive its backing storage through the container — a use-after-free.\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter; a 'comptime' constant or string literal; a local whose scope encloses the container; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.`;
+        // Flag so a def-time trial-eval swallow re-raises it via the real `exn`
+        // (function_type.yo), mirroring the simple-variable assignment gate.
+        flag_flow_violation(prop_viol_msg);
+        exn.throw(dyn(format_error_message(ast_expr_token(rhs), prop_viol_msg, false,.None)));
+      });
+    });
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
     if(!((is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty)) || is_comptime_string_type(expected_ty)), {
@@ -354,10 +489,10 @@ evaluate_assignment :: (
                 (struct_fi : i64) = i64(-(1));
                 match(
                   pc_var.ty,
-                  .Struct(_, _, s_flabels, _, _, _, _) => {
+                  .Struct({ field_labels : s_flabels }) => {
                     n_sf := s_flabels.len();
                     (k_sf : usize) = usize(0);
-                    while(runtime(k_sf < n_sf), {
+                    while(k_sf < n_sf, {
                       s_lbl := match(s_flabels.get(k_sf),.Some(s) => s,.None => String.from(""));
                       if(s_lbl == pc_field_or_idx, {
                         struct_fi = i64(k_sf);
@@ -370,7 +505,7 @@ evaluate_assignment :: (
                   .Tuple(t_flabels, _) => {
                     n_tf := t_flabels.len();
                     (k_tf : usize) = usize(0);
-                    while(runtime(k_tf < n_tf), {
+                    while(k_tf < n_tf, {
                       t_lbl := match(t_flabels.get(k_tf),.Some(s) => s,.None => String.from(""));
                       if(t_lbl == pc_field_or_idx, {
                         struct_fi = i64(k_tf);
@@ -387,7 +522,7 @@ evaluate_assignment :: (
                   fi_us := usize(struct_fi);
                   is_ref_sem := match(
                     pc_var.ty,
-                    .Struct(_, _, _, _, is_ref, _, _) => is_ref,
+                    .Struct({ is_reference_semantics : is_ref }) => is_ref,
                     _ => false
                   );
                   if(is_ref_sem, {
@@ -398,7 +533,7 @@ evaluate_assignment :: (
                     all_env_vars := get_all_variables_from_env(env);
                     n_av := all_env_vars.len();
                     (k_av : usize) = usize(0);
-                    while(runtime(k_av < n_av), {
+                    while(k_av < n_av, {
                       av := match(all_env_vars.get(k_av),.Some(v) => v,.None => make_err_variable(env));
                       // Avoid && short-circuit with match on RHS to prevent codegen
                       // scope bug (temp declared in if-block, dropped outside).
@@ -477,7 +612,7 @@ evaluate_assignment :: (
                         n_vn := ev_vnames.len();
                         (k_vn : usize) = usize(0);
                         (vi : usize) = n_vn; // sentinel: not found
-                        while(runtime(k_vn < n_vn), {
+                        while(k_vn < n_vn, {
                           vn := match(ev_vnames.get(k_vn),.Some(s) => s,.None => String.from(""));
                           if(vn == ev_variant, {
                             vi = k_vn;
@@ -490,7 +625,7 @@ evaluate_assignment :: (
                           vf_labels := match(ev_vf_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
                           n_vfl := vf_labels.len();
                           (k_vfl : usize) = usize(0);
-                          while(runtime(k_vfl < n_vfl), {
+                          while(k_vfl < n_vfl, {
                             fl := match(vf_labels.get(k_vfl),.Some(s) => s,.None => String.from(""));
                             if(fl == pc_field_or_idx, {
                               ev_fi = i64(k_vfl);
@@ -587,12 +722,15 @@ evaluate_assignment :: (
     },
     true => {
       // Typed binding: (x : T) = rhs
-      binding := evaluate_binding(lhs, env, ctx);
+      binding := evaluate_binding(lhs, env, ctx, exn);
       binding_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(binding.expr));
       match(
         binding_info_opt,
         .Some(info) => {
-          env = info.env;
+          env.frames = info.env.frames;
+          env.module_path = info.env.module_path;
+          env.function_declaration_frame_level = info.env.function_declaration_frame_level;
+          env.input_string = info.env.input_string;
         },
         .None => ()
       );
@@ -629,6 +767,22 @@ evaluate_assignment :: (
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
   variable := match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env));
+  // Closure capture tracking — a WRITE to an outer variable from inside a
+  // function body / async block is a capture too (mirrors assignment.ts:667
+  // calling trackVariableUsage with usage "own"). Reads are tracked by the
+  // identifier evaluator; without this, a closure whose only reference to an
+  // outer variable is an assignment (`(...) => { x = v; }`) recorded NO
+  // capture and the ref-capture gate never saw `x`
+  // (tests/ref_closure_capture.test.yo `make_writer`). The tracking helper
+  // itself guards on the body-evaluation context, the outer-frame threshold,
+  // and compile-time-only variables.
+  track_variable_usage(
+    variable.name,
+    variable.frame_level,
+    CaptureUsage.Own,
+    ast_expr_token(lhs_resolved),
+    ctx
+  );
   // Check reassignability.
   if(!(variable.is_reassignable), {
     exn.throw(
@@ -651,7 +805,7 @@ evaluate_assignment :: (
       env : env
     )
   );
-  (rhs_evaled : AstExpr) = evaluate_expression(rhs, env, ctx);
+  (rhs_evaled : AstExpr) = evaluate_expression_raw(rhs, env, ctx, exn);
   ctx.expected_type = old_expected;
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled));
   if(rhs_info_opt.is_none(), {
@@ -667,12 +821,43 @@ evaluate_assignment :: (
     );
   });
   rhs_info := match(rhs_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
-  env = rhs_info.env;
+  env.frames = rhs_info.env.frames;
+  env.module_path = rhs_info.env.module_path;
+  env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+  env.input_string = rhs_info.env.input_string;
+  // Slice-flowability at the assignment boundary (assignment.ts:263-297). When
+  // the TARGET's type carries a raw pointer (Slice/str/aggregate-thereof; owned
+  // object types like String/ArrayList are excluded by the predicate), the RHS
+  // must be rooted in storage that OUTLIVES the target binding. `=` can target
+  // an outer-scope binding, so pass the target's `frame_level` as
+  // `max_local_frame_level`: a same-frame/local source is accepted only if its
+  // scope encloses the target's (level <= target). Parameters, comptime values
+  // and `ref`-bound names outlive the function and are always accepted.
+  // Privileged files (pragma AllowUnsafe) are exempt, mirroring the sibling
+  // return-position gate — raw-pointer manipulation like `p = &(x)` is exactly
+  // what those files declare (assignment.ts gate, same exemption). Mirrors the
+  // binding-site check, but `:=` is always innermost so only `=` reassignment
+  // can invert scope.
+  if(type_representation_contains_raw_ptr(variable.ty) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone())))), {
+    assign_flow_opts := FlowOptions(
+      allow_same_frame_local : true,
+      allow_parameter_source : true,
+      allow_comptime_source : true,
+      max_local_frame_level : Option(usize).Some(variable.frame_level)
+    );
+    if(!(is_flowable_expr(rhs_evaled, ctx, assign_flow_opts)), {
+      viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(variable.ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}`;
+      // Flag the violation so a def-time trial-eval swallow re-raises it via the
+      // real `exn` (function_type.yo), mirroring the `ref(name) :=` binding-site.
+      flag_flow_violation(viol_msg);
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
+    });
+  });
   // Check control flow.
   if(has_any_control_flow(rhs_info.control_flow), {
     match(
       rhs_info.control_flow,
-      .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf),
+      .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf, exn),
       .None => () // unreachable: has_any_control_flow guarantees .Some
     );
   });
@@ -731,7 +916,9 @@ evaluate_assignment :: (
     is_from_effect_spread : updated_variable.is_from_effect_spread,
     is_effect_param : updated_variable.is_effect_param,
     is_module_level : updated_variable.is_module_level,
-    doc_comment : updated_variable.doc_comment
+    doc_comment : updated_variable.doc_comment,
+    is_ref : false,
+    is_parameter : false
   );
   update_existing_variable(env, updated_variable, new_variable);
   // Write ExprInfo for the lhs.

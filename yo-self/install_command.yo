@@ -68,7 +68,7 @@ _is_all_digits :: (fn(s : String) -> bool)({
   if(n == usize(0), return(false));
   i := usize(0);
   ok := true;
-  while(runtime((i < n) && ok), {
+  while((i < n) && ok, {
     match(
       s.at(i),
       .None => {
@@ -172,7 +172,7 @@ _parse_tags_for_latest_semver :: (fn(text : String) -> Option(String))({
   tags := ArrayList(SemVer).new();
   n := lines.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       lines.get(i),
       .None => (),
@@ -213,7 +213,7 @@ _parse_tags_for_latest_semver :: (fn(text : String) -> Option(String))({
     .Some(t) => t
   );
   j := usize(1);
-  while(runtime(j < tags.len()), {
+  while(j < tags.len(), {
     match(
       tags.get(j),
       .None => (),
@@ -313,7 +313,7 @@ parse_dependency_names :: (fn(content : String) -> ArrayList(String))({
   all_lines := content.split(String.from("\n"));
   n := all_lines.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       all_lines.get(i),
       .None => (),
@@ -346,7 +346,7 @@ _build_imports_block :: (fn(dep_names : ArrayList(String)) -> String)({
   if(n == usize(0), String.from("imports :: ComptimeList(build.ImportEntry)();\nexport(imports);\n"), {
     block := String.from("imports :: ComptimeList(build.ImportEntry)(\n");
     i := usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         dep_names.get(i),
         .None => (),
@@ -450,7 +450,7 @@ append_dep_to_deps_file :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // Create deps.yo from template if it does not exist yet
     file_exists := io.await(exists(deps_path), io);
     if(!(file_exists), {
@@ -479,7 +479,7 @@ resolve_default_branch :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--symref"));
@@ -506,7 +506,7 @@ resolve_default_branch :: (
     result := String.from("main");
     n := lines.len();
     i := usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         lines.get(i),
         .None => (),
@@ -539,7 +539,7 @@ resolve_latest_ref :: (
     exn : Exception
   ) -> Impl(Future(Result(String, String), IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // Disable interactive credential prompts
     env.set(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
     cmd := Command.new(String.from("git"));
@@ -617,7 +617,7 @@ run_install :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io, exn) => {
+  io.async((io) => {
     // 1. Parse package specifier
     parsed_result := parse_package_specifier(options.package_spec);
     parsed := match(

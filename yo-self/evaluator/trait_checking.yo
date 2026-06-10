@@ -49,12 +49,17 @@ open(import("std/string"));
 { YoError, ErrorKind, format_error_message } :: import("../error.yo");
 {
   find_matching_generic_impl,
+  find_matching_negative_generic_impl,
   set_type_implements_trait_fn,
+  set_register_trait_value_fn,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
-  unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered
+  unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
+  has_negative_impl,
+  get_trait_key
 }
 :: import("./values/impl.yo");
+{ type_id_or_empty } :: import("./values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
 // `evaluator/types/trait_registry.yo`).
@@ -65,27 +70,85 @@ open(import("std/string"));
 // at the same construction sites (callers in `evaluator/types/utils.yo`)
 // and queried by `type_implements_trait` step 4 below.
 // ---------------------------------------------------------------------------
-/// Maps type id → list of trait names auto-derived for that type.
-(g_type_trait_registry : HashMap(String, ArrayList(String))) =
-  HashMap(String, ArrayList(String)).new();
-/// Register that the type with `type_id` auto-derives the trait named `trait_name`.
+/// Maps type id → list of trait TYPE VALUES the type implements (auto-derived).
+///
+/// FAITHFUL to TS: TS attaches the derived traits as fields on the type
+/// (`receiverType.trait.fields`, each field's `assignedValue` is the trait VALUE;
+/// `attachTraitToReceiverType`, utils.ts:1268) and `typeImplementsTrait` matches
+/// them by `areTypesCompatible` — by trait IDENTITY, never by name. yo-self
+/// stores the same trait VALUES in a type-id-keyed side-table (the `Func`/struct
+/// TypeValue can't carry the field without a definitions↔env-style coupling; the
+/// side-table is the documented yo-self pattern) and matches via
+/// `are_types_compatible`. This supersedes the earlier name-keyed registry, which
+/// was unqueryable because yo-self trait values are nameless.
+(g_type_trait_registry : HashMap(String, ArrayList(TypeValue))) =
+  HashMap(String, ArrayList(TypeValue)).new();
+/// Register that the type `type_id` auto-derives the marker trait named
+/// `trait_name`, resolved to its canonical env trait VALUE (mirrors TS pushing
+/// the trait value onto `receiverType.trait.fields`). If the trait isn't in
+/// scope yet (rare — e.g. a struct defined before the marker trait), skip
+/// silently, exactly as TS `attachTraitToReceiverType` skips via try/catch.
 /// Called during struct/enum/union construction by `evaluator/types/utils.yo`.
-register_type_trait :: (fn(type_id : String, trait_name : str) -> unit)({
+register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment) -> unit)({
+  match(
+    get_trait_type_from_env(env, String.from(trait_name)),
+    .Some(trait_ty) => {
+      match(
+        g_type_trait_registry.get(type_id),
+        .Some(list) => {
+          _push := list.push(trait_ty);
+        },
+        .None => {
+          new_list := ArrayList(TypeValue).new();
+          _push2 := new_list.push(trait_ty);
+          _set := g_type_trait_registry.set(type_id, new_list);
+        }
+      );
+    },
+    .None => ()
+  );
+});
+/// Register that `type_id` implements the trait VALUE `trait_ty` directly
+/// (mirrors TS pushing the impl'd trait onto `receiverType.trait.fields`). Used
+/// by impl.yo when a concrete `impl(T, SomeTrait(...))` is registered, so
+/// `Type.impls(T, SomeTrait)` resolves by id at step 4 — the base trait id
+/// `trait_ty` carries matches the id the query evaluates `SomeTrait` to.
+register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit)({
   match(
     g_type_trait_registry.get(type_id),
     .Some(list) => {
-      _push := list.push(String.from(trait_name));
+      _push := list.push(trait_ty);
     },
     .None => {
-      new_list := ArrayList(String).new();
-      _push2 := new_list.push(String.from(trait_name));
+      new_list := ArrayList(TypeValue).new();
+      _push2 := new_list.push(trait_ty);
       _set := g_type_trait_registry.set(type_id, new_list);
     }
   );
 });
-/// Check whether `type_id` is registered as implementing the trait named `trait_name`.
-/// Called from `type_implements_trait` step 4 below.
-is_type_registered_as_trait :: (fn(type_id : String, trait_name : str) -> bool)(
+/// Extract a trait's stable identity string: the `id` field for `TraitT`, the
+/// `base_name` for Fn/Future traits. Defined here (above its first use) because
+/// yo-self has no forward references.
+_trait_type_id :: (fn(ty : TypeValue) -> String)(
+  match(
+    ty,
+    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .FutureTraitT(base_name, _, _, _, _) => base_name,
+    _ => String.from("")
+  )
+);
+/// Check whether `type_id` is registered as implementing `query_trait`, matched
+/// by trait `id` (mirrors TS `typeImplementsTrait`'s identity comparison —
+/// `expected.id === given.id`, compatibility.ts:543-549). The registry holds the
+/// type's auto-derived markers (each a distinct prelude `trait()` with a stable
+/// id) AND, since the trait-identity overhaul, the traits of its concrete impls
+/// (via `register_type_trait_value`, carrying the base trait id). All are looked
+/// up so the registered id and the query id match exactly. NOT
+/// `are_types_compatible`: yo-self's `TraitT` compatibility is name-based and
+/// every marker is nameless (empty name), so it would treat EVERY marker as
+/// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
+is_type_registered_as_trait :: (fn(type_id : String, query_trait : TypeValue, env : Environment) -> bool)(
   match(
     g_type_trait_registry.get(type_id),
     .None => false,
@@ -93,9 +156,10 @@ is_type_registered_as_trait :: (fn(type_id : String, trait_name : str) -> bool)(
       n := list.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
-        name := match(list.get(i),.Some(n2) => n2,.None => String.from(""));
-        if(name.as_str() == trait_name, {
+      query_id := _trait_type_id(query_trait);
+      while((i < n) && !(found), {
+        reg := match(list.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(query_id == _trait_type_id(reg), {
           found = true;
         });
         i = (i + usize(1));
@@ -128,6 +192,10 @@ AssocTypeCheckResult :: struct(
 /// Recursion guard to prevent infinite loops when checking trait implementations.
 /// Mirrors `traitCheckRecursionGuard: Set<string>` in TypeScript.
 (g_trait_check_recursion_guard : ArrayList(String)) = ArrayList(String).new();
+/// On-demand marker re-derivation guard (step 4b): prevents infinite recursion
+/// when recomputing an auto-derived marker from a self-referential type's fields
+/// (e.g. `ListNode(_next : Option(Self))`). Keyed by `${type_id}:${trait_id}`.
+(g_ondemand_marker_guard : ArrayList(String)) = ArrayList(String).new();
 /// Send derivation in-progress set.
 /// Mirrors `sendDerivationInProgress: Set<string>` in TypeScript.
 (g_send_derivation_in_progress : ArrayList(String)) = ArrayList(String).new();
@@ -137,26 +205,55 @@ AssocTypeCheckResult :: struct(
 /// Extract the nominal ID string from a trait TypeValue.
 /// Only `TraitT` has an explicit `id` field; `FnTraitT`/`FutureTraitT` use
 /// their `base_name` as a key (they cannot be the `Comptime`/`Runtime` traits).
-_trait_type_id :: (fn(ty : TypeValue) -> String)(
-  match(
-    ty,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
-    .FutureTraitT(base_name, _, _, _, _) => base_name,
-    _ => String.from("")
-  )
-);
-/// Extract the name string from a trait TypeValue.
-/// Used for registry lookup — TypeScript compares traits by name, not ID.
-_trait_type_name :: (fn(ty : TypeValue) -> String)(
-  match(
-    ty,
-    .TraitT(name, _, _, _, _, _, _, _) => name,
-    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
-    .FutureTraitT(base_name, _, _, _, _) => base_name,
-    _ => String.from("")
-  )
-);
+/// Identify which auto-derived MARKER trait `trait_type` is, by comparing its id
+/// against the fixed env marker set (Send/Comptime/Acyclic/Runtime/Rc); returns
+/// the marker name, or "" if it isn't one. Used by the step-4b on-demand
+/// re-derivation, which selects per-marker field rules. (The registry lookup
+/// itself matches by trait VALUE, not name — see `is_type_registered_as_trait`.)
+_marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
+  tid := _trait_type_id(trait_type);
+  if(tid.is_empty(), {
+    return(String.from(""));
+  });
+  markers := ArrayList(String).new();
+  ___m0 := markers.push(String.from("Send"));
+  ___m1 := markers.push(String.from("Comptime"));
+  ___m2 := markers.push(String.from("Acyclic"));
+  ___m3 := markers.push(String.from("Runtime"));
+  ___m4 := markers.push(String.from("Rc"));
+  (i : usize) = usize(0);
+  (found : String) = String.from("");
+  while((i < markers.len()) && found.is_empty(), {
+    marker := match(markers.get(i),.Some(m) => m,.None => String.from(""));
+    match(
+      get_trait_type_from_env(env, String.from(marker.as_str())),
+      .Some(mt) => if(_trait_type_id(mt) == tid, {
+        found = String.from(marker.as_str());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True if the on-demand re-derivation guard currently holds `key`
+/// (`${type_id}:${trait_id}`). Used by step 4b to break cycles on
+/// self-referential types.
+_ondemand_guard_contains :: (fn(key : String) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < g_ondemand_marker_guard.len()) && !(found), {
+    match(
+      g_ondemand_marker_guard.get(i),
+      .Some(k) => if(k.as_str() == key.as_str(), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// Extract the unique structural ID from a struct/enum/union TypeValue.
 /// Returns "" for non-nominal types.
 ///
@@ -164,9 +261,21 @@ _trait_type_name :: (fn(ty : TypeValue) -> String)(
 _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
-    .Struct(id, _, _, _, _, _, _) => id,
+    .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _) => id,
     .Union(name, _, _) => name,
+    // SomeT: must mirror `type_id_or_empty` (the REGISTRATION key in
+    // impl.yo) — a manual `impl(X, Send())` on an extern opaque type
+    // declaration (`extern("Yo", X : Type)` binds X to a SomeT placeholder,
+    // e.g. std/sync/mutex.yo's `impl(__YO_THREAD_SYNC_TYPE, Send())`)
+    // registers under the SomeT's id; returning `""` here skipped the
+    // registry lookup entirely, so `Type.impls(X, Send)` was always false
+    // and Mutex(i32)'s Send field-derivation failed on `_handle`. TS can't
+    // diverge this way: both sides use the same type OBJECT's
+    // `.trait.fields`. A never-impl'd SomeT (ordinary generic param) has a
+    // fresh `sometype_<random>` id that simply misses the registry and
+    // falls through to the where-clause/resolution steps as before.
+    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     _ => String.from("")
   )
 );
@@ -184,8 +293,10 @@ _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
 type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
   match(
     ty,
-    // Object types (reference semantics) — always runtime, never comptime.
-    .Struct(_, _, _, _, is_ref, _, _) => cond(
+    // Source-namespace structs (modules) — always comptime. Object types
+    // (reference semantics) — always runtime, never comptime.
+    .Struct({ is_reference_semantics : is_ref, is_source_namespace : t_sns }) => cond(
+      t_sns => Option(bool).Some(true),
       is_ref => Option(bool).Some(false),
       true => Option(bool).None
     ),
@@ -194,7 +305,6 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .ComptimeFloat => Option(bool).Some(true),
     .ComptimeString => Option(bool).Some(true),
     .TypeUni(_) => Option(bool).Some(true),
-    .ModuleT(_, _, _, _) => Option(bool).Some(true),
     .TraitT(name : _) => Option(bool).Some(true),
     .FnTraitT(base_name : _) => Option(bool).Some(true),
     .FutureTraitT(base_name : _) => Option(bool).Some(true),
@@ -222,8 +332,75 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
-    .Func(result : _) => Option(bool).Some(true),
+    .Func({ result : _ }) => Option(bool).Some(true),
     // Undecided — env / Comptime trait lookup needed.
+    _ => Option(bool).None
+  )
+);
+// ---------------------------------------------------------------------------
+// type_implements_send_builtin / type_implements_acyclic_builtin
+// ---------------------------------------------------------------------------
+/// Tag-only fast path for the Send / Acyclic marker traits on PRIMITIVE leaves.
+///
+/// In TS every type carries a `.trait` field listing its auto-derived markers,
+/// so a bare `i32`/`bool` resolves Send via `targetType.trait.fields`. yo-self
+/// instead stores auto-derive results in a registry keyed by NOMINAL type id
+/// (`g_type_trait_registry`), which cannot hold primitives (they have no id),
+/// and — like the existing Comptime/Runtime builtins — relies on a tag-only fast
+/// path for primitive leaves. Without this, `type_implements_send(i32)` was
+/// false, so `_all_fields_implement_send` failed for any value struct with a
+/// primitive field, and `where(T <: Send)` over-rejected primitives directly
+/// (e.g. `Channel(bool)`).
+///
+/// Returns `Some(true)` for unconditionally-Send/Acyclic value & comptime-data
+/// leaves; `.None` for nominal (Struct/EnumT/Union — defer to the auto-derive
+/// registry) and structural/conditional types (Iso/Dyn/Pointer/Func — defer to
+/// generic-impl matching / where-constraints).
+/// Returns Some(true) for EXACTLY the primitives the prelude declares
+/// `impl(<prim>, Send())` for: `unit, void, bool, i8..i64, u8..u64, f32, f64,
+/// isize, usize, char`. yo-self can't register these via the type-id-keyed
+/// auto-derive registry (primitives have no id), and unlike TS — which carries
+/// the impl on the type's `.trait` — there's no per-type slot, so this builtin
+/// encodes the prelude's primitive Send impls. NOT comptime_int/float/string
+/// (those have only `impl(_, Acyclic())`, no Send), NOT other C scalar types,
+/// NOT type-level values — none of which the prelude marks Send. `.None` =
+/// defer to the registry / generic impls (nominal types, `*(T)`, etc.).
+type_implements_send_builtin :: (fn(ty : TypeValue) -> Option(bool))(
+  match(
+    ty,
+    .Unit => Option(bool).Some(true),
+    .Void => Option(bool).Some(true),
+    .BoolT => Option(bool).Some(true),
+    .Usize => Option(bool).Some(true),
+    .Isize => Option(bool).Some(true),
+    .Int(_, _) => Option(bool).Some(true),
+    .Float(_) => Option(bool).Some(true),
+    .CChar => Option(bool).Some(true),
+    // Everything else defers (incl. comptime_*, other C types, type-level —
+    // the prelude declares no `impl(_, Send())` for those).
+    _ => Option(bool).None
+  )
+);
+/// Returns Some(true) for EXACTLY the primitives the prelude declares
+/// `impl(<prim>, Acyclic())` for: the Send set PLUS `comptime_int,
+/// comptime_float, comptime_string, Expr` (comptime data + Expr are acyclic but
+/// NOT Send). NOT other C scalar types, NOT type-level values. Same rationale as
+/// the Send builtin (encodes the prelude's primitive Acyclic impls).
+type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
+  match(
+    ty,
+    .Unit => Option(bool).Some(true),
+    .Void => Option(bool).Some(true),
+    .BoolT => Option(bool).Some(true),
+    .Usize => Option(bool).Some(true),
+    .Isize => Option(bool).Some(true),
+    .Int(_, _) => Option(bool).Some(true),
+    .Float(_) => Option(bool).Some(true),
+    .CChar => Option(bool).Some(true),
+    .ComptimeInt => Option(bool).Some(true),
+    .ComptimeFloat => Option(bool).Some(true),
+    .ComptimeString => Option(bool).Some(true),
+    .ExprT => Option(bool).Some(true),
     _ => Option(bool).None
   )
 );
@@ -291,6 +468,19 @@ type_implements_trait :: (
   ) -> TraitCheckResult
 )({
   (target : TypeValue) = target_type;
+  // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
+  // has a registered negative impl for this trait, it does NOT implement the
+  // trait regardless of auto-derive. Mirrors `trait-checking.ts:345-358`.
+  // Concrete negative impls are keyed `type_id_or_empty:get_trait_key`
+  // (registration site impl.yo). Generic negative impls
+  // (`impl(forall(T), Pattern, !(Trait))`) are matched structurally via
+  // `find_matching_negative_generic_impl` (TS findMatchingNegativeGenericImpl).
+  if(has_negative_impl(type_id_or_empty(target).as_str(), get_trait_key(trait_type).as_str()), {
+    return(TraitCheckResult(implemented : false, env : env));
+  });
+  if(find_matching_negative_generic_impl(target, trait_type, env), {
+    return(TraitCheckResult(implemented : false, env : env));
+  });
   // 1. Comptime builtin fast path.
   match(
     get_trait_type_from_env(env, String.from("Comptime")),
@@ -323,6 +513,42 @@ type_implements_trait :: (
       });
     }
   );
+  // 2a. Send builtin fast path (primitive leaves). yo-self stores auto-derived
+  // markers in a nominal-id registry that can't hold primitives; this tag-only
+  // path recognizes Send for value/comptime-data leaves so primitive fields
+  // (and bare primitives) satisfy `where(T <: Send)`. Mirrors the Comptime/
+  // Runtime builtins above (TS carries this on every type's `.trait`).
+  match(
+    get_trait_type_from_env(env, String.from("Send")),
+    .None => (),
+    .Some(st) => {
+      if(_trait_type_id(trait_type) == _trait_type_id(st), {
+        match(
+          type_implements_send_builtin(target),
+          .Some(b) => {
+            return(TraitCheckResult(implemented : b, env : env));
+          },
+          .None => ()
+        );
+      });
+    }
+  );
+  // 2b. Acyclic builtin fast path (primitive leaves) — same rationale as Send.
+  match(
+    get_trait_type_from_env(env, String.from("Acyclic")),
+    .None => (),
+    .Some(at) => {
+      if(_trait_type_id(trait_type) == _trait_type_id(at), {
+        match(
+          type_implements_acyclic_builtin(target),
+          .Some(b) => {
+            return(TraitCheckResult(implemented : b, env : env));
+          },
+          .None => ()
+        );
+      });
+    }
+  );
   // 3. Fn-trait satisfaction: FnTraitT + Func → check compatibility.
   // Phase 3 TODO: call synthesize_types for binding propagation.
   if(is_fn_trait_type(trait_type) && is_function_type(target), {
@@ -337,7 +563,20 @@ type_implements_trait :: (
         ArrayList(TypeValue).new(),
         ArrayList(bool).new(),
         ArrayList(TypeValue).new(),
-        result
+        result,
+        false,
+        // result_is_comptime_only — Fn-trait call type (runtime)
+        ArrayList(bool).new(),
+        // param_is_ref
+        false,
+        // result_is_ref
+        false,
+        // has_variadic
+        Option(String).None,
+        // is_extern — Fn-trait call type is not FFI
+        Option(String).None,
+        // extern_name
+        false // is_control — Fn-trait call type is `fn`, not `ctl`
       ),
       _ => {
         return(TraitCheckResult(implemented : false, env : env));
@@ -348,12 +587,110 @@ type_implements_trait :: (
     });
     return(TraitCheckResult(implemented : true, env : env));
   });
-  // 4. Direct trait field match — check global auto-derive registry.
+  // 4. Direct trait field match — the auto-derive registry stores the type's
+  // derived trait VALUES; match `trait_type` against them by identity
+  // (`are_types_compatible`), faithful to TS `typeImplementsTrait` over
+  // `targetType.trait.fields`. No name lookup (yo-self trait values are nameless).
   type_id := _type_id_for_trait_check(target);
-  trait_name := _trait_type_name(trait_type);
-  if(!(type_id.is_empty()) && !(trait_name.is_empty()), {
-    if(is_type_registered_as_trait(type_id, trait_name.as_str()), {
+  if(!(type_id.is_empty()), {
+    if(is_type_registered_as_trait(type_id, trait_type, env), {
       return(TraitCheckResult(implemented : true, env : env));
+    });
+  });
+  // 4b. On-demand re-derivation fallback for auto-derived markers.
+  //
+  // A nominal type created via GENERIC INSTANTIATION (comptime-fn stamping /
+  // substitution) may not have had `auto_derive_traits_for_struct_type` run with
+  // its CONCRETE field types, so the name-keyed registry has no entry. Recompute
+  // the marker on demand from the type's current fields, mirroring auto_derive's
+  // rules. This is path-independent (unlike re-running auto_derive at one
+  // instantiation site). Only the auto-derived markers (Send/Comptime/Acyclic/
+  // Runtime) are recomputable this way; the field check recurses through
+  // `type_implements_trait` (so it picks up the same builtins / registry /
+  // generic-impls), guarded against self-referential cycles.
+  marker_name := _marker_name_of(trait_type, env);
+  if((!(marker_name.is_empty())) && !(_ondemand_guard_contains(`${type_id}:${_trait_type_id(trait_type)}`)), {
+    tn := marker_name.as_str();
+    marker_relevant := ((((tn == "Send") || (tn == "Comptime")) || (tn == "Acyclic")) || (tn == "Runtime"));
+    if(marker_relevant, {
+      // Determine the field types to check (None = marker not recomputable here).
+      (fields_opt : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
+      (direct_true : bool) = false;
+      match(
+        target,
+        .Struct({ field_types : fts, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => cond(
+          // Runtime: objects always; value structs need all fields Runtime.
+          (tn == "Runtime") => if(is_ref, {
+            direct_true = true;
+          }, {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          // Send: value structs + atomic objects need all fields Send; non-atomic
+          // objects never auto-derive Send (leave to impls — fall through).
+          (tn == "Send") => if(!(is_ref && !(is_atomic)), {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          // Comptime: objects never; value structs need all fields Comptime.
+          (tn == "Comptime") => if(!(is_ref), {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          // Acyclic: value structs need all fields Acyclic; objects defer to the
+          // registry (their Acyclic uses can_type_form_rc_cycle at definition).
+          (tn == "Acyclic") => if(!(is_ref), {
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+          }),
+          true => ()
+        ),
+        // Enums are value types: all (flattened) variant field types must hold.
+        .EnumT({ variant_fields : vfs }) => {
+          flat := ArrayList(TypeValue).new();
+          (vi : usize) = usize(0);
+          while(vi < vfs.len(), {
+            vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+            (vj : usize) = usize(0);
+            while(vj < vf.len(), {
+              _pf := flat.push(match(vf.get(vj),.Some(t) => t,.None => TypeValue.Unit));
+              vj = (vj + usize(1));
+            });
+            vi = (vi + usize(1));
+          });
+          fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+        },
+        // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
+        // `impl(forall(T), where(T <: Send), *(T), Send())`).
+        .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
+          pfields := ArrayList(TypeValue).new();
+          _pp := pfields.push(pointee_box.*);
+          fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
+        }),
+        _ => ()
+      );
+      if(direct_true, {
+        return(TraitCheckResult(implemented : true, env : env));
+      });
+      match(
+        fields_opt,
+        .Some(fields) => {
+          guard_key2 := `${type_id}:${_trait_type_id(trait_type)}`;
+          _gpush := g_ondemand_marker_guard.push(guard_key2);
+          (all_pass : bool) = true;
+          (fi : usize) = usize(0);
+          while((fi < fields.len()) && all_pass, {
+            fty := match(fields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            // Self-recurse via `recur` (yo-self cannot reference the enclosing
+            // function by name inside its own body).
+            if(!(recur(fty, trait_type, env).implemented), {
+              all_pass = false;
+            });
+            fi = (fi + usize(1));
+          });
+          _gpop := g_ondemand_marker_guard.remove(g_ondemand_marker_guard.len() - usize(1), usize(1));
+          if(all_pass, {
+            return(TraitCheckResult(implemented : true, env : env));
+          });
+        },
+        .None => ()
+      );
     });
   });
   // 5. DynType: check required traits and selfConstraints.
@@ -362,7 +699,7 @@ type_implements_trait :: (
     .DynT(required_trait_types, _, negative_trait_types, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         req_trait := match(
           required_trait_types.get(i),
           .Some(t) => t,
@@ -381,7 +718,7 @@ type_implements_trait :: (
           .TraitT(_, _, _, _, _, _, self_constraints, _) => {
             ns := self_constraints.len();
             (j : usize) = usize(0);
-            while(runtime(j < ns), {
+            while(j < ns, {
               sc := match(
                 self_constraints.get(j),
                 .Some(t) => t,
@@ -403,7 +740,7 @@ type_implements_trait :: (
       // Negative trait check.
       nn := negative_trait_types.len();
       (k : usize) = usize(0);
-      while(runtime(k < nn), {
+      while(k < nn, {
         neg_trait := match(
           negative_trait_types.get(k),
           .Some(t) => t,
@@ -431,7 +768,7 @@ type_implements_trait :: (
       // Check required_trait_types.
       nr := required_trait_types.len();
       (ir : usize) = usize(0);
-      while(runtime(ir < nr), {
+      while(ir < nr, {
         req_t := match(
           required_trait_types.get(ir),
           .Some(t) => t,
@@ -448,7 +785,7 @@ type_implements_trait :: (
       // Check negative_trait_types.
       nn2 := negative_trait_types.len();
       (in2 : usize) = usize(0);
-      while(runtime(in2 < nn2), {
+      while(in2 < nn2, {
         neg_t := match(
           negative_trait_types.get(in2),
           .Some(t) => t,
@@ -494,7 +831,7 @@ type_implements_trait :: (
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
   (gi : usize) = usize(0);
-  while(runtime(gi < gn), {
+  while(gi < gn, {
     entry := match(
       g_trait_check_recursion_guard.get(gi),
       .Some(s) => s,
@@ -556,7 +893,7 @@ check_type_implements_self_constraints :: (
       // Check positive constraints (must implement).
       np := self_constraints.len();
       (ip : usize) = usize(0);
-      while(runtime(ip < np), {
+      while(ip < np, {
         constraint := match(
           self_constraints.get(ip),
           .Some(c) => c,
@@ -574,7 +911,7 @@ check_type_implements_self_constraints :: (
       // Check negative constraints (must NOT implement).
       nn := neg_self_constraints.len();
       (in_ : usize) = usize(0);
-      while(runtime(in_ < nn), {
+      while(in_ < nn, {
         constraint := match(
           neg_self_constraints.get(in_),
           .Some(c) => c,
@@ -649,7 +986,7 @@ end_send_derivation :: (fn(type_id : String) -> unit)({
   n := g_send_derivation_in_progress.len();
   (i : usize) = usize(0);
   (found_idx : Option(usize)) = Option(usize).None;
-  while(runtime(i < n), {
+  while(i < n, {
     entry := match(
       g_send_derivation_in_progress.get(i),
       .Some(s) => s,
@@ -684,7 +1021,7 @@ type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
   (in_derivation : bool) = false;
   nd := g_send_derivation_in_progress.len();
   (id : usize) = usize(0);
-  while(runtime(id < nd), {
+  while(id < nd, {
     entry := match(
       g_send_derivation_in_progress.get(id),
       .Some(s) => s,
@@ -749,7 +1086,7 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -766,7 +1103,7 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -803,7 +1140,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -826,7 +1163,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -862,7 +1199,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -879,7 +1216,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while(runtime((i < n) && !(found)), {
+      while((i < n) && !(found), {
         t := match(required_trait_types.get(i),.Some(v) => v,.None => TypeValue.Unit);
         match(
           t,
@@ -896,6 +1233,142 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
+// type_contains_some_type_for_codegen_param
+// ---------------------------------------------------------------------------
+/// Deep recursion: does `ty` contain a SomeType in a codegen-relevant position?
+///
+/// 1:1 port of `typeContainsSomeTypeForCodegenParam` (`src/types/utils.ts:708`).
+/// Lives here (not `types/utils.yo`) so it can use `type_implements_fn` /
+/// `type_implements_future` without a `types/utils` import cycle.
+///
+/// STAGED for def-time body evaluation (see plans/DEFTIME_BODY_EVAL.md): this is
+/// the DEEP predicate `should_defer` needs — yo-self's shallow
+/// `type_contains_some_type` (types/utils.yo) only checks top-level
+/// `SomeT`/`TypeAppT`, so generic ptr/slice/struct fns aren't deferred. NOT YET
+/// CONSUMED (body-eval wiring is the remaining multi-layer work); exported for
+/// that wiring. The `checked_ids` arg is the cycle guard (TS `checkedTypes`),
+/// keyed by nominal type id. yo-self `SomeT` has no `is_extern` /
+/// `resolved_concrete_type`, so those TS exclusions are no-ops here.
+type_contains_some_type_for_codegen_param :: (
+  fn(ty : TypeValue, checked_ids : ArrayList(String)) -> bool
+)({
+  // Cycle guard on nominal type id (mirrors TS `checkedTypes.includes(type)`).
+  nominal_id := match(
+    ty,
+    .Struct({ id : sid }) => sid,
+    .EnumT(eid, _, _, _, _, _, _) => eid,
+    .Union(uname, _, _) => uname,
+    _ => String.from("")
+  );
+  if(!(nominal_id.is_empty()), {
+    (seen : bool) = false;
+    (ci : usize) = usize(0);
+    while((ci < checked_ids.len()) && !(seen), {
+      match(
+        checked_ids.get(ci),
+        .Some(k) => if(k.as_str() == nominal_id.as_str(), {
+          seen = true;
+        }),
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+    if(seen, {
+      return(false);
+    });
+    _push := checked_ids.push(String.from(nominal_id.as_str()));
+  });
+  if(is_some_type(ty), {
+    // SomeType: TS excludes extern + resolved-concrete (no-ops in yo-self) and
+    // Fn/Future-trait SomeTypes; otherwise it IS a codegen SomeType.
+    if(type_implements_fn(ty), {
+      return(false);
+    });
+    if(type_implements_future(ty), {
+      return(false);
+    });
+    return(true);
+  });
+  match(
+    ty,
+    .Array(element, _, _) => recur(element.*, checked_ids),
+    .Slice(element) => recur(element.*, checked_ids),
+    .Pointer(pointee) => recur(pointee.*, checked_ids),
+    .Tuple(_, field_types) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < field_types.len()) && !(found), {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(recur(ft, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    },
+    // Struct: skip Fn-typed fields (TS `field.type.tag !== Function`); yo-self
+    // has no `isEffectParam` so that exclusion is a no-op.
+    .Struct({ field_types : field_types }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < field_types.len()) && !(found), {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if((!(is_function_type(ft))) && recur(ft, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    },
+    .EnumT(_, _, _, variant_fields, _, _, _) => {
+      (found : bool) = false;
+      (vi : usize) = usize(0);
+      while((vi < variant_fields.len()) && !(found), {
+        vf := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        (vj : usize) = usize(0);
+        while((vj < vf.len()) && !(found), {
+          ft := match(vf.get(vj),.Some(t) => t,.None => TypeValue.Unit);
+          if(recur(ft, checked_ids), {
+            found = true;
+          });
+          vj = (vj + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    .Union(_, _, field_types) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < field_types.len()) && !(found), {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(recur(ft, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    },
+    .Func({ forall_labels : forall_labels, param_types : param_types, result : result_box }) => {
+      (found : bool) = (forall_labels.len() > usize(0));
+      (i : usize) = usize(0);
+      while((i < param_types.len()) && !(found), {
+        pt := match(param_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        if(recur(pt, checked_ids), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      if(!(found), {
+        found = recur(result_box.*, checked_ids);
+      });
+      found
+    },
+    .TypeAppT(constructor : _) => true,
+    _ => false
+  )
+});
+// ---------------------------------------------------------------------------
 // extract_future_trait_from_type
 // ---------------------------------------------------------------------------
 /// Extract FutureTraitT from a type.
@@ -908,7 +1381,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -931,7 +1404,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while(runtime(i < n), {
+      while(i < n, {
         t := match(
           required_trait_types.get(i),
           .Some(v) => v,
@@ -1039,7 +1512,7 @@ find_some_type_missing_comptime_constraint :: (
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;
-            while(runtime(i < n), {
+            while(i < n, {
               req_t := match(
                 required_trait_types.get(i),
                 .Some(t) => t,
@@ -1096,6 +1569,7 @@ unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String
 // This breaks the circular dependency between the two modules.
 _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_fn(type_implements_trait_bool);
+  set_register_trait_value_fn(register_type_trait_value);
   true
 })();
 // ---------------------------------------------------------------------------
@@ -1111,9 +1585,10 @@ export(type_implements_send, type_implements_dispose, type_implements_acyclic);
 export(type_implements_fn);
 export(extract_fn_trait_from_type);
 export(type_implements_future);
+export(type_contains_some_type_for_codegen_param);
 export(extract_future_trait_from_type);
 export(type_is_comptime_only_full, type_is_runtime_only);
 export(validate_type_availability);
 export(find_some_type_missing_comptime_constraint);
 export(mark_concrete_impl_being_registered, unmark_concrete_impl_being_registered);
-export(register_type_trait, is_type_registered_as_trait);
+export(register_type_trait, register_type_trait_value, is_type_registered_as_trait);

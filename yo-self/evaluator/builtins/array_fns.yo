@@ -118,7 +118,7 @@ evaluate_yo_array_fill :: (
   // Destructure Array(element_box, length).
   (element_box, length) := match(
     array_type_tv,
-    .Array(eb, l) => (eb, l),
+    .Array(eb, l, _) => (eb, l),
     _ => {
       return(expr);
     }
@@ -188,7 +188,7 @@ evaluate_yo_array_fill :: (
     // Build the array by repeating fill_value `length` times.
     elements := ArrayList(EvalValue).new();
     (i : usize) = usize(0);
-    while(runtime(i < length), {
+    while(i < length, {
       elements.push(fill_value);
       i = (i + usize(1));
     });

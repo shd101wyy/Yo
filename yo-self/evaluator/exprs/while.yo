@@ -31,7 +31,7 @@ open(import("std/string"));
 { Environment } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_bool_type, is_unit_type } :: import("../../types/guards.yo");
@@ -39,7 +39,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Constants
@@ -181,7 +181,8 @@ evaluate_while :: (
     env,
     ctx,
     ArrayList(Variable).new(),
-    false
+    false,
+    exn
   );
   // Require ExprInfo for the condition.
   cond_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_cond_expr));
@@ -219,6 +220,13 @@ evaluate_while :: (
   });
   // Snapshot the condition value before any potential mutation below.
   condition_value := cond_info.value;
+  // A condition is comptime-KNOWN only if it has a value that is NOT an
+  // `UnknownVal`. yo-self represents "type known, value unknown" as
+  // `Some(UnknownVal)` (where TS uses `$.value === undefined`); a bare
+  // `condition_value.is_some()` would wrongly treat such a runtime-unknown
+  // condition (e.g. `i < lhs.len()` on an unknown param, evaluated at
+  // definition time) as comptime-known and mis-fire the modifier gate below.
+  cond_is_comptime_known := match(condition_value,.Some(cv) => !(is_unknown_val(cv)),.None => false);
   // Enforce comptime() modifier semantics:
   // With comptime(): condition MUST be compile-time known; error if runtime.
   if(is_comptime_modifier && condition_value.is_none(), {
@@ -236,7 +244,7 @@ evaluate_while :: (
   // Without comptime(): if condition happens to be compile-time known, it must
   // be a literal `true`/`false` atom (not a comptime-only variable that can
   // never change inside a runtime loop).
-  if(!(is_comptime_modifier) && condition_value.is_some(), {
+  if(!(is_comptime_modifier) && cond_is_comptime_known, {
     (is_literal_bool : bool) = false;
     if(ast_expr_is_atom_of(inner_cond_expr, "true") || ast_expr_is_atom_of(inner_cond_expr, "false"), {
       is_literal_bool = true;
@@ -299,7 +307,7 @@ evaluate_while :: (
   // inside the body know they are inside a while loop.
   old_loop_body := ctx.is_evaluating_loop_body;
   ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : env));
-  evaluated_body := evaluate_begin_expression(body_expr, env, ctx, ArrayList(Variable).new(), false);
+  evaluated_body := evaluate_begin_expression(body_expr, env, ctx, ArrayList(Variable).new(), false, exn);
   ctx.is_evaluating_loop_body = old_loop_body;
   // Require ExprInfo for the body.
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
@@ -371,7 +379,7 @@ evaluate_while :: (
         step_expr_opt,
         .None => (),
         .Some(step_expr_cont) => {
-          eval_step_cont := evaluate_expression(step_expr_cont, updated_env_cont, ctx);
+          eval_step_cont := evaluate_expression_raw(step_expr_cont, updated_env_cont, ctx, exn);
           step_info_cont_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_cont));
           if(step_info_cont_opt.is_none(), {
             exn.throw(
@@ -395,7 +403,7 @@ evaluate_while :: (
         .Some(v) => match(v,.BoolVal(_) => true, _ => false)
       );
       if(eff_is_bool_cont, {
-        return(recur(expr, updated_env_cont, ctx, comptime_iteration_count + usize(1)));
+        return(recur(expr, updated_env_cont, ctx, comptime_iteration_count + usize(1), exn));
       }, {
         // Runtime condition: treat continue as returning unit for this evaluation.
         out_info := new_expr_info(updated_env_cont, t_unit());
@@ -455,7 +463,7 @@ evaluate_while :: (
     possible := _body_has_any_terminator_possible(body_expr, body_info.control_flow);
     if(!(guaranteed) && !(possible), {
       // No terminator anywhere — this loop can never end.
-      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow);
+      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
     if(!(guaranteed) && possible, {
       // Conditional terminator exists — emit as a runtime loop.
@@ -471,7 +479,7 @@ evaluate_while :: (
       dyn(
         format_error_message(
           ast_expr_token(body_expr),
-          `Expected the while(loop body to return(unit, but got: ${type_to_string(body_info.ty)}))`,
+          `Expected the while loop body to return unit, but got: ${type_to_string(body_info.ty)}`,
           false,
           .None
         )
@@ -479,13 +487,16 @@ evaluate_while :: (
     );
   });
   // Update the environment with the body's post-evaluation state.
-  env = body_info.env;
+  env.frames = body_info.env.frames;
+  env.module_path = body_info.env.module_path;
+  env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
+  env.input_string = body_info.env.input_string;
   // Execute the step expression if provided (3-argument form).
   match(
     step_expr_opt,
     .None => (),
     .Some(step_expr_s) => {
-      eval_step_s := evaluate_expression(step_expr_s, env, ctx);
+      eval_step_s := evaluate_expression_raw(step_expr_s, env, ctx, exn);
       step_info_s_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_s));
       if(step_info_s_opt.is_none(), {
         exn.throw(
@@ -515,9 +526,9 @@ evaluate_while :: (
   if(eff_cond_is_true_main, {
     next_count := (comptime_iteration_count + usize(1));
     if(next_count >= MAX_COMPTIME_LOOP_ITERATIONS, {
-      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow);
+      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
-    return(recur(expr, env, ctx, next_count));
+    return(recur(expr, env, ctx, next_count, exn));
   }, {
     // Runtime loop condition or compile-time done — result is unit.
     out_info := new_expr_info(env, t_unit());

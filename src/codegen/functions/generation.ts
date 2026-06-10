@@ -38,7 +38,7 @@ import {
   typeContainsSomeTypeForCodegenParam,
   typeToString,
 } from "../../types/utils";
-import { isTargetWindows } from "../../target";
+import { isTargetWindows, isTargetPosix } from "../../target";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -211,6 +211,140 @@ function bodyHasExplicitReturn(expr: Expr): boolean {
 }
 
 /**
+ * True if the expression tree contains an `unwind(...)` call anywhere.
+ * Used by the `isEffectRecordMember` stub generator to distinguish
+ * unwind-only handlers (set the escape flag, return zero) from resume
+ * handlers (no escape flag, just return the resume value).
+ */
+function bodyHasUnwind(expr: Expr): boolean {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) {
+    return true;
+  }
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of (expr as FnCallExpr).args) {
+      if (bodyHasUnwind(arg)) return true;
+    }
+    if (bodyHasUnwind((expr as FnCallExpr).func)) return true;
+  }
+  return false;
+}
+
+/**
+ * Walk an expression tree and collect the C type string of every non-unit
+ * `unwind(value)` argument into `into`. The unwind value is memcpy'd into the
+ * thread-local `__yo_unwind_value` buffer at the unwind site and read back at
+ * the handler-installation site; the buffer must therefore be large enough for
+ * the biggest such value. This pre-pass feeds `emitUnwindValueBuffer`.
+ */
+function collectUnwindValueCTypesFromExpr(
+  expr: Expr,
+  context: FunctionGenerationContext,
+  into: Set<string>
+): void {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) {
+    const args = (expr as FnCallExpr).args;
+    if (args.length > 0) {
+      const argType = args[0]!.$?.type;
+      if (argType && !isUnitType(argType)) {
+        into.add(getTypeString(argType, context));
+      }
+    }
+  }
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of (expr as FnCallExpr).args) {
+      collectUnwindValueCTypesFromExpr(arg, context, into);
+    }
+    collectUnwindValueCTypesFromExpr((expr as FnCallExpr).func, context, into);
+  }
+}
+
+/**
+ * Populate `context.unwindValueCTypes` from every function body in the program.
+ * MUST run before the unwind-value buffer is declared (i.e. before
+ * `generateAtomicGCRuntimeFunctions`), because the buffer declaration string is
+ * fixed at emit time and is assembled into the declarations section ahead of all
+ * function bodies.
+ */
+function collectUnwindValueCTypes(context: FunctionGenerationContext): void {
+  const into = new Set<string>();
+  for (const funcId in context.functions) {
+    const body = context.functions[funcId]!.value.body;
+    if (body) {
+      collectUnwindValueCTypesFromExpr(body, context, into);
+    }
+  }
+  context.unwindValueCTypes = into;
+}
+
+/**
+ * Emit the thread-local `__yo_unwind_value` buffer declaration. When the program
+ * unwinds one or more non-unit values, the buffer is a `union` sized to fit the
+ * largest of them (plus a 64-byte floor for parity with the historical default);
+ * `__yo_unwind_value` is then a `#define` yielding the union's address as a
+ * `char*`, which the existing `memcpy(__yo_unwind_value, ...)` sites use
+ * unchanged. With no unwound values, falls back to the plain 64-byte buffer.
+ *
+ * Fixes the latent overflow where `unwind(value)` with `sizeof(value) > 64`
+ * overflowed the fixed `char[64]` buffer (FORTIFY `__memcpy_chk` → SIGTRAP).
+ */
+function emitUnwindValueBuffer(context: FunctionGenerationContext): void {
+  const types = context.unwindValueCTypes;
+  if (!types || types.size === 0) {
+    context.emitter.emitDeclarationLine(
+      `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
+    );
+    return;
+  }
+  const members = [...types].map((t, i) => `    ${t} __m${i};`).join("\n");
+  context.emitter.emitDeclarationLine(
+    `// Thread-local buffer for unwind value storage, sized (via a union) to the\n` +
+      `// largest unwound value in the program so 'unwind(v)' never overflows it.\n` +
+      `static _Thread_local _Alignas(16) union {\n` +
+      `    char __pad[64];\n` +
+      `${members}\n` +
+      `} __yo_unwind_value_storage;\n` +
+      `#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)`
+  );
+}
+
+/**
+ * If the body returns a single parameter via `return(<atom>)`, return
+ * that parameter name. Otherwise return undefined. Used by the
+ * `isEffectRecordMember` stub generator to emit `return <param>;` for
+ * trivial resume handlers like `(val, resume_val) -> return(resume_val)`.
+ *
+ * Begin-block bodies are unwrapped — the parser appends a unit `()`
+ * terminator, so we scan all begin args (not just the last) for the
+ * actual `return(...)`. Bodies that aren't begin are checked directly.
+ *
+ * Returns undefined for any shape that isn't a single direct return of
+ * a parameter atom — callers fall back to the unwind stub in that case.
+ */
+function getResumeReturnParam(
+  expr: Expr,
+  paramLabels: Set<string>
+): string | undefined {
+  // Collect candidate return calls: scan begin args (terminator `()`
+  // ends up as the last arg), otherwise just the expression itself.
+  const candidates: Expr[] = exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
+    ? (expr as FnCallExpr).args.slice()
+    : [expr];
+  let found: string | undefined;
+  for (const candidate of candidates) {
+    if (!exprIsFunctionCallOf(candidate, BuiltinKeywords.return)) continue;
+    const returnArgs = (candidate as FnCallExpr).args;
+    if (returnArgs.length !== 1) return undefined;
+    const returnArg = returnArgs[0]!;
+    if (!exprIsAtom(returnArg)) return undefined;
+    const atomName = returnArg.token.value;
+    if (!paramLabels.has(atomName)) return undefined;
+    if (found && found !== atomName) return undefined; // multiple distinct returns
+    found = atomName;
+  }
+  return found;
+}
+
+/**
  * Generate all collected functions
  */
 export function generateAllFunctions(context: FunctionGenerationContext): void {
@@ -257,6 +391,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       context.usesAsync ?? false
     );
   }
+
+  // Pre-pass: collect the C types of all non-unit `unwind(value)` arguments so
+  // the `__yo_unwind_value` buffer (declared inside the GC runtime emit below)
+  // can be sized to the largest of them. Must run before that emit.
+  collectUnwindValueCTypes(context);
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
@@ -356,14 +495,44 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       if (hasRegisteredSpecs || isUnspecializedForallWithReturn) {
         const proto = generateFunctionPrototype(value.type, cName, context);
         const returnTypeStr = getTypeString(value.type.return.type, context);
-        const returnStmt = isUnitType(value.type.return.type)
-          ? `return;`
-          : returnTypeStr === "void"
-            ? `return;`
-            : `return (${returnTypeStr}){0};`;
+        // Distinguish unwind from resume:
+        //   - body contains `unwind(...)` → unwind handler. Set the
+        //     escape flag so the install site can read __yo_unwind_value.
+        //   - body is just `return(<param>)` → resume handler. Return
+        //     the named parameter, no flag — the caller of exn.throw
+        //     resumes normally with the value.
+        //   - anything else → conservative fallback to the unwind stub.
+        // See issues/codegen-forall-resume-handler-stub.md.
+        const body = value.body;
+        const isUnwindBody = !!body && bodyHasUnwind(body);
+        const paramLabels = new Set(
+          value.type.parameters
+            .map((p) => p.label)
+            .filter((l): l is string => !!l)
+        );
+        const resumeParam =
+          !isUnwindBody && !!body
+            ? getResumeReturnParam(body, paramLabels)
+            : undefined;
         context.emitter.emitLine(`static inline ${proto} {`);
-        context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
-        context.emitter.emitLine(`  ${returnStmt}`);
+        if (resumeParam !== undefined) {
+          const cParam = sanitizeForCIdentifier(resumeParam);
+          if (isUnitType(value.type.return.type) || returnTypeStr === "void") {
+            // Resume on a unit-returning ctl: just fall through.
+            context.emitter.emitLine(`  (void)${cParam};`);
+            context.emitter.emitLine(`  return;`);
+          } else {
+            context.emitter.emitLine(`  return ${cParam};`);
+          }
+        } else {
+          const returnStmt = isUnitType(value.type.return.type)
+            ? `return;`
+            : returnTypeStr === "void"
+              ? `return;`
+              : `return (${returnTypeStr}){0};`;
+          context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
+          context.emitter.emitLine(`  ${returnStmt}`);
+        }
         context.emitter.emitLine(`}`);
         continue;
       }
@@ -717,8 +886,83 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
       }
     }
 
-    // Emit main() header
-    emitter.emitLine(`
+    // On POSIX native targets, run the whole program body on a dedicated
+    // pthread with a large (1 GiB) stack instead of the OS main thread.
+    // The macOS main-thread stack is hard-capped at ~64 MiB, which the
+    // deeply-recursive comptime evaluator (notably yo-self checking heavy
+    // std files) overruns. A pthread stack is not bound by that cap, and
+    // the 1 GiB reservation is virtual-only (pages commit on touch), so it
+    // is cheap for ordinary programs.
+    //
+    // The async runtime's scheduler-init flag and task queue are
+    // thread-local, so the scheduler init, `__yo_user_main`, and
+    // `__yo_async_wait_all` must all run on this same worker thread. Plain
+    // globals (`__yo_argc`/`argv`/`args`) are shared and set on the OS main
+    // thread before the worker starts.
+    //
+    // Windows / WASM keep the direct main-thread call (no pthread there;
+    // those targets are not used for the bootstrap workload).
+    const useWorkerStack = isTargetPosix(context.targetInfo);
+    if (useWorkerStack) {
+      // Worker-thread entry: runs scheduler init + module init + user main.
+      emitter.emitLine(`
+// Program body runs on a large-stack worker thread (see generateMainWrapper).
+static void* __yo_main_thread_entry(void* __yo_unused_arg) {
+  (void)__yo_unused_arg;${asyncInit}`);
+      if (moduleLevelVars.length > 0) {
+        emitter.emitLine(`  // Initialize module-level mutable variables`);
+        for (const { cVarName, rhs } of moduleLevelVars) {
+          const rhsCode = generateExpr(rhs, "  ", context);
+          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+        }
+      }
+      emitter.emitLine(`  // Call sync main
+  __yo_user_main${mainCallArgs};
+  ${asyncWait}
+  return NULL;
+}
+
+// Main wrapper - runs program body on a worker thread (default 1 GiB stack,
+// overridable via the YO_MAIN_STACK_MB env var)
+int main(int argc, char** argv) {
+  // Store command-line arguments (plain globals, shared with the worker)
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+
+  pthread_attr_t __yo_main_attr;
+  pthread_t __yo_main_tid;
+  // Default 1 GiB worker-thread stack (reserved lazily). Optimized builds
+  // (-O1+, e.g. --release) shrink frames ~100x via stack coloring, so 1 GiB is
+  // far more than enough there. UNOPTIMIZED (-O0) builds of deeply-recursive
+  // programs (notably the self-hosted compiler checking itself: a derive over a
+  // ~46-variant enum unrolls a compile-time fold ~46 levels deep, each with a
+  // multi-MB evaluator frame) can exceed it; raise it with YO_MAIN_STACK_MB
+  // (e.g. YO_MAIN_STACK_MB=4096) without recompiling. Kept modest by default so
+  // CI runners are not asked to reserve gigabytes.
+  size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
+  {
+    const char* __yo_stack_mb = getenv("YO_MAIN_STACK_MB");
+    if (__yo_stack_mb != NULL) {
+      long __yo_mb = atol(__yo_stack_mb);
+      if (__yo_mb > 0) __yo_main_stack = (size_t)__yo_mb * 1024 * 1024;
+    }
+  }
+  if (pthread_attr_init(&__yo_main_attr) == 0
+      && pthread_attr_setstacksize(&__yo_main_attr, __yo_main_stack) == 0
+      && pthread_create(&__yo_main_tid, &__yo_main_attr, __yo_main_thread_entry, NULL) == 0) {
+    pthread_attr_destroy(&__yo_main_attr);
+    pthread_join(__yo_main_tid, NULL);
+  } else {
+    // Fallback: run directly on the main thread if thread creation fails.
+    __yo_main_thread_entry(NULL);
+  }
+  return 0;
+}
+`);
+    } else {
+      // Windows / WASM: run directly on the main thread.
+      emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
   // Store command-line arguments
@@ -727,22 +971,23 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
   ${asyncInit}`);
 
-    // Generate module-level init code INSIDE main() so temp vars and function calls
-    // are valid C (not file-scope initializers).
-    if (moduleLevelVars.length > 0) {
-      emitter.emitLine(`  // Initialize module-level mutable variables`);
-      for (const { cVarName, rhs } of moduleLevelVars) {
-        const rhsCode = generateExpr(rhs, "  ", context);
-        emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+      // Generate module-level init code INSIDE main() so temp vars and function calls
+      // are valid C (not file-scope initializers).
+      if (moduleLevelVars.length > 0) {
+        emitter.emitLine(`  // Initialize module-level mutable variables`);
+        for (const { cVarName, rhs } of moduleLevelVars) {
+          const rhsCode = generateExpr(rhs, "  ", context);
+          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+        }
       }
-    }
 
-    emitter.emitLine(`  // Call sync main
+      emitter.emitLine(`  // Call sync main
   __yo_user_main${mainCallArgs};
   ${asyncWait}
   return 0;
 }
 `);
+    }
   }
 }
 
@@ -1643,9 +1888,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
   emitter.emitDeclarationLine(
     `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection`
   );
-  emitter.emitDeclarationLine(
-    `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
-  );
+  emitUnwindValueBuffer(context);
 
   // No-op GC functions so references elsewhere compile
   emitter.emitLine(`// No-op GC stubs — no types form reference cycles
@@ -1752,9 +1995,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
   emitter.emitDeclarationLine(
     `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection`
   );
-  emitter.emitDeclarationLine(
-    `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
-  );
+  emitUnwindValueBuffer(context);
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
 static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
 static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)

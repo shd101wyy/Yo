@@ -70,7 +70,7 @@ evaluate_comptime_list_value :: (
   (elements : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
   (env_loop : Environment) = env;
   (j : usize) = usize(0);
-  while(runtime(j < n_args), {
+  while(j < n_args, {
     arg := match(args.get(j),.Some(a) => a,.None => make_err_expr());
     evaluated_arg := evaluate_expression(arg, env_loop, ctx);
     arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
