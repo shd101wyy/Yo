@@ -290,3 +290,14 @@ plans/BOOTSTRAPPING_CODEGEN.md; `check` untouched. This removes the
 566-site as_str conflict — `as_str`/`as_slice` are HARD-DELETED in step 4
 (no pragma-gating); only eval.yo (~25 sites, kept for evaluator/index.yo)
 and eval-tests need sweeping first.
+
+**Part C finding (2026-06-11):** `Index.index` returns `*(Self.Output)` by
+trait contract — a copying impl can't return an owned ArrayList through it
+(`Expected *(ArrayList(i32)), Given ArrayList(i32)`). Copying range sugar
+needs either (a) evaluator support in calls/index-trait.ts: on Range args
+over Array/ArrayList/String receivers, dispatch to an ordinary owned-return
+method (e.g. `slice_copy(range) -> Output`) instead of the ptr-protocol
+Index trait, or (b) a new `IndexCopy(Idx)` trait with
+`index_copy : fn(ref(self), idx) -> Self.Output` tried by the index-call
+machinery before/instead of Index for range types. (a) is recommended —
+zero new trait surface; the evaluator already special-cases ranges.

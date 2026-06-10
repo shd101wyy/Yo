@@ -5653,6 +5653,15 @@ impl(
     )
   )
 );
+/// RawSlice — a plain ptr+len pair for PRIVILEGED (pragma'd) code: C
+/// interop and std internals. Carries a raw pointer, so the existing
+/// raw-pointer gates apply: safe code cannot name or construct it.
+/// Replaces the builtin Slice(T) for internal plumbing
+/// (plans/SLICE_REWORK.md step 4).
+RawSlice :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(ptr : *(T), len : usize)
+);
+export(RawSlice);
 /// Slice
 // SAFETY: Slice(T) is a value-typed view (pointer + length) over a backing
 // array. Sending a slice across threads copies the header; both threads
