@@ -1,6 +1,10 @@
 # Design: closing the slice-invalidation hole — what should `Slice(T)` be?
 
-**Status: OPEN design decision.** The flowability audit
+**Status: DECIDED — see `plans/SLICE_REWORK.md` (branch `feat/slice-rework`).** Decision: NOT snapshot slices (Rc/CoW overhead rejected); instead `str` becomes a static-only immutable view (immortal backing ⇒ trivially safe), `Slice(T)` is demoted to pragma-gated unsafe vocabulary (the `*(T)` rule), `as_str`/`as_slice` leave the safe surface, and safe windowing uses library view structs over the Rc'd owning handle (alias semantics, no CoW). The hole becomes unconstructible rather than gated.
+
+Original analysis follows.
+
+**Status when written: OPEN design decision.** The flowability audit
 (`docs/en-US/FLOWABILITY.md` §Limitations, commit 53d01632 + follow-up) proved
 that scope-nesting flowability cannot see *in-scope invalidation of a slice's
 backing*. This issue records the empirical findings and the options analysis
