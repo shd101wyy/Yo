@@ -264,6 +264,18 @@ _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
     .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _) => id,
     .Union(name, _, _) => name,
+    // SomeT: must mirror `type_id_or_empty` (the REGISTRATION key in
+    // impl.yo) — a manual `impl(X, Send())` on an extern opaque type
+    // declaration (`extern("Yo", X : Type)` binds X to a SomeT placeholder,
+    // e.g. std/sync/mutex.yo's `impl(__YO_THREAD_SYNC_TYPE, Send())`)
+    // registers under the SomeT's id; returning `""` here skipped the
+    // registry lookup entirely, so `Type.impls(X, Send)` was always false
+    // and Mutex(i32)'s Send field-derivation failed on `_handle`. TS can't
+    // diverge this way: both sides use the same type OBJECT's
+    // `.trait.fields`. A never-impl'd SomeT (ordinary generic param) has a
+    // fresh `sometype_<random>` id that simply misses the registry and
+    // falls through to the where-clause/resolution steps as before.
+    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     _ => String.from("")
   )
 );
