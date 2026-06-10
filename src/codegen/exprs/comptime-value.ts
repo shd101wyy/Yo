@@ -1,3 +1,4 @@
+import type { Type } from "../../types/definitions";
 import type { Expr } from "../../expr";
 import type { FunctionType } from "../../types/definitions";
 import {
@@ -42,7 +43,8 @@ import {
 export function generateComptimeValue(
   value: Value,
   context: CodeGenContext,
-  _sourceExpr?: Expr
+  _sourceExpr?: Expr,
+  expectedType?: Type
 ): string {
   if (isNumberValue(value)) {
     const str =
@@ -74,7 +76,7 @@ export function generateComptimeValue(
   } else if (isComptimeStringValue(value)) {
     // Check if there's a converted runtime type (e.g., comptime_string -> str or [u8])
     const targetType =
-      _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
+      _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type || expectedType;
 
     // Builtin str target: emit the fat pointer over the static literal.
     if (targetType && isStrType(targetType)) {
@@ -253,7 +255,12 @@ export function generateComptimeValue(
             const fieldName = isTupleType(type)
               ? `_${index}`
               : sanitizeForCIdentifier(field.label);
-            const fieldCode = generateComptimeValue(fieldValue!, context);
+            const fieldCode = generateComptimeValue(
+              fieldValue!,
+              context,
+              undefined,
+              field.type
+            );
             return `.${fieldName} = ${fieldCode}`;
           });
 

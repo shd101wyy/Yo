@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { rune } :: import("./rune.yo");
 { memcpy, memcmp, strlen } :: import("../libc/string.yo");
+{ write } :: import("../libc/unistd.yo");
 /// String operation error variants.
 StringError :: enum(
   /// The input bytes are not valid UTF-8.
@@ -162,14 +163,23 @@ impl(
   * Get a str view into the string's UTF-8 bytes
   * Returns a fat pointer (pointer + length) without copying
   */
-  as_str : (fn(self : Self) -> str)(
+  /**
+  * PRIVILEGED raw view of the heap buffer (ptr + byte length) for C
+  * interop and pragma'd std internals. Naming RawSlice requires
+  * pragma(Pragma.AllowUnsafe); the view dangles if the String mutates
+  * or dies — callers must not let it escape the borrow site.
+  * (This replaces the deleted `as_str()`: heap bytes can no longer be
+  * viewed as `str`, which is the STATIC string view.
+  * See plans/SLICE_REWORK.md.)
+  */
+  raw_bytes : (fn(self : Self) -> RawSlice(u8))(
     match(
       self._bytes,
-      .None => str.from_raw_parts(*(u8)(""), usize(0)),
+      .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0)),
       .Some(al) => match(
         al._ptr,
-        .Some(p) => str.from_raw_parts(p, al._length),
-        .None => str.from_raw_parts(*(u8)(""), usize(0))
+        .Some(p) => RawSlice(u8)(ptr : p, len : al._length),
+        .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0))
       )
     )
   ),
@@ -2356,23 +2366,32 @@ impl(
     )
   )
 );
-/// Like `assert`, but accepts a runtime `String` message (e.g. a template
-/// string with interpolation: `` `error: ${value}` ``).
-///
-/// Example:
-///   name := String.from("rule1");
-///   assert_dyn(name.len() > usize(0), `Invalid rule name: ${name}`);
-assert_dyn :: (fn(flag : bool, msg : String) -> unit)({
-  assert(flag, msg.as_str());
-});
 /// Like `panic`, but accepts a runtime `String` message (e.g. a template
 /// string with interpolation: `` `error: ${value}` ``).
 ///
 /// Example:
 ///   panic_dyn(`Something went wrong: ${details}`);
 panic_dyn :: (fn(msg : String) -> unit)({
-  panic(msg.as_str());
+  // Write the heap message bytes to stderr, then abort via panic.
+  // (str is the STATIC string view now — a heap String can't be passed
+  // to panic(str); see plans/SLICE_REWORK.md.)
+  rb := msg.raw_bytes();
+  // SAFETY: rb points into msg's live buffer for the duration of the call.
+  ___ := unsafe(write(int(2), *(void)(rb.ptr), rb.len));
+  panic("");
+}); /// Like `assert`, but accepts a runtime `String` message (e.g. a template
+/// string with interpolation: `` `error: ${value}` ``).
+///
+/// Example:
+///   name := String.from("rule1");
+///   assert_dyn(name.len() > usize(0), `Invalid rule name: ${name}`);
+assert_dyn :: (fn(flag : bool, msg : String) -> unit)({
+  cond(
+    flag => (),
+    true => panic_dyn(msg)
+  );
 });
+
 export(
   String,
   StringError,

@@ -28,11 +28,11 @@ _make_str_4 :: (fn(b0 : u8, b1 : u8, b2 : u8, b3 : u8) -> String)({
 });
 // ===== UTF-8 to UTF-16 =====
 test("utf8_to_utf16 empty string", {
-  result := utf8_to_utf16("");
+  result := utf8_to_utf16(String.from(""));
   assert(result.len() == usize(0), "empty string should produce 0 code units");
 });
 test("utf8_to_utf16 ASCII", {
-  result := utf8_to_utf16("Hello");
+  result := utf8_to_utf16(String.from("Hello"));
   assert(result.len() == usize(5), "Hello should produce 5 code units");
   assert(result(usize(0)) == u16(72), "H = 72");
   assert(result(usize(1)) == u16(101), "e = 101");
@@ -43,21 +43,21 @@ test("utf8_to_utf16 ASCII", {
 test("utf8_to_utf16 two-byte UTF-8", {
   // "é" is U+00E9, encoded as 2 bytes in UTF-8 (0xC3 0xA9), 1 code unit in UTF-16
   s := _make_str_2(u8(0xC3), u8(0xA9));
-  result := utf8_to_utf16(s.as_str());
+  result := utf8_to_utf16(s);
   assert(result.len() == usize(1), "e-acute should produce 1 code unit");
   assert(result(usize(0)) == u16(0xE9), "should be U+00E9");
 });
 test("utf8_to_utf16 three-byte UTF-8", {
   // "€" is U+20AC, encoded as 3 bytes in UTF-8 (0xE2 0x82 0xAC), 1 code unit in UTF-16
   s := _make_str_3(u8(0xE2), u8(0x82), u8(0xAC));
-  result := utf8_to_utf16(s.as_str());
+  result := utf8_to_utf16(s);
   assert(result.len() == usize(1), "euro sign should produce 1 code unit");
   assert(result(usize(0)) == u16(0x20AC), "should be U+20AC");
 });
 test("utf8_to_utf16 four-byte UTF-8 surrogate pair", {
   // U+1F600 (grinning face) — 4 bytes in UTF-8, surrogate pair in UTF-16
   s := _make_str_4(u8(0xF0), u8(0x9F), u8(0x98), u8(0x80));
-  result := utf8_to_utf16(s.as_str());
+  result := utf8_to_utf16(s);
   assert(result.len() == usize(2), "emoji should produce 2 code units (surrogate pair)");
   assert(result(usize(0)) == u16(0xD83D), "high surrogate");
   assert(result(usize(1)) == u16(0xDE00), "low surrogate");
@@ -144,7 +144,7 @@ test("utf16 roundtrip ASCII", {
       }
     )
   );
-  input := "Hello, World!";
+  input := String.from("Hello, World!");
   utf16 := utf8_to_utf16(input);
   result := utf16_to_utf8(utf16, exn);
   assert(result == input, "ASCII roundtrip should preserve string");
@@ -160,7 +160,7 @@ test("utf16 roundtrip two-byte", {
   );
   // é = U+00E9 as UTF-8 bytes
   input := _make_str_2(u8(0xC3), u8(0xA9));
-  utf16 := utf8_to_utf16(input.as_str());
+  utf16 := utf8_to_utf16(input);
   result := utf16_to_utf8(utf16, exn);
   assert(result == input, "two-byte roundtrip should preserve string");
 });
@@ -175,7 +175,7 @@ test("utf16 roundtrip surrogate pair", {
   );
   // U+1F600 as UTF-8 bytes
   input := _make_str_4(u8(0xF0), u8(0x9F), u8(0x98), u8(0x80));
-  utf16 := utf8_to_utf16(input.as_str());
+  utf16 := utf8_to_utf16(input);
   result := utf16_to_utf8(utf16, exn);
   bytes := result.as_bytes();
   assert(bytes.len() == usize(4), "roundtrip should preserve length");

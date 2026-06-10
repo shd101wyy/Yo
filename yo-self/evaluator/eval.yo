@@ -50,9 +50,9 @@
 //!   - Method dispatch `struct_val.method(args…)` via `TypeName.method` lookup
 //!   - `impl(TypeName, method: fn_def, …)` — registers methods in the environment
 //!   - Phase 3ai: primitive `.to_string()` and StrLit `.(+)(rhs)` string concat
-//!   - Phase 3aj: `String` identifier → TypeVal; `String.from(s)`, `String.new()` static shims;
+//!   - Phase 3aj: `String` identifier → TypeVal; `s`, `String.new()` static shims;
 //!                StrLit `+` StrLit infix concatenation; higher-order functions; closures
-//!   - Phase 3ak: `StrLit.as_str()` passthrough; `StrLit.len()` → IntLit char count
+//!   - Phase 3ak: `StrLit.clone()` passthrough; `StrLit.len()` → IntLit char count
 //!   - Phase 3al: `StrLit.starts_with()`, `StrLit.ends_with()`, `StrLit.contains()` predicates;
 //!                Fixed bug: method dispatch now invoked for all receiver types (not just StructVal)
 //!   - Phase 3aq: struct field mutation `s.field = rhs` — `handle_struct_field_mutation` helper;
@@ -154,7 +154,7 @@ open(import("std/fmt"));
 // ---------------------------------------------------------------------------
 /// Map a known primitive type name (e.g. `"i32"`, `"usize"`) to its TypeValue.
 /// Returns `t_unit()` for unrecognized names.
-type_from_name :: (fn(name : str) -> TypeValue)(
+type_from_name :: (fn(name : String) -> TypeValue)(
   cond(
     (name == "i8") => t_i8(),
     (name == "i16") => t_i16(),
@@ -175,7 +175,7 @@ type_from_name :: (fn(name : str) -> TypeValue)(
 /// Like `type_from_name` but returns `Option(TypeValue)` — used in the
 /// identifier lookup fallback so we can distinguish "unknown type name" from
 /// "known type name" without returning the sentinel `t_unit()`.
-type_from_name_opt :: (fn(name : str) -> Option(TypeValue))(
+type_from_name_opt :: (fn(name : String) -> Option(TypeValue))(
   cond(
     (name == "i8") =>.Some(t_i8()),
     (name == "i16") =>.Some(t_i16()),
@@ -192,7 +192,7 @@ type_from_name_opt :: (fn(name : str) -> Option(TypeValue))(
     (name == "bool") =>.Some(t_bool()),
     (name == "unit") =>.Some(t_unit()),
     (name == "Type") =>.Some(t_type()),
-    // Phase 3aj: String resolves to t_comptime_string() so `String.from(s)`
+    // Phase 3aj: String resolves to t_comptime_string() so `s`
     // and `String.new()` can be dispatched as static method calls on TypeVal.
     (name == "String") =>.Some(t_comptime_string()),
     true => Option(TypeValue).None
@@ -200,7 +200,7 @@ type_from_name_opt :: (fn(name : str) -> Option(TypeValue))(
 );
 /// True when `name` is a recognized primitive type that can be used
 /// as a cast/coercion call: `i32(x)`, `u64(y)`, `usize(n)`, etc.
-is_primitive_type_cast :: (fn(name : str) -> bool)(
+is_primitive_type_cast :: (fn(name : String) -> bool)(
   cond(
     (name == "i8") => true,
     (name == "i16") => true,
@@ -275,7 +275,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
 eval_type_annotation_expr :: (fn(type_expr : AstExpr) -> TypeValue)(
   match(
     type_expr,
-    .Atom(_, tok) => type_from_name(tok.value.as_str()),
+    .Atom(_, tok) => type_from_name(tok.value.clone()),
     .FnCall(_, _, _, _, _) => t_unit()
   )
 );
@@ -307,7 +307,7 @@ is_named_field_arg :: (fn(args : ArrayList(AstExpr)) -> bool)(
 /// value when available; otherwise a `VarRef` carrying the variable's type.
 /// Returns `None` if the name is unbound.
 eval_identifier :: (fn(tok : Token, env : Environment) -> Option(EvalResult))({
-  name := tok.value.as_str();
+  name := tok.value.clone();
   // Special keywords that can appear as bare identifiers
   cond(
     (name == "break") =>.Some(eval_result(.BreakVal, t_unit())),
@@ -446,12 +446,12 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                     .FnCall(_, sh_vfunc, sh_vargs, _, _) => {
                       sh_vname := match(
                         sh_vfunc.*,
-                        .Atom(_, sh_vntok) => sh_vntok.value.as_str(),
+                        .Atom(_, sh_vntok) => sh_vntok.value.clone(),
                         .FnCall(_, _, _, _, _) => {
                           return(false);
                         }
                       );
-                      sh_full_v := `.${ String.from(sh_vname) }`;
+                      sh_full_v := `.${ sh_vname }`;
                       match(
                         scrutinee_val,
                         .EnumVal(sh_svar, sh_sfields) =>
@@ -518,7 +518,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                 inner_dot_args.get(usize(0)),
                 .Some(vne) => match(
                   vne,
-                  .Atom(_, vntok) => vntok.value.as_str(),
+                  .Atom(_, vntok) => vntok.value.clone(),
                   .FnCall(_, _, _, _, _) => {
                     return(false);
                   }
@@ -527,7 +527,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                   return(false);
                 }
               );
-              full_variant := `.${ String.from(vname) }`;
+              full_variant := `.${ vname }`;
               match(
                 scrutinee_val,
                 .EnumVal(svar, sfields) =>
@@ -871,7 +871,7 @@ handle_struct_field_mutation :: (
                                   match(
                                     recv_ev,
                                     .StructVal(stype, sfnames, sfvals) => {
-                                      fname := field_tok.value.as_str();
+                                      fname := field_tok.value.clone();
                                       n_sf := sfnames.len();
                                       (fi : usize) = usize(0);
                                       (fidx : Option(usize)) = Option(usize).None;
@@ -1063,13 +1063,13 @@ handle_method_dispatch :: (
     method_func_box.*,
     .FnCall(_, _, _, _, _) => Option(EvalResult).None,
     .Atom(_, mtok) => {
-      mname := mtok.value.as_str();
+      mname := mtok.value.clone();
       ty_nm := match(
         recv_val,
-        .StructVal(tn, _, _) => tn.as_str(),
-        _ => ""
+        .StructVal(tn, _, _) => tn.clone(),
+        _ => String.new()
       );
-      qn := `${String.from(ty_nm)}.${String.from(mname)}`;
+      qn := `${ty_nm}.${mname}`;
       // -----------------------------------------------------------------
       // Built-in primitive method shims (Phase 3ai)
       // These intercept method calls on primitive EvalValues before any
@@ -1344,10 +1344,10 @@ handle_method_dispatch :: (
           ),
         // ---------------------------------------------------------------
         // Phase 3aj: static type method shims — TypeVal.from(s), .new()
-        // These intercept `String.from(s)` and `String.new()` before env
+        // These intercept `s` and `String.new()` before env
         // lookup, enabling programs that use Yo's String API.
         // ---------------------------------------------------------------
-        // String.from(s) — evaluate arg and return unchanged (passthrough)
+        // s — evaluate arg and return unchanged (passthrough)
         ((mname == "from") && (match(recv_val,.TypeVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
           match(
             method_call_args.get(usize(0)),
@@ -1472,7 +1472,7 @@ handle_method_dispatch :: (
         // These intercept common string operations on StrLit values before
         // falling through to env lookup (which would fail for runtime stubs).
         // ---------------------------------------------------------------
-        // StrLit.as_str() — passthrough (StrLit is already str-like)
+        // StrLit.clone() — passthrough (StrLit is already str-like)
         ((mname == "as_str") && (match(recv_val,.StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           {
             return(Option(EvalResult).Some(eval_result(recv_val, t_comptime_string())));
@@ -3862,7 +3862,7 @@ handle_method_dispatch :: (
         .Some(mv) => mv.value,
         .None =>
           match(
-            env.lookup(String.from(mname)),
+            env.lookup(mname),
             .Some(mv2) => mv2.value,
             .None => Option(EvalValue).None
           )
@@ -3928,7 +3928,7 @@ handle_impl_form :: (
         ty_expr,
         .FnCall(_, _, _, _, _) => Option(EvalResult).None,
         .Atom(_, ty_tok) => {
-          ty_nm := ty_tok.value.as_str();
+          ty_nm := ty_tok.value.clone();
           n_margs := args.len();
           (mi : usize) = usize(1);
           (mok : bool) = true;
@@ -3962,7 +3962,7 @@ handle_impl_form :: (
                                                 .None => Option(EvalResult).None
                                               ),
                                               .Some(mres) => {
-                                                qn := `${String.from(ty_nm)}.${name_tok.value}`;
+                                                qn := `${ty_nm}.${name_tok.value}`;
                                                 _dm := env.define_val(
                                                   qn,
                                                   type_of_eval_value(mres.value),
@@ -4023,7 +4023,7 @@ handle_impl_form :: (
                                                               .None => Option(EvalResult).None
                                                             ),
                                                             .Some(imres) => {
-                                                              iqn := `${String.from(ty_nm)}.${iname_tok.value}`;
+                                                              iqn := `${ty_nm}.${iname_tok.value}`;
                                                               _idm := env.define_val(
                                                                 iqn,
                                                                 type_of_eval_value(imres.value),
@@ -4360,7 +4360,7 @@ handle_if_form :: (
   )
 });
 /// Fold `lv op rv` where both sides are float.  `fval` is "+", "-", "*", "/".
-eval_float_arith :: (fn(fval : str, lv : EvalResult, rv : EvalResult) -> Option(EvalResult))({
+eval_float_arith :: (fn(fval : String, lv : EvalResult, rv : EvalResult) -> Option(EvalResult))({
   lv_ty := lv.ty;
   a_raw := match(
     lv.value,
@@ -4404,7 +4404,7 @@ eval_float_arith :: (fn(fval : str, lv : EvalResult, rv : EvalResult) -> Option(
   )
 });
 /// Compare two float EvalResults with operator `fval` (==, !=, <, >, <=, >=).
-eval_float_cmp :: (fn(fval : str, lv : EvalResult, rv : EvalResult) -> Option(EvalResult))({
+eval_float_cmp :: (fn(fval : String, lv : EvalResult, rv : EvalResult) -> Option(EvalResult))({
   a_raw := match(
     lv.value,
     .FloatLit(raw) => raw,
@@ -4676,13 +4676,13 @@ handle_enum_def :: (
             match(
               vcore_expr,
               .Atom(_, vtok) => {
-                vname_s := vtok.value.as_str();
+                vname_s := vtok.value.clone();
                 cond(
                   (vname_s == "_") => {
                     ok = false;
                   },
                   true => {
-                    v_names.push(String.from(vname_s));
+                    v_names.push(vname_s);
                     v_fields_all.push(ArrayList(TypeValue).new());
                     v_labels_all.push(ArrayList(String).new());
                     v_discs.push(disc);
@@ -4692,10 +4692,10 @@ handle_enum_def :: (
               .FnCall(_, vfunc_box, vfield_args, _, _) => {
                 vname_s := match(
                   vfunc_box.*,
-                  .Atom(_, vftok) => vftok.value.as_str(),
+                  .Atom(_, vftok) => vftok.value.clone(),
                   .FnCall(_, _, _, _, _) => {
                     ok = false;
-                    ""
+                    String.new()
                   }
                 );
                 cond(
@@ -4724,8 +4724,8 @@ handle_enum_def :: (
                                 .FnCall(_, _, fc_args, _, _) => {
                                   flabel := match(
                                     fc_args.get(usize(0)),
-                                    .Some(le) => match(le,.Atom(_, ltok) => ltok.value.as_str(),.FnCall(_, _, _, _, _) => ""),
-                                    .None => ""
+                                    .Some(le) => match(le,.Atom(_, ltok) => ltok.value.clone(),.FnCall(_, _, _, _, _) => String.new()),
+                                    .None => String.new()
                                   );
                                   fty := match(
                                     fc_args.get(usize(1)),
@@ -4737,7 +4737,7 @@ handle_enum_def :: (
                                       ),
                                     .None => t_unit()
                                   );
-                                  field_lbs.push(String.from(flabel));
+                                  field_lbs.push(flabel.clone());
                                   field_tys.push(fty);
                                 },
                                 .Atom(_, _) => ()
@@ -4761,7 +4761,7 @@ handle_enum_def :: (
                       );
                       vfi = (vfi + usize(1));
                     });
-                    v_names.push(String.from(vname_s));
+                    v_names.push(vname_s);
                     v_fields_all.push(field_tys);
                     v_labels_all.push(field_lbs);
                     v_discs.push(disc);
@@ -4845,8 +4845,8 @@ handle_struct_def :: (
                   .FnCall(_, _, fargs, _, _) => {
                     fname := match(
                       fargs.get(usize(0)),
-                      .Some(ne) => match(ne,.Atom(_, tok) => tok.value.as_str(),.FnCall(_, _, _, _, _) => ""),
-                      .None => ""
+                      .Some(ne) => match(ne,.Atom(_, tok) => tok.value.clone(),.FnCall(_, _, _, _, _) => String.new()),
+                      .None => String.new()
                     );
                     match(
                       fargs.get(usize(1)),
@@ -4855,11 +4855,11 @@ handle_struct_def :: (
                           ef(type_expr, env),
                           .Some(fres) => {
                             fty := match(fres.value,.TypeVal(tyb) => tyb.*, _ => t_unit());
-                            f_labels.push(String.from(fname));
+                            f_labels.push(fname);
                             f_types.push(fty);
                           },
                           .None => {
-                            f_labels.push(String.from(fname));
+                            f_labels.push(fname);
                             f_types.push(t_unit());
                           }
                         ),
@@ -4953,8 +4953,8 @@ handle_union_def :: (
                   .FnCall(_, _, fargs, _, _) => {
                     fname := match(
                       fargs.get(usize(0)),
-                      .Some(ne) => match(ne,.Atom(_, tok) => tok.value.as_str(),.FnCall(_, _, _, _, _) => ""),
-                      .None => ""
+                      .Some(ne) => match(ne,.Atom(_, tok) => tok.value.clone(),.FnCall(_, _, _, _, _) => String.new()),
+                      .None => String.new()
                     );
                     match(
                       fargs.get(usize(1)),
@@ -4963,11 +4963,11 @@ handle_union_def :: (
                           ef(type_expr, env),
                           .Some(fres) => {
                             fty := match(fres.value,.TypeVal(tyb) => tyb.*, _ => t_unit());
-                            f_labels.push(String.from(fname));
+                            f_labels.push(fname);
                             f_types.push(fty);
                           },
                           .None => {
-                            f_labels.push(String.from(fname));
+                            f_labels.push(fname);
                             f_types.push(t_unit());
                           }
                         ),
@@ -5238,9 +5238,9 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       // Other TypeVals (StructT, etc.) fall through to method dispatch.
                       sh_is_enum_tv := match(recv_res.value,.TypeVal(tv_box) => match(tv_box.*,.EnumT(_, _, _, _, _, _, _) => true, _ => false), _ => false);
                       if(sh_is_enum_tv, {
-                        sh_vn_name_sr := match((&(method_expr)).*,.Atom(_, sh_vtk) => sh_vtk.value.as_str(),.FnCall(_, _, _, _, _) => "");
+                        sh_vn_name_sr := match((&(method_expr)).*,.Atom(_, sh_vtk) => sh_vtk.value.clone(),.FnCall(_, _, _, _, _) => String.new());
                         if(sh_vn_name_sr != "", {
-                          sh_vn_str_sr := `.${String.from(sh_vn_name_sr)}`;
+                          sh_vn_str_sr := `.${sh_vn_name_sr}`;
                           sh_vn_fields_sr := ArrayList(EvalValue).new();
                           n_sh_vn_sr := args.len();
                           (sh_vi_sr : usize) = usize(0);
@@ -5282,7 +5282,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         inner_args.get(usize(0)),
                         .Some(vne) => match(
                           vne,
-                          .Atom(_, vntok) => vntok.value.as_str(),
+                          .Atom(_, vntok) => vntok.value.clone(),
                           .FnCall(_, _, _, _, _) => {
                             return(Option(EvalResult).None);
                           }
@@ -5291,7 +5291,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           return(Option(EvalResult).None);
                         }
                       );
-                      variant_str := `.${ String.from(vname) }`;
+                      variant_str := `.${ vname }`;
                       n_args := args.len();
                       fields := ArrayList(EvalValue).new();
                       (i : usize) = usize(0);
@@ -5387,12 +5387,12 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                                           .Some(te) =>
                                                             match(
                                                               te,
-                                                              .Atom(_, type_tok) => type_tok.value.as_str(),
-                                                              .FnCall(_, _, _, _, _) => ""
+                                                              .Atom(_, type_tok) => type_tok.value.clone(),
+                                                              .FnCall(_, _, _, _, _) => String.new()
                                                             ),
-                                                          .None => ""
+                                                          .None => String.new()
                                                         );
-                                                        param_type_names_f.push(String.from(ptn_s));
+                                                        param_type_names_f.push(ptn_s);
                                                       },
                                                       .FnCall(_, ct_box, ct_args, _, _) =>
                                                         // Try comptime(name) first, then quote(name).
@@ -5601,7 +5601,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             .FnCall(_, _, _, _, _) => Option(EvalResult).None
           ),
         .Atom(_, ftok) => {
-          fval := ftok.value.as_str();
+          fval := ftok.value.clone();
           cond(
             // -----------------------------------------------------------------
             // Unit expression: ()
@@ -6215,10 +6215,10 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   res := cond(
                     (fval == "==") => (la_str == rb_str),
                     (fval == "!=") => (!(la_str == rb_str)),
-                    (fval == "<") => (la_str.as_str() < rb_str.as_str()),
-                    (fval == ">") => (la_str.as_str() > rb_str.as_str()),
-                    (fval == "<=") => (la_str.as_str() <= rb_str.as_str()),
-                    (fval == ">=") => (la_str.as_str() >= rb_str.as_str()),
+                    (fval == "<") => (la_str.clone() < rb_str.clone()),
+                    (fval == ">") => (la_str.clone() > rb_str.clone()),
+                    (fval == "<=") => (la_str.clone() <= rb_str.clone()),
+                    (fval == ">=") => (la_str.clone() >= rb_str.clone()),
                     true => {
                       return(Option(EvalResult).None);
                     }
@@ -6453,7 +6453,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         rhs,
                         // Field access: receiver.field_name
                         .Atom(_, field_tok) => {
-                          field_name := field_tok.value.as_str();
+                          field_name := field_tok.value.clone();
                           n_f := fnames.len();
                           (fi : usize) = usize(0);
                           (found_v : Option(EvalValue)) = Option(EvalValue).None;
@@ -6536,13 +6536,13 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                 // Get variant name from method_func_box2
                                 vname_tv2 := match(
                                   method_func_box2.*,
-                                  .Atom(_, vntok2) => vntok2.value.as_str(),
-                                  _ => ""
+                                  .Atom(_, vntok2) => vntok2.value.clone(),
+                                  _ => String.new()
                                 );
                                 cond(
                                   (vname_tv2 == "") => handle_method_dispatch(recv_res.value, method_func_box2, method_call_args2, env),
                                   true => {
-                                    variant_str_tv2 := `.${String.from(vname_tv2)}`;
+                                    variant_str_tv2 := `.${vname_tv2}`;
                                     ev_fields_tv2 := ArrayList(EvalValue).new();
                                     n_tvargs := method_call_args2.len();
                                     (tvi : usize) = usize(0);
@@ -6602,12 +6602,12 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .FnCall(_, vfunc, vargs, _, _) => {
                           vname := match(
                             vfunc.*,
-                            .Atom(_, vntok) => vntok.value.as_str(),
+                            .Atom(_, vntok) => vntok.value.clone(),
                             .FnCall(_, _, _, _, _) => {
                               return(Option(EvalResult).None);
                             }
                           );
-                          variant_str := `.${ String.from(vname) }`;
+                          variant_str := `.${ vname }`;
                           ev_fields := ArrayList(EvalValue).new();
                           n_vargs := vargs.len();
                           (vi : usize) = usize(0);
@@ -7255,12 +7255,12 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   match(
                     path_expr,
                     .Atom(_, path_tok) => {
-                      raw := path_tok.value.as_str();
+                      raw := path_tok.value.clone();
                       rn := raw.len();
                       cond(
                         (rn < usize(2)) => Option(EvalResult).None,
                         true => {
-                          path_str := String.from(raw).substring(usize(1), rn - usize(1));
+                          path_str := raw.substring(usize(1), rn - usize(1));
                           match(
                             g_module_loader,
                             .None => Option(EvalResult).None,
@@ -7489,7 +7489,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             (fval == "println") =>.Some(eval_result(.UnitVal, t_unit())),
             (fval == "print") =>.Some(eval_result(.UnitVal, t_unit())),
             // -----------------------------------------------------------------
-            // Phase 5x: String.from(str) — type constructor for String from str.
+            // Phase 5x: str — type constructor for String from str.
             // Returns the string value as a StrLit for the proto-evaluator.
             // -----------------------------------------------------------------
             (fval == "String") =>
@@ -8068,12 +8068,12 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   });
                   cond(
                     (!(sok)) => Option(EvalResult).None,
-                    true =>.Some(eval_result(.StructVal(String.from(fval), fn_list, fv_list), t_unit()))
+                    true =>.Some(eval_result(.StructVal(fval, fn_list, fv_list), t_unit()))
                   )
                 },
                 true =>
                   match(
-                    env.lookup(String.from(fval)),
+                    env.lookup(fval),
                     .None => Option(EvalResult).None,
                     .Some(var) =>
                       match(

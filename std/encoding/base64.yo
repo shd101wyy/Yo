@@ -6,7 +6,7 @@
 //! { base64_encode, base64_decode } :: import "std/encoding/base64";
 //!
 //! s := base64_encode(data);
-//! b := base64_decode(s.to_str()).unwrap();
+//! b := base64_decode(s.to_string()).unwrap();
 //! ```
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
@@ -76,26 +76,26 @@ _decode_char :: (fn(c : u8, alpha : str, exn : Exception) -> u8)({
   });
   exn.throw(dyn(EncodingError.InvalidChar(c)))
 });
-_decode_with :: (fn(s : str, alpha : str, exn : Exception) -> ArrayList(u8))({
+_decode_with :: (fn(s : String, alpha : str, exn : Exception) -> ArrayList(u8))({
   // Strip trailing padding
-  len := s.len();
-  while((len > usize(0)) && (s.bytes(len - usize(1)) == _PAD), len = (len - usize(1)), ());
+  len := s.bytes_len();
+  while((len > usize(0)) && (s.byte_at(len - usize(1)) == _PAD), len = (len - usize(1)), ());
   out := ArrayList(u8).with_capacity((len * usize(3)) / usize(4));
   i := usize(0);
   while(i < len, i = (i + usize(4)), {
-    c0 := _decode_char(s.bytes(i), alpha, exn);
+    c0 := _decode_char(s.byte_at(i), alpha, exn);
     c1 := cond(
-      ((i + usize(1)) < len) => _decode_char(s.bytes(i + usize(1)), alpha, exn),
+      ((i + usize(1)) < len) => _decode_char(s.byte_at(i + usize(1)), alpha, exn),
       true => u8(0)
     );
     out.push((c0 << u8(2)) | (c1 >> u8(4)));
     cond(
       ((i + usize(2)) < len) => {
-        c2 := _decode_char(s.bytes(i + usize(2)), alpha, exn);
+        c2 := _decode_char(s.byte_at(i + usize(2)), alpha, exn);
         out.push(((c1 & u8(15)) << u8(4)) | (c2 >> u8(2)));
         cond(
           ((i + usize(3)) < len) => {
-            c3 := _decode_char(s.bytes(i + usize(3)), alpha, exn);
+            c3 := _decode_char(s.byte_at(i + usize(3)), alpha, exn);
             out.push(((c2 & u8(3)) << u8(6)) | c3);
           },
           true => ()
@@ -107,11 +107,11 @@ _decode_with :: (fn(s : str, alpha : str, exn : Exception) -> ArrayList(u8))({
   out
 });
 /// Decode a standard base64 string to bytes. Throws via `Exception` on invalid input.
-base64_decode :: (fn(s : str, exn : Exception) -> ArrayList(u8))(
+base64_decode :: (fn(s : String, exn : Exception) -> ArrayList(u8))(
   _decode_with(s, _STD_ALPHA, exn)
 );
 /// Decode a URL-safe base64 string to bytes. Throws via `Exception` on invalid input.
-base64_decode_url :: (fn(s : str, exn : Exception) -> ArrayList(u8))(
+base64_decode_url :: (fn(s : String, exn : Exception) -> ArrayList(u8))(
   _decode_with(s, _URL_ALPHA, exn)
 );
 export(base64_decode, base64_decode_url);
