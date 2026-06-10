@@ -234,10 +234,23 @@ With no raw-ptr-carrying values constructible in safe code:
   Standalone `./yo-cli check` on lock_file.yo/build_runner.yo fails with
   io.await/exists noise even when green — only the main.yo build verdict
   counts for those.
-- [ ] 4. `Slice(T)` safe-code naming gate + remove `as_str`/`as_slice`
-- [ ] 5. `ListView` library type + tests
-- [ ] 6. flowability slice-gate retirement + docs/tests rewrite
-- [ ] 7. full validation (TS suite, yo-self sweeps, CI)
+- [x] 4. COMPLETE — str is a true builtin (TypeTag.Str, ac26167c);
+  RawSlice(T) in the prelude with a representation-based naming gate in
+  BOTH compilers; as_str DELETED (raw_bytes is the privileged
+  replacement, ec560861); as_slice DELETED (47c05754); yo-self bootstrap
+  codegen DELETED (user decision); builtin Slice(T) DELETED from the
+  compiler end-to-end (ed5effb7).
+- [x] 5. COMPLETE — std/collections/list_view.yo + 5 soundness tests
+  (alias visibility, realloc survival, clean shrink, sub-views,
+  independent copies) (e1585bc6).
+- [x] 6. COMPLETE — str carries no flow constraints;
+  flowability_comprehensive rewritten for the static-str model;
+  slice_flowability deleted; FLOWABILITY.md + MEMORY_SAFETY.md rewritten
+  en+zh (47c05754).
+- [x] 7. COMPLETE — final gates (2026-06-11, ed5effb7): full ./tests
+  2595/2595 (clang, CI-equivalent); bun 457/457; std 152/152 under BOTH
+  compilers; yo-self self-hosted sweep 245/245; tests sweep 146/148
+  (baseline = 2 unresolvable circular-import fixtures).
 
 ## Step 4 implementation map (2026-06-10 survey)
 
