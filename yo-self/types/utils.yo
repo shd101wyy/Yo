@@ -412,6 +412,91 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
 type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0))
 );
+/// Depth-limited inner walk for `type_is_control_bound`. A depth cap (not a
+/// checkedTypes identity set, which yo-self's value-typed `TypeValue` can't do
+/// cheaply) guards self-referential types — same approach as
+/// `_type_contains_rc_inner`.
+_type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
+  cond(
+    (depth > u32(8)) => false,
+    true => match(
+      ty,
+      // Only a `ctl(...) -> ret` function value is itself control-bound. A
+      // regular `fn(...)` is a plain fn pointer — even if its params/return
+      // reference `ctl`, the value does not carry a CF (it merely calls one
+      // the caller provides). Mirrors function.ts: `return isControl === true`.
+      .Func({ is_control : ic }) => ic,
+      // Aggregates — control-bound iff any field is.
+      .Struct({ field_types : fields }) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !(found), {
+          match(fields.get(i),.Some(ft) => if(recur(ft, depth + u32(1)), {
+            found = true;
+          }),.None => ());
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Tuple(field_labels : _, field_types : fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !(found), {
+          match(fields.get(i),.Some(ft) => if(recur(ft, depth + u32(1)), {
+            found = true;
+          }),.None => ());
+          i = (i + usize(1));
+        });
+        found
+      },
+      .Union(name : _, field_labels : _, field_types : fields) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !(found), {
+          match(fields.get(i),.Some(ft) => if(recur(ft, depth + u32(1)), {
+            found = true;
+          }),.None => ());
+          i = (i + usize(1));
+        });
+        found
+      },
+      .EnumT(id : _, name : _, variant_names : _, variant_fields : all_fields, selected_variant_name : _, variant_field_labels : _, variant_discriminants : _) => {
+        (found : bool) = false;
+        (vi : usize) = usize(0);
+        while((vi < all_fields.len()) && !(found), {
+          match(all_fields.get(vi),.Some(v_fields) => {
+            (fi : usize) = usize(0);
+            while((fi < v_fields.len()) && !(found), {
+              match(v_fields.get(fi),.Some(ft) => if(recur(ft, depth + u32(1)), {
+                found = true;
+              }),.None => ());
+              fi = (fi + usize(1));
+            });
+          },.None => ());
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
+      // control-bound — `*(Raise)` must be rejected).
+      .Array(element : elem, length : _, length_var : _) => recur(elem.*, depth + u32(1)),
+      .Slice(element : elem) => recur(elem.*, depth + u32(1)),
+      .Pointer(pointee : p) => recur(p.*, depth + u32(1)),
+      // SomeT carries no resolved concrete type in yo-self → conservatively
+      // false (mirrors TS returning false when `resolvedConcreteType` is unset).
+      _ => false
+    )
+  )
+);
+/// Return `true` if `ty` is control-bound — i.e. it IS, or transitively
+/// contains, a `ctl(...) -> ret` control-function type. Such a value is
+/// frame-bound (its body may `unwind` out of the install frame), so it must
+/// not escape: be bound at module level, captured by a closure, or have a
+/// pointer formed to it (the §4 escape-boundary / ctl rules in the algebraic
+/// effects analysis). Mirrors `typeIsControlBound` in `src/types/utils.ts`.
+type_is_control_bound :: (fn(ty : TypeValue) -> bool)(
+  _type_is_control_bound_inner(ty, u32(0))
+);
 /// Return `true` if the type can form an RC reference cycle.
 /// Full implementation needs `typeImplementsAcyclic` (Phase 3).
 /// Stub: always returns `false` — conservative.
@@ -1052,6 +1137,7 @@ export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
 export(type_contains_rc_type);
+export(type_is_control_bound);
 export(can_type_form_rc_cycle);
 export(type_requires_inference);
 export(type_contains_some_type);

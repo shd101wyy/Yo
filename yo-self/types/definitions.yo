@@ -136,7 +136,17 @@ TypeValue :: enum(
     /// declarations, `None` otherwise. Used only for the gate's diagnostic
     /// message (the call-site falls back to the printed callee expression
     /// when this is `None`).
-    extern_name : Option(String)
+    extern_name : Option(String),
+    /// True when this is a `ctl(...) -> ret` control-function type (declared
+    /// with the `ctl` constructor instead of `fn`). Mirrors
+    /// `FunctionType.isControl` in `src/types/definitions.ts`. A `ctl` value
+    /// is FRAME-BOUND — its body may `unwind` out of the enclosing install
+    /// frame — so it must not escape (be stored at module level, captured by a
+    /// closure, or have a pointer formed to it). Read by `type_is_control_bound`
+    /// (types/utils.yo) and the §4 escape-boundary checks (the algebraic-effect
+    /// ctl rules). A plain `fn(...)` whose params/return merely reference `ctl`
+    /// is NOT control-bound — only the `ctl` value itself carries the CF.
+    is_control : bool
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition (mirrors `StructType.id`

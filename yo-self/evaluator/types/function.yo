@@ -3065,6 +3065,11 @@ evaluate_function_type :: (
       )
     );
   });
+  // Whether the parameter-list head is `ctl(...)` — this is a control-function
+  // type. Captured here (the head expr is only in scope at this point) and
+  // stamped onto the constructed Func as `is_control` below. Mirrors TS
+  // `context.isControlFunctionType` (_expr.ts:286) → `isControl` (function.ts:2678).
+  is_ctl_fn_type := ast_expr_is_fn_call_of(arg_list_expr, BK_CTL, Option(usize).None);
   arg_list := _fn_call_args(arg_list_expr);
   // Set is_evaluating_function_type flag on context
   prev_is_eval_fn_type := ctx.is_evaluating_function_type;
@@ -3581,7 +3586,9 @@ evaluate_function_type :: (
     // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
     // type with `Some(language)`/`Some(label)` (mirrors extern.ts:138-161).
     Option(String).None,
-    Option(String).None
+    Option(String).None,
+    // is_control — true when the head was `ctl(...)` (mirrors isControl).
+    is_ctl_fn_type
   );
   // Set expr info on the expr
   out_info := new_expr_info(env_mut, type_of_type(func_type));

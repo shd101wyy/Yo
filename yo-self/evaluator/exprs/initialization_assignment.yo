@@ -57,7 +57,8 @@ open(import("std/string"));
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
-  type_contains_rc_type
+  type_contains_rc_type,
+  type_is_control_bound
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -270,6 +271,36 @@ evaluate_initialization_assignment :: (
     rhs_info_opt,
     .Some(rhs_info) => {
       prohibit_void_type(rhs_info.ty, ast_expr_token(rhs), exn);
+    },
+    .None => ()
+  );
+  // §4 escape boundary 2 (algebraic-effect ctl rules): a module-level binding
+  // type cannot be control-bound. Module-level bindings outlive every call
+  // frame, so a stored `ctl(...)` handler (or an aggregate / pointer containing
+  // one) would be invokable long after its install frame has returned, where it
+  // would `unwind` to a dead frame. Mirrors `initialization-assignment.ts:186-210`.
+  match(
+    rhs_info_opt,
+    .Some(rhs_info) => {
+      is_at_module_level := match(
+        ctx.is_evaluating_function_body_or_async_block,
+        .Some(_) => false,
+        .None => true
+      );
+      if(is_at_module_level && type_is_control_bound(rhs_info.ty), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(rhs),
+              `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
+
+Bound type: ${type_to_string(rhs_info.ty)}`,
+              false,
+              .None
+            )
+          )
+        );
+      });
     },
     .None => ()
   );
