@@ -264,6 +264,88 @@ get_func_param_defaults :: (fn(func_id : str) -> ArrayList(Option(EvalValue)))(
     .None => ArrayList(Option(EvalValue)).new()
   )
 );
+/// Where-clause constraint side table: `fn(...)`-type-expression id (then the
+/// FuncVal id via the same two-step as the defaults) → the function's
+/// where-clause constraints as (LHS param label, trait type, negated) triples.
+/// TS stores the raw constraint exprs as `FunctionType.whereClauseExprs`
+/// (src/types/definitions.ts:837) and RE-APPLIES them at every call site once
+/// parameters are bound (helper.ts:1493-1506 → applyWhereClauseConstraints →
+/// validateSingleTraitOnConcreteType, function.ts:974) — that re-application is
+/// what rejects `Mutex(NonSendObj)` against `where(T <: Send)`. yo-self's
+/// `TypeValue.Func` cannot carry AstExprs (definitions.yo must not depend on
+/// expr.yo), so the constraints live here in evaluated form: the label of the
+/// constrained parameter plus the trait it must (or, negated, must NOT)
+/// implement. Only simple-atom LHS constraints naming a forall/comptime param
+/// are recorded — exactly the ones whose LHS can resolve to a concrete bound
+/// type at a call site.
+WhereConstraintEntry :: struct(
+  lhs_label : String,
+  trait_ty : TypeValue,
+  is_negated : bool
+);
+(g_func_where_constraints : HashMap(String, ArrayList(WhereConstraintEntry))) =
+  HashMap(String, ArrayList(WhereConstraintEntry)).new();
+/// Register the where-clause constraints for a function.
+/// No-op when the function has none (keeps the table sparse).
+register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(WhereConstraintEntry)) -> unit)({
+  if(entries.len() > usize(0), {
+    ___ := g_func_where_constraints.set(func_id.clone(), entries);
+  });
+});
+/// Copy a registered where-constraints entry from `from_id` to `to_id`
+/// (re-key from the fn-type-expr id to the FuncVal id). No-op when absent.
+copy_func_where_constraints :: (fn(from_id : str, to_id : String) -> unit)({
+  match(
+    g_func_where_constraints.get(String.from(from_id)),
+    .Some(entries) => {
+      ___ := g_func_where_constraints.set(to_id.clone(), entries);
+    },
+    .None => ()
+  );
+});
+/// Return the where-clause constraints for `func_id` (empty when none).
+get_func_where_constraints :: (fn(func_id : str) -> ArrayList(WhereConstraintEntry))(
+  match(
+    g_func_where_constraints.get(String.from(func_id)),
+    .Some(entries) => entries,
+    .None => ArrayList(WhereConstraintEntry).new()
+  )
+);
+/// Append (label, trait, negated) entries for every required/negative trait
+/// carried on `ty` when it is a SomeT (the where clause mutated the param
+/// placeholder's lists in place). No-op for non-SomeT types.
+_collect_where_constraints_from_some_t :: (
+  fn(label : String, ty : TypeValue, out : ArrayList(WhereConstraintEntry)) -> unit
+)({
+  match(
+    ty,
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
+      (ri : usize) = usize(0);
+      while(ri < required_trait_types.len(), {
+        match(
+          required_trait_types.get(ri),
+          .Some(rt) => {
+            out.push(WhereConstraintEntry(lhs_label : label.clone(), trait_ty : rt, is_negated : false));
+          },
+          .None => ()
+        );
+        ri = (ri + usize(1));
+      });
+      (ni : usize) = usize(0);
+      while(ni < negative_trait_types.len(), {
+        match(
+          negative_trait_types.get(ni),
+          .Some(nt) => {
+            out.push(WhereConstraintEntry(lhs_label : label.clone(), trait_ty : nt, is_negated : true));
+          },
+          .None => ()
+        );
+        ni = (ni + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -3444,6 +3526,56 @@ evaluate_function_type :: (
       )
     );
   });
+  // Collect where-clause constraints for the call-site re-application side
+  // table (see WhereConstraintEntry above) BEFORE popping the parameter frame:
+  // a regular `comptime(T) : Type` parameter's constrained SomeT placeholder
+  // lives only in this frame (pass 3 pre-added it; the where clause mutated its
+  // required/negative trait lists in place). Forall params carry their SomeT in
+  // `params_result.forall_params[].ty` directly.
+  where_constraint_entries := ArrayList(WhereConstraintEntry).new();
+  (wce_i : usize) = usize(0);
+  while(wce_i < params_result.forall_params.len(), {
+    wfp := match(
+      params_result.forall_params.get(wce_i),
+      .Some(p) => p,
+      .None => {
+        wce_i = params_result.forall_params.len();
+        break;
+      }
+    );
+    _collect_where_constraints_from_some_t(wfp.label, wfp.ty, where_constraint_entries);
+    wce_i = (wce_i + usize(1));
+  });
+  (wcp_i : usize) = usize(0);
+  while(wcp_i < params_result.params.len(), {
+    wpp := match(
+      params_result.params.get(wcp_i),
+      .Some(p) => p,
+      .None => {
+        wcp_i = params_result.params.len();
+        break;
+      }
+    );
+    if(wpp.is_compile_time_only, {
+      ct_vars := get_variables_from_env(env_mut, wpp.label);
+      if(ct_vars.len() > usize(0), {
+        match(
+          ct_vars.get(ct_vars.len() - usize(1)),
+          .Some(ct_var) => match(
+            ct_var.value,
+            .Some(cv) => match(
+              cv,
+              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb.*, where_constraint_entries),
+              _ => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+    });
+    wcp_i = (wcp_i + usize(1));
+  });
   // Pop the parameters frame
   env_mut.pop_frame();
   // Build TypeValue.Func from collected parameters
@@ -3496,6 +3628,10 @@ evaluate_function_type :: (
   // re-keys them under the FuncVal id so call-site arg matching can treat
   // trailing defaulted params as optional. (See the side-table above.)
   register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
+  // Register the where-clause constraints (keyed like the defaults; re-keyed
+  // under the FuncVal id by try_to_implement_function_by_function_type) so the
+  // call site can validate bound concrete types against them.
+  register_func_where_constraints(ast_expr_id(expr).to_string(), where_constraint_entries);
   // Register the variadic parameter's name/type (see the side table above).
   if(params_result.has_variadic, {
     register_func_variadic_param(
@@ -3716,4 +3852,10 @@ export(
   copy_func_variadic_param,
   get_func_variadic_param,
   VariadicParamEntry
+);
+export(
+  register_func_where_constraints,
+  copy_func_where_constraints,
+  get_func_where_constraints,
+  WhereConstraintEntry
 );

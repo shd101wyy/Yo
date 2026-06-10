@@ -560,6 +560,18 @@ ${rhs_str}`,
               ),
               true => Option(TypeValue).None
             ),
+            // Traits too: `Send :: trait(id := "Send")` names the trait
+            // "Send" (TS stamps any unnamed type the same way). Identity is
+            // unaffected — trait matching keys on the `id` field, which is
+            // preserved. Without this, diagnostics render the trait as its
+            // field dump (`(id : comptime_string)` instead of `Send`), e.g.
+            // the where-clause "does not implement required trait" error.
+            .TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc) => cond(
+              (tr_name.len() == usize(0)) => Option(TypeValue).Some(
+                TypeValue.TraitT(binding_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc)
+              ),
+              true => Option(TypeValue).None
+            ),
             _ => Option(TypeValue).None
           );
           match(

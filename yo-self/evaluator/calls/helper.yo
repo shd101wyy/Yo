@@ -42,17 +42,19 @@ open(import("std/string"));
   clone_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ Token } :: import("../../token.yo");
 { t_unit, t_type } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   get_all_some_types,
   type_contains_some_type
 } :: import("../../types/utils.yo");
-{ is_some_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
-  type_implements_fn
+  type_implements_fn,
+  type_implements_trait_bool
 } :: import("../trait_checking.yo");
 {
   EvalValue,
@@ -96,7 +98,9 @@ open(import("std/string"));
 {
   evaluate_function_parameter_type_again,
   evaluate_function_return_type_again,
-  get_func_param_defaults
+  get_func_param_defaults,
+  get_func_where_constraints,
+  WhereConstraintEntry
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -1403,6 +1407,124 @@ evaluate_ctl_function_body_inline :: (
 ///   * RC ownership / deferred drop expressions are skipped.
 ///   * Quote parameters are not supported (throw on encounter).
 ///   * Where-clause constraints are skipped (TypeValue has no AstExpr forms).
+/// Validate the registered where-clause constraints of `func_id` against the
+/// parameter bindings now present in `callee_env`. Mirrors TS re-applying
+/// `FunctionType.whereClauseExprs` at every call site once parameters are
+/// bound (helper.ts:1493-1506 → applyWhereClauseConstraints →
+/// validateSingleTraitOnConcreteType, types/function.ts:974): a constraint
+/// whose LHS param resolved to a CONCRETE type must hold — this is what
+/// rejects `Mutex(NonSendObj)` against `where(T <: Send)`. Called from BOTH
+/// call paths: Step 8b of `try_to_call_function_with_arguments` below AND the
+/// inline FuncVal arm in `calls/function.yo` (the same two-path obligation as
+/// the default-args side table).
+///
+/// DOCUMENTED DIVERGENCE (narrower than TS): only MARKER-trait constraints
+/// (traits without methods — Send/Acyclic/user markers) are enforced, and only
+/// against FULLY CONCRETE bound types (no SomeT anywhere in the type). TS
+/// validates every constraint because its `typeImplementsTrait` is complete;
+/// yo-self's still has gaps for (a) method-trait satisfaction on concrete
+/// types (e.g. `K <: (Eq, Hash)` for `String`) and (b) marker derivation
+/// through generic-instantiation fields that still carry constraint-bearing
+/// SomeTs — enforcing those today rejects valid std code (imm/map, hashmap).
+/// Widen as the trait checker closes those gaps.
+validate_where_constraints_for_call :: (
+  fn(
+    func_id : str,
+    callee_env : Environment,
+    tok : Token,
+    exn : Exception
+  ) -> unit
+)({
+  where_constraint_list := get_func_where_constraints(func_id);
+  (wcl_i : usize) = usize(0);
+  while(wcl_i < where_constraint_list.len(), {
+    wce := match(
+      where_constraint_list.get(wcl_i),
+      .Some(e) => e,
+      .None => {
+        wcl_i = (wcl_i + usize(1));
+        continue;
+      }
+    );
+    // Marker traits only: a TraitT none of whose fields is function-typed.
+    trait_is_marker := match(
+      wce.trait_ty,
+      .TraitT(_, _, _, tr_ftys, _, _, _, _) => {
+        (tm_i : usize) = usize(0);
+        (tm_has_method : bool) = false;
+        while((tm_i < tr_ftys.len()) && !(tm_has_method), {
+          match(
+            tr_ftys.get(tm_i),
+            .Some(tf) => if(is_function_type(tf), {
+              tm_has_method = true;
+            }),
+            .None => ()
+          );
+          tm_i = (tm_i + usize(1));
+        });
+        !(tm_has_method)
+      },
+      _ => false
+    );
+    if(!(trait_is_marker), {
+      wcl_i = (wcl_i + usize(1));
+      continue;
+    });
+    lhs_vars := get_variables_from_env(callee_env, wce.lhs_label);
+    if(lhs_vars.len() > usize(0), {
+      match(
+        lhs_vars.get(lhs_vars.len() - usize(1)),
+        .Some(lhs_var) => match(
+          lhs_var.value,
+          .Some(lv) => match(
+            lv,
+            .TypeVal(bound_tb) => {
+              bound_ty := bound_tb.*;
+              // Fully concrete only: a bound type still carrying SomeTs (a
+              // generic instantiation inside an impl body) defers to TS-style
+              // constraint propagation, which yo-self's marker derivation
+              // can't see through yet.
+              if((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0)), {
+                wc_implemented := type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
+                if(wce.is_negated, {
+                  if(wc_implemented, {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          tok,
+                          `Type ${type_to_string(bound_ty)} must NOT implement ${type_to_string(wce.trait_ty)}, but it does.`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                }, {
+                  if(!(wc_implemented), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          tok,
+                          `Type ${type_to_string(bound_ty)} does not implement required trait ${type_to_string(wce.trait_ty)}.`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                });
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    wcl_i = (wcl_i + usize(1));
+  });
+});
 try_to_call_function_with_arguments :: (
   fn(
     func_val : Option(EvalValue),
@@ -1806,6 +1928,22 @@ try_to_call_function_with_arguments :: (
         fpi2 = (fpi2 + usize(1));
       });
       // ----------------------------------------------------------------
+      // Step 8b: Re-apply where-clause constraints now that parameters are
+      // bound. Mirrors helper.ts:1493-1506 (applyWhereClauseConstraints) →
+      // validateSingleTraitOnConcreteType (types/function.ts:974): every
+      // constraint whose LHS param is now bound to a CONCRETE type must be
+      // validated — `Mutex(NonSendObj)` against `where(T <: Send)` is
+      // rejected here.
+      match(
+        func_val,
+        .Some(wfv) => match(
+          wfv,
+          .FuncVal(_, _, _, _, _, _, _, _, wfvid) => validate_where_constraints_for_call(wfvid.as_str(), callee_env_m, tok, exn),
+          _ => ()
+        ),
+        .None => ()
+      );
+      // ----------------------------------------------------------------
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
@@ -2120,6 +2258,7 @@ try_to_call_function_with_arguments :: (
 });
 export(try_to_call_function_with_arguments);
 export(check_if_function_parameter_matches_argument);
+export(validate_where_constraints_for_call);
 export(extract_function_value);
 export(validate_function_return_type);
 export(generate_deferred_drop_expressions);

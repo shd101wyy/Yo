@@ -160,6 +160,12 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
       .EnumT(id, name, _, _, _, _, _) => if(name.len() > usize(0), name, `<enum:${id}>`),
       .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
       .TraitT(name : n, field_labels : fls, field_types : fts) => {
+        // Prefer the trait's NAME whenever it has one (mirrors TS
+        // typeToString printing "Send", not the trait's field dump) — the
+        // field dump is the fallback for genuinely anonymous traits only.
+        if(n.len() > usize(0), {
+          return(n);
+        });
         if(fls.len() == usize(0), {
           return(n);
         });

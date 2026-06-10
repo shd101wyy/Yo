@@ -91,7 +91,7 @@ MACRO_DISPATCH_ENABLED :: false;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, validate_where_constraints_for_call } :: import("./helper.yo");
 { create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
 /// `TypeVal(SomeT)`. TS names every result UnknownValue (variableName is
@@ -1925,6 +1925,13 @@ Fix: wrap the call:
           );
           evi = (evi + usize(1));
         });
+        // Where-clause validation now that params are bound in fresh_env.
+        // The inline FuncVal arm is yo-self's SECOND call path (it bypasses
+        // try_to_call_function_with_arguments — same two-path obligation as
+        // the default-args side table), so the Step-8b validation from
+        // helper.yo must run here too. Rejects e.g. `Mutex(NonSendObj)`
+        // against `where(T <: Send)`.
+        validate_where_constraints_for_call(func_id_fv.as_str(), fresh_env, tok, exn);
         // Set function body context on ctx.
         // We need the declared return type from the callee's type (if available).
         ret_type := match(
