@@ -301,3 +301,44 @@ Index trait, or (b) a new `IndexCopy(Idx)` trait with
 `index_copy : fn(ref(self), idx) -> Self.Output` tried by the index-call
 machinery before/instead of Index for range types. (a) is recommended —
 zero new trait surface; the evaluator already special-cases ranges.
+
+## Step 4 continuation checklist (live, 2026-06-11)
+
+DONE: 4a TypeTag.Str (ac26167c); RawSlice + crypto/hash (894bcee1);
+ArrayList.from_array (4e182b0e); yo-self codegen deleted.
+
+NEXT (in order, validate check ./std + targeted tests between):
+1. imm/*: from_slice(Slice(T)) → from_list(l : ArrayList(T)) in
+   {list,vec,set,sorted_set,map,sorted_map}.yo — bodies bulk-copy via
+   match(l.ptr(), .Some(p) => _copy_elems(..., p, ...)) (files pragma'd);
+   from_entries(pairs : Slice(...)) same treatment. Tests imm_*.test.yo:
+   `X.from_slice(arr(a..b))` → `X.from_list(ArrayList(T).from_array(arr))`
+   (or sub-range via push loop where the range isn't the whole array).
+2. imm/string.yo: from_string uses s.as_str() for memcpy — replace with
+   match(s._bytes? no, private) → use String.byte_at loop or to_cstr; its
+   ToString does String.from(self.as_str()) → build via from_bytes/byte_at.
+3. panic/assert String support: assert_dyn/panic_dyn call
+   assert/panic(msg.as_str()) — make builtin panic/assert accept String
+   (evaluator builtins/panic.ts msg check + codegen exprs/panic.ts emit
+   %.*s over String's bytes — String C shape is the Rc struct; simplest:
+   keep panic(str) and have assert_dyn pass msg via a NEW pragma'd
+   String method that yields its raw bytes ptr+len (RawSlice(u8)) and a
+   panic_raw(ptr,len) intrinsic... OR give panic a String overload in the
+   evaluator). Decide when implementing.
+4. eval.yo (~25 as_str) + eval-tests + install_command.test remnants:
+   drop as_str per the flip recipe.
+5. Delete String.as_str + ArrayList.as_slice (+ slice-only helpers);
+   remove the TRANSITIONAL TypeTag.Str case in
+   typeRepresentationContainsRawPtr (src/types/utils.ts).
+6. Part C: copying ranges — evaluator calls/index-trait.ts range path
+   (createSliceValue at ~916,948): for Array/ArrayList → build ArrayList
+   copy (dispatch to a method e.g. ArrayList.from_array_range /
+   ArrayList.slice_copy; add String.substring-based impl for String;
+   str stays zero-copy via __yo_str_from_raw_parts(ptr&+start, end-start)).
+   Update prelude Array Index(Range) impls accordingly (delete or retarget).
+7. Part B: delete SliceType from src/ (27 files; map above) + prelude
+   Slice impls/__yo_slice_* decls + parser support; tests/slice_flowability
+   rewritten (step 6 does flowability tests/docs anyway).
+8. Steps 5 (ListView + tests), 6 (gates retirement + FLOWABILITY.md en/zh +
+   MEMORY_SAFETY.md + flowability_comprehensive rewrite), 7 (full gates:
+   suite + bun + yo-self build + 3 sweeps + CI).
