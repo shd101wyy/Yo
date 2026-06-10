@@ -559,24 +559,6 @@ test("ArrayList stress test with Box - remove multiple elements at once", {
   assert(list(usize(5)).* == i32(15));
   assert(list(usize(9)).* == i32(19));
 });
-test("Test ArrayList.as_slice", {
-  list := ArrayList(i32).new();
-  list.push(i32(10));
-  list.push(i32(20));
-  list.push(i32(30));
-  slice_opt := list.as_slice();
-  assert(slice_opt.is_some(), "as_slice should return Some for non-empty list");
-  slice := slice_opt.unwrap();
-  assert(slice.len() == usize(3), "as_slice should have length 3");
-  assert(slice(usize(0)) == i32(10), "first element should be 10");
-  assert(slice(usize(1)) == i32(20), "second element should be 20");
-  assert(slice(usize(2)) == i32(30), "third element should be 30");
-});
-test("Test ArrayList.as_slice empty", {
-  list := ArrayList(i32).new();
-  slice_opt := list.as_slice();
-  assert(slice_opt.is_none(), "as_slice of empty list should return None");
-});
 // ===== String (RC heap type) Tests =====
 // These tests exercise unsafe.drop paths in _free_elements, pop, and remove
 // with String, which is a real heap-allocated reference-counted type.

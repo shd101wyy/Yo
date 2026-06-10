@@ -1,3 +1,4 @@
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import {
   addVariableToEnv,
   addWhereClauseConstraintToEnv,
@@ -56,6 +57,7 @@ import {
   typeProhibitsComptimeModifier,
   typeRequiresComptimeModifier,
   typeToString,
+  typeRepresentationContainsRawPtr,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
@@ -405,6 +407,24 @@ export function evaluateFunctionParameter({
       const typeValue = evaluatedRhs.$.value;
       if (isTypeValue(typeValue)) {
         parameterType = typeValue.value;
+        // Raw-view naming gate (plans/SLICE_REWORK.md): a SAFE file may not
+        // annotate a parameter with a type whose representation carries a
+        // raw pointer (RawSlice(T), structs wrapping *(T), …). The `*(T)`
+        // syntax gate (calls/pointer.ts) only catches the syntactic form;
+        // privileged types DEFINED under a pragma'd module would otherwise
+        // be nameable from safe code.
+        if (
+          !context.unsafeContext &&
+          !isImplicitlyUnsafeCapableFile(typeExpr.token.modulePath) &&
+          typeRepresentationContainsRawPtr(parameterType)
+        ) {
+          throw formatErrorMessage({
+            token: typeExpr.token,
+            errorMessage: `Raw-pointer-carrying types ('${typeToString(parameterType)}') are not available in safe code.
+
+Use owned collections (ArrayList/String), 'ref(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+          });
+        }
       }
       // else if (
       //   isUnknownValue(typeValue) &&

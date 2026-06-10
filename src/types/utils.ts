@@ -353,13 +353,11 @@ export function typeRepresentationContainsRawPtr(
       return true;
     case TypeTag.Slice:
       return true;
-    // TRANSITIONAL (plans/SLICE_REWORK.md step 4→6): the builtin str is
-    // still constructible over heap bytes via String.as_str(), so the
-    // flowability gates must keep treating it as a raw view. When as_str
-    // is deleted (step 4 Part E) and the gates retire (step 6), str
-    // becomes static-only and this case is removed.
+    // str is the builtin view of STATIC string bytes (immortal backing) —
+    // it carries a pointer, but never a dangling one: as_str/as_slice are
+    // deleted and ranges copy (plans/SLICE_REWORK.md). No flow constraints.
     case TypeTag.Str:
-      return true;
+      return false;
     case TypeTag.Struct:
       // Plain struct or newtype — walk fields.
       return (type as StructType).fields.some((field) =>

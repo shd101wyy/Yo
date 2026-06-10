@@ -356,7 +356,11 @@ NEXT (in order, validate check ./std + targeted tests between):
 on ArrayList (owned copy), Array(T,N) (→ ArrayList, impl in
 array_list.yo), String (substring-based, rune indices), and str (prelude,
 zero-copy static window via __yo_str_from_raw_parts + &+).
-REMAINING WIRING: make `recv(a..b)` dispatch to them — integration point
+WIRING DONE (484b4094): evaluator rewrite in calls/function.ts
+(pre-checking-phase) dispatches runtime `recv(a..b)` to slice_copy;
+view-semantics tests rewritten to value semantics. Prelude Array
+Index(Range) impls + comptime slice path retire with Part B.
+(original wiring notes:) make `recv(a..b)` dispatch to them — integration point
 is `tryToCallWithIndexTrait`'s RUNTIME path (index-trait.ts ~line 296+):
 when argType is Range/RangeInclusive, look up slice_copy[_inclusive] via
 getReceiverMethodsByNameFromEnv and return an IndexCallResult carrying

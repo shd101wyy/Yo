@@ -1468,12 +1468,12 @@ handle_method_dispatch :: (
               )
           ),
         // ---------------------------------------------------------------
-        // Phase 3ak: StrLit instance method shims — .as_str(), .len()
+        // Phase 3ak: StrLit instance method shims — .clone(), .len()
         // These intercept common string operations on StrLit values before
         // falling through to env lookup (which would fail for runtime stubs).
         // ---------------------------------------------------------------
         // StrLit.clone() — passthrough (StrLit is already str-like)
-        ((mname == "as_str") && (match(recv_val,.StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+        ((mname == "clone") && (match(recv_val,.StrLit(_) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           {
             return(Option(EvalResult).Some(eval_result(recv_val, t_comptime_string())));
           },

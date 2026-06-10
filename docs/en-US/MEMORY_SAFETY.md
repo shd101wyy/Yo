@@ -18,7 +18,7 @@ That is the rule. It is enforced by removing UB-capable constructs from the user
 
 Everything you'd expect from a modern general-purpose language:
 
-- **Value types.** `i32`, `bool`, `str`, structs, enums, tuples, `Array(T, N)`, `Slice(T)`.
+- **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
 - **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `LinkedList(T)`, `String`, immutable variants in `std/imm/*`.
 - **Shared ownership.** `object` types (single-threaded Rc), `Arc(T)` (atomic Rc for cross-thread sharing), `Iso(T)` (ownership transfer).
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
@@ -54,12 +54,12 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 | Construct                                               | Diagnostic (short)                                                               | Safe alternative                                                                              |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | `Slice(T)`, `ref(name) : T`, an `object` type, or a stdlib wrapper                            |
-| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` parameter, or take a `Slice(T)`                                               |
+| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `ref(name) : T`, an `object` type, or a stdlib wrapper                            |
+| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` parameter, or pass the owned collection                                               |
 | `unsafe(...)` call                                      | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops |
 | `asm(...)` block                                        | "inline assembly is not available in safe code"                                  | Same                                                                                          |
 | `extern(...)` / `c_include(...)` declaration            | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                             |
-| Pointer arithmetic (`&+`, `&-`, `&/`)                   | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `Slice(T)` / `ArrayList(T)`                                                       |
+| Pointer arithmetic (`&+`, `&-`, `&/`)                   | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `ArrayList(T)` / `Array(T, N)`                                                       |
 | `consume(p.* = v)` on a pointer                         | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                 |
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
@@ -93,11 +93,11 @@ Use cases:
 
 ## Stdlib Collections Stay Safe
 
-`Slice(T)`, `ArrayList(T)`, `HashMap(K, V)`, `String`, and friends all carry raw pointers in their internal representation. They are safe to use because the implementation hides the pointer:
+`ArrayList(T)`, `HashMap(K, V)`, `String`, and friends all carry raw pointers in their internal representation. They are safe to use because the implementation hides the pointer:
 
 1. **No public method has `*(T)` in its signature.** Methods take and return safe types only.
 2. **All indexing is bounds-checked.** `slice(i)`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
-3. **No raw construction.** You can't build a `Slice(T)` or `ArrayList(T)` with an arbitrary pointer; the constructors are safe.
+3. **No raw construction.** You can't build an `ArrayList(T)` with an arbitrary pointer; the constructors are safe.
 
 The stdlib also closes the **dangling-slice hole** that other languages with raw-pointer abstractions have to manage by hand: returning a `Slice(T)` whose underlying storage dies with the call frame is rejected at compile time. See `plans/SLICE_FLOWABILITY.md` for the structural rule; you don't need to know it to use slices safely. A user-facing walkthrough of the rule is in [FLOWABILITY.md](./FLOWABILITY.md).
 

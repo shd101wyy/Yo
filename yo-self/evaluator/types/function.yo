@@ -50,9 +50,11 @@ open(import("std/fmt"));
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
   type_contains_some_type,
+  type_representation_contains_raw_ptr,
   get_all_some_types
 }
 :: import("../../types/utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
@@ -1036,6 +1038,24 @@ evaluate_function_parameter :: (
       TypeValue.Unit
     }
   );
+  // Raw-view naming gate (plans/SLICE_REWORK.md): a SAFE file may not
+  // annotate a parameter with a type whose representation carries a raw
+  // pointer (RawSlice(T), structs wrapping *(T), ...). Mirrors the TS gate
+  // in src/evaluator/types/function.ts.
+  if((!(ctx.unsafe_context)) &&
+    (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())))) &&
+      type_representation_contains_raw_ptr(final_param_type), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'ref(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
   // Validate comptime + type compatibility
   if(is_compile_time_only &&
     !(type_contains_some_type(final_param_type)) &&

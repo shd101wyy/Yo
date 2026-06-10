@@ -37,19 +37,6 @@ impl(
   ptr : (fn(self : Self) -> ?*(T))(
     self._ptr
   ),
-  /**
-  * Get a slice view of the ArrayList
-  * Returns a fat pointer Slice(T) with data pointer and length
-  * This allows passing ArrayList to functions expecting slices
-  * Returns .None for an empty ArrayList with no allocated buffer
-  */
-  as_slice : (fn(self : Self) -> Option(Slice(T)))(
-    match(
-      self._ptr,
-      .Some(p) =>.Some(Slice(T).from_raw_parts(p, self._length)),
-      .None =>.None
-    )
-  ),
   /**     * Directly set the length of the ArrayList
   * UNSAFE: This does not initialize new elements or free removed elements
   * Only use when you've manually populated the buffer (e.g., via direct memory writes)
