@@ -20,11 +20,18 @@ rather than gated.
   Rc, no runtime cost**.
 - This aligns `str` with `comptime_string`: a compile-time string IS static
   data; the comptime→runtime materialization of a string is exactly a `str`.
-- **`String.as_str()` is removed from the safe surface** — it is the one
-  producer of a `str` view into a *live heap buffer* (`from_raw_parts(heap
-  ptr, len)`), i.e. the dangling-view hazard. Privileged (pragma) code may
-  keep an equivalent under an unsafe-marked name where genuinely needed
-  (C interop), but std APIs stop returning borrowed views of heap strings.
+- **`String.as_str()` is DELETED** — not merely discouraged: under the new
+  model it has no honest implementation. `z := (x + y)` builds its bytes in a
+  heap buffer at runtime; if `str` means "view of static storage", there is
+  no valid `str` for `z.as_str()` to return. The three conceivable
+  implementations all fail: a heap view violates the `str` invariant (the
+  exact hazard being deleted); "copy to static storage" doesn't exist at
+  runtime; interning/leaking an immortal buffer is a worse footgun than the
+  one removed. The surviving asymmetry is the correct one: `String.from(s :
+  str)` (static → heap copy) stays; heap → `str` is impossible by design.
+  Privileged (pragma) code may keep an unsafe-marked raw-view equivalent
+  where genuinely needed (C interop), but std APIs stop returning borrowed
+  views of heap strings.
 - Replacement for the dominant pattern (measured: 2186 `as_str()` call sites
   in yo-self, the majority `x.as_str() == "literal"`):
   - Add `Eq(str)` on `String` (`String == str` compares bytes directly — no
