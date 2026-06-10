@@ -139,8 +139,8 @@ enrich_captured_variables :: (
         more = false;
       },
       .Some(var_name) => {
-        vn_copy := String.from(var_name.as_str());
-        cap_info_opt := captured_variables.get(String.from(var_name.as_str()));
+        vn_copy := var_name.clone();
+        cap_info_opt := captured_variables.get(var_name.clone());
         match(
           cap_info_opt,
           .None => (),
@@ -148,7 +148,7 @@ enrich_captured_variables :: (
             fl := cap_info.frame_level;
             n_frames := env.frames.len();
             if(fl < n_frames, {
-              vars := get_variables_from_env(env, String.from(var_name.as_str()));
+              vars := get_variables_from_env(env, var_name.clone());
               m := vars.len();
               (j : usize) = usize(0);
               while(j < m, {
@@ -165,7 +165,7 @@ enrich_captured_variables :: (
                         value : v.value,
                         is_effect_param : v.is_effect_param
                       );
-                      _s := result.set(String.from(vn_copy.as_str()), enriched);
+                      _s := result.set(vn_copy.clone(), enriched);
                       ()
                     });
                   }
@@ -237,15 +237,15 @@ create_capture_type_and_value :: (
             },
             .Some(cap_name) => {
               match(
-                cvwv.get(String.from(cap_name.as_str())),
+                cvwv.get(cap_name.clone()),
                 .None => (),
                 .Some(fci) => {
-                  field_labels.push(String.from(cap_name.as_str()));
+                  field_labels.push(cap_name.clone());
                   field_types.push(fci.ty);
                   cap_values.push(fci.value);
                   type_fields.push(
                     TypeField(
-                      label : String.from(cap_name.as_str()),
+                      label : cap_name.clone(),
                       ty : fci.ty,
                       is_comptime : false,
                       default_value : Option(EvalValue).None,
@@ -260,10 +260,10 @@ create_capture_type_and_value :: (
         });
       });
       // Register field metadata.
-      register_struct_fields(String.from(struct_id.as_str()), type_fields);
+      register_struct_fields(struct_id.clone(), type_fields);
       // Build the capture struct TypeValue.
       capture_ty := TypeValue.Struct(
-        String.from(struct_id.as_str()),
+        struct_id.clone(),
         String.from(""),
         field_labels,
         field_types,
@@ -277,7 +277,7 @@ create_capture_type_and_value :: (
       // Auto-derive trait markers for the capture struct.
       // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` call in closure.ts.
       auto_derive_traits_for_struct_type(
-        String.from(struct_id.as_str()),
+        struct_id.clone(),
         field_types,
         false,
         false,
@@ -327,7 +327,7 @@ create_capture_type_and_value :: (
         // Use struct_id as the type name for the StructVal.
         Option(EvalValue).Some(
           EvalValue.StructVal(
-            String.from(struct_id.as_str()),
+            struct_id.clone(),
             field_labels,
             concrete_vals
           )

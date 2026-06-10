@@ -185,7 +185,24 @@ With no raw-ptr-carrying values constructible in safe code:
   `as_str()` remains outside comments. Validated: full ./tests 2609/2609,
   swept-source yo-self-bin sweeps std 151/151 + tests 147/149 (baseline,
   2 circular fixtures) + yo-self 285/285.
-- [ ] 3. remaining `as_str()` + `: str` param audit
+- [ ] 3. remaining `as_str()` + `: str` param audit — IN PROGRESS.
+  Done: (a) `String.from(x.as_str())` roundtrip → `x.clone()`, 250 sites /
+  62 yo-self files (the stale clone-ambiguity lore is wrong — field
+  receivers clone fine, cheatsheet fixed); (b) std safe-surface flips:
+  `String.byte_at(i)` added (public byte indexer — the runtime-byte-access
+  replacement for `as_str()`), `Url.parse`/`_parse_port` flipped
+  `str`→`String` (callers wrap literals in `String.from`), base64 decode
+  iterates `byte_at` directly, http client passes the String through.
+  std now has 4 `as_str` uses, ALL in pragma'd privileged code awaiting the
+  step-4 raw replacement: imm/string from_string + ToString (raw memcpy),
+  assert_dyn/panic_dyn (builtin assert/panic take `str` msg — needs a
+  step-4 decision).
+  Remaining: ~180 non-codegen yo-self bare sites (tok.value.as_str()
+  feeding `: str` helper params — flip helper signatures case-by-case,
+  watch match-arm String/str unification) and ~600 codegen/driver sites
+  DEFERRED to the codegen port (plans/BOOTSTRAPPING_CODEGEN.md retires
+  driver.yo and rewrites the emitters; flipping their params first is
+  wasted work).
 - [ ] 4. `Slice(T)` safe-code naming gate + remove `as_str`/`as_slice`
 - [ ] 5. `ListView` library type + tests
 - [ ] 6. flowability slice-gate retirement + docs/tests rewrite

@@ -240,7 +240,7 @@ evaluate_enum_type :: (
   // for post-definition lookups of the real enum (std/encoding/json.yo).
   shell_id := `${enum_id}__self_shell`;
   prelim_ty := TypeValue.EnumT(
-    String.from(shell_id.as_str()),
+    shell_id.clone(),
     String.from(""),
     ArrayList(String).new(),
     ArrayList(ArrayList(TypeValue)).new(),
@@ -347,7 +347,7 @@ evaluate_enum_type :: (
           );
         });
         disc := _evaluate_discriminant(discriminant_expr, env, ctx, exn);
-        variant_names.push(String.from(variant_name.as_str()));
+        variant_names.push(variant_name.clone());
         variant_fields.push(ArrayList(TypeValue).new());
         variant_field_labels.push(ArrayList(String).new());
         variant_discriminants.push(disc);
@@ -403,7 +403,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_names.push(String.from(variant_name.as_str()));
+        variant_names.push(variant_name.clone());
         variant_fields.push(ArrayList(TypeValue).new());
         variant_field_labels.push(ArrayList(String).new());
         variant_discriminants.push(next_discriminant);
@@ -509,7 +509,7 @@ evaluate_enum_type :: (
             );
           });
           v_field_types.push(field.ty);
-          v_field_labels.push(String.from(field.label.as_str()));
+          v_field_labels.push(field.label.clone());
           env.frames = result.env.frames;
           env.module_path = result.env.module_path;
           env.function_declaration_frame_level = result.env.function_declaration_frame_level;
@@ -517,7 +517,7 @@ evaluate_enum_type :: (
           j = (j + usize(1));
         });
         disc := match(custom_disc,.Some(d) => d,.None => next_discriminant);
-        variant_names.push(String.from(variant_name.as_str()));
+        variant_names.push(variant_name.clone());
         variant_fields.push(v_field_types);
         variant_field_labels.push(v_field_labels);
         variant_discriminants.push(disc);
@@ -657,13 +657,13 @@ evaluate_enum_type :: (
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
-  auto_derive_traits_for_enum_type(String.from(enum_id.as_str()), variant_fields, env);
+  auto_derive_traits_for_enum_type(enum_id.clone(), variant_fields, env);
   // Restore SelfType.
   ctx.self_type = old_self_type;
   // Build the final EnumT in two steps: an UNPATCHED pre-final used as the
   // replacement target, then the real final with shell-patched fields.
   pre_final_ty := TypeValue.EnumT(
-    String.from(enum_id.as_str()),
+    enum_id.clone(),
     String.from(""),
     variant_names,
     variant_fields,
@@ -694,7 +694,7 @@ evaluate_enum_type :: (
     pf_i = (pf_i + usize(1));
   });
   enum_ty := TypeValue.EnumT(
-    String.from(enum_id.as_str()),
+    enum_id.clone(),
     String.from(""),
     variant_names,
     patched_fields,
@@ -704,7 +704,7 @@ evaluate_enum_type :: (
   );
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
-  register_enum_final(String.from(shell_id.as_str()), enum_ty);
+  register_enum_final(shell_id.clone(), enum_ty);
   enum_val := create_type_value(enum_ty);
   meta_ty := type_of_type(enum_ty);
   out_info := new_expr_info(env, meta_ty);

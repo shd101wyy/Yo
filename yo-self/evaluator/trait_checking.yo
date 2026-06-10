@@ -226,9 +226,9 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
   while((i < markers.len()) && found.is_empty(), {
     marker := match(markers.get(i),.Some(m) => m,.None => String.from(""));
     match(
-      get_trait_type_from_env(env, String.from(marker.as_str())),
+      get_trait_type_from_env(env, marker.clone()),
       .Some(mt) => if(_trait_type_id(mt) == tid, {
-        found = String.from(marker.as_str());
+        found = marker.clone();
       }),
       .None => ()
     );
@@ -1276,7 +1276,7 @@ type_contains_some_type_for_codegen_param :: (
     if(seen, {
       return(false);
     });
-    _push := checked_ids.push(String.from(nominal_id.as_str()));
+    _push := checked_ids.push(nominal_id.clone());
   });
   if(is_some_type(ty), {
     // SomeType: TS excludes extern + resolved-concrete (no-ops in yo-self) and

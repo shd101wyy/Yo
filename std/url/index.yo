@@ -51,7 +51,7 @@ _DOT :: u8(46); // '.'
 // ============================================================================
 // Helper: parse port number from bytes
 // ============================================================================
-_parse_port :: (fn(s : str, start : usize, end : usize, exn : Exception) -> u16)({
+_parse_port :: (fn(s : String, start : usize, end : usize, exn : Exception) -> u16)({
   cond(
     (start >= end) => {
       exn.throw(dyn(UrlError.InvalidPort));
@@ -61,7 +61,7 @@ _parse_port :: (fn(s : str, start : usize, end : usize, exn : Exception) -> u16)
   val := u32(0);
   i := start;
   while(runtime(i < end), {
-    ch := s.bytes(i);
+    ch := s.byte_at(i);
     cond(
       ((ch >= _ZERO) && (ch <= _NINE)) => {
         val = ((val * u32(10)) + u32(ch - _ZERO));
@@ -95,15 +95,15 @@ impl(
   // Parse a URL string.
   // Supports: scheme://[userinfo@]host[:port]/path[?query][#fragment]
   // Also supports scheme:path (opaque URIs like mailto:user@example.com)
-  parse : (fn(s : str, exn : Exception) -> Url)({
+  parse : (fn(s : String, exn : Exception) -> Url)({
     cond(
-      (s.len() == usize(0)) => {
+      (s.bytes_len() == usize(0)) => {
         exn.throw(dyn(UrlError.EmptyInput));
       },
       true => ()
     );
     pos := usize(0);
-    src_len := s.len();
+    src_len := s.bytes_len();
     // --- Parse scheme ---
     // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
     scheme_end := usize(0);
@@ -114,7 +114,7 @@ impl(
       true => ()
     );
     // First char must be a letter
-    first := s.bytes(usize(0));
+    first := s.byte_at(usize(0));
     cond(
       (((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z))) => (),
       true => {
@@ -124,7 +124,7 @@ impl(
     i := usize(1);
     found_colon := false;
     while(runtime(i < src_len), {
-      ch := s.bytes(i);
+      ch := s.byte_at(i);
       cond(
         (ch == _COLON) => {
           scheme_end = i;
@@ -147,7 +147,7 @@ impl(
     scheme_bytes := ArrayList(u8).new();
     j := usize(0);
     while(runtime(j < scheme_end), {
-      b := s.bytes(j);
+      b := s.byte_at(j);
       // Normalize to lowercase
       cond(
         ((b >= _UPPER_A) && (b <= _UPPER_Z)) => scheme_bytes.push(b + u8(32)),
@@ -160,7 +160,7 @@ impl(
     // --- Check for authority (// prefix) ---
     has_authority := false;
     cond(
-      (((pos + usize(1)) < src_len) && ((s.bytes(pos) == _SLASH) && (s.bytes(pos + usize(1)) == _SLASH))) => {
+      (((pos + usize(1)) < src_len) && ((s.byte_at(pos) == _SLASH) && (s.byte_at(pos + usize(1)) == _SLASH))) => {
         has_authority = true;
         pos = (pos + usize(2)); // skip '//'
       },
@@ -178,7 +178,7 @@ impl(
         auth_end := src_len;
         k := pos;
         while(runtime(k < src_len), {
-          ch := s.bytes(k);
+          ch := s.byte_at(k);
           cond(
             (((ch == _SLASH) || (ch == _QUESTION)) || (ch == _HASH)) => {
               auth_end = k;
@@ -193,12 +193,12 @@ impl(
         m := auth_start;
         while(runtime(m < auth_end), {
           cond(
-            (s.bytes(m) == _AT) => {
+            (s.byte_at(m) == _AT) => {
               // Everything before '@' is userinfo
               ui_bytes := ArrayList(u8).new();
               n := auth_start;
               while(runtime(n < m), {
-                ui_bytes.push(s.bytes(n));
+                ui_bytes.push(s.byte_at(n));
                 n = (n + usize(1));
               });
               userinfo =.Some(String.from_bytes(ui_bytes));
@@ -212,10 +212,10 @@ impl(
         // Parse host[:port]
         // Check for IPv6 literal [...]
         cond(
-          ((host_start < auth_end) && (s.bytes(host_start) == _LBRACKET)) => {
+          ((host_start < auth_end) && (s.byte_at(host_start) == _LBRACKET)) => {
             // IPv6: find closing ']'
             bracket_end := (host_start + usize(1));
-            while(runtime((bracket_end < auth_end) && (s.bytes(bracket_end) != _RBRACKET)), {
+            while(runtime((bracket_end < auth_end) && (s.byte_at(bracket_end) != _RBRACKET)), {
               bracket_end = (bracket_end + usize(1));
             });
             host_bytes := ArrayList(u8).new();
@@ -223,7 +223,7 @@ impl(
             while(runtime(hh <= bracket_end), {
               cond(
                 (hh < auth_end) => {
-                  host_bytes.push(s.bytes(hh));
+                  host_bytes.push(s.byte_at(hh));
                 },
                 true => ()
               );
@@ -233,7 +233,7 @@ impl(
             // Check for port after ']:'
             after_bracket := (bracket_end + usize(1));
             cond(
-              ((after_bracket < auth_end) && (s.bytes(after_bracket) == _COLON)) => {
+              ((after_bracket < auth_end) && (s.byte_at(after_bracket) == _COLON)) => {
                 port =.Some(_parse_port(s, after_bracket + usize(1), auth_end, exn));
               },
               true => ()
@@ -245,7 +245,7 @@ impl(
             cp := host_start;
             while(runtime(cp < auth_end), {
               cond(
-                (s.bytes(cp) == _COLON) => {
+                (s.byte_at(cp) == _COLON) => {
                   colon_pos =.Some(cp);
                   break;
                 },
@@ -260,7 +260,7 @@ impl(
                 host_b := ArrayList(u8).new();
                 hh2 := host_start;
                 while(runtime(hh2 < cp_val), {
-                  host_b.push(s.bytes(hh2));
+                  host_b.push(s.byte_at(hh2));
                   hh2 = (hh2 + usize(1));
                 });
                 host =.Some(String.from_bytes(host_b));
@@ -271,7 +271,7 @@ impl(
                 host_b := ArrayList(u8).new();
                 hh3 := host_start;
                 while(runtime(hh3 < auth_end), {
-                  host_b.push(s.bytes(hh3));
+                  host_b.push(s.byte_at(hh3));
                   hh3 = (hh3 + usize(1));
                 });
                 h := String.from_bytes(host_b);
@@ -294,7 +294,7 @@ impl(
     path_end := src_len;
     pp := pos;
     while(runtime(pp < src_len), {
-      ch := s.bytes(pp);
+      ch := s.byte_at(pp);
       cond(
         ((ch == _QUESTION) || (ch == _HASH)) => {
           path_end = pp;
@@ -309,7 +309,7 @@ impl(
         path_bytes := ArrayList(u8).new();
         pb := path_start;
         while(runtime(pb < path_end), {
-          path_bytes.push(s.bytes(pb));
+          path_bytes.push(s.byte_at(pb));
           pb = (pb + usize(1));
         });
         path_str = String.from_bytes(path_bytes);
@@ -320,14 +320,14 @@ impl(
     // --- Parse query ---
     (query : Option(String)) =.None;
     cond(
-      ((pos < src_len) && (s.bytes(pos) == _QUESTION)) => {
+      ((pos < src_len) && (s.byte_at(pos) == _QUESTION)) => {
         pos = (pos + usize(1)); // skip '?'
         q_start := pos;
         q_end := src_len;
         qq := pos;
         while(runtime(qq < src_len), {
           cond(
-            (s.bytes(qq) == _HASH) => {
+            (s.byte_at(qq) == _HASH) => {
               q_end = qq;
               break;
             },
@@ -338,7 +338,7 @@ impl(
         q_bytes := ArrayList(u8).new();
         qb := q_start;
         while(runtime(qb < q_end), {
-          q_bytes.push(s.bytes(qb));
+          q_bytes.push(s.byte_at(qb));
           qb = (qb + usize(1));
         });
         query =.Some(String.from_bytes(q_bytes));
@@ -349,12 +349,12 @@ impl(
     // --- Parse fragment ---
     (fragment : Option(String)) =.None;
     cond(
-      ((pos < src_len) && (s.bytes(pos) == _HASH)) => {
+      ((pos < src_len) && (s.byte_at(pos) == _HASH)) => {
         pos = (pos + usize(1)); // skip '#'
         f_bytes := ArrayList(u8).new();
         fb := pos;
         while(runtime(fb < src_len), {
-          f_bytes.push(s.bytes(fb));
+          f_bytes.push(s.byte_at(fb));
           fb = (fb + usize(1));
         });
         fragment =.Some(String.from_bytes(f_bytes));

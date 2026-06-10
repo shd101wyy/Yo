@@ -138,11 +138,10 @@ _base64_index :: (fn(c : u8) -> i32)({
 });
 /// Decode a base64 `String`, ignoring whitespace. Returns `Result(String, String)`.
 base64_decode_string :: (fn(input : String) -> Result(String, String))({
-  raw := input.as_str();
   cleaned := ArrayList(u8).new();
   i := usize(0);
-  while(i < raw.len(), i = (i + usize(1)), {
-    ch := raw.bytes(i);
+  while(i < input.bytes_len(), i = (i + usize(1)), {
+    ch := input.byte_at(i);
     cond(
       (((ch == u8(32)) || (ch == u8(9))) || ((ch == u8(10)) || (ch == u8(13)))) => (),
       true => {

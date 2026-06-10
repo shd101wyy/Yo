@@ -129,10 +129,10 @@ parse_ldflags_into :: (fn(raw : String, result : PkgConfigResult) -> PkgConfigRe
 build_fallback :: (fn(lib : BuildSystemLibrary) -> PkgConfigResult)({
   result := _empty_result();
   if(!(lib.fallback_include.is_empty()), {
-    result.include_paths.push(String.from(lib.fallback_include.as_str()));
+    result.include_paths.push(lib.fallback_include.clone());
   });
   if(!(lib.fallback_lib.is_empty()), {
-    result.library_paths.push(String.from(lib.fallback_lib.as_str()));
+    result.library_paths.push(lib.fallback_lib.clone());
   });
   if(!(lib.fallback_link.is_empty()), {
     // May contain multiple libs separated by spaces

@@ -92,7 +92,7 @@ format_typed_incr_rc_cast :: (
 /// Mirrors the inline `is_check` build in `generate_downcast_for_resolved_types`.
 format_dyn_typeid_check :: (fn(dyn_code : String, static_var : String) -> String)({
   // Reuse format_typeid_address_expr for the `(uintptr_t)&<name>` RHS.
-  s := String.from(dyn_code.as_str());
+  s := dyn_code.clone();
   s.push_str(".vtable->__yo_type_id == ");
   s.push_string(format_typeid_address_expr(static_var));
   s
@@ -179,7 +179,7 @@ generate_downcast_for_resolved_types :: (
       // The Dyn data pointer aliases the underlying object; dup it so
       // both the Dyn wrapper's drop and the cast result's drop can
       // each decrement RC.
-      dyn_data_expr := String.from(dyn_code.as_str());
+      dyn_data_expr := dyn_code.clone();
       dyn_data_expr.push_str(".data");
       cast_expr := format_typed_incr_rc_cast(target_c_name, dyn_data_expr, false);
       match(

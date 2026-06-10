@@ -692,14 +692,14 @@ _ti_bind_type :: (
   name_str := `__ti_t_${random_id(env_ptr.module_path)}`;
   _add := add_variable_to_env(
     env_ptr,
-    String.from(name_str.as_str()),
+    name_str.clone(),
     t_type(),
     Option(EvalValue).Some(EvalValue.TypeVal(box(ty))),
     true,
     false,
     false,
     false,
-    synthetic_token(String.from(name_str.as_str()), env_ptr.module_path)
+    synthetic_token(name_str.clone(), env_ptr.module_path)
   );
   name_str
 });
@@ -769,14 +769,14 @@ _ti_bind_comptime_list :: (
   name_str := `__ti_${var_prefix}_${random_id(env_ptr.module_path)}`;
   _add := add_variable_to_env(
     env_ptr,
-    String.from(name_str.as_str()),
+    name_str.clone(),
     list_type,
     Option(EvalValue).Some(list_val),
     true,
     false,
     false,
     false,
-    synthetic_token(String.from(name_str.as_str()), env_ptr.module_path)
+    synthetic_token(name_str.clone(), env_ptr.module_path)
   );
   name_str
 });
@@ -1447,14 +1447,14 @@ evaluate_type_join_fields :: (
   mapper_name := `__dm_${random_id(local_env.module_path)}`;
   _add_mapper := add_variable_to_env(
     local_env,
-    String.from(mapper_name.as_str()),
+    mapper_name.clone(),
     info1.ty,
     Option(EvalValue).Some(mapper_val),
     true,
     false,
     false,
     false,
-    synthetic_token(String.from(mapper_name.as_str()), local_env.module_path)
+    synthetic_token(mapper_name.clone(), local_env.module_path)
   );
   // Collect struct field label/type lists.
   struct_labels := match(
@@ -1497,14 +1497,14 @@ evaluate_type_join_fields :: (
     fi_name := `__da_${random_id(local_env.module_path)}`;
     _add_fi := add_variable_to_env(
       local_env,
-      String.from(fi_name.as_str()),
+      fi_name.clone(),
       fi_type,
       Option(EvalValue).Some(fi_val),
       true,
       false,
       false,
       false,
-      synthetic_token(String.from(fi_name.as_str()), local_env.module_path)
+      synthetic_token(fi_name.clone(), local_env.module_path)
     );
     call_code := (((mapper_name + String.from("(")) + fi_name) + String.from(")"));
     call_ast := generate_expr_from_code(call_code.as_str(), exn);
@@ -1702,14 +1702,14 @@ evaluate_type_map_variants :: (
   mapper_name := `__dvm_${random_id(local_env.module_path)}`;
   _add_mapper := add_variable_to_env(
     local_env,
-    String.from(mapper_name.as_str()),
+    mapper_name.clone(),
     info1.ty,
     Option(EvalValue).Some(mapper_val),
     true,
     false,
     false,
     false,
-    synthetic_token(String.from(mapper_name.as_str()), local_env.module_path)
+    synthetic_token(mapper_name.clone(), local_env.module_path)
   );
   // Extract enum variant data.
   variant_names := match(target_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
@@ -1729,14 +1729,14 @@ evaluate_type_map_variants :: (
     vi_name := `__dvi_${random_id(local_env.module_path)}`;
     _add_vi := add_variable_to_env(
       local_env,
-      String.from(vi_name.as_str()),
+      vi_name.clone(),
       vi_type,
       Option(EvalValue).Some(vi_val),
       true,
       false,
       false,
       false,
-      synthetic_token(String.from(vi_name.as_str()), local_env.module_path)
+      synthetic_token(vi_name.clone(), local_env.module_path)
     );
     call_code := (((mapper_name + String.from("(")) + vi_name) + String.from(")"));
     call_ast := generate_expr_from_code(call_code.as_str(), exn);

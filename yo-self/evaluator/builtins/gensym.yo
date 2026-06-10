@@ -132,7 +132,7 @@ evaluate_gensym :: (
     }
   );
   // Generate a unique symbol: prefix + random_id(env.modulePath).
-  symbol := (prefix + String.from(random_id(env.module_path).as_str()));
+  symbol := (prefix + random_id(env.module_path).clone());
   // Build a new Atom expression representing the generated identifier.
   tok := ast_expr_token(expr);
   // Fresh id — id-0 synthesized atoms all collide in the ExprInfo table
@@ -145,8 +145,8 @@ evaluate_gensym :: (
       row : tok.row,
       column : tok.column,
       character : tok.character,
-      module_path : String.from(tok.module_path.as_str()),
-      input : String.from(tok.input.as_str())
+      module_path : tok.module_path.clone(),
+      input : tok.input.clone()
     )
   );
   // Wrap the atom as an ExprVal.

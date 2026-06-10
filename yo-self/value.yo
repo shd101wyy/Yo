@@ -563,10 +563,10 @@ value_to_string :: (fn(v : EvalValue) -> String)(
     v,
     .UnitVal => String.from("()"),
     .BoolVal(b) => if(b, String.from("true"), String.from("false")),
-    .IntLit(raw) => String.from(raw.as_str()),
-    .FloatLit(raw) => String.from(raw.as_str()),
-    .StrLit(raw) => String.from(raw.as_str()),
-    .VarRef(name) => String.from(name.as_str()),
+    .IntLit(raw) => raw.clone(),
+    .FloatLit(raw) => raw.clone(),
+    .StrLit(raw) => raw.clone(),
+    .VarRef(name) => name.clone(),
     .EnumVal(variant, fields) =>
       cond(
         (fields.len() == usize(0)) => `${variant}`,

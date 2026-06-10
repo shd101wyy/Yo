@@ -1171,7 +1171,7 @@ Fix: wrap the call:
                 tf := ArrayList(TypeField).new();
                 (tfi : usize) = usize(0);
                 while(tfi < struct_field_labels.len(), {
-                  sf_lbl := match(struct_field_labels.get(tfi),.Some(l) => String.from(l.as_str()),.None => String.new());
+                  sf_lbl := match(struct_field_labels.get(tfi),.Some(l) => l.clone(),.None => String.new());
                   sf_ty := match(struct_field_types.get(tfi),.Some(t) => t,.None => TypeValue.Unit);
                   tf.push(
                     TypeField(
@@ -1226,7 +1226,7 @@ Fix: wrap the call:
                     match(
                       inner_v_s,
                       .Some(v_s2) => {
-                        lbl_s := match(fields.get(bi_s),.Some(f) => String.from(f.label.as_str()),.None => String.new());
+                        lbl_s := match(fields.get(bi_s),.Some(f) => f.label.clone(),.None => String.new());
                         fnames_s.push(lbl_s);
                         fvals_s.push(v_s2);
                       },
@@ -1237,7 +1237,7 @@ Fix: wrap the call:
                 );
                 bi_s = (bi_s + usize(1));
               });
-              Option(EvalValue).Some(EvalValue.StructVal(String.from(struct_name.as_str()), fnames_s, fvals_s))
+              Option(EvalValue).Some(EvalValue.StructVal(struct_name.clone(), fnames_s, fvals_s))
             }, Option(EvalValue).None);
             out_s := new_expr_info(call_result_s.caller_env, func_type);
             out_s.value = struct_val;
@@ -1300,7 +1300,7 @@ Fix: wrap the call:
             (tfi_e : usize) = usize(0);
             while(tfi_e < fields_for_var.len(), {
               vf_ty := match(fields_for_var.get(tfi_e),.Some(t) => t,.None => TypeValue.Unit);
-              vf_lbl := match(labels_for_var.get(tfi_e),.Some(l) => String.from(l.as_str()),.None => String.new());
+              vf_lbl := match(labels_for_var.get(tfi_e),.Some(l) => l.clone(),.None => String.new());
               tf_e.push(
                 TypeField(
                   label : vf_lbl,
@@ -1373,7 +1373,7 @@ Fix: wrap the call:
             tf_u := ArrayList(TypeField).new();
             (tfi_u : usize) = usize(0);
             while(tfi_u < union_labels.len(), {
-              u_lbl := match(union_labels.get(tfi_u),.Some(l) => String.from(l.as_str()),.None => String.new());
+              u_lbl := match(union_labels.get(tfi_u),.Some(l) => l.clone(),.None => String.new());
               u_ty := match(union_types.get(tfi_u),.Some(t) => t,.None => TypeValue.Unit);
               tf_u.push(
                 TypeField(
@@ -2348,8 +2348,8 @@ Fix: wrap the call:
                   row : recv_tok.row,
                   column : recv_tok.column,
                   character : recv_tok.character,
-                  module_path : String.from(recv_tok.module_path.as_str()),
-                  input : String.from(recv_tok.input.as_str())
+                  module_path : recv_tok.module_path.clone(),
+                  input : recv_tok.input.clone()
                 )
               );
               amp_args := ArrayList(AstExpr).new();

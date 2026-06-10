@@ -272,13 +272,13 @@ generate_yo_array_fill :: (
                 length := match(array_ty,.Array(_, n, _) => n, _ => usize(0));
                 temp_var_name := array_fill_temp_var_name(call_expr, ctx);
                 index_var_name := array_fill_index_var_name(call_expr, ctx);
-                line_decl := String.from(indent.as_str());
+                line_decl := indent.clone();
                 line_decl.push_string(array_type_name);
                 line_decl.push_str(" ");
                 line_decl.push_string(temp_var_name);
                 line_decl.push_str(";");
                 ctx.emitter.emit_string_line(line_decl);
-                line_for := String.from(indent.as_str());
+                line_for := indent.clone();
                 line_for.push_str("for (int ");
                 line_for.push_string(index_var_name);
                 line_for.push_str(" = 0; ");
@@ -289,7 +289,7 @@ generate_yo_array_fill :: (
                 line_for.push_string(index_var_name);
                 line_for.push_str("++) {");
                 ctx.emitter.emit_string_line(line_for);
-                line_assign := String.from(indent.as_str());
+                line_assign := indent.clone();
                 line_assign.push_str("  ");
                 line_assign.push_string(temp_var_name);
                 line_assign.push_str(".data[");
@@ -298,7 +298,7 @@ generate_yo_array_fill :: (
                 line_assign.push_string(fill_value_code);
                 line_assign.push_str(";");
                 ctx.emitter.emit_string_line(line_assign);
-                line_close := String.from(indent.as_str());
+                line_close := indent.clone();
                 line_close.push_str("}");
                 ctx.emitter.emit_string_line(line_close);
                 temp_var_name

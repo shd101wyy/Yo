@@ -73,7 +73,7 @@ format_dyn_compound_literal :: (
 /// The first `dyn(value)` lowering registers this key in `ctx.dyn_impls`;
 /// subsequent lowerings of the same (concrete, dyn) pair are deduped.
 format_dyn_impl_key :: (fn(concrete_c_name : String, dyn_c_name : String) -> String)({
-  s := String.from(concrete_c_name.as_str());
+  s := concrete_c_name.clone();
   s.push_str("_");
   s.push_string(dyn_c_name);
   s
@@ -85,7 +85,7 @@ format_dyn_impl_key :: (fn(concrete_c_name : String, dyn_c_name : String) -> Str
 format_dyn_struct_decl_header :: (
   fn(indent : String, dyn_c_name : String, temp_name : String) -> String
 )({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_string(dyn_c_name);
   s.push_str(" ");
   s.push_string(temp_name);
@@ -95,7 +95,7 @@ format_dyn_struct_decl_header :: (
 /// Format the dyn struct-literal `.data = ...` line:
 ///   `<indent>  .data = <value_code>,`
 format_dyn_data_init :: (fn(indent : String, value_code : String) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str("  .data = ");
   s.push_str(value_code.as_str());
   s.push_str(",");
@@ -104,7 +104,7 @@ format_dyn_data_init :: (fn(indent : String, value_code : String) -> String)({
 /// Format the dyn struct-literal `.vtable = &...` line:
 ///   `<indent>  .vtable = &<vtable_name>`
 format_dyn_vtable_init :: (fn(indent : String, vtable_name : String) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str("  .vtable = &");
   s.push_string(vtable_name);
   s

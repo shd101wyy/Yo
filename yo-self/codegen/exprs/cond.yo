@@ -427,7 +427,7 @@ generate_cond :: (
         },
         // Full if-else chain path.
         true => {
-          (current_indent : String) = String.from(indent.as_str());
+          (current_indent : String) = indent.clone();
           (else_depth : usize) = usize(0);
           (has_emitted : bool) = false;
           (j : usize) = usize(0);
@@ -493,7 +493,7 @@ generate_cond :: (
                             // Compile-time true in a subsequent arm uses currentIndent
                             // (no nested `if`); all other arms indent one level deeper.
                             value_indent := cond(
-                              (has_emitted && is_ct_true) => String.from(current_indent.as_str()),
+                              (has_emitted && is_ct_true) => current_indent.clone(),
                               true => indent_plus_two(current_indent)
                             );
 

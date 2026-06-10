@@ -1904,3 +1904,11 @@ test("String str-pattern overloads (StrPattern trait)", {
   assert(x.contains(String.from("world")), "contains String");
   assert(x.starts_with(String.from("hello")), "starts_with String");
 });
+test("String.byte_at indexes bytes", {
+  s := String.from("abc");
+  assert(s.byte_at(usize(0)) == u8(97), "byte 0");
+  assert(s.byte_at(usize(2)) == u8(99), "byte 2");
+  multi := String.from("café");
+  assert(multi.bytes_len() == usize(5), "UTF-8 byte length");
+  assert(multi.byte_at(usize(3)) == u8(195), "UTF-8 lead byte");
+});

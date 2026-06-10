@@ -89,24 +89,24 @@ resolve_module_path :: (
     module_path_to_import = Path.new(`${current_dir}/${module_path_to_import.as_str()}`).to_string();
   });
   // 4. Non-relative, non-absolute paths: resolve relative to CWD.
-  if(!(Path.new(String.from(module_path_to_import.as_str())).is_absolute()), {
+  if(!(Path.new(module_path_to_import.clone()).is_absolute()), {
     cwd_result := match(
       cwd(),
       .Ok(p) => p.to_string(),
       .Err(_) => String.from(".")
     );
-    module_path_to_import = Path.new(cwd_result).join(Path.new(String.from(module_path_to_import.as_str()))).to_string();
+    module_path_to_import = Path.new(cwd_result).join(Path.new(module_path_to_import.clone())).to_string();
   });
   // Extension resolution.
-  ext_opt := Path.new(String.from(module_path_to_import.as_str())).extension();
+  ext_opt := Path.new(module_path_to_import.clone()).extension();
   has_ext := match(ext_opt,.Some(_) => true,.None => false);
   if(has_ext, {
     return(ModuleResolveResult.Found(`file://${module_path_to_import}`));
   });
   yo_file_path := `${module_path_to_import}.yo`;
   index_yo_path := `${module_path_to_import}/index.yo`;
-  yo_exists := _file_exists_sync(String.from(yo_file_path.as_str()));
-  index_exists := _file_exists_sync(String.from(index_yo_path.as_str()));
+  yo_exists := _file_exists_sync(yo_file_path.clone());
+  index_exists := _file_exists_sync(index_yo_path.clone());
   cond(
     (yo_exists && index_exists) => ModuleResolveResult.Ambiguous(module_path_to_import),
     yo_exists => ModuleResolveResult.Found(`file://${yo_file_path}`),
@@ -353,7 +353,7 @@ evaluate_import :: (
   (module_path_to_import : String) = if(
     rn >= usize(2),
     raw_with_quotes.substring(usize(1), rn - usize(1)),
-    String.from(raw_with_quotes.as_str())
+    raw_with_quotes.clone()
   );
   // Disallow importing the prelude.
   if((module_path_to_import == "std/prelude") || (module_path_to_import == "std/prelude.yo"), {
@@ -374,7 +374,7 @@ evaluate_import :: (
   // Strip `file://` from the current module path to get the raw file-system path.
   current_file := env.module_path.replace(String.from("file://"), String.from(""));
   current_dir := match(
-    Path.new(String.from(current_file.as_str())).parent(),
+    Path.new(current_file.clone()).parent(),
     .Some(p) => p.to_string(),
     .None => String.from(".")
   );
@@ -422,7 +422,7 @@ evaluate_import :: (
   // and `open(import("…"))` find the names without a real ModuleManager.
   load_result := match(
     ctx.load_module,
-    .Some(load_fn) => load_fn(String.from(module_abs_path.as_str())),
+    .Some(load_fn) => load_fn(module_abs_path.clone()),
     .None => LoadModuleResult(
       module_value : _build_module_val_from_env(env),
       module_type : TypeValue.Unit,

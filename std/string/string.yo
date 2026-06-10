@@ -415,6 +415,20 @@ impl(
   bytes_len : (fn(self : Self) -> usize)(
     match(self._bytes,.Some(b) => b.len(),.None => usize(0))
   ),
+  /// Get the byte at the given index. Panics if the index is out of
+  /// bounds (mirrors `str`'s byte indexing). Use `bytes_len()` for the
+  /// valid range and `bytes()` for sequential iteration.
+  byte_at : (fn(self : Self, index : usize) -> u8)(
+    match(
+      self._bytes,
+      .Some(b) => match(
+        b.get(index),
+        .Some(v) => v,
+        .None => panic("String.byte_at: index out of bounds")
+      ),
+      .None => panic("String.byte_at: index out of bounds")
+    )
+  ),
   /**
   * Extract a substring from start to end character indices (like JavaScript substring)
   * Returns a new string containing characters from start (inclusive) to end (exclusive)

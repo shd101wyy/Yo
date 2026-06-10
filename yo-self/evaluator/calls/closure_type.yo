@@ -126,10 +126,10 @@ try_to_implement_closure_by_fn_module_type :: (
   while(pi < n_params, {
     p_label := match(param_labels.get(pi),.Some(l) => l,.None => String.from("_p"));
     p_type := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
-    p_tok := synthetic_token(String.from(p_label.as_str()), env.module_path);
+    p_tok := synthetic_token(p_label.clone(), env.module_path);
     _ := add_variable_to_env(
       env,
-      String.from(p_label.as_str()),
+      p_label.clone(),
       p_type,
       Option(EvalValue).None,
       // runtime value — unknown at definition time
@@ -196,7 +196,7 @@ try_to_implement_closure_by_fn_module_type :: (
     // cap_tys
     ArrayList(EvalValue).new(),
     // cap_vals
-    String.from(closure_id.as_str())
+    closure_id.clone()
   );
   // Create the function body evaluation context.
   eval_ctx := create_function_body_evaluation_context(

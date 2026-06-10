@@ -132,7 +132,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     lang_stripped := if(
       rn >= usize(2),
       raw_lang.substring(usize(1), rn - usize(1)),
-      String.from(raw_lang.as_str())
+      raw_lang.clone()
     );
     // Validate: must be "yo" or "c" (case-insensitive).
     lang_lower := lang_stripped.to_lowercase();
@@ -236,12 +236,12 @@ User code should normally call stdlib wrappers (e.g. functions in
         rir,
         hv,
         Option(String).Some(language.clone()),
-        Option(String).Some(String.from(result.label.as_str())),
+        Option(String).Some(result.label.clone()),
         ic
       ),
       _ => result.field_type
     );
-    field_labels.push(String.from(result.label.as_str()));
+    field_labels.push(result.label.clone());
     field_types.push(field_ty_with_extern);
     env.frames = result.env.frames;
     env.module_path = result.env.module_path;
@@ -250,9 +250,9 @@ User code should normally call stdlib wrappers (e.g. functions in
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
       env,
-      String.from(result.label.as_str()),
+      result.label.clone(),
       field_ty_with_extern,
-      Option(EvalValue).Some(create_unknown_val_with_name(field_ty_with_extern, String.from(result.label.as_str()))),
+      Option(EvalValue).Some(create_unknown_val_with_name(field_ty_with_extern, result.label.clone())),
       true,
       // is_compile_time_only
       false,

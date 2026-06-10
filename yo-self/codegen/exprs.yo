@@ -291,7 +291,7 @@ handle_begin :: (
       // Emit all but the last statement
       (i : usize) = usize(0);
       inner := {
-        result_so_far := String.from(indent.as_str());
+        result_so_far := indent.clone();
         result_so_far.push_str("  ");
         result_so_far
       };
@@ -344,7 +344,7 @@ emit_cond_as_if_else :: (
   ) -> Option(String)
 )({
   n := args.len();
-  inner := String.from(indent.as_str());
+  inner := indent.clone();
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
@@ -481,7 +481,7 @@ emit_cond_as_return_if_else :: (
   ) -> Option(String)
 )({
   n := args.len();
-  inner := String.from(indent.as_str());
+  inner := indent.clone();
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
@@ -886,7 +886,7 @@ emit_match_value_as_if_else :: (
   ) -> Option(String)
 )({
   n := arms.len();
-  inner := String.from(indent.as_str());
+  inner := indent.clone();
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
@@ -1565,7 +1565,7 @@ emit_option_null_if_else :: (
     indent : String
   ) -> unit
 )({
-  inner := String.from(indent.as_str());
+  inner := indent.clone();
   inner.push_str("  ");
   (i : usize) = usize(1);
   (some_pat_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -2138,7 +2138,7 @@ handle_for :: (
                   )
                 );
                 inner := {
-                  r := String.from(indent.as_str());
+                  r := indent.clone();
                   r.push_str("  ");
                   r
                 };
@@ -2315,7 +2315,7 @@ handle_while :: (
         .None => Option(String).None,
         .Some(c_cond) => {
           inner := {
-            r := String.from(indent.as_str());
+            r := indent.clone();
             r.push_str("  ");
             r
           };
@@ -2419,7 +2419,7 @@ handle_if :: (
               .None => Option(String).None,
               .Some(c) => {
                 inner := {
-                  r := String.from(indent.as_str());
+                  r := indent.clone();
                   r.push_str("  ");
                   r
                 };
@@ -3862,7 +3862,7 @@ ensure_generic_struct_instance :: (fn(ctx : CodegenContext, type_app_expr : AstE
               decl.push_string(concrete_name);
               decl.push_str(";");
               ctx.emitter.emit_declaration_string_line(decl);
-              ctx.register_struct(String.from(concrete_name.as_str()));
+              ctx.register_struct(concrete_name.clone());
               ctx.register_struct_fields(concrete_name.as_str(), fields_csv.as_str());
               ctx.register_struct_field_types(concrete_name.as_str(), field_types_csv.as_str());
             });
@@ -3956,7 +3956,7 @@ ensure_generic_value_struct :: (fn(ctx : CodegenContext, type_name : String, fie
     decl.push_string(type_name);
     decl.push_str(";");
     ctx.emitter.emit_declaration_string_line(decl);
-    ctx.register_struct(String.from(type_name.as_str()));
+    ctx.register_struct(type_name.clone());
     ctx.register_struct_fields(type_name.as_str(), "value");
     ctx.register_struct_field_types(type_name.as_str(), field_c_ty.as_str());
   });
@@ -5157,7 +5157,7 @@ capture_access_for_closure_var :: (
 )({
   san_var := sanitize_c_ident(closure_var_name);
   san_capture := sanitize_c_ident(capture_name);
-  result := String.from(san_var.as_str());
+  result := san_var.clone();
   closure_is_env_ptr := match(
     ctx.get_var_type(closure_var_name),
     .None => false,
@@ -5967,7 +5967,7 @@ handle_define :: (
                   box_constructor_elem_c_type(rhs_expr),
                   .None => (),
                   .Some(box_elem_ty) => {
-                    box_ptr_ty := String.from(box_elem_ty.as_str());
+                    box_ptr_ty := box_elem_ty.clone();
                     box_ptr_ty.push_str("*");
                     ctx.register_var_type(name_tok.value.as_str(), box_ptr_ty.as_str());
                     ctx.register_box_var(name_tok.value.as_str());
@@ -6333,7 +6333,7 @@ handle_define :: (
                       .Some(rhs_code) => {
                         // Use a temp variable to avoid evaluating RHS multiple times
                         tmp := ctx.fresh_temp();
-                        tmp_decl := String.from(indent.as_str());
+                        tmp_decl := indent.clone();
                         tmp_decl.push_str("__auto_type ");
                         tmp_decl.push_string(tmp);
                         tmp_decl.push_str(" = ");
@@ -6409,7 +6409,7 @@ handle_define :: (
                                                         bf_i = (bf_i + usize(1));
                                                       });
                                                       if(!(already_bound), {
-                                                        spread_bind := String.from(indent.as_str());
+                                                        spread_bind := indent.clone();
                                                         spread_bind.push_str("__auto_type ");
                                                         spread_bind.push_string(af_name);
                                                         spread_bind.push_str(" = ");
@@ -6429,7 +6429,7 @@ handle_define :: (
                                           // Normal labeled binding.
                                           true => {
                                             bound_fields.push(field_tok.value);
-                                            binding := String.from(indent.as_str());
+                                            binding := indent.clone();
                                             binding.push_str("__auto_type ");
                                             binding.push_string(var_tok.value);
                                             binding.push_str(" = ");
@@ -6462,7 +6462,7 @@ handle_define :: (
                                       r2
                                     }
                                   );
-                                  binding2 := String.from(indent.as_str());
+                                  binding2 := indent.clone();
                                   binding2.push_str("__auto_type ");
                                   binding2.push_string(var_name_p);
                                   binding2.push_str(" = ");
@@ -7004,7 +7004,7 @@ lift_impl_fn_i32_i32_lambda :: (
               ctx.register_var_type(param_name.as_str(), "int32_t");
               capture_opt := first_captured_ident_name(body_expr, param_name.as_str(), ctx);
               env_type := {
-                s := String.from(fn_name.as_str());
+                s := fn_name.clone();
                 s.push_str("_env");
                 s
               };
@@ -7037,7 +7037,7 @@ lift_impl_fn_i32_i32_lambda :: (
                   );
                   ctx.register_var_type(capture_name.as_str(), capture_ty.as_str());
                   env_var := {
-                    s2 := String.from(fn_name.as_str());
+                    s2 := fn_name.clone();
                     s2.push_str("_env_value");
                     s2
                   };
@@ -7896,7 +7896,7 @@ handle_dot_access :: (
                     )
                   ),
                 (is_deref && deref_is_value_payload) => {
-                  result := String.from(obj_code.as_str());
+                  result := obj_code.clone();
                   result.push_str("._0");
                   Option(String).Some(result)
                 },
@@ -10956,7 +10956,7 @@ handle_struct_constructor :: (
                 result.push_string(fname);
                 result.push_str(" = ");
                 result.push_string(fval);
-                provided_fields.push(String.from(fname.as_str()));
+                provided_fields.push(fname.clone());
                 first = false;
               }
             )
@@ -12506,11 +12506,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                       ctx.emitter.emit_line(";");
                       cond(
                         ctx.is_struct_name(alias_atom_tok.value.as_str()) => {
-                          ctx.register_struct(String.from(c_name.as_str()));
+                          ctx.register_struct(c_name.clone());
                           true
                         },
                         true => {
-                          ctx.register_enum(String.from(c_name.as_str()));
+                          ctx.register_enum(c_name.clone());
                           true
                         }
                       )
@@ -12561,7 +12561,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> O
                               ctx.emitter.emit(" ");
                               ctx.emitter.emit_string(san_type_name);
                               ctx.emitter.emit_line(";");
-                              ctx.register_struct(String.from(c_name.as_str()));
+                              ctx.register_struct(c_name.clone());
                             });
                             if(has_defaults_for_alias, {
                               ctx.register_struct_defaults(c_name.as_str(), defaults_csv_for_alias.as_str());

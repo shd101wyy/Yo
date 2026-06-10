@@ -292,7 +292,7 @@ compute_content_hash :: (
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
           // Read and sort subdir entries, push in reversed order
-          abs_sub := String.from(item.abs_path.as_str());
+          abs_sub := item.abs_path.clone();
           abs_sub.push_str("/");
           abs_sub.push_string(entry_name);
           sub_entries := io.await(read_dir(Path.new(abs_sub)), io);
@@ -304,7 +304,7 @@ compute_content_hash :: (
               sub_sorted.get(si),
               .None => (),
               .Some(e) => {
-                sub_rel := String.from(item.rel_path.as_str());
+                sub_rel := item.rel_path.clone();
                 sub_rel.push_str("/");
                 sub_rel.push_string(e.name);
                 is_subdir := match(e.file_type,.Directory => true, _ => false);
@@ -332,7 +332,7 @@ compute_content_hash :: (
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
           // Read file content, normalize line endings, then hash
-          abs_file := String.from(item.abs_path.as_str());
+          abs_file := item.abs_path.clone();
           abs_file.push_str("/");
           abs_file.push_string(entry_name);
           content := io.await(read_file(Path.new(abs_file)), io);
@@ -366,7 +366,7 @@ write_sidecar_hash :: (
 )(
   io.async((io) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
-    sidecar_content := String.from(content_hash.as_str());
+    sidecar_content := content_hash.clone();
     sidecar_content.push_str("\n");
     io.await(write_file(sidecar, sidecar_content), io);
   })
@@ -392,7 +392,7 @@ read_sidecar_hash :: (
 /// Build the local path for a cached dependency.
 get_cached_dep_dir :: (fn(cache_dir : String, dep_name : String, commit : String) -> String)({
   short_commit := commit.substring(usize(0), usize(12));
-  result := String.from(cache_dir.as_str());
+  result := cache_dir.clone();
   result.push_str("/");
   result.push_string(dep_name);
   result.push_str("-");
@@ -521,7 +521,7 @@ clone_repo :: (
     });
     // Use a temp dir for atomic clone
     temp_dir := {
-      t := String.from(cache_dir.as_str());
+      t := cache_dir.clone();
       t.push_str("/_tmp_");
       t.push_string(dep_name);
       t
@@ -573,7 +573,7 @@ clone_repo :: (
     });
     // Remove .git directory to save space
     git_dir_path := {
-      p := String.from(temp_dir.as_str());
+      p := temp_dir.clone();
       p.push_str("/.git");
       p
     };

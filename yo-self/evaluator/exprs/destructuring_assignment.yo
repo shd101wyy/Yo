@@ -240,13 +240,13 @@ handle_member_destructuring :: (
         fty := match(rhs_field_types.get(j),.Some(t) => t,.None => TypeValue.Unit);
         if(!(_label_already_seen(seen_labels, flab.as_str())), {
           {
-            ___ := seen_labels.push(String.from(flab.as_str()));
+            ___ := seen_labels.push(flab.clone());
           };
           {
             ___ := runtime_destructurings.push(
               RuntimeDestructuring(
-                label : String.from(flab.as_str()),
-                variable_name : String.from(flab.as_str()),
+                label : flab.clone(),
+                variable_name : flab.clone(),
                 ty : fty
               )
             );
@@ -271,7 +271,7 @@ handle_member_destructuring :: (
           {
             ___ := add_variable_to_env(
               env,
-              String.from(flab.as_str()),
+              flab.clone(),
               fty,
               match(fval_opt,.Some(fv) => Option(EvalValue).Some(clone_value(fv, true)),.None => Option(EvalValue).None),
               is_compile_time_only,
@@ -354,7 +354,7 @@ handle_member_destructuring :: (
         );
         if(ast_expr_is_atom(right_side) && is_valid_variable_name(right_side), {
           rename_expr_opt = Option(AstExpr).Some(right_side);
-          variable_name_opt = Option(String).Some(String.from(ast_expr_token(right_side).value.as_str()));
+          variable_name_opt = Option(String).Some(ast_expr_token(right_side).value.clone());
           variable_token_opt = Option(AstExpr).Some(right_side);
         }, {
           exn.throw(
@@ -381,12 +381,12 @@ handle_member_destructuring :: (
           );
         });
         {
-          ___ := seen_labels.push(String.from(rhs_field_label.as_str()));
+          ___ := seen_labels.push(rhs_field_label.clone());
         };
         {
           ___ := runtime_destructurings.push(
             RuntimeDestructuring(
-              label : String.from(rhs_field_label.as_str()),
+              label : rhs_field_label.clone(),
               variable_name : match(variable_name_opt,.Some(s) => s,.None => String.from("")),
               ty : rhs_field_type
             )
@@ -439,14 +439,14 @@ handle_member_destructuring :: (
           );
         });
         {
-          ___ := seen_labels.push(String.from(rhs_field_label.as_str()));
+          ___ := seen_labels.push(rhs_field_label.clone());
         };
-        pos_var_name := String.from(ast_expr_token(lhs_field).value.as_str());
+        pos_var_name := ast_expr_token(lhs_field).value.clone();
         {
           ___ := runtime_destructurings.push(
             RuntimeDestructuring(
-              label : String.from(rhs_field_label.as_str()),
-              variable_name : String.from(pos_var_name.as_str()),
+              label : rhs_field_label.clone(),
+              variable_name : pos_var_name.clone(),
               ty : rhs_field_type
             )
           );
@@ -495,7 +495,7 @@ handle_member_destructuring :: (
           });
           added_var_opt := add_variable_to_env(
             env,
-            String.from(var_name.as_str()),
+            var_name.clone(),
             rhs_field_type,
             match(field_value_opt,.Some(fv) => Option(EvalValue).Some(clone_value(fv, true)),.None => Option(EvalValue).None),
             is_compile_time_only,

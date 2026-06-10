@@ -113,7 +113,7 @@ format_panic_abort_line :: (fn(indent : String) -> String)(
 /// C-string panic message path (compile-time literal or non-`str`
 /// runtime expression). Pure string composition.
 format_panic_fprintf_cstr :: (fn(indent : String, msg_code : String) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str("fprintf(stderr, \"%s\\n\", ");
   s.push_string(msg_code);
   s.push_str(");");
@@ -127,7 +127,7 @@ format_panic_fprintf_cstr :: (fn(indent : String, msg_code : String) -> String)(
 format_panic_fprintf_str_newtype :: (
   fn(indent : String, msg_code : String) -> String
 )({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str("fprintf(stderr, \"%.*s\\n\", (int)");
   s.push_string(msg_code);
   s.push_str(".length, ");

@@ -133,7 +133,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
         _name_in_visited(visited, sname) => TypeValue.TypeUni(usize(0)),
         true => {
           new_visited := visited.clone();
-          new_visited.push(String.from(sname.as_str()));
+          new_visited.push(sname.clone());
           _determine_type_universe(ftypes, new_visited)
         }
       ),
@@ -143,7 +143,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
         _name_in_visited(visited, ename) => TypeValue.TypeUni(usize(0)),
         true => {
           new_visited := visited.clone();
-          new_visited.push(String.from(ename.as_str()));
+          new_visited.push(ename.clone());
           all_fields := ArrayList(TypeValue).new();
           vi := usize(0);
           while(vi < variant_fields.len(), {
@@ -165,7 +165,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
         _name_in_visited(visited, uname) => TypeValue.TypeUni(usize(0)),
         true => {
           new_visited := visited.clone();
-          new_visited.push(String.from(uname.as_str()));
+          new_visited.push(uname.clone());
           _determine_type_universe(ftypes, new_visited)
         }
       ),

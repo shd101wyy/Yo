@@ -191,7 +191,7 @@ should_avoid_const :: (fn(t : TypeValue) -> bool)(is_object_type(t));
 /// block-style codegen (cond arms, begin blocks, while bodies, async
 /// continuations, …). Pure string composition.
 indent_plus_two :: (fn(indent : String) -> String)(
-  String.from(indent.as_str()) + String.from("  ")
+  indent.clone() + String.from("  ")
 );
 /// Return `indent` with the trailing two spaces removed (or the empty
 /// string when `indent` is shorter than 2). Mirror of
@@ -210,7 +210,7 @@ indent_minus_two :: (fn(indent : String) -> String)(
 /// caller is responsible for ensuring `code` is a valid C expression
 /// rather than a statement (and thus needs its own trailing `;`).
 format_indented_stmt :: (fn(indent : String, code : String) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_string(code);
   s.push_str(";");
   s
@@ -222,7 +222,7 @@ format_indented_stmt :: (fn(indent : String, code : String) -> String)({
 /// is itself a block-shape line like `if (...) {`). Pure string
 /// composition.
 format_indented_line :: (fn(indent : String, body : str) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str(body);
   s
 });
@@ -234,7 +234,7 @@ format_indented_line :: (fn(indent : String, body : str) -> String)({
 format_typed_init_line :: (
   fn(indent : String, type_and_name : String, value_code : String) -> String
 )({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_string(type_and_name);
   s.push_str(" = ");
   s.push_string(value_code);
@@ -249,7 +249,7 @@ format_typed_init_line :: (
 format_typed_decl_line :: (
   fn(indent : String, type_and_name : String) -> String
 )({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_string(type_and_name);
   s.push_str(";");
   s
@@ -258,7 +258,7 @@ format_typed_decl_line :: (
 /// terminator shared by cond/while/and-or/if-else chain emitters and
 /// match's case-block close. Pure string composition.
 format_indented_close_brace :: (fn(indent : String) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str("}");
   s
 });
@@ -297,7 +297,7 @@ format_void_ptr_data_cast :: (fn(value_code : String) -> String)({
 /// by cond's first-runtime-arm header and and-or's intermediate-AND
 /// chain header.
 format_if_open :: (fn(indent : String, cond_code : String) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str("if (");
   s.push_string(cond_code);
   s.push_str(") {");
@@ -307,7 +307,7 @@ format_if_open :: (fn(indent : String, cond_code : String) -> String)({
 /// Used by and-or's intermediate-OR chain header and while's
 /// break-on-condition-false guard.
 format_if_negate_open :: (fn(indent : String, cond_code : String) -> String)({
-  s := String.from(indent.as_str());
+  s := indent.clone();
   s.push_str("if (!(");
   s.push_string(cond_code);
   s.push_str(")) {");

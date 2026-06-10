@@ -240,7 +240,7 @@ get_atomic_object_root_type :: (
   if(var_name.is_empty(), {
     return(Option(TypeValue).None);
   });
-  variables := get_variables_from_env(env, String.from(var_name.as_str()));
+  variables := get_variables_from_env(env, var_name.clone());
   if(variables.len() == usize(0), {
     return(Option(TypeValue).None);
   });
@@ -718,7 +718,7 @@ evaluate_assignment :: (
       // Simple identifier: x = rhs
       // For a plain identifier we just read the name from its token.
       // (Full evaluateIdentifierAndOperator is a Phase 3 concern.)
-      variable_name = String.from(ast_expr_token(lhs).value.as_str());
+      variable_name = ast_expr_token(lhs).value.clone();
     },
     true => {
       // Typed binding: (x : T) = rhs
@@ -734,7 +734,7 @@ evaluate_assignment :: (
         },
         .None => ()
       );
-      variable_name = String.from(binding.variable_name.as_str());
+      variable_name = binding.variable_name.clone();
       lhs_resolved = binding.variable_expr;
     }
   );

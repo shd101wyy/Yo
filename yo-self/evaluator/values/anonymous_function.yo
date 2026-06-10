@@ -298,7 +298,7 @@ _check_anon_fn_captures :: (
         },
         .Some(k) => {
           match(
-            caps.get(String.from(k.as_str())),
+            caps.get(k.clone()),
             .Some(ci) => if(ci.frame_level < outer_frames_len, {
               if(names.len() > usize(0), {
                 names = `${names}, `;
@@ -337,7 +337,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
       },
       .Some(k) => {
         match(
-          caps.get(String.from(k.as_str())),
+          caps.get(k.clone()),
           .Some(ci) => {
             // Mirror TS: `if (captureInfo.frameLevel >= env.frames.length)
             // continue` — only true outer captures are checked.

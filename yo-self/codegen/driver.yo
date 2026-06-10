@@ -711,7 +711,7 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : CodegenContext) -> unit)({
   // Also skip structs with Self-typed fields (cannot be emitted as valid C without
   // forward declarations and struct-tag syntax)
   if((!(ctx.is_struct_name(sd.name.as_str()))) && (!(struct_has_self_fields(sd))), {
-    ctx.register_struct(String.from(sd.name.as_str()));
+    ctx.register_struct(sd.name.clone());
     // Build field names CSV for open/destructuring support
     fields_csv_buf := String.new();
     // Build field types CSV for derive(ToString) support
@@ -905,7 +905,7 @@ extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
 /// Emit a C typedef union for a `UnionDef` into the context's declarations buffer.
 emit_union_to_c :: (fn(ud : UnionDef, ctx : CodegenContext) -> unit)({
   if(!(ctx.is_struct_name(ud.name.as_str())), {
-    ctx.register_struct(String.from(ud.name.as_str()));
+    ctx.register_struct(ud.name.clone());
     // Build field names CSV for destructuring support
     fields_csv_buf := String.new();
     nf := ud.field_names.len();
@@ -1257,7 +1257,7 @@ _extract_one_variant :: (fn(v_expr : AstExpr, next_disc : usize) -> Option(EnumV
     // Simple atom variant: `Red`
     .Atom(_, vtok) => Option(EnumVariant).Some(
       EnumVariant(
-        name : String.from(vtok.value.as_str()),
+        name : vtok.value.clone(),
         fields : ArrayList(EnumVariantField).new(),
         disc : next_disc
       )
@@ -1302,7 +1302,7 @@ _extract_one_variant :: (fn(v_expr : AstExpr, next_disc : usize) -> Option(EnumV
                       lhs,
                       .Atom(_, ln) => Option(EnumVariant).Some(
                         EnumVariant(
-                          name : String.from(ln.value.as_str()),
+                          name : ln.value.clone(),
                           fields : ArrayList(EnumVariantField).new(),
                           disc : disc_val
                         )
@@ -1467,7 +1467,7 @@ _register_enum_variants :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
 /// Callers are responsible for calling this only once per enum name (the last
 /// definition wins) via `emit_local_type_defs`.
 emit_enum_to_c :: (fn(ed : EnumDef, ctx : CodegenContext) -> unit)({
-  ctx.register_enum(String.from(ed.name.as_str()));
+  ctx.register_enum(ed.name.clone());
   _register_enum_variants(ed, ctx);
   nv := ed.variants.len();
   cond(
@@ -1735,7 +1735,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                           param_expr2,
                           .Atom(_, ptok2) => cond(
                             (ptok2.kind == TokenKind.Identifier) => {
-                              out_params2.push(String.from(ptok2.value.as_str()));
+                              out_params2.push(ptok2.value.clone());
                               out_param_tys2.push(String.from("void*"));
                             },
                             true => ()
@@ -2416,10 +2416,10 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
                                             match(
                                               c.get_struct_fields(rhs_tok.value.as_str()),
                                               .None => {
-                                                c.register_struct(String.from(lhs_tok.value.as_str()));
+                                                c.register_struct(lhs_tok.value.clone());
                                               },
                                               .Some(fcsv) => {
-                                                c.register_struct(String.from(lhs_tok.value.as_str()));
+                                                c.register_struct(lhs_tok.value.clone());
                                                 c.register_struct_fields(lhs_tok.value.as_str(), fcsv.as_str());
                                               }
                                             );
@@ -2433,7 +2433,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
                                             td.push_string(lhs_tok.value);
                                             td.push_str(";");
                                             c.emitter.emit_declaration_string_line(td);
-                                            c.register_enum(String.from(lhs_tok.value.as_str()));
+                                            c.register_enum(lhs_tok.value.clone());
                                             true
                                           },
                                           true => false
@@ -4544,7 +4544,7 @@ compile_module_to_c :: (
         match(
           extract_fn_def(expr),
           .Some(fd) => {
-            name_copy := String.from(fd.name.as_str());
+            name_copy := fd.name.clone();
             pctx.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
             pctx.register_fn_return_type(fd.name.as_str(), fd.ret_ty_c.as_str());
           },
@@ -4577,7 +4577,7 @@ compile_module_to_c :: (
                               impl_fns.get(mi - usize(1)),
                               .None => (),
                               .Some(ifd) => {
-                                iname := String.from(ifd.name.as_str());
+                                iname := ifd.name.clone();
                                 pctx.register_fn_with_params(iname, build_param_tys_pipe(ifd.param_tys));
                                 pctx.register_fn_return_type(ifd.name.as_str(), ifd.ret_ty_c.as_str());
                               }
@@ -4862,7 +4862,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                               impl_fns_tp.get(ii - usize(1)),
                               .None => (),
                               .Some(ifd) => {
-                                pctx.register_fn_with_params(String.from(ifd.name.as_str()), build_param_tys_pipe(ifd.param_tys));
+                                pctx.register_fn_with_params(ifd.name.clone(), build_param_tys_pipe(ifd.param_tys));
                                 pctx.register_fn_return_type(ifd.name.as_str(), ifd.ret_ty_c.as_str());
                               }
                             );
@@ -4876,7 +4876,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
             );
           },
           .Some(fd) => {
-            name_copy := String.from(fd.name.as_str());
+            name_copy := fd.name.clone();
             pctx.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
             pctx.register_fn_return_type(fd.name.as_str(), fd.ret_ty_c.as_str());
           }
@@ -5084,7 +5084,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
       .Some(lfd0) => {
         // Only pre-register impl method names (called as TypeName.method()).
         if(lfd0.is_impl, {
-          pctx.register_fn_with_params(String.from(lfd0.name.as_str()), build_param_tys_pipe(lfd0.param_tys));
+          pctx.register_fn_with_params(lfd0.name.clone(), build_param_tys_pipe(lfd0.param_tys));
           pctx.register_fn_return_type(lfd0.name.as_str(), lfd0.ret_ty_c.as_str());
         });
       }
@@ -5143,12 +5143,12 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
               pctx
             );
             pctx.set_self_type("");
-            _rh2 := hoisted_names.push(String.from(lfd.name.as_str()));
+            _rh2 := hoisted_names.push(lfd.name.clone());
             ()
           },
           (is_fn_name_called(lfd.name.as_str(), body)) => {
             // Regular local function that is directly called in the test body.
-            name_copy2 := String.from(lfd.name.as_str());
+            name_copy2 := lfd.name.clone();
             pctx.register_fn_with_params(name_copy2, build_param_tys_pipe(lfd.param_tys));
             pctx.register_fn_return_type(lfd.name.as_str(), lfd.ret_ty_c.as_str());
             c_name2 := `fn_${ lfd.name }`;
@@ -5167,7 +5167,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
               lfd.body,
               pctx
             );
-            _rh := hoisted_names.push(String.from(lfd.name.as_str()));
+            _rh := hoisted_names.push(lfd.name.clone());
             ()
           },
           true => ()

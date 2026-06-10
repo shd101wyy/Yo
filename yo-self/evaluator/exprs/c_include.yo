@@ -140,7 +140,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   (c_header_file : String) = if(
     rn >= usize(2),
     raw_hdr.substring(usize(1), rn - usize(1)),
-    String.from(raw_hdr.as_str())
+    raw_hdr.clone()
   );
   if(c_header_file.len() == usize(0), {
     exn.throw(
@@ -231,12 +231,12 @@ User code should normally call stdlib wrappers (e.g. functions in
         rir,
         hv,
         Option(String).Some(String.from("c")),
-        Option(String).Some(String.from(result.label.as_str())),
+        Option(String).Some(result.label.clone()),
         ic
       ),
       _ => result.field_type
     );
-    field_labels.push(String.from(result.label.as_str()));
+    field_labels.push(result.label.clone());
     field_types.push(field_ty_with_extern);
     env.frames = result.env.frames;
     env.module_path = result.env.module_path;
@@ -255,7 +255,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
       env,
-      String.from(result.label.as_str()),
+      result.label.clone(),
       field_ty_with_extern,
       Option(EvalValue).Some(field_val),
       true,

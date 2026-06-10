@@ -87,7 +87,7 @@ evaluate_anonymous_struct_value :: (
   struct_id := `struct_${random_id(cur_env.module_path)}`;
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
   prelim_ty := TypeValue.Struct(
-    String.from(struct_id.as_str()),
+    struct_id.clone(),
     String.from(""),
     ArrayList(String).new(),
     ArrayList(TypeValue).new(),
@@ -170,12 +170,12 @@ evaluate_anonymous_struct_value :: (
       .Some(l) => l,
       .None => `__field_${random_id(cur_env.module_path)}`
     );
-    field_labels.push(String.from(label.as_str()));
+    field_labels.push(label.clone());
     field_types.push(field_ty);
     field_values.push(field_val_opt);
     runtime_arg_exprs.push(evaluated_arg);
     yofield := TypeField(
-      label : String.from(label.as_str()),
+      label : label.clone(),
       ty : field_ty,
       is_comptime : false,
       default_value : Option(EvalValue).None,
@@ -192,7 +192,7 @@ evaluate_anonymous_struct_value :: (
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForStructType — no-op stub.
   // Build final struct TypeValue
   struct_ty := TypeValue.Struct(
-    String.from(struct_id.as_str()),
+    struct_id.clone(),
     String.from(""),
     field_labels,
     field_types,
@@ -204,7 +204,7 @@ evaluate_anonymous_struct_value :: (
     false
   );
   // Register struct fields in global registry
-  register_struct_fields(String.from(struct_id.as_str()), all_type_fields);
+  register_struct_fields(struct_id.clone(), all_type_fields);
   // Build struct value if all fields are comptime-known
   all_comptime := {
     (ac : bool) = true;
@@ -253,7 +253,7 @@ evaluate_anonymous_struct_value :: (
         );
         si = (si + usize(1));
       });
-      Option(EvalValue).Some(EvalValue.StructVal(String.from(struct_id.as_str()), sv_names, sv_vals))
+      Option(EvalValue).Some(EvalValue.StructVal(struct_id.clone(), sv_names, sv_vals))
     },
     true => Option(EvalValue).None
   );
@@ -266,7 +266,7 @@ evaluate_anonymous_struct_value :: (
   // Add struct type to env as a comptime variable named by struct_id
   ___ := add_variable_to_env(
     cur_env,
-    String.from(struct_id.as_str()),
+    struct_id.clone(),
     meta_ty,
     Option(EvalValue).Some(struct_type_val),
     true,

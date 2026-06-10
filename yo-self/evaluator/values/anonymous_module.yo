@@ -554,7 +554,7 @@ evaluate_anonymous_module_begin_exprs :: (
   // plans/MODULE_AS_STRUCT_ALIGNMENT.md.
   sns_id := `source_namespace_${random_id(env.module_path)}`;
   module_type := TypeValue.Struct(
-    String.from(sns_id.as_str()),
+    sns_id.clone(),
     String.from(""),
     field_labels,
     field_types,
@@ -570,7 +570,7 @@ evaluate_anonymous_module_begin_exprs :: (
     // type_arguments
     true // is_source_namespace
   );
-  module_val := EvalValue.StructVal(String.from(sns_id.as_str()), module_names, module_vals);
+  module_val := EvalValue.StructVal(sns_id.clone(), module_names, module_vals);
   AnonModuleResult(
     module_value : module_val,
     module_type : module_type,

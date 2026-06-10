@@ -221,7 +221,7 @@ is_box_type :: (fn(t : TypeValue) -> bool)(
     .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
       (!(is_ref)) => false,
       (field_labels.len() != usize(1)) => false,
-      (!(String.from(name.as_str()).starts_with(String.from("Box(")))) => false,
+      (!(name.clone().starts_with(String.from("Box(")))) => false,
       true => match(
         field_labels.get(usize(0)),
         .Some(label) => (label == "*"),

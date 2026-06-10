@@ -217,7 +217,7 @@ collect_module_deps :: (
       return(());
     });
     rest := String.from(path_str).substring(usize(4), String.from(path_str).len());
-    effective_path = String.from(rest.as_str());
+    effective_path = rest.clone();
     effective_base = String.from(std_base);
   });
   // Normalize extension: append .yo if missing
@@ -230,12 +230,12 @@ collect_module_deps :: (
   // relative imports like "../string" from within std/imm/). With std_base
   // set, std/ resolves into std_base and these paths should be followed.
   if((String.from(std_base).len() == usize(0)) &&
-    String.from(abs_path_raw.as_str()).starts_with(String.from("std/")), {
+    abs_path_raw.clone().starts_with(String.from("std/")), {
     return(());
   });
   // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
-  (abs_path : String) = String.from(abs_path_raw.as_str());
-  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str())), io), io);
+  (abs_path : String) = abs_path_raw.clone();
+  (file_found : bool) = io.await(exists(Path.new(abs_path_raw.clone()), io), io);
   if(!(file_found), {
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
@@ -271,17 +271,17 @@ collect_module_deps :: (
     return(());
   });
   // Mark as visited before recursing (prevents infinite loops on cycles)
-  visited.push(String.from(abs_path.as_str()));
+  visited.push(abs_path.clone());
   // Compute the base directory of the imported module for recursive resolution
   mod_base_dir := match(
-    Path.new(String.from(abs_path.as_str())).parent(),
+    Path.new(abs_path.clone()).parent(),
     .None => String.from("."),
     .Some(p) => p.to_string()
   );
   // Read and parse the imported module
-  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str())), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read_file(Path.new(abs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
-  mod_exprs := parse(src, String.from(mod_base_dir.as_str()), exn);
+  mod_exprs := parse(src, mod_base_dir.clone(), exn);
   // Recursively collect dependencies of this module first (post-order DFS)
   nm := mod_exprs.len();
   (im : usize) = usize(0);
@@ -390,12 +390,12 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   std_path := match(g_loader_std_path,.Some(s) => s,.None => String.from(""));
   exn := match(g_loader_exn,.Some(e) => e,.None => return(()));
   fs_path := abs.replace(String.from("file://"), String.from(""));
-  src_bytes := io.await(read_file(Path.new(String.from(fs_path.as_str())), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read_file(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, abs.clone(), exn);
   env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(abs.clone())));
   env.module_path = abs.clone();
-  ctx := eval_context_new(String.from(std_path.as_str()), abs.clone());
+  ctx := eval_context_new(std_path.clone(), abs.clone());
   ctx.is_executing = true;
   ctx.load_module = g_demand_loader;
   register_evaluate_expression();
@@ -816,7 +816,7 @@ run_test :: (
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
   input_base_dir := match(
-    Path.new(String.from(input_path.as_str())).parent(),
+    Path.new(input_path.clone()).parent(),
     .None => String.from("."),
     .Some(p) => p.to_string()
   );

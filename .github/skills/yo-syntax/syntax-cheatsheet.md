@@ -1017,17 +1017,17 @@ lines.push(`**Implements:** ${sep.join(names)}`);
 
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
-String (and other RC object) fields of structs can be passed directly to `ArrayList.push()`. Calling `.clone()` triggers an ambiguity error between `fn(self: String)` and `fn(self: *(String))` overloads.
+String (and other RC object) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
 
 ```rust
-// ❌ Ambiguous clone call
-names.push(param.name.clone());
-
-// ✅ Push directly — RC bump happens automatically
 names.push(param.name);
 ```
 
-If explicit clone is needed elsewhere, use `(&field).clone()` to select the pointer overload.
+`.clone()` on String fields also works (`names.push(param.name.clone())`,
+`h.name.clone()` — verified 2026-06); the historical
+`fn(self: String)` vs `fn(self: *(String))` ambiguity error no longer
+reproduces. `x.clone()` is the idiomatic replacement for the retired
+`String.from(x.as_str())` roundtrip.
 
 ### `.Some(expr)` in expression position is parsed as a 2-arg property access
 

@@ -222,7 +222,7 @@ evaluate_initialization_assignment :: (
   });
   // Prevent declaring variable type using :: or :=.
   if(ast_expr_is_fn_call(actual_lhs) && ast_expr_is_fn_call_of(actual_lhs, BK_COLON,.None), {
-    op_str := String.from(ast_expr_token(expr).value.as_str());
+    op_str := ast_expr_token(expr).value.clone();
     exn.throw(
       dyn(
         format_error_message(
@@ -370,7 +370,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     );
     // Validate LHS name.
     if(!(is_valid_variable_name(actual_lhs)), {
-      lhs_tok_val := String.from(ast_expr_token(actual_lhs).value.as_str());
+      lhs_tok_val := ast_expr_token(actual_lhs).value.clone();
       exn.throw(
         dyn(
           format_error_message(
@@ -510,7 +510,7 @@ ${expr_str}`,
     );
     // Reject runtime value for a compile-time-only declaration.
     if(rhs_value_opt.is_none() && effective_is_compile_time_only, {
-      lhs_tok_val := String.from(ast_expr_token(actual_lhs).value.as_str());
+      lhs_tok_val := ast_expr_token(actual_lhs).value.clone();
       rhs_str := ast_expr_to_string(rhs);
       exn.throw(
         dyn(
@@ -539,7 +539,7 @@ ${rhs_str}`,
       .Some(rv) => match(
         rv,
         .TypeVal(tv_box) => {
-          binding_name := String.from(ast_expr_token(actual_lhs).value.as_str());
+          binding_name := ast_expr_token(actual_lhs).value.clone();
           stamped_ty := match(
             tv_box.*,
             .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
@@ -629,7 +629,7 @@ ${rhs_str}`,
       (actual_lhs_tok.value == String.from("_")) =>
         generate_new_temp_variable_name(env.module_path),
       true =>
-        String.from(actual_lhs_tok.value.as_str())
+        actual_lhs_tok.value.clone()
     );
     // Reject mutable runtime variable inside an impl block.
     is_runtime_not_in_fn := (!(effective_is_compile_time_only) && !(ctx.is_evaluating_function_body_or_async_block.is_some()));
