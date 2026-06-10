@@ -261,6 +261,29 @@ impl(forall(T), where(T <: ToString), Box(T),
 - `forall(T)` + `where(T <: Trait)` for generic impls
 - Trait impls: `impl(MyType, MyTrait(args), : trait_field_bindings...)`
 
+### Method overloading: inherent NO, trait YES
+
+Inherent methods cannot be overloaded — a second same-name inherent method is
+rejected ("Method already defined" across impl blocks, "variable shadowing"
+within one). But **trait-provided methods may share a name** with an inherent
+method and with same-name methods from other traits; dispatch picks by
+argument types. This is how std gives `String` both `contains(String)`
+(inherent) and `contains(str)` (via the `StrPattern` trait), and both
+`Eq(String)` and `Eq(str)` `(==)` overloads:
+
+```rust
+PickStr :: trait(pick : (fn(self : Self, x : str) -> i32));
+impl(V, pick : (fn(self : Self, x : V) -> i32)(i32(1)));        // inherent
+impl(V, PickStr(pick : (fn(self : Self, x : str) -> i32)(i32(2))));
+v.pick(v);    // 1 — inherent overload
+v.pick("s");  // 2 — trait overload, chosen by argument type
+```
+
+- Heterogeneous parametric-trait impls work: `impl(String, Eq(str)(...))`
+  beside `impl(String, Eq(String)(...))`; `x == "lit"` dispatches by RHS type.
+- Provide only `(==)`; `(!=)` comes from the `Eq` trait's `?=` default and
+  resolves to the right overload by argument types.
+
 ## Partial application
 
 ```rust

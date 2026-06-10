@@ -168,7 +168,16 @@ With no raw-ptr-carrying values constructible in safe code:
 
 ## Status
 
-- [ ] 1. `String == str` + literal-overload std additions
+- [x] 1. `String == str` + literal-overload std additions — DONE.
+  `impl(String, Eq(str))` + `impl(str, Eq(String))` (direct memcmp, `(!=)`
+  via the trait `?=` default) and the `StrPattern` trait on `String`
+  (`contains`/`starts_with`/`ends_with`/`index_of`/`last_index_of`/`split`
+  taking `str`; inherent methods cannot be overloaded, trait methods can).
+  Two TS evaluator dispatch bugs fixed on the way (specializedType env
+  mixing + first-match method shadowing) —
+  `issues/fixed/heterogeneous-eq-overload-dispatch.md`. yo-self needs no
+  port (registry returns all overloads; no specializedType). Validated:
+  std 151/151 (TS + yo-self-bin), bun 459, string tests 249, impl tests 6.
 - [ ] 2. mechanical `as_str()` comparison sweep (yo-self / tests / std)
 - [ ] 3. remaining `as_str()` + `: str` param audit
 - [ ] 4. `Slice(T)` safe-code naming gate + remove `as_str`/`as_slice`

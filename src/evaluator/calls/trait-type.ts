@@ -362,11 +362,26 @@ Got:   ${typeToString(argType)}`,
             // because those are the labels used in the function body. The traitFieldType
             // has labels from the trait definition (e.g., lhs, rhs) which don't match
             // the actual parameter names in the anonymous function (e.g., a, b).
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // IMPORTANT: But each parameter's type AND type exprs must come from
+            // traitFieldType, NOT argValue.type. The specializedType's env is
+            // traitFieldType.env (the trait definition's env), and call sites
+            // re-evaluate parameter type exprs in that env
+            // (evaluateFunctionParameterTypeAgain). The impl's own annotations
+            // (argValue.type.parameters[i].exprs) may reference names that only
+            // exist in the impl-site env — e.g. `other : str` in an
+            // `impl(W, Eq(str)(...))` — and would fail with "Variable not found"
+            // when re-evaluated in the trait's env. The trait's exprs (`Self`,
+            // `Rhs`) are self-consistent with traitFieldType.env.
             argValue.specializedType = {
               ...traitFieldType,
-              // Preserve the parameter labels from the function's actual type
-              parameters: argValue.type.parameters,
+              // Preserve the parameter labels (and body-facing metadata) from
+              // the function's actual type; take type + exprs from the trait.
+              parameters: argValue.type.parameters.map((param, paramIndex) => {
+                const traitParam = traitFieldType.parameters[paramIndex];
+                return traitParam
+                  ? { ...param, type: traitParam.type, exprs: traitParam.exprs }
+                  : param;
+              }),
               parametersFrame: argValue.type.parametersFrame,
             } as FunctionType;
           }

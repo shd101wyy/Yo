@@ -1445,34 +1445,9 @@ impl(
             .None => false
           )
       )
-    }),
-    // `(!=)` is fully INLINE (no call to `(==)` in any form): String now has
-    // TWO `(==)` overloads (Eq(String) + Eq(str)), and neither qualified
-    // `Self.(==)`, infix `==`, nor the trait's `?=` default can disambiguate
-    // during impl-method definition evaluation — the method-dispatch path
-    // does not yet trial-match same-name trait methods by argument types.
-    // See issues/heterogeneous-eq-overload-dispatch.md.
-    (!=) : (fn(self : Self, other : str) -> bool)({
-      (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
-      other_len := other.len();
-      cond(
-        (self_len != other_len) => true,
-        (self_len == usize(0)) => false,
-        true =>
-          match(
-            self._bytes,
-            .Some(self_al) =>
-              match(
-                self_al.ptr(),
-                // SAFETY: identical bounds reasoning to `(==)` above.
-                .Some(self_ptr) =>
-                  (unsafe(memcmp((*(void))(self_ptr), (*(void))(other.ptr()), self_len)) != int(0)),
-                .None => true
-              ),
-            .None => true
-          )
-      )
     })
+    // `(!=)` comes from the trait's `?=` default (not(Self.(==)(lhs, rhs))),
+    // which dispatches to this overload by argument types.
   )
 );
 /// The symmetric direction: `str == String` (and `!=`), so literal-first
@@ -1481,7 +1456,6 @@ impl(
 impl(
   str,
   Eq(String)(
-    // Fully inline for the same dispatch reason as above.
     (==) : (fn(self : Self, other : String) -> bool)({
       self_len := self.len();
       (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
@@ -1502,28 +1476,44 @@ impl(
             .None => false
           )
       )
-    }),
-    (!=) : (fn(self : Self, other : String) -> bool)({
-      self_len := self.len();
-      (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
-      cond(
-        (self_len != other_len) => true,
-        (self_len == usize(0)) => false,
-        true =>
-          match(
-            other._bytes,
-            .Some(other_al) =>
-              match(
-                other_al.ptr(),
-                // SAFETY: identical bounds reasoning to `(==)` above.
-                .Some(other_ptr) =>
-                  (unsafe(memcmp((*(void))(self.ptr()), (*(void))(other_ptr), self_len)) != int(0)),
-                .None => true
-              ),
-            .None => true
-          )
-      )
     })
+    // `(!=)` comes from the trait's `?=` default.
+  )
+);
+/// Search/pattern operations accepting a static `str` argument
+/// (plans/SLICE_REWORK.md step 1). Inherent methods cannot be overloaded
+/// in Yo, so the `str`-pattern variants of `contains`/`starts_with`/… are
+/// provided through this trait; method dispatch picks the overload by
+/// argument type (`x.contains("lit")` vs `x.contains(other_string)`).
+StrPattern :: trait(
+  contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool),
+  starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool),
+  ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool),
+  index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize)),
+  last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize)),
+  split : (fn(self : Self, separator : str) -> ArrayList(Self))
+);
+impl(
+  String,
+  StrPattern(
+    contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool)(
+      self.contains(String.from(substr), from_index)
+    ),
+    starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool)(
+      self.starts_with(String.from(prefix), position)
+    ),
+    ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool)(
+      self.ends_with(String.from(suffix), end_position)
+    ),
+    index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize))(
+      self.index_of(String.from(substr), from_index)
+    ),
+    last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize))(
+      self.last_index_of(String.from(substr), from_index)
+    ),
+    split : (fn(self : Self, separator : str) -> ArrayList(Self))(
+      self.split(String.from(separator))
+    )
   )
 );
 /// Hash trait implementation — FNV-1a hash over the string's bytes.
@@ -2340,6 +2330,7 @@ export(
   StringChars,
   StringBytes,
   StringLines,
+  StrPattern,
   assert_dyn,
   panic_dyn
 );
