@@ -185,7 +185,7 @@ With no raw-ptr-carrying values constructible in safe code:
   `as_str()` remains outside comments. Validated: full ./tests 2609/2609,
   swept-source yo-self-bin sweeps std 151/151 + tests 147/149 (baseline,
   2 circular fixtures) + yo-self 285/285.
-- [ ] 3. remaining `as_str()` + `: str` param audit — IN PROGRESS.
+- [x] 3. remaining `as_str()` + `: str` param audit — COMPLETE.
   Done: (a) `String.from(x.as_str())` roundtrip → `x.clone()`, 250 sites /
   62 yo-self files (the stale clone-ambiguity lore is wrong — field
   receivers clone fine, cheatsheet fixed); (b) std safe-surface flips:
@@ -220,11 +220,14 @@ With no raw-ptr-carrying values constructible in safe code:
   byte_at/bytes_len body conversion; generate_expr(s)_from_code; install
   append_dep_to_deps_file; `.push_str(x.as_str())` → `.push_string(x)`;
   `a.as_str() < b.as_str()` → `a < b` via the new Ord(String).
-  Remaining: 47 non-codegen yo-self bare sites — mostly `local :=
-  tok.value.as_str()` locals whose downstream uses need per-site review
-  (formatter 7, install_command ~8 println-templates, expr.yo/
-  expr_traversal locals, trait_checking, comptime_print, rc_fns/
-  macro_expand IntLit-arm unifications) — plus ~600 codegen/driver/
+  Batch 4 (committed): the final 47 kept-file sites — locals
+  (`v := tok.value.as_str()` → `.clone()`), formatter/install/char/pragma
+  helper flips (byte-API bodies converted to byte_at/bytes_len),
+  negative-impl registry, _is_excluded_label, _find_specialization_cache,
+  IntLit-arm `"0"` unifications (rc_fns/macro_expand), println/print/
+  template drops. Kept-file as_str count is now exactly ONE:
+  main.yo:767 `compile_module_to_c(…, mod_id.as_str(), …)` — deferred
+  with the codegen port. Remaining elsewhere: ~600 codegen/driver/
   proto-eval (eval.yo) sites DEFERRED to the codegen port
   (plans/BOOTSTRAPPING_CODEGEN.md retires driver.yo, the untyped walker
   and the proto-evaluator; flipping their params first is wasted work).

@@ -76,7 +76,7 @@ _find_field_label_index :: (fn(field_labels : ArrayList(String), label : String)
   idx
 });
 /// Helper: check if `label` is in `excluded` list.
-_is_excluded_label :: (fn(excluded : ArrayList(String), label : str) -> bool)({
+_is_excluded_label :: (fn(excluded : ArrayList(String), label : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := excluded.len();
@@ -326,7 +326,7 @@ evaluate_anonymous_module_begin_exprs :: (
                         while((k < nk) && !(should_stop), {
                           ext_label := match(efls.get(k),.Some(l) => l,.None => String.from(""));
                           ext_type := match(efts.get(k),.Some(t) => t,.None => TypeValue.Unit);
-                          if(!(_is_excluded_label(excluded_labels, ext_label.as_str())), {
+                          if(!(_is_excluded_label(excluded_labels, ext_label.clone())), {
                             // Check for duplicate label
                             if(_find_field_label_index(field_labels, ext_label.clone()).is_some(), {
                               exn.throw(

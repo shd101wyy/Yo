@@ -668,13 +668,13 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
     .FnCall(_, func_box, _, _, _) => match(
       func_box.*,
       .Atom(_, tok) => {
-        v := tok.value.as_str();
+        v := tok.value.clone();
         (v == "->") || ((v == "=>") || (v == "=>>"))
       },
       .FnCall(_, inner_func_box, _, _, _) => match(
         inner_func_box.*,
         .Atom(_, inner_tok) => {
-          iv := inner_tok.value.as_str();
+          iv := inner_tok.value.clone();
           (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
         },
         .FnCall(_, _, _, _, _) => false

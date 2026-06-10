@@ -743,7 +743,7 @@ compute_compile_time_signature :: (
 _find_specialization_cache :: (
   fn(
     ctx : EvalContext,
-    func_id : str,
+    func_id : String,
     compile_time_arg_values : ArrayList(EvalValue),
     runtime_parameter_types : ArrayList(TypeValue),
     caller_env : Environment
@@ -961,7 +961,7 @@ create_specialized_function_inline :: (
       // ------------------------------------------------------------------
       cached := _find_specialization_cache(
         ctx,
-        func_id.as_str(),
+        func_id.clone(),
         compile_time_args,
         runtime_param_tys,
         caller_env
@@ -1182,7 +1182,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_ct_args.push(create_type_value(concrete_type_for_forall));
   cached_result := _find_specialization_cache(
     ctx,
-    ctl_func_id.as_str(),
+    ctl_func_id.clone(),
     ctl_ct_args,
     ArrayList(TypeValue).new(),
     caller_env

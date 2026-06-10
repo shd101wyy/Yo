@@ -267,7 +267,7 @@ evaluate_property_access :: (
     obj_expr := match(dot_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
     if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value == "Type")) && ast_expr_is_atom(prop_expr), {
-      kind_name := ast_expr_token(prop_expr).value.as_str();
+      kind_name := ast_expr_token(prop_expr).value.clone();
       (is_kind : bool) = cond(
         (kind_name == "Struct") => true,
         (kind_name == "Enum") => true,

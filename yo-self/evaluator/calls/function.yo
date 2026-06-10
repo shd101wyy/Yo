@@ -597,7 +597,7 @@ evaluate_function_call :: (
       arg0,
       .Atom(_, atok) => {
         if(atok.kind == TokenKind.Integer, {
-          neg_raw := `-${atok.value.as_str()}`;
+          neg_raw := `-${atok.value}`;
           out_neg := new_expr_info(env, t_comptime_int());
           out_neg.value = Option(EvalValue).Some(EvalValue.IntLit(neg_raw));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_neg);
@@ -1641,7 +1641,7 @@ Fix: wrap the call:
         // and issues/yo-self-macro-dispatch-corruption.md. The REGISTRY
         // (quoted params / unquote returns) stays populated so the
         // experiment patch only has to flip this constant.
-        fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.as_str()));
+        fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
         // Evaluate all arguments.
         evaled_arg_infos := ArrayList(ExprInfo).new();
         (ai : usize) = usize(0);

@@ -233,7 +233,7 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
 // here — they only feed vacuous `comptime_assert`s in the tests.
 // ---------------------------------------------------------------------------
 (g_negative_impl_registry : ArrayList(String)) = ArrayList(String).new();
-has_negative_impl :: (fn(type_id : str, trait_id : str) -> bool)({
+has_negative_impl :: (fn(type_id : String, trait_id : String) -> bool)({
   key := `${type_id}:${trait_id}`;
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -249,7 +249,7 @@ has_negative_impl :: (fn(type_id : str, trait_id : str) -> bool)({
   });
   found
 });
-register_negative_impl :: (fn(type_id : str, trait_id : str) -> unit)({
+register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
   if(!(has_negative_impl(type_id, trait_id)), {
     ___ := g_negative_impl_registry.push(`${type_id}:${trait_id}`);
   });
@@ -1706,7 +1706,7 @@ evaluate_module_value :: (
                 );
               });
               if(receiver_type_id != String.from(""), {
-                register_negative_impl(receiver_type_id.as_str(), get_trait_key(neg_trait_ty).as_str());
+                register_negative_impl(receiver_type_id.clone(), get_trait_key(neg_trait_ty));
               });
             },
             .None => ()
@@ -1727,7 +1727,7 @@ evaluate_module_value :: (
                 dyn(
                   format_error_message(
                     ast_expr_token(field_expr),
-                    `Manual 'impl(..., ${pos_trait_name.as_str()}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix.as_str()}.`,
+                    `Manual 'impl(..., ${pos_trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`,
                     false,
                     .None
                   )

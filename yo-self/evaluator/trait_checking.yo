@@ -475,7 +475,7 @@ type_implements_trait :: (
   // (registration site impl.yo). Generic negative impls
   // (`impl(forall(T), Pattern, !(Trait))`) are matched structurally via
   // `find_matching_negative_generic_impl` (TS findMatchingNegativeGenericImpl).
-  if(has_negative_impl(type_id_or_empty(target).as_str(), get_trait_key(trait_type).as_str()), {
+  if(has_negative_impl(type_id_or_empty(target), get_trait_key(trait_type)), {
     return(TraitCheckResult(implemented : false, env : env));
   });
   if(find_matching_negative_generic_impl(target, trait_type, env), {
@@ -610,7 +610,7 @@ type_implements_trait :: (
   // generic-impls), guarded against self-referential cycles.
   marker_name := _marker_name_of(trait_type, env);
   if((!(marker_name.is_empty())) && !(_ondemand_guard_contains(`${type_id}:${_trait_type_id(trait_type)}`)), {
-    tn := marker_name.as_str();
+    tn := marker_name.clone();
     marker_relevant := ((((tn == "Send") || (tn == "Comptime")) || (tn == "Acyclic")) || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).

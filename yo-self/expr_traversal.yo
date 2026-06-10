@@ -118,7 +118,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => {
-      v := tok.value.as_str();
+      v := tok.value.clone();
       (v == BK_RETURN) || (v == BF_UNWIND)
     },
     .FnCall(_, func_box, args, _, _) => {
@@ -196,7 +196,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, tok) => {
-      s := tok.value.as_str();
+      s := tok.value.clone();
       (s == BK_BREAK) || ((s == BK_RETURN) || (s == BF_UNWIND))
     },
     .FnCall(_, fn_box, args, _, _) => {

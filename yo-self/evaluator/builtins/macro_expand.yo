@@ -163,12 +163,12 @@ evaluate_macro_expand :: (
     });
     lv_raw := match(
       lv_opt,
-      .Some(v) => match(v,.IntLit(raw) => raw.as_str(), _ => "0"),
-      .None => "0"
+      .Some(v) => match(v,.IntLit(raw) => raw.clone(), _ => String.from("0")),
+      .None => String.from("0")
     );
     // Parse the comptime_int to i64.
     lv_parsed := match(
-      String.from(lv_raw).parse_i64(),
+      lv_raw.parse_i64(),
       .Some(v) => v,
       .None => i64(0)
     );

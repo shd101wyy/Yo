@@ -178,7 +178,7 @@ _evaluate_discriminant :: (
 /// carries shells one level deeper — those resolve via the enum-final
 /// registry at use sites (types/creators.yo resolve_enum_shell).
 _patch_self_shell :: (
-  fn(t : TypeValue, shell_id : str, final_ty : TypeValue) -> TypeValue
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
 )(
   match(
     t,
@@ -687,7 +687,7 @@ evaluate_enum_type :: (
     (pf_j : usize) = usize(0);
     while(pf_j < vf_list.len(), {
       ft := match(vf_list.get(pf_j),.Some(t) => t,.None => t_unit());
-      new_list.push(_patch_self_shell(ft, shell_id.as_str(), pre_final_ty));
+      new_list.push(_patch_self_shell(ft, shell_id.clone(), pre_final_ty));
       pf_j = (pf_j + usize(1));
     });
     patched_fields.push(new_list);
