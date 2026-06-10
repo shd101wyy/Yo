@@ -73,6 +73,19 @@ impl(
     )
   ),
   /**
+  * Create an ArrayList by copying the elements of a fixed-size array.
+  * The owned-copy companion to array range-indexing
+  * (plans/SLICE_REWORK.md).
+  */
+  from_array : (fn(forall(N : usize), arr : Array(T, N)) -> Self)({
+    out := Self.with_capacity(N);
+    i := usize(0);
+    while(i < N, i = (i + usize(1)), {
+      out.push(arr(i));
+    });
+    out
+  }),
+  /**
   * Create an ArrayList with a specific initial cap
   */
   with_capacity : (fn(cap : usize) -> Self)(
