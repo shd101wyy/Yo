@@ -1414,6 +1414,118 @@ impl(
     })
   )
 );
+/// Heterogeneous comparison: `String == str` (and `!=`). Compares bytes
+/// DIRECTLY against the static `str` — no intermediate view of the String's
+/// heap buffer is constructed (`as_str()` is being removed; see
+/// plans/SLICE_REWORK.md step 1). This is the replacement for the dominant
+/// `x.as_str() == "literal"` pattern: write `x == "literal"`.
+impl(
+  String,
+  Eq(str)(
+    (==) : (fn(self : Self, other : str) -> bool)({
+      (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
+      other_len := other.len();
+      cond(
+        (self_len != other_len) => false,
+        (self_len == usize(0)) => true,
+        true =>
+          match(
+            self._bytes,
+            .Some(self_al) =>
+              match(
+                self_al.ptr(),
+                // SAFETY: self_len equals other_len (checked above) and both
+                // equal the respective byte counts; the str's backing is
+                // static storage and the String's buffer is Rc-managed —
+                // memcmp reads exactly self_len bytes from each.
+                .Some(self_ptr) =>
+                  (unsafe(memcmp((*(void))(self_ptr), (*(void))(other.ptr()), self_len)) == int(0)),
+                .None => false
+              ),
+            .None => false
+          )
+      )
+    }),
+    // `(!=)` is fully INLINE (no call to `(==)` in any form): String now has
+    // TWO `(==)` overloads (Eq(String) + Eq(str)), and neither qualified
+    // `Self.(==)`, infix `==`, nor the trait's `?=` default can disambiguate
+    // during impl-method definition evaluation — the method-dispatch path
+    // does not yet trial-match same-name trait methods by argument types.
+    // See issues/heterogeneous-eq-overload-dispatch.md.
+    (!=) : (fn(self : Self, other : str) -> bool)({
+      (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
+      other_len := other.len();
+      cond(
+        (self_len != other_len) => true,
+        (self_len == usize(0)) => false,
+        true =>
+          match(
+            self._bytes,
+            .Some(self_al) =>
+              match(
+                self_al.ptr(),
+                // SAFETY: identical bounds reasoning to `(==)` above.
+                .Some(self_ptr) =>
+                  (unsafe(memcmp((*(void))(self_ptr), (*(void))(other.ptr()), self_len)) != int(0)),
+                .None => true
+              ),
+            .None => true
+          )
+      )
+    })
+  )
+);
+/// The symmetric direction: `str == String` (and `!=`), so literal-first
+/// comparisons (`"x" == name`) work too. Lives here (not the prelude)
+/// because the prelude is layered below `String`.
+impl(
+  str,
+  Eq(String)(
+    // Fully inline for the same dispatch reason as above.
+    (==) : (fn(self : Self, other : String) -> bool)({
+      self_len := self.len();
+      (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+      cond(
+        (self_len != other_len) => false,
+        (self_len == usize(0)) => true,
+        true =>
+          match(
+            other._bytes,
+            .Some(other_al) =>
+              match(
+                other_al.ptr(),
+                // SAFETY: lengths equal & nonzero; str backing is static.
+                .Some(other_ptr) =>
+                  (unsafe(memcmp((*(void))(self.ptr()), (*(void))(other_ptr), self_len)) == int(0)),
+                .None => false
+              ),
+            .None => false
+          )
+      )
+    }),
+    (!=) : (fn(self : Self, other : String) -> bool)({
+      self_len := self.len();
+      (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+      cond(
+        (self_len != other_len) => true,
+        (self_len == usize(0)) => false,
+        true =>
+          match(
+            other._bytes,
+            .Some(other_al) =>
+              match(
+                other_al.ptr(),
+                // SAFETY: identical bounds reasoning to `(==)` above.
+                .Some(other_ptr) =>
+                  (unsafe(memcmp((*(void))(self.ptr()), (*(void))(other_ptr), self_len)) != int(0)),
+                .None => true
+              ),
+            .None => true
+          )
+      )
+    })
+  )
+);
 /// Hash trait implementation — FNV-1a hash over the string's bytes.
 impl(
   String,

@@ -67,10 +67,15 @@ rather than gated.
   `*(T)`, so the existing raw-pointer naming gate already covers it for
   free).
 - `ArrayList.as_slice()` is removed (same fate as `as_str`).
-- **Array range-indexing** (`arr(0..5) → Slice(T)`) — the one safe feature
-  lost: runtime Array/ArrayList ranges either go through the library view
-  type (§3) or are dropped (element indexing stays). `str` range-indexing
-  STAYS and returns `str` — a window of static data is still static.
+- **Range-indexing becomes COPYING (JavaScript-style)** — decided: instead of
+  returning a borrowed view, `arr(0..5)` returns an owned COPY of the range.
+  Return types: `Array(T, N)` / `ArrayList(T)` ranges → a new `ArrayList(T)`
+  (range extents are runtime values, so the fixed-size `Array` form can't be
+  the result type); `String` range-indexing → a new `String` (consistent with
+  `substring`, which already copies). `str` range-indexing STAYS a zero-copy
+  `str` — a window of static data is still static. Element indexing is
+  unchanged everywhere. This keeps slicing ergonomics with value semantics
+  and removes the last borrowed-view producer from the safe surface.
 
 ### 3. Safe windows — library view types over the owning handle
 
