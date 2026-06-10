@@ -82,12 +82,23 @@ structure).
 > evaluated at definition time (faithful to `function-type.ts:499`), made safe by
 > a swallowing trial-eval wrapper. That surfaced — and this work has been closing
 > — the **in-body definition-time gates** (flowability, etc.) that `check` alone
-> never exercised. `tests` rose 164 → 173 over this era. The 9 remaining `tests`
-> fails: circular_deps ×4 (error identically to TS), algebraic_effects, sync/mutex,
-> extern_unsafe_wrap, and **2 flowability** (ref_local_binding, ref_closure_capture
-> — need the ref-capture-escape check, blocked by yo-self deferring _closure_ body
-> eval). **ref_flowability + slice_flowability are CLOSED** (2026-06-10); see the
-> flowability note below.
+> never exercised. `tests` rose 164 → 173 over this era. **2026-06-10 closures:**
+> extern_unsafe_wrap (the extern "c" `unsafe(...)` gate port — `is_extern` on
+> `Func` — plus scoped def-time-error propagation so `comptime_expect_error`
+> observes body-eval errors; commits `9d2e40c2`+`7380294c`) and sync/mutex (SomeT
+> ids in the trait-registry lookup + call-site where-clause validation for marker
+> traits + trait-name stamping at `::`; commits `a821ed30`+`7a67b961`; see
+> `issues/yo-self-where-clause-full-enforcement.md` for the documented
+> enforcement scope). Per-file `./tests` now **167/170**. The 3 remaining fails
+> — algebraic_effects (deferred unwind-in-lambda-body + closure-capture-of-ctl;
+> NOT escape-boundary-2, which is now ported), ref_local_binding,
+> ref_closure_capture (ref-capture-escape) — are ALL blocked on yo-self
+> deferring _closure/lambda_ body eval (the next keystone). The control-bound
+> machinery (`is_control` on `Func` + `type_is_control_bound` +
+> escape-boundary-2 + rule-11; commit `dfed0e28`) is ported and proven (rule-11
+> rejects `*(Raise)` identically to TS) and activates the remaining ctl rules
+> once closure-body eval lands. **ref_flowability + slice_flowability are
+> CLOSED** (2026-06-10); see the flowability note below.
 
 > **Phase 3 fixpoint reached (227/227).** The generic-instantiation identity
 > knot that dominated Phase 3 was resolved (comptime-fn cache collision —
@@ -739,18 +750,25 @@ moved on substantially.)
 1. ✅ `./yo-cli check yo-self/main.yo` passes (drift repaired). _(Phase 0)_
 2. ✅ `yo-self-bin` builds from `yo-self/main.yo`. _(Phase 0)_
 3. ✅ `yo-self-bin check ./std` matches `yo-cli check ./std` (151/151). _(Phase 1)_
-4. ✅ `yo-self-bin check ./tests` (172/182 as of 2026-06-09; the 10 remaining are
-   feature-gap clusters that error identically to / are wall-blocked vs TS). _(Phase 2)_
-5. ✅ `yo-self-bin check ./yo-self` passes (228/228) — evaluator self-check
-   fixpoint reached (the generic-instantiation identity knot was resolved as a
-   comptime-fn cache collision, `e3936a98`). _(Phase 3)_
+4. ✅ `yo-self-bin check ./tests` (per-file 167/170 as of 2026-06-10; the 3
+   remaining — algebraic_effects, ref_local_binding, ref_closure_capture — are
+   all blocked on closure/lambda body eval). _(Phase 2)_
+5. ✅ `yo-self-bin check ./yo-self` passes (285/285 per-file as of 2026-06-10) —
+   evaluator self-check fixpoint reached (the generic-instantiation identity
+   knot was resolved as a comptime-fn cache collision, `e3936a98`). _(Phase 3)_
 
 **Post-fixpoint work (def-eval era):** the active effort is now completing the
 **in-body definition-time gates** surfaced by crossing the def-eval wall — see
 `EVALUATOR_PORT_REVIEW.md` (flowability cluster) and the remaining `tests`
-clusters. ref_flowability closed 2026-06-09; ref-capture-escape and
-slice_flowability remain, each blocked on a distinct deeper gap (closure-body
-eval; recorded-env aliasing).
+clusters. Closed so far: ref_flowability (2026-06-09); slice_flowability,
+extern_unsafe_wrap, sync/mutex (2026-06-10). The single remaining keystone is
+**closure/lambda body evaluation** — it blocks all 3 remaining test fails
+(ref-capture-escape for the two ref tests; unwind-in-lambda-body +
+closure-capture-of-ctl for algebraic_effects). The supporting machinery that
+activates once it lands is already ported: comptime_expect_error def-time-error
+propagation (`7380294c`), the control-bound/`ctl` escape rules (`dfed0e28`),
+and call-site where-clause validation (`7a67b961`, marker-trait scope — see
+`issues/yo-self-where-clause-full-enforcement.md` for the widening path).
 
 ---
 
