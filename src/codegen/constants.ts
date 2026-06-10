@@ -45,9 +45,6 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_str_len, // __yo_str_len
   ...BuiltinFunctions.__yo_str_ptr, // __yo_str_ptr
   ...BuiltinFunctions.__yo_str_byte, // __yo_str_byte
-  ...BuiltinFunctions.__yo_slice_len, // __yo_slice_len
-  ...BuiltinFunctions.__yo_slice_new, // __yo_slice_new
-  ...BuiltinFunctions.__yo_slice_ptr, // __yo_slice_ptr
 
   // Type casting
   ...BuiltinFunctions.__yo_as, // __yo_as (generic primitive type cast)
@@ -63,13 +60,8 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_maybe_uninit_as_ptr,
   ...BuiltinFunctions.__yo_maybe_uninit_assume_init,
 
-  // Array/Slice indexing
+  // Array indexing
   ...BuiltinFunctions.__yo_array_index,
-  ...BuiltinFunctions.__yo_slice_index,
-  ...BuiltinFunctions.__yo_array_index_range,
-  ...BuiltinFunctions.__yo_array_index_range_inclusive,
-  ...BuiltinFunctions.__yo_slice_index_range,
-  ...BuiltinFunctions.__yo_slice_index_range_inclusive,
 
   // Others
   ...BuiltinFunctions.__yo_noop, // __yo_noop

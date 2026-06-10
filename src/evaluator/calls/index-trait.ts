@@ -11,13 +11,11 @@ import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createPtrType,
-  createSliceType,
   createUsizeType,
 } from "../../types/creators";
 import type {
   ArrayType,
   FunctionType,
-  SliceType,
   StructType,
   TraitType,
   Type,
@@ -26,17 +24,15 @@ import {
   isArrayType,
   isFunctionType,
   isPtrType,
-  isSliceType,
   isStructType,
 } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   typeToString,
 } from "../../types/utils";
-import type { ArrayValue, SliceValue, Value } from "../../value";
+import type { ArrayValue, Value } from "../../value";
 import {
   createPtrValue,
-  createSliceValue,
   createTypeValue,
   createUnknownValue,
   isArrayValue,
@@ -44,7 +40,6 @@ import {
   isFunctionValue,
   isNumberValue,
   isPtrValue,
-  isSliceValue,
   isStructValue,
   isTupleValue,
   isTraitValue,
@@ -173,7 +168,7 @@ function findIndexMethod({
  *
  * Desugars: value(arg) → Index(typeof(arg)).index(&(value), arg).*
  *
- * For comptime values (arrays, slices, strings), this function directly
+ * For comptime values (arrays, strings), this function directly
  * computes the result using comptime indexing helpers, returning the
  * computed value with arrayElementRef for mutation support.
  *
@@ -207,29 +202,15 @@ export function tryToCallWithIndexTrait({
   // Check if self has a comptime value that can be indexed at compile time
   const arrayValue =
     selfValue && isArrayValue(selfValue) ? selfValue : undefined;
-  const sliceValue =
-    selfValue && isSliceValue(selfValue) ? selfValue : undefined;
   const stringValue =
     selfValue && isComptimeStringValue(selfValue) ? selfValue.value : undefined;
-  const hasComptimeValue = !!(
-    arrayValue ||
-    sliceValue ||
-    stringValue !== undefined
-  );
 
-  // For comptime array/slice values, try comptime dispatch first
-  if (
-    hasComptimeValue &&
-    (arrayValue || sliceValue) &&
-    (isArrayType(valueType) || isSliceType(valueType))
-  ) {
-    const comptimeResult = tryComptimeArraySliceIndex({
+  // For comptime array values, try comptime dispatch first
+  if (arrayValue && isArrayType(valueType)) {
+    const comptimeResult = tryComptimeArrayIndex({
       argExpr,
       arrayValue,
-      sliceValue,
-      arrayType: valueType as
-        | import("../../types/definitions").ArrayType
-        | import("../../types/definitions").SliceType,
+      arrayType: valueType,
       env: callerEnv,
       context,
     });
@@ -277,7 +258,6 @@ export function tryToCallWithIndexTrait({
     selfValue &&
     !isUnknownValue(selfValue) &&
     !arrayValue &&
-    !sliceValue &&
     stringValue === undefined
   ) {
     const comptimeResult = tryComptimeCustomTypeIndex({
@@ -655,8 +635,8 @@ export function hasIndexImpl({
     return false;
   }
 
-  // Fast path: Array and Slice always have Index impls (defined in prelude)
-  if (isArrayType(concreteType) || isSliceType(concreteType)) {
+  // Fast path: Array always has Index impls (defined in prelude)
+  if (isArrayType(concreteType)) {
     return true;
   }
 
@@ -795,21 +775,21 @@ function checkRangeType(
 }
 
 /**
- * Tries to perform comptime array/slice indexing (element access or range slicing).
+ * Tries to perform comptime array indexing (single element access).
  * Returns an IndexCallResult if successful, or undefined to fall through to runtime dispatch.
+ * Range arguments always fall through to the runtime path (the evaluator
+ * rewrites runtime ranges to slice_copy method calls before reaching here).
  */
-function tryComptimeArraySliceIndex({
+function tryComptimeArrayIndex({
   argExpr,
   arrayValue,
-  sliceValue,
   arrayType,
   env,
   context,
 }: {
   argExpr: Expr;
-  arrayValue: ArrayValue | undefined;
-  sliceValue: SliceValue | undefined;
-  arrayType: ArrayType | SliceType;
+  arrayValue: ArrayValue;
+  arrayType: ArrayType;
   env: Environment;
   context: EvaluatorContext;
 }): IndexCallResult | undefined {
@@ -831,18 +811,12 @@ function tryComptimeArraySliceIndex({
   const argType = evaluatedArgExpr.$.type;
   const argValue = evaluatedArgExpr.$.value;
 
-  const { isRange, isInclusive } = checkRangeType(argType, env, context);
+  const { isRange } = checkRangeType(argType, env, context);
 
   if (isRange) {
-    return tryComptimeRangeSlicing({
-      argExpr,
-      argValue,
-      isInclusive,
-      arrayValue,
-      sliceValue,
-      arrayType,
-      callerEnv,
-    });
+    // Range slicing is no longer a comptime operation — fall through to the
+    // runtime path (slice_copy rewriting happens before Index dispatch).
+    return undefined;
   }
 
   // Single element access with comptime index
@@ -850,134 +824,24 @@ function tryComptimeArraySliceIndex({
     argExpr,
     argValue,
     arrayValue,
-    sliceValue,
     arrayType,
     callerEnv,
     context,
   });
 }
 
-function tryComptimeRangeSlicing({
-  argExpr,
-  argValue,
-  isInclusive,
-  arrayValue,
-  sliceValue,
-  arrayType,
-  callerEnv,
-}: {
-  argExpr: Expr;
-  argValue: Value | undefined;
-  isInclusive: boolean;
-  arrayValue: ArrayValue | undefined;
-  sliceValue: SliceValue | undefined;
-  arrayType: ArrayType | SliceType;
-  callerEnv: Environment;
-}): IndexCallResult | undefined {
-  const sliceType = createSliceType(arrayType.childType);
-
-  if (!isStructValue(argValue)) {
-    return undefined; // Runtime range — fall through to Index trait
-  }
-
-  const startVal = argValue.fields[0];
-  const endVal = argValue.fields[1];
-
-  if (
-    !startVal ||
-    !endVal ||
-    !isNumberValue(startVal) ||
-    !isNumberValue(endVal)
-  ) {
-    return undefined; // Runtime values in range — fall through
-  }
-
-  const startValue = startVal.value;
-  const endValue = endVal.value;
-  const startIndex =
-    typeof startValue === "bigint" ? Number(startValue) : startValue;
-  const endIndex =
-    (typeof endValue === "bigint" ? Number(endValue) : endValue) +
-    (isInclusive ? 1 : 0);
-
-  if (arrayValue) {
-    if (startIndex < 0 || startIndex > arrayValue.elements.length) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
-      });
-    }
-    if (endIndex < startIndex || endIndex > arrayValue.elements.length) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
-      });
-    }
-    const newSliceValue = createSliceValue(
-      sliceType,
-      [arrayValue],
-      startIndex,
-      endIndex
-    );
-    return {
-      value: newSliceValue,
-      type: sliceType,
-      ptrType: createPtrType(sliceType),
-      indexMethodType: undefined,
-      indexMethodValue: undefined,
-      callerEnv,
-    };
-  }
-
-  if (sliceValue) {
-    const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
-    if (startIndex < 0 || startIndex > sliceLength) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${sliceLength}].`,
-      });
-    }
-    if (endIndex < startIndex || endIndex > sliceLength) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${sliceLength}].`,
-      });
-    }
-    const absoluteStart = sliceValue.startIndex + startIndex;
-    const absoluteEnd = sliceValue.startIndex + endIndex;
-    const newSliceValue = createSliceValue(
-      sliceType,
-      sliceValue.sourceArray,
-      absoluteStart,
-      absoluteEnd
-    );
-    return {
-      value: newSliceValue,
-      type: sliceType,
-      ptrType: createPtrType(sliceType),
-      indexMethodType: undefined,
-      indexMethodValue: undefined,
-      callerEnv,
-    };
-  }
-
-  return undefined;
-}
-
 function tryComptimeElementAccess({
   argExpr,
   argValue,
   arrayValue,
-  sliceValue,
   arrayType,
   callerEnv,
   context,
 }: {
   argExpr: Expr;
   argValue: Value | undefined;
-  arrayValue: ArrayValue | undefined;
-  sliceValue: SliceValue | undefined;
-  arrayType: ArrayType | SliceType;
+  arrayValue: ArrayValue;
+  arrayType: ArrayType;
   callerEnv: Environment;
   context: EvaluatorContext;
 }): IndexCallResult | undefined {
@@ -988,54 +852,25 @@ function tryComptimeElementAccess({
     const index =
       typeof indexValue === "bigint" ? Number(indexValue) : indexValue;
 
-    if (arrayValue) {
-      if (index < 0 || index >= arrayValue.elements.length) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Array index out of bounds: ${index}. Expected index in range [0, ${arrayValue.elements.length - 1}].`,
-        });
-      }
-      const elementValue = arrayValue.elements[index]!;
-      return {
-        value: elementValue,
-        type: returnType,
-        ptrType: createPtrType(returnType),
-        indexMethodType: undefined,
-        indexMethodValue: undefined,
-        callerEnv,
-        index,
-        comptimeRef: { kind: "array", arrayValue, index },
-      };
+    if (index < 0 || index >= arrayValue.elements.length) {
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Array index out of bounds: ${index}. Expected index in range [0, ${arrayValue.elements.length - 1}].`,
+      });
     }
-
-    if (sliceValue) {
-      const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
-      if (index < 0 || index >= sliceLength) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Slice index out of bounds: ${index}. Expected index in range [0, ${sliceLength - 1}].`,
-        });
-      }
-      const absoluteIndex = sliceValue.startIndex + index;
-      const sourceArray = sliceValue.sourceArray[0]!;
-      const elementValue = sourceArray.elements[absoluteIndex]!;
-      return {
-        value: elementValue,
-        type: returnType,
-        ptrType: createPtrType(returnType),
-        indexMethodType: undefined,
-        indexMethodValue: undefined,
-        callerEnv,
-        index,
-        comptimeRef: {
-          kind: "array",
-          arrayValue: sourceArray,
-          index: absoluteIndex,
-        },
-      };
-    }
+    const elementValue = arrayValue.elements[index]!;
+    return {
+      value: elementValue,
+      type: returnType,
+      ptrType: createPtrType(returnType),
+      indexMethodType: undefined,
+      indexMethodValue: undefined,
+      callerEnv,
+      index,
+      comptimeRef: { kind: "array", arrayValue, index },
+    };
   } else if (!argValue) {
-    // Runtime index into comptime array/slice: convert to runtime type
+    // Runtime index into comptime array: convert to runtime type
     return {
       value: undefined,
       type: convertComptimeTypeToRuntimeType({
@@ -1062,8 +897,6 @@ function tryComptimeElementAccess({
       callerEnv,
     };
   }
-
-  return undefined;
 }
 
 /**

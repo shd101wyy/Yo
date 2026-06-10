@@ -26,7 +26,6 @@ import {
   isFunctionType,
   isPtrType,
   isRcType,
-  isSliceType,
   isStructType,
   isTupleType,
 } from "../../types/guards";
@@ -90,7 +89,7 @@ function typeDerivesComptime(
     return result;
   }
 
-  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+  if (isArrayType(type) || isPtrType(type)) {
     return typeDerivesComptime(type.childType, env, visiting);
   }
 
@@ -138,7 +137,7 @@ function typeDerivesRuntime(
     return result;
   }
 
-  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+  if (isArrayType(type) || isPtrType(type)) {
     return typeDerivesRuntime(type.childType, env, visiting);
   }
 
@@ -1908,7 +1907,7 @@ function regenerateRcFunctionsForRecursiveStructs({
       return;
     }
 
-    if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+    if (isArrayType(type) || isPtrType(type)) {
       walk(type.childType);
       return;
     }
@@ -1929,7 +1928,7 @@ function regenerateRcFunctionsForRecursiveStructs({
 
 /**
  * Returns true if `type` contains `target` (by reference) anywhere in its
- * structure, walking through structs, tuples, enums, arrays, slices, and
+ * structure, walking through structs, tuples, enums, arrays, and
  * pointers.
  */
 function typeReferencesType(
@@ -1950,7 +1949,7 @@ function typeReferencesType(
       (v.fields ?? []).some((f) => typeReferencesType(f.type, target, seen))
     );
   }
-  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+  if (isArrayType(type) || isPtrType(type)) {
     return typeReferencesType(type.childType, target, seen);
   }
   return false;

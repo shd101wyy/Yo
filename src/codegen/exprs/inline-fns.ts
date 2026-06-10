@@ -1,5 +1,5 @@
 import { BuiltinFunctions, type FnCallExpr } from "../../expr";
-import { isEnumType, isPtrType } from "../../types/guards";
+import { isEnumType } from "../../types/guards";
 import { isTargetWindows } from "../../target";
 import {
   canOptimizeAsSimpleEnum,
@@ -180,22 +180,6 @@ export function generateYoInlineFunctionCall(
   } else if (BuiltinFunctions.__yo_str_from_raw_parts.includes(functionName)) {
     return `(__yo_str){ .ptr = (const uint8_t*)${args[0]!}, .len = ${args[1]!} }`;
   }
-  // __yo_slice_len - access the length field of a slice fat pointer
-  else if (BuiltinFunctions.__yo_slice_len.includes(functionName)) {
-    return `(${args[0]!}.length)`;
-  }
-  // __yo_slice_ptr - access the data pointer of a slice fat pointer
-  else if (BuiltinFunctions.__yo_slice_ptr.includes(functionName)) {
-    return `(${args[0]!}.data)`;
-  }
-  // __yo_slice_new - create a slice fat pointer from a pointer and length
-  else if (
-    BuiltinFunctions.__yo_slice_new.includes(functionName) &&
-    expr.$?.type
-  ) {
-    const sliceCType = getTypeString(expr.$.type, context);
-    return `(${sliceCType}){ .data = ${args[0]!}, .length = ${args[1]!} }`;
-  }
   // __yo_getrandom - Linux getrandom() syscall wrapper
   else if (BuiltinFunctions.__yo_getrandom.includes(functionName)) {
     return `getrandom(${args[0]!}, ${args[1]!}, ${args[2]!})`;
@@ -239,46 +223,6 @@ export function generateYoInlineFunctionCall(
   // __yo_array_index - get pointer to array element: &(arr->data[idx])
   else if (BuiltinFunctions.__yo_array_index.includes(functionName)) {
     return `(&((${args[0]!})->data[${args[1]!}]))`;
-  }
-  // __yo_slice_index - get pointer to slice element: &(slice->data[idx])
-  else if (BuiltinFunctions.__yo_slice_index.includes(functionName)) {
-    return `(&((${args[0]!})->data[${args[1]!}]))`;
-  }
-  // __yo_array_index_range - get pointer to slice from array range
-  else if (
-    BuiltinFunctions.__yo_array_index_range.includes(functionName) &&
-    expr.$?.type &&
-    isPtrType(expr.$.type)
-  ) {
-    const sliceCType = getTypeString(expr.$.type.childType, context);
-    return `(&(${sliceCType}){ .data = &((${args[0]!})->data[(${args[1]!}).start]), .length = (${args[1]!}).end - (${args[1]!}).start })`;
-  }
-  // __yo_array_index_range_inclusive - get pointer to slice from array range inclusive
-  else if (
-    BuiltinFunctions.__yo_array_index_range_inclusive.includes(functionName) &&
-    expr.$?.type &&
-    isPtrType(expr.$.type)
-  ) {
-    const sliceCType = getTypeString(expr.$.type.childType, context);
-    return `(&(${sliceCType}){ .data = &((${args[0]!})->data[(${args[1]!}).start]), .length = (${args[1]!}).end - (${args[1]!}).start + 1 })`;
-  }
-  // __yo_slice_index_range - get pointer to slice from slice range
-  else if (
-    BuiltinFunctions.__yo_slice_index_range.includes(functionName) &&
-    expr.$?.type &&
-    isPtrType(expr.$.type)
-  ) {
-    const sliceCType = getTypeString(expr.$.type.childType, context);
-    return `(&(${sliceCType}){ .data = &((${args[0]!})->data[(${args[1]!}).start]), .length = (${args[1]!}).end - (${args[1]!}).start })`;
-  }
-  // __yo_slice_index_range_inclusive - get pointer to slice from slice range inclusive
-  else if (
-    BuiltinFunctions.__yo_slice_index_range_inclusive.includes(functionName) &&
-    expr.$?.type &&
-    isPtrType(expr.$.type)
-  ) {
-    const sliceCType = getTypeString(expr.$.type.childType, context);
-    return `(&(${sliceCType}){ .data = &((${args[0]!})->data[(${args[1]!}).start]), .length = (${args[1]!}).end - (${args[1]!}).start + 1 })`;
   }
   // Handle other operators that are not defined in Yo
   else {

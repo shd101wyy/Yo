@@ -28,7 +28,6 @@ import type {
   IsoType,
   SourceNamespaceType,
   PtrType,
-  SliceType,
   StrType,
   SomeType,
   StructType,
@@ -651,28 +650,6 @@ export function createArrayType(childType: Type, length: Value): ArrayType {
   return arrayType;
 }
 
-const cachedSliceTypeMap: Map<Type, SliceType> = new Map();
-export function createSliceType(childType: Type): SliceType {
-  if (cachedSliceTypeMap.has(childType)) {
-    return cachedSliceTypeMap.get(childType)!;
-  }
-
-  const emptyEnv = createEmptyEnv();
-  const trait = createTraitType(emptyEnv);
-
-  const sliceType: SliceType = {
-    id: `slice_${childType.id}`,
-    tag: TypeTag.Slice,
-    childType,
-    trait,
-  };
-  trait.receiverType = sliceType;
-
-  cachedSliceTypeMap.set(childType, sliceType);
-
-  return sliceType;
-}
-
 /**
  * Look up the str type from the environment (prelude).
  * Throws an error if str is not found.
@@ -1241,7 +1218,6 @@ export function clearAllCachedTypes(): void {
   cachedLongLongType = null;
   cachedULongLongType = null;
   cachedLongDoubleType = null;
-  cachedSliceTypeMap.clear();
   cachedVoidType = undefined;
   cachedTypeMap.clear();
   // CRITICAL: Clear these caches to prevent memory leaks

@@ -25,7 +25,6 @@ import type {
   Type,
   FunctionType,
   ArrayType,
-  SliceType,
   PtrType,
   IsoType,
   DynType,
@@ -631,8 +630,6 @@ function typeTagToVariantName(tag: string): string {
       return "Function";
     case TypeTag.SomeType:
       return "Some";
-    case TypeTag.Slice:
-      return "Slice";
     case TypeTag.Trait:
       return "Trait";
     case TypeTag.Ptr:
@@ -745,15 +742,6 @@ export function evaluateYoTypeGetInfo({
         lengthStr = "0";
       }
       code = `TypeInfo.Array(${elemTmp.name}, ${lengthStr})`;
-      break;
-    }
-
-    // === Slice(element) ===
-    case TypeTag.Slice: {
-      const sliceType = type as SliceType;
-      const elemTmp = bindTempType(evalEnv, sliceType.childType, context);
-      evalEnv = elemTmp.env;
-      code = `TypeInfo.Slice(${elemTmp.name})`;
       break;
     }
 

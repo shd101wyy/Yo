@@ -15,7 +15,6 @@ import type {
   DynType,
   FunctionType,
   IsoType,
-  SliceType,
   Type,
 } from "../../types/definitions";
 import {
@@ -26,7 +25,6 @@ import {
   isIsoType,
   isSourceNamespaceType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -420,14 +418,12 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isDynType(type) ||
     isSourceNamespaceType(type) ||
     isTraitType(type) ||
-    isSliceType(type) ||
     isIsoType(type)
   ) {
     // Use the struct's id to generate a mangled C type name,
     // or the extern C name if the type is from c_include with a definition
-    const cTypeName = isSliceType(type)
-      ? getTypeString(type, context) // For slices, use the special slice type name
-      : type.isExtern === "c" && type.externName
+    const cTypeName =
+      type.isExtern === "c" && type.externName
         ? type.externName // Use the C header's type name directly
         : `__yo_${type.id}`;
     context.types[type.id] = {
@@ -499,13 +495,6 @@ export function collectType(type: Type, context: CodeGenContext): void {
     //   // Recursively collect the field type
     //   collectType(futureType.childType, context);
     // }
-
-    // For slice types, collect the field type
-    if (isSliceType(type)) {
-      const sliceType = type as SliceType;
-      // Recursively collect the field type
-      collectType(sliceType.childType, context);
-    }
 
     // For source namespace and trait types, collect types and functions from fields directly.
     if (isSourceNamespaceType(type) || isTraitType(type)) {
@@ -587,27 +576,6 @@ export function collectType(type: Type, context: CodeGenContext): void {
   else if (isPtrType(type)) {
     // Recursively collect the base type that this pointer points to
     collectType(type.childType, context);
-
-    // QUESTION: The isSliceType check below could be removed since SliceType is no longer DST?
-    // Special handling for pointer-to-slice types
-    if (isSliceType(type.childType)) {
-      const sliceType = type.childType as SliceType;
-      const childType = sliceType.childType;
-
-      // Recursively collect the field type
-      collectType(childType, context);
-
-      // Generate struct wrapper for slices and register it
-      const elementTypeString = getTypeString(childType, context);
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
-
-      // Register the slice type if not already registered
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: elementTypeString,
-        });
-      }
-    }
 
     // The pointer type gets the usual pointer type treatment
     context.types[type.id] = {

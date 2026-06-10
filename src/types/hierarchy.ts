@@ -24,7 +24,6 @@ import {
   isObjectType,
   isPrimitiveType,
   isPtrType,
-  isSliceType,
   isStrType,
   isSomeType,
   isStructType,
@@ -147,8 +146,6 @@ export function typeOfType(
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.childType, checkedTupleElements);
-  } else if (isSliceType(type)) {
-    return createType0(type);
   } else if (isStrType(type)) {
     // str is a value-typed fat pointer to static bytes — level 0.
     return createType0(type);

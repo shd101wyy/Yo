@@ -19,7 +19,6 @@ import {
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
 import type {
-  ArrayType,
   FunctionType,
   SomeType,
   Type,
@@ -30,7 +29,6 @@ import {
   isEnumType,
   isFunctionType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -2530,79 +2528,11 @@ export function generateOtherFunctionCall(
   } else if (isArrayType(functionType)) {
     const firstArg = expr.args[0];
 
-    // Check if this is a range slicing operation: arr(start..end) or arr(start..=end)
-    if (
-      firstArg &&
-      exprIsFunctionCall(firstArg) &&
-      (exprIsFunctionCallOf(firstArg, "..") ||
-        exprIsFunctionCallOf(firstArg, "..="))
-    ) {
-      const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
-      const arrayCode = generateExpr(expr.func!, indent, context);
-      const startCode = generateExpr(firstArg.args[0]!, indent, context);
-      const endCode = generateExpr(firstArg.args[1]!, indent, context);
-
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as ArrayType).childType, context))}`;
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(
-            (functionType as ArrayType).childType,
-            context
-          ),
-        });
-      }
-      if (isInclusive) {
-        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
-      }
-      return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-    }
-
     // Array access by index: arr[index] or arr(index)
     const arrayCode = generateExpr(expr.func!, indent, context);
     const indexCode = generateExpr(firstArg!, indent, context);
     // Generate array access with struct wrapper
     return `${arrayCode}.data[${indexCode}]`; // Access the element at the index
-  } else if (isSliceType(functionType)) {
-    const firstArg = expr.args[0];
-
-    // Check if this is a range sub-slicing operation: slice(start..end) or slice(start..=end)
-    if (
-      firstArg &&
-      exprIsFunctionCall(firstArg) &&
-      (exprIsFunctionCallOf(firstArg, "..") ||
-        exprIsFunctionCallOf(firstArg, "..="))
-    ) {
-      const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
-      const sliceCode = generateExpr(expr.func!, indent, context);
-      const startCode = generateExpr(firstArg.args[0]!, indent, context);
-      const endCode = generateExpr(firstArg.args[1]!, indent, context);
-
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(functionType.childType, context))}`;
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(functionType.childType, context),
-        });
-      }
-      if (isInclusive) {
-        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
-      }
-      return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-    }
-
-    // Slice access by index: slice.data[index]
-    const sliceCode = generateExpr(expr.func!, indent, context);
-    const indexCode = generateExpr(firstArg!, indent, context);
-    return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
-  } else if (
-    functionType &&
-    isPtrType(functionType) &&
-    isSliceType(functionType.childType)
-  ) {
-    // This case should no longer exist since slices are no longer behind pointers
-    // But keep it for backward compatibility during migration
-    const sliceCode = generateExpr(expr.func!, indent, context);
-    const indexCode = generateExpr(expr.args[0]!, indent, context);
-    return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
   }
 }
 

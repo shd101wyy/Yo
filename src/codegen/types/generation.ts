@@ -519,8 +519,8 @@ typedef struct __yo_io_future_t {
   // Generate array struct types after forward declarations
   generateArrayStructDeclarations(context);
 
-  // Generate slice struct types
-  generateSliceStructDeclarations(context);
+  // Generate the builtin str type
+  generateStrTypeDeclaration(context);
 
   // Generate Iso types
   generateIsoTypeDeclarations(context);
@@ -1013,9 +1013,9 @@ export function generateArrayStructDeclarations(context: CodeGenContext): void {
 }
 
 /**
- * Generate slice struct type declarations
+ * Generate the builtin `str` type declaration
  */
-export function generateSliceStructDeclarations(context: CodeGenContext): void {
+export function generateStrTypeDeclaration(context: CodeGenContext): void {
   const emitter = context.emitter;
   // str — builtin static string view (always emitted; trivially small).
   emitter.emitDeclarationLine(
@@ -1025,13 +1025,6 @@ export function generateSliceStructDeclarations(context: CodeGenContext): void {
   emitter.emitDeclarationLine(`  size_t len;`);
   emitter.emitDeclarationLine(`} __yo_str;`);
   emitter.emitDeclarationLine("");
-  for (const [sliceTypeName, { childType }] of context.sliceStructTypes) {
-    emitter.emitDeclarationLine(`typedef struct { // Slice wrapper struct`);
-    emitter.emitDeclarationLine(`  ${childType}* data;`);
-    emitter.emitDeclarationLine(`  size_t length;`);
-    emitter.emitDeclarationLine(`} ${sliceTypeName};`);
-    emitter.emitDeclarationLine("");
-  }
 }
 
 /**

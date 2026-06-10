@@ -37,7 +37,6 @@ import type {
   ArrayType,
   FunctionParameter,
   FunctionType,
-  SliceType,
   SomeType,
   Type,
 } from "../../types/definitions";
@@ -54,7 +53,6 @@ import {
   isSourceNamespaceType,
   isObjectType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -1458,11 +1456,10 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
               };
             }
           }
-          // array, slice, ComptimeList, comptime_string, or any type with Index impl
+          // array, ComptimeList, comptime_string, or any type with Index impl
           // — unified through Index trait dispatch
           else if (
             isArrayType(functionToCall.type) ||
-            isSliceType(functionToCall.type) ||
             (!isTypeValue(value) &&
               hasIndexImpl({
                 concreteType: functionToCall.type,
@@ -1488,17 +1485,14 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 },
               };
             } catch {
-              // Index dispatch failed (e.g., generic Slice(T) where T is
+              // Index dispatch failed (e.g., generic Array(T,N) where T is
               // a type parameter). Fall through to the fallback path.
             }
 
-            // Fallback for generic types (Slice(T)/Array(T,N) where T is a type parameter):
+            // Fallback for generic types (Array(T,N) where T is a type parameter):
             // return element type with unknown value
-            if (
-              isArrayType(functionToCall.type) ||
-              isSliceType(functionToCall.type)
-            ) {
-              const arrayType = functionToCall.type as ArrayType | SliceType;
+            if (isArrayType(functionToCall.type)) {
+              const arrayType = functionToCall.type as ArrayType;
               const returnType = arrayType.childType;
               return {
                 ...functionToCall,

@@ -303,30 +303,11 @@ test("Comptime array element indexing", {
   comptime_assert(arr(usize(0)) == i32(1), "first element");
   comptime_assert(arr(usize(2)) == i32(3), "last element");
 });
-test("Comptime array range slicing", {
-  arr :: [i32(10), i32(20), i32(30), i32(40)];
-  s :: arr(usize(1) .. usize(3));
-  comptime_assert(s(usize(0)) == i32(20), "slice first");
-  comptime_assert(s(usize(1)) == i32(30), "slice second");
-});
-test("Comptime array inclusive range slicing", {
-  arr :: [i32(10), i32(20), i32(30), i32(40)];
-  s :: arr(usize(0) ..= usize(2));
-  comptime_assert(s(usize(0)) == i32(10), "slice first");
-  comptime_assert(s(usize(2)) == i32(30), "slice third");
-});
 test("Comptime array mutation via index", {
   arr :: [i32(0), i32(1), i32(2)];
   arr(usize(0)) = i32(42);
   comptime_assert(arr(usize(0)) == i32(42), "arr(0) should be mutated");
   comptime_assert(arr(usize(1)) == i32(1), "arr(1) unchanged");
-});
-test("Comptime slice re-slicing", {
-  arr :: [i32(1), i32(2), i32(3), i32(4), i32(5)];
-  s1 :: arr(usize(1) .. usize(4));
-  s2 :: s1(usize(0) .. usize(2));
-  comptime_assert(s2(usize(0)) == i32(2), "re-slice first");
-  comptime_assert(s2(usize(1)) == i32(3), "re-slice second");
 });
 test("Comptime string element indexing", {
   x :: "Hello";
@@ -403,31 +384,6 @@ test("ComptimeList indexing: range slicing edge cases", {
 // ============================================================
 // Comptime range variable indexing
 // ============================================================
-test("Comptime array slicing with range variable", {
-  arr :: [i32(10), i32(20), i32(30), i32(40), i32(50)];
-  range :: (usize(1) .. usize(4));
-  s :: arr(range);
-  comptime_assert(s(usize(0)) == i32(20), "slice[0] should be 20");
-  comptime_assert(s(usize(1)) == i32(30), "slice[1] should be 30");
-  comptime_assert(s(usize(2)) == i32(40), "slice[2] should be 40");
-});
-test("Comptime array slicing with inclusive range variable", {
-  arr :: [i32(10), i32(20), i32(30), i32(40), i32(50)];
-  range :: (usize(0) ..= usize(2));
-  s :: arr(range);
-  comptime_assert(s(usize(0)) == i32(10), "slice[0] should be 10");
-  comptime_assert(s(usize(1)) == i32(20), "slice[1] should be 20");
-  comptime_assert(s(usize(2)) == i32(30), "slice[2] should be 30");
-});
-test("Comptime slice re-slicing with range variable", {
-  arr :: [i32(1), i32(2), i32(3), i32(4), i32(5)];
-  s1 :: arr(usize(1) .. usize(5));
-  range :: (usize(0) .. usize(3));
-  s2 :: s1(range);
-  comptime_assert(s2(usize(0)) == i32(2), "re-slice[0]");
-  comptime_assert(s2(usize(1)) == i32(3), "re-slice[1]");
-  comptime_assert(s2(usize(2)) == i32(4), "re-slice[2]");
-});
 test("Comptime string slicing with range variable", {
   x :: "Hello World";
   range :: (0 .. 5);

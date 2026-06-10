@@ -276,10 +276,7 @@ test("Test Send on pointer-bearing types is conditional on the pointee", {
   // *(T): Send iff T: Send.
   comptime_assert(Type.impls(*(i32), Send) == true);
   comptime_assert(Type.impls(*(NonSendCarrier), Send) == false);
-  // Slice(T) / [T]: Send iff T: Send (the missing impl this test pins).
-  comptime_assert(Type.impls([i32], Send) == true);
-  comptime_assert(Type.impls([NonSendCarrier], Send) == false);
-  // `str` is Slice(u8) — should be Send.
+  // str (builtin static string view) is Send.
   comptime_assert(Type.impls(str, Send) == true);
   // Array(T, N): Send iff T: Send.
   comptime_assert(Type.impls(Array(i32, 4), Send) == true);

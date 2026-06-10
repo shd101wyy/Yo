@@ -789,29 +789,12 @@ export const BuiltinFunctions = {
   __yo_str_len: ["__yo_str_len"],
   __yo_str_ptr: ["__yo_str_ptr"],
   __yo_str_byte: ["__yo_str_byte"],
-  __yo_slice_len: ["__yo_slice_len"],
-  __yo_slice_new: ["__yo_slice_new"],
-  __yo_slice_ptr: ["__yo_slice_ptr"],
 
-  // Array/Slice indexing builtins (used by Index trait impls)
+  // Array indexing builtins (used by Index trait impls)
   __yo_array_index: ["__yo_array_index"],
-  __yo_slice_index: ["__yo_slice_index"],
-  __yo_array_index_range: ["__yo_array_index_range"],
-  __yo_array_index_range_inclusive: ["__yo_array_index_range_inclusive"],
-  __yo_slice_index_range: ["__yo_slice_index_range"],
-  __yo_slice_index_range_inclusive: ["__yo_slice_index_range_inclusive"],
 
-  // Comptime array/slice indexing builtins (used by ComptimeIndex trait impls)
+  // Comptime array indexing builtins (used by ComptimeIndex trait impls)
   __yo_comptime_array_index: ["__yo_comptime_array_index"],
-  __yo_comptime_slice_index: ["__yo_comptime_slice_index"],
-  __yo_comptime_array_index_range: ["__yo_comptime_array_index_range"],
-  __yo_comptime_array_index_range_inclusive: [
-    "__yo_comptime_array_index_range_inclusive",
-  ],
-  __yo_comptime_slice_index_range: ["__yo_comptime_slice_index_range"],
-  __yo_comptime_slice_index_range_inclusive: [
-    "__yo_comptime_slice_index_range_inclusive",
-  ],
 
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions

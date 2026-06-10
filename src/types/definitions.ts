@@ -278,12 +278,6 @@ export interface ArrayType extends Type {
   trait: TraitType;
 }
 
-export interface SliceType extends Type {
-  tag: TypeTag.Slice;
-  childType: Type;
-  trait: TraitType;
-}
-
 /// `str` — builtin immutable fat-pointer view of STATIC string bytes.
 /// C lowering: `typedef struct { const uint8_t* ptr; size_t len; } __yo_str;`
 export interface StrType extends Type {

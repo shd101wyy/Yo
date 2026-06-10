@@ -26,7 +26,6 @@ import {
   isFunctionType,
   isSourceNamespaceType,
   isPtrType,
-  isSliceType,
   isStructType,
   isTraitType,
   isTypeHierarchyType,
@@ -927,7 +926,7 @@ function findTypeConstructorResult(
 }
 
 /**
- * Collect struct/enum/union/module/array/slice fields for a type.
+ * Collect struct/enum/union/module/array fields for a type.
  * Extracted to avoid duplication between handleDotCompletion and text-based fallback.
  */
 function collectTypeMembers(
@@ -946,13 +945,6 @@ function collectTypeMembers(
       name: "len",
       detail: "comptime(usize)",
       documentation: "Get the compile-time known length of the array",
-      kind: CompletionItemKind.Property,
-    });
-  } else if (isSliceType(fieldAccessType)) {
-    members.push({
-      name: "len",
-      detail: "usize",
-      documentation: "Get the runtime length of the slice",
       kind: CompletionItemKind.Property,
     });
   } else if (isStructType(fieldAccessType)) {

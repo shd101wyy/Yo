@@ -12,7 +12,6 @@ import type {
   IsoType,
   SourceNamespaceType,
   PtrType,
-  SliceType,
   StrType,
   SomeType,
   StructType,
@@ -145,10 +144,6 @@ export function isArrayType(type?: Type): type is ArrayType {
 
 export function isStrType(type?: Type): type is StrType {
   return type?.tag === TypeTag.Str;
-}
-
-export function isSliceType(type?: Type): type is SliceType {
-  return type?.tag === TypeTag.Slice;
 }
 
 export function isTupleType(type?: Type): type is TupleType {

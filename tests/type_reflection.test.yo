@@ -75,12 +75,12 @@ test("TypeInfo for struct and enum", {
   k_color :: Type.get_info(TIColor);
   comptime_assert(k_color.is_enum(), "TKColor should be Enum");
 });
-test("TypeInfo for array, slice, pointer", {
+test("TypeInfo for array, pointer", {
+  // (Slice case retired with the builtin Slice type —
+  // plans/SLICE_REWORK.md.)
   Arr3 :: [i32 ; 3];
-  SliceType :: [i32];
   PtrType :: *(i32);
   comptime_assert(Type.get_info(Arr3).is_array(), "array should be Array");
-  comptime_assert(Type.get_info(SliceType).is_slice(), "slice should be Slice");
   comptime_assert(Type.get_info(PtrType).is_pointer(), "pointer should be Pointer");
 });
 test("TypeInfo negative cases", {

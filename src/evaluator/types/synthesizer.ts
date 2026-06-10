@@ -17,7 +17,6 @@ import {
   isIsoType,
   isSourceNamespaceType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -82,7 +81,7 @@ function occursCheck(
     return type.fields.some((el) => occursCheck(someTypeId, el.type, visited));
   }
 
-  if (isArrayType(type) || isSliceType(type) || isComptimeListType(type)) {
+  if (isArrayType(type) || isComptimeListType(type)) {
     return occursCheck(someTypeId, type.childType, visited);
   }
 
@@ -937,22 +936,6 @@ export function synthesizeTypes(
         });
       }
     }
-  } else if (isSliceType(expected.type) && isSliceType(given.type)) {
-    // Synthesize the element types of the slices
-    const { expectedEnv, givenEnv } = synthesizeTypes(
-      {
-        type: expected.type.childType,
-        env: expected.env,
-      },
-      {
-        type: given.type.childType,
-        env: given.env,
-      },
-      checkedTypePairs,
-      options
-    );
-    expected.env = expectedEnv;
-    given.env = givenEnv;
   } else if (
     isComptimeListType(expected.type) &&
     isComptimeListType(given.type)

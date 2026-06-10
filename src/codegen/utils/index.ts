@@ -24,7 +24,6 @@ import type {
   FunctionType,
   IsoType,
   PtrType,
-  SliceType,
   SomeType,
   StructType,
   Type,
@@ -35,7 +34,6 @@ import {
   isEnumType,
   isObjectType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
 } from "../../types/guards";
@@ -74,11 +72,6 @@ export interface CodeGenContext {
    * Array struct types that need to be generated
    */
   arrayStructTypes: Map<string, { childType: string; length: number }>;
-
-  /**
-   * Slice struct types that need to be generated
-   */
-  sliceStructTypes: Map<string, { childType: string }>;
 
   /**
    * Iso struct types that need to be generated
@@ -591,24 +584,6 @@ export function getTypeString(
       // in the C preamble.
       return "__yo_str";
     }
-    case TypeTag.Slice: {
-      // Generate slice struct type name: Slice_ElementType
-      const sliceType = type as SliceType;
-      const elementTypeStr = sanitizeForCIdentifier(
-        getTypeString(sliceType.childType, context)
-      );
-      const sliceTypeName = `Slice_${elementTypeStr}`;
-
-      // Register the slice type
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(sliceType.childType, context),
-        });
-      }
-
-      return sliceTypeName;
-    }
-
     // SomeType (used for Impl(...) or Self references in modules/traits)
     case TypeTag.SomeType: {
       const someType = type as SomeType;
@@ -754,24 +729,6 @@ export function getTypeString(
       // NOTE: In Yo, PtrType represents a borrow like `*(T)`.
       // For reference-semantics types (objects), the value is already a pointer in C,
       // so a borrow should NOT introduce another level of indirection.
-
-      // For slices, get the slice type name and add a pointer
-      // A `*([u8])` should be `Slice_uint8_t*`, a pointer to the fat pointer struct
-      if (isSliceType(childType)) {
-        const sliceType = childType as SliceType;
-        const elementTypeString = getTypeString(sliceType.childType, context);
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
-
-        // Register the slice type if not already registered
-        if (!context.sliceStructTypes.has(sliceTypeName)) {
-          context.sliceStructTypes.set(sliceTypeName, {
-            childType: elementTypeString,
-          });
-        }
-
-        // Return a pointer to the slice struct
-        return `${sliceTypeName}*`;
-      }
 
       const baseTypeStr = getTypeString(childType, context);
 

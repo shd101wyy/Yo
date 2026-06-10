@@ -40,7 +40,6 @@ import {
   isArrayType,
   isFnTraitType,
   isFunctionType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -3195,8 +3194,7 @@ export function evaluateImplBlock({
     env = evaluatedReceiverTypeArg.$.env;
     const receiverType = evaluatedReceiverTypeArg.$.value.value;
 
-    const isStructuralType =
-      isSliceType(receiverType) || isArrayType(receiverType);
+    const isStructuralType = isArrayType(receiverType);
 
     // Pre-register concrete trait impls being evaluated so that recursive types
     // (e.g. TreeNode containing Box(TreeNode)) can find their own Clone impl

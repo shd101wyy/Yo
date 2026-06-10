@@ -122,7 +122,6 @@ import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future-trait";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
-import { evaluateSliceType } from "../types/slice";
 import { evaluateStructType } from "../types/struct";
 import { evaluateTraitType } from "../types/trait";
 import { evaluateTupleType } from "../types/tuple";
@@ -542,13 +541,6 @@ ${exprToString(expr)}`,
     ) {
       // __yo_array_fill
       return evaluateYoArrayFill({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
-      // Slice type
-      return evaluateSliceType({
         expr,
         env,
         context: { ...context },
@@ -975,26 +967,9 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     }
-    // Comptime array/slice/string index builtins
+    // Comptime array/string index builtins
     else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_array_index) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_slice_index) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_array_index_range
-      ) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_array_index_range_inclusive
-      ) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_slice_index_range
-      ) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_slice_index_range_inclusive
-      ) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_index) ||
       exprIsFunctionCallOf(
         expr,

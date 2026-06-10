@@ -30,7 +30,6 @@ import {
   isFunctionType,
   isSourceNamespaceType,
   isPtrType,
-  isSliceType,
   isArrayType,
   isIsoType,
   isSomeType,
@@ -48,7 +47,6 @@ import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { wrapFunctionBodyWithContracts } from "../builtins/contracts";
 import {
   createPtrType,
-  createSliceType,
   createArrayType,
   createFnTraitType,
   createSomeType,
@@ -145,12 +143,6 @@ function substituteSomeTypesFromEnv(
     const childSub = substituteSomeTypesFromEnv(type.childType, env, visited);
     if (childSub === type.childType) return type;
     return createPtrType(childSub);
-  }
-
-  if (isSliceType(type)) {
-    const childSub = substituteSomeTypesFromEnv(type.childType, env, visited);
-    if (childSub === type.childType) return type;
-    return createSliceType(childSub);
   }
 
   if (isArrayType(type)) {

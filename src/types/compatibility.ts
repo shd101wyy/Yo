@@ -32,7 +32,6 @@ import {
   isSourceNamespaceType,
   isPrimitiveType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -188,14 +187,11 @@ export function areTypesCompatible(
   }
 
   // comptime_string can be converted to
-  // - [u8]  u8 slice
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
-  // - str      newtype over [u8]
+  // - str      static string view
   if (
     (isComptimeStringType(expected.type) ||
-      (isSliceType(expected.type) && // [u8]
-        isU8Type(expected.type.childType)) ||
       (isPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.childType) ||
           isCharType(expected.type.childType))) ||
@@ -240,16 +236,6 @@ export function areTypesCompatible(
         requireExactMatch,
         visitedPairs
       )
-    );
-  }
-
-  if (isSliceType(expected.type) && isSliceType(given.type)) {
-    // Slices must have compatible element types
-    return areTypesCompatible(
-      { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env },
-      requireExactMatch,
-      visitedPairs
     );
   }
 

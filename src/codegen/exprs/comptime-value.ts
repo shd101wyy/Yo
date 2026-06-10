@@ -6,7 +6,6 @@ import {
   isStrType,
   isFunctionType,
   isPtrType,
-  isSliceType,
   isStructType,
   isTupleType,
   isUnitType,
@@ -85,20 +84,9 @@ export function generateComptimeValue(
       return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
 
-    // Check if the target type is a slice (e.g., [u8])
-    // In Yo, [u8] is a fat pointer (slice value), represented as a struct with data+length
-    if (targetType && isSliceType(targetType)) {
-      const sliceCType = getTypeString(targetType, context);
-      const stringLiteral = JSON.stringify(value.value);
-      const stringLength = Buffer.byteLength(value.value, "utf8");
-
-      // Generate slice struct value (fat pointer)
-      return `(${sliceCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
-    }
-
     // Fallback: comptime_string materializing in a runtime context with no
     // recorded conversion becomes the builtin str (branch-value temps,
-    // field assignments). Pointer/slice targets were handled above.
+    // field assignments). Pointer targets were handled above.
     if (!targetType || isComptimeStringType(targetType)) {
       const stringLiteral = JSON.stringify(value.value);
       const stringLength = Buffer.byteLength(value.value, "utf8");
