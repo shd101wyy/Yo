@@ -1,5 +1,6 @@
 // Tests for std/imm/vec — Persistent immutable vector
 { Vec, PopResult } :: import("../std/imm/vec");
+{ ArrayList } :: import("../std/collections/array_list");
 { String } :: import("../std/imm/string");
 VecRcEntry :: struct(text : String);
 test("Vec new creates empty vector", {
@@ -232,34 +233,34 @@ test("Vec structural sharing", {
   assert(v2(usize(2)) == i32(3), "v2 last = 3");
   assert(v3(usize(2)) == i32(4), "v3 last = 4");
 });
-test("Vec from_slice single element", {
+test("Vec from_list single element", {
   arr := [i32 ; 1](i32(42));
-  v := Vec(i32).from_slice(arr(usize(0) .. usize(1)));
+  v := Vec(i32).from_list(ArrayList(i32).from_array(arr));
   assert(v.len() == usize(1), "len = 1");
   assert(v(usize(0)) == i32(42), "elem 0");
 });
-test("Vec from_slice with elements", {
+test("Vec from_list with elements", {
   arr := [i32 ; 5](i32(10), i32(20), i32(30), i32(40), i32(50));
-  v := Vec(i32).from_slice(arr(usize(0) .. usize(5)));
+  v := Vec(i32).from_list(ArrayList(i32).from_array(arr));
   assert(v.len() == usize(5), "len = 5");
   assert(v(usize(0)) == i32(10), "elem 0");
   assert(v(usize(2)) == i32(30), "elem 2");
   assert(v(usize(4)) == i32(50), "elem 4");
 });
-test("Vec from_slice then push", {
+test("Vec from_list then push", {
   arr := [i32 ; 3](i32(1), i32(2), i32(3));
-  v1 := Vec(i32).from_slice(arr(usize(0) .. usize(3)));
+  v1 := Vec(i32).from_list(ArrayList(i32).from_array(arr));
   v1_copy := v1;
   v2 := v1_copy.push(i32(4));
   assert(v1.len() == usize(3), "original unchanged");
   assert(v2.len() == usize(4), "new has 4");
   assert(v2(usize(3)) == i32(4), "appended elem");
 });
-test("Vec from_slice equality", {
+test("Vec from_list equality", {
   arr := [i32 ; 3](i32(1), i32(2), i32(3));
-  v1 := Vec(i32).from_slice(arr(usize(0) .. usize(3)));
+  v1 := Vec(i32).from_list(ArrayList(i32).from_array(arr));
   v2 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
-  assert(v1 == v2, "from_slice equals manual push");
+  assert(v1 == v2, "from_list equals manual push");
 });
 test("Vec supports RC-backed Send elements", {
   v1 := Vec(VecRcEntry).new().push(VecRcEntry(text : String.from("a"))).push(VecRcEntry(text : String.from("b")));
