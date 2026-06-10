@@ -11,12 +11,6 @@ test("Test str.from_raw_parts with zero length", {
   s := str.from_raw_parts(*(u8)(""), usize(0));
   assert(s.len() == usize(0), "str.from_raw_parts with zero length should have length 0");
 });
-test("Test Slice(u8).from_raw_parts", {
-  slice := Slice(u8).from_raw_parts(*(u8)("hello"), usize(5));
-  assert(slice.len() == usize(5), "Slice.from_raw_parts should have length 5");
-  assert(slice(usize(0)) == u8(104), "first byte should be 'h' (104)");
-  assert(slice(usize(4)) == u8(111), "last byte should be 'o' (111)");
-});
 test("String.raw_bytes privileged view lengths", {
   // as_str() was deleted (str is the STATIC string view —
   // plans/SLICE_REWORK.md); raw_bytes is the pragma-gated replacement.

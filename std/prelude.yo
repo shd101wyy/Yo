@@ -154,18 +154,9 @@ extern(
     fn(s : str) -> *(u8),
   __yo_str_byte :
     fn(s : str, idx : usize) -> u8,
-  // slice related
-  __yo_slice_len :
-    fn(forall(T : Type), slice : Slice(T)) -> usize,
-  __yo_slice_new :
-    fn(forall(T : Type), ptr : *(T), length : usize) -> Slice(T),
-  __yo_slice_ptr :
-    fn(forall(T : Type), slice : Slice(T)) -> *(T),
-  // array/slice indexing builtins (used by Index trait impls)
+  // array indexing builtin (used by Index trait impls)
   __yo_array_index :
     fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T),
-  __yo_slice_index :
-    fn(forall(T : Type), self : *(Slice(T)), idx : usize) -> *(T),
   // C macro related
   __yo_c_macro_defined : (fn(comptime(name) : comptime_string) -> comptime(bool)),
   __yo_c_macro_value : (fn(comptime(name) : comptime_string) -> comptime(comptime_string)),
@@ -292,33 +283,11 @@ RangeInclusiveOp :: trait(
   (..=) : (fn(start : Self, end : Self) -> RangeInclusive(Self))
 );
 export(RangeInclusiveOp);
-// array/slice range indexing builtins (declared after Range/RangeInclusive types)
-extern(
-  "Yo",
-  __yo_array_index_range :
-    fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : Range(usize)) -> *(Slice(T)),
-  __yo_array_index_range_inclusive :
-    fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : RangeInclusive(usize)) -> *(Slice(T)),
-  __yo_slice_index_range :
-    fn(forall(T : Type), self : *(Slice(T)), idx : Range(usize)) -> *(Slice(T)),
-  __yo_slice_index_range_inclusive :
-    fn(forall(T : Type), self : *(Slice(T)), idx : RangeInclusive(usize)) -> *(Slice(T))
-);
 // comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls)
 extern(
   "Yo",
   __yo_comptime_array_index :
     (fn(forall(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
-  __yo_comptime_slice_index :
-    (fn(forall(T : Type), comptime(self) : *(Slice(T)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
-  __yo_comptime_array_index_range :
-    (fn(forall(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
-  __yo_comptime_array_index_range_inclusive :
-    (fn(forall(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
-  __yo_comptime_slice_index_range :
-    (fn(forall(T : Type), comptime(self) : *(Slice(T)), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
-  __yo_comptime_slice_index_range_inclusive :
-    (fn(forall(T : Type), comptime(self) : *(Slice(T)), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
   __yo_comptime_string_index :
     (fn(comptime(self) : comptime_string, comptime(idx) : comptime_int) -> comptime(comptime_string)),
   __yo_comptime_string_index_range :
@@ -5614,26 +5583,6 @@ impl(
     )
   )
 );
-impl(
-  forall(T : Type, N : usize),
-  Array(T, N),
-  Index(Range(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
-      __yo_array_index_range(&(self), idx)
-    )
-  )
-);
-impl(
-  forall(T : Type, N : usize),
-  Array(T, N),
-  Index(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_array_index_range_inclusive(&(self), idx)
-    )
-  )
-);
 /// Array Indexable impl — projection-style indexing yielding `ref(T)`.
 /// Body takes `&(self)` so `__yo_array_index`'s `self : *(Array(T, N))`
 /// parameter is satisfied — the `ref(self) : Self` binding gives the
@@ -5662,80 +5611,10 @@ RawSlice :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(ptr : *(T), len : usize)
 );
 export(RawSlice);
-/// Slice
-// SAFETY: Slice(T) is a value-typed view (pointer + length) over a backing
 // array. Sending a slice across threads copies the header; both threads
 // can independently read the backing array. The backing array's lifetime
 // is managed by its owning collection (which must itself be Send to cross
 // threads). Slice is always Acyclic — it is a value type with no ARC.
-impl(forall(T : Type), where(T <: Send), Slice(T), Send());
-impl(forall(T : Type), Slice(T), Acyclic());
-impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), Slice(T), Runtime());
-impl(forall(T : Type), Range(T), Acyclic());
-impl(forall(T : Type), where(T <: Comptime), Range(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), Range(T), Runtime());
-impl(forall(T : Type), RangeInclusive(T), Acyclic());
-impl(forall(T : Type), where(T <: Comptime), RangeInclusive(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), RangeInclusive(T), Runtime());
-impl(
-  forall(T : Type),
-  Slice(T),
-  from_raw_parts : (fn(ptr : *(T), length : usize) -> Self)(
-    __yo_slice_new(ptr, length)
-  ),
-  len : (fn(self : Self) -> usize)(
-    __yo_slice_len(self)
-  ),
-  ptr : (fn(self : Self) -> *(T))(
-    __yo_slice_ptr(self)
-  )
-);
-/// Slice Index impls (same `&(self)` rationale as Array above).
-impl(
-  forall(T : Type),
-  Slice(T),
-  Index(usize)(
-    Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
-      __yo_slice_index(&(self), idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  Slice(T),
-  Index(Range(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
-      __yo_slice_index_range(&(self), idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  Slice(T),
-  Index(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_slice_index_range_inclusive(&(self), idx)
-    )
-  )
-);
-/// Slice Indexable impl — see Array Indexable above.
-impl(
-  forall(T : Type),
-  Slice(T),
-  Indexable(usize)(
-    Element : T,
-    project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
-      cond(
-        (pos >= self.len()) => panic("Slice: project out of bounds"),
-        true => unsafe(__yo_slice_index(&(self), pos))
-      )
-    )
-  )
-);
 /// Array ComptimeIndex impls
 impl(
   forall(T : Type, N : usize),
@@ -5745,62 +5624,6 @@ impl(
     Output : T,
     index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index(self, idx)
-    )
-  )
-);
-impl(
-  forall(T : Type, N : usize),
-  where(T <: Comptime),
-  Array(T, N),
-  ComptimeIndex(Range(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_array_index_range(self, idx)
-    )
-  )
-);
-impl(
-  forall(T : Type, N : usize),
-  where(T <: Comptime),
-  Array(T, N),
-  ComptimeIndex(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_array_index_range_inclusive(self, idx)
-    )
-  )
-);
-/// Slice ComptimeIndex impls
-impl(
-  forall(T : Type),
-  where(T <: Comptime),
-  Slice(T),
-  ComptimeIndex(usize)(
-    Output : T,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
-      __yo_comptime_slice_index(self, idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  where(T <: Comptime),
-  Slice(T),
-  ComptimeIndex(Range(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_slice_index_range(self, idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  where(T <: Comptime),
-  Slice(T),
-  ComptimeIndex(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_slice_index_range_inclusive(self, idx)
     )
   )
 );
@@ -7790,13 +7613,6 @@ impl(
         }
       )
     )
-  )
-);
-impl(
-  forall(T : Type),
-  Slice(T),
-  iter : (fn(ref(self) : Self) -> _SlicePosIter)(
-    _SlicePosIter(_index : usize(0), _len : self.len())
   )
 );
 /// TryFrom trait — fallible conversion from one type to another.

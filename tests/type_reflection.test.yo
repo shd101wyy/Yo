@@ -148,13 +148,6 @@ test("TypeInfo compound: Array element and length", {
   len_is_3 :: match(arr_info,.Array(elem, len) => (len == 3), _ => false);
   comptime_assert(len_is_3, "array length should be 3");
 });
-test("TypeInfo compound: Slice element", {
-  SlcT :: [i32];
-  slice_info :: Type.get_info(SlcT);
-  comptime_assert(slice_info.is_slice(), "should be slice");
-  elem_is_i32 :: match(slice_info,.Slice(elem) => __yo_are_types_compatible(elem, i32), _ => false);
-  comptime_assert(elem_is_i32, "slice element should be i32");
-});
 test("TypeInfo compound : Type.Struct fields and kind", {
   info :: Type.get_info(TIPoint);
   comptime_assert(info.is_struct(), "should be struct");
