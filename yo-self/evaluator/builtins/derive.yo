@@ -151,12 +151,12 @@ call_registered_derive_rule :: (
       // …)` registration used. Mirrors TS evaluating `DeriveContext(...)` to
       // obtain the real type (derive.ts:608-625).
       dc_type := match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("DeriveContext").as_str(), exn), caller_env, ctx))),
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("DeriveContext").clone(), exn), caller_env, ctx))),
         .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
         .None => t_unit()
       );
       tps_type := match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("ComptimeList(Expr)").as_str(), exn), caller_env, ctx))),
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("ComptimeList(Expr)").clone(), exn), caller_env, ctx))),
         .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
         .None => t_unit()
       );

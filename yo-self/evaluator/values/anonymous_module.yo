@@ -59,7 +59,7 @@ AnonModuleResult :: object(
   partial_module_error : Option(String)
 );
 /// Helper: find the first index of `label` in `field_labels`, or `.None`.
-_find_field_label_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
+_find_field_label_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := field_labels.len();
@@ -233,7 +233,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             match(
                               ext_mod_type,
                               .Struct({ field_labels : efls }) => {
-                                if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
+                                if(_find_field_label_index(efls, lbl.clone()).is_none(), {
                                   exn.throw(
                                     dyn(
                                       format_error_message(
@@ -281,7 +281,7 @@ evaluate_anonymous_module_begin_exprs :: (
                                   match(
                                     ext_mod_type,
                                     .Struct({ field_labels : efls }) => {
-                                      if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
+                                      if(_find_field_label_index(efls, lbl.clone()).is_none(), {
                                         exn.throw(
                                           dyn(
                                             format_error_message(
@@ -328,7 +328,7 @@ evaluate_anonymous_module_begin_exprs :: (
                           ext_type := match(efts.get(k),.Some(t) => t,.None => TypeValue.Unit);
                           if(!(_is_excluded_label(excluded_labels, ext_label.as_str())), {
                             // Check for duplicate label
-                            if(_find_field_label_index(field_labels, ext_label.as_str()).is_some(), {
+                            if(_find_field_label_index(field_labels, ext_label.clone()).is_some(), {
                               exn.throw(
                                 dyn(
                                   format_error_message(
@@ -477,7 +477,7 @@ evaluate_anonymous_module_begin_exprs :: (
                       }
                     );
                     // Check for duplicate export
-                    if(_find_field_label_index(field_labels, variable_name.as_str()).is_some(), {
+                    if(_find_field_label_index(field_labels, variable_name.clone()).is_some(), {
                       exn.throw(
                         dyn(
                           format_error_message(

@@ -713,7 +713,7 @@ _ti_eval_code :: (
     exn : Exception
   ) -> Option(EvalValue)
 )({
-  code_expr := generate_expr_from_code(code.as_str(), exn);
+  code_expr := generate_expr_from_code(code.clone(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
   result_ast := evaluate_expression(code_expr, env_ptr, ctx);
@@ -744,7 +744,7 @@ _ti_bind_comptime_list :: (
 )({
   elem_type := if(values.len() > usize(0), match(values.get(usize(0)),.Some(v) => type_of_eval_value(v),.None => t_unit()), {
     // Evaluate the type name to discover the element type.
-    type_ast := generate_expr_from_code(type_name.as_str(), exn);
+    type_ast := generate_expr_from_code(type_name.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
     type_result_ast := evaluate_expression(type_ast, env_ptr, ctx);
@@ -923,7 +923,7 @@ evaluate_yo_type_get_info :: (
   type_val := _extract_type_val(arg0, info0, "__yo_type_get_info", exn);
   // SomeType → return UnknownVal with TypeInfo type (avoid calling constructors).
   if(is_some_type(type_val), {
-    unit_ast := generate_expr_from_code("TypeInfo.Unit", exn);
+    unit_ast := generate_expr_from_code(String.from("TypeInfo.Unit"), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
     unit_result := evaluate_expression(unit_ast, local_env, ctx);
@@ -1046,7 +1046,7 @@ evaluate_yo_type_get_info :: (
     }
   );
   // Evaluate the TypeInfo constructor code string.
-  info_expr := generate_expr_from_code(code.as_str(), exn);
+  info_expr := generate_expr_from_code(code.clone(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
   result_ast := evaluate_expression(info_expr, local_env, ctx);
@@ -1137,7 +1137,7 @@ evaluate_comptime_eval :: (
     raw
   );
   // Parse and evaluate each expression in the code string.
-  code_exprs := generate_exprs_from_code(code_str.as_str(), exn);
+  code_exprs := generate_exprs_from_code(code_str.clone(), exn);
   (ci : usize) = usize(0);
   n_exprs := code_exprs.len();
   while(ci < n_exprs, {
@@ -1254,7 +1254,7 @@ evaluate_comptime_string_to_expr :: (
     raw
   );
   // Parse a single expression.
-  parsed_expr := generate_expr_from_code(code_str.as_str(), exn);
+  parsed_expr := generate_expr_from_code(code_str.clone(), exn);
   expr_val := EvalValue.ExprVal(box(parsed_expr));
   out := new_expr_info(local_env, t_expr_t());
   out.value = Option(EvalValue).Some(expr_val);
@@ -1507,7 +1507,7 @@ evaluate_type_join_fields :: (
       synthetic_token(fi_name.clone(), local_env.module_path)
     );
     call_code := (((mapper_name + String.from("(")) + fi_name) + String.from(")"));
-    call_ast := generate_expr_from_code(call_code.as_str(), exn);
+    call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;
@@ -1739,7 +1739,7 @@ evaluate_type_map_variants :: (
       synthetic_token(vi_name.clone(), local_env.module_path)
     );
     call_code := (((mapper_name + String.from("(")) + vi_name) + String.from(")"));
-    call_ast := generate_expr_from_code(call_code.as_str(), exn);
+    call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;

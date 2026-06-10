@@ -308,7 +308,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
 /// string (hot path — template-string Rc corruption family).
 _ctfe_unknown :: (fn(return_type : TypeValue, env : Environment) -> EvalValue)({
   nm := String.from("ctfe_result_");
-  nm.push_str(random_id(env.module_path).as_str());
+  nm.push_string(random_id(env.module_path));
   create_unknown_val_with_name(return_type, nm)
 });
 /// Build the in-progress recursion placeholder for a type-constructor call.
@@ -429,7 +429,7 @@ evaluate_comptime_fn_call :: (
       (ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime) &&
         (!(is_type_hierarchy_type(return_type)))
     ) &&
-      (!(macro_return_is_unquote(func_id_str.as_str())))
+      (!(macro_return_is_unquote(func_id_str.clone())))
   ) &&
     (ctfe_gate_forall_n == usize(0)), {
     return(

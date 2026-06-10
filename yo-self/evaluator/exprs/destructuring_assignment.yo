@@ -59,7 +59,7 @@ DestructuringResult :: object(
 // Internal helpers
 // ---------------------------------------------------------------------------
 /// True if `label` is already in the `seen` list.
-_label_already_seen :: (fn(seen : ArrayList(String), label : str) -> bool)({
+_label_already_seen :: (fn(seen : ArrayList(String), label : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while((i < seen.len()) && !(found), {
@@ -89,7 +89,7 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
 );
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
-_find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
+_find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
   i := usize(0);
   (result : Option(usize)) = Option(usize).None;
   while((i < field_labels.len()) && match(result,.None => true, _ => false), {
@@ -238,7 +238,7 @@ handle_member_destructuring :: (
       while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get(j),.Some(l) => l,.None => String.from(""));
         fty := match(rhs_field_types.get(j),.Some(t) => t,.None => TypeValue.Unit);
-        if(!(_label_already_seen(seen_labels, flab.as_str())), {
+        if(!(_label_already_seen(seen_labels, flab.clone())), {
           {
             ___ := seen_labels.push(flab.clone());
           };
@@ -325,7 +325,7 @@ handle_member_destructuring :: (
         });
         label_expr_opt = Option(AstExpr).Some(left_side);
         label := ast_expr_token(left_side).value;
-        fi_opt := _find_field_index(rhs_field_labels, label.as_str());
+        fi_opt := _find_field_index(rhs_field_labels, label.clone());
         match(
           fi_opt,
           .None => {
@@ -368,7 +368,7 @@ handle_member_destructuring :: (
             )
           );
         });
-        if(_label_already_seen(seen_labels, rhs_field_label.as_str()), {
+        if(_label_already_seen(seen_labels, rhs_field_label.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -426,7 +426,7 @@ handle_member_destructuring :: (
             )
           );
         });
-        if(_label_already_seen(seen_labels, rhs_field_label.as_str()), {
+        if(_label_already_seen(seen_labels, rhs_field_label.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -672,7 +672,7 @@ evaluate_destructuring_assignment :: (
     // Find the variant index.
     vnames := match(rhs_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
     vfields := match(rhs_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-    vi_opt := _find_field_index(vnames, svn.as_str());
+    vi_opt := _find_field_index(vnames, svn.clone());
     match(
       vi_opt,
       .None => {

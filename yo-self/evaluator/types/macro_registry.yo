@@ -51,37 +51,37 @@ register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
 // Lookups
 // ---------------------------------------------------------------------------
 /// Returns the list of quoted parameter indices, or an empty list if none.
-get_macro_quoted_param_indices :: (fn(func_id : str) -> ArrayList(usize))(
+get_macro_quoted_param_indices :: (fn(func_id : String) -> ArrayList(usize))(
   match(
-    g_macro_quoted_param_indices.get(String.from(func_id)),
+    g_macro_quoted_param_indices.get(func_id.clone()),
     .Some(idxs) => idxs,
     .None => ArrayList(usize).new()
   )
 );
 /// Returns true if the function's return type is `unquote(...)`.
-macro_return_is_unquote :: (fn(func_id : str) -> bool)(
+macro_return_is_unquote :: (fn(func_id : String) -> bool)(
   match(
-    g_macro_return_is_unquote.get(String.from(func_id)),
+    g_macro_return_is_unquote.get(func_id.clone()),
     .Some(_) => true,
     .None => false
   )
 );
 /// Convenience: returns true if the function is a macro
 /// (has quoted params OR returns unquote).
-is_macro_fn :: (fn(func_id : str) -> bool)(
+is_macro_fn :: (fn(func_id : String) -> bool)(
   cond(
     macro_return_is_unquote(func_id) => true,
     true => match(
-      g_macro_quoted_param_indices.get(String.from(func_id)),
+      g_macro_quoted_param_indices.get(func_id.clone()),
       .Some(idxs) => (idxs.len() > usize(0)),
       .None => false
     )
   )
 );
 /// Returns true if the parameter at `param_index` is quoted for `func_id`.
-is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
+is_param_quoted :: (fn(func_id : String, param_index : usize) -> bool)(
   match(
-    g_macro_quoted_param_indices.get(String.from(func_id)),
+    g_macro_quoted_param_indices.get(func_id.clone()),
     .Some(idxs) => {
       (found : bool) = false;
       (i : usize) = usize(0);

@@ -1448,12 +1448,12 @@ parse :: (
 /// Mirrors `generateExprFromCode` in `src/parser.ts`.
 generate_expr_from_code :: (
   fn(
-    code : str,
+    code : String,
     exn : Exception
   ) -> AstExpr
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
-  exprs := parse(String.from(code), module_path, exn);
+  exprs := parse(code.clone(), module_path, exn);
   n := exprs.len();
   cond(
     (n == usize(1)) => match(
@@ -1478,12 +1478,12 @@ generate_expr_from_code :: (
 /// Mirrors `generateExprsFromCode` in `src/parser.ts`.
 generate_exprs_from_code :: (
   fn(
-    code : str,
+    code : String,
     exn : Exception
   ) -> ArrayList(AstExpr)
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
-  parse(String.from(code), module_path, exn)
+  parse(code.clone(), module_path, exn)
 });
 export(ParseResult, FnArgsResult, ParseError, Parser, parse);
 export(extract_source_line, make_parse_error, make_parse_error_raw);

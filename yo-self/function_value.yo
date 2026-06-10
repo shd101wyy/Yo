@@ -37,9 +37,9 @@ mark_as_control_fn :: (fn(func_id : String) -> unit)({
 /// Returns true if the function identified by `func_id` is a control function.
 ///
 /// Mirrors reading `functionValue.isControlFunction` in TypeScript.
-is_control_fn :: (fn(func_id : str) -> bool)(
+is_control_fn :: (fn(func_id : String) -> bool)(
   match(
-    g_control_fn_registry.get(String.from(func_id)),
+    g_control_fn_registry.get(func_id.clone()),
     .Some(_) => true,
     .None => false
   )
@@ -69,9 +69,9 @@ register_definition_site_return :: (fn(func_id : String, return_ty : TypeValue) 
 ///
 /// Mirrors the `?? createUnitType()` fallback in
 /// `src/evaluator/calls/helper.ts:evaluateCtlFunctionBodyInline`.
-get_definition_site_return :: (fn(func_id : str) -> TypeValue)(
+get_definition_site_return :: (fn(func_id : String) -> TypeValue)(
   match(
-    g_definition_site_return_registry.get(String.from(func_id)),
+    g_definition_site_return_registry.get(func_id.clone()),
     .Some(ty) => ty,
     .None => t_unit()
   )
@@ -103,8 +103,8 @@ register_func_parameters_frame :: (fn(func_id : String, frame : Frame) -> unit)(
   ___ := g_func_parameters_frame.set(func_id.clone(), frame);
 });
 /// Retrieve a function's parameter-bound frame, if captured.
-get_func_parameters_frame :: (fn(func_id : str) -> Option(Frame))(
-  g_func_parameters_frame.get(String.from(func_id))
+get_func_parameters_frame :: (fn(func_id : String) -> Option(Frame))(
+  g_func_parameters_frame.get(func_id.clone())
 );
 export(
   mark_as_control_fn,

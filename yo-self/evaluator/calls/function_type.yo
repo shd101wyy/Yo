@@ -532,10 +532,10 @@ try_to_implement_function_by_function_type :: (
       match(
         expr,
         .FnCall(_, fn_type_box, _, _, _) => {
-          copy_func_param_defaults(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
-          copy_func_variadic_param(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
-          copy_func_where_constraints(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
+          copy_func_param_defaults(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_variadic_param(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_macro_registration(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_where_constraints(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );
@@ -562,7 +562,7 @@ try_to_implement_function_by_function_type :: (
           match(
             expr,
             .FnCall(_, vp_ft_box, _, _, _) => match(
-              get_func_variadic_param(ast_expr_id(vp_ft_box.*).to_string().as_str()),
+              get_func_variadic_param(ast_expr_id(vp_ft_box.*).to_string()),
               .Some(vp_entry) => {
                 ___vp := add_variable_to_env(
                   flow_env,

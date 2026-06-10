@@ -72,15 +72,15 @@ is_identifier_continue :: (fn(c : rune) -> bool)(
 );
 /// True iff every char of `s` is an operator char. Mirrors
 /// `stringIsOperator` in `src/token.ts`.
-string_is_operator :: (fn(s : str) -> bool)({
-  n := s.len();
+string_is_operator :: (fn(s : String) -> bool)({
+  n := s.bytes_len();
   cond(
     (n == usize(0)) => false,
     true => {
       (i : usize) = usize(0);
       (ok : bool) = true;
       while((i < n) && ok, {
-        b := s.bytes(i);
+        b := s.byte_at(i);
         // Operator chars: same set as is_operator_char, but on bytes
         is_op := cond(
           (b == u8(61)) => true,

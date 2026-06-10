@@ -210,12 +210,27 @@ With no raw-ptr-carrying values constructible in safe code:
   Lesson: when flipping a param, grep the body for `String.from(param)`
   materializations (→ `.clone()`) and literal callers (→ `String.from`
   wrap); match arms unifying with `""` need `String.new()`.
-  Remaining: ~109 non-codegen yo-self bare sites (install_command 15,
-  property_access 11, calls/helper 10, calls/function 8, formatter 7,
-  type_fns 7, …) and ~600 codegen/driver/proto-eval (eval.yo) sites
-  DEFERRED to the codegen port (plans/BOOTSTRAPPING_CODEGEN.md retires
-  driver.yo, the untyped walker and the proto-evaluator; flipping their
-  params first is wasted work).
+  Batch 3 (committed): registry-style `func_id : str` getters flipped to
+  String across types/function.yo, types/macro_registry.yo,
+  types/control_fn_registry.yo, function_value.yo (incl. copy_* helpers,
+  get_func_where_constraints/validate_where_constraints_for_call chain);
+  field-index/label helpers (find_first/last_field_index,
+  _find_field_label_index, _find_field_index, _label_already_seen,
+  _has_variant) + all their call sites; string_is_operator flipped with
+  byte_at/bytes_len body conversion; generate_expr(s)_from_code; install
+  append_dep_to_deps_file; `.push_str(x.as_str())` → `.push_string(x)`;
+  `a.as_str() < b.as_str()` → `a < b` via the new Ord(String).
+  Remaining: 47 non-codegen yo-self bare sites — mostly `local :=
+  tok.value.as_str()` locals whose downstream uses need per-site review
+  (formatter 7, install_command ~8 println-templates, expr.yo/
+  expr_traversal locals, trait_checking, comptime_print, rc_fns/
+  macro_expand IntLit-arm unifications) — plus ~600 codegen/driver/
+  proto-eval (eval.yo) sites DEFERRED to the codegen port
+  (plans/BOOTSTRAPPING_CODEGEN.md retires driver.yo, the untyped walker
+  and the proto-evaluator; flipping their params first is wasted work).
+  Standalone `./yo-cli check` on lock_file.yo/build_runner.yo fails with
+  io.await/exists noise even when green — only the main.yo build verdict
+  counts for those.
 - [ ] 4. `Slice(T)` safe-code naming gate + remove `as_str`/`as_slice`
 - [ ] 5. `ListView` library type + tests
 - [ ] 6. flowability slice-gate retirement + docs/tests rewrite

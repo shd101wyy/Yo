@@ -149,7 +149,7 @@ evaluate_identifier_and_operator :: (
     // hits this for operator-trait names like `==` (bound to
     // `impl({...})` in a way the bootstrap's lookup can't yet resolve).
     // Tracked in `issues/yo-self-evaluator-gaps.md`.
-    if(string_is_operator(identifier_string.as_str()), {
+    if(string_is_operator(identifier_string.clone()), {
       fallback_info := new_expr_info(env, t_unit());
       fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);

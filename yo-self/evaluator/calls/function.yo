@@ -102,7 +102,7 @@ MACRO_DISPATCH_ENABLED :: false;
 /// (tests/variadic_comptime.test.yo). Template-free name (hot path).
 _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := String.from("call_result_");
-  nm.push_str(random_id(env.module_path).as_str());
+  nm.push_string(random_id(env.module_path));
   create_unknown_val_with_name(ty, nm)
 });
 { format_error_message } :: import("../../error.yo");
@@ -629,7 +629,7 @@ evaluate_function_call :: (
   // ------------------------------------------------------------------
   is_infix_call := match(expr,.FnCall(_, _, _, inf, _) => inf,.Atom(_, _) => false);
   op_name := match(func_expr,.Atom(_, ftok) => ftok.value, _ => String.new());
-  op_is_operator := string_is_operator(op_name.as_str());
+  op_is_operator := string_is_operator(op_name.clone());
   if((is_infix_call && op_is_operator) && (args.len() >= usize(1)), {
     first_arg := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     // Evaluate the first operand with `expected_type` cleared — the
@@ -1576,7 +1576,7 @@ Fix: wrap the call:
         // `value`). Looked up by this FuncVal's id (see
         // evaluator/types/function.yo). `fv_param_types` carries the
         // declared regular-param types for the omitted-binding fallback.
-        fv_defaults := get_func_param_defaults(func_id_fv.as_str());
+        fv_defaults := get_func_param_defaults(func_id_fv.clone());
         fv_param_types := match(
           callee_info_opt,
           .Some(ci) => match(
@@ -1654,7 +1654,7 @@ Fix: wrap the call:
           // coincided with intermittent malloc SIGTRAPs (heap corruption
           // bisected to this file); the branch shape is equivalent and
           // avoids the skipped loop tail.
-          if(fv_is_macro && is_param_quoted(func_id_fv.as_str(), ai), {
+          if(fv_is_macro && is_param_quoted(func_id_fv.clone(), ai), {
             q_info := new_expr_info(env, t_expr_t());
             q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(box(clone_expr_fresh_ids(arg_expr))));
             _push_q := evaled_arg_infos.push(q_info);
@@ -1931,7 +1931,7 @@ Fix: wrap the call:
         // the default-args side table), so the Step-8b validation from
         // helper.yo must run here too. Rejects e.g. `Mutex(NonSendObj)`
         // against `where(T <: Send)`.
-        validate_where_constraints_for_call(func_id_fv.as_str(), fresh_env, tok, exn);
+        validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, exn);
         // Set function body context on ctx.
         // We need the declared return type from the callee's type (if available).
         ret_type := match(
@@ -2084,7 +2084,7 @@ Fix: wrap the call:
           // the caller env and store its info as this call's info — the
           // expansion's type/value ARE the call's type/value
           // (TS function.ts:1976-2005).
-          if(macro_return_is_unquote(func_id_fv.as_str()), {
+          if(macro_return_is_unquote(func_id_fv.clone()), {
             match(
               ct_result.value,
               .ExprVal(expanded_box) => {

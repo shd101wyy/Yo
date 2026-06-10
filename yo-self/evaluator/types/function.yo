@@ -104,36 +104,36 @@ register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
   ___ := g_macro_return_is_unquote.set(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
-get_macro_quoted_param_indices :: (fn(func_id : str) -> ArrayList(usize))(
+get_macro_quoted_param_indices :: (fn(func_id : String) -> ArrayList(usize))(
   match(
-    g_macro_quoted_param_indices.get(String.from(func_id)),
+    g_macro_quoted_param_indices.get(func_id.clone()),
     .Some(idxs) => idxs,
     .None => ArrayList(usize).new()
   )
 );
 /// Returns true if the function's return type is `unquote(...)`.
-macro_return_is_unquote :: (fn(func_id : str) -> bool)(
+macro_return_is_unquote :: (fn(func_id : String) -> bool)(
   match(
-    g_macro_return_is_unquote.get(String.from(func_id)),
+    g_macro_return_is_unquote.get(func_id.clone()),
     .Some(_) => true,
     .None => false
   )
 );
 /// Returns true if the function is a macro (quoted params OR unquote return).
-is_macro_fn :: (fn(func_id : str) -> bool)(
+is_macro_fn :: (fn(func_id : String) -> bool)(
   cond(
     macro_return_is_unquote(func_id) => true,
     true => match(
-      g_macro_quoted_param_indices.get(String.from(func_id)),
+      g_macro_quoted_param_indices.get(func_id.clone()),
       .Some(idxs) => (idxs.len() > usize(0)),
       .None => false
     )
   )
 );
 /// Returns true if the parameter at `param_index` is quoted for `func_id`.
-is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
+is_param_quoted :: (fn(func_id : String, param_index : usize) -> bool)(
   match(
-    g_macro_quoted_param_indices.get(String.from(func_id)),
+    g_macro_quoted_param_indices.get(func_id.clone()),
     .Some(idxs) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -162,16 +162,16 @@ is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
 /// `FuncVal` id, which is what the call site has in hand — the same
 /// two-step as `copy_func_param_defaults` below. No-op when `from_id`
 /// has no entries.
-copy_macro_registration :: (fn(from_id : str, to_id : String) -> unit)({
+copy_macro_registration :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_macro_quoted_param_indices.get(String.from(from_id)),
+    g_macro_quoted_param_indices.get(from_id.clone()),
     .Some(idxs) => {
       ___ := g_macro_quoted_param_indices.set(to_id.clone(), idxs);
     },
     .None => ()
   );
   match(
-    g_macro_return_is_unquote.get(String.from(from_id)),
+    g_macro_return_is_unquote.get(from_id.clone()),
     .Some(_) => {
       ___ := g_macro_return_is_unquote.set(to_id.clone(), true);
     },
@@ -218,9 +218,9 @@ register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Optio
 /// Copy a registered default-values entry from `from_id` to `to_id`
 /// (used to re-key from the fn-type-expr id to the FuncVal id). No-op
 /// when `from_id` has no entry.
-copy_func_param_defaults :: (fn(from_id : str, to_id : String) -> unit)({
+copy_func_param_defaults :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_func_param_defaults.get(String.from(from_id)),
+    g_func_param_defaults.get(from_id.clone()),
     .Some(defaults) => {
       ___ := g_func_param_defaults.set(to_id.clone(), defaults);
     },
@@ -243,23 +243,23 @@ register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeV
     ___ := g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
   });
 });
-copy_func_variadic_param :: (fn(from_id : str, to_id : String) -> unit)({
+copy_func_variadic_param :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_func_variadic_params.get(String.from(from_id)),
+    g_func_variadic_params.get(from_id.clone()),
     .Some(entry) => {
       ___ := g_func_variadic_params.set(to_id.clone(), entry);
     },
     .None => ()
   );
 });
-get_func_variadic_param :: (fn(func_id : str) -> Option(VariadicParamEntry))(
-  g_func_variadic_params.get(String.from(func_id))
+get_func_variadic_param :: (fn(func_id : String) -> Option(VariadicParamEntry))(
+  g_func_variadic_params.get(func_id.clone())
 );
 /// Return the per-parameter default values for `func_id`, or an empty
 /// list when none are registered (i.e. all parameters required).
-get_func_param_defaults :: (fn(func_id : str) -> ArrayList(Option(EvalValue)))(
+get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue)))(
   match(
-    g_func_param_defaults.get(String.from(func_id)),
+    g_func_param_defaults.get(func_id.clone()),
     .Some(defaults) => defaults,
     .None => ArrayList(Option(EvalValue)).new()
   )
@@ -294,9 +294,9 @@ register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(Whe
 });
 /// Copy a registered where-constraints entry from `from_id` to `to_id`
 /// (re-key from the fn-type-expr id to the FuncVal id). No-op when absent.
-copy_func_where_constraints :: (fn(from_id : str, to_id : String) -> unit)({
+copy_func_where_constraints :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_func_where_constraints.get(String.from(from_id)),
+    g_func_where_constraints.get(from_id.clone()),
     .Some(entries) => {
       ___ := g_func_where_constraints.set(to_id.clone(), entries);
     },
@@ -304,9 +304,9 @@ copy_func_where_constraints :: (fn(from_id : str, to_id : String) -> unit)({
   );
 });
 /// Return the where-clause constraints for `func_id` (empty when none).
-get_func_where_constraints :: (fn(func_id : str) -> ArrayList(WhereConstraintEntry))(
+get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraintEntry))(
   match(
-    g_func_where_constraints.get(String.from(func_id)),
+    g_func_where_constraints.get(func_id.clone()),
     .Some(entries) => entries,
     .None => ArrayList(WhereConstraintEntry).new()
   )

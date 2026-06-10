@@ -324,7 +324,7 @@ eval_identifier :: (fn(tok : Token, env : Environment) -> Option(EvalResult))({
         .None =>
           // Not in env — check if the name is a known primitive type name.
           match(
-            type_from_name_opt(tok.value.as_str()),
+            type_from_name_opt(tok.value.clone()),
             .Some(ty) =>.Some(eval_result(.TypeVal(box(ty)), t_type())),
             .None => Option(EvalResult).None
           )
@@ -8089,8 +8089,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               // returns `unquote(...)`, re-evaluate the returned
                               // ExprVal in the caller's env to get the
                               // expanded expression's value.
-                              fv_id_s := fv_id.as_str();
-                              fv_is_macro := is_macro_fn(fv_id_s);
+                              fv_is_macro := is_macro_fn(fv_id.clone());
                               evaled_g := ArrayList(EvalResult).new();
                               n_gargs := args.len();
                               (gi : usize) = usize(0);
@@ -8100,7 +8099,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   args.get(gi),
                                   .Some(arg_expr) =>
                                     cond(
-                                      (fv_is_macro && is_param_quoted(fv_id_s, gi)) => {
+                                      (fv_is_macro && is_param_quoted(fv_id.clone(), gi)) => {
                                         evaled_g.push(eval_result(.ExprVal(box(arg_expr.clone())), t_expr_t()));
                                       },
                                       true =>
@@ -8125,7 +8124,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                 true => {
                                   call_res := call_funcval_with_args(func_val, evaled_g);
                                   cond(
-                                    macro_return_is_unquote(fv_id_s) =>
+                                    macro_return_is_unquote(fv_id.clone()) =>
                                       match(
                                         call_res,
                                         .None => Option(EvalResult).None,

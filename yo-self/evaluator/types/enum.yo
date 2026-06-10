@@ -61,7 +61,7 @@ _fn_call_func :: (fn(e : AstExpr) -> AstExpr)(
   match(e,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, _) => e)
 );
 /// Check if `variant_names` contains `name`.
-_has_variant :: (fn(variant_names : ArrayList(String), name : str) -> bool)({
+_has_variant :: (fn(variant_names : ArrayList(String), name : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while((i < variant_names.len()) && !(found), {
@@ -334,7 +334,7 @@ evaluate_enum_type :: (
           );
         });
         variant_name := ast_expr_token(variant_name_expr).value;
-        if(_has_variant(variant_names, variant_name.as_str()), {
+        if(_has_variant(variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -391,7 +391,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        if(_has_variant(variant_names, variant_name.as_str()), {
+        if(_has_variant(variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -448,7 +448,7 @@ evaluate_enum_type :: (
           );
         });
         variant_name := ast_expr_token(_fn_call_func(variant_expr)).value;
-        if(_has_variant(variant_names, variant_name.as_str()), {
+        if(_has_variant(variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
