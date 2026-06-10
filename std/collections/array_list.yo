@@ -77,6 +77,30 @@ impl(
   * The owned-copy companion to array range-indexing
   * (plans/SLICE_REWORK.md).
   */
+  /**
+  * Owned copy of the elements in `[r.start, r.end)` — JS-style range
+  * slicing with value semantics (plans/SLICE_REWORK.md: `list(a..b)`
+  * lowers to this).
+  */
+  slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
+    e := cond((r.end > self.len()) => self.len(), true => r.end);
+    out := Self.new();
+    i := r.start;
+    while(i < e, i = (i + usize(1)), {
+      match(self.get(i),.Some(v) => out.push(v),.None => ());
+    });
+    out
+  }),
+  /// Inclusive-range companion of `slice_copy` (`list(a..=b)`).
+  slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)({
+    last := cond((r.end >= self.len()) => self.len(), true => (r.end + usize(1)));
+    out := Self.new();
+    i := r.start;
+    while(i < last, i = (i + usize(1)), {
+      match(self.get(i),.Some(v) => out.push(v),.None => ());
+    });
+    out
+  }),
   from_array : (fn(forall(N : usize), arr : Array(T, N)) -> Self)({
     out := Self.with_capacity(N);
     i := usize(0);
@@ -872,4 +896,28 @@ array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
     unquote(tmp)
   })
 });
+/// Range slicing on fixed-size arrays returns an OWNED ArrayList copy
+/// (`arr(a..b)` lowers to this — plans/SLICE_REWORK.md).
+impl(
+  forall(T : Type, N : usize),
+  Array(T, N),
+  slice_copy : (fn(self : Array(T, N), r : Range(usize)) -> ArrayList(T))({
+    e := cond((r.end > N) => N, true => r.end);
+    out := ArrayList(T).new();
+    i := r.start;
+    while(i < e, i = (i + usize(1)), {
+      out.push(self(i));
+    });
+    out
+  }),
+  slice_copy_inclusive : (fn(self : Array(T, N), r : RangeInclusive(usize)) -> ArrayList(T))({
+    last := cond((r.end >= N) => N, true => (r.end + usize(1)));
+    out := ArrayList(T).new();
+    i := r.start;
+    while(i < last, i = (i + usize(1)), {
+      out.push(self(i));
+    });
+    out
+  })
+);
 export(array_list);

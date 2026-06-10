@@ -350,3 +350,23 @@ NEXT (in order, validate check ./std + targeted tests between):
 8. Steps 5 (ListView + tests), 6 (gates retirement + FLOWABILITY.md en/zh +
    MEMORY_SAFETY.md + flowability_comprehensive rewrite), 7 (full gates:
    suite + bun + yo-self build + 3 sweeps + CI).
+
+**Part C status (2026-06-11):** std methods LANDED and check-green:
+`slice_copy(Range(usize))` + `slice_copy_inclusive(RangeInclusive(usize))`
+on ArrayList (owned copy), Array(T,N) (→ ArrayList, impl in
+array_list.yo), String (substring-based, rune indices), and str (prelude,
+zero-copy static window via __yo_str_from_raw_parts + &+).
+REMAINING WIRING: make `recv(a..b)` dispatch to them — integration point
+is `tryToCallWithIndexTrait`'s RUNTIME path (index-trait.ts ~line 296+):
+when argType is Range/RangeInclusive, look up slice_copy[_inclusive] via
+getReceiverMethodsByNameFromEnv and return an IndexCallResult carrying
+that method as indexMethodType/Value with type=its return type,
+value=UnknownValue(ret), ptrType=createPtrType(ret). FIRST verify how
+codegen emits index-call results (does it deref *(Output)? find the
+index-result emission in codegen/exprs — if it derefs, slice_copy must
+keep the `index` convention OR the emission needs a value-return mode
+flagged on the result). Then: delete the prelude Array Index(Range)
+impls (5620-5640 region) + Slice Index impls; rewrite remaining
+arr(range) callers (str.test Slice(u8).from_raw_parts test dies with
+Part B). Comptime range slicing (tryComptimeArraySliceIndex) keeps Slice
+semantics until Part B revisits it.

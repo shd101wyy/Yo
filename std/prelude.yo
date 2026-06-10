@@ -5863,6 +5863,21 @@ impl(
     __yo_str_byte(self, idx)
   )
 );
+/// Range slicing on `str` stays a ZERO-COPY `str` — a window of static
+/// bytes is still static (byte indices). `s(a..b)` lowers to this.
+impl(
+  str,
+  slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
+    e := cond((r.end > __yo_str_len(self)) => __yo_str_len(self), true => r.end);
+    st := cond((r.start > e) => e, true => r.start);
+    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+  }),
+  slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)({
+    e := cond(((r.end + usize(1)) > __yo_str_len(self)) => __yo_str_len(self), true => (r.end + usize(1)));
+    st := cond((r.start > e) => e, true => r.start);
+    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+  })
+);
 impl(
   str,
   Eq(str)(

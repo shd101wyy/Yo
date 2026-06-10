@@ -440,6 +440,17 @@ impl(
     )
   ),
   /**
+  * Owned copy of the characters in `[r.start, r.end)` — `s(a..b)` lowers
+  * to this (JS-style range slicing; rune indices like `substring`).
+  */
+  slice_copy : (fn(self : Self, r : Range(usize)) -> Self)(
+    self.substring(r.start, r.end)
+  ),
+  /// Inclusive-range companion (`s(a..=b)`).
+  slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)(
+    self.substring(r.start, r.end + usize(1))
+  ),
+  /**
   * Extract a substring from start to end character indices (like JavaScript substring)
   * Returns a new string containing characters from start (inclusive) to end (exclusive)
   * If end is greater than length, it will substring to the end of the string
