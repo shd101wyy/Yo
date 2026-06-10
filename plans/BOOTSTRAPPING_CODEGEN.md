@@ -7,6 +7,14 @@ The detailed plan for the codegen slice of self-hosting, the successor to
 
 ## Goal & end state
 
+**The codegen port is a FAITHFUL port, same as the evaluator's:** strict
+1-to-1 file mapping `src/codegen/X.ts` ↔ `yo-self/codegen/X.yo`, same
+functions and control flow, TS-first for any bug found, divergences only where
+the language forces them (documented in header comments). The existing
+untyped bootstrap walker **`driver.yo` is a temporary scaffold and MUST be
+deleted by the end of the port** — it has no TS counterpart and is the
+single largest standing violation of the 1-to-1 rule.
+
 `yo-self-bin compile <file.yo>` produces a C11 program whose **runtime
 behavior matches the TS compiler's output** on the same source, culminating in
 the self-host fixpoint:
