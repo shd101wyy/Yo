@@ -345,6 +345,31 @@ export function isFlowableExpr(
     return true;
   }
 
+  // Tuple construction: `(e0, e1, ...)` parses as a `tuple(...)` call. A
+  // freshly built tuple can only carry a raw pointer through its elements
+  // (same reasoning as struct/variant ctors), so it is flowable iff every
+  // element whose own representation carries a raw pointer is flowable.
+  // Needed for destructuring-assignment targets — `(a, b) = (seed, 1)` where
+  // `a : Slice` — whose RHS is a tuple literal; without this the whole-tuple
+  // raw-ptr gate would wrongly reject a flowable element source.
+  if (exprIsFunctionCallOf(call, BuiltinKeywords.tuple)) {
+    for (let a of call.args) {
+      // `tuple(...)` elements may be `label : value` (named tuple fields).
+      if (exprIsFunctionCall(a) && exprIsFunctionCallOf(a, ":", 2)) {
+        a = (a as FnCallExpr).args[1] ?? a;
+      }
+      const aType = a.$?.type;
+      if (
+        aType &&
+        typeRepresentationContainsRawPtr(aType) &&
+        !isFlowableExpr(a, options)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // R3: regular function call. The callee's return slot must be
   //     `ref(T)`, and every `ref`-typed argument must itself be
   //     flowable.

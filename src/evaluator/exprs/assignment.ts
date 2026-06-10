@@ -876,6 +876,56 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     setExprAsNeedsToCallDup(rhs, context);
     env = rhs.$.env;
 
+    // Slice-flowability at the FIELD/INDEX-write boundary (the sibling of the
+    // simple-variable gate above; plans/SLICE_FLOWABILITY.md). Writing a
+    // raw-pointer-carrying value (`Slice`/`str`/aggregate) into a field or
+    // element — `holder.s = localSlice`, `arr(0) = localSlice` — must root the
+    // RHS in storage that outlives the field's CONTAINER. Otherwise the slice
+    // outlives its backing through the container (a use-after-free reachable
+    // from safe code; the simple-`x =` gate never saw it because the LHS is a
+    // `.`/index call, not an atom). The container's lifetime is the lifetime of
+    // the root binding of the access chain (`holder` / `arr`): pass its frame
+    // level as `maxLocalFrameLevel`, so an inner-block local source — which dies
+    // before the container — is rejected, while a `ref` parameter (caller
+    // storage), an enclosing-scope local, a parameter, or a comptime/literal is
+    // accepted. Privileged files opt out, mirroring the other gates.
+    if (
+      typeRepresentationContainsRawPtr(expectedType) &&
+      !isImplicitlyUnsafeCapableFile(lhs.token.modulePath)
+    ) {
+      // Frame level of the access chain's root binding (`holder` in
+      // `holder.s`, `arr` in `arr(0)`). When the root isn't a resolvable
+      // binding (e.g. a fresh call result), fall back to the strictest bound
+      // (no local source qualifies) by leaving maxLocalFrameLevel at -1.
+      const rootExpr = getRootExprOfFieldAccess(lhs);
+      let containerFrameLevel = -1;
+      if (exprIsAtom(rootExpr)) {
+        const rootVars = getVariablesFromEnv(env, rootExpr.token.value);
+        if (rootVars.length > 0) {
+          containerFrameLevel = rootVars[rootVars.length - 1]!.frameLevel;
+        }
+      }
+      if (
+        !isFlowableExpr(rhs, {
+          allowSameFrameLocal: true,
+          maxLocalFrameLevel: containerFrameLevel,
+          allowParameterSource: true,
+          allowComptimeSource: true,
+        })
+      ) {
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Writing into '${exprToString(
+            lhs
+          )}' (type '${typeToString(
+            expectedType
+          )}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives the field's container. The assigned expression is not flowable:\n  ${exprToString(
+            rhs
+          )}\n\nThis would let the slice/pointer outlive its backing storage through the container (e.g. a slice borrowed from a narrower inner block stored into an outer or 'ref'-parameter struct field) — a use-after-free.\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter; a 'comptime' constant or string literal; a local whose scope encloses the container; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.\n\nFixes:\n  - Store an owned type ('String', 'ArrayList') in the field instead — heap-allocated, no lifetime concern.\n  - Bind the source so it outlives the container.\n  - Wrap unsafe construction in 'pragma(Pragma.AllowUnsafe);' + 'unsafe(...)' if you genuinely need the raw form.`,
+        });
+      }
+    }
+
     let rhsType = rhs.$?.type;
     if (!rhsType) {
       // Try synthesize the type

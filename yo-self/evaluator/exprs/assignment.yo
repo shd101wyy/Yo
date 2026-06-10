@@ -396,6 +396,53 @@ evaluate_assignment :: (
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
     env.input_string = prop_rhs_info.env.input_string;
+    // Step 3b — Slice-flowability at the FIELD/INDEX-write boundary (the
+    // sibling of the simple-variable gate). Writing a raw-pointer-carrying
+    // value (`Slice`/`str`/aggregate) into `holder.s` / `arr(0)` must root
+    // the RHS in storage that outlives the field's CONTAINER, else the slice
+    // outlives its backing through the container (a use-after-free reachable
+    // from safe code). The container's lifetime is that of the access chain's
+    // root binding (`holder`/`arr`): pass its frame level as
+    // `max_local_frame_level` so an inner-block local source is rejected while
+    // a `ref` param / enclosing-scope local / parameter / comptime is
+    // accepted. Mirrors src/evaluator/exprs/assignment.ts. Throws directly
+    // (this path runs at module/test level — not behind the def-eval swallow).
+    if(type_representation_contains_raw_ptr(expected_ty) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).module_path.clone())))), {
+      prop_root_expr := get_root_expr_of_field_access(lhs);
+      (container_frame_level : i64) = i64(-(1));
+      if(ast_expr_is_atom(prop_root_expr), {
+        prop_root_vars := get_variables_from_env(env, ast_expr_token(prop_root_expr).value.clone());
+        if(prop_root_vars.len() > usize(0), {
+          match(
+            prop_root_vars.get(prop_root_vars.len() - usize(1)),
+            .Some(rv) => {
+              container_frame_level = i64(rv.frame_level);
+            },
+            .None => ()
+          );
+        });
+      });
+      (prop_max_local : Option(usize)) = cond(
+        (container_frame_level < i64(0)) => Option(usize).Some(usize(0)),
+        true => Option(usize).Some(usize(container_frame_level))
+      );
+      // container_frame_level < 0 (unresolvable root) → strictest: use 0 as a
+      // bound that no real inner-block local can be <= unless module-level,
+      // and rely on parameter/comptime/ref sources still being accepted.
+      prop_flow_opts := FlowOptions(
+        allow_same_frame_local : (container_frame_level >= i64(0)),
+        allow_parameter_source : true,
+        allow_comptime_source : true,
+        max_local_frame_level : prop_max_local
+      );
+      if(!(is_flowable_expr(prop_rhs, ctx, prop_flow_opts)), {
+        prop_viol_msg := `Writing into '${ast_expr_to_string(lhs)}' (type '${type_to_string(expected_ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives the field's container. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nThis would let the slice/pointer outlive its backing storage through the container — a use-after-free.\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter; a 'comptime' constant or string literal; a local whose scope encloses the container; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.`;
+        // Flag so a def-time trial-eval swallow re-raises it via the real `exn`
+        // (function_type.yo), mirroring the simple-variable assignment gate.
+        flag_flow_violation(prop_viol_msg);
+        exn.throw(dyn(format_error_message(ast_expr_token(rhs), prop_viol_msg, false,.None)));
+      });
+    });
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
     if(!((is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty)) || is_comptime_string_type(expected_ty)), {

@@ -99,7 +99,7 @@ Use cases:
 2. **All indexing is bounds-checked.** `slice(i)`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
 3. **No raw construction.** You can't build a `Slice(T)` or `ArrayList(T)` with an arbitrary pointer; the constructors are safe.
 
-The stdlib also closes the **dangling-slice hole** that other languages with raw-pointer abstractions have to manage by hand: returning a `Slice(T)` whose underlying storage dies with the call frame is rejected at compile time. See `plans/SLICE_FLOWABILITY.md` for the structural rule; you don't need to know it to use slices safely.
+The stdlib also closes the **dangling-slice hole** that other languages with raw-pointer abstractions have to manage by hand: returning a `Slice(T)` whose underlying storage dies with the call frame is rejected at compile time. See `plans/SLICE_FLOWABILITY.md` for the structural rule; you don't need to know it to use slices safely. A user-facing walkthrough of the rule is in [FLOWABILITY.md](./FLOWABILITY.md).
 
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 

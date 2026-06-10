@@ -30,6 +30,7 @@ open(import("std/string"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   BK_BEGIN,
+  BK_TUPLE,
   BF_DOT,
   BF_PANIC,
   BF_UNSAFE,
@@ -386,6 +387,29 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
         return(false);
       });
       i = (i + usize(1));
+    });
+    return(true);
+  });
+  // Tuple construction `(e0, e1, …)` (a `tuple(...)` call): flowable iff every
+  // element whose representation carries a raw pointer is flowable. Needed for
+  // destructuring-assignment RHS `(a, b) = (seed, 1)`. Mirrors flowability.ts.
+  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), {
+    (ti : usize) = usize(0);
+    while(ti < call_args.len(), {
+      (te : AstExpr) = match(call_args.get(ti),.Some(x) => x,.None => make_err_expr());
+      if(ast_expr_is_fn_call(te) && ast_expr_is_fn_call_of(te, ":",.Some(usize(2))), {
+        te = match(
+          te,
+          .FnCall(_, _, tla, _, _) => match(tla.get(usize(1)),.Some(v) => v,.None => te),
+          _ => te
+        );
+      });
+      te_ty_opt := match(_info(ctx, te),.Some(inf) => Option(TypeValue).Some(inf.ty),.None => Option(TypeValue).None);
+      te_needs := match(te_ty_opt,.Some(t) => type_representation_contains_raw_ptr(t),.None => false);
+      if(te_needs && !(recur(te, ctx, opts)), {
+        return(false);
+      });
+      ti = (ti + usize(1));
     });
     return(true);
   });

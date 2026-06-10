@@ -99,7 +99,7 @@ main :: (fn() -> unit)({
 2. **所有索引都经过边界检查。** `slice(i)`、`arr.get(i)`、`list(usize(0))` 在越界时要么 trap 要么返回 `Option(T)`。背后的指针算术位于 `unsafe(...)` 块中，并伴随已验证的边界不变式。
 3. **没有原始构造。** 你无法用任意指针构造 `Slice(T)` 或 `ArrayList(T)`；构造器是安全的。
 
-标准库还关闭了**悬空切片漏洞** —— 即在其他使用原始指针抽象的语言中需要手动管理的那种：返回一个底层存储随调用帧消亡的 `Slice(T)` 会在编译时被拒绝。结构性规则的细节见 `plans/SLICE_FLOWABILITY.md`；要安全地使用切片，你不需要了解它。
+标准库还关闭了**悬空切片漏洞** —— 即在其他使用原始指针抽象的语言中需要手动管理的那种：返回一个底层存储随调用帧消亡的 `Slice(T)` 会在编译时被拒绝。结构性规则的细节见 `plans/SLICE_FLOWABILITY.md`；要安全地使用切片，你不需要了解它。 面向用户的规则讲解见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 
