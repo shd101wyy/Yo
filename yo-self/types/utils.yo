@@ -431,9 +431,13 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !(found), {
-          match(fields.get(i),.Some(ft) => if(recur(ft, depth + u32(1)), {
-            found = true;
-          }),.None => ());
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
           i = (i + usize(1));
         });
         found
@@ -442,9 +446,13 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !(found), {
-          match(fields.get(i),.Some(ft) => if(recur(ft, depth + u32(1)), {
-            found = true;
-          }),.None => ());
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
           i = (i + usize(1));
         });
         found
@@ -453,9 +461,13 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !(found), {
-          match(fields.get(i),.Some(ft) => if(recur(ft, depth + u32(1)), {
-            found = true;
-          }),.None => ());
+          match(
+            fields.get(i),
+            .Some(ft) => if(recur(ft, depth + u32(1)), {
+              found = true;
+            }),
+            .None => ()
+          );
           i = (i + usize(1));
         });
         found
@@ -464,15 +476,23 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < all_fields.len()) && !(found), {
-          match(all_fields.get(vi),.Some(v_fields) => {
-            (fi : usize) = usize(0);
-            while((fi < v_fields.len()) && !(found), {
-              match(v_fields.get(fi),.Some(ft) => if(recur(ft, depth + u32(1)), {
-                found = true;
-              }),.None => ());
-              fi = (fi + usize(1));
-            });
-          },.None => ());
+          match(
+            all_fields.get(vi),
+            .Some(v_fields) => {
+              (fi : usize) = usize(0);
+              while((fi < v_fields.len()) && !(found), {
+                match(
+                  v_fields.get(fi),
+                  .Some(ft) => if(recur(ft, depth + u32(1)), {
+                    found = true;
+                  }),
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
           vi = (vi + usize(1));
         });
         found
