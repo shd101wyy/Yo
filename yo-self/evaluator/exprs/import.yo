@@ -68,17 +68,17 @@ ModuleResolveResult :: enum(
 ///   4. otherwise   → relative to CWD
 /// then extension resolution: `<path>.yo` xor `<path>/index.yo`.
 resolve_module_path :: (
-  fn(import_path : str, current_dir : str, std_path : str) -> ModuleResolveResult
+  fn(import_path : String, current_dir : String, std_path : String) -> ModuleResolveResult
 )({
-  (module_path_to_import : String) = String.from(import_path);
+  (module_path_to_import : String) = import_path.clone();
   // 1. `std/` prefix → resolve relative to std_path.
   if(module_path_to_import.starts_with(String.from("std/")), {
     rel := module_path_to_import.substring(usize(4), module_path_to_import.len());
-    module_path_to_import = Path.new(String.from(std_path)).join(Path.new(rel)).to_string();
+    module_path_to_import = Path.new(std_path.clone()).join(Path.new(rel)).to_string();
   });
   // 2. `std` alone → std/index.yo.
   if(module_path_to_import == "std", {
-    module_path_to_import = Path.new(String.from(std_path)).join(Path.new(String.from("index.yo"))).to_string();
+    module_path_to_import = Path.new(std_path.clone()).join(Path.new(String.from("index.yo"))).to_string();
   });
   // 3. Relative paths (`.` or `..` prefix) — resolve relative to current dir.
   //    Build a combined string and re-`Path.new` it: `Path.new` collapses
@@ -86,7 +86,7 @@ resolve_module_path :: (
   //    re-normalize `..` in its argument (so `std/imm`.join(`../allocator`)
   //    would wrongly yield `std/imm/allocator`, not `std/allocator`).
   if(module_path_to_import.starts_with(String.from(".")), {
-    module_path_to_import = Path.new(`${current_dir}/${module_path_to_import.as_str()}`).to_string();
+    module_path_to_import = Path.new(`${current_dir}/${module_path_to_import}`).to_string();
   });
   // 4. Non-relative, non-absolute paths: resolve relative to CWD.
   if(!(Path.new(module_path_to_import.clone()).is_absolute()), {
@@ -209,11 +209,10 @@ _build_module_val_from_env :: (fn(env : Environment) -> EvalValue)({
                 // that would cause "already exported" errors when spread-exporting
                 // multiple imports in flatten-eval mode. Real module exports never
                 // contain '.' — operator/impl names do.
-                name_str := v.name.as_str();
-                if(String.from(name_str).contains(String.from(".")), {
+                if(v.name.contains("."), {
                   // skip — prelude operator binding, not a module export
                 }, {
-                  names.push(String.from(name_str));
+                  names.push(v.name.clone());
                   values.push(val);
                 });
               },
@@ -381,7 +380,7 @@ evaluate_import :: (
   // Resolve via the shared resolver so the cache key here matches the one
   // `preload_module_tree` (main.yo) registers under.
   (module_abs_path : String) = match(
-    resolve_module_path(module_path_to_import.as_str(), current_dir.as_str(), ctx.std_path.as_str()),
+    resolve_module_path(module_path_to_import.clone(), current_dir.clone(), ctx.std_path.clone()),
     .Found(p) => p,
     .Ambiguous(base) => {
       exn.throw(

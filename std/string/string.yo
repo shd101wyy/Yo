@@ -1494,6 +1494,41 @@ impl(
     // `(!=)` comes from the trait's `?=` default.
   )
 );
+/// Byte-lexicographic ordering, mirroring `str`'s `Ord(str)` impl in the
+/// prelude. Enables `a < b` on Strings directly (the `a.as_str() <
+/// b.as_str()` workaround is retired; see plans/SLICE_REWORK.md step 3).
+impl(
+  String,
+  Ord(String)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)({
+      lhs_len := lhs.bytes_len();
+      rhs_len := rhs.bytes_len();
+      min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
+      i := usize(0);
+      while(i < min_len, i = (i + usize(1)), {
+        cond(
+          (lhs.byte_at(i) < rhs.byte_at(i)) => {
+            return(true);
+          },
+          (lhs.byte_at(i) > rhs.byte_at(i)) => {
+            return(false);
+          },
+          true => ()
+        );
+      });
+      lhs_len < rhs_len
+    }),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)({
+      return(!(rhs < lhs));
+    }),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)({
+      return(rhs < lhs);
+    }),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)({
+      return(!(lhs < rhs));
+    })
+  )
+);
 /// Search/pattern operations accepting a static `str` argument
 /// (plans/SLICE_REWORK.md step 1). Inherent methods cannot be overloaded
 /// in Yo, so the `str`-pattern variants of `contains`/`starts_with`/… are

@@ -71,7 +71,7 @@ open(import("std/string"));
 // Local helpers
 // ---------------------------------------------------------------------------
 /// Linear search: does `list` contain a String equal to `s`?
-contains_str_in_list :: (fn(list : ArrayList(String), s : str) -> bool)({
+contains_str_in_list :: (fn(list : ArrayList(String), s : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < list.len()) && !(found), {
@@ -89,7 +89,7 @@ contains_str_in_list :: (fn(list : ArrayList(String), s : str) -> bool)({
   found
 });
 /// Linear search: return the index of the first String in `list` equal to `s`.
-find_str_in_list :: (fn(list : ArrayList(String), s : str) -> Option(usize))({
+find_str_in_list :: (fn(list : ArrayList(String), s : String) -> Option(usize))({
   (i : usize) = usize(0);
   (result : Option(usize)) = Option(usize).None;
   while((i < list.len()) && result.is_none(), {
@@ -465,12 +465,12 @@ evaluate_primitive_match :: (
         pv := match(fp_info.value,.Some(v) => v,.None => EvalValue.UnitVal);
         lit_key := value_to_string(pv);
         if(lit_key.len() > usize(0), {
-          if(contains_str_in_list(checked_literal_values, lit_key.as_str()), {
+          if(contains_str_in_list(checked_literal_values, lit_key.clone()), {
             exn.throw(
               dyn(
                 format_error_message(
                   ast_expr_token(fp_expr),
-                  `Duplicate pattern value: ${lit_key.as_str()}`,
+                  `Duplicate pattern value: ${lit_key}`,
                   false,
                   .None
                 )
@@ -661,8 +661,8 @@ evaluate_primitive_match :: (
   // --- Exhaustiveness check ---
   if(!(used_wildcard), {
     if(is_bool_type(scrutinee_type), {
-      has_true := contains_str_in_list(checked_literal_values, "true");
-      has_false := contains_str_in_list(checked_literal_values, "false");
+      has_true := contains_str_in_list(checked_literal_values, String.from("true"));
+      has_false := contains_str_in_list(checked_literal_values, String.from("false"));
       if(!(has_true) || !(has_false), {
         missing_str := cond(
           (!(has_true) && !(has_false)) => "true, false",
@@ -974,7 +974,7 @@ evaluate_primitive_match :: (
 /// Non-GADT enums and SomeT (unrefined) instantiation args make every
 /// branch reachable. `variant_idx` indexes the enum's variant order.
 _is_gadt_branch_reachable :: (
-  fn(enum_id : str, variant_idx : usize) -> bool
+  fn(enum_id : String, variant_idx : usize) -> bool
 )({
   vargs_opt := get_gadt_variant_args(enum_id);
   tca_opt := get_gadt_type_constructor_args(enum_id);
@@ -1016,12 +1016,12 @@ _is_gadt_branch_reachable :: (
 /// scrutinee skips these comparisons) but it made comptime enum reflection
 /// (`match(Type.get_info(T), .Enum(_) => …)`) always fall through to the
 /// wildcard, breaking derived `Eq`/etc.
-_variant_name_eq :: (fn(sv_vname : str, arm_name : str) -> bool)(
+_variant_name_eq :: (fn(sv_vname : String, arm_name : String) -> bool)(
   cond(
     (sv_vname == arm_name) => true,
     true => {
       dotted := String.from(".");
-      dotted.push_str(arm_name);
+      dotted.push_string(arm_name);
       sv_vname == dotted
     }
   )
@@ -1254,8 +1254,8 @@ evaluate_match :: (
       });
       variant_name_fl := match(
         variant_name_expr,
-        .Atom(_, tok) => tok.value.as_str(),
-        .FnCall(_, _, _, _, tok) => tok.value.as_str()
+        .Atom(_, tok) => tok.value.clone(),
+        .FnCall(_, _, _, _, tok) => tok.value.clone()
       );
       if(is_wildcard_fl, {
         used_wildcard_em = true;
@@ -1294,7 +1294,7 @@ evaluate_match :: (
         });
       });
       // Record checked variant (BEFORE skip check)
-      checked_variant_names.push(String.from(variant_name_fl));
+      checked_variant_names.push(variant_name_fl.clone());
       // Skip if concrete CT scrutinee doesn't match this variant (and it's not wildcard)
       should_process_fl := !(
         (!(variant_name_fl == "_")) &&
@@ -1304,7 +1304,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.as_str(), variant_name_fl)),
+                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.clone(), variant_name_fl.clone())),
                 _ => true
               )
             )
@@ -1314,7 +1314,7 @@ evaluate_match :: (
         // Build new enum type with selectedVariantName
         new_selected_fl := cond(
           (variant_name_fl == "_") => Option(String).None,
-          true => Option(String).Some(String.from(variant_name_fl))
+          true => Option(String).Some(variant_name_fl.clone())
         );
         new_enum_type_fl := match(
           matched_type,
@@ -1341,7 +1341,7 @@ evaluate_match :: (
           .Some(sv) => (
             is_enum_val(sv) && match(
               sv,
-              .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.as_str(), variant_name_fl),
+              .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.clone(), variant_name_fl.clone()),
               _ => false
             )
           )
@@ -1442,7 +1442,7 @@ evaluate_match :: (
                 match(
                   sv,
                   .EnumVal(sv_vname, _) => {
-                    if(_variant_name_eq(sv_vname.as_str(), variant_name_fl) || (variant_name_fl == "_"), {
+                    if(_variant_name_eq(sv_vname.clone(), variant_name_fl.clone()) || (variant_name_fl == "_"), {
                       matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                     });
                   },
@@ -1522,8 +1522,8 @@ evaluate_match :: (
         });
         variant_name_wf := match(
           variant_name_expr_wf,
-          .Atom(_, tok) => tok.value.as_str(),
-          .FnCall(_, _, _, _, tok) => tok.value.as_str()
+          .Atom(_, tok) => tok.value.clone(),
+          .FnCall(_, _, _, _, tok) => tok.value.clone()
         );
         // Check variant exists
         variant_idx_wf_opt := find_str_in_list(en_vnames, variant_name_wf);
@@ -1544,7 +1544,7 @@ evaluate_match :: (
         variant_fields_wf := match(en_vfields.get(variant_idx_wf),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
         variant_labels_wf := match(en_vflabels.get(variant_idx_wf),.Some(vl) => vl,.None => ArrayList(String).new());
         // Record checked variant (BEFORE skip check)
-        checked_variant_names.push(String.from(variant_name_wf));
+        checked_variant_names.push(variant_name_wf.clone());
         // Skip if concrete CT scrutinee doesn't match this variant
         should_process_wf := !(
           match(
@@ -1553,7 +1553,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.as_str(), variant_name_wf)),
+                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.clone(), variant_name_wf.clone())),
                 _ => true
               )
             )
@@ -1686,7 +1686,7 @@ evaluate_match :: (
           // Build new enum type with selected variant
           new_enum_type_wf := match(
             matched_type,
-            .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(String.from(variant_name_wf)), vfl, discs),
+            .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(variant_name_wf.clone()), vfl, discs),
             _ => matched_type
           );
           variable_type_wf := cond(
@@ -1729,8 +1729,8 @@ evaluate_match :: (
                 });
                 lbl_str := match(
                   label_expr,
-                  .Atom(_, tok) => tok.value.as_str(),
-                  .FnCall(_, _, _, _, tok) => tok.value.as_str()
+                  .Atom(_, tok) => tok.value.clone(),
+                  .FnCall(_, _, _, _, tok) => tok.value.clone()
                 );
                 // Find field index by label
                 field_idx_lbl_opt := find_str_in_list(variant_labels_wf, lbl_str);
@@ -1755,7 +1755,7 @@ evaluate_match :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(label_expr),
-                        `Label "${lbl_str}" not found in variant "${variant_name_wf}". Available labels: ${available_labels.as_str()}`,
+                        `Label "${lbl_str}" not found in variant "${variant_name_wf}". Available labels: ${available_labels}`,
                         false,
                         .None
                       )
@@ -1776,7 +1776,7 @@ evaluate_match :: (
                   );
                   return(expr);
                 });
-                destructured_labels.push(String.from(lbl_str));
+                destructured_labels.push(lbl_str.clone());
                 field_idx_lbl := match(field_idx_lbl_opt,.Some(idx) => idx,.None => usize(0));
                 field_type_lbl := match(variant_fields_wf.get(field_idx_lbl),.Some(ft) => ft,.None => t_unit());
                 // Get compile-time field value if scrutinee is concrete
@@ -1807,13 +1807,13 @@ evaluate_match :: (
                 });
                 var_name_lbl := match(
                   variable_expr,
-                  .Atom(_, tok) => tok.value.as_str(),
-                  .FnCall(_, _, _, _, tok) => tok.value.as_str()
+                  .Atom(_, tok) => tok.value.clone(),
+                  .FnCall(_, _, _, _, tok) => tok.value.clone()
                 );
                 if(!(var_name_lbl == "_"), {
                   _added_lbl := add_variable_to_env(
                     env,
-                    String.from(var_name_lbl),
+                    var_name_lbl.clone(),
                     field_type_lbl,
                     field_val_lbl,
                     is_comptime_scr_wf,
@@ -1845,13 +1845,13 @@ evaluate_match :: (
                   );
                   param_name := match(
                     param,
-                    .Atom(_, tok) => tok.value.as_str(),
-                    .FnCall(_, _, _, _, tok) => tok.value.as_str()
+                    .Atom(_, tok) => tok.value.clone(),
+                    .FnCall(_, _, _, _, tok) => tok.value.clone()
                   );
                   if(!(param_name == "_"), {
                     _added_pos := add_variable_to_env(
                       env,
-                      String.from(param_name),
+                      param_name.clone(),
                       field_type_pos,
                       field_val_pos,
                       is_comptime_scr_wf,
@@ -1894,7 +1894,7 @@ evaluate_match :: (
             .Some(sv) => (
               is_enum_val(sv) && match(
                 sv,
-                .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.as_str(), variant_name_wf),
+                .EnumVal(sv_vname, _) => _variant_name_eq(sv_vname.clone(), variant_name_wf.clone()),
                 _ => false
               )
             )
@@ -1975,7 +1975,7 @@ evaluate_match :: (
                   match(
                     sv,
                     .EnumVal(sv_vname, _) => {
-                      if(_variant_name_eq(sv_vname.as_str(), variant_name_wf) || (variant_name_wf == "_"), {
+                      if(_variant_name_eq(sv_vname.clone(), variant_name_wf.clone()) || (variant_name_wf == "_"), {
                         matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                       });
                     },
@@ -2064,7 +2064,7 @@ Supported patterns:
     });
     rt_em := match(result_type_em,.Some(t) => t,.None => t_unit());
     // Exhaustiveness check
-    if(!(contains_str_in_list(checked_variant_names, "_")), {
+    if(!(contains_str_in_list(checked_variant_names, String.from("_"))), {
       missing_em := ArrayList(String).new();
       (vn_i : usize) = usize(0);
       while(vn_i < en_vnames.len(), {
@@ -2074,7 +2074,7 @@ Supported patterns:
             // GADT-unreachable variants (e.g. BoolVal when matching
             // Value(i32)) need not be covered — mirrors TS skipping them
             // in the exhaustiveness scan (match.ts:1169).
-            if((!(contains_str_in_list(checked_variant_names, vname.as_str()))) && _is_gadt_branch_reachable(en_id.as_str(), vn_i), {
+            if((!(contains_str_in_list(checked_variant_names, vname.clone()))) && _is_gadt_branch_reachable(en_id.clone(), vn_i), {
               missing_em.push(vname);
             });
           },
@@ -2103,7 +2103,7 @@ Supported patterns:
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Match expression is not exhaustive. Missing cases for variants:${missing_str_em.as_str()}`,
+              `Match expression is not exhaustive. Missing cases for variants:${missing_str_em}`,
               false,
               .None
             )

@@ -46,7 +46,7 @@ register_loading :: (fn(path : String, env : Environment) -> unit)({
   g_loading_envs.push(env);
 });
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
-unregister_loading :: (fn(path : str) -> unit)({
+unregister_loading :: (fn(path : String) -> unit)({
   (i : usize) = g_loading_keys.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -62,7 +62,7 @@ unregister_loading :: (fn(path : str) -> unit)({
   });
 });
 /// The live env of a currently-loading module, or `.None`.
-loading_env :: (fn(path : str) -> Option(Environment))({
+loading_env :: (fn(path : String) -> Option(Environment))({
   (i : usize) = g_loading_keys.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -94,7 +94,7 @@ clear_module_cache :: (fn() -> unit)({
   ()
 });
 /// Find the cache index for `path`, or `.None`.
-_module_cache_index :: (fn(path : str) -> Option(usize))({
+_module_cache_index :: (fn(path : String) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := g_module_cache_keys.len();
@@ -111,7 +111,7 @@ _module_cache_index :: (fn(path : str) -> Option(usize))({
   idx
 });
 /// True iff a module value has already been registered for `path`.
-module_cache_has :: (fn(path : str) -> bool)(
+module_cache_has :: (fn(path : String) -> bool)(
   _module_cache_index(path).is_some()
 );
 /// Register the evaluated `module_value` for `path`. First registration
@@ -119,7 +119,7 @@ module_cache_has :: (fn(path : str) -> bool)(
 /// re-registration (a duplicate push would still be harmless because
 /// `_module_cache_index` returns the first match).
 register_module :: (fn(path : String, module_value : EvalValue, module_type : TypeValue) -> unit)({
-  if(!(module_cache_has(path.as_str())), {
+  if(!(module_cache_has(path.clone())), {
     g_module_cache_keys.push(path);
     g_module_cache_vals.push(module_value);
     g_module_cache_types.push(module_type);
@@ -130,7 +130,7 @@ register_module :: (fn(path : String, module_value : EvalValue, module_type : Ty
 /// error message so `evaluate_import` can surface it.
 load_module_from_cache :: (fn(path : String) -> LoadModuleResult)(
   match(
-    _module_cache_index(path.as_str()),
+    _module_cache_index(path.clone()),
     .Some(i) => LoadModuleResult(
       module_value : match(
         g_module_cache_vals.get(i),

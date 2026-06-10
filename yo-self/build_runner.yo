@@ -77,8 +77,8 @@ ExecutionContext :: object(
 get_artifact_output_file_name :: (
   fn(
     kind : ArtifactKind,
-    name : str,
-    artifact_target : str,
+    name : String,
+    artifact_target : String,
     c_flags : ArrayList(String),
     target_triple_opt : Option(String)
   ) -> String
@@ -89,20 +89,20 @@ get_artifact_output_file_name :: (
       return(`lib${name}`);
     },
     .SharedLibrary => {
-      return(String.from(name));
+      return(name.clone());
     },
     .Executable => ()
   );
   effective_str := match(
     target_triple_opt,
     .Some(t) => t,
-    .None => String.from(artifact_target)
+    .None => artifact_target.clone()
   );
   parsed_result := parse_target(effective_str);
   match(
     parsed_result,
     .Err(_) => {
-      return(String.from(name));
+      return(name.clone());
     },
     .Ok(info) => {
       if(is_target_windows(info), return(`${name}.exe`));
@@ -119,7 +119,7 @@ get_artifact_output_file_name :: (
         ext := if(has_modularize, "js", "html");
         return(`${name}.${ext}`);
       });
-      String.from(name)
+      name.clone()
     }
   )
 });
@@ -127,8 +127,8 @@ get_artifact_output_file_name :: (
 /// Layout: <project>/yo-out/<target>/bin/ or …/lib/
 _get_target_output_dir :: (
   fn(
-    project_dir : str,
-    target_triple : str,
+    project_dir : String,
+    target_triple : String,
     kind : str
   ) -> String
 )(
@@ -148,7 +148,7 @@ _walk_dag :: (
   if(visited.contains_key(name), return(()));
   visited.set(name, true);
   match(
-    registry.resolve_dependency(name.as_str()),
+    registry.resolve_dependency(name.clone()),
     .None => {
       return(());
     },
@@ -322,11 +322,11 @@ compile_artifact :: (
       .Executable => false
     );
     kind_dir := if(is_lib, "lib", "bin");
-    output_dir := _get_target_output_dir(ctx.project_dir.as_str(), effective_target.as_str(), kind_dir);
+    output_dir := _get_target_output_dir(ctx.project_dir.clone(), effective_target.clone(), kind_dir);
     output_name := get_artifact_output_file_name(
       artifact.kind,
-      artifact.name.as_str(),
-      artifact.target.as_str(),
+      artifact.name.clone(),
+      artifact.target.clone(),
       artifact.c_flags,
       ctx.target_triple
     );
@@ -400,11 +400,11 @@ run_executable :: (
       .Some(t) => t,
       .None => artifact.target
     );
-    output_dir := _get_target_output_dir(ctx.project_dir.as_str(), effective_target.as_str(), "bin");
+    output_dir := _get_target_output_dir(ctx.project_dir.clone(), effective_target.clone(), "bin");
     exe_name := get_artifact_output_file_name(
       artifact.kind,
-      artifact.name.as_str(),
-      artifact.target.as_str(),
+      artifact.name.clone(),
+      artifact.target.clone(),
       artifact.c_flags,
       ctx.target_triple
     );
@@ -486,7 +486,7 @@ execute_node :: (
       node.kind,
       .Artifact => {
         match(
-          ctx.registry.find_artifact(node.name.as_str()),
+          ctx.registry.find_artifact(node.name.clone()),
           .None => (),
           .Some(artifact) => {
             kind_label := match(
@@ -510,7 +510,7 @@ execute_node :: (
       },
       .Test => {
         match(
-          ctx.registry.find_test(node.name.as_str()),
+          ctx.registry.find_test(node.name.clone()),
           .None => (),
           .Some(suite) => {
             description = `test ${suite.name}`;
@@ -527,12 +527,12 @@ execute_node :: (
       },
       .Run => {
         match(
-          ctx.registry.find_run_step(node.name.as_str()),
+          ctx.registry.find_run_step(node.name.clone()),
           .None => (),
           .Some(run_step) => {
             description = `run ${run_step.artifact_name}`;
             match(
-              ctx.registry.find_artifact(run_step.artifact_name.as_str()),
+              ctx.registry.find_artifact(run_step.artifact_name.clone()),
               .None => (),
               .Some(artifact) => {
                 result := io.await(run_executable(artifact, run_step.args, ctx), io);
@@ -551,7 +551,7 @@ execute_node :: (
       .Step => (),
       .Doc => {
         match(
-          ctx.registry.find_documentation(node.name.as_str()),
+          ctx.registry.find_documentation(node.name.clone()),
           .None => (),
           .Some(doc_cfg) => {
             description = `doc ${doc_cfg.name}`;
@@ -674,8 +674,8 @@ _print_summary_node :: (
     node : DAGNode,
     results : HashMap(String, StepResult),
     node_map : HashMap(String, DAGNode),
-    line_prefix : str,
-    children_prefix : str,
+    line_prefix : String,
+    children_prefix : String,
     is_root : bool
   ) -> unit
 )({
@@ -709,8 +709,8 @@ _print_summary_node :: (
           child,
           results,
           node_map,
-          (`${children_prefix}${connector}`).as_str(),
-          (`${children_prefix}${next_child_pfx}`).as_str(),
+          `${children_prefix}${connector}`,
+          `${children_prefix}${next_child_pfx}`,
           false
         );
       }
@@ -754,7 +754,7 @@ print_build_summary :: (
         node_map.set(nd.name, nd);
         j = (j + usize(1));
       });
-      _print_summary_node(dag(i), results, node_map, "", "", true);
+      _print_summary_node(dag(i), results, node_map, String.new(), String.new(), true);
     });
     i = (i + usize(1));
   });
@@ -764,7 +764,7 @@ print_build_summary :: (
 // ---------------------------------------------------------------------------
 execute_step :: (
   fn(
-    step_name : str,
+    step_name : String,
     ctx : ExecutionContext,
     io : Io,
     exn : Exception
@@ -780,7 +780,7 @@ execute_step :: (
         n := available.len();
         while(i < n, {
           if(i > usize(0), names_str.push_str(", "));
-          names_str.push_str(available(i).as_str());
+          names_str.push_string(available(i).clone());
           i = (i + usize(1));
         });
         if(names_str.len() == usize(0), names_str.push_str("(none)"));
@@ -822,7 +822,7 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
 // ---------------------------------------------------------------------------
 /// Parse a BuildRegistry from JSON produced by `yo-cli --serialize-registry`.
 /// TODO(phase-7): Implement using std/json once a Reader interface exists.
-_parse_registry_from_json :: (fn(json : str) -> BuildRegistry)(
+_parse_registry_from_json :: (fn(json : String) -> BuildRegistry)(
   BuildRegistry.new()
 );
 /// Evaluate a build.yo file to obtain a BuildRegistry.
@@ -874,7 +874,7 @@ evaluate_build_file :: (
       exn.throw(dyn(`Error evaluating build file: ${stderr_str}`));
     });
     stdout_str := String.from_bytes(out.stdout);
-    _parse_registry_from_json(stdout_str.as_str())
+    _parse_registry_from_json(stdout_str.clone())
   })
 );
 // ---------------------------------------------------------------------------
@@ -937,7 +937,7 @@ run_build :: (
     i := usize(0);
     n := requested.len();
     while(i < n, {
-      io.await(execute_step(requested(i).as_str(), ctx), io);
+      io.await(execute_step(requested(i).clone(), ctx), io);
       i = (i + usize(1));
     });
   })

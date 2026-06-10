@@ -1912,3 +1912,14 @@ test("String.byte_at indexes bytes", {
   assert(multi.bytes_len() == usize(5), "UTF-8 byte length");
   assert(multi.byte_at(usize(3)) == u8(195), "UTF-8 lead byte");
 });
+test("String Ord compares byte-lexicographically", {
+  a := String.from("apple");
+  b := String.from("banana");
+  assert(a < b, "apple < banana");
+  assert(b > a, "banana > apple");
+  assert(a <= a.clone(), "a <= a");
+  assert(a >= a.clone(), "a >= a");
+  assert(!(b < a), "not banana < apple");
+  assert(String.from("ab") < String.from("abc"), "prefix sorts first");
+  assert(String.new() < String.from("a"), "empty sorts first");
+});

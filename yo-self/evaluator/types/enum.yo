@@ -585,7 +585,7 @@ evaluate_enum_type :: (
   // `gadtReturnTypeArgs` (enum.ts:364-365). typeConstructorArgs (enum.ts:369-391)
   // is populated by the caller/match path.
   if(any_gadt, {
-    register_gadt_enum(enum_id.as_str(), all_variant_gadt_args);
+    register_gadt_enum(enum_id.clone(), all_variant_gadt_args);
     // typeConstructorArgs (enum.ts:369-391): when a GADT enum is built
     // inside its type-constructor fn body (`Value(i32)` → `enum(...)`),
     // record the concrete type args the constructor was called with —
@@ -644,7 +644,7 @@ evaluate_enum_type :: (
                 cti = (cti + usize(1));
               });
               if((tca.len() > usize(0)) && (tca.len() == n_comptime), {
-                register_gadt_type_constructor_args(enum_id.as_str(), tca);
+                register_gadt_type_constructor_args(enum_id.clone(), tca);
               });
             },
             _ => ()

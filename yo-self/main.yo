@@ -180,9 +180,9 @@ extract_test_body :: (fn(expr : AstExpr) -> Option(AstExpr))(
 // Phase 5g: import resolution helpers
 // ---------------------------------------------------------------------------
 /// Normalize an import path: append `.yo` if not already present.
-normalize_import_path :: (fn(path_str : str) -> String)(
+normalize_import_path :: (fn(path_str : String) -> String)(
   cond(
-    (String.from(path_str).ends_with(String.from(".yo")) || String.from(path_str).ends_with(String.from(".test.yo"))) => String.from(path_str),
+    (path_str.ends_with(".yo") || path_str.ends_with(".test.yo")) => path_str.clone(),
     true => `${path_str}.yo`
   )
 );
@@ -197,9 +197,9 @@ normalize_import_path :: (fn(path_str : str) -> String)(
 /// Uses DFS post-order so each module's dependencies appear before it.
 collect_module_deps :: (
   fn(
-    path_str : str,
-    base_dir : str,
-    std_base : str,
+    path_str : String,
+    base_dir : String,
+    std_base : String,
     visited : ArrayList(String),
     all_exprs : ArrayList(AstExpr),
     io : Io,
@@ -210,26 +210,26 @@ collect_module_deps :: (
   // codegen handles std symbols via the C preamble). When std_base is set,
   // rewrite `std/foo` → `{std_base}/foo` and follow it like a regular dep so
   // the evaluator can see prelude/std declarations.
-  (effective_path : String) = String.from(path_str);
-  (effective_base : String) = String.from(base_dir);
-  if(String.from(path_str).starts_with(String.from("std/")), {
-    if(String.from(std_base).len() == usize(0), {
+  (effective_path : String) = path_str.clone();
+  (effective_base : String) = base_dir.clone();
+  if(path_str.starts_with("std/"), {
+    if(std_base.bytes_len() == usize(0), {
       return(());
     });
-    rest := String.from(path_str).substring(usize(4), String.from(path_str).len());
+    rest := path_str.substring(usize(4), path_str.len());
     effective_path = rest.clone();
-    effective_base = String.from(std_base);
+    effective_base = std_base.clone();
   });
   // Normalize extension: append .yo if missing
-  norm_path := normalize_import_path(effective_path.as_str());
+  norm_path := normalize_import_path(effective_path.clone());
   // Resolve absolute path by normalizing base_dir/norm_path as one string.
   // Path.new normalizes ".." segments, which is needed for relative imports like "../types/tags.yo".
   // (Path.join does NOT re-normalize ".." in the second argument.)
-  abs_path_raw := Path.new(`${effective_base.as_str()}/${norm_path.as_str()}`).to_string();
+  abs_path_raw := Path.new(`${effective_base}/${norm_path}`).to_string();
   // When std_base is empty, also skip paths that resolve into std/ (e.g.
   // relative imports like "../string" from within std/imm/). With std_base
   // set, std/ resolves into std_base and these paths should be followed.
-  if((String.from(std_base).len() == usize(0)) &&
+  if((std_base.bytes_len() == usize(0)) &&
     abs_path_raw.clone().starts_with(String.from("std/")), {
     return(());
   });
@@ -240,7 +240,7 @@ collect_module_deps :: (
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
     base_no_ext := abs_path_raw.substring(usize(0), base_len - usize(3));
-    index_path := `${base_no_ext.as_str()}/index.yo`;
+    index_path := `${base_no_ext}/index.yo`;
     index_found := io.await(exists(Path.new(index_path), io), io);
     cond(
       index_found => {
@@ -295,8 +295,8 @@ collect_module_deps :: (
         .None => (),
         .Some(child_path) => {
           recur(
-            child_path.as_str(),
-            mod_base_dir.as_str(),
+            child_path.clone(),
+            mod_base_dir.clone(),
             std_base,
             visited,
             all_exprs,
@@ -383,7 +383,7 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   if(abs.ends_with(String.from("prelude.yo")), {
     return(());
   });
-  if(module_cache_has(abs.as_str()), {
+  if(module_cache_has(abs.clone()), {
     return(());
   });
   io := match(g_loader_io,.Some(i) => i,.None => return(()));
@@ -407,7 +407,7 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   // LATER check that imports this module: `demand_load_module` then
   // returns partial exports from the dead env (hangs/crashes; see
   // issues/yo-self-dir-check-state-corruption-after-failure.md).
-  unregister_loading(abs.as_str());
+  unregister_loading(abs.clone());
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
@@ -416,7 +416,7 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
     },
     .None => {
       // Root-cause detail printed by the helper's handler.
-      exn.throw(dyn(`Failed to evaluate module "${abs.as_str()}"`));
+      exn.throw(dyn(`Failed to evaluate module "${abs}"`));
     }
   );
 });
@@ -424,11 +424,11 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
 /// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
 /// (cycle) -> partial exports from the module's live env; else load on demand.
 demand_load_module :: (fn(path : String) -> LoadModuleResult)({
-  if(module_cache_has(path.as_str()), {
+  if(module_cache_has(path.clone()), {
     return(load_module_from_cache(path));
   });
   match(
-    loading_env(path.as_str()),
+    loading_env(path.clone()),
     .Some(env) => {
       return(
         LoadModuleResult(
@@ -612,7 +612,7 @@ check_single_file :: (
   // run_check pre-load step).
   // ---------------------------------------------------------------------------
   if(g_cached_prelude_env.is_none(), {
-    prelude_path := `${std_path.as_str()}/prelude.yo`;
+    prelude_path := `${std_path}/prelude.yo`;
     _pre := recur(prelude_path, std_path.clone(), io, exn);
   });
   // ---------------------------------------------------------------------------
@@ -627,7 +627,7 @@ check_single_file :: (
   g_loader_std_path = Option(String).Some(std_path.clone());
   g_loader_exn = Option(Exception).Some(local_exn);
   entry_abs := match(
-    resolve_module_path(input_path.as_str(), ".", std_path.as_str()),
+    resolve_module_path(input_path.clone(), String.from("."), std_path.clone()),
     .Found(p) => p,
     .NotFound(_) => input_path.clone(),
     .Ambiguous(_) => input_path.clone()
@@ -646,7 +646,7 @@ check_single_file :: (
   // ALWAYS unregister, error or not — a leaked currently-loading entry
   // poisons every LATER file in a directory check (see
   // issues/yo-self-dir-check-state-corruption-after-failure.md).
-  unregister_loading(entry_abs.as_str());
+  unregister_loading(entry_abs.clone());
   if(out_vals_cf.len() == usize(0), {
     // Root-cause detail printed by the helper's handler.
     return(false);
@@ -706,7 +706,7 @@ run_check :: (
   // self-bootstraps the prelude, but doing it once here keeps the cached
   // env free of the first file's own bindings.)
   if(g_cached_prelude_env.is_none(), {
-    prelude_path := `${std_path.as_str()}/prelude.yo`;
+    prelude_path := `${std_path}/prelude.yo`;
     _pre := check_single_file(prelude_path, std_path.clone(), io, exn);
   });
   (failed : usize) = usize(0);
@@ -832,9 +832,9 @@ run_test :: (
         .None => (),
         .Some(imp_path) => {
           collect_module_deps(
-            imp_path.as_str(),
-            input_base_dir.as_str(),
-            "",
+            imp_path.clone(),
+            input_base_dir.clone(),
+            String.new(),
             visited,
             dep_exprs,
             io,

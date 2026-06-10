@@ -172,7 +172,7 @@ impl(
     )
   ),
   register_executable : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
+    Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
@@ -198,7 +198,7 @@ impl(
     );
   }),
   register_static_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
+    Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
@@ -224,7 +224,7 @@ impl(
     );
   }),
   register_shared_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.as_str(), exn);
+    Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,
@@ -271,13 +271,13 @@ impl(
       )
     );
   }),
-  add_step_dependency : (fn(ref(self) : Self, step_name : str, dep_name : String) -> unit)({
+  add_step_dependency : (fn(ref(self) : Self, step_name : String, dep_name : String) -> unit)({
     new_steps := ArrayList(BuildStep).new();
     i := usize(0);
     n := self.steps.len();
     while(i < n, {
       step := self.steps(i);
-      if(step.name == String.from(step_name), {
+      if(step.name == step_name.clone(), {
         already := false;
         j := usize(0);
         m := step.dependency_names.len();
@@ -336,13 +336,13 @@ impl(
     self.modules.push(entry);
     ()
   }),
-  register_link : (fn(ref(self) : Self, artifact_name : str, library_name : String) -> unit)({
+  register_link : (fn(ref(self) : Self, artifact_name : String, library_name : String) -> unit)({
     new_artifacts := ArrayList(BuildArtifact).new();
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
       art := self.artifacts(i);
-      if(art.name == String.from(artifact_name), {
+      if(art.name == artifact_name.clone(), {
         already := false;
         j := usize(0);
         m := art.linked_artifacts.len();
@@ -367,92 +367,92 @@ impl(
   register_doc : (fn(ref(self) : Self, config : BuildDocConfig) -> unit)({
     self.doc_configs.push(config);
   }),
-  find_artifact : (fn(ref(self) : Self, name : str) -> Option(BuildArtifact))({
+  find_artifact : (fn(ref(self) : Self, name : String) -> Option(BuildArtifact))({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
       a := self.artifacts(i);
-      if(a.name == String.from(name), return(Option(BuildArtifact).Some(a)));
+      if(a.name == name.clone(), return(Option(BuildArtifact).Some(a)));
       i = (i + usize(1));
     });
     Option(BuildArtifact).None
   }),
-  find_test : (fn(ref(self) : Self, name : str) -> Option(BuildTestSuite))({
+  find_test : (fn(ref(self) : Self, name : String) -> Option(BuildTestSuite))({
     i := usize(0);
     n := self.test_suites.len();
     while(i < n, {
       t := self.test_suites(i);
-      if(t.name == String.from(name), return(Option(BuildTestSuite).Some(t)));
+      if(t.name == name.clone(), return(Option(BuildTestSuite).Some(t)));
       i = (i + usize(1));
     });
     Option(BuildTestSuite).None
   }),
-  find_run_step : (fn(ref(self) : Self, name : str) -> Option(BuildRunStep))({
+  find_run_step : (fn(ref(self) : Self, name : String) -> Option(BuildRunStep))({
     i := usize(0);
     n := self.run_steps.len();
     while(i < n, {
       r := self.run_steps(i);
-      if(r.name == String.from(name), return(Option(BuildRunStep).Some(r)));
+      if(r.name == name.clone(), return(Option(BuildRunStep).Some(r)));
       i = (i + usize(1));
     });
     Option(BuildRunStep).None
   }),
-  find_step : (fn(ref(self) : Self, name : str) -> Option(BuildStep))({
+  find_step : (fn(ref(self) : Self, name : String) -> Option(BuildStep))({
     i := usize(0);
     n := self.steps.len();
     while(i < n, {
       s := self.steps(i);
-      if(s.name == String.from(name), return(Option(BuildStep).Some(s)));
+      if(s.name == name.clone(), return(Option(BuildStep).Some(s)));
       i = (i + usize(1));
     });
     Option(BuildStep).None
   }),
-  find_documentation : (fn(ref(self) : Self, name : str) -> Option(BuildDocConfig))({
+  find_documentation : (fn(ref(self) : Self, name : String) -> Option(BuildDocConfig))({
     i := usize(0);
     n := self.doc_configs.len();
     while(i < n, {
       d := self.doc_configs(i);
-      if(d.name == String.from(name), return(Option(BuildDocConfig).Some(d)));
+      if(d.name == name.clone(), return(Option(BuildDocConfig).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildDocConfig).None
   }),
-  find_module : (fn(ref(self) : Self, name : str) -> Option(BuildModuleEntry))({
+  find_module : (fn(ref(self) : Self, name : String) -> Option(BuildModuleEntry))({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
       m := self.modules(i);
-      if(m.name == String.from(name), return(Option(BuildModuleEntry).Some(m)));
+      if(m.name == name.clone(), return(Option(BuildModuleEntry).Some(m)));
       i = (i + usize(1));
     });
     Option(BuildModuleEntry).None
   }),
-  find_dependency : (fn(ref(self) : Self, name : str) -> Option(BuildGitDependency))({
+  find_dependency : (fn(ref(self) : Self, name : String) -> Option(BuildGitDependency))({
     i := usize(0);
     n := self.dependencies.len();
     while(i < n, {
       d := self.dependencies(i);
-      if(d.name == String.from(name), return(Option(BuildGitDependency).Some(d)));
+      if(d.name == name.clone(), return(Option(BuildGitDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildGitDependency).None
   }),
-  find_path_dependency : (fn(ref(self) : Self, name : str) -> Option(BuildPathDependency))({
+  find_path_dependency : (fn(ref(self) : Self, name : String) -> Option(BuildPathDependency))({
     i := usize(0);
     n := self.path_dependencies.len();
     while(i < n, {
       d := self.path_dependencies(i);
-      if(d.name == String.from(name), return(Option(BuildPathDependency).Some(d)));
+      if(d.name == name.clone(), return(Option(BuildPathDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildPathDependency).None
   }),
-  find_system_library : (fn(ref(self) : Self, name : str) -> Option(BuildSystemLibrary))({
+  find_system_library : (fn(ref(self) : Self, name : String) -> Option(BuildSystemLibrary))({
     i := usize(0);
     n := self.system_libraries.len();
     while(i < n, {
       l := self.system_libraries(i);
-      if(l.name == String.from(name), return(Option(BuildSystemLibrary).Some(l)));
+      if(l.name == name.clone(), return(Option(BuildSystemLibrary).Some(l)));
       i = (i + usize(1));
     });
     Option(BuildSystemLibrary).None
@@ -467,7 +467,7 @@ impl(
     });
     names
   }),
-  resolve_dependency : (fn(ref(self) : Self, name : str) -> Option(ResolvedDep))({
+  resolve_dependency : (fn(ref(self) : Self, name : String) -> Option(ResolvedDep))({
     match(
       self.find_artifact(name),
       .Some(a) => {
@@ -518,12 +518,12 @@ impl(
     self.doc_configs = ArrayList(BuildDocConfig).new();
     self.cli_options = HashMap(String, String).new();
   }),
-  _check_duplicate_artifact_name : (fn(ref(self) : Self, name : str, exn : Exception) -> unit)({
+  _check_duplicate_artifact_name : (fn(ref(self) : Self, name : String, exn : Exception) -> unit)({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
       a := self.artifacts(i);
-      if(a.name == String.from(name), {
+      if(a.name == name.clone(), {
         kind_str := match(
           a.kind,
           .Executable => "executable",

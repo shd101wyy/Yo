@@ -197,12 +197,25 @@ With no raw-ptr-carrying values constructible in safe code:
   step-4 raw replacement: imm/string from_string + ToString (raw memcpy),
   assert_dyn/panic_dyn (builtin assert/panic take `str` msg — needs a
   step-4 decision).
-  Remaining: ~180 non-codegen yo-self bare sites (tok.value.as_str()
-  feeding `: str` helper params — flip helper signatures case-by-case,
-  watch match-arm String/str unification) and ~600 codegen/driver sites
+  Batch 2 (committed): `Ord(String)` impl on String (byte-lexicographic,
+  mirrors str's — `a < b` works directly) + yo-self helper-signature flips
+  `str`→`String` with call-site as_str drops in: evaluator/exprs/match.yo
+  (contains_str_in_list, find_str_in_list, _variant_name_eq,
+  _is_gadt_branch_reachable + all variant-name locals), types/
+  gadt_registry.yo (all enum_id params), types/enum.yo, exprs/import.yo
+  (resolve_module_path), module_loader.yo (cache/loading paths), main.yo
+  (normalize_import_path, collect_module_deps), build_runner.yo
+  (execute_step, output-dir/name helpers, summary-tree prefixes),
+  builtins/build.yo (all registry find_*/resolve_dependency name params).
+  Lesson: when flipping a param, grep the body for `String.from(param)`
+  materializations (→ `.clone()`) and literal callers (→ `String.from`
+  wrap); match arms unifying with `""` need `String.new()`.
+  Remaining: ~109 non-codegen yo-self bare sites (install_command 15,
+  property_access 11, calls/helper 10, calls/function 8, formatter 7,
+  type_fns 7, …) and ~600 codegen/driver/proto-eval (eval.yo) sites
   DEFERRED to the codegen port (plans/BOOTSTRAPPING_CODEGEN.md retires
-  driver.yo and rewrites the emitters; flipping their params first is
-  wasted work).
+  driver.yo, the untyped walker and the proto-evaluator; flipping their
+  params first is wasted work).
 - [ ] 4. `Slice(T)` safe-code naming gate + remove `as_str`/`as_slice`
 - [ ] 5. `ListView` library type + tests
 - [ ] 6. flowability slice-gate retirement + docs/tests rewrite
