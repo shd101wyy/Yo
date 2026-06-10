@@ -238,3 +238,37 @@ With no raw-ptr-carrying values constructible in safe code:
 - [ ] 5. `ListView` library type + tests
 - [ ] 6. flowability slice-gate retirement + docs/tests rewrite
 - [ ] 7. full validation (TS suite, yo-self sweeps, CI)
+
+## Step 4 implementation map (2026-06-10 survey)
+
+**Conflict note:** yo-self codegen/driver/eval.yo still call `as_str` 566× and
+mirror `__yo_slice_*` — so step 4 PRAGMA-GATES `as_str`/`as_slice` (callable
+only from `Pragma.AllowUnsafe` files) instead of hard-deleting, until the
+codegen port retires those files.
+
+Ordered parts (validate `check ./std` + targeted tests between each):
+- **A. str standalone lowering:** add TypeTag.Str/StrType/createStrType/
+  isStrType (src/types/{tags,definitions,creators,guards}.ts); codegen str
+  struct directly (src/codegen/utils/index.ts:600, types/{generation,
+  collection}.ts); decide __yo_str_* vs reuse; update prelude:5824.
+  Today: str = newtype{bytes: Slice_uint8_t} → `typedef struct {uint8_t*
+  data; size_t length} Slice_uint8_t; typedef struct {Slice_uint8_t bytes;}
+  __yo_str;`.
+- **B. delete SliceType:** TypeTag.Slice (tags.ts:66), SliceType
+  (definitions.ts:281), creators.ts:654, guards, value.ts SliceValue,
+  evaluator/types/slice.ts (whole file), ~20 cases types/utils.ts,
+  compatibility/hierarchy, evaluator calls/builtins/values/exprs refs,
+  codegen utils:600-616 + types/collection.ts:428,504 +
+  generation.ts:1018 (generateSliceStructDeclarations), parser.ts. 27 files.
+- **C. copying range-indexing:** index-trait.ts:860-965 (createSliceValue at
+  916,948 → build owned ArrayList/String); prelude Array Index(Range) Output
+  Slice(T)→ArrayList(T) (5611-5626), Slice Index impls deleted (5690-5705);
+  String range → String; str range stays str; codegen
+  __yo_array_index_range (inline-fns.ts:238-271) emits copy ctor.
+- **D. RawSlice(T)** struct in a pragma'd std file; migrate: alg/hash.yo:10
+  (NON-pragma'd — needs pragma or byte_at rewrite), collections/
+  array_list.yo as_slice, crypto/random.yo bufs, imm/{list,map,set,
+  sorted_map,sorted_set,vec}.yo from_slice/from_entries.
+- **E. prelude cleanup:** delete Slice impls 5647-5788, __yo_slice_* decls;
+  str def update.
+- **F. yo-self mirrors** deferred to codegen port.
