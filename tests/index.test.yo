@@ -124,14 +124,15 @@ test("Test range slicing on slices", {
   assert(s2(usize(0)) == i32(200), "s2(0) should be 200");
   assert(s2(usize(2)) == i32(400), "s2(2) should be 400");
 });
-test("Test range slicing preserves data", {
+test("Test range slicing preserves data (owned copy)", {
+  // Ranges COPY (plans/SLICE_REWORK.md): the result owns its elements;
+  // mutating it never touches the source array.
   (arr : [i32 ; 5]) = [i32(10), i32(20), i32(30), i32(40), i32(50)];
-  // Mutate through pointer of sliced element
   s := arr(usize(1) .. usize(4));
-  (p : *(i32)) = &(s(usize(0)));
-  p.* = i32(999);
-  assert(s(usize(0)) == i32(999), "mutation through pointer should work");
-  assert(arr(usize(1)) == i32(999), "original array should reflect mutation");
+  assert(s.len() == usize(3), "copy length");
+  assert(match(s.get(usize(0)), .Some(v) => (v == i32(20)), .None => false), "copy data");
+  s(usize(0)) = i32(999);
+  assert(arr(usize(1)) == i32(20), "source array unaffected by copy mutation");
 });
 // === HashMap Index tests ===
 test("Test Index trait on HashMap", {
