@@ -1,0 +1,88 @@
+//! Regression test for issues/fixed/codegen-continue-in-while-heap-corruption.md:
+//! `continue` inside a while body (including inside an if-block within a match
+//! arm) must drop per-iteration Rc values exactly once — no double-drop
+//! (allocator corruption) and no skipped drop. Exercises the shapes the
+//! original 2026-06-07 bisect implicated: Rc locals live at the continue
+//! point, match-extracted Option payloads with tail-deferred temp drops,
+//! and object locals with Rc field writes.
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+CPayload :: enum(
+  Empty,
+  Val(s : String)
+);
+CInfo :: object(
+  label : String,
+  value : CPayload
+);
+new_cinfo :: (fn(label : String) -> CInfo)(
+  CInfo(label : label, value : CPayload.Empty)
+);
+CKind :: enum(Quoted(tag : String), Plain(tag : String));
+
+test("continue in while drops Rc locals exactly once", {
+  acc := ArrayList(String).new();
+  iter := i32(0);
+  while(iter < i32(30000), {
+    payload := String.from("iteration-payload-with-heap-data");
+    parts := ArrayList(u8).with_capacity(usize(32));
+    parts.push(u8(7));
+    if((iter % i32(3)) == i32(0), {
+      quoted := payload.clone();
+      acc.push(quoted);
+      iter = (iter + i32(1));
+      continue;
+    });
+    evaled := payload.concat(String.from("-evaluated"));
+    acc.push(evaled);
+    if(acc.len() > usize(64), {
+      acc = ArrayList(String).new();
+    });
+    iter = (iter + i32(1));
+  });
+  assert(acc.len() <= usize(65), "loop completed without corruption");
+});
+
+test("continue inside match arm with extracted Option payload", {
+  items := ArrayList(String).new();
+  k := i32(0);
+  while(k < i32(8), {
+    items.push(String.from("seed-payload-with-heap-data"));
+    k = (k + i32(1));
+  });
+  acc := ArrayList(String).new();
+  iter := i32(0);
+  while(iter < i32(30000), {
+    idx := usize(iter % i32(8));
+    // match-extracted binding from an expression temp (the Option's drop is
+    // deferred to the iteration tail — continue must handle it exactly once)
+    arg := match(
+      items.get(idx),
+      .Some(a) => a,
+      .None => String.new()
+    );
+    kind := if((iter % i32(3)) == i32(0), CKind.Quoted(String.from("q")), CKind.Plain(String.from("p")));
+    match(
+      kind,
+      .Quoted(tag) => {
+        if(tag.len() > usize(0), {
+          q_info := new_cinfo(String.from("quoted"));
+          q_info.value = CPayload.Val(arg.clone());
+          acc.push(q_info.label.clone());
+          iter = (iter + i32(1));
+          continue;
+        });
+      },
+      .Plain(_) => ()
+    );
+    evaled := arg.concat(String.from("-evaluated"));
+    acc.push(evaled);
+    if(acc.len() > usize(64), {
+      acc = ArrayList(String).new();
+    });
+    iter = (iter + i32(1));
+  });
+  assert(items.len() == usize(8), "backing list intact after 30k iterations");
+});

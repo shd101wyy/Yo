@@ -82,3 +82,27 @@ BOTH bugs in this file — `eb.*` compiled to a copy that shared children
 without retaining. If deref-copy is supposed to retain, this is a C-emitter
 bug reproducible from that shape; if it is shallow-by-design, every
 `box(x.*)`-style rewrap in yo-self is suspect.
+
+## RESOLVED (2026-06-11): no longer reproducible post-slice-rework
+
+Re-tested after the slice rework (String/str representation overhaul,
+`feat/slice-rework`):
+
+1. **C-level inspection** of five variants of the bisected shapes
+   (continue in while with Rc locals; continue inside if-in-match-arm;
+   object locals with Rc field writes before continue; match-extracted
+   Option payloads live at the continue point; Box deref-copy + rebuild)
+   all show **balanced dup/drop emission** — the continue path emits the
+   per-scope drops (including the Option temp deferred to the iteration
+   tail) exactly once before the jump. The only wart is a dead duplicate
+   drop emitted after `continue;` (unreachable, harmless).
+2. **Behavioral re-test on the original protocol**: the `continue` form
+   was restored in `yo-self/evaluator/calls/function.yo`'s FuncVal arg
+   loop and the four flakiest files re-checked 13 rounds each
+   (tests/imm_threading, std/sys/bufio/buf_writer, tests/encoding/json,
+   std/string/string): **0 crashes / 52 runs** (originally ~50%).
+
+The `continue` form is now kept in function.yo (it matches the TS
+original). A runtime regression test for the shape lives in
+`tests/continue_rc_cleanup.test.yo`. The deref-copy retain question is
+answered: `Box.*` into a local emits `___dup` and drops exactly once.

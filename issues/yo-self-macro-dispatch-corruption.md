@@ -61,3 +61,23 @@ registry) stays on and is harmless.
 3. Fix in `src/codegen` (likely the deref-copy/enum-copy retain rule or
    the temp-drop emission), add the repro to `tests/`, then flip
    `MACRO_DISPATCH_ENABLED` on permanently.
+
+## UPDATE (2026-06-11): crash no longer reproduces — blocker is now FUNCTIONAL
+
+With `MACRO_DISPATCH_ENABLED :: true` rebuilt post-slice-rework, the
+reproducer (`yo-self-bin check yo-self/evaluator/exprs/open.yo`) ran
+**0 crashes / 20 runs** (was ~50%). The related continue-in-while
+corruption also no longer reproduces (0/52 on its original protocol —
+issues/fixed/codegen-continue-in-while-heap-corruption.md).
+
+However the check now FAILS functionally with dispatch on:
+
+```
+Error: Variable "comptime_str" not found.
+Error: Variable "Option" not found.
+```
+
+i.e. executing macro bodies evaluates code in contexts where prelude /
+builtin identifiers fail to resolve. Re-enabling dispatch is now blocked
+on debugging these macro-execution environment gaps (part of the
+executing-mode evaluation tail), not on heap corruption.
