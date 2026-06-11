@@ -1,6 +1,18 @@
 # Self-hosted evaluator: built-in `for` handler diverges from TypeScript implementation
 
-## Status: Bug — divergence from reference (TypeScript) implementation
+## Status: Deliberate divergence, retirement deferred (re-triaged 2026-06-12)
+
+> The handler still exists (yo-self/evaluator/eval.yo, with the divergence
+> warning comment pointing here) and is still load-bearing: ~29 `for(`
+> usages across the eval trio tests (eval_basics/eval_tail_1/eval_tail_2)
+> exercise the proto-evaluator through the 3-arg form, and those files are
+> the known-heavy ones that exceed the test runner's 1800 s isolated-process
+> limit — a migration could only be validated by `check`, not by running.
+> Retirement is interlocked with retiring eval.yo's proto-evaluator
+> dispatch entirely, which plans/BOOTSTRAPPING_CODEGEN.md schedules
+> alongside the codegen port (the proper per-handler evaluator is already
+> the live path for everything else). Keep this issue open as the tracker;
+> delete the handler + migrate the trio in the same change.
 
 ## Description
 

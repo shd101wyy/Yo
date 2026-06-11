@@ -1,11 +1,20 @@
 # Test runner has no timeout on Yo / C compilation phases
 
-> **Status update (2026-06-11 triage):** partially fixed — the C-compile
-> `spawnSync` now has a 600 s timeout and parallel/isolated mode has the
-> 1800 s per-file watchdog (`PER_FILE_TIMEOUT_MS`). REMAINING GAP: in
-> sequential mode (`--parallel 1`) the in-process Yo→C
-> `moduleManager.compileModule` call is still unbounded, so a hung
-> evaluator/codegen still hangs the runner indefinitely.
+> **Status update (2026-06-11, evening): FIXED.** The remaining sequential
+> gap is closed with a COOPERATIVE EVALUATOR DEADLINE: `_evaluateExpression`
+> (src/evaluator/exprs/_expr.ts, `setEvaluatorDeadline`) checks a wall-clock
+> deadline every 16384 dispatches and throws past it; the test runner arms
+> it (600 s) around BOTH in-process evaluation sites — the sequential-mode
+> `compileModule` and `extractTests`' `loadModule`. The throw is not
+> one-shot, so trial-eval swallowing can't defeat it (every subsequent
+> evaluation re-throws until the compile unwinds as a compile error).
+> Verified end-to-end with a 1 ms deadline (every file fails immediately
+> with "Yo compilation exceeded the configured time limit") and at 600 s
+> (fn/error suites unaffected). Residual (accepted): a hang inside
+> CODEGEN (not the evaluator) is still uncovered in sequential mode —
+> parallel/isolated mode's 1800 s process watchdog covers that case.
+> No yo-self mirror: this is test-RUNNER infrastructure; it ports with
+> the runner itself (codegen-port Phase 7).
 
 ## Symptom
 

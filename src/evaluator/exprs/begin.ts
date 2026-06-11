@@ -1563,28 +1563,34 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // If so, the begin block has runtime side effects and should not
       // be folded to a compile-time value.
       if (i < beginExpressions.length - 1 && !hasRuntimeSideEffects) {
-        // Only a CONCRETELY known value proves a statement effect-free. An
-        // UnknownValue (e.g. a runtime-condition cond over unit arms, which
-        // annotates itself with a typed unknown) may execute anything at
-        // runtime — including a conditional `return` — so folding the block
-        // to its tail value would silently delete the statement
-        // (issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
-        if (
-          evaluatedExpr.$?.value === undefined ||
-          isUnknownValue(evaluatedExpr.$.value)
-        ) {
+        if (evaluatedExpr.$?.value === undefined) {
           hasRuntimeSideEffects = true;
         }
         // := and = expressions always have $.value = VUnit (compile-time),
         // but they produce runtime side effects when their RHS is a runtime
         // expression. Check isCompileTimeOnlyAssignment which is set by the
         // assignment evaluator when the operation is provably compile-time.
+        // This branch must take PRECEDENCE over the UnknownValue check
+        // below: a comptime-only assignment in a comptime fn body carries a
+        // typed unknown during the validation pass, and marking it runtime
+        // broke every `comptime(ref(...))` function (CI unit-test catch).
         else if (
           exprIsFunctionCall(evaluatedExpr) &&
           (exprIsFunctionCallOf(evaluatedExpr, "=") ||
-            exprIsFunctionCallOf(evaluatedExpr, ":=")) &&
-          !evaluatedExpr.$.isCompileTimeOnlyAssignment
+            exprIsFunctionCallOf(evaluatedExpr, ":="))
         ) {
+          if (!evaluatedExpr.$.isCompileTimeOnlyAssignment) {
+            hasRuntimeSideEffects = true;
+          }
+        }
+        // For NON-assignment statements, only a CONCRETELY known value
+        // proves the statement effect-free. An UnknownValue (e.g. a
+        // runtime-condition cond over unit arms, which annotates itself
+        // with a typed unknown) may execute anything at runtime — including
+        // a conditional `return` — so folding the block to its tail value
+        // would silently delete the statement
+        // (issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
+        else if (isUnknownValue(evaluatedExpr.$.value)) {
           hasRuntimeSideEffects = true;
         }
       }

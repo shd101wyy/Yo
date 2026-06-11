@@ -16,6 +16,7 @@ import {
 } from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
 import { YoError } from "./error";
+import { setEvaluatorDeadline } from "./evaluator/exprs/_expr";
 import { clearAllGlobalImplState } from "./evaluator/index";
 import {
   BuiltinKeywords,
@@ -251,7 +252,17 @@ export function extractTests(filePath: string): ExtractTestsResult {
     moduleManager = new ModuleManager();
     const modulePath = `file://${filePath}`;
 
-    const { moduleError } = moduleManager.loadModule(modulePath);
+    // Test extraction also evaluates the module in-process — arm the same
+    // cooperative deadline as the sequential compile so a hung module
+    // evaluation fails the file instead of hanging the runner
+    // (issues/fixed/test-runner-no-compile-timeout.md).
+    setEvaluatorDeadline(Date.now() + 600_000);
+    let moduleError: Error | undefined;
+    try {
+      ({ moduleError } = moduleManager.loadModule(modulePath));
+    } finally {
+      setEvaluatorDeadline(undefined);
+    }
     if (moduleError) {
       moduleManager = null;
       throw new Error(`Error evaluating module: ${moduleError}`);
@@ -447,6 +458,10 @@ function compileBatchedBinary(
     }
   };
 
+  // Wall-clock budget for one in-process Yo→C compile in sequential mode
+  // (mirrors the 600 s C-compile spawnSync timeout below).
+  const SEQUENTIAL_COMPILE_TIMEOUT_MS = 600_000;
+
   let moduleManager: ModuleManager | null = null;
   try {
     fs.writeFileSync(testFilePath, program);
@@ -468,6 +483,10 @@ function compileBatchedBinary(
     const yoCompileStart = Date.now();
     moduleManager = new ModuleManager();
     try {
+      // Sequential mode compiles in-process; arm the evaluator's cooperative
+      // deadline so a hung Yo→C compile fails this file instead of hanging
+      // the runner forever (issues/fixed/test-runner-no-compile-timeout.md).
+      setEvaluatorDeadline(Date.now() + SEQUENTIAL_COMPILE_TIMEOUT_MS);
       moduleManager.compileModule(`file://${testFilePath}`, {
         emitC: false,
         debugGc: false,
@@ -481,6 +500,8 @@ function compileBatchedBinary(
       throw new Error(
         `Yo compilation error: ${compileError instanceof YoError ? compileError.toString() : compileError instanceof Error ? compileError.message : String(compileError)}`
       );
+    } finally {
+      setEvaluatorDeadline(undefined);
     }
     const yoCompileMs = Date.now() - yoCompileStart;
 
@@ -653,7 +674,7 @@ __attribute__((constructor)) static void _yo_increase_stack_limit(void) {
       throw new Error(
         `C compilation timed out after 600s (compiler: ${cCompiler}). ` +
           `This usually indicates a stuck linker or extremely large input. ` +
-          `See issues/test-runner-no-compile-timeout.md.`
+          `See issues/fixed/test-runner-no-compile-timeout.md.`
       );
     }
     if (compileResult.status !== 0) {
@@ -997,7 +1018,7 @@ async function runSingleFileInIsolatedProcess({
           errorMessage:
             `Isolated test process timed out after ${PER_FILE_TIMEOUT_MS / 1000}s. ` +
             `This usually means the Yo or C compilation phase is stuck. ` +
-            `See issues/test-runner-no-compile-timeout.md.`,
+            `See issues/fixed/test-runner-no-compile-timeout.md.`,
         });
         return;
       }
