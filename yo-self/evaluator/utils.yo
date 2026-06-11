@@ -510,6 +510,51 @@ set_expr_as_consumed :: (
             exn.throw(dyn(format_error_messages(entries, false,.None)));
           });
           v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
+          // Same-scope borrow-invalidation gate: moving a variable that a
+          // live `ref(name) := …` binding borrows from would free the
+          // borrowed backing. A mark constrains only while its ref variable
+          // is still in scope (id-checked). Mirrors TS setExprAsConsumed.
+          (rbi : usize) = usize(0);
+          while(rbi < v.ref_borrowed_by.len(), {
+            match(
+              v.ref_borrowed_by.get(rbi),
+              .Some(mark) => {
+                live_refs := get_variables_from_env(env, mark.ref_name);
+                (lri : usize) = usize(0);
+                (still_in_scope : bool) = false;
+                while(lri < live_refs.len(), {
+                  match(
+                    live_refs.get(lri),
+                    .Some(lr) => {
+                      if(lr.id == mark.ref_variable_id, {
+                        still_in_scope = true;
+                      });
+                    },
+                    .None => ()
+                  );
+                  lri = (lri + usize(1));
+                });
+                if(still_in_scope, {
+                  entries := ArrayList(TokenAndError).new();
+                  entries.push(
+                    TokenAndError(
+                      token : ast_expr_token(expr),
+                      error_message : `Cannot move "${name}" while 'ref(${mark.ref_name}) := …' borrows from it. Moving would free the storage the reference points into.`
+                    )
+                  );
+                  entries.push(
+                    TokenAndError(
+                      token : mark.token,
+                      error_message : String.from("the borrow was taken here")
+                    )
+                  );
+                  exn.throw(dyn(format_error_messages(entries, false,.None)));
+                });
+              },
+              .None => ()
+            );
+            rbi = (rbi + usize(1));
+          });
           match(
             v.consumed_at_token,
             // Step 5: not yet consumed → mark now.
