@@ -2015,9 +2015,32 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
           // Mark the variable as consumed so it won't generate a drop call at end of function
           // This handles the end-of-scope drop. Early return drops are handled separately.
+          //
+          // Record the consume point at the cancelled dup's USE SITE when
+          // there is exactly one regular runtime dup: from that point on,
+          // ownership lives in the dup's consumer (e.g. a struct literal
+          // the variable was moved into), so early returns AFTER it must
+          // not receive an early-return-only drop for this variable —
+          // doing so double-freed the moved value (the consumer's dispose
+          // drops it again). Early returns BEFORE the transfer still fall
+          // inside the [init, consume) window and keep their drop. With a
+          // branch-group dup (or no runtime dup at all) the transfer point
+          // is not a single source location — keep the end-of-scope token,
+          // which preserves the drop on every early return.
+          let consumeSiteToken = lastExpr.token;
+          if (runtimeDupCount === 1 && branchGroups.length === 0) {
+            const regularDup = allDupExprsToRemove.find(
+              (dupExpr) =>
+                !(dupExpr as FnCallExpr & { __isEarlyReturnDup?: boolean })
+                  .__isEarlyReturnDup
+            ) as (FnCallExpr & { __useSiteToken?: Token }) | undefined;
+            if (regularDup?.__useSiteToken) {
+              consumeSiteToken = regularDup.__useSiteToken;
+            }
+          }
           env = updateExistingVariable(env, variable, {
             ...variable,
-            consumedAtToken: lastExpr.token,
+            consumedAtToken: consumeSiteToken,
           });
         } else {
           // Multiple runtime dups - can't simply cancel them all with one drop

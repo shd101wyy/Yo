@@ -1,0 +1,143 @@
+//! Regression tests: early-return cleanup inside a match arm must not drop a
+//! same-named OUTER variable's pending drop against the arm's shadowing
+//! binding. The arm binding `.Some(h)` is a borrow of the matched value's
+//! payload (no dup); before the fix, a function-level `h := ...` declared
+//! AFTER the match registered a function-scope pending drop that the
+//! early-return filter matched BY NAME against the arm binding — the emitted
+//! C `drop(h)` resolved to the borrow and double-freed the payload. This was
+//! the root cause of the yo-self ExprInfo-table use-after-free (deterministic
+//! SIGSEGV under libgmalloc; intermittent SIGTRAP-in-malloc at scale).
+//! Fixed by matching pending-drop targets by Variable IDENTITY (id), not name
+//! (src/codegen/exprs/return.ts + getDeferredDropTargetVariableId).
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+Holder :: object(v : String);
+
+// Early return inside a match arm whose binding shadows a later local.
+take_early :: (fn(o : Option(Holder), flag : bool) -> i32)({
+  r := match(
+    o,
+    .Some(h) => {
+      cond(
+        flag => {
+          return(i32(1));
+        },
+        true => ()
+      );
+      i32(2)
+    },
+    .None => i32(0)
+  );
+  // Same NAME as the arm binding, declared after the match: its
+  // function-scope pending drop must not fire inside the arm.
+  h := Holder(v : String.from("later"));
+  ___ := h;
+  r
+});
+
+test("early return in shadowing match arm does not double-free the payload", {
+  o := Option(Holder).Some(Holder(v : String.from("payload")));
+  x := take_early(o, true);
+  assert(x == i32(1), "early-return path taken");
+  // The payload must still be alive: o's borrow reads it after the call.
+  alive := match(
+    o,
+    .Some(h) => (h.v == "payload"),
+    .None => false
+  );
+  assert(alive, "payload survives the early-returning call");
+});
+
+test("normal path through the shadowing arm is balanced", {
+  o := Option(Holder).Some(Holder(v : String.from("payload-2")));
+  x := take_early(o, false);
+  assert(x == i32(2), "normal arm value");
+  alive := match(
+    o,
+    .Some(h) => (h.v == "payload-2"),
+    .None => false
+  );
+  assert(alive, "payload survives the normal path");
+});
+
+// Two nested match arms, both shadowing later locals: the early return
+// crosses two arm scopes and must skip BOTH outer pending drops.
+take_nested :: (
+  fn(o : Option(Holder), o2 : Option(Holder), flag : bool) -> i32
+)({
+  r := match(
+    o,
+    .Some(h) => match(
+      o2,
+      .Some(g) => cond(
+        flag => {
+          return(i32(10));
+        },
+        true => i32(20)
+      ),
+      .None => i32(0)
+    ),
+    .None => i32(0)
+  );
+  h := Holder(v : String.from("later-h"));
+  g := Holder(v : String.from("later-g"));
+  sink := cond(
+    (r > i32(0)) => h,
+    true => g
+  );
+  ___ := sink;
+  r
+});
+
+// Companion bug (same UAF family, second root): when the dup/drop optimizer
+// cancels a move-into-container dup (`w := Wrap(items : items)` below takes
+// `items` WITHOUT a dup), it marked the source consumed at the END-OF-SCOPE
+// token instead of the transfer site. Early returns between the transfer and
+// the scope end then received an early-return-only drop of `items` — freeing
+// the buffer `w` still owns (this was the residual dispatch-on SIGTRAP:
+// ct_arg_entries moved into ArgValues in yo-self's evaluate_function_call).
+Sack :: object(items : ArrayList(Holder));
+
+take_after_move :: (fn(o : Option(i32)) -> i32)({
+  items := ArrayList(Holder).new();
+  items.push(Holder(v : String.from("moved-payload")));
+  sack := Sack(items : items);
+  match(
+    o,
+    .Some(x) => {
+      return(x);
+    },
+    .None => ()
+  );
+  n := i32(sack.items.len());
+  ___ := sack;
+  n
+});
+
+test("early return after a move-into-container does not drop the moved value", {
+  x := take_after_move(Option(i32).Some(i32(7)));
+  assert(x == i32(7), "early-return path taken");
+  y := take_after_move(Option(i32).None);
+  assert(y == i32(1), "normal path still sees the moved list");
+});
+
+test("early return crossing two shadowing arm scopes", {
+  o := Option(Holder).Some(Holder(v : String.from("payload-3")));
+  o2 := Option(Holder).Some(Holder(v : String.from("payload-4")));
+  x := take_nested(o, o2, true);
+  assert(x == i32(10), "early-return path taken");
+  alive := match(
+    o,
+    .Some(h) => (h.v == "payload-3"),
+    .None => false
+  );
+  alive2 := match(
+    o2,
+    .Some(h) => (h.v == "payload-4"),
+    .None => false
+  );
+  assert(alive, "outer payload survives");
+  assert(alive2, "inner payload survives");
+});

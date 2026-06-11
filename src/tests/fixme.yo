@@ -1,9 +1,33 @@
 open(import("std/fmt"));
 open(import("std/string"));
 
+Holder :: object(v : String);
+
+f :: (fn(o : Option(Holder), flag : bool) -> i32)({
+  r := match(
+    o,
+    .Some(h) => {
+      cond(
+        flag => {
+          return(i32(1));
+        },
+        true => ()
+      );
+      i32(2)
+    },
+    .None => i32(0)
+  );
+  // Same NAME as the match-arm binding, declared after the match: its
+  // function-scope pending drop must not fire inside the arm.
+  h := Holder(v : String.from("later"));
+  ___ := h;
+  r
+});
+
 main :: (fn() -> unit)({
-  x := String.from("hello world");
-  println(x);
+  o := Option(Holder).Some(Holder(v : String.from("payload")));
+  x := f(o, true);
+  println(`${x}`);
 });
 
 export(main);

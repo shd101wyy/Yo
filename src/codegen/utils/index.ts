@@ -1027,6 +1027,46 @@ export function getDeferredDropTargetAtomName(
   return firstArg.token.value;
 }
 
+/**
+ * Resolve the identity (Variable.id) of the variable a drop expression
+ * targets. The drop expression was evaluated in the scope-exit environment
+ * of the scope that owns the variable, where the target is the latest
+ * binding of its name. Resolving the id there lets cleanup sites
+ * distinguish the actual target from same-named shadowing bindings (e.g.
+ * a match-arm payload borrow) that are in scope at the cleanup point —
+ * emitting the drop against a shadowing borrow double-frees its payload.
+ */
+export function getDeferredDropTargetVariableId(
+  dropExpr: Expr
+): string | undefined {
+  let atom: Expr | undefined;
+  // varName.drop() form (method call syntax)
+  if (
+    exprIsFunctionCall(dropExpr) &&
+    dropExpr.args.length === 0 &&
+    exprIsFunctionCall(dropExpr.func) &&
+    exprIsFunctionCallOf(dropExpr.func, ".", 2) &&
+    exprIsAtom(dropExpr.func.args[1]!) &&
+    dropExpr.func.args[1]!.token.value === BuiltinFunctions.___drop[0] &&
+    exprIsAtom(dropExpr.func.args[0]!)
+  ) {
+    atom = dropExpr.func.args[0]!;
+  } else if (
+    exprIsFunctionCall(dropExpr) &&
+    exprIsFunctionCallOf(dropExpr, BuiltinFunctions.___drop) &&
+    dropExpr.args.length >= 1 &&
+    dropExpr.args[0] &&
+    exprIsAtom(dropExpr.args[0])
+  ) {
+    // ___drop(varName) form
+    atom = dropExpr.args[0];
+  }
+  if (!atom?.$?.env) return undefined;
+  const variables = getVariablesFromEnv(atom.$.env, atom.token.value);
+  if (variables.length === 0) return undefined;
+  return variables[variables.length - 1]!.id;
+}
+
 export function isDeferredDropForClosureCapture(
   dropExpr: Expr,
   currentClosureCaptures: readonly string[] | undefined

@@ -1,5 +1,49 @@
 # yo-self: macro-call dispatch intermittently corrupts the heap
 
+## Status: ✅ RESOLVED (2026-06-11)
+
+Both root causes found and fixed — see
+`issues/fixed/codegen-shadowed-binding-early-return-double-drop.md` for the
+full analysis. They were general TS-codegen/evaluator RC bugs (early-return
+cleanup over-dropping), NOT macro-dispatch or HashMap bugs; dispatch merely
+added the allocation churn and the one early-return path that surfaced them:
+
+1. **Shadowed-binding double drop**: `generatePendingDeferredDrops`
+   (src/codegen/exprs/return.ts) matched pending early-return drops by NAME;
+   a match-arm payload borrow shadowing a later same-named local (e.g.
+   `.Some(info)` + later `info := new_expr_info(...)` in evaluate_panic)
+   got the outer variable's drop → double decrement → the ExprInfo freed
+   while expr_info_table still held it (the deterministic gmalloc fault,
+   dispatch ON or OFF). Fixed by Variable.id identity matching
+   (`getDeferredDropTargetVariableId`).
+2. **Move-into-container + early return**: the dup/drop optimizer
+   (src/evaluator/exprs/begin.ts) recorded `consumedAtToken` at the
+   END-OF-SCOPE token when cancelling a move's dup; early returns between
+   the actual transfer (`ct_arg_values := ArgValues(args : ct_arg_entries,
+   …)`) and scope end received an early-return-only drop of the moved
+   value (the macro-expansion `return(expr)` was exactly such a return —
+   the dispatch-ON-only residual). Fixed by stamping the dup's use-site
+   token (`__useSiteToken`, src/expr.ts) and consuming at that point.
+
+Validation with `MACRO_DISPATCH_ENABLED :: true`: `check ./std` 152/152 ×5
+sweeps with zero SIGTRAPs (was ~1/3–2/3 crash rate), `check ./yo-self`
+240/240, `check ./tests` 143/145 (2 = known circular-dep baseline),
+libgmalloc clean on both deterministic reproducers (std/string/string.yo,
+std/fmt). Regression tests:
+`tests/shadowed_binding_early_return_drop.test.yo`.
+
+The debugging workflow that cracked it (after `sudo DevToolsSecurity
+-enable`): lldb batch with `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib
+MallocStackLogging=full MallocStackLoggingNoCompact=1`, post-crash commands
+via `-k`, then `malloc_history <pid> <fault-addr>` while lldb holds the
+stopped process → exact ALLOC/FREE/USE stacks. (`MallocStackLogging=1`
+lite mode does NOT engage under gmalloc; `=full` does. No 32 GB machine or
+chunked ASan needed.)
+
+---
+
+# Historical investigation log (pre-resolution)
+
 ## Status
 
 Macro DISPATCH (executing `if`/`try`/prelude macro bodies via

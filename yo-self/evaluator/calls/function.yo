@@ -80,9 +80,12 @@ open(import("std/string"));
 { try_to_implement_array_by_array_type } :: import("./array_type.yo");
 { has_index_impl, try_to_call_with_index_trait } :: import("./index_trait.yo");
 /// Master switch for macro-call dispatch in the FuncVal arm — see the
-/// comment at its use site. Flipped to `true` by the def-eval propagation
-/// experiment patch.
-MACRO_DISPATCH_ENABLED :: false;
+/// comment at its use site. ENABLED 2026-06-11: the heap corruption that
+/// kept it off was root-caused to two general early-return RC bugs in the
+/// TS compiler (issues/fixed/yo-self-macro-dispatch-corruption.md), both
+/// fixed; dispatch-ON sweeps are clean (std 152/152 ×5, yo-self 240/240,
+/// gmalloc-clean) and the phase6 macro tests run for real against it.
+MACRO_DISPATCH_ENABLED :: true;
 { try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime_list_type.yo");
 {
   is_convertible_numeric_type,
@@ -1808,7 +1811,7 @@ Fix: wrap the call:
         // method whose body uses `K`/`V`, or one dispatched via `Self`) is bound
         // positionally from these. Faithful stand-in for TS recovering the
         // substitution from `StructType.env`. See
-        // issues/self-dispatch-loses-type-args.md.
+        // issues/fixed/self-dispatch-loses-type-args.md.
         recv_type_args := match(
           _static_dot_receiver_self_type(func_expr, ctx),
           .Some(rt) => match(rt,.Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new()),

@@ -112,10 +112,13 @@ results), NOT C-text equality against TS output.
       explicitly out-of-scope follow-up (tracked by its own issue).
 - [ ] `yo-self-bin test ./tests` runs the suite end-to-end with results
       matching `./yo-cli test ./tests`.
-- [ ] All differential runs are clean under guard pages
-      (libgmalloc) and — once the ASan toolchain problem is solved (see
-      issues/yo-self-macro-dispatch-corruption.md "What's needed") — under
-      ASan with `--allocator libc`.
+- [ ] All differential runs are clean under guard pages (libgmalloc).
+      The proven memory-debug workflow on this machine (Developer Mode is
+      enabled): lldb batch + `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib
+      MallocStackLogging=full`, post-crash `-k` commands, `malloc_history
+      <pid> <addr>` for alloc/free/use stacks — see
+      issues/fixed/yo-self-macro-dispatch-corruption.md. (Single-TU ASan
+      still OOMs at 16 GB; gmalloc + malloc_history covers the need.)
 - [ ] Self-host fixpoint (stages 2≡3 above).
 - [ ] Every gate in the table above still green; `yo-self/tests/` green
       under BOTH compilers (`./yo-cli test` and `yo-self-bin test`).
@@ -205,23 +208,19 @@ expected to unlock.
 
 ## Known pre-existing landmines (read the issue docs before Phase 0)
 
-1. **`issues/yo-self-macro-dispatch-corruption.md`** — the most important.
-   Status 2026-06-11: macro DISPATCH's functional errors are FIXED (a
-   dispatch-ON build passes the probes and most sweeps), but an
-   **intermittent use-after-free remains** (~1/3 of full `check ./std`
-   sweeps SIGTRAP, exit 133). It is **LOCALIZED**: a stale Rc'd ExprInfo
-   sits in an occupied `expr_info_table` HashMap slot (deterministic
-   guard-page reproducer + crash-report stack in the issue). It reproduces
-   with dispatch OFF too — the over-release is latent in the committed
-   configuration and WILL bite executing-mode codegen work. Finishing it
-   needs ASan-grade alloc/free stacks; the issue lists the prepared
-   chunked-ASan pipeline and the two alternative unblock paths
-   (>32 GB machine, or sudo `DevToolsSecurity -enable` + lldb).
-   **Recommendation: make resolving this Phase 0's first deliverable** —
-   executing-mode evaluation multiplies ExprInfo-table churn.
-2. `MACRO_DISPATCH_ENABLED :: false` in `yo-self/evaluator/calls/function.yo`
-   — flip to true only after (1) is fixed; then un-gate the three phase6
-   macro tests (they key on the exported flag and pass vacuously today).
+1. ~~The ExprInfo-table use-after-free~~ — **✅ RESOLVED 2026-06-11**
+   (`issues/fixed/yo-self-macro-dispatch-corruption.md` +
+   `issues/fixed/codegen-shadowed-binding-early-return-double-drop.md`).
+   Two general early-return over-release bugs in the TS RC layer
+   (name-vs-identity pending-drop matching; consume-at-end-of-scope vs
+   transfer site), both fixed with regression tests
+   (`tests/shadowed_binding_early_return_drop.test.yo`). Dispatch-ON
+   sweeps are clean (std ×5, yo-self 240/240, gmalloc-clean). Phase 0's
+   first deliverable is hereby done; the lldb+gmalloc+malloc_history
+   workflow in the dossier is the template for any future corruption.
+2. `MACRO_DISPATCH_ENABLED` in `yo-self/evaluator/calls/function.yo` —
+   now safe to enable (see 1); the three phase6 macro tests un-gate
+   themselves via the exported flag.
 3. yo-self consume-tracking is unwired (`set_expr_as_consumed` in
    `evaluator/utils.yo` has no callers) — the move half of the
    borrow-invalidation gate is dormant; wiring it is part of the Phase 4
@@ -400,8 +399,11 @@ Definition of Done; update `BOOTSTRAPPING.md`.
 - `BOOTSTRAPPING_EVALUATOR.md` + `EVALUATOR_PORT_REVIEW.md` — the evaluator
   slice (complete) + the divergence inventory executing-mode work will
   exercise.
-- `issues/yo-self-macro-dispatch-corruption.md` — the UAF dossier
-  (reproducers, crash stack, chunked-ASan pipeline notes).
+- `issues/fixed/yo-self-macro-dispatch-corruption.md` — the UAF dossier
+  (RESOLVED; reproducers, crash stacks, and the lldb+gmalloc+malloc_history
+  workflow — the methodology template for memory corruption).
+- `issues/fixed/codegen-shadowed-binding-early-return-double-drop.md` — the
+  two root-cause fixes behind that UAF.
 - `issues/fixed/codegen-continue-in-while-heap-corruption.md` — how the
   continue-corruption was re-tested and closed; the methodology template.
 - `.github/instructions/c-codegen.instructions.md`,

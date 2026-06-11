@@ -2587,6 +2587,16 @@ export function setExprAsNeedsToCallDup(
       }
     }
 
+    // Stamp the USE SITE's source token on the dup expression. The dup
+    // expr itself is built from generated code (auto-generated token, not
+    // comparable with source tokens); the dup/drop optimizer needs the real
+    // source position of the ownership transfer to record an accurate
+    // consumedAtToken (see begin.ts — using the end-of-scope token instead
+    // made early returns AFTER the transfer re-drop the moved value).
+    (
+      evaluatedDupCallExpr as FnCallExpr & { __useSiteToken?: Token }
+    ).__useSiteToken = expr.token;
+
     expr.$.deferredDupExpressions = [evaluatedDupCallExpr];
     expr.$.env = evaluatedDupCallExpr.$!.env;
   }

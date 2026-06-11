@@ -17,6 +17,7 @@ import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
   getDeferredDropTargetAtomName,
+  getDeferredDropTargetVariableId,
   getTypeString,
   getVariableNameForCodegen,
   isDeferredDropForClosureCapture,
@@ -275,9 +276,20 @@ export function generatePendingDeferredDrops(
             if (additionalSkipVarNames?.has(varName)) return false;
             const variables = getVariablesFromEnv(expr.$!.env, varName);
             if (variables.length === 0) return false;
+            // Match the drop target by variable identity, not just name: a
+            // same-named shadowing binding in scope at the cleanup point
+            // (e.g. a match-arm payload borrow) must not stand in for the
+            // outer variable this drop targets — the emitted drop would
+            // resolve to the inner binding in C and double-free its payload
+            // (the ExprInfo-table use-after-free).
+            const targetVarId = getDeferredDropTargetVariableId(dropExpr);
+            const latestVar =
+              targetVarId !== undefined
+                ? variables.find((v) => v.id === targetVarId)
+                : variables[variables.length - 1];
+            if (!latestVar) return false;
             // Skip drops only for variables consumed before this cleanup point.
             // A later consume in another branch must not suppress this return's drop.
-            const latestVar = variables[variables.length - 1]!;
             if (
               latestVar.consumedAtToken &&
               variableWasConsumedBeforeCleanupPoint(
@@ -357,12 +369,19 @@ export function generateConsumedVarDropsForEscape(
           if (!varName) return false;
           const variables = getVariablesFromEnv(expr.$!.env, varName);
           if (variables.length === 0) return false;
+          // Match by variable identity, not just name (same shadowing
+          // guard as generatePendingDeferredDrops).
+          const targetVarId = getDeferredDropTargetVariableId(dropExpr);
+          const latestVar =
+            targetVarId !== undefined
+              ? variables.find((v) => v.id === targetVarId)
+              : variables[variables.length - 1];
+          if (!latestVar) return false;
           // Skip variables that exist in the env but are not yet initialized —
           // evaluateBinding adds the LHS to the env before the RHS runs, so the
           // variable appears in the env at the unwind site but its C declaration
           // hasn't been emitted yet. Dropping it here would reference an
           // undeclared C identifier (same guard as generatePendingDeferredDrops).
-          const latestVar = variables[variables.length - 1]!;
           if (!latestVar.initializedAtToken) return false;
           return true;
         })
