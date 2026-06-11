@@ -7,7 +7,7 @@ comptime-known numeric operands produce a correctly-typed (and ultimately
 concrete) value in the self-hosted evaluator, instead of the current
 `UnknownVal(unit)` from the unbound-`+` soft fallback. This is the gating
 prerequisite for `tests/comptime_ref.test.yo` and for Bug C
-(see `issues/phase3-comptime-arithmetic-not-folded.md`).
+(see `issues/fixed/phase3-comptime-arithmetic-not-folded.md`).
 
 ## How TS does it (the reference chain)
 

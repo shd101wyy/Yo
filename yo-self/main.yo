@@ -517,7 +517,7 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   // ALWAYS unregister — a leaked currently-loading entry poisons every
   // LATER check that imports this module: `demand_load_module` then
   // returns partial exports from the dead env (hangs/crashes; see
-  // issues/yo-self-dir-check-state-corruption-after-failure.md).
+  // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md).
   unregister_loading(abs.clone());
   match(
     out_vals.get(usize(0)),
@@ -756,7 +756,7 @@ check_single_file :: (
   _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf, out_tys_cf);
   // ALWAYS unregister, error or not — a leaked currently-loading entry
   // poisons every LATER file in a directory check (see
-  // issues/yo-self-dir-check-state-corruption-after-failure.md).
+  // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md).
   unregister_loading(entry_abs.clone());
   if(out_vals_cf.len() == usize(0), {
     // Root-cause detail printed by the helper's handler.

@@ -2,7 +2,13 @@
 
 ## Status
 
-Open. Discovered 2026-05-16 while extracting tests/blanket_impl_inner_forall.test.yo
+✅ RESOLVED (verified 2026-06-11 triage): the exact minimal repro (impl
+method returning nested `Wrap(Wrap(P, i32), i32)`) now checks clean
+(exit 0, was exit 139) under the current binary — closed by the Phase-3
+comptime-fn cache-collision fix (`e3936a98`, `_ctfe_args_equal` exact
+identity) / related Phase-3 fixes.
+
+Originally: Open. Discovered 2026-05-16 while extracting tests/blanket_impl_inner_forall.test.yo
 "Inner forall in blanket impl method" into a standalone check fixture.
 
 ## Symptom

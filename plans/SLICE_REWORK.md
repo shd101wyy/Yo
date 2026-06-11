@@ -1,7 +1,7 @@
 # Slice rework — static `str`, delete builtin `Slice(T)`, library views
 
 **Branch:** `feat/slice-rework`. **Decision** (resolves
-`issues/slice-invalidation-design.md`): instead of snapshot slices (rejected —
+`issues/fixed/slice-invalidation-design.md`): instead of snapshot slices (rejected —
 Rc/CoW overhead on every slice copy to defend against rare misuse), remove
 borrowed raw views from the safe surface entirely. After this rework, **safe
 code cannot construct any value that carries a raw pointer into mortal

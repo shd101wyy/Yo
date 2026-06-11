@@ -176,7 +176,7 @@ StructValue` plus `isEffectRecordValue` /
 - `src/evaluator/calls/type.ts` (commit `9c5b14a6`): Propagate
   `ioBuiltin` markers from extern function types to struct field
   types. **This resolves the original "forall on struct field"
-  blocker** — see `issues/forall-loses-freshness-on-struct-field-call.md`
+  blocker** — see `issues/fixed/forall-loses-freshness-on-struct-field-call.md`
   for details. Root cause was actually `ioBuiltin` propagation (not
   forall freshness); without the marker Io builtin calls fall back
   to generic specialization that can't infer T from arg types alone.

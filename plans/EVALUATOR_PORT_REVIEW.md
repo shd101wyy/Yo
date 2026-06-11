@@ -102,11 +102,11 @@ are fixed and it flips to `✅`.
 
 - `calls/function.yo` — infix operator dispatch was comparison-only via a
   hardcoded list; arithmetic/bitwise operators fall to the soft fallback →
-  `unit`. See `issues/phase3-comptime-arithmetic-not-folded.md` +
+  `unit`. See `issues/fixed/phase3-comptime-arithmetic-not-folded.md` +
   `plans/COMPTIME_ARITHMETIC_FOLDING.md`. (Gap 1 fix = use `string_is_operator`.)
 - `builtins/comptime_assert.yo` — itself 1-to-1, but module-level eval runs with
   `is_executing=false`, so the strict path is never taken at module scope. See
-  `issues/phase3-comptime-arithmetic-not-folded.md` (Bug C).
+  `issues/fixed/phase3-comptime-arithmetic-not-folded.md` (Bug C).
 - `exprs/identifer_and_operator.yo` — unbound-identifier soft fallback yields
   `UnknownVal(t_unit())` (intentional bootstrap crutch; see
   `issues/yo-self-evaluator-gaps.md`). Confirm against TS behavior.
@@ -367,7 +367,7 @@ yo-self/tests`) ≈ 5 min vs ≈ 40 min per-file (prelude evaluated once per dir
     After both: the full `__derive_eq` enum-branch chain
     (`Type.get_enum_variants(T)` → `.get` → `.fields` → `.get` → `.name`)
     def-evaluates with a PROPAGATING exception — fully typed, no swallow.
-    See `issues/yo-self-typeuni-id-impl-on-type-dispatch.md`.
+    See `issues/fixed/yo-self-typeuni-id-impl-on-type-dispatch.md`.
   - **✅ UNIFICATION-FAMILY HEAD ROOT-CAUSED + FIXED (three faithful-port
     fixes, zero regression — std 151/151, yo-self 228/228, tests 171/11
     identical set):** generic call-time unification failed on the TYPE-ONLY
@@ -393,7 +393,7 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     (prelude.yo:5832, `str.from_raw_parts` def-eval) is GONE. NOTE fix #3
     alone was a measured no-op (frame levels are meaningless in a fresh
     callee env) — the marker (#1) is the load-bearing piece. See
-    `issues/yo-self-extern-generic-unification.md` (incl. why a dedicated
+    `issues/fixed/yo-self-extern-generic-unification.md` (incl. why a dedicated
     regression test is not addable today).
   - **✅ FAMILY-1 DRAIN (commit 6922a067, zero regression):** three more
     fixes + a std bug they exposed. (a) Step-6 self-bound markers extended
@@ -468,7 +468,7 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     return-check itself ports + is std-clean, but each positive hits its own gap —
     the first, `comptime_str`, is blocked by a confirmed general bug: recorded
     `ExprInfo.env` aliases the live env, and begin's in-place `pop_frame()` drops
-    begin-local bindings from it (`issues/yo-self-recorded-env-aliasing.md`).
+    begin-local bindings from it (`issues/fixed/yo-self-recorded-env-aliasing.md`).
     Fixing that is a central begin/env change (env snapshot at record + non-aliasing
     begin threading), in progress with full sweeps after each step.
   - **✅ slice_flowability CLOSED (2026-06-10, tests 172→173, zero regression).**

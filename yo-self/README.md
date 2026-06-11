@@ -77,5 +77,5 @@ ulimit -s 65520
 /tmp/yo-self-bin check std/prelude.yo
 ```
 
-See [`issues/yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md)
+See [`issues/fixed/yo-self-evaluator-stack-overflow.md`](../issues/fixed/yo-self-evaluator-stack-overflow.md)
 for the diagnosis.

@@ -7,7 +7,7 @@ arguments: the bare instantiated type (`HashMap(String,String)`, an object =
 `Struct`) carries no record of `K=String, V=V`, so the dispatched method's
 `forall` params stay abstract `SomeT`. TS recovers them from
 `StructType.env` (the instantiation env). See
-`issues/self-dispatch-loses-type-args.md` for the full diagnosis + minimal
+`issues/fixed/self-dispatch-loses-type-args.md` for the full diagnosis + minimal
 cross-module reproducer.
 
 This is the current head of the generic-method-resolution knot and blocks
@@ -48,7 +48,7 @@ covered by the `Struct` field.)
 
 ## Validation (each stage)
 
-- Minimal repro (`issues/self-dispatch-loses-type-args.md`) passes.
+- Minimal repro (`issues/fixed/self-dispatch-loses-type-args.md`) passes.
 - `std/encoding/html.yo` error moves past `hash_map.yo:59`.
 - `check ./std` per-file: only html.yo may change; regressors
   (imm_vec/imm_threading/priority_queue) stay green.

@@ -1,5 +1,13 @@
 # yo-self: dir-mode `check` corrupts shared state after any failing file
 
+## Status
+
+✅ RESOLVED (verified 2026-06-11 triage): the fix landed with the
+demand-driven loader (commit `85480c76`) — `yo-self/main.yo` now ALWAYS
+unregisters the currently-loading entry on the error path. Re-tested:
+dir-mode check with two mid-import-chain failures followed by a trivial
+file in the same process — the trivial file passes cleanly, no hang.
+
 ## Symptom
 
 In a directory-wide `yo-self-bin check ./std`, once ONE file fails the

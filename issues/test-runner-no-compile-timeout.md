@@ -1,5 +1,12 @@
 # Test runner has no timeout on Yo / C compilation phases
 
+> **Status update (2026-06-11 triage):** partially fixed — the C-compile
+> `spawnSync` now has a 600 s timeout and parallel/isolated mode has the
+> 1800 s per-file watchdog (`PER_FILE_TIMEOUT_MS`). REMAINING GAP: in
+> sequential mode (`--parallel 1`) the in-process Yo→C
+> `moduleManager.compileModule` call is still unbounded, so a hung
+> evaluator/codegen still hangs the runner indefinitely.
+
 ## Symptom
 
 When running `./yo-cli test <file>` (or via `./yo-cli test <dir>` with `--parallel 1`),

@@ -502,7 +502,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
         //     the named parameter, no flag — the caller of exn.throw
         //     resumes normally with the value.
         //   - anything else → conservative fallback to the unwind stub.
-        // See issues/codegen-forall-resume-handler-stub.md.
+        // See issues/fixed/codegen-forall-resume-handler-stub.md.
         const body = value.body;
         const isUnwindBody = !!body && bodyHasUnwind(body);
         const paramLabels = new Set(
