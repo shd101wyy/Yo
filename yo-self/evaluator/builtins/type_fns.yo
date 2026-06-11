@@ -1009,20 +1009,17 @@ evaluate_yo_type_get_info :: (
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
     },
-    // `str` is TypeTag.Str in TS (a fieldless TypeInfo.Str); yo-self still
-    // models it as a newtype-shaped singleton struct (documented
-    // divergence), so map it first to keep get_info output aligned.
-    .Struct({ name : sname, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype }) =>
-      if(is_newtype && (sname == "str"), String.from("TypeInfo.Str"), {
-        fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
-        kind_str := cond(
-          is_newtype => String.from("StructKind.NewType"),
-          is_atomic => String.from("StructKind.AtomicObject"),
-          is_ref => String.from("StructKind.Object"),
-          true => String.from("StructKind.Struct")
-        );
-        (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
-      }),
+    .Str => String.from("TypeInfo.Str"),
+    .Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype }) => {
+      fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
+      kind_str := cond(
+        is_newtype => String.from("StructKind.NewType"),
+        is_atomic => String.from("StructKind.AtomicObject"),
+        is_ref => String.from("StructKind.Object"),
+        true => String.from("StructKind.Struct")
+      );
+      (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
+    },
     .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _) => {
       vl_name := _ti_bind_variant_info_list(local_env, type_val, variant_names, variant_fields, variant_field_labels, ctx, exn);
       (String.from("TypeInfo.Enum(") + vl_name) + String.from(")")

@@ -332,6 +332,7 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
+    .Str => Option(bool).Some(true),
     .Func({ result : _ }) => Option(bool).Some(true),
     // Undecided — env / Comptime trait lookup needed.
     _ => Option(bool).None
@@ -375,6 +376,7 @@ type_implements_send_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
+    .Str => Option(bool).Some(true),
     .CChar => Option(bool).Some(true),
     // Everything else defers (incl. comptime_*, other C types, type-level —
     // the prelude declares no `impl(_, Send())` for those).
@@ -396,6 +398,7 @@ type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
+    .Str => Option(bool).Some(true),
     .CChar => Option(bool).Some(true),
     .ComptimeInt => Option(bool).Some(true),
     .ComptimeFloat => Option(bool).Some(true),
@@ -1292,7 +1295,6 @@ type_contains_some_type_for_codegen_param :: (
   match(
     ty,
     .Array(element, _, _) => recur(element.*, checked_ids),
-    .Slice(element) => recur(element.*, checked_ids),
     .Pointer(pointee) => recur(pointee.*, checked_ids),
     .Tuple(_, field_types) => {
       (found : bool) = false;

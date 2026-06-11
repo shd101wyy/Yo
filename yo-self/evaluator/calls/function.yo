@@ -61,7 +61,7 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_slice_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
@@ -545,6 +545,60 @@ _try_expand_call_overload :: (
   out := new_expr_info(info.env, winner_ty);
   out.value = Option(EvalValue).Some(winner_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated_callee), out);
+});
+/// plans/SLICE_REWORK.md Part C — copying range indexing.
+/// `recv(a..b)` / `recv(a..=b)` on a RUNTIME receiver that provides
+/// slice_copy / slice_copy_inclusive rewrites to that method call
+/// (owned-return value semantics; the Index trait's `*(Output)` pointer
+/// contract cannot express owned returns). Mirrors TS function.ts's
+/// pre-checking-phase rewrite. Returns `.Some(rewritten_call)` — the
+/// caller re-enters `evaluate_function_call` on it — or `.None` when the
+/// call is not a range index / the receiver has no slice_copy method.
+_try_rewrite_range_index_to_slice_copy :: (
+  fn(
+    expr : AstExpr,
+    func_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    recv_ty : TypeValue,
+    env : Environment
+  ) -> Option(AstExpr)
+)({
+  if(args.len() != usize(1), {
+    return(Option(AstExpr).None);
+  });
+  arg0 := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  is_excl := ast_expr_is_fn_call_of(arg0, "..", Option(usize).Some(usize(2)));
+  is_incl := ast_expr_is_fn_call_of(arg0, "..=", Option(usize).Some(usize(2)));
+  if(!(is_excl || is_incl), {
+    return(Option(AstExpr).None);
+  });
+  // Function-typed receivers are real calls, not indexing.
+  if(is_function_type(recv_ty), {
+    return(Option(AstExpr).None);
+  });
+  method_name := if(is_incl, String.from("slice_copy_inclusive"), String.from("slice_copy"));
+  methods := get_receiver_methods_by_name_from_env(env, method_name.clone(), recv_ty, false);
+  if(methods.len() == usize(0), {
+    return(Option(AstExpr).None);
+  });
+  tok := ast_expr_token(expr);
+  method_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(method_name, env.module_path));
+  dot_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from(BF_DOT), env.module_path));
+  ma_args := ArrayList(AstExpr).new();
+  ma_args.push(func_expr);
+  ma_args.push(method_atom);
+  method_access := AstExpr.FnCall(alloc_global_expr_id(), box(dot_atom), ma_args, true, tok);
+  new_args := ArrayList(AstExpr).new();
+  new_args.push(arg0);
+  // Keep the ORIGINAL call id so the result's ExprInfo lands on the same
+  // node (TS mutates expr.func in place — same node identity).
+  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), box(method_access), new_args, false, tok))
 });
 /// arguments, and returning the annotated expression.
 ///
@@ -1446,11 +1500,6 @@ Fix: wrap the call:
           .Array(_, _, _) =>
             try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, exn),
           // ----------------------------------------------------------------
-          // Slice construction (routed to array handler).
-          // ----------------------------------------------------------------
-          .Slice(_) =>
-            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, exn),
-          // ----------------------------------------------------------------
           // ComptimeList construction: ComptimeListT(elem1, elem2, ...).
           // ----------------------------------------------------------------
           .ComptimeListT(_) =>
@@ -1648,17 +1697,19 @@ Fix: wrap the call:
         while(ai < n_a, {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
           // Quoted parameter: bind the raw argument AST as an `Expr` value
-          // WITHOUT evaluating it (TS helper.ts:350 — "This is for macro
-          // function, no need to evaluate the argExpr"). if/else rather
-          // than an early `continue` — the continue shape in this loop
-          // coincided with intermittent malloc SIGTRAPs (heap corruption
-          // bisected to this file); the branch shape is equivalent and
-          // avoids the skipped loop tail.
+          // WITHOUT evaluating it (TS helper.ts:350). The early-continue
+          // shape matches the TS original; the 2026-06-07 corruption it was
+          // once bisected to no longer reproduces (0/52 on the original
+          // 4-file protocol, post-slice-rework) — see
+          // issues/codegen-continue-in-while-heap-corruption.md.
           if(fv_is_macro && is_param_quoted(func_id_fv.clone(), ai), {
             q_info := new_expr_info(env, t_expr_t());
             q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(box(clone_expr_fresh_ids(arg_expr))));
             _push_q := evaled_arg_infos.push(q_info);
-          }, {
+            ai = (ai + usize(1));
+            continue;
+          });
+          {
             // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
             // (helper.ts:330) — leaving the caller's expected type in place
             // leaked e.g. a single-expr fn body's expected `bool` into the
@@ -1701,7 +1752,7 @@ Fix: wrap the call:
               }
             );
             _push_arg := evaled_arg_infos.push(arg_info);
-          });
+          };
           ai = (ai + usize(1));
         });
         // Build a fresh environment for the function body.
@@ -2267,13 +2318,22 @@ Fix: wrap the call:
           .Some(ci) => ci.ty,
           .None => t_unit()
         );
+        // plans/SLICE_REWORK.md Part C: range indexing on a runtime receiver
+        // rewrites to slice_copy / slice_copy_inclusive method dispatch.
+        match(
+          _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty, callee_env),
+          .Some(rewritten) => {
+            return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
+          },
+          .None => ()
+        );
         // Index-trait dispatch — mirrors TS `function.ts:1392-1411`: a
-        // value-call `x(i)` whose callee type is Array/Slice or has an
+        // value-call `x(i)` whose callee type is Array or has an
         // Index impl routes through the Index trait. UnknownVal-valued
         // callees (def-time body evaluation) land in this arm; without
         // the route, `s.bytes(i)` / `data(i)` on unknown values soft-fell
         // to `unit` and poisoned every expression built on the element.
-        if((is_array_type(callee_ty) || is_slice_type(callee_ty))
+        if(is_array_type(callee_ty)
         || has_index_impl(callee_ty, args, callee_env, ctx), {
           idx_result_rt := try_to_call_with_index_trait(
             expr,
@@ -2464,14 +2524,23 @@ Fix: wrap the call:
             .Some(ci) => ci.ty,
             .None => t_unit()
           );
+          // plans/SLICE_REWORK.md Part C: range indexing on a runtime receiver
+          // rewrites to slice_copy / slice_copy_inclusive method dispatch.
+          match(
+            _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty_none, callee_env),
+            .Some(rewritten) => {
+              return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
+            },
+            .None => ()
+          );
           // Index-trait dispatch — mirrors TS `function.ts:1392-1411`: a
-          // value-call `x(i)` whose callee type is Array/Slice or has an
+          // value-call `x(i)` whose callee type is Array or has an
           // Index impl routes through the Index trait. This is the path for
           // UNKNOWN receivers under def-time body evaluation (concrete
           // comptime indexing resolves earlier); without it, `s.bytes(i)` /
           // `data(i)` on unknown values soft-fell to `unit` and poisoned
           // every expression built on the element.
-          if((is_array_type(callee_ty_none) || is_slice_type(callee_ty_none))
+          if(is_array_type(callee_ty_none)
           || has_index_impl(callee_ty_none, args, callee_env, ctx), {
             idx_result := try_to_call_with_index_trait(
               expr,

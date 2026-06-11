@@ -46,7 +46,6 @@ open(import("std/fmt"));
   BK_TUPLE,
   BK_TUPLE_TYPE,
   BK_ARRAY,
-  BK_SLICE,
   BK_ARRAY_VAL,
   BK_ANON_STRUCT,
   BK_BEGIN,
@@ -189,12 +188,7 @@ open(import("std/fmt"));
   BF_COMPTIME_STRING_INDEX,
   BF_COMPTIME_STRING_INDEX_RANGE,
   BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,
-  BF_COMPTIME_ARRAY_INDEX,
-  BF_COMPTIME_SLICE_INDEX,
-  BF_COMPTIME_ARRAY_INDEX_RANGE,
-  BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE,
-  BF_COMPTIME_SLICE_INDEX_RANGE,
-  BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE
+  BF_COMPTIME_ARRAY_INDEX
 } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
@@ -247,7 +241,6 @@ open(import("std/fmt"));
 { evaluate_module_type } :: import("../types/record.yo");
 { evaluate_newtype_type } :: import("../types/newtype.yo");
 { evaluate_object_type } :: import("../types/object.yo");
-{ evaluate_slice_type } :: import("../types/slice.yo");
 { evaluate_struct_type } :: import("../types/struct.yo");
 { evaluate_trait_type } :: import("../types/trait.yo");
 { evaluate_tuple_type } :: import("../types/tuple.yo");
@@ -626,8 +619,6 @@ _evaluate_expression :: (
           evaluate_array_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL,.Some(usize(2))) =>
           evaluate_yo_array_fill(expr, env, ctx, exn),
-        ast_expr_is_fn_call_of(expr, BK_SLICE,.None) =>
-          evaluate_slice_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE,.None) =>
           evaluate_comptime_list_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_FUTURE,.None) =>
@@ -754,17 +745,12 @@ _evaluate_expression :: (
           evaluate_yo_comptime_string_functions(expr, env, ctx, exn),
         (
           ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX,.None) ||
-            ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX,.None) ||
-              ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX_RANGE,.None) ||
-                ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE,.None) ||
-                  ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX_RANGE,.None) ||
-                    ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE,.None) ||
-                      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX,.None) ||
-                        ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE,.None) ||
-                          ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,.None) ||
-                            ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX,.None) ||
-                              ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE,.None) ||
-                                ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE,.None)
+            ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX,.None) ||
+              ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE,.None) ||
+                ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,.None) ||
+                  ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX,.None) ||
+                    ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE,.None) ||
+                      ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE,.None)
         ) =>
           evaluate_yo_comptime_index_functions(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_YO_TYPE_TO_COMPTIME_STRING,.Some(usize(1))) =>

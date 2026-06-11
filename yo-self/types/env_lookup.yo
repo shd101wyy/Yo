@@ -23,7 +23,6 @@ open(import("std/string"));
   is_comptime_float_type,
   is_comptime_string_type,
   is_pointer_type,
-  is_slice_type,
   is_u8_type,
   is_char_type
 } :: import("./guards.yo");
@@ -499,7 +498,6 @@ convert_comptime_type_to_runtime_type_with_expected :: (
         // and rejects `(comptime(x) : comptime_str) ?= "…"`.
         is_comptime_string_type(et) => ty,
         (is_pointer_type(et) && _pointer_target_is_byte(et)) => et,
-        is_slice_type(et) => et,
         true => create_str_type(env)
       )
     ),

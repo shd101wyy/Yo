@@ -324,7 +324,7 @@ _root_shape_class :: (fn(t : TypeValue) -> i32)(
       true => i32(2)
     ),
     .Array(_, _, _) => i32(3),
-    .Slice(_) => i32(4),
+    .Str => i32(4),
     .Pointer(_) => i32(5),
     .Tuple(_, _) => i32(6),
     .Int(_, _) => i32(7),
@@ -404,7 +404,7 @@ try_match_generic_impl :: (
     resolved_concrete = resolved;
   });
   // 1b. Cheap root-shape prefilter: when the pattern's ROOT is a concrete
-  // shape (Struct/EnumT/Array/Slice/Pointer/Tuple/primitive) and the
+  // shape (Struct/EnumT/Array/Str/Pointer/Tuple/primitive) and the
   // receiver's root TAG differs, synthesis can never succeed — skip
   // WITHOUT the expensive `clone_env` below (it deep-copies every frame,
   // and the env grows with each loaded module, so a directory-wide

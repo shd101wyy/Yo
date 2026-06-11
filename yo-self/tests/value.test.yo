@@ -1,6 +1,6 @@
 /// Tests for Phase 2h: EvalValue new variants, value_to_string, and predicates.
 ///
-/// Covers: TupleVal, ArrayVal, SliceVal, PtrVal, TraitVal, ComptimeListVal, ExprVal.
+/// Covers: TupleVal, ArrayVal, PtrVal, TraitVal, ComptimeListVal, ExprVal.
 open(import("std/fmt"));
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -23,7 +23,6 @@ open(import("std/string"));
   is_module_val,
   is_tuple_val,
   is_array_val,
-  is_slice_val,
   is_ptr_val,
   is_trait_val,
   is_comptime_list_val,
@@ -127,74 +126,6 @@ test("ArrayVal: value_to_string singleton (trailing comma)", {
   assert(value_to_string(v) == "[5,]", "singleton array string");
 });
 // ---------------------------------------------------------------------------
-// SliceVal
-// ---------------------------------------------------------------------------
-test("SliceVal: construction and basic equality", {
-  b1 := ArrayList(EvalValue).new();
-  b1.push(.IntLit(String.from("10")));
-  b1.push(.IntLit(String.from("20")));
-  b1.push(.IntLit(String.from("30")));
-  b2 := ArrayList(EvalValue).new();
-  b2.push(.IntLit(String.from("10")));
-  b2.push(.IntLit(String.from("20")));
-  b2.push(.IntLit(String.from("30")));
-  s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(0), usize(2));
-  s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(0), usize(2));
-  assert(s1 == s2, "same slices [0..2) are equal");
-});
-test("SliceVal: sub-slice equality", {
-  b1 := ArrayList(EvalValue).new();
-  b1.push(.IntLit(String.from("10")));
-  b1.push(.IntLit(String.from("20")));
-  b1.push(.IntLit(String.from("30")));
-  b2 := ArrayList(EvalValue).new();
-  b2.push(.IntLit(String.from("10")));
-  b2.push(.IntLit(String.from("20")));
-  b2.push(.IntLit(String.from("30")));
-  s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(1), usize(3));
-  s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(1), usize(3));
-  assert(s1 == s2, "sub-slices are equal");
-});
-test("SliceVal: different visible elements are not equal", {
-  b1 := ArrayList(EvalValue).new();
-  b1.push(.IntLit(String.from("1")));
-  b1.push(.IntLit(String.from("2")));
-  b2 := ArrayList(EvalValue).new();
-  b2.push(.IntLit(String.from("1")));
-  b2.push(.IntLit(String.from("99")));
-  s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(0), usize(2));
-  s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(0), usize(2));
-  assert(!(s1 == s2), "slices with different elements are not equal");
-});
-test("SliceVal: different lengths are not equal", {
-  b1 := ArrayList(EvalValue).new();
-  b1.push(.IntLit(String.from("10")));
-  b1.push(.IntLit(String.from("20")));
-  b1.push(.IntLit(String.from("30")));
-  b2 := ArrayList(EvalValue).new();
-  b2.push(.IntLit(String.from("10")));
-  b2.push(.IntLit(String.from("20")));
-  b2.push(.IntLit(String.from("30")));
-  s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(0), usize(2));
-  s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(0), usize(3));
-  assert(!(s1 == s2), "slices of different lengths are not equal");
-});
-test("SliceVal: predicates", {
-  backing := ArrayList(EvalValue).new();
-  v := EvalValue.SliceVal(box(EvalValue.ArrayVal(backing)), usize(0), usize(0));
-  assert(is_slice_val(v), "is_slice_val true");
-  assert(!(is_array_val(v)), "is_array_val false for SliceVal");
-});
-test("SliceVal: value_to_string", {
-  backing := ArrayList(EvalValue).new();
-  backing.push(.IntLit(String.from("5")));
-  backing.push(.IntLit(String.from("6")));
-  backing.push(.IntLit(String.from("7")));
-  src := EvalValue.ArrayVal(backing);
-  v := EvalValue.SliceVal(box(src), usize(1), usize(3));
-  assert(value_to_string(v) == "slice[6, 7]", "slice_to_string");
-});
-// ---------------------------------------------------------------------------
 // PtrVal
 // ---------------------------------------------------------------------------
 test("PtrVal: always unequal", {
@@ -206,7 +137,6 @@ test("PtrVal: always unequal", {
 test("PtrVal: predicates", {
   p := EvalValue.PtrVal(box(EvalValue.UnitVal), usize(0));
   assert(is_ptr_val(p), "is_ptr_val true");
-  assert(!(is_slice_val(p)), "is_slice_val false for PtrVal");
   assert(!(is_array_val(p)), "is_array_val false for PtrVal");
 });
 test("PtrVal: value_to_string scalar target", {
@@ -388,7 +318,6 @@ test("predicates are exclusive across all variants", {
   tuple_v := EvalValue.TupleVal(ArrayList(EvalValue).new());
   array_v := EvalValue.ArrayVal(ArrayList(EvalValue).new());
   backing := EvalValue.ArrayVal(ArrayList(EvalValue).new());
-  slice_v := EvalValue.SliceVal(box(backing), usize(0), usize(0));
   ptr_v := EvalValue.PtrVal(box(EvalValue.UnitVal), usize(0));
   trait_v := EvalValue.TraitVal(String.from("T"), ArrayList(String).new(), ArrayList(Option(EvalValue)).new());
   cl_v := EvalValue.ComptimeListVal(ArrayList(EvalValue).new());
@@ -401,7 +330,6 @@ test("predicates are exclusive across all variants", {
   assert(is_var_ref(varref_v), "varref → is_var_ref");
   assert(is_tuple_val(tuple_v), "tuple → is_tuple_val");
   assert(is_array_val(array_v), "array → is_array_val");
-  assert(is_slice_val(slice_v), "slice → is_slice_val");
   assert(is_ptr_val(ptr_v), "ptr → is_ptr_val");
   assert(is_trait_val(trait_v), "trait → is_trait_val");
   assert(is_comptime_list_val(cl_v), "cl → is_comptime_list_val");
@@ -409,7 +337,6 @@ test("predicates are exclusive across all variants", {
   // Spot-check: none of the phase-2h predicates fire for simple variants
   assert(!(is_tuple_val(unit_v)), "unit ≠ tuple");
   assert(!(is_array_val(bool_v)), "bool ≠ array");
-  assert(!(is_slice_val(int_v)), "int ≠ slice");
   assert(!(is_ptr_val(str_v)), "str ≠ ptr");
   assert(!(is_trait_val(float_v)), "float ≠ trait");
   assert(!(is_expr_val(varref_v)), "varref ≠ expr");

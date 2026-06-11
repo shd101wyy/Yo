@@ -42,7 +42,6 @@ open(import("std/string"));
   is_union_type,
   is_iso_type,
   is_array_type,
-  is_slice_type,
   is_comptime_list_type,
   is_module_type,
   is_trait_type,
@@ -409,7 +408,6 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       res
     },
     .Array(elem, _, _) => recur(some_type_id, some_type_name, elem.*, visited, exn),
-    .Slice(elem) => recur(some_type_id, some_type_name, elem.*, visited, exn),
     .ComptimeListT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
@@ -1594,15 +1592,6 @@ _synthesize_types_impl :: (
     // Concrete-vs-concrete mismatched lengths fail compatibility later
     // (compatibility.yo's Array arm); synthesis itself stays permissive,
     // matching TS (which only binds, never rejects lengths here).
-    return(SynthesizeResult(expected_env : ee, given_env : ge));
-  });
-  // Case: Slice + Slice
-  if(is_slice_type(expected_ty) && is_slice_type(given_ty), {
-    exp_elem := match(expected_ty,.Slice(e) => e.*, _ => TypeValue.Unit);
-    giv_elem := match(given_ty,.Slice(e) => e.*, _ => TypeValue.Unit);
-    res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: ComptimeList + ComptimeList

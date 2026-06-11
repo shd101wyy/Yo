@@ -95,6 +95,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     .Float(_) => TypeValue.TypeUni(usize(0)),
     .Usize => TypeValue.TypeUni(usize(0)),
     .Isize => TypeValue.TypeUni(usize(0)),
+    .Str => TypeValue.TypeUni(usize(0)),
     .ComptimeInt => TypeValue.TypeUni(usize(0)),
     .ComptimeFloat => TypeValue.TypeUni(usize(0)),
     .ComptimeString => TypeValue.TypeUni(usize(0)),
@@ -110,9 +111,8 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     .CLongDouble => TypeValue.TypeUni(usize(0)),
     // Type universes: TypeUni(n) → TypeUni(n+1) -----------------------------
     .TypeUni(lvl) => TypeValue.TypeUni(lvl + usize(1)),
-    // Pointer / Slice: raw pointers and slices are level-0 types ------------
+    // Pointer: raw pointers are level-0 types --------------------------------
     .Pointer(_) => TypeValue.TypeUni(usize(0)),
-    .Slice(_) => TypeValue.TypeUni(usize(0)),
     // Array: recurse into element type --------------------------------------
     .Array(elem_box, _, _) => match(
       g_type_of_type_visited_fn,

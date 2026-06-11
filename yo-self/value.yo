@@ -132,8 +132,6 @@ EvalValue :: enum(
   /// not yet implement full mutable aliasing. Mutable-alias semantics will be
   /// revisited when pointer/slice mutation is ported in Phase 3.
   ///
-  /// Mirrors TypeScript's `SliceValue`.
-  SliceVal(source : Box(Self), start_idx : usize, end_idx : usize),
   /// A compile-time pointer to a value.
   ///
   /// `target` is a `Box(EvalValue)` holding the pointed-to value (or `ArrayVal`
@@ -373,52 +371,6 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               });
               av_ok
             }
-          ),
-        _ => false
-      ),
-    .SliceVal(asrc, asi, aei) =>
-      match(
-        b,
-        .SliceVal(bsrc, bsi, bei) =>
-          cond(
-            ((aei - asi) != (bei - bsi)) => false,
-            true =>
-              match(
-                asrc.*,
-                .ArrayVal(aelems) =>
-                  match(
-                    bsrc.*,
-                    .ArrayVal(belems) => {
-                      n_sl := (aei - asi);
-                      (sl_i : usize) = usize(0);
-                      (sl_ok : bool) = true;
-                      while((sl_i < n_sl) && sl_ok, {
-                        a_idx := (asi + sl_i);
-                        b_idx := (bsi + sl_i);
-                        match(
-                          aelems.get(a_idx),
-                          .Some(ae) =>
-                            match(
-                              belems.get(b_idx),
-                              .Some(be) => {
-                                sl_ok = recur(ae, be);
-                              },
-                              .None => {
-                                sl_ok = false;
-                              }
-                            ),
-                          .None => {
-                            sl_ok = false;
-                          }
-                        );
-                        sl_i = (sl_i + usize(1));
-                      });
-                      sl_ok
-                    },
-                    _ => false
-                  ),
-                _ => false
-              )
           ),
         _ => false
       ),
@@ -711,35 +663,6 @@ value_to_string :: (fn(v : EvalValue) -> String)(
         true => `[${parts_arr}]`
       )
     },
-    .SliceVal(source, start_idx, end_idx) =>
-      match(
-        source.*,
-        .ArrayVal(elems) => {
-          n_sl_vs := (end_idx - start_idx);
-          parts_sl := String.from("");
-          (sli : usize) = usize(0);
-          while(sli < n_sl_vs, {
-            cond(
-              (sli > usize(0)) => {
-                parts_sl = `${parts_sl}, `;
-              },
-              true => ()
-            );
-            idx_sl := (start_idx + sli);
-            match(
-              elems.get(idx_sl),
-              .Some(e) => {
-                es_sl := recur(e);
-                parts_sl = `${parts_sl}${es_sl}`;
-              },
-              .None => ()
-            );
-            sli = (sli + usize(1));
-          });
-          `slice[${parts_sl}]`
-        },
-        _ => String.from("slice[?]")
-      ),
     .PtrVal(target, index) =>
       match(
         target.*,
@@ -848,7 +771,6 @@ is_struct_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(_, _, _) => true
 is_module_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
 is_tuple_val :: (fn(v : EvalValue) -> bool)(match(v,.TupleVal(_) => true, _ => false));
 is_array_val :: (fn(v : EvalValue) -> bool)(match(v,.ArrayVal(_) => true, _ => false));
-is_slice_val :: (fn(v : EvalValue) -> bool)(match(v,.SliceVal(_, _, _) => true, _ => false));
 is_ptr_val :: (fn(v : EvalValue) -> bool)(match(v,.PtrVal(_, _) => true, _ => false));
 is_trait_val :: (fn(v : EvalValue) -> bool)(match(v,.TraitVal(_, _, _) => true, _ => false));
 is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v,.ComptimeListVal(_) => true, _ => false));
@@ -980,7 +902,7 @@ export(EvalValue, EvalResult, eval_result, create_type_value, type_of_eval_value
 export(value_to_string);
 export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref);
 export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);
-export(is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val);
+export(is_tuple_val, is_array_val, is_ptr_val, is_trait_val);
 export(is_comptime_list_val, is_expr_val, is_unknown_val);
 export(
   is_number_val,

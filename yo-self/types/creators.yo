@@ -3,7 +3,7 @@
 //! Mirrors `src/types/creators.ts`. Provides:
 //!   * `generate_some_type_id` — global counter for fresh SomeType IDs
 //!   * `t_unit` / `t_bool` / `t_i32` / … — primitive constructors
-//!   * `t_ptr` / `t_slice` / `t_array` — pointer/slice/array constructors
+//!   * `t_ptr` / `t_array` — pointer/array constructors
 //!   * `t_func_simple` / `t_trait` / `t_trait_simple` / `t_module` / `t_module_simple`
 //!   * `t_some_t` — SomeType constructor (consumes a fresh id from the counter)
 //!   * `t_expr_t` / `t_comptime_list` / `t_effects_row` / `t_type_app` / `t_iso`
@@ -33,26 +33,9 @@ generate_some_type_id :: (fn() -> String)({
 // Convenience constructors for primitive and pointer-sized types
 // ---------------------------------------------------------------------------
 t_unit :: (fn() -> TypeValue)(.Unit);
-/// `str` — the builtin static string view (TS: TypeTag.Str, a dedicated
-/// tag). Documented divergence: yo-self's TypeValue keeps representing it
-/// as a stable newtype-shaped Struct singleton (id/name "str", no fields)
-/// so the existing Struct machinery (impl registry keyed by id,
-/// is_str_type guard) keeps working without adding an enum variant across
-/// every match. The codegen port revisits this with a true tag.
-t_str :: (fn() -> TypeValue)(
-  .Struct(
-    id : String.from("str"),
-    name : String.from("str"),
-    field_labels : ArrayList(String).new(),
-    field_types : ArrayList(TypeValue).new(),
-    is_reference_semantics : false,
-    is_atomic_rc : false,
-    is_newtype : true,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
-  )
-);
+/// `str` — the builtin static string view (mirrors TS TypeTag.Str: a
+/// dedicated fieldless tag; impl registry keys it by id "str").
+t_str :: (fn() -> TypeValue)(.Str);
 t_bool :: (fn() -> TypeValue)(.BoolT);
 t_void :: (fn() -> TypeValue)(.Void);
 t_i8 :: (fn() -> TypeValue)(.Int(u8(8), true));
@@ -85,7 +68,6 @@ t_c_longlong :: (fn() -> TypeValue)(.CLongLong);
 t_c_ulonglong :: (fn() -> TypeValue)(.CULongLong);
 t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
 t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
-t_slice :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element)));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
   .Array(box(element), length, String.from(""))
 );
@@ -306,7 +288,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .CLongDouble => TypeTag.TCLongDouble,
     .TypeUni(_) => TypeTag.TType,
     .Pointer(_) => TypeTag.TPtr,
-    .Slice(_) => TypeTag.TSlice,
+    .Str => TypeTag.TStr,
     .Array(_, _, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
     .Func({ result : _ }) => TypeTag.TFunction,
@@ -407,7 +389,6 @@ export(
   t_c_ulonglong,
   t_c_longdouble,
   t_ptr,
-  t_slice,
   t_array,
   t_array_var,
   t_func_simple,

@@ -163,7 +163,7 @@ _compat_impl :: (
           require_exact => false,
           true => match(
             expected,
-            .Slice(einner) => is_u8_type(einner.*),
+            .Str => true,
             .Pointer(einner) => cond(
               is_u8_type(einner.*) => true,
               is_char_type(einner.*) => true,
@@ -279,6 +279,7 @@ _compat_impl :: (
     .Void => match(expected,.Void => true, _ => false),
     .Usize => match(expected,.Usize => true, _ => false),
     .Isize => match(expected,.Isize => true, _ => false),
+    .Str => match(expected,.Str => true, _ => false),
     .ComptimeInt => match(expected,.ComptimeInt => true, _ => false),
     .ComptimeFloat => match(expected,.ComptimeFloat => true, _ => false),
     .ComptimeString => match(expected,.ComptimeString => true, _ => false),
@@ -301,11 +302,6 @@ _compat_impl :: (
     .Pointer(ainner) => match(
       expected,
       .Pointer(einner) => recur(ainner.*, einner.*, true, visited),
-      _ => false
-    ),
-    .Slice(ainner) => match(
-      expected,
-      .Slice(einner) => recur(ainner.*, einner.*, require_exact, visited),
       _ => false
     ),
     .Array(ainner, alen, alvar) => match(

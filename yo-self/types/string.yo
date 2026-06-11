@@ -61,7 +61,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         true => `Type(${level})`
       ),
       .Pointer(inner) => `*(${recur(inner.*, _d + usize(1))})`,
-      .Slice(inner) => `Slice(${recur(inner.*, _d + usize(1))})`,
+      .Str => String.from("str"),
       .Array(inner, n, lv) => cond(
         (lv.len() > usize(0)) => `Array(${recur(inner.*, _d + usize(1))}, ${lv})`,
         true => `Array(${recur(inner.*, _d + usize(1))}, ${n})`
@@ -293,7 +293,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
   )
 );
 /// Render a TypeValue as a string. Recursive over
-/// Pointer/Slice/Array/Tuple/Func/Struct/EnumT/Union, with a depth cap (see
+/// Pointer/Array/Tuple/Func/Struct/EnumT/Union, with a depth cap (see
 /// `_tts`) so cyclic / very deep types can't overflow the stack.
 type_to_string :: (fn(t : TypeValue) -> String)(_tts(t, usize(0)));
 /// A cheap, shallow key for the synthesizer's anti-circularity check. Renders

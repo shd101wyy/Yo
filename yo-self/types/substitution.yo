@@ -95,7 +95,6 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     ty,
     // Recurse into pointer / slice / array.
     .Pointer(inner) =>.Pointer(box(recur(s, inner.*))),
-    .Slice(inner) =>.Slice(box(recur(s, inner.*))),
     .Array(inner, len, lvar) =>.Array(box(recur(s, inner.*)), len, lvar),
     // Recurse into tuple.
     .Tuple(labels, types) => {
