@@ -36,8 +36,8 @@ referenced instruction files.
 | TS evaluator on std | `node ./out/cjs/yo-cli.cjs check ./std` | 152/152 |
 | Full integration suite | `node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --c-compiler clang` | ~2601/2601, ~12 min |
 | Self-hosted binary sweep | `YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./std` | 152/152 |
-| 〃 | `… check ./tests` | 147/149 — the 2 fails are `tests/circular_deps/circular_error_{a,b}.yo`, which error identically under TS (baseline, not a regression) |
-| 〃 | `… check ./yo-self` | 240/240 |
+| 〃 | `… check ./tests` | all pass except the 2 baseline fixtures `tests/circular_deps/circular_error_{a,b}.yo`, which error identically under TS (count drifts as tests are added; 143/145 as of 2026-06-12) |
+| 〃 | `… check ./yo-self` | all pass (235/235 as of 2026-06-12; count drifts with the file inventory) |
 | yo-self component tests | per-file `node ./out/cjs/yo-cli.cjs test yo-self/tests/<f> --parallel 1\|2` | green; see `yo-self/README.md` "Test suite layout" for tiers, runtimes, and the known-heavy trio (eval_basics/eval_tail_1/eval_tail_2 exceed the runner's 1800 s isolated-process limit; they `check` clean) |
 
 ## Handoff onboarding (read first)

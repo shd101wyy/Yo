@@ -52,7 +52,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [可空指针](#可空指针)
   - [RAII（资源获取即初始化）](#raii资源获取即初始化)
 - [元组](#元组)
-- [数组与切片](#数组与切片)
+- [数组与区间](#数组与区间)
   - [使用 `..` 的范围](#使用--的范围)
   - [数组方法](#数组方法)
     - [Array.fill](#arrayfill)
@@ -83,7 +83,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [Traits](#traits)
 - [模式匹配](#模式匹配)
 - [字符串](#字符串)
-  - [C 字符串字面量作为 u8 切片或 C 字符串指针](#c-字符串字面量作为-u8-切片或-c-字符串指针)
+  - [字符串字面量作为 `str` 或 C 字符串指针](#字符串字面量作为-str-或-c-字符串指针)
   - [String（不可变字符串）](#string不可变字符串)
     - [使用 `${}` 语法的模板字符串插值：](#使用--语法的模板字符串插值)
 - [集合](#集合)
@@ -405,7 +405,7 @@ begin(
 - 用 `union(...)` 定义的联合体
 - 用 `object(...)` 定义的引用计数对象类型
 - 固定大小数组：`Array(T, N)` 或 `[T; N]`
-- 切片：`Slice(T)` 或 `[T]`
+- 静态字符串视图：`str`（字符串字面量；只指向静态数据）
 - 用 `newtype(...)` 定义的新类型
 - 元组：`Tuple(T1, T2, ...)` 或 `(T1; T2; ...)`
 
@@ -834,7 +834,7 @@ MyString :: object(
 );
 impl(MyString,
   // 方法
-  from : (fn(slice : [u8]) -> Self)({
+  from : (fn(s : str) -> Self)({
     // 实现...
   }),
 
@@ -1119,42 +1119,41 @@ MyTuple := i32;
 MyTuple := (i32,);
 ```
 
-## 数组与切片
+## 数组与区间
 
 ```rust
-i32_array := [i32;_](1, 2, 3); // i32_array: [i32; 5]
-                              // 对应 C 代码：int i32_array[5] = {1, 2, 3, 4, 5};
-i32_array.len(); // 5，编译期已知
+i32_array := [i32;_](1, 2, 3); // i32_array: [i32; 3]
+                              // 对应 C 代码：int i32_array[3] = {1, 2, 3};
+i32_array.len(); // 3，编译期已知
 
 (i32_array2 : [i32; _]) = [1, 2, 3]; // i32_array2: [i32; 3]
-
-// 切片使用范围语法 (:) 创建
-// 无需 & 运算符 - 已移除 DST（动态大小类型）
-(end : usize) = 3;
-slice := i32_array(1:end);  // slice: Slice(i32)
-slice.len(); // 2，运行时已知
-
-full_slice := i32_array(0..3);  // full_slice: Slice(i32)
-
-slice(0) = 10;  // 通过切片修改
-slice(1) = 20;
-// i32_array: [1, 10, 20, 4, 5]
-
-slice_of_slice := slice(0..2);  // 从切片创建切片
 ```
 
-### 使用 `..` 的范围
+Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后悬空的视图从构造上就被排除了：
 
-切片使用 `..` 运算符的范围语法：
+- **区间操作是拷贝。** 在 `ArrayList(T)` 与 `String` 上，`xs(a..b)` 和
+  `xs(a..=b)` 会降低为 `slice_copy` / `slice_copy_inclusive`，产生一个
+  独立持有的值，而不是源缓冲区上的窗口。
+- **`str` 是唯一的内建视图**，且只指向静态字符串数据 —— `str` 上的
+  `s(a..b)` 是静态字节上的零拷贝窗口，永远不会悬空。
+- **原位借用元素**使用 `ref`（`xs.project(i)` 返回 `ref(T)`），受流动性
+  规则约束（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+
+### 使用 `..` 的区间
 
 ```rust
-arr := [1, 2, 3, 4, 5];
+list := ArrayList(i32).new();
+list.push(i32(1)); list.push(i32(2)); list.push(i32(3)); list.push(i32(4));
 
-// 从索引 1 到 3（不包含 3）的切片
-slice1 := arr(1..3);  // Slice(i32) [2, 3]
+// 元素 1..3（不含端点）的拷贝 —— 一个独立的 ArrayList(i32)
+part := list(usize(1)..usize(3));   // [2, 3]
 
-// 从索引 1 到 3（包含 3）的切片
-slice2 := arr(1..=3); // Slice(i32) [2, 3, 4]
+// 含端点变体
+part2 := list(usize(1)..=usize(3)); // [2, 3, 4]
+
+// 修改拷贝不影响源
+part.set(usize(0), i32(99));
+assert(list(usize(1)) == i32(2));
 ```
 
 ### 数组方法
@@ -1179,7 +1178,7 @@ ones :: Array(i32, 5).fill(1);    // [1,1,1,1,1]
 
 ```rust
 arr := [1, 2, 3, 4, 5];
-len := arr.len();  // 5（数组为编译期，切片为运行时）
+len := arr.len();  // 5（定长数组在编译期已知）
 
 // 适用于泛型数组
 generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)
@@ -1840,10 +1839,10 @@ area :: (fn(shape: Shape) -> i32)(
 
 ## 字符串
 
-### C 字符串字面量作为 u8 切片或 C 字符串指针
+### 字符串字面量作为 `str` 或 C 字符串指针
 
 ```rust
-s = "Hello"; // s : str; 默认情况下，字符串字面量转换为 "str" 切片。
+s := "Hello"; // s : str —— 字符串字面量就是内建的静态字符串视图 `str`。
 (s2 : *(u8)) = "Hi"; // 可以显式声明一个 C 字符串指针。
 s3 := *(u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 ```
@@ -3310,7 +3309,7 @@ asm("mov {0}, #42", out(reg, x));
 
 Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `&(value(index))` 获取指针，以及通过调用语法赋值 `value(index) = new_value` 进行修改。
 
-标准库为 `ArrayList`、`HashMap`、`BTreeMap`、`Deque` 和 `String` 实现了 `Index`。数组和切片使用内置索引（相同语法），并支持 `..` 和 `..=` 的范围切片。
+标准库为 `ArrayList`、`HashMap`、`BTreeMap`、`Deque` 和 `String` 实现了 `Index`。定长数组与 `str` 使用内置索引（相同语法）；集合上的 `..` 与 `..=` 区间产生独立持有的拷贝（`slice_copy`），而 `str` 上的区间是零拷贝的静态窗口。
 
 完整的设计、特征定义和实现细节，请参阅 [INDEX_TRAIT.md](./INDEX_TRAIT.md)。
 

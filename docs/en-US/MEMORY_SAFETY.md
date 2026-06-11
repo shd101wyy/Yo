@@ -83,7 +83,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(name) : T` is **second-class**: it can only appear in parameter position, never as a type by itself. There is no syntax for "a variable of `ref` type", so it cannot leak into a struct field, a let-binding, or a closure capture. The compiler enforces this structurally — there's no escape route to enforce, because there's no syntax to escape with.
+`ref` is **second-class**: it appears only in parameter position (`ref(name) : T`), as a function return (`-> ref(T)`), and in local borrow bindings (`ref(r) := expr`). There is no first-class "`ref` type", so a borrow cannot leak into a struct field or a closure capture. Returns and borrow bindings are additionally guarded by the structural **flowability** rules — including the borrow-invalidation check that rejects reassigning or moving a variable while a `ref` binding still borrows from it. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 
@@ -96,10 +96,16 @@ Use cases:
 `ArrayList(T)`, `HashMap(K, V)`, `String`, and friends all carry raw pointers in their internal representation. They are safe to use because the implementation hides the pointer:
 
 1. **No public method has `*(T)` in its signature.** Methods take and return safe types only.
-2. **All indexing is bounds-checked.** `slice(i)`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
+2. **All indexing is bounds-checked.** `s(i)` on a `str`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
 3. **No raw construction.** You can't build an `ArrayList(T)` with an arbitrary pointer; the constructors are safe.
 
-The stdlib also closes the **dangling-slice hole** that other languages with raw-pointer abstractions have to manage by hand: returning a `Slice(T)` whose underlying storage dies with the call frame is rejected at compile time. See `plans/SLICE_FLOWABILITY.md` for the structural rule; you don't need to know it to use slices safely. A user-facing walkthrough of the rule is in [FLOWABILITY.md](./FLOWABILITY.md).
+The language also closes the **dangling-view hole** that other languages with raw-pointer abstractions have to manage by hand, by construction:
+
+- `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
+- **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
+- **In-place borrows go through `ref`.** Element access without a copy (`xs.project(i)`) returns `ref(T)`, guarded by the structural flowability rules and the borrow-invalidation check above.
+
+The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 
@@ -289,7 +295,8 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 ## Further Reading
 
 - `plans/MEMORY_SAFETY.md` — the design document for the safety model. Covers the full rationale, phase rollout, alternatives considered.
-- `plans/SLICE_FLOWABILITY.md` — the rule that closes the dangling-slice hole.
+- [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `ref`/borrow rules (flowability + borrow invalidation).
+- `plans/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
 - `plans/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
 - `docs/en-US/DESIGN.md` — the broader language design; the pointer / unsafe sections cross-reference this page.

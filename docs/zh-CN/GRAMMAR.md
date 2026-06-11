@@ -114,12 +114,12 @@ ParenExpression ::=
   | '(' Expression (',' Expression)+ ')'              ;; 元组（逗号分隔）
   | '(' Expression (';' Expression)+ ';'? ')'         ;; 元组类型（分号分隔）
 
-;; 数组/切片表达式
+;; 数组表达式
 ;; 方括号，使用逗号或分号作为分隔符
 ArrayExpression ::=
   | '[' ']'                                           ;; 空数组字面量
   | '[' Expression (',' Expression)* ']'              ;; 数组字面量 [1, 2, 3]
-  | '[' Expression (';' Expression)? ']'              ;; 数组类型 [i32; 5] 或切片类型 [i32]
+  | '[' Expression (';' Expression)? ']'              ;; 数组类型 [i32; 5]
 
 ;; 花括号表达式
 ;; 可以是：结构体字面量（匿名记录）或 begin 块

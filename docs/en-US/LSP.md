@@ -36,7 +36,7 @@ Type a `.` after an expression to see available members:
 - **Enum variants**: Variant names with field types (e.g., `Some(T)`, `None`), auto-inserted as snippets with parameter placeholders
 - **Module members**: Exported functions and types with doc comments
 - **Impl methods**: Methods from `impl` blocks with parameter snippet placeholders (e.g., `add(${1:other})`)
-- **Array/Slice**: `.len` property
+- **Array/str**: `.len` property
 - **Type-level**: `Point.` shows static methods and constructors
 - **Pointer auto-deref**: `ptr.field` automatically dereferences
 - **Nested structs**: `outer.inner.` shows fields of the inner struct

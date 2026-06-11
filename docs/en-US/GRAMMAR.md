@@ -114,12 +114,12 @@ ParenExpression ::=
   | '(' Expression (',' Expression)+ ')'              ;; Tuple (comma-separated)
   | '(' Expression (';' Expression)+ ';'? ')'         ;; Tuple type (semicolon-separated)
 
-;; Array/Slice Expressions
+;; Array Expressions
 ;; Square brackets with comma or semicolon separators
 ArrayExpression ::=
   | '[' ']'                                           ;; Empty array literal
   | '[' Expression (',' Expression)* ']'              ;; Array literal [1, 2, 3]
-  | '[' Expression (';' Expression)? ']'              ;; Array type [i32; 5] or Slice type [i32]
+  | '[' Expression ';' Expression ']'                 ;; Array type [i32; 5]
 
 ;; Curly Bracket Expressions
 ;; Can be: struct literal (anonymous record) or begin block
