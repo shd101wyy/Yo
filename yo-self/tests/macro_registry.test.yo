@@ -13,11 +13,11 @@ open(import("std/string"));
   is_param_quoted
 } :: import("../evaluator/types/function.yo");
 test("macro_registry: empty registry — non-macro function returns false", {
-  assert(is_macro_fn("nonexistent_fn") == false, "non-registered fn is not a macro");
-  assert(macro_return_is_unquote("nonexistent_fn") == false, "no unquote return");
-  idxs := get_macro_quoted_param_indices("nonexistent_fn");
+  assert(is_macro_fn(String.from("nonexistent_fn")) == false, "non-registered fn is not a macro");
+  assert(macro_return_is_unquote(String.from("nonexistent_fn")) == false, "no unquote return");
+  idxs := get_macro_quoted_param_indices(String.from("nonexistent_fn"));
   assert(idxs.len() == usize(0), "no quoted params");
-  assert(is_param_quoted("nonexistent_fn", usize(0)) == false, "param 0 not quoted");
+  assert(is_param_quoted(String.from("nonexistent_fn"), usize(0)) == false, "param 0 not quoted");
 });
 test("macro_registry: register quoted params — for() macro shape (params 0 and 1 quoted)", {
   fn_id := String.from("test_for_macro_id");
@@ -25,26 +25,26 @@ test("macro_registry: register quoted params — for() macro shape (params 0 and
   ___1 := idxs.push(usize(0));
   ___2 := idxs.push(usize(1));
   register_macro_quoted_params(fn_id.clone(), idxs);
-  assert(is_macro_fn("test_for_macro_id"), "registered fn is a macro");
-  assert(is_param_quoted("test_for_macro_id", usize(0)), "param 0 is quoted");
-  assert(is_param_quoted("test_for_macro_id", usize(1)), "param 1 is quoted");
-  assert(is_param_quoted("test_for_macro_id", usize(2)) == false, "param 2 not quoted");
-  retrieved := get_macro_quoted_param_indices("test_for_macro_id");
+  assert(is_macro_fn(String.from("test_for_macro_id")), "registered fn is a macro");
+  assert(is_param_quoted(String.from("test_for_macro_id"), usize(0)), "param 0 is quoted");
+  assert(is_param_quoted(String.from("test_for_macro_id"), usize(1)), "param 1 is quoted");
+  assert(is_param_quoted(String.from("test_for_macro_id"), usize(2)) == false, "param 2 not quoted");
+  retrieved := get_macro_quoted_param_indices(String.from("test_for_macro_id"));
   assert(retrieved.len() == usize(2), "two quoted indices retrieved");
 });
 test("macro_registry: register unquote return(type)", {
   fn_id := String.from("test_unquote_return_id");
   register_macro_return_is_unquote(fn_id.clone());
-  assert(macro_return_is_unquote("test_unquote_return_id"), "return(is unquote)");
-  assert(is_macro_fn("test_unquote_return_id"), "fn is a macro by return(type)");
-  idxs := get_macro_quoted_param_indices("test_unquote_return_id");
+  assert(macro_return_is_unquote(String.from("test_unquote_return_id")), "return(is unquote)");
+  assert(is_macro_fn(String.from("test_unquote_return_id")), "fn is a macro by return(type)");
+  idxs := get_macro_quoted_param_indices(String.from("test_unquote_return_id"));
   assert(idxs.len() == usize(0), "no quoted params even with unquote return");
 });
 test("macro_registry: register_macro_quoted_params with empty list — does not register", {
   fn_id := String.from("test_empty_idxs");
   empty_idxs := ArrayList(usize).new();
   register_macro_quoted_params(fn_id.clone(), empty_idxs);
-  assert(is_macro_fn("test_empty_idxs") == false, "empty list does not mark as macro");
+  assert(is_macro_fn(String.from("test_empty_idxs")) == false, "empty list does not mark as macro");
 });
 test("macro_registry: separate ids do not interfere", {
   fn_id_a := String.from("test_separate_a");
@@ -53,10 +53,10 @@ test("macro_registry: separate ids do not interfere", {
   ___3 := idxs_a.push(usize(0));
   register_macro_quoted_params(fn_id_a.clone(), idxs_a);
   register_macro_return_is_unquote(fn_id_b.clone());
-  assert(is_macro_fn("test_separate_a"), "a is a macro (quoted param)");
-  assert(is_macro_fn("test_separate_b"), "b is a macro (unquote return)");
-  assert(is_param_quoted("test_separate_a", usize(0)), "a param 0 quoted");
-  assert(is_param_quoted("test_separate_b", usize(0)) == false, "b param 0 not quoted");
-  assert(macro_return_is_unquote("test_separate_a") == false, "a return(not unquote)");
-  assert(macro_return_is_unquote("test_separate_b"), "b return(is unquote)");
+  assert(is_macro_fn(String.from("test_separate_a")), "a is a macro (quoted param)");
+  assert(is_macro_fn(String.from("test_separate_b")), "b is a macro (unquote return)");
+  assert(is_param_quoted(String.from("test_separate_a"), usize(0)), "a param 0 quoted");
+  assert(is_param_quoted(String.from("test_separate_b"), usize(0)) == false, "b param 0 not quoted");
+  assert(macro_return_is_unquote(String.from("test_separate_a")) == false, "a return(not unquote)");
+  assert(macro_return_is_unquote(String.from("test_separate_b")), "b return(is unquote)");
 });

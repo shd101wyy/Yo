@@ -78,7 +78,9 @@ test("t_trait: with fields", {
   fts.push(t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32()));
   tr := t_trait(`Iterator`, ArrayList(String).new(), fls, fts);
   s := type_to_string(tr);
-  check_str(s, `Iterator(next : fn() -> i32)`, "t_trait: with fields");
+  // Named traits print just the name (mirrors TS typeToString printing
+  // "Send"); the field dump is the fallback for anonymous traits only.
+  check_str(s, `Iterator`, "t_trait: with fields");
 });
 // ---------------------------------------------------------------------------
 // t_module_simple / t_module

@@ -6924,6 +6924,14 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   )
               ),
             // -----------------------------------------------------------------
+            // pragma(Pragma.X) — module directives. Their meaning is consumed
+            // by AST pre-scans (`pre_scan_for_skip_prelude`) and the modular
+            // dispatcher's pragma registry; in the proto-evaluator they
+            // evaluate to unit so `evaluate_module_body` does not bail on a
+            // leading `pragma(Pragma.SkipPrelude);` line.
+            // -----------------------------------------------------------------
+            (fval == "pragma") =>.Some(eval_result(.UnitVal, t_unit())),
+            // -----------------------------------------------------------------
             // unquote(expr) — only valid inside a `quote(...)` body where it
             // is rewritten by `splice_unquote`.  If we reach here it means
             // the call appeared at top level; emit None to signal an error.

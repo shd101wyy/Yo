@@ -164,16 +164,16 @@ read_yo_version :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io) => {
-    path_opt := io.await(find_yo_version_file(start_dir, io), io);
+  io.async((e : IoExn) => {
+    path_opt := e.io.await(find_yo_version_file(start_dir, e.io), e.io);
     match(
       path_opt,
       .None => Option(String).None,
       .Some(path) => {
-        content := io.await(read_string(path, io), io);
+        content := e.io.await(read_string(path, e.io), e);
         match(
           parse_yo_version(content),
-          .Err(e) => exn.throw(dyn(e)),
+          .Err(msg) => e.exn.throw(dyn(msg)),
           .Ok(version) =>.Some(version)
         )
       }

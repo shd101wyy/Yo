@@ -127,7 +127,7 @@ test("Evaluator.new: empty source with skip_prelude", {
     String.from("<test>"),
     String.from("<no-std>"),
     noop_loader,
-    String.from("// @skip_prelude\n"),
+    String.from("pragma(Pragma.SkipPrelude);\n"),
     exn
   );
   // Should parse and evaluate without error.
@@ -148,7 +148,7 @@ test("Evaluator.new: simple binding with skip_prelude", {
       }
     )
   );
-  src := String.from("// @skip_prelude\nx := 42;\nexport(x);\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\nx := 42;\nexport(x);\n");
   eval := Evaluator.new(
     String.from("<test>"),
     String.from("<no-std>"),
@@ -181,7 +181,7 @@ test("Evaluator.new: get_tokens returns non-empty list", {
       }
     )
   );
-  src := String.from("// @skip_prelude\nx := 42;\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\nx := 42;\n");
   eval := Evaluator.new(
     String.from("<test>"),
     String.from("<no-std>"),
@@ -201,7 +201,7 @@ test("Evaluator.new: get_program returns non-empty AST", {
       }
     )
   );
-  src := String.from("// @skip_prelude\nx := 42;\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\nx := 42;\n");
   eval := Evaluator.new(
     String.from("<test>"),
     String.from("<no-std>"),
@@ -221,7 +221,7 @@ test("Evaluator.new: get_env returns Some environment", {
       }
     )
   );
-  src := String.from("// @skip_prelude\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\n");
   eval := Evaluator.new(
     String.from("<test>"),
     String.from("<no-std>"),
@@ -246,7 +246,7 @@ test("Evaluator.new: module_value contains exported name", {
       }
     )
   );
-  src := String.from("// @skip_prelude\nmsg := 99;\nexport(msg);\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\nmsg := 99;\nexport(msg);\n");
   eval := Evaluator.new(
     String.from("<test>"),
     String.from("<no-std>"),
@@ -259,7 +259,7 @@ test("Evaluator.new: module_value contains exported name", {
     .Some(mv) =>
       match(
         mv,
-        .ModuleVal(names, _values) => {
+        .StructVal(_, names, _values) => {
           (found : bool) = false;
           (i : usize) = usize(0);
           n := names.len();
@@ -278,7 +278,7 @@ test("Evaluator.new: module_value contains exported name", {
           assert(found, "expected 'msg' in exported names");
         },
         _ => {
-          assert(false, "expected ModuleVal");
+          assert(false, "expected module StructVal");
         }
       ),
     .None => {

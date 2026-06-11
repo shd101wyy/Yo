@@ -54,7 +54,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `yo-self/README.md`                  | Bootstrap status, layout, and test instructions                        |
 | `yo-self/lexer.yo`, `token.yo`       | Self-hosted lexer (ports of `src/lexer.ts`, `src/token.ts`)            |
 | `yo-self/parser.yo`                  | Self-hosted parser (port of `src/parser.ts`)                           |
-| `yo-self/tests/`                     | Integration tests for the self-hosted components (69 tests)            |
+| `yo-self/tests/`                     | Tests for the self-hosted components (~60 files / ~900 tests; see `yo-self/README.md` for tiers & known-heavy files) |
 | `std/build.yo`                       | Build system API (Project, Step, Executable, etc.)                     |
 | `src/build-runner.ts`                | Build execution engine — DAG scheduler, artifact compilation           |
 | `src/install-command.ts`             | `yo install` — add git/path dependencies                               |
@@ -107,10 +107,14 @@ bun test src/tests/build-system.test.ts --timeout 10000
 # C codegen tests — specific test by name
 ./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
 
-# Bootstrap (yo-self) tests — run when modifying yo-self/ components
-./yo-cli test ./yo-self/tests/ --parallel 1
+# Bootstrap (yo-self) tests — run the file(s) covering what you changed.
+# Files importing evaluator internals take 1–10 min each (big Yo-compile);
+# the full directory takes ~90 min. eval_basics/eval_tail_1/eval_tail_2
+# exceed the runner's 1800s isolated-process limit (known-heavy — they
+# `check` clean; validate via yo-self-bin sweeps instead).
 ./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
 ./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1
+./yo-cli test ./yo-self/tests/ --parallel 2
 
 # Full integration test suite (~30 min on Mac Mini M4, safe to run locally)
 ./yo-cli test --bail

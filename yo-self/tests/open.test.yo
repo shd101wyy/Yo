@@ -18,7 +18,7 @@ open(import("std/fmt"));
 { EvalValue } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { t_i32, t_unit } :: import("../types/creators.yo");
-{ set_evaluate_expression_fn, evaluate_expression }
+{ set_evaluate_expression_fn, set_evaluate_expression_raw_fn, evaluate_expression }
 :: import("../evaluator/exprs/expr.yo");
 { evaluate_open } :: import("../evaluator/exprs/open.yo");
 { Exception } :: import("std/error");
@@ -56,14 +56,27 @@ stub_evaluate_module :: (
   vals := ArrayList(EvalValue).new();
   vals.push(EvalValue.IntLit(String.from("1")));
   vals.push(EvalValue.IntLit(String.from("2")));
-  module_val := EvalValue.ModuleVal(names, vals);
+  // Modules are StructVals whose type name carries the source-namespace marker.
+  module_val := EvalValue.StructVal(String.from("source_namespace_test"), names, vals);
   info := new_expr_info(env, t_i32());
   info.value =.Some(module_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
+/// Raw-seam variant of the stub: same behavior, ignores the custom handler.
+stub_evaluate_module_raw :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)(
+  stub_evaluate_module(expr, env, ctx)
+);
 test("evaluate_open: module — adds each field as a comptime variable", {
   set_evaluate_expression_fn(stub_evaluate_module);
+  set_evaluate_expression_raw_fn(stub_evaluate_module_raw);
   exn := Exception(
     throw : (
       (err) -> {

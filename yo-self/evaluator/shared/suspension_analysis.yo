@@ -324,9 +324,9 @@ walk_expr_ :: (
           // variables declared inside one branch don't leak into subsequent branches.
           saved_keys := ArrayList(String).new();
           saved_vals := ArrayList(String).new();
-          for(name_frame_to_original_id.iter(), (entry_ptr) => {
-            k := entry_ptr.*.key.clone();
-            v := entry_ptr.*.value.clone();
+          for(name_frame_to_original_id.iter_ptr(), (entry_ptr) => {
+            k := unsafe(entry_ptr.*).key.clone();
+            v := unsafe(entry_ptr.*).value.clone();
             saved_keys.push(k);
             saved_vals.push(v);
           });

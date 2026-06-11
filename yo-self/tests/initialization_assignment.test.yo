@@ -24,7 +24,7 @@ open(import("std/fmt"));
 { EvalValue } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { t_bool, t_i32, t_unit } :: import("../types/creators.yo");
-{ set_evaluate_expression_fn } :: import("../evaluator/exprs/expr.yo");
+{ set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("../evaluator/exprs/expr.yo");
 { evaluate_initialization_assignment } :: import("../evaluator/exprs/initialization_assignment.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -84,6 +84,17 @@ stub_eval_bool :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
+/// Raw-seam variant of stub_eval_bool (ignores the custom handler).
+stub_eval_bool_raw :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)(
+  stub_eval_bool(expr, env, ctx)
+);
 /// Stub evaluator: stores t_i32() + IntLit("42") ExprInfo for any expr.
 stub_eval_i32 :: (
   fn(
@@ -103,6 +114,7 @@ stub_eval_i32 :: (
 /// Returns true iff evaluate_initialization_assignment throws on invalid shape.
 test_invalid_shape_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {
@@ -131,6 +143,7 @@ test("init_assign: invalid shape (not := or ::) throws", {
 // ---------------------------------------------------------------------------
 test("init_assign: name := rhs adds variable to env", {
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {
@@ -169,6 +182,7 @@ test("init_assign: name := rhs adds variable to env", {
 // ---------------------------------------------------------------------------
 test("init_assign: name :: rhs adds non-reassignable variable to env", {
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {
@@ -201,6 +215,7 @@ test("init_assign: name :: rhs adds non-reassignable variable to env", {
 // ---------------------------------------------------------------------------
 test("init_assign: _ := rhs renames to temp var", {
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {

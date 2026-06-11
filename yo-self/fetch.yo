@@ -73,9 +73,9 @@ SIDECAR_FILENAME :: ".yo-content-hash";
 /// Recursive directory removal.
 /// Walks the tree (parents first), then deletes in reverse order.
 remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
-    entries := io.await(walk_with(path, opts, io), io);
+    entries := e.io.await(walk_with(path, opts, e.io), e);
     n := entries.len();
     // Delete deepest entries first (reverse order from walk output)
     while(n > usize(0), {
@@ -87,15 +87,15 @@ remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit
           match(
             entry.file_type,
             .Directory => {
-              io.await(remove_dir(entry.path), io);
+              e.io.await(remove_dir(entry.path, e.io), e);
             },
             _ => {
-              io.await(remove_file(entry.path), io);
+              e.io.await(remove_file(entry.path, e.io), e);
             }
           )
       );
     });
-    io.await(remove_dir(path), io);
+    e.io.await(remove_dir(path, e.io), e);
   })
 );
 /// Selection-sort a list of DirEntry values by name (ascending ASCII order).
@@ -232,10 +232,10 @@ compute_content_hash :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     hasher := Sha256.new();
     // Bootstrap: push root entries in reversed sorted order so LIFO pop gives forward order
-    root_entries := io.await(read_dir(Path.new(dir_path)), io);
+    root_entries := e.io.await(read_dir(Path.new(dir_path), e.io), e);
     root_sorted := sort_dir_entries(root_entries);
     stack := ArrayList(_HashWorkItem).new();
     // Push root entries in reversed sorted order
@@ -245,13 +245,13 @@ compute_content_hash :: (
       match(
         root_sorted.get(ri),
         .None => (),
-        .Some(e) => {
-          is_dir := match(e.file_type,.Directory => true, _ => false);
+        .Some(de) => {
+          is_dir := match(de.file_type,.Directory => true, _ => false);
           {
             stack.push(
               _HashWorkItem(
                 abs_path : dir_path,
-                rel_path : e.name,
+                rel_path : de.name,
                 is_dir : is_dir
               )
             );
@@ -295,7 +295,7 @@ compute_content_hash :: (
           abs_sub := item.abs_path.clone();
           abs_sub.push_str("/");
           abs_sub.push_string(entry_name);
-          sub_entries := io.await(read_dir(Path.new(abs_sub)), io);
+          sub_entries := e.io.await(read_dir(Path.new(abs_sub), e.io), e);
           sub_sorted := sort_dir_entries(sub_entries);
           si := sub_sorted.len();
           while(si > usize(0), {
@@ -303,11 +303,11 @@ compute_content_hash :: (
             match(
               sub_sorted.get(si),
               .None => (),
-              .Some(e) => {
+              .Some(de) => {
                 sub_rel := item.rel_path.clone();
                 sub_rel.push_str("/");
-                sub_rel.push_string(e.name);
-                is_subdir := match(e.file_type,.Directory => true, _ => false);
+                sub_rel.push_string(de.name);
+                is_subdir := match(de.file_type,.Directory => true, _ => false);
                 {
                   stack.push(
                     _HashWorkItem(
@@ -335,7 +335,7 @@ compute_content_hash :: (
           abs_file := item.abs_path.clone();
           abs_file.push_str("/");
           abs_file.push_string(entry_name);
-          content := io.await(read_file(Path.new(abs_file)), io);
+          content := e.io.await(read_file(Path.new(abs_file), e.io), e);
           normalized := normalize_line_endings(content);
           hasher = hasher.update(normalized);
         });
@@ -364,11 +364,11 @@ write_sidecar_hash :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_content := content_hash.clone();
     sidecar_content.push_str("\n");
-    io.await(write_file(sidecar, sidecar_content), io);
+    e.io.await(write_file(sidecar, sidecar_content, e.io), e);
   })
 );
 /// Read the sidecar hash file, returning None if it doesn't exist or can't be read.
@@ -379,11 +379,11 @@ read_sidecar_hash :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
-    sidecar_exists := io.await(exists(sidecar), io);
+    sidecar_exists := e.io.await(exists(sidecar, e.io), e.io);
     if(!(sidecar_exists), Option(String).None, {
-      content := io.await(read_file(sidecar), io);
+      content := e.io.await(read_file(sidecar, e.io), e);
       text := String.from_bytes(content).trim();
       Option(String).Some(text)
     })
@@ -410,9 +410,9 @@ inspect_cached_dep :: (
     exn : Exception
   ) -> Impl(Future(CachedDepState, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     cached_path := get_cached_dep_dir(cache_dir, dep_name, commit);
-    path_exists := io.await(exists(Path.new(cached_path)), io);
+    path_exists := e.io.await(exists(Path.new(cached_path), e.io), e.io);
     if(
       !(path_exists),
       CachedDepState(
@@ -426,14 +426,14 @@ inspect_cached_dep :: (
         actual_hash :.None
       ), {
         // Try sidecar first for O(1) verification
-        sidecar_hash := io.await(read_sidecar_hash(cached_path), io);
+        sidecar_hash := e.io.await(read_sidecar_hash(cached_path, e.io, e.exn), e);
         actual_hash := match(
           sidecar_hash,
           .Some(h) => h,
           .None => {
             // Recompute and write sidecar
-            h := io.await(compute_content_hash(cached_path), io);
-            io.await(write_sidecar_hash(cached_path, h), io);
+            h := e.io.await(compute_content_hash(cached_path, e.io, e.exn), e);
+            e.io.await(write_sidecar_hash(cached_path, h, e.io, e.exn), e);
             h
           }
         );
@@ -466,13 +466,13 @@ resolve_git_ref :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--"));
     cmd.arg(url);
     cmd.arg(ref);
-    out := io.await(cmd.output(), io);
+    out := e.io.await(cmd.output(e.io), e);
     text := String.from_bytes(out.stdout).trim();
     if(text.len() == usize(0), {
       // Assume ref is already a commit SHA
@@ -483,7 +483,7 @@ resolve_git_ref :: (
     first_line := match(
       lines.get(usize(0)),
       .None => {
-        exn.throw(dyn(`git ls-remote returned empty output`));
+        e.exn.throw(dyn(`git ls-remote returned empty output`));
         String.new()
       },
       .Some(l) => l
@@ -492,7 +492,7 @@ resolve_git_ref :: (
     sha := match(
       parts.get(usize(0)),
       .None => {
-        exn.throw(dyn(`Could not parse git ls-remote output`));
+        e.exn.throw(dyn(`Could not parse git ls-remote output`));
         String.new()
       },
       .Some(s) => s
@@ -512,10 +512,10 @@ clone_repo :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     target_dir := get_cached_dep_dir(cache_dir, dep_name, commit);
     // Return early if already cloned
-    already_exists := io.await(exists(Path.new(target_dir)), io);
+    already_exists := e.io.await(exists(Path.new(target_dir), e.io), e.io);
     if(already_exists, {
       return(target_dir);
     });
@@ -533,11 +533,11 @@ clone_repo :: (
     clone_cmd.arg(String.from("1"));
     clone_cmd.arg(url);
     clone_cmd.arg(temp_dir);
-    clone_status := io.await(clone_cmd.status(), io);
+    clone_status := e.io.await(clone_cmd.status(e.io), e);
     if(!(clone_status.success()), {
       clone_fail_msg := String.from("git clone failed for ");
       clone_fail_msg.push_string(url);
-      exn.throw(dyn(clone_fail_msg));
+      e.exn.throw(dyn(clone_fail_msg));
     });
     // Try to checkout the specific commit
     checkout_cmd := Command.new(String.from("git"));
@@ -546,7 +546,7 @@ clone_repo :: (
     checkout_cmd.arg(String.from("checkout"));
     checkout_cmd.arg(commit);
     checkout_ok := false;
-    checkout_st := io.await(checkout_cmd.status(), io);
+    checkout_st := e.io.await(checkout_cmd.status(e.io), e);
     checkout_ok = checkout_st.success();
     if(!(checkout_ok), {
       // Shallow clone may not have the commit — fetch it explicitly
@@ -558,17 +558,17 @@ clone_repo :: (
       fetch_cmd.arg(String.from("1"));
       fetch_cmd.arg(String.from("origin"));
       fetch_cmd.arg(commit);
-      io.await(fetch_cmd.status(), io);
+      e.io.await(fetch_cmd.status(e.io), e);
       checkout_cmd2 := Command.new(String.from("git"));
       checkout_cmd2.arg(String.from("-C"));
       checkout_cmd2.arg(temp_dir);
       checkout_cmd2.arg(String.from("checkout"));
       checkout_cmd2.arg(commit);
-      checkout_st2 := io.await(checkout_cmd2.status(), io);
+      checkout_st2 := e.io.await(checkout_cmd2.status(e.io), e);
       if(!(checkout_st2.success()), {
         checkout_fail_msg := String.from("git checkout failed for commit ");
         checkout_fail_msg.push_string(commit);
-        exn.throw(dyn(checkout_fail_msg));
+        e.exn.throw(dyn(checkout_fail_msg));
       });
     });
     // Remove .git directory to save space
@@ -577,12 +577,12 @@ clone_repo :: (
       p.push_str("/.git");
       p
     };
-    git_dir_exists := io.await(exists(Path.new(git_dir_path)), io);
+    git_dir_exists := e.io.await(exists(Path.new(git_dir_path), e.io), e.io);
     if(git_dir_exists, {
-      io.await(remove_dir_all(Path.new(git_dir_path)), io);
+      e.io.await(remove_dir_all(Path.new(git_dir_path), e.io, e.exn), e);
     });
     // Atomic rename to final location
-    io.await(rename(Path.new(temp_dir), Path.new(target_dir)), io);
+    e.io.await(rename(Path.new(temp_dir), Path.new(target_dir), e.io), e);
     target_dir
   })
 );
@@ -601,28 +601,28 @@ fetch_dep :: (
     exn : Exception
   ) -> Impl(Future(FetchDepResult, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     existing_entry := find_lock_entry(lock_file, dep.name);
     ref_changed := match(
       existing_entry,
       .None => false,
-      .Some(e) => (!(e.ref == dep.ref))
+      .Some(ent) => (!(ent.ref == dep.ref))
     );
     // Check if already up-to-date
     cached_state_opt := match(
       existing_entry,
       .None => Option(CachedDepState).None,
-      .Some(e) =>
+      .Some(ent) =>
         if(
-          (!(update)) && (e.commit.len() > usize(0)),
-          Option(CachedDepState).Some(io.await(inspect_cached_dep(cache_dir, dep.name, e.commit, e.hash), io)),
+          (!(update)) && (ent.commit.len() > usize(0)),
+          Option(CachedDepState).Some(e.io.await(inspect_cached_dep(cache_dir, dep.name, ent.commit, ent.hash, e.io, e.exn), e)),
           Option(CachedDepState).None
         )
     );
     entry_has_commit := match(
       existing_entry,
       .None => false,
-      .Some(e) => (e.commit.len() > usize(0))
+      .Some(ent) => (ent.commit.len() > usize(0))
     );
     cache_ok_opt := match(
       cached_state_opt,
@@ -644,12 +644,12 @@ fetch_dep :: (
       return(FetchDepResult(lock_file : lock_file, dep_path : sub_path));
     });
     // Resolve git ref
-    commit := io.await(resolve_git_ref(dep.url, dep.ref), io);
+    commit := e.io.await(resolve_git_ref(dep.url, dep.ref, e.io, e.exn), e);
     // Check if lock already has this commit and cache is valid
     commit_matches := match(
       existing_entry,
       .None => false,
-      .Some(e) => (e.commit == commit)
+      .Some(ent) => (ent.commit == commit)
     );
     if((!(update)) && commit_matches, {
       state := match(
@@ -658,7 +658,7 @@ fetch_dep :: (
         .None => match(
           existing_entry,
           .None => CachedDepState(status : CachedDepStatus.MissingPath, cached_path : String.new(), actual_hash :.None),
-          .Some(e) => io.await(inspect_cached_dep(cache_dir, dep.name, e.commit, e.hash), io)
+          .Some(ent) => e.io.await(inspect_cached_dep(cache_dir, dep.name, ent.commit, ent.hash, e.io, e.exn), e)
         )
       );
       cache_ok := match(state.status,.Ok => true, _ => false);
@@ -669,14 +669,14 @@ fetch_dep :: (
           match(
             existing_entry,
             .None => lock_file,
-            .Some(e) => upsert_lock_entry(
+            .Some(ent) => upsert_lock_entry(
               lock_file,
               LockEntry(
-                name : e.name,
-                url : e.url,
+                name : ent.name,
+                url : ent.url,
                 ref : dep.ref,
-                commit : e.commit,
-                hash : e.hash
+                commit : ent.commit,
+                hash : ent.hash
               )
             )
           ),
@@ -690,16 +690,16 @@ fetch_dep :: (
         return(FetchDepResult(lock_file : updated_lock, dep_path : sub_path));
       });
       // Evict corrupt / hash-mismatch cache entry
-      path_exists := io.await(exists(Path.new(state.cached_path)), io);
+      path_exists := e.io.await(exists(Path.new(state.cached_path), e.io), e.io);
       if(path_exists, {
-        io.await(remove_dir_all(Path.new(state.cached_path)), io);
+        e.io.await(remove_dir_all(Path.new(state.cached_path), e.io, e.exn), e);
       });
     });
     // Clone the repo
-    cloned_path := io.await(clone_repo(cache_dir, dep.url, commit, dep.name), io);
+    cloned_path := e.io.await(clone_repo(cache_dir, dep.url, commit, dep.name, e.io, e.exn), e);
     // Compute content hash and write sidecar
-    content_hash := io.await(compute_content_hash(cloned_path), io);
-    io.await(write_sidecar_hash(cloned_path, content_hash), io);
+    content_hash := e.io.await(compute_content_hash(cloned_path, e.io, e.exn), e);
+    e.io.await(write_sidecar_hash(cloned_path, content_hash, e.io, e.exn), e);
     // Update lock entry
     new_entry := LockEntry(
       name : dep.name,
@@ -728,16 +728,16 @@ fetch_all_deps :: (
     exn : Exception
   ) -> Impl(Future(FetchResult, IoExn))
 )(
-  io.async((io) => {
-    cache_dir := io.await(ensure_global_deps_cache_dir(), io);
+  io.async((e : IoExn) => {
+    cache_dir := e.io.await(ensure_global_deps_cache_dir(e.io, e.exn), e);
     resolved_paths := ArrayList(String).new();
     resolved_names := ArrayList(String).new();
     if(deps.len() == usize(0), {
       // Prune stale lock entries even with no deps
-      existing_lock := io.await(read_lock_file(Path.new(project_dir)), io);
+      existing_lock := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
       if(existing_lock.dependencies.len() > usize(0), {
         empty_lock := LockFile(dependencies : ArrayList(LockEntry).new());
-        io.await(save_lock_file(Path.new(project_dir), empty_lock), io);
+        e.io.await(save_lock_file(Path.new(project_dir), empty_lock, e.io, e.exn), e);
       });
       return(
         FetchResult(
@@ -747,7 +747,7 @@ fetch_all_deps :: (
         )
       );
     });
-    lock_file := io.await(read_lock_file(Path.new(project_dir)), io);
+    lock_file := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
     n := deps.len();
     i := usize(0);
     current_lock := lock_file;
@@ -756,7 +756,7 @@ fetch_all_deps :: (
         deps.get(i),
         .None => (),
         .Some(dep) => {
-          result := io.await(fetch_dep(cache_dir, dep, current_lock, verbose, update), io);
+          result := e.io.await(fetch_dep(cache_dir, dep, current_lock, verbose, update, e.io, e.exn), e);
           current_lock = result.lock_file;
           resolved_paths.push(result.dep_path);
           resolved_names.push(dep.name);
@@ -792,7 +792,7 @@ fetch_all_deps :: (
       k = (k + usize(1));
     });
     final_lock := LockFile(dependencies : pruned_deps);
-    io.await(save_lock_file(Path.new(project_dir), final_lock), io);
+    e.io.await(save_lock_file(Path.new(project_dir), final_lock, e.io, e.exn), e);
     FetchResult(
       resolved_paths : resolved_paths,
       resolved_names : resolved_names,
@@ -809,11 +809,11 @@ are_deps_cached :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     if(deps.len() == usize(0), {
       return(true);
     });
-    lock_file := io.await(read_lock_file(Path.new(project_dir)), io);
+    lock_file := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
     cache_dir := get_global_deps_cache_dir();
     all_cached := true;
     i := usize(0);
@@ -828,7 +828,7 @@ are_deps_cached :: (
             .None => false,
             .Some(entry) =>
               if(entry.commit.len() == usize(0), false, {
-                state := io.await(inspect_cached_dep(cache_dir, dep.name, entry.commit, entry.hash), io);
+                state := e.io.await(inspect_cached_dep(cache_dir, dep.name, entry.commit, entry.hash, e.io, e.exn), e);
                 match(state.status,.Ok => true, _ => false)
               })
           );
@@ -853,8 +853,8 @@ resolve_dep_path :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((io) => {
-    lock_file := io.await(read_lock_file(Path.new(project_dir)), io);
+  io.async((e : IoExn) => {
+    lock_file := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
     entry_opt := find_lock_entry(lock_file, dep_name);
     match(
       entry_opt,
@@ -862,7 +862,7 @@ resolve_dep_path :: (
       .Some(entry) =>
         if(entry.commit.len() == usize(0), Option(String).None, {
           cache_dir := get_global_deps_cache_dir();
-          state := io.await(inspect_cached_dep(cache_dir, dep_name, entry.commit, entry.hash), io);
+          state := e.io.await(inspect_cached_dep(cache_dir, dep_name, entry.commit, entry.hash, e.io, e.exn), e);
           match(
             state.status,
             .MissingPath => Option(String).None,
@@ -870,14 +870,14 @@ resolve_dep_path :: (
               missing_hash_msg := String.from("Dependency ");
               missing_hash_msg.push_string(dep_name);
               missing_hash_msg.push_str(" is cached but missing a content hash. Run 'yo fetch' to refresh.");
-              exn.throw(dyn(missing_hash_msg));
+              e.exn.throw(dyn(missing_hash_msg));
               Option(String).None
             },
             .HashMismatch => {
               mismatch_msg := String.from("Dependency ");
               mismatch_msg.push_string(dep_name);
               mismatch_msg.push_str(" failed integrity check. Run 'yo fetch' to refetch.");
-              exn.throw(dyn(mismatch_msg));
+              e.exn.throw(dyn(mismatch_msg));
               Option(String).None
             },
             .Ok =>

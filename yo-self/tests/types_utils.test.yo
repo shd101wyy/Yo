@@ -398,13 +398,16 @@ test("type_contains_rc_type: object struct is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   obj := TypeValue.Struct(
-    String.from("id1"),
-    String.from("Obj"),
-    labels,
-    types,
-    true,
-    false,
-    false
+    id : String.from("id1"),
+    name : String.from("Obj"),
+    field_labels : labels,
+    field_types : types,
+    is_reference_semantics : true,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   );
   assert(type_contains_rc_type(obj), "object → true");
 });
@@ -412,13 +415,16 @@ test("type_contains_rc_type: plain struct returns false", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   s := TypeValue.Struct(
-    String.from("id2"),
-    String.from("Point"),
-    labels,
-    types,
-    false,
-    false,
-    false
+    id : String.from("id2"),
+    name : String.from("Point"),
+    field_labels : labels,
+    field_types : types,
+    is_reference_semantics : false,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   );
   assert(!(type_contains_rc_type(s)), "plain struct → false");
 });
@@ -428,23 +434,29 @@ test("type_contains_rc_type: struct containing object field returns true", {
   inner_types := ArrayList(TypeValue).new();
   inner_types.push(
     TypeValue.Struct(
-      String.from("id3"),
-      String.from("Inner"),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new(),
-      true,
-      false,
-      false
+      id : String.from("id3"),
+      name : String.from("Inner"),
+      field_labels : ArrayList(String).new(),
+      field_types : ArrayList(TypeValue).new(),
+      is_reference_semantics : true,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
     )
   );
   outer := TypeValue.Struct(
-    String.from("id4"),
-    String.from("Outer"),
-    field_labels,
-    inner_types,
-    false,
-    false,
-    false
+    id : String.from("id4"),
+    name : String.from("Outer"),
+    field_labels : field_labels,
+    field_types : inner_types,
+    is_reference_semantics : false,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   );
   assert(type_contains_rc_type(outer), "Struct(object field) → true");
 });

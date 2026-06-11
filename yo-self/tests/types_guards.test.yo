@@ -195,7 +195,7 @@ test("is_union_type", {
   assert(!(is_union_type(t_i32())), "i32 not union");
 });
 test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_module_type / is_some_type", {
-  s := TypeValue.Struct(String.from(""), String.from("S"), ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false);
+  s := TypeValue.Struct(id : String.from(""), name : String.from("S"), field_labels : ArrayList(String).new(), field_types : ArrayList(TypeValue).new(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false);
   e := TypeValue.EnumT(String.from(""), String.from("E"), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   tr := t_trait_simple(String.from("T"));
@@ -344,7 +344,14 @@ test("is_function_type_generic: forall func is generic", {
     ArrayList(TypeValue).new(),
     ArrayList(bool).new(),
     ArrayList(TypeValue).new(),
-    box(t_unit())
+    box(t_unit()),
+    false,
+    ArrayList(bool).new(),
+    false,
+    false,
+    Option(String).None,
+    Option(String).None,
+    false
   );
   assert(is_function_type_generic(f), "forall func generic");
   assert(is_function_type_hard_generic(f), "forall func hard generic");
@@ -366,7 +373,14 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
     it_,
     is_,
     ArrayList(TypeValue).new(),
-    box(t_unit())
+    box(t_unit()),
+    false,
+    ArrayList(bool).new(),
+    false,
+    false,
+    Option(String).None,
+    Option(String).None,
+    false
   );
   assert(is_function_type_generic(f), "implicit func generic");
   assert(!(is_function_type_hard_generic(f)), "implicit func NOT hard generic");
@@ -449,13 +463,16 @@ test("is_rc_type: struct (not object) is not RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   struct_ty := TypeValue.Struct(
-    String.from("id1"),
-    String.from("Point"),
-    labels,
-    types,
-    false,
-    false,
-    false
+    id : String.from("id1"),
+    name : String.from("Point"),
+    field_labels : labels,
+    field_types : types,
+    is_reference_semantics : false,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   );
   assert(!(is_rc_type(struct_ty)), "struct → false");
 });
@@ -463,13 +480,16 @@ test("is_rc_type: object (is_reference_semantics=true) is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   obj_ty := TypeValue.Struct(
-    String.from("id2"),
-    String.from("MyObj"),
-    labels,
-    types,
-    true,
-    false,
-    false
+    id : String.from("id2"),
+    name : String.from("MyObj"),
+    field_labels : labels,
+    field_types : types,
+    is_reference_semantics : true,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   );
   assert(is_rc_type(obj_ty), "object → true");
 });

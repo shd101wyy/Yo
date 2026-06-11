@@ -92,7 +92,13 @@ jobs:
         # run: ./yo-cli test ./tests --verbose
         run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --c-compiler clang --profile
 
-      # Disabling the yo-self bootstrapping tests for now as they are quite flaky and we need to stabilize them before re-enabling in CI.
+      # yo-self bootstrapping tests are green locally (2026-06) but stay out of CI
+      # for runtime reasons: the full directory takes ~90 min on an M4 (every file
+      # importing evaluator internals pays a multi-minute Yo-compile), and
+      # eval_basics/eval_tail_1/eval_tail_2 exceed the runner's 1800s
+      # isolated-process limit outright. Run locally per yo-self/README.md;
+      # the self-hosted binary sweeps (yo-self-bin check ./std ./tests ./yo-self)
+      # are the continuous evaluator gate.
       # - name: Run yo-self bootstrapping tests
       #   run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./yo-self/tests --parallel 2 --bail --verbose --c-compiler clang --profile
 

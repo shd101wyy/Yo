@@ -27,6 +27,10 @@ BuildSystemLibrary :: object(
   fallback_link : String,
   defines : ArrayList(String)
 );
+/// ASCII whitespace test (mirrors std String._is_whitespace_byte, which is private).
+_is_ws_byte :: (fn(byte : u8) -> bool)(
+  (byte == u8(0x20)) || ((byte == u8(0x09)) || ((byte == u8(0x0A)) || ((byte == u8(0x0D)) || ((byte == u8(0x0C)) || (byte == u8(0x0B))))))
+);
 /// Split a string on ASCII whitespace boundaries, filtering empty tokens.
 _split_whitespace :: (fn(s : String) -> ArrayList(String))({
   result := ArrayList(String).new();
@@ -44,7 +48,7 @@ _split_whitespace :: (fn(s : String) -> ArrayList(String))({
         b = p;
       }
     );
-    is_ws := String._is_whitespace_byte(b);
+    is_ws := _is_ws_byte(b);
     cond(
       ((!(in_token)) && (!(is_ws))) => {
         start = k;
@@ -220,10 +224,10 @@ is_pkg_config_available :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     cmd := Command.new(String.from("pkg-config"));
     cmd.arg(String.from("--version"));
-    status := io.await(cmd.status(io, exn), io);
+    status := e.io.await(cmd.status(e.io), e);
     status.success()
   })
 );
@@ -236,12 +240,12 @@ query_pkg_config :: (
     exn : Exception
   ) -> Impl(Future(Option(PkgConfigResult), IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     // Run pkg-config --cflags
     cflags_cmd := Command.new(String.from("pkg-config"));
     cflags_cmd.arg(String.from("--cflags"));
     cflags_cmd.arg(pkg_name);
-    cflags_out := io.await(cflags_cmd.output(io, exn), io);
+    cflags_out := e.io.await(cflags_cmd.output(e.io), e);
     if(!(cflags_out.status.success()), {
       return(Option(PkgConfigResult).None);
     });
@@ -249,7 +253,7 @@ query_pkg_config :: (
     ldflags_cmd := Command.new(String.from("pkg-config"));
     ldflags_cmd.arg(String.from("--libs"));
     ldflags_cmd.arg(pkg_name);
-    ldflags_out := io.await(ldflags_cmd.output(io, exn), io);
+    ldflags_out := e.io.await(ldflags_cmd.output(e.io), e);
     if(!(ldflags_out.status.success()), {
       return(Option(PkgConfigResult).None);
     });
@@ -270,10 +274,10 @@ resolve_system_library :: (
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
-  io.async((io) => {
-    pkg_available := io.await(is_pkg_config_available(), io);
+  io.async((e : IoExn) => {
+    pkg_available := e.io.await(is_pkg_config_available(e.io, e.exn), e);
     if(pkg_available, {
-      pkg_result := io.await(query_pkg_config(lib.name), io);
+      pkg_result := e.io.await(query_pkg_config(lib.name, e.io, e.exn), e);
       match(
         pkg_result,
         .Some(r) => {
@@ -295,7 +299,7 @@ resolve_all_system_libraries :: (
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     merged := _empty_result();
     k := usize(0);
     n := libs.len();
@@ -309,7 +313,7 @@ resolve_all_system_libraries :: (
         },
         .Some(p) => p
       );
-      resolved := io.await(resolve_system_library(lib, verbose), io);
+      resolved := e.io.await(resolve_system_library(lib, verbose, e.io, e.exn), e);
       _merge_into(merged, resolved);
       k = (k + usize(1));
     });

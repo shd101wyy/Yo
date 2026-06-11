@@ -180,13 +180,13 @@ read_lock_file :: (
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
-  io.async((io) => {
+  io.async((e) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
-    file_exists := io.await(exists(lock_path, io), io);
+    file_exists := e.io.await(exists(lock_path, e.io), e.io);
     cond(
       (!(file_exists)) => LockFile.empty(),
       true => {
-        content := io.await(read_string(lock_path, io), io);
+        content := e.io.await(read_string(lock_path, e.io), e);
         parse_lock_file(content)
       }
     )
@@ -201,10 +201,10 @@ save_lock_file :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io) => {
+  io.async((e) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
     content := write_lock_file_content(lock);
-    io.await(write_file(lock_path, content, io), io);
+    e.io.await(write_file(lock_path, content, e.io), e);
   })
 );
 // ---------------------------------------------------------------------------
