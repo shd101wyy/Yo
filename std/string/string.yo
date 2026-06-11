@@ -3,7 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { rune } :: import("./rune.yo");
 { memcpy, memcmp, strlen } :: import("../libc/string.yo");
-{ write } :: import("../libc/unistd.yo");
+{ fwrite, stderr } :: import("../libc/stdio.yo");
 /// String operation error variants.
 StringError :: enum(
   /// The input bytes are not valid UTF-8.
@@ -2388,7 +2388,9 @@ panic_dyn :: (fn(msg : String) -> unit)({
   // to panic(str); see plans/SLICE_REWORK.md.)
   rb := msg.raw_bytes();
   // SAFETY: rb points into msg's live buffer for the duration of the call.
-  ___ := unsafe(write(int(2), *(void)(rb.ptr), rb.len));
+  // fwrite (ANSI C) instead of POSIX write(2, …) so the emitted C is portable
+  // to Windows targets.
+  ___ := unsafe(fwrite(*(void)(rb.ptr), usize(1), rb.len, stderr));
   panic("");
 }); /// Like `assert`, but accepts a runtime `String` message (e.g. a template
 /// string with interpolation: `` `error: ${value}` ``).
