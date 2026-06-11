@@ -5,6 +5,11 @@ The detailed plan for the codegen slice of self-hosting, the successor to
 2026-06-10). Keep `BOOTSTRAPPING.md` as the umbrella record; update both
 when status changes.
 
+**This document is a HANDOFF SPEC** — it assumes the executing agent has no
+prior session context. Everything needed to start (environment, commands,
+conventions, porting order, done-criteria) is in this file plus the
+referenced instruction files.
+
 > **2026-06-11 — clean-slate update.** The untyped bootstrap codegen
 > (`yo-self/codegen/` — driver.yo, exprs.yo, 49 files / ~30.6k LOC) was
 > **DELETED** during the slice rework (user decision): it was built on the
@@ -14,54 +19,169 @@ when status changes.
 > starts from a CLEAN SLATE — which is the better starting point for the
 > strict 1-to-1 rule: every `yo-self/codegen/X.yo` will be born as a
 > faithful port of `src/codegen/X.ts`, never retrofitted.
-> Also relevant: the slice rework (plans/SLICE_REWORK.md, complete)
-> DELETED the builtin Slice(T) end-to-end, REDUCING the TS codegen surface
-> to port (no slice struct registry, no range compound-literal emitters,
-> no `__yo_slice_*` builtins; `str` is a builtin with one canonical
-> `__yo_str` lowering). Current validation gates: std 152/152 ·
-> tests 146-147/149 (2 unresolvable circular fixtures) · yo-self 245/245.
+>
+> Also landed since: the slice rework (plans/SLICE_REWORK.md, complete)
+> DELETED the builtin Slice(T) end-to-end (`str` is a builtin with one
+> canonical `__yo_str` lowering); yo-self's TYPE MODEL is fully aligned
+> with TS (TypeValue.Str variant, Slice/SliceVal removed, copying-range
+> slice_copy rewrite ported — commit 49f51b35); `yo-self/tests/` was
+> revived and is green (commit ca1f776a); the same-scope borrow-invalidation
+> flowability gate exists in BOTH compilers (490c5d60 + 7f06fca7).
 
-## Goal & end state
+## Current validation gates (must stay green throughout)
 
-**The codegen port is a FAITHFUL port, same as the evaluator's:** strict
-1-to-1 file mapping `src/codegen/X.ts` ↔ `yo-self/codegen/X.yo`, same
-functions and control flow, TS-first for any bug found, divergences only where
-the language forces them (documented in header comments). (The untyped
-bootstrap walker `driver.yo` was already deleted on 2026-06-11 — the port
-starts clean; nothing pre-existing violates the 1-to-1 rule.)
+| Gate | Command | Expected |
+|---|---|---|
+| TS unit tests | `bun test --timeout 30000` | 457/457 |
+| TS evaluator on std | `node ./out/cjs/yo-cli.cjs check ./std` | 152/152 |
+| Full integration suite | `node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --c-compiler clang` | ~2601/2601, ~12 min |
+| Self-hosted binary sweep | `YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./std` | 152/152 |
+| 〃 | `… check ./tests` | 147/149 — the 2 fails are `tests/circular_deps/circular_error_{a,b}.yo`, which error identically under TS (baseline, not a regression) |
+| 〃 | `… check ./yo-self` | 240/240 |
+| yo-self component tests | per-file `node ./out/cjs/yo-cli.cjs test yo-self/tests/<f> --parallel 1\|2` | green; see `yo-self/README.md` "Test suite layout" for tiers, runtimes, and the known-heavy trio (eval_basics/eval_tail_1/eval_tail_2 exceed the runner's 1800 s isolated-process limit; they `check` clean) |
+
+## Handoff onboarding (read first)
+
+**Environment quirks (macOS dev box):**
+- `bun` drops out of PATH in fresh shells:
+  `export PATH="/nix/store/9zgnq216jb56ai0xpm6c6j2fblnp8vxy-devenv-profile/bin:$PATH"`.
+- Always `bun run build` before invoking `node ./out/cjs/yo-cli.cjs …` after
+  TS edits. Never use npm.
+- The self-hosted binary's evaluator is deeply recursive: run it with
+  `YO_MAIN_STACK_MB=4096` (a `-O0` binary SIGSEGVing (rc=139) on deep
+  recursion is stack exhaustion, NOT heap corruption — AGENTS.md pitfall).
+- Build loop: `node ./out/cjs/yo-cli.cjs compile yo-self/main.yo -o
+  /tmp/yo-self-bin` — ~10 min, NO `--release` (too slow for iteration).
+- Run `./yo-cli fmt <file.yo>` on every created/modified .yo file before
+  committing (`fmt --check` to verify).
+- Classify yo-self-bin failures by EXIT CODE, not by grepping "evaluator
+  OK": rc=0 pass, rc=1 evaluator error, rc>1 (133/139) crash.
+- ASan via `--sanitize address` is broken on this machine (Nix clang vs
+  Xcode runtime). For memory bugs use guard pages:
+  `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib <bin> …` — it turns
+  intermittent corruption into deterministic faults with usable crash
+  reports (`~/Library/Logs/DiagnosticReports/*.ips`).
+
+**Conventions (non-negotiable, inherited from the evaluator port):**
+- **Strict 1-to-1**: `src/codegen/X.ts` ↔ `yo-self/codegen/X.yo`, same
+  functions, same order; language-forced divergences get header comments.
+  No yo-only helper files.
+- **TS-first for bugs**: if TS codegen has a bug, fix TS (with a `tests/`
+  case that fails first), then port.
+- **Never regress the gates table above** after any step.
+- Findings → `issues/`; Yo-language surprises → `.github/skills/*` and
+  `.github/instructions/*` files.
+- Commits: `git commit --no-verify` (husky needs bunx), message body ends
+  with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`. Push
+  incrementally; validate every batch before committing.
+
+**Yo-syntax landmines that bit during the evaluator port** (full list in
+`.github/skills/yo-syntax/syntax-cheatsheet.md` — read it):
+- Single-expression fn body must NOT have braces (`{ expr }` = struct lit).
+- No forward references; self-recursion via `recur`, not the fn's name.
+- No variable shadowing (match-arm bindings can't reuse an outer name).
+- `match` arms over multi-field variants: use curly destructuring
+  `.Variant({ field, other : alias })`.
+- Objects are Rc'd and cannot be mutually recursive — break cycles with id
+  strings (see `RefBorrowMark` in `yo-self/env.yo` for the pattern).
+- `continue` in Rc-allocating while bodies is SAFE (re-verified 0/52 on the
+  historical corruption protocol, 2026-06-11).
+
+## Goal & end state — DEFINITION OF DONE
+
+**The codegen port is a FAITHFUL port:** strict 1-to-1 file mapping, same
+functions and control flow.
 
 `yo-self-bin compile <file.yo>` produces a C11 program whose **runtime
-behavior matches the TS compiler's output** on the same source, culminating in
-the self-host fixpoint:
+behavior matches the TS compiler's output** on the same source, culminating
+in the self-host fixpoint:
 
 1. `yo-self-bin` (stage 1, built by TS) compiles `yo-self/main.yo` → stage 2.
 2. Stage 2 compiles `yo-self/main.yo` → stage 3.
-3. Stage 2 and stage 3 emit identical C (or at minimum behaviorally identical
-   binaries that each pass the full test suite).
+3. Stage 2 ≡ stage 3 (identical C text, or — if `random_id` makes text
+   unstable — behaviorally identical: both pass the full suite; consider
+   seeding ids for the comparison build).
 
-Equivalence is judged by **run behavior** (stdout + exit code + test results),
-NOT by C-text equality against TS output — the two compilers may legitimately
-emit different C for the same semantics.
+Equivalence is judged by **run behavior** (stdout + exit code + test
+results), NOT C-text equality against TS output.
 
-## Where we start (inventory, 2026-06-10)
+**The port is DONE when ALL of the following hold:**
+- [ ] Differential harness: 100% of `tests/*.test.yo` PASS (same stdout,
+      same exit code, same per-test results) for the harness's POSIX
+      targets (macOS arm64 + Linux x86_64). Windows + WASM runtimes are an
+      explicitly out-of-scope follow-up (tracked by its own issue).
+- [ ] `yo-self-bin test ./tests` runs the suite end-to-end with results
+      matching `./yo-cli test ./tests`.
+- [ ] All differential runs are clean under guard pages
+      (libgmalloc) and — once the ASan toolchain problem is solved (see
+      issues/yo-self-macro-dispatch-corruption.md "What's needed") — under
+      ASan with `--allocator libc`.
+- [ ] Self-host fixpoint (stages 2≡3 above).
+- [ ] Every gate in the table above still green; `yo-self/tests/` green
+      under BOTH compilers (`./yo-cli test` and `yo-self-bin test`).
+- [ ] `BOOTSTRAPPING.md` umbrella table updated; this file's Status
+      checklist all ticked.
 
-**TS codegen: 70 files, ~43k LOC.**
+## Where we start (inventory, 2026-06-11)
 
-| Area | Files | LOC | Notes |
-|---|---|---|---|
-| `exprs/` | 50 | 18,268 | per-node emitters; largest: `other-fn-call.ts` 3,459 |
-| `async/` | 8 | 15,409 | state machine (4.7k) + platform I/O C templates (~10.6k) |
-| `functions/` | 5 | 2,869 | collection, declarations, generation (2,721), dyn |
-| `types/` | 3 | 2,223 | type decls + RC headers + runtime preamble templates |
-| root | 3 | 1,189 | `index.ts` driver (778), `codegen-c.ts` orchestrator (311) |
-| `utils/` `shared/` `parallelism/` `c/` | 5 | 1,978 | helpers, fixup, suspension, worker runtime, includes |
+**TS codegen: ~70 files, ~42.8k LOC.** Per-file LOC (descending; this is
+also a difficulty map):
 
-**yo-self codegen today: DELETED (2026-06-11).** The previous 49-file
-untyped bootstrap walker is gone (see the clean-slate note above). There is
-no `yo-self/codegen/` directory; the port creates it file-by-file as
-faithful 1-to-1 ports. The proto-evaluator `yo-self/evaluator/eval.yo`
-remains only as the delegation target of `evaluator/index.yo` and retires
-when the typed pipeline drives the proper evaluator end-to-end.
+| File | LOC | Phase |
+|---|---|---|
+| async/runtime-io-windows.ts | 4228 | out of scope (follow-up) |
+| exprs/other-fn-call.ts | 3502 | 2 |
+| functions/generation.ts | 2721 | 3 |
+| async/state-machine.ts | 2605 | 5 |
+| async/state-code-gen.ts | 2136 | 5 |
+| exprs/async.ts | 2085 | 5 |
+| async/runtime-io-macos.ts | 1779 | 5 |
+| async/runtime-io-common.ts | 1717 | 5 |
+| async/runtime-io-linux.ts | 1696 | 5 |
+| types/generation.ts | 1516 | 3 |
+| exprs/match.ts | 1196 | 2 |
+| utils/index.ts | 1067 | 1 |
+| exprs/generation.ts | 1007 | 2 |
+| exprs/await.ts | 835 | 5 |
+| functions/declarations.ts | 808 | 3 |
+| async/runtime-io-wasm.ts | 797 | out of scope (follow-up) |
+| index.ts (driver) | 778 | 1 |
+| exprs/asm.ts | 761 | 2 |
+| exprs/return.ts | 719 | 2 |
+| functions/collection.ts | 697 | 1 |
+| types/collection.ts | 598 | 1 |
+| exprs/atom.ts | 588 | 2 |
+| exprs/initialization-assignment.ts | 557 | 2 |
+| exprs/rc-fns.ts | 556 | 4 |
+| functions/dyn.ts | 547 | 3 |
+| exprs/cond.ts | 520 | 2 |
+| parallelism/runtime.ts | 474 | 5 (last) |
+| exprs/property-access.ts | 446 | 2 |
+| async/runtime-core.ts | 382 | 5 |
+| exprs/drop-dup.ts | 370 | 4 |
+| exprs/closures.ts | 358 | 3 |
+| exprs/comptime-value.ts | 346 | 2 |
+| exprs/assignment.ts | 344 | 2 |
+| exprs/parallelism.ts | 318 | 5 (last) |
+| exprs/and-or.ts | 310 | 2 |
+| codegen-c.ts (orchestrator) | 309 | 1 |
+| exprs/begin.ts | 263 | 2 |
+| types/dyn.ts | 238 | 3 |
+| exprs/while.ts | 237 | 2 |
+| exprs/inline-fns.ts | 231 | 2 |
+| functions/context.ts | 223 | 1 |
+| shared/suspension-codegen.ts | 199 | 5 |
+| exprs/{dyn,downcast}.ts | 176 ×2 | 3 |
+| exprs/ptr-fns.ts | 171 | 2 |
+| c/collection.ts | 153 | 1 |
+| exprs/{async-completion,iso,recur,array-fns,tuple-fn}.ts | 101–124 | 2/5 |
+| constants.ts, async/runtime.ts, exprs/{panic,open,typeid,binding,consume}.ts, utils/fixup.ts | ≤96 | 1/2 |
+
+**yo-self codegen today: none** (clean slate; the port creates
+`yo-self/codegen/` file-by-file). The proto-evaluator
+`yo-self/evaluator/eval.yo` remains only as the delegation target of
+`evaluator/index.yo` and retires when the typed pipeline drives the proper
+evaluator end-to-end.
 
 **The coupling that defines the work.** TS codegen is driven almost entirely
 by evaluator annotations on `expr.$` (yo-self: the `ExprInfo` table):
@@ -70,223 +190,221 @@ by evaluator annotations on `expr.$` (yo-self: the `ExprInfo` table):
 `deferredDupExpressions`/`deferredDropExpressions`, `macroExpansion`,
 `awaitAnalysis`, capture structs. yo-self's `ExprInfo` already carries the
 core (type/value/env/control_flow/path_collection/variable_name/origin_type);
-the runtime-oriented fields (deferred dup/drop, runtime destructurings, await
-analysis, dyn vtable bindings, capture types) are produced partially or not at
-all — **most of the porting effort is making the evaluator produce them and
-the emitters consume them**, not the C string-building itself.
+the runtime-oriented fields are produced partially or not at all — **most of
+the porting effort is making the evaluator produce them and the emitters
+consume them**, not the C string-building itself.
 
 **Critical consequence for the evaluator:** codegen requires evaluating
 function bodies in **executing mode** (`is_executing = true`) with REAL,
-propagating errors — the def-eval-wall *swallow* that protects `check` cannot
-apply. This will surface the remaining evaluator tail
-(`EVALUATOR_PORT_REVIEW.md` status summary: GADT match-refinement, HKT partial
-application, ModuleT/Call dispatch, effect-analysis re-sync, …). That is a
-feature of the plan, not a risk to dodge: each phase below names the evaluator
-work it is expected to unlock.
+propagating errors — the def-eval-wall *swallow* that protects `check`
+cannot apply. This will surface the remaining evaluator tail
+(`EVALUATOR_PORT_REVIEW.md` status summary: GADT match-refinement, HKT
+partial application, Module/Call dispatch, effect-analysis re-sync, …).
+That is a feature of the plan: each phase names the evaluator work it is
+expected to unlock.
 
-## Method (carried over from the evaluator port — it worked)
+## Known pre-existing landmines (read the issue docs before Phase 0)
 
-- **Strict 1-to-1**: `src/codegen/X.ts` ↔ `yo-self/codegen/X.yo`, same
-  functions, same order; language-forced divergences get header comments.
-  Bootstrap-only files (driver.yo) get deleted as their replacements land.
-- **TS-first for bugs**: if TS codegen has a bug, fix TS, then port.
-- **Iteration loop**: `./yo-cli compile yo-self/main.yo -o /tmp/yo-self-bin`
-  (no `--release` — too slow for the loop; use `YO_MAIN_STACK_MB=4096` for
-  deep-recursion validation runs).
-- **Never regress the evaluator**: `check ./std` (152), `check ./tests`
-  (146-147/149 baseline), `check ./yo-self` (245) stay green after every
-  step.
-- **Differential testing is the gold standard**: same `.yo` source → TS-built
-  binary and yo-self-built binary → same stdout/exit code. Build the harness
-  in Phase 0 and run it constantly.
-- Findings → `issues/`; surprises about Yo itself → skills/instructions files.
+1. **`issues/yo-self-macro-dispatch-corruption.md`** — the most important.
+   Status 2026-06-11: macro DISPATCH's functional errors are FIXED (a
+   dispatch-ON build passes the probes and most sweeps), but an
+   **intermittent use-after-free remains** (~1/3 of full `check ./std`
+   sweeps SIGTRAP, exit 133). It is **LOCALIZED**: a stale Rc'd ExprInfo
+   sits in an occupied `expr_info_table` HashMap slot (deterministic
+   guard-page reproducer + crash-report stack in the issue). It reproduces
+   with dispatch OFF too — the over-release is latent in the committed
+   configuration and WILL bite executing-mode codegen work. Finishing it
+   needs ASan-grade alloc/free stacks; the issue lists the prepared
+   chunked-ASan pipeline and the two alternative unblock paths
+   (>32 GB machine, or sudo `DevToolsSecurity -enable` + lldb).
+   **Recommendation: make resolving this Phase 0's first deliverable** —
+   executing-mode evaluation multiplies ExprInfo-table churn.
+2. `MACRO_DISPATCH_ENABLED :: false` in `yo-self/evaluator/calls/function.yo`
+   — flip to true only after (1) is fixed; then un-gate the three phase6
+   macro tests (they key on the exported flag and pass vacuously today).
+3. yo-self consume-tracking is unwired (`set_expr_as_consumed` in
+   `evaluator/utils.yo` has no callers) — the move half of the
+   borrow-invalidation gate is dormant; wiring it is part of the Phase 4
+   ownership work (TS callers to mirror: iso.ts, calls/helper.ts dup
+   insertion).
+4. `tests/circular_deps/circular_error_{a,b}.yo` fail identically under
+   both compilers — baseline, don't chase.
 
 ## Phases
 
-### Phase 0 — Baseline + differential harness
+### Phase 0 — Baseline + differential harness + the UAF
 
-1. Rebuild `yo-self-bin`; `yo-self-bin compile` currently THROWS by design
-   (the codegen was deleted) — the baseline scorecard is all-COMPILE-FAIL,
-   and the differential harness measures progress from zero.
-2. Build the **differential harness**: a script that takes a `.yo` file (or a
-   directory), compiles it with BOTH compilers, runs both binaries, diffs
-   stdout/exit code, and reports PASS/FAIL/COMPILE-FAIL per file. This is the
-   `check`-equivalent for the whole codegen phase.
-3. Close the stale codegen issues
-   (`issues/yo-self-codegen-typeid-needs-typed-ast.md`,
-   `issues/yo-self-codegen-parallelism-needs-closure-metadata.md`) — their
-   subject (the untyped walker) was deleted; keep the segfault issue only if
-   it reproduces against the rebuilt pipeline.
+1. **Fix the ExprInfo-table use-after-free** (landmine 1). Do not start
+   emitter work on a foundation that corrupts intermittently.
+2. Rebuild `yo-self-bin`; `compile` currently THROWS by design — baseline
+   scorecard is all-COMPILE-FAIL.
+3. Build the **differential harness** (suggested: `scripts/diff-test.sh` or
+   a `yo-cli` subcommand): input = a `.yo` file or directory; compile with
+   BOTH compilers; run both binaries; diff stdout + exit code; report
+   PASS / FAIL / COMPILE-FAIL(stage) per file; `--parallel N`; summary
+   counts. This is the `check`-equivalent for the whole codegen phase —
+   it runs after every batch.
+4. Close stale codegen issues whose subject (the untyped walker) is gone.
 
-**Gate:** harness exists; baseline scorecard committed.
+**Gate:** UAF fixed (gmalloc-clean sweeps); harness exists; baseline
+scorecard committed.
 
-### Phase 1 — The typed pipeline (from the clean slate)
+### Phase 1 — The typed pipeline (port order, top to bottom)
 
-Port the orchestration spine faithfully, driven by the evaluator's `ExprInfo`:
+| Order | File | Why |
+|---|---|---|
+| 1 | `constants.ts` | leaf, everything imports it |
+| 2 | `utils/index.ts` + `utils/fixup.ts` | helpers all emitters use (incl. the 4 exports the old port lacked: `findReturnedAsyncBlock`, `getRuntimeStructFields`, `isComptimeOnlyStructField`, `isComptimeFunction`) |
+| 3 | `functions/context.ts` | the generation-context record |
+| 4 | `c/collection.ts` | include collection (note the platform filter added in commit 5945937e — port it faithfully) |
+| 5 | `types/collection.ts` | reachable-type collection |
+| 6 | `functions/collection.ts` | reachable-function collection |
+| 7 | `codegen-c.ts` | the orchestrator: collection → type decls → dyn fixup → fn decls → fn bodies → module-level vars → main wrapper/library init → specialized fns → dispose dispatch |
+| 8 | `index.ts` | CLI driver glue (target resolution, allocator, C-compiler invocation) — wire `run_compile` in `yo-self/main.yo` to it |
 
-- `codegen-c.ts` → `codegen_c.yo` (full `compileModule`: collection → type
-  decls → dyn fixup → fn decls → fn bodies → module-level vars → main
-  wrapper/library init → specialized fns → dispose dispatch).
-- `functions/collection.ts`, `types/collection.ts`, `c/collection.ts` — the
-  reachability passes (currently stubbed).
-- `functions/context.ts` (generation context), `utils/{index,fixup}.ts`
-  completion (4 missing exports: `findReturnedAsyncBlock`,
-  `getRuntimeStructFields`, `isComptimeOnlyStructField`, `isComptimeFunction`).
-- Evaluator side: run module evaluation in the mode codegen needs
-  (executing-mode body evaluation for reachable runtime functions), populating
-  the `ExprInfo` fields the emitters read. Start with the core set
-  (type/value/control_flow/variable_name); add fields as emitters demand them.
-
-**Expected evaluator unlocks:** executing-mode body eval will surface
-unification/dispatch gaps the swallow hid — budget for evaluator fixes here
-(same drain methodology as the def-eval era: location-tagged diagnostics, pin,
-root-cause, fix, measure).
+Evaluator side, in parallel: run module evaluation in the mode codegen
+needs (executing-mode body evaluation for reachable runtime functions),
+populating the ExprInfo fields the emitters read. Start with the core set
+(type/value/control_flow/variable_name); add fields as emitters demand them.
 
 **Gate:** tiny corpus (≥10 programs: print/arith/struct/enum/match/while/
 closure-call/string/ArrayList/HashMap) passes the differential harness.
 
 ### Phase 2 — Expression-emitter sweep (the long middle)
 
-Port the `exprs/*.ts` emitters 1-to-1 (all fresh — nothing pre-exists).
-Priority order = differential-harness failure frequency, but the known big
-rocks first:
+Port order (dependency- and frequency-driven):
 
-- `exprs/other-fn-call.ts` (3,459 LOC — calls, method dispatch, trait calls,
-  specialization invocation; the single largest emitter).
-- `exprs/generation.ts`, `exprs/expr.ts` dispatch parity.
-- RC-bearing emitters: `drop-dup`, `assignment`, `initialization-assignment`,
-  `binding`, `property-access` (consume `pathCollection` +
-  `deferredDup/DropExpressions` — these need the evaluator to produce them;
-  see Phase 4 for the deep end).
-- `match`/`cond` (caseExecuted, primitive-match, GADT refinement lands here —
-  the deferred evaluator item becomes testable).
+1. `exprs/expr.ts` (dispatch) + `exprs/generation.ts` + `exprs/atom.ts` +
+   `exprs/begin.ts` — the skeleton every program hits.
+2. `exprs/other-fn-call.ts` (3.5k — calls, method dispatch, trait calls,
+   specialization invocation; the single largest emitter; split the work
+   by its internal sections).
+3. `exprs/initialization-assignment.ts`, `exprs/assignment.ts`,
+   `exprs/binding.ts`, `exprs/property-access.ts` (consume
+   `pathCollection` + deferred dup/drop — coordinate with Phase 4).
+4. `exprs/cond.ts`, `exprs/match.ts` (caseExecuted, primitive-match, GADT
+   refinement becomes testable here), `exprs/while.ts`, `exprs/return.ts`,
+   `exprs/and-or.ts`, `exprs/recur.ts`.
+5. The rest by harness-failure frequency: `comptime-value`, `inline-fns`,
+   `ptr-fns`, `array-fns`, `tuple-fn`, `asm`, `panic`, `open`, `typeid`,
+   `consume`, `downcast`, `iso`.
 
-Validate by walking `tests/*.test.yo` through the differential harness,
-non-async subset first; `./yo-cli test` (TS runner) stays the reference for
-expected behavior.
+Validate by walking `tests/*.test.yo` through the harness, non-async
+subset first; `./yo-cli test` stays the reference for expected behavior.
 
 **Gate:** ≥50% of non-async `tests/*.test.yo` pass differentially.
 
 ### Phase 3 — Functions, types, dyn, specialization
 
-- `functions/generation.ts` (2,721) — bodies, wrappers, main wrapper, library
-  init; `functions/declarations.ts`, `functions/dyn.ts`.
-- `types/generation.ts` (1,515) — full type lowering incl. iso/dyn/SomeT
-  monomorphized forms + the runtime preamble templates (GC marks, atomics,
-  thread-sync macros, `__yo_ref_header_t`) — mostly mechanical template
-  transcription.
-- Dyn: box types, vtables, wrapper functions, dup/drop (`fixupDynImplKeys`,
-  `generateDynBoxTypes/Functions/Vtables/DupDrop`).
-- Generic specialization emission (specialized decls + bodies) — pairs with
-  the evaluator's existing specialization machinery (helper.yo).
-- Closure capture structs (`create_capture_type_and_value` is already in
-  `evaluator/utils/closure.yo`; wire it through to emission — dissolves the
-  parallelism-closure-metadata issue).
+1. `types/generation.ts` (1.5k — type lowering incl. iso/dyn/SomeT
+   monomorphized forms + runtime preamble templates: GC marks, atomics,
+   thread-sync macros, `__yo_ref_header_t` — mostly mechanical template
+   transcription).
+2. `functions/declarations.ts`, `functions/generation.ts` (2.7k — bodies,
+   wrappers, main wrapper incl. the `__yo_main_stack` worker-thread setup,
+   library init).
+3. `functions/dyn.ts` + `types/dyn.ts` + `exprs/dyn.ts` — box types,
+   vtables, wrapper fns, dup/drop (`fixupDynImplKeys`,
+   `generateDynBoxTypes/Functions/Vtables/DupDrop`).
+4. Generic specialization emission — pairs with the evaluator's existing
+   machinery (calls/helper.yo).
+5. `exprs/closures.ts` — capture structs
+   (`create_capture_type_and_value` already exists in
+   `evaluator/utils/closure.yo`; wire it to emission).
 
 **Gate:** ≥80% of non-async tests pass differentially; dyn + generics +
 closure test files green.
 
 ### Phase 4 — Memory management correctness
 
-RC dup/drop placement (`pathCollection`-driven), drop-on-scope-exit +
-drop-on-unwind, cycle GC (`canTypeFormRcCycle` → tracked headers + collector),
-`__yo_dispose_dispatch`. Validate every differential run additionally under
-`--sanitize address --allocator libc` (both compilers' outputs must be
-ASan-clean). Known landmines from the TS era to test explicitly:
-continue-in-while RC corruption (`issues/codegen-continue-in-while-heap-corruption.md`),
-deep-recursion stack sizing (`YO_MAIN_STACK_MB`, AGENTS.md pitfall note).
+`exprs/drop-dup.ts`, `exprs/rc-fns.ts`, RC dup/drop placement
+(`pathCollection`-driven), drop-on-scope-exit + drop-on-unwind, cycle GC
+(`canTypeFormRcCycle` → tracked headers + collector),
+`__yo_dispose_dispatch`. Wire yo-self consume-tracking (landmine 3).
+Validate every differential run additionally under guard pages
+(libgmalloc; both compilers' outputs must be clean) and under ASan once
+available. Explicit regression corpus: `tests/continue_rc_cleanup.test.yo`,
+`tests/ref_borrow_invalidation.test.yo`, deep-recursion stack sizing.
 
-**Gate:** full non-async `tests/` differential pass, ASan-clean.
+**Gate:** full non-async `tests/` differential pass, guard-page-clean.
 
 ### Phase 5 — Async/effects state machines + I/O runtimes
 
-The largest single block (~15.4k LOC TS):
+The largest single block (~13k LOC in scope):
 
-1. `async/state-machine.ts` (2,605) + `state-code-gen.ts` (2,136) +
-   `shared/suspension` codegen — the FSM transformation (the evaluator's
-   await/suspension analyses are already ported as types; the analysis
-   passes must now actually run and land in ExprInfo).
-2. Effect-handler state machines (resume/unwind lowering — `return` resumes,
-   `unwind` discards; Aborted future state).
-3. Platform I/O runtimes — C template transcription: `runtime-core` (382) +
-   `runtime-io-common` (1,717) + **macOS (1,779) and Linux (1,696) first**;
-   Windows (4,228) and WASM (797) deferred to a follow-up — the dev loop and
-   CI are POSIX.
-4. `parallelism/runtime.ts` (474) + parallelism emitters last.
+1. `shared/suspension-codegen.ts`, `exprs/await.ts`, `exprs/async.ts`,
+   `exprs/async-completion.ts`.
+2. `async/state-machine.ts` (2.6k) + `async/state-code-gen.ts` (2.1k) —
+   the FSM transformation (the evaluator's await/suspension analyses are
+   ported as types; the passes must now run and land in ExprInfo).
+3. Effect-handler state machines (`return` resumes, `unwind` discards;
+   Aborted future state).
+4. Platform I/O runtimes — C template transcription: `async/runtime.ts` +
+   `runtime-core` + `runtime-io-common` + **macOS and Linux only**
+   (Windows 4.2k and WASM 0.8k are the documented follow-up).
+5. `parallelism/runtime.ts` + `exprs/parallelism.ts` last.
 
-**Gate:** async_await, algebraic_effects, sync/, parallelism test files pass
-differentially on macOS + Linux.
+**Gate:** async_await, algebraic_effects, sync/, parallelism test files
+pass differentially on macOS + Linux.
 
 ### Phase 6 — Self-host fixpoint
 
 1. `yo-self-bin test ./tests` — the self-hosted compiler RUNS the suite
-   (compiling and executing each test) with results matching `./yo-cli test`.
+   with results matching `./yo-cli test`.
 2. Stage 2: `yo-self-bin compile yo-self/main.yo` → stage-2 binary passes
-   (1). Expect a wave of executing-mode evaluator findings here — yo-self's
-   own source is the harshest corpus.
-3. Stage 3: stage-2 compiles yo-self again; stage-2 ≡ stage-3 (C-output diff,
-   modulo embedded nondeterminism — if random_id makes C text unstable, diff
-   behavior + suite results instead, and consider seeding ids for the
-   comparison build).
+   (1). Expect a wave of executing-mode evaluator findings — yo-self's own
+   source is the harshest corpus.
+3. Stage 3 + the fixpoint comparison (see Definition of Done).
+4. Re-validate `yo-self/tests/` under `yo-self-bin test` (it is already
+   green under the TS compiler).
 
-**Gate:** fixpoint reached = self-hosting done.
-
-### Phase 7 — Revive `yo-self/tests/` (required follow-up)
-
-`yo-self/tests/` (the 69 lexer/parser/component tests) is **very out of
-date** — pre-broken against current APIs (memory `yo-self-tests-broken`:
-they've been invalid as a validation target for months; e.g. the
-`TypeValue.Func` constructions still pass 9 args against the now-16-field
-variant). After the codegen port:
-
-1. Sweep every `yo-self/tests/*.test.yo` against the CURRENT yo-self APIs
-   (Func variant arity, renamed helpers, `unwind` not `escape`, ExprInfo
-   table, etc.) — mechanical-fix catalogue in memory
-   `yo-test-migration-patterns` applies.
-2. Make `./yo-cli test ./yo-self/tests/ --parallel 1` fully green under the
-   TS compiler, then under `yo-self-bin test` (differential).
-3. Wire them into the standard validation loop (AGENTS.md already documents
-   the commands) so component-level regressions are caught without full-corpus
-   sweeps.
-
-**Gate:** `./yo-cli test ./yo-self/tests/` and `yo-self-bin test
-./yo-self/tests/` both green; counts recorded in `BOOTSTRAPPING.md`.
+**Gate:** fixpoint reached = self-hosting done. Tick every box in the
+Definition of Done; update `BOOTSTRAPPING.md`.
 
 ## Risks & mitigations
 
-- **Executing-mode evaluator tail** (the big one): every phase budgets
-  evaluator fixes; the drain methodology from the def-eval era is proven.
-  Track surfaced gaps in `EVALUATOR_PORT_REVIEW.md`'s status summary.
-- **C-text instability** (random_id in emitted names): differential testing
-  compares BEHAVIOR, not text; the fixpoint comparison may need seeded ids.
-- **Untyped-walker leftovers**: eliminated — the walker was deleted; every
-  emitter is written fresh against ExprInfo.
-- **Compile-loop speed**: yo-self-bin -O0 builds are minutes; batch
-  validation, prefer the differential harness's directory mode, keep
-  `--release` out of the loop.
-- **Platform surface**: POSIX first; Windows I/O runtime (4.2k) is an isolated
-  follow-up with its own issue.
+- **The ExprInfo-table UAF** (landmine 1) — fix in Phase 0, before
+  anything else amplifies allocation churn.
+- **Executing-mode evaluator tail**: every phase budgets evaluator fixes;
+  the drain methodology from the def-eval era is proven (location-tagged
+  diagnostics → pin → root-cause → fix → re-measure; sequential prints
+  beat lingering breadcrumbs).
+- **C-text instability** (random_id in emitted names): differential
+  testing compares BEHAVIOR; the fixpoint comparison may need seeded ids.
+- **Compile-loop speed**: yo-self-bin -O0 builds are ~10 min; batch
+  validation, prefer the harness's directory mode, keep `--release` out of
+  the loop.
+- **Platform surface**: POSIX first; Windows/WASM runtimes are isolated
+  follow-ups. Note the c_include platform filter (commit 5945937e):
+  includes registered from comptime-eliminated platform branches must not
+  leak into the other platform's emission — port that behavior.
 
 ## Status
 
-- [ ] Phase 0 — baseline + differential harness
-- [ ] Phase 1 — typed pipeline, driver.yo retired
+- [x] "Phase 7" of the original plan (revive `yo-self/tests/`) — **DONE
+      EARLY** (2026-06-11, commit ca1f776a): suite revived and green under
+      the TS compiler; see `yo-self/README.md`. Re-check under
+      `yo-self-bin test` in Phase 6.
+- [ ] Phase 0 — UAF fix + baseline + differential harness
+- [ ] Phase 1 — typed pipeline
 - [ ] Phase 2 — expression-emitter sweep
 - [ ] Phase 3 — functions/types/dyn/specialization
-- [ ] Phase 4 — memory management, ASan-clean
+- [ ] Phase 4 — memory management, guard-page/ASan-clean
 - [ ] Phase 5 — async/effects/parallelism runtimes (POSIX)
-- [ ] Phase 6 — self-host fixpoint
-- [ ] Phase 7 — `yo-self/tests/` revived and green under both compilers
+- [ ] Phase 6 — self-host fixpoint → Definition of Done
 
 ## References
 
-- `BOOTSTRAPPING.md` — umbrella status incl. the component table this plan
-  details; update its codegen rows as phases land.
+- `BOOTSTRAPPING.md` — umbrella status; update its codegen rows as phases
+  land.
 - `BOOTSTRAPPING_EVALUATOR.md` + `EVALUATOR_PORT_REVIEW.md` — the evaluator
-  slice (complete) + the remaining divergence inventory this work will
+  slice (complete) + the divergence inventory executing-mode work will
   exercise.
+- `issues/yo-self-macro-dispatch-corruption.md` — the UAF dossier
+  (reproducers, crash stack, chunked-ASan pipeline notes).
+- `issues/fixed/codegen-continue-in-while-heap-corruption.md` — how the
+  continue-corruption was re-tested and closed; the methodology template.
 - `.github/instructions/c-codegen.instructions.md`,
-  `debugging.instructions.md`, `testing.instructions.md`.
-- Memory: `bootstrap-strict-1to1`, `no-release-during-porting`,
-  `yo-self-tests-broken`, `yo-test-migration-patterns`,
-  `yo-codegen-continue-while-corruption`.
+  `debugging.instructions.md`, `testing.instructions.md`,
+  `.github/skills/yo-syntax/syntax-cheatsheet.md`,
+  `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`.

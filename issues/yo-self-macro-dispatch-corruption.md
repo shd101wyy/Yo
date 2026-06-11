@@ -81,3 +81,64 @@ i.e. executing macro bodies evaluates code in contexts where prelude /
 builtin identifiers fail to resolve. Re-enabling dispatch is now blocked
 on debugging these macro-execution environment gaps (part of the
 executing-mode evaluation tail), not on heap corruption.
+
+## UPDATE (2026-06-11, session 2): functional errors FIXED; corruption root-cause LOCALIZED
+
+**Functional errors are gone.** After the yo-self type-model alignment
+(TypeValue.Str, Slice deletion, slice_copy rewrite — commit 49f51b35), a
+dispatch-ON build passes: the macro probes, the historical reproducer
+(`check yo-self/evaluator/exprs/open.yo`), and 2 of 3 full
+`check ./std` sweeps (153/153 when it completes).
+
+**The residual intermittent SIGTRAP (~1/3 of full sweeps) is now
+localized.** Under guard pages (`DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`)
+the crash is DETERMINISTIC (3/3 on `check std/string/string.yo`) with this
+use-site stack (crash report, faultingThread):
+
+```
+__yo_incr_rc
+← HashMap(usize, ExprInfo)._find_bucket   (the bucket deref-copy's ___dup)
+← HashMap.set
+← expr_info_table_set
+← evaluate_identifier_and_operator
+```
+
+i.e. an OCCUPIED slot of the ExprInfo table holds a STALE pointer — the
+stored ExprInfo object was freed while still in the table. The map is the
+DETECTOR, not the culprit: something over-releases an ExprInfo it shares
+with the table. **Crucially, the gmalloc crash reproduces with dispatch
+OFF too** — the latent over-release exists in the committed configuration;
+dispatch merely adds allocation churn that turns it into visible SIGTRAPs.
+
+Ruled out this session (balanced dup/drop verified in emitted C +
+clean gmalloc runs of standalone models): HashMap.set overwrite path,
+set+get+remove+resize+mutate-through-get loops with object values.
+
+**What's needed to finish:** alloc/free/use stacks (ASan). Blockers and
+the prepared path:
+- Single-TU ASan compile of the 27 MB generated C OOMs clang's frontend
+  on a 16 GB machine (Nix clang 21 and Apple CLT clang 17 both
+  Killed: 9, with/without -g, with callback instrumentation).
+- lldb attach is blocked (Developer Mode disabled; needs sudo
+  `DevToolsSecurity -enable`).
+- A chunked-ASan pipeline was built (split the generated C at top-level
+  function boundaries into ~6 TUs, de-static cross-chunk symbols, compile
+  each with ASan, link): chunks compile cleanly in parallel; remaining
+  work is mechanical linkage hygiene — keep prefix-defined static-inline
+  helpers consistent, extern-declare body-level globals AFTER their
+  typedefs (or keep the async runtime region whole in chunk 0), and use
+  depth-tracked function boundaries (a mid-function flush-left `) {` once
+  produced a silent mis-split). `-Dinline=` avoids C99
+  inline-without-extern-def symbol loss.
+- Alternative: run the ASan build on a >32 GB machine, or enable
+  Developer Mode and walk the gmalloc fault in lldb (`malloc_history`
+  needs MallocStackLogging=1).
+
+Repro commands:
+```
+# deterministic use-site fault (dispatch off or on):
+DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib YO_MAIN_STACK_MB=4096 \
+  /tmp/yo-self-bin check std/string/string.yo   # SIGSEGV, crash report has the stack
+# intermittent SIGTRAP at scale (dispatch on):
+YO_MAIN_STACK_MB=4096 <dispatch-on-bin> check ./std   # ~1/3 of runs
+```
