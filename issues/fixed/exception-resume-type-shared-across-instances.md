@@ -1,6 +1,18 @@
 # Exception `ResumeType` SomeType Shared Across Instances
 
-**Status:** Open (needs evaluator fix)
+**Status:** FIXED (2026-06-11). Implemented the issue's "fresh SomeType
+instance per struct-field call" proposal at the struct-construction site:
+`instantiateOwnForallSomeTypes` in `src/evaluator/calls/type.ts` clones the
+SomeTypes named by a field function type's OWN `forallParameters`
+(`throw : ctl(forall(ResumeType : Type), …) -> ResumeType`) per
+construction, so resolving a handler's return type cannot leak into other
+constructions — the declared field type stays pristine. Enclosing-context
+SomeTypes keep their identity (cross-argument unification unaffected).
+Regression tests: tests/exception_resume_type_per_instance.test.yo
+(two instances resuming i32 and String in one scope, type-check + runtime).
+Note: the forall parameter is stripped from `parameters` during function
+type evaluation — it lives in `forallParameters` (that's why a
+parameters-based detection finds nothing).
 
 **Discovered:** During yo-self test suite fixes (Phase 6m).
 

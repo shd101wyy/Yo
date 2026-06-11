@@ -571,9 +571,19 @@ evaluate_begin_expression :: (
         // A begin block with any runtime non-last expression cannot be
         // folded to a compile-time value.
         if(!(is_last_in_loop) && !(has_runtime_side_effects), {
+          // Only a CONCRETELY known value proves a statement effect-free.
+          // An UnknownVal (e.g. a runtime-condition cond over unit arms)
+          // may execute anything at runtime — including a conditional
+          // return — so folding the block would silently delete the
+          // statement (1:1 with begin.ts; see
+          // issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
           is_runtime_expr := match(
             ev_info_opt,
-            .Some(ei) => ei.value.is_none(),
+            .Some(ei) => match(
+              ei.value,
+              .Some(v) => match(v,.UnknownVal(_) => true, _ => false),
+              .None => true
+            ),
             .None => false
           );
           is_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_ASSIGN,.None);

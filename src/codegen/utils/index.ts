@@ -1,5 +1,9 @@
 import { Emitter } from "../../emitter";
-import { type Environment, getVariablesFromEnv } from "../../env";
+import {
+  type Environment,
+  getVariablesFromEnv,
+  type Variable,
+} from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   extractFutureTraitFromType,
@@ -1036,9 +1040,9 @@ export function getDeferredDropTargetAtomName(
  * a match-arm payload borrow) that are in scope at the cleanup point —
  * emitting the drop against a shadowing borrow double-frees its payload.
  */
-export function getDeferredDropTargetVariableId(
+export function getDeferredDropTargetVariable(
   dropExpr: Expr
-): string | undefined {
+): Variable | undefined {
   let atom: Expr | undefined;
   // varName.drop() form (method call syntax)
   if (
@@ -1064,7 +1068,7 @@ export function getDeferredDropTargetVariableId(
   if (!atom?.$?.env) return undefined;
   const variables = getVariablesFromEnv(atom.$.env, atom.token.value);
   if (variables.length === 0) return undefined;
-  return variables[variables.length - 1]!.id;
+  return variables[variables.length - 1];
 }
 
 export function isDeferredDropForClosureCapture(

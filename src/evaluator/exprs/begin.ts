@@ -42,7 +42,7 @@ import {
   typeToString,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { isFunctionValue, isTypeValue } from "../../value";
+import { isFunctionValue, isTypeValue, isUnknownValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -1563,7 +1563,16 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // If so, the begin block has runtime side effects and should not
       // be folded to a compile-time value.
       if (i < beginExpressions.length - 1 && !hasRuntimeSideEffects) {
-        if (evaluatedExpr.$?.value === undefined) {
+        // Only a CONCRETELY known value proves a statement effect-free. An
+        // UnknownValue (e.g. a runtime-condition cond over unit arms, which
+        // annotates itself with a typed unknown) may execute anything at
+        // runtime — including a conditional `return` — so folding the block
+        // to its tail value would silently delete the statement
+        // (issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
+        if (
+          evaluatedExpr.$?.value === undefined ||
+          isUnknownValue(evaluatedExpr.$.value)
+        ) {
           hasRuntimeSideEffects = true;
         }
         // := and = expressions always have $.value = VUnit (compile-time),

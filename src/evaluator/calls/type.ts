@@ -10,8 +10,19 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import type { TypeField } from "../../types/definitions";
-import { isFunctionType } from "../../types/guards";
+import type {
+  FunctionType,
+  SomeType,
+  Type,
+  TypeField,
+} from "../../types/definitions";
+import { createArrayType, createPtrType } from "../../types/creators";
+import {
+  isArrayType,
+  isFunctionType,
+  isPtrType,
+  isSomeType,
+} from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   isComptimeOnlyType,
@@ -21,6 +32,82 @@ import {
 import type { Value } from "../../value";
 import type { EvaluatorContext, TypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+
+/**
+ * Instantiate FRESH SomeType copies for the foralls a field's function type
+ * introduces ITSELF (its own compile-time `Type` parameters, e.g.
+ * `throw : fn(forall(ResumeType : Type), error : AnyError) -> ResumeType`).
+ *
+ * The declared field type is a single shared object; evaluating a handler
+ * lambda against it RESOLVES the forall SomeType in place
+ * (`resolvedConcreteType` is mutated during return-type inference). Without
+ * per-construction instantiation, the second `Exception(throw : ...)` in a
+ * module sees the first handler's resolution and fails with
+ * "Incompatible return type: Expected: ResumeType, Got: ..."
+ * (issues/fixed/exception-resume-type-shared-across-instances.md).
+ *
+ * Only SomeTypes NAMED by the function type's own forall parameters are
+ * freshened — SomeTypes owned by an enclosing generic context must keep
+ * their identity so cross-argument unification still works.
+ */
+function instantiateOwnForallSomeTypes(type: Type): Type {
+  if (!isFunctionType(type)) return type;
+  const fnType = type;
+  const ownForallNames = new Set(
+    fnType.forallParameters.map((param) => param.label)
+  );
+  if (ownForallNames.size === 0) return type;
+
+  const freshBySomeType = new Map<SomeType, SomeType>();
+  const substitute = (t: Type, visited: Set<Type>): Type => {
+    if (visited.has(t)) return t;
+    visited.add(t);
+
+    if (isSomeType(t)) {
+      if (t.resolvedConcreteType || !ownForallNames.has(t.name)) {
+        return t;
+      }
+      let fresh = freshBySomeType.get(t);
+      if (!fresh) {
+        fresh = { ...t };
+        freshBySomeType.set(t, fresh);
+      }
+      return fresh;
+    }
+    if (isPtrType(t)) {
+      const childSub = substitute(t.childType, visited);
+      return childSub === t.childType ? t : createPtrType(childSub);
+    }
+    if (isArrayType(t)) {
+      const childSub = substitute(t.childType, visited);
+      return childSub === t.childType
+        ? t
+        : createArrayType(childSub, t.length);
+    }
+    if (isFunctionType(t)) {
+      let changed = false;
+      const newParams = t.parameters.map((p) => {
+        const sub = substitute(p.type, visited);
+        if (sub === p.type) return p;
+        changed = true;
+        return { ...p, type: sub };
+      });
+      const retSub = substitute(t.return.type, visited);
+      if (retSub !== t.return.type) changed = true;
+      if (!changed) return t;
+      const newFn: FunctionType = {
+        ...t,
+        parameters: newParams,
+        return: { ...t.return, type: retSub },
+      };
+      return newFn;
+    }
+    return t;
+  };
+
+  const result = substitute(type, new Set());
+  return freshBySomeType.size === 0 ? type : result;
+}
 
 /**
  * This is for calling struct/enum/union types with arguments
@@ -115,13 +202,19 @@ ${tupleFieldToString(paramElement_)}`,
     }
     const memberElementPositionIndex = typeFields.indexOf(memberElement);
 
-    // Evaluate the argExpr
+    // Evaluate the argExpr. Function-typed fields with their own foralls get
+    // a FRESH SomeType instantiation per construction (see
+    // instantiateOwnForallSomeTypes) so resolving them against this field
+    // value cannot leak into other constructions of the same type.
+    const fieldExpectedType = instantiateOwnForallSomeTypes(
+      memberElement.type
+    );
     const evaluatedArgExpr = evaluateExpression({
       expr: argExpr,
       env: callerEnv,
       context: {
         ...context,
-        expectedType: { type: memberElement.type, env: callerEnv },
+        expectedType: { type: fieldExpectedType, env: callerEnv },
       },
     });
 
@@ -156,10 +249,11 @@ ${tupleFieldToString(paramElement_)}`,
       labelExpr.$ = evaluatedArgExpr.$;
     }
 
-    // Compare the types
+    // Compare the types (against the per-construction instantiation — the
+    // declared field type's own SomeTypes must stay pristine).
     if (
       !areTypesCompatible(
-        { type: memberElement.type, env: callerEnv },
+        { type: fieldExpectedType, env: callerEnv },
         { type: argType, env: callerEnv }
       )
     ) {

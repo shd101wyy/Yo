@@ -1,7 +1,19 @@
 # Codegen: block-RHS initialization drops non-tail statements
 
-**Status: OPEN** (discovered 2026-06-11 while testing the shadowed-binding
-double-drop fix; reproduced on the committed compiler `85c56747`, so it is
+**Status: FIXED** (2026-06-11). Root cause: a runtime-condition `cond` whose
+arms are all unit-typed annotates itself with a typed UNKNOWN value
+(`createUnknownValue`), and the begin evaluator's fold check
+(`hasRuntimeSideEffects`) treated any non-undefined value — including
+UnknownValue — as compile-time, folding the block to its tail value;
+codegen then emitted only the constant. Fix: only a CONCRETELY known value
+proves a non-tail statement effect-free (`isUnknownValue` now also marks
+runtime side effects) — src/evaluator/exprs/begin.ts, mirrored 1:1 in
+yo-self/evaluator/exprs/begin.yo. Regression tests:
+tests/block_rhs_nontail_statements.test.yo (early return + conditional
+mutation both preserved; repro now prints 10).
+
+Originally: OPEN (discovered 2026-06-11 while testing the shadowed-binding
+double-drop fix; reproduced on the committed compiler `85c56747`, so it was
 pre-existing and unrelated to that fix).
 
 ## Symptom

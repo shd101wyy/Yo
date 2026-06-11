@@ -1,0 +1,71 @@
+//! Regression tests: each `Exception(throw : ...)` construction gets a FRESH
+//! `ResumeType` forall instantiation. Before the fix, the struct field's
+//! declared `ctl(forall(ResumeType : Type), error : AnyError) -> ResumeType`
+//! type was a single shared object — the first handler's return type resolved
+//! the shared SomeType in place, and a second handler with a different resume
+//! type failed with "Incompatible return type: Expected: ResumeType, Got: ...".
+//! issues/fixed/exception-resume-type-shared-across-instances.md
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+
+test("two Exception instances may resume different types", {
+  exn1 := Exception(
+    throw : (
+      (_err) -> {
+        return(i32(7));
+      }
+    )
+  );
+  exn2 := Exception(
+    throw : (
+      (_err) -> {
+        return(`resumed`);
+      }
+    )
+  );
+  ___ := exn1;
+  ___2 := exn2;
+  assert(true, "both constructions type-check");
+});
+
+// The throw sits in tail/value position, so the resumed value is used: the
+// handler's return type must unify with i32 here.
+classify :: (fn(x : i32, exn : Exception) -> i32)(
+  cond(
+    (x < i32(0)) => exn.throw(dyn(`negative`)),
+    true => (x * i32(2))
+  )
+);
+
+// Same shape with a String-resuming use site.
+name_of :: (fn(x : i32, exn : Exception) -> String)(
+  cond(
+    (x < i32(0)) => exn.throw(dyn(`negative`)),
+    true => String.from("positive")
+  )
+);
+
+test("handlers with distinct resume types both work at runtime", {
+  exn_i32 := Exception(
+    throw : (
+      (_err) -> {
+        return(i32(0) - i32(1));
+      }
+    )
+  );
+  // A second instance in the same scope resuming a DIFFERENT type.
+  exn_str := Exception(
+    throw : (
+      (_err) -> {
+        return(`fallback`);
+      }
+    )
+  );
+  ok := classify(i32(3), exn_i32);
+  resumed := classify(i32(0) - i32(5), exn_i32);
+  assert(ok == i32(6), "normal path");
+  assert(resumed == (i32(0) - i32(1)), "handler resumed with -1");
+  s := name_of(i32(0) - i32(3), exn_str);
+  assert(s == "fallback", "second instance resumes a String");
+});
