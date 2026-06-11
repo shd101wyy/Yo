@@ -1,4 +1,4 @@
-import { addVariableToEnv, type Environment } from "../../env";
+import { addVariableToEnv, getVariablesFromEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
@@ -35,7 +35,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import { isFlowableExpr } from "../types/flowability";
+import { isFlowableExpr, collectRefBorrowSources } from "../types/flowability";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
@@ -513,6 +513,29 @@ Use \`::\` for compile-time definitions inside impl.`,
       },
     });
     env = nextEnv;
+
+    // Same-scope borrow-invalidation gate (plans/SLICE_REWORK.md follow-up):
+    // record on every same-frame SOURCE variable that this `ref` binding
+    // borrows from it. The assignment / consume sites reject mutation of a
+    // source while the ref variable is still in scope — reassigning the
+    // source would free or replace the borrowed backing (e.g.
+    // `xs = ArrayList.new()` after `ref(r) := xs.project(0)` frees the Rc
+    // buffer `r` points into).
+    if (isRefBinding) {
+      const refVars = getVariablesFromEnv(env, varName);
+      const refVariable = refVars[refVars.length - 1];
+      if (refVariable) {
+        for (const source of collectRefBorrowSources(rhs)) {
+          if (source === refVariable) continue;
+          source.refBorrowedBy = source.refBorrowedBy ?? [];
+          source.refBorrowedBy.push({
+            refName: varName,
+            refVariable,
+            token: actualLhs.token,
+          });
+        }
+      }
+    }
 
     // Store the renamed variable name so codegen uses it instead of "_"
     if (actualLhs.token.value === "_") {

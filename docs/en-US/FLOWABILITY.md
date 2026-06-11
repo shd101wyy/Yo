@@ -43,6 +43,24 @@ function `-> ref(T)` returns and `ref(r) := …` local bindings.
 A function's local can never be returned by `ref` — the callee's frame
 dies first. See `tests/ref_*.test.yo` for the full matrix.
 
+## Borrow invalidation
+
+While a `ref(name) := …` binding is live, the same-frame variables its
+borrow roots in (the R1–R4 sources) may not be **reassigned** or
+**moved** — doing so would free or replace the borrowed backing:
+
+```rust
+ref(r) := xs.project(usize(0));
+xs = ArrayList(String).new();   // ✗ rejected: would free the buffer r points into
+println(r);
+```
+
+The constraint ends with the binding's block — reassigning the source
+after the borrow's scope closes is fine, as is mutating unrelated
+variables. To keep the container freely reassignable, copy the element
+out (`xs.get(i)`) instead of borrowing it.
+See `tests/ref_borrow_invalidation.test.yo`.
+
 ## Escape hatches
 
 `pragma(Pragma.AllowUnsafe);` exempts a whole file (the std's audited

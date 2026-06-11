@@ -2412,6 +2412,27 @@ export function setExprAsConsumed(
   }
 
   const variableToConsume = variables[variables.length - 1]!;
+  // Same-scope borrow-invalidation gate: moving a variable that a live
+  // `ref(name) := …` binding borrows from would free the borrowed backing.
+  // A recorded borrower constrains the source only while its ref variable
+  // is still in scope (identity-checked against the current env).
+  if (variableToConsume.refBorrowedBy?.length) {
+    for (const borrower of variableToConsume.refBorrowedBy) {
+      const liveRefVars = getVariablesFromEnv(env, borrower.refName);
+      if (liveRefVars.some((v) => v === borrower.refVariable)) {
+        throw formatErrorMessages([
+          {
+            token: expr.token,
+            errorMessage: `Cannot move "${nameOfVariableToConsume}" while 'ref(${borrower.refName}) := …' borrows from it. Moving would free the storage the reference points into.`,
+          },
+          {
+            token: borrower.token,
+            errorMessage: `the borrow was taken here`,
+          },
+        ]);
+      }
+    }
+  }
   // Check if the variable is already consumed
   if (variableToConsume.consumedAtToken && !allowConsumeAgain) {
     const errorMessage = `use of moved value: \`${nameOfVariableToConsume}\``;

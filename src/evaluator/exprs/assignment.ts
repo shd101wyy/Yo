@@ -238,9 +238,32 @@ export function evaluateAssignment({
     if (!variable.isReassignable) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Cannot reassign "${variableName}".  
+        errorMessage: `Cannot reassign "${variableName}".
 You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign itself.`,
       });
+    }
+
+    // Same-scope borrow-invalidation gate: reassigning a variable that a
+    // live `ref(name) := …` binding borrows from would free or replace the
+    // borrowed backing (the classic container-reassign / element-borrow
+    // invalidation). A recorded borrower constrains the source only while
+    // its ref variable is still in scope — verified by identity against
+    // the current env so stale marks from exited blocks don't constrain.
+    if (variable.refBorrowedBy?.length) {
+      for (const borrower of variable.refBorrowedBy) {
+        const liveRefVars = getVariablesFromEnv(env, borrower.refName);
+        const stillInScope = liveRefVars.some(
+          (v) => v === borrower.refVariable
+        );
+        if (stillInScope) {
+          throw formatErrorMessage({
+            token: lhs.token,
+            errorMessage: `Cannot reassign "${variableName}" while 'ref(${borrower.refName}) := …' borrows from it. Reassigning would free or replace the storage the reference points into.
+
+Reassign after the borrowing block ends, or copy the element out instead of borrowing it.`,
+          });
+        }
+      }
     }
 
     // Evaluate the rhs expression

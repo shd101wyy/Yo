@@ -37,6 +37,21 @@ Yo 的**可流动性**检查在编译期保证：安全代码无法构造出悬�
 - 函数的局部变量永远不能以 `ref` 返回 —— 被调用方的栈帧先消亡。完整矩阵见
   `tests/ref_*.test.yo`。
 
+## 借用失效（Borrow invalidation）
+
+当 `ref(name) := …` 绑定存活时，其借用所扎根的同帧变量（R1–R4 来源）
+不得被**重新赋值**或**移动** —— 否则会释放或替换被借用的底层存储：
+
+```rust
+ref(r) := xs.project(usize(0));
+xs = ArrayList(String).new();   // ✗ 编译错误：会释放 r 指向的缓冲区
+println(r);
+```
+
+约束随绑定所在块结束而解除 —— 借用作用域关闭后重新赋值来源没有问题，
+修改无关变量也不受限。若希望容器保持可重新赋值，请拷贝元素
+（`xs.get(i)`）而不是借用它。参见 `tests/ref_borrow_invalidation.test.yo`。
+
 ## 逃逸通道
 
 `pragma(Pragma.AllowUnsafe);` 豁免整个文件（标准库经过审计的内部实现使用

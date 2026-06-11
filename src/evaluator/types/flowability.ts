@@ -51,7 +51,7 @@ import {
   typeRepresentationContainsRawPtr,
 } from "../../types/utils";
 import { isFunctionValue, isTypeValue } from "../../value";
-import { getVariablesFromEnv } from "../../env";
+import { getVariablesFromEnv, type Variable } from "../../env";
 
 /**
  * Strip outer `begin(...)` wrappers from an expression so we can
@@ -449,4 +449,118 @@ export function isFlowableExpr(
     if (!isFlowableExpr(a, options)) return false;
   }
   return true;
+}
+
+/**
+ * Collect the LOCAL VARIABLES a `ref(name) := rhs;` borrow roots in.
+ *
+ * Walks the same structure `isFlowableExpr` accepts (R1 names, R2
+ * projections, R3 borrowing-call arguments incl. method receivers,
+ * R4 cond/match arms, `&+`/`&-` bases, `unsafe(...)` interiors) and
+ * returns every same-frame variable that can be the borrow's backing.
+ * `ref`-bound parameters are NOT collected — their backing lives in a
+ * caller frame and cannot be invalidated by anything this scope does.
+ *
+ * Used by the same-scope invalidation gate: while the `ref` binding is
+ * live, reassigning or consuming any collected source would free or
+ * replace the borrowed backing (e.g. `xs = ArrayList.new()` after
+ * `ref(r) := xs.project(0)` frees the Rc buffer `r` points into).
+ */
+export function collectRefBorrowSources(expr: Expr): Variable[] {
+  const out: Variable[] = [];
+  const visit = (e: Expr): void => {
+    e = unwrapBeginBlocks(e);
+    if (exprIsFunctionCall(e) && exprIsFunctionCallOf(e, ":", 2)) {
+      const labeledValue = (e as FnCallExpr).args[1];
+      if (labeledValue) visit(labeledValue);
+      return;
+    }
+    if (exprIsAtom(e)) {
+      if (!e.$?.env || !e.$?.variableName) return;
+      const vars = getVariablesFromEnv(e.$.env, e.$.variableName);
+      if (vars.length === 0) return;
+      const v = vars[vars.length - 1]!;
+      // A ref-bound parameter's backing is caller-owned; same-scope
+      // mutation cannot invalidate it. Everything else (same-frame
+      // locals admitted by R1') is a collectable source.
+      if (!v.isRef) out.push(v);
+      return;
+    }
+    if (!exprIsFunctionCall(e)) return;
+    const call = e as FnCallExpr;
+    if (exprIsFunctionCallOf(call, BuiltinFunctions.unsafe)) {
+      for (const a of call.args) visit(a);
+      return;
+    }
+    // R2 projection: collect from the base.
+    if (exprIsFunctionCallOf(call, ".", 2)) {
+      const r2RecvValue = call.args[0]?.$?.value;
+      if (r2RecvValue && isTypeValue(r2RecvValue)) return;
+      visit(call.args[0]!);
+      return;
+    }
+    // R4 cond/match: collect from every arm body.
+    if (exprIsFunctionCallOf(call, "cond")) {
+      for (const arm of call.args) {
+        if (
+          exprIsFunctionCall(arm) &&
+          exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
+        ) {
+          visit((arm as FnCallExpr).args[1]!);
+        }
+      }
+      return;
+    }
+    if (exprIsFunctionCallOf(call, "match")) {
+      for (let i = 1; i < call.args.length; i++) {
+        const arm = call.args[i];
+        if (
+          arm &&
+          exprIsFunctionCall(arm) &&
+          exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
+        ) {
+          visit((arm as FnCallExpr).args[1]!);
+        }
+      }
+      return;
+    }
+    if (
+      exprIsFunctionCallOf(call, "&+", 2) ||
+      exprIsFunctionCallOf(call, "&-", 2)
+    ) {
+      visit(call.args[0]!);
+      return;
+    }
+    // R3 borrowing call (incl. method dispatch): collect from every
+    // argument that can source the borrow — `ref`-typed parameters and
+    // (conservatively) any argument whose type may provide the backing
+    // storage. The method receiver is the implicit first argument.
+    const isMethodCall = exprIsFunctionCallOf(call.func, ".", 2);
+    let calleeType: FunctionType | undefined;
+    if (isMethodCall) {
+      const t = call.func.$?.type;
+      if (t && isFunctionType(t)) calleeType = t;
+    } else {
+      const calleeValue = call.func.$?.value;
+      if (calleeValue && isFunctionValue(calleeValue)) {
+        const t = calleeValue.type;
+        if (isFunctionType(t)) calleeType = t;
+      }
+    }
+    if (!calleeType) return;
+    const params = calleeType.parameters;
+    const callArgs: Expr[] = isMethodCall
+      ? [(call.func as FnCallExpr).args[0]!, ...call.args]
+      : call.args;
+    for (let i = 0; i < params.length; i++) {
+      const p = params[i]!;
+      const a = callArgs[i];
+      if (!a) continue;
+      if (p.isRef || typeMayProvideSliceSource(p.type)) {
+        visit(a);
+      }
+    }
+  };
+  visit(expr);
+  return out;
 }

@@ -160,6 +160,17 @@ export interface Variable {
    */
   consumedAtToken: Token | undefined;
 
+  /**
+   * Same-scope borrow-invalidation gate: the live `ref(name) := …`
+   * bindings whose borrow ROOTS in this variable (collected by
+   * `collectRefBorrowSources`). While any entry's ref variable is
+   * still in scope, reassigning or consuming this variable would free
+   * or replace the borrowed backing — rejected at the assignment /
+   * consume sites. Entries whose ref variable has left scope are
+   * ignored (checked by identity against the current env).
+   */
+  refBorrowedBy?: { refName: string; refVariable: Variable; token: Token }[];
+
   /* This is only used for temp variable, check the
    * tempVariableName of the ReferenceExpr of AstType.Reference
    */

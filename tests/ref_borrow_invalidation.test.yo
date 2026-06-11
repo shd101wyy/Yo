@@ -1,0 +1,65 @@
+//! Same-scope borrow-invalidation gate (closes the documented flowability
+//! limitation): while a `ref(name) := …` binding is live, the variables its
+//! borrow roots in may not be REASSIGNED or MOVED — doing so would free or
+//! replace the borrowed backing. Runtime-proven hole before the gate:
+//! `ref(r) := xs.project(0); xs = ArrayList.new();` left `r` pointing into
+//! the freed Rc buffer.
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+// Reassigning the borrowed container is rejected.
+comptime_expect_error(
+  reassign_while_borrowed :: (fn() -> unit)({
+    xs := ArrayList(String).new();
+    xs.push(String.from("element-zero"));
+    ref(r) := xs.project(usize(0));
+    xs = ArrayList(String).new();
+    println(r);
+  })
+);
+
+// Moving (box) the borrowed container is rejected.
+comptime_expect_error(
+  move_while_borrowed :: (fn() -> unit)({
+    xs := ArrayList(String).new();
+    xs.push(String.from("element-zero"));
+    ref(r) := xs.project(usize(0));
+    boxed := box(xs);
+    println(r);
+    ___ := boxed;
+  })
+);
+
+// Positive: the borrow ends with its block — reassigning afterwards is fine.
+test("reassign after the borrowing block ends", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  {
+    ref(r) := xs.project(usize(0));
+    assert(r == "element-zero", "read through the borrow");
+  };
+  xs = ArrayList(String).new();
+  assert(xs.len() == usize(0), "reassigned after borrow ended");
+});
+
+// Positive: reassigning an UNRELATED variable while a borrow lives is fine.
+test("reassigning an unrelated variable is unconstrained", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  other := ArrayList(String).new();
+  ref(r) := xs.project(usize(0));
+  other = ArrayList(String).new();
+  assert(r == "element-zero", "borrow unaffected");
+  assert(other.len() == usize(0), "unrelated reassign fine");
+});
+
+// Positive: copying the element out instead of borrowing leaves the
+// container free to be reassigned.
+test("copying the element out instead of borrowing", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  copied := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  xs = ArrayList(String).new();
+  assert(copied == "element-zero", "copy survives the reassign");
+});
