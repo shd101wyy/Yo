@@ -6045,9 +6045,10 @@ TypeInfo :: enum(
   ULongLong,
   LongDouble,
   Void,
+  /// `str` — static string view (fieldless)
+  Str,
   // Compound types (with metadata)
   Array(element : Type, length : comptime_int),
-  Slice(element : Type),
   Tuple(fields : ComptimeList(TypeFieldInfo)),
   Struct(
     fields : ComptimeList(TypeFieldInfo),
@@ -6081,7 +6082,7 @@ TypeInfo :: enum(
   // Comptime only
   ComptimeInt,
   ComptimeFloat,
-  ComptimeString,
+  ComptimeStr,
   ComptimeList(element : Type),
   // Metaprogramming (fieldless)
   Expr,
@@ -6106,8 +6107,8 @@ impl(
   is_array : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,.Array(_, _) => true, _ => false)
   ),
-  is_slice : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Slice(_) => true, _ => false)
+  is_str : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self,.Str => true, _ => false)
   ),
   is_function : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,.Function(_) => true, _ => false)
@@ -6147,6 +6148,7 @@ impl(
       .LongLong => true,
       .ULongLong => true,
       .LongDouble => true,
+      .Str => true,
       _ => false
     )
   ),
@@ -6189,7 +6191,7 @@ impl(
       self,
       .ComptimeInt => true,
       .ComptimeFloat => true,
-      .ComptimeString => true,
+      .ComptimeStr => true,
       .ComptimeList(_) => true,
       .Expr => true,
       _ => false

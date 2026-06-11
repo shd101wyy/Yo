@@ -32,10 +32,10 @@ TypeInfo :: enum(
   Char, Short, UShort, Int, UInt,
   Long, ULong, LongLong, ULongLong, LongDouble,
   Void,
+  Str,
 
   // === Compound types (with metadata) ===
   Array(element : Type, length : comptime_int),
-  Slice(element : Type),
   Tuple(fields : ComptimeList(TypeFieldInfo)),
   Struct(fields : ComptimeList(TypeFieldInfo), kind : StructKind),
   Enum(variants : ComptimeList(VariantInfo)),
@@ -52,7 +52,7 @@ TypeInfo :: enum(
        negative_traits : ComptimeList(TraitInfo), resolved_type : Type),
 
   // === Comptime only ===
-  ComptimeInt, ComptimeFloat, ComptimeString,
+  ComptimeInt, ComptimeFloat, ComptimeStr,
   ComptimeList(element : Type),
 
   // === Metaprogramming (fieldless) ===
@@ -73,18 +73,18 @@ info.is_enum()       // matches .Enum(_)
 info.is_union()      // matches .Union(_)
 info.is_tuple()      // matches .Tuple(_)
 info.is_array()      // matches .Array(_, _)
-info.is_slice()      // matches .Slice(_)
+info.is_str()        // matches .Str
 info.is_function()   // matches .Function(_)
 info.is_pointer()    // matches .Ptr(_)
 info.is_trait()      // matches .Trait(_, _)
 info.is_void()       // matches .Void
 
 // Numeric guards
-info.is_primitive()  // all primitive variants (Unit, Bool, integers, floats, C types, Void)
+info.is_primitive()  // all primitive variants (Bool, integers, floats, C types, Str)
 info.is_integer()    // Usize, Isize, U8..I64, Char, Short..ULongLong
 info.is_float()      // F32, F64, LongDouble
 info.is_numeric()    // is_integer() || is_float()
-info.is_comptime()   // ComptimeInt, ComptimeFloat, ComptimeString, ComptimeList, Expr
+info.is_comptime()   // ComptimeInt, ComptimeFloat, ComptimeStr, ComptimeList, Expr
 ```
 
 ## Extracting Compound Data

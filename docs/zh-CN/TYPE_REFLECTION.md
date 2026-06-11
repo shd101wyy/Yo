@@ -32,10 +32,10 @@ TypeInfo :: enum(
   Char, Short, UShort, Int, UInt,
   Long, ULong, LongLong, ULongLong, LongDouble,
   Void,
+  Str,
 
   // === 复合类型（带元数据）===
   Array(element : Type, length : comptime_int),
-  Slice(element : Type),
   Tuple(fields : ComptimeList(TypeFieldInfo)),
   Struct(fields : ComptimeList(TypeFieldInfo), kind : StructKind),
   Enum(variants : ComptimeList(VariantInfo)),
@@ -52,7 +52,7 @@ TypeInfo :: enum(
        negative_traits : ComptimeList(TraitInfo), resolved_type : Type),
 
   // === 仅编译时 ===
-  ComptimeInt, ComptimeFloat, ComptimeString,
+  ComptimeInt, ComptimeFloat, ComptimeStr,
   ComptimeList(element : Type),
 
   // === 元编程（无字段）===
@@ -73,7 +73,7 @@ info.is_enum()       // 匹配 .Enum(_)
 info.is_union()      // 匹配 .Union(_)
 info.is_tuple()      // 匹配 .Tuple(_)
 info.is_array()      // 匹配 .Array(_, _)
-info.is_slice()      // 匹配 .Slice(_)
+info.is_str()        // 匹配 .Str
 info.is_function()   // 匹配 .Function(_)
 info.is_pointer()    // 匹配 .Ptr(_)
 info.is_trait()      // 匹配 .Trait(_, _)
@@ -84,7 +84,7 @@ info.is_primitive()  // 所有原始变体
 info.is_integer()    // Usize, Isize, U8..I64, Char, Short..ULongLong
 info.is_float()      // F32, F64, LongDouble
 info.is_numeric()    // is_integer() || is_float()
-info.is_comptime()   // ComptimeInt, ComptimeFloat, ComptimeString, ComptimeList, Expr
+info.is_comptime()   // ComptimeInt, ComptimeFloat, ComptimeStr, ComptimeList, Expr
 ```
 
 ## 提取复合数据

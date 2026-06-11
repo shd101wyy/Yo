@@ -3131,7 +3131,7 @@ describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
 
 Guard methods on `TypeInfo`:
 
-- **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_void()`
+- **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_str()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_void()`
 - **Numeric**: `is_primitive()`, `is_integer()`, `is_float()`, `is_numeric()`, `is_comptime()`
 
 For the full TypeInfo enum definition, metadata structs, and detailed usage, see [TYPE_REFLECTION.md](./TYPE_REFLECTION.md).

@@ -591,7 +591,9 @@ function typeTagToVariantName(tag: string): string {
     case TypeTag.ComptimeFloat:
       return "ComptimeFloat";
     case TypeTag.ComptimeString:
-      return "ComptimeString";
+      return "ComptimeStr";
+    case TypeTag.Str:
+      return "Str";
     case TypeTag.Char:
       return "Char";
     case TypeTag.Short:
@@ -711,6 +713,7 @@ export function evaluateYoTypeGetInfo({
     case TypeTag.ComptimeInt:
     case TypeTag.ComptimeFloat:
     case TypeTag.ComptimeString:
+    case TypeTag.Str:
     case TypeTag.Char:
     case TypeTag.Short:
     case TypeTag.UShort:

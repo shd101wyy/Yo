@@ -66,6 +66,23 @@ test("TypeInfo for primitive types", {
   comptime_assert(Type.get_info(u8).is_primitive(), "u8 should be primitive");
   comptime_assert(Type.get_info(char).is_primitive(), "char should be primitive");
   comptime_assert(Type.get_info(usize).is_primitive(), "usize should be primitive");
+  comptime_assert(Type.get_info(str).is_primitive(), "str should be primitive");
+});
+test("TypeInfo for str and comptime_str", {
+  k_str :: Type.get_info(str);
+  comptime_assert(k_str.is_str(), "str should be Str");
+  comptime_assert(!(k_str.is_comptime()), "str is not comptime-only");
+  comptime_assert(
+    match(k_str,.Str => true, _ => false),
+    "str tag should match .Str"
+  );
+  k_cstr :: Type.get_info(comptime_str);
+  comptime_assert(!(k_cstr.is_str()), "comptime_str is not Str");
+  comptime_assert(k_cstr.is_comptime(), "comptime_str is comptime-only");
+  comptime_assert(
+    match(k_cstr,.ComptimeStr => true, _ => false),
+    "comptime_str tag should match .ComptimeStr"
+  );
 });
 TIPoint :: struct(x : i32, y : i32);
 TIColor :: enum(Red, Green, Blue);

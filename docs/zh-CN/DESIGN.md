@@ -3123,7 +3123,7 @@ describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
 
 `TypeInfo` 上的守卫方法：
 
-- **结构性**：`is_struct()`、`is_enum()`、`is_union()`、`is_tuple()`、`is_array()`、`is_slice()`、`is_function()`、`is_pointer()`、`is_trait()`、`is_void()`
+- **结构性**：`is_struct()`、`is_enum()`、`is_union()`、`is_tuple()`、`is_array()`、`is_str()`、`is_function()`、`is_pointer()`、`is_trait()`、`is_void()`
 - **数值性**：`is_primitive()`、`is_integer()`、`is_float()`、`is_numeric()`、`is_comptime()`
 
 完整的 TypeInfo 枚举定义、元数据结构体和详细用法，请参阅 [TYPE_REFLECTION.md](./TYPE_REFLECTION.md)。
