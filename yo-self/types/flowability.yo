@@ -571,8 +571,10 @@ require_ref_own_argument_exclusivity :: (
     exn : Exception
   ) -> unit
 )({
-  ref_roots := ArrayList({ idx : usize, lbl : String, variable : Variable }).new();
-  own_roots := ArrayList({ idx : usize, lbl : String, variable : Variable, tok : Token }).new();
+  ref_root_vars := ArrayList(Variable).new();
+  ref_root_idxs := ArrayList(usize).new();
+  own_root_vars := ArrayList(Variable).new();
+  own_root_idxs := ArrayList(usize).new();
   (limit : usize) = args.len();
   (pi : usize) = usize(0);
   while(pi < limit, {
@@ -582,8 +584,6 @@ require_ref_own_argument_exclusivity :: (
       pi = (pi + usize(1));
     }, {
       match(args.get(pi),.Some(arg) => {
-        // For index-trait calls (xs(i)), extract the container atom from the
-        // call's func expression — _place_root_atom only walks .-chains.
         root_atom_opt := match(
           _info(ctx, arg),
           .Some(inf) => {
@@ -607,14 +607,11 @@ require_ref_own_argument_exclusivity :: (
             if(vars.len() > usize(0), {
               match(vars.get(vars.len() - usize(1)),.Some(vv) => {
                 if(is_ref, {
-                  ref_roots.push({ idx : pi, lbl : String.from(""), variable : vv });
+                  ref_root_vars.push(vv);
+                  ref_root_idxs.push(pi);
                 }, {
-                  own_roots.push({
-                    idx : pi,
-                    lbl : String.from(""),
-                    variable : vv,
-                    tok : ast_expr_token(arg)
-                  });
+                  own_root_vars.push(vv);
+                  own_root_idxs.push(pi);
                 });
               }, .None => ());
             });
@@ -626,25 +623,36 @@ require_ref_own_argument_exclusivity :: (
     });
   });
   (oi : usize) = usize(0);
-  while(oi < own_roots.len(), {
-    own := match(own_roots.get(oi),.Some(o) => o,.None => break);
+  while(oi < own_root_vars.len(), {
     (ri : usize) = usize(0);
-    while(ri < ref_roots.len(), {
-      ref := match(ref_roots.get(ri),.Some(r) => r,.None => break);
-      if(!(ref.idx == own.idx), {
-        if(alias_group_root(ref.variable) == alias_group_root(own.variable), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                own.tok,
-                `Cannot pass "${own.variable.name}" to the own parameter in the same call where argument ${ref.idx + usize(1)} borrows from it (bound to a ref parameter) — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
-                false,
-                .None
-              )
-            )
-          );
-        });
-      });
+    while(ri < ref_root_vars.len(), {
+      // Check ref and own indices differ, then check aliasing.
+      // Use nested if/match to stay in unit-return position.
+      match(own_root_idxs.get(oi),.Some(own_idx) =>
+        match(ref_root_idxs.get(ri),.Some(ref_idx) =>
+          if(!(ref_idx == own_idx), {
+            match(own_root_vars.get(oi),.Some(own_var) =>
+              match(ref_root_vars.get(ri),.Some(ref_var) =>
+                if(alias_group_root(ref_var) == alias_group_root(own_var), {
+                  match(args.get(own_idx),.Some(own_arg) =>
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(own_arg),
+                          `Cannot pass "${own_var.name}" to the own parameter in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to a ref parameter) — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
+                          false,
+                          .None
+                        )
+                      )
+                    ),
+                    .None => ()
+                  );
+                })
+              ,.None => ()),
+            .None => ());
+          })
+        ,.None => ()),
+      .None => ());
       ri = (ri + usize(1));
     });
     oi = (oi + usize(1));
