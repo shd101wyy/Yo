@@ -587,44 +587,52 @@ require_ref_own_argument_exclusivity :: (
       pi = (pi + usize(1));
     }, {
       lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi),.Some(l) => l,.None => String.from("")), true => String.from(""));
-      match(args.get(pi),.Some(arg) => {
-        root_atom_opt := match(
-          _info(ctx, arg),
-          .Some(inf) => {
-            is_idx := match(inf.index_trait_ptr_type,.Some(_) => true,.None => false);
-            cond(
-              (is_idx && ast_expr_is_fn_call(arg)) => match(
-                arg,
-                .FnCall(_, fc, _, _, _) => _place_root_atom(fc.*),
-                _ => Option(AstExpr).None
-              ),
-              true => _place_root_atom(arg)
-            )
-          },
-          .None => Option(AstExpr).None
-        );
-        match(
-          root_atom_opt,
-          .Some(root_atom) => {
-            root_env := match(_info(ctx, root_atom),.Some(ri) => ri.env,.None => env);
-            vars := get_variables_from_env(root_env, ast_expr_token(root_atom).value);
-            if(vars.len() > usize(0), {
-              match(vars.get(vars.len() - usize(1)),.Some(vv) => {
-                if(is_ref, {
-                  ref_root_vars.push(vv);
-                  ref_root_idxs.push(pi);
-                  ref_root_lbls.push(lbl);
-                }, {
-                  own_root_vars.push(vv);
-                  own_root_idxs.push(pi);
-                  own_root_lbls.push(lbl);
-                });
-              }, .None => ());
-            });
-          },
-          .None => ()
-        );
-      }, .None => ());
+      match(
+        args.get(pi),
+        .Some(arg) => {
+          root_atom_opt := match(
+            _info(ctx, arg),
+            .Some(inf) => {
+              is_idx := match(inf.index_trait_ptr_type,.Some(_) => true,.None => false);
+              cond(
+                (is_idx && ast_expr_is_fn_call(arg)) => match(
+                  arg,
+                  .FnCall(_, fc, _, _, _) => _place_root_atom(fc.*),
+                  _ => Option(AstExpr).None
+                ),
+                true => _place_root_atom(arg)
+              )
+            },
+            .None => Option(AstExpr).None
+          );
+          match(
+            root_atom_opt,
+            .Some(root_atom) => {
+              root_env := match(_info(ctx, root_atom),.Some(ri) => ri.env,.None => env);
+              vars := get_variables_from_env(root_env, ast_expr_token(root_atom).value);
+              if(vars.len() > usize(0), {
+                match(
+                  vars.get(vars.len() - usize(1)),
+                  .Some(vv) => {
+                    if(is_ref, {
+                      ref_root_vars.push(vv);
+                      ref_root_idxs.push(pi);
+                      ref_root_lbls.push(lbl);
+                    }, {
+                      own_root_vars.push(vv);
+                      own_root_idxs.push(pi);
+                      own_root_lbls.push(lbl);
+                    });
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
       pi = (pi + usize(1));
     });
   });
@@ -634,33 +642,47 @@ require_ref_own_argument_exclusivity :: (
     while(ri < ref_root_vars.len(), {
       // Check ref and own indices differ, then check aliasing.
       // Use nested if/match to stay in unit-return position.
-      match(own_root_idxs.get(oi),.Some(own_idx) =>
-        match(ref_root_idxs.get(ri),.Some(ref_idx) =>
-          if(!(ref_idx == own_idx), {
-            match(own_root_vars.get(oi),.Some(own_var) =>
-              match(ref_root_vars.get(ri),.Some(ref_var) =>
-                if(alias_group_root(ref_var) == alias_group_root(own_var), {
-                  own_lbl := match(own_root_lbls.get(oi),.Some(l) => l,.None => String.from(""));
-                  ref_lbl := match(ref_root_lbls.get(ri),.Some(l) => l,.None => String.from(""));
-                  match(args.get(own_idx),.Some(own_arg) =>
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          ast_expr_token(own_arg),
-                          `Cannot pass "${own_var.name}" to the own parameter "${own_lbl}" in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to the ref parameter "${ref_lbl}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
-                          false,
-                          .None
-                        )
-                      )
+      match(
+        own_root_idxs.get(oi),
+        .Some(own_idx) =>
+          match(
+            ref_root_idxs.get(ri),
+            .Some(ref_idx) =>
+              if(!(ref_idx == own_idx), {
+                match(
+                  own_root_vars.get(oi),
+                  .Some(own_var) =>
+                    match(
+                      ref_root_vars.get(ri),
+                      .Some(ref_var) =>
+                        if(alias_group_root(ref_var) == alias_group_root(own_var), {
+                          own_lbl := match(own_root_lbls.get(oi),.Some(l) => l,.None => String.from(""));
+                          ref_lbl := match(ref_root_lbls.get(ri),.Some(l) => l,.None => String.from(""));
+                          match(
+                            args.get(own_idx),
+                            .Some(own_arg) =>
+                              exn.throw(
+                                dyn(
+                                  format_error_message(
+                                    ast_expr_token(own_arg),
+                                    `Cannot pass "${own_var.name}" to the own parameter "${own_lbl}" in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to the ref parameter "${ref_lbl}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
+                                    false,
+                                    .None
+                                  )
+                                )
+                              ),
+                            .None => ()
+                          );
+                        }),
+                      .None => ()
                     ),
-                    .None => ()
-                  );
-                })
-              ,.None => ()),
-            .None => ());
-          })
-        ,.None => ()),
-      .None => ());
+                  .None => ()
+                );
+              }),
+            .None => ()
+          ),
+        .None => ()
+      );
       ri = (ri + usize(1));
     });
     oi = (oi + usize(1));
