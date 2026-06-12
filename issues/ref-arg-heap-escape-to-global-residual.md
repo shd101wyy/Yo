@@ -90,10 +90,12 @@ Tracked for the codegen-port era; does not block it.
 
 Items 1+2 are now closed in the TypeScript compiler:
 
-1. ✅ **Assert at container growth**: `__yo_borrow_assert_unborrowed(self)` inserted
-   at the start of `push`, `ensure_total_capacity`, `shrink_to_fit` (ArrayList),
-   `_resize` (HashMap, HashSet), and `_grow` (Deque). The function is registered as
-   a builtin that codegens to the C runtime assertion.
+1. ✅ **Assert at container growth**: Fully automated via codegen — whenever a
+   `__yo_realloc` or `__yo_free` call is encountered inside a method of an
+   RC-managed object type, the codegen auto-emits
+   `__yo_borrow_assert_unborrowed((void*)self)` before the call. No manual
+   annotations needed in container code — any third-party container type gets
+   the check automatically.
 
 2. ✅ **Acquire/release at call sites**: `__yo_borrow_acquire((void*)container)`
    emitted before calls with interior-ref arguments (`xs(i)`, `self->_inner(i)`),
