@@ -83,7 +83,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref` is **second-class**: it appears only in parameter position (`ref(name) : T`) and in local lvalue borrows (`ref(r) := lvalue` — a local, a field of a `ref`-bound param, or an object field). **Functions cannot return `ref`**, there is no first-class "`ref` type", and a borrow cannot leak into a struct field or a closure capture — so every borrow roots in a frame slot or an object field, and object-field borrows additionally **pin the owner** (+1 for the borrow's scope) so the object cannot be freed under them. Borrow bindings are further guarded by the **borrow-invalidation** diagnostics that reject reassigning, moving, calling methods on, or aliasing a variable while a `ref` binding still borrows from it. See [FLOWABILITY.md](./FLOWABILITY.md).
+`ref` is **second-class** and exists ONLY in parameter position (`ref(name) : T`). Functions cannot return `ref`, there are no local ref bindings (`ref(r) := …` is rejected — fields read and write in place), there is no first-class "`ref` type", and a borrow cannot leak into a struct field or a closure capture. A ref argument is a simple lvalue place (a variable, or `var.field` rooted at a local/param), so the borrowed storage is alive for the whole call by construction. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 

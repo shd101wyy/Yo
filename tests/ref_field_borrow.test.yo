@@ -1,66 +1,89 @@
-//! Regression tests: `ref(r) := obj.field` borrows the FIELD LVALUE in
-//! place. Before the fix this shape (a) emitted the initializer without `&`
-//! (C compile error) and (b) write-through reassignment flipped the borrow
-//! to "owning", generating a spurious scope-end drop of `(*r)` that
-//! double-freed the field the owner still holds.
-//! issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md
+//! v4.1 (plans/BORROW_EXCLUSIVITY.md): `ref` is parameter-only, and a
+//! ref ARGUMENT is a simple lvalue place. Covered here:
+//! - field places of locals / ref params are legal (read + write-through);
+//! - a chain through an intermediate OBJECT is rejected (its handle
+//!   lives in a slot that could be replaced during the call — bind the
+//!   object to a local first);
+//! - a field chain rooted at a MODULE-LEVEL variable is rejected (a
+//!   callee could reassign the global);
+//! - a call may not receive the same object as both a ref-rooted
+//!   argument and an `own` argument.
 open(import("std/fmt"));
 open(import("std/string"));
 
 Holder :: object(s : String, n : i32);
+Wrapper :: object(inner : Holder);
 
-test("read through an object-field borrow", {
-  h := Holder(s : String.from("hello"), n : i32(1));
-  ref(r) := h.s;
-  assert(r == "hello", "field read through the borrow");
+bump :: (fn(ref(v) : i32) -> unit)({
+  v = (v + i32(1));
 });
 
-test("write through an object-field borrow mutates in place", {
+test("field of a local object passed to a ref param", {
+  h := Holder(s : String.from("x"), n : i32(41));
+  bump(h.n);
+  assert(h.n == i32(42), "write-through landed in the field");
+});
+
+test("String field write-through via a ref param", {
+  replace_s :: (fn(ref(v) : String, nv : String) -> unit)({
+    v = nv;
+  });
   h := Holder(s : String.from("hello"), n : i32(1));
-  ref(r) := h.s;
-  r = String.from("rewritten");
+  replace_s(h.s, String.from("rewritten"));
   assert(h.s == "rewritten", "owner sees the write");
-});
-
-test("scalar field borrow read and write", {
-  h := Holder(s : String.from("x"), n : i32(7));
-  ref(rn) := h.n;
-  assert(rn == i32(7), "scalar read");
-  rn = i32(42);
-  assert(h.n == i32(42), "scalar write lands in the owner");
 });
 
 PointS :: struct(x : i32, y : i32);
 
-test("value-struct field borrow", {
+test("value-struct field place", {
   p := PointS(x : i32(1), y : i32(2));
-  ref(rx) := p.x;
-  rx = i32(10);
-  assert(p.x == i32(10), "stack-struct field write through the borrow");
+  bump(p.x);
+  assert(p.x == i32(2), "stack-struct field write through the ref param");
 });
 
-// --- Owner pinning + call-site ref/own exclusivity (v4) ---
-// `ref(r) := h.s` pins the OWNER (+1 for the borrow's scope, dropped by
-// the normal scope-end machinery), and a call may not receive the same
-// object as both a ref-rooted argument and an own argument.
-// Same-scope: consuming the borrowed owner via an own call is rejected
-// by the existing call-argument gate.
+// --- The place rule ---
+// Borrowing through an intermediate OBJECT is rejected: `w.inner`'s
+// handle lives in a slot a callee could replace, freeing the borrowed
+// allocation.
 comptime_expect_error(
-  own_call_while_borrowed :: (fn() -> unit)({
-    swallow :: (fn(own(victim) : Holder) -> unit)({
-      ___ := victim;
+  nested_object_hop_rejected :: (fn() -> unit)({
+    grow :: (fn(ref(v) : i32) -> unit)({
+      v = (v + i32(1));
     });
-    h := Holder(s : String.from("element-zero"), n : i32(1));
-    ref(r) := h.s;
-    swallow(h);
-    println(r);
+    w := Wrapper(inner : Holder(s : String.from("x"), n : i32(1)));
+    grow(w.inner.n);
   })
 );
 
-// Argument-position: `f(h.s, h)` creates the borrow AT the call while
-// `own` moves the caller's count into the callee — no prior binding
-// exists for the same-scope gates to mark. The call-site ref/own
-// exclusivity gate rejects it.
+// The recipe: bind the intermediate object to a local — the local
+// handle keeps it alive for as long as the local lives.
+test("bind the intermediate object to a local first", {
+  w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
+  b := w.inner;
+  bump(b.n);
+  assert(w.inner.n == i32(10), "write landed through the local handle");
+});
+
+// A field chain rooted at a MODULE-LEVEL variable is rejected — any
+// callee could reassign the global and free the object.
+g_holder := Holder(s : String.from("g"), n : i32(0));
+comptime_expect_error(
+  module_root_field_rejected :: (fn() -> unit)({
+    bump(g_holder.n);
+  })
+);
+
+// A WHOLE module-level variable is fine — its slot is stable storage.
+g_counter := i32(0);
+test("whole module-level variable to a ref param", {
+  bump(g_counter);
+  assert(g_counter == i32(1), "global slot written through the ref param");
+});
+
+// --- Call-site ref/own exclusivity ---
+// `f(h.s, h)` creates the borrow AT the call while `own` moves the
+// caller's count into the callee, which could release it while the
+// borrow is still in use.
 comptime_expect_error(
   ref_and_own_same_call :: (fn() -> unit)({
     use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)({
@@ -97,20 +120,4 @@ test("ref and own arguments of distinct objects are allowed", {
   b := Holder(s : String.from("other"), n : i32(2));
   n := use_and_sink(a.s, b);
   assert(n == usize(5), "borrow read fine while a distinct object was consumed");
-});
-
-// The pin's drop must fire on normal AND early-return paths without
-// leaking or double-freeing the owner.
-test("owner pin drops correctly on early return", {
-  first_len :: (fn(h : Holder, bail : bool) -> usize)({
-    ref(r) := h.s;
-    if(bail, {
-      return(usize(0));
-    });
-    r.len()
-  });
-  h := Holder(s : String.from("abc"), n : i32(1));
-  assert(first_len(h, false) == usize(3), "normal path");
-  assert(first_len(h, true) == usize(0), "early-return path");
-  assert(h.s == "abc", "owner intact after both paths");
 });

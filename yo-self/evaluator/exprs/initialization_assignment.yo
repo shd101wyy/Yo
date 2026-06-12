@@ -33,14 +33,6 @@ open(import("std/string"));
   BK_REF
 } :: import("../../expr.yo");
 {
-  is_flowable_expr,
-  collect_ref_borrow_sources,
-  collect_alias_group,
-  find_live_borrower_of_variable,
-  FlowOptions,
-  flag_flow_violation
-} :: import("../../types/flowability.yo");
-{
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
@@ -48,7 +40,7 @@ open(import("std/string"));
   has_any_control_flow,
   path_collection_new
 } :: import("../../expr_info.yo");
-{ Environment, Variable, RefBorrowMark, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, add_variable_to_env } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -160,45 +152,19 @@ evaluate_initialization_assignment :: (
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
-  // Detect `ref(name) := expr;` — a second-class reference (borrow) binding.
-  // The bound name aliases the ref-yielding RHS. Mirrors
-  // `initialization-assignment.ts` (the `BuiltinKeywords.ref` unwrap).
-  (is_ref_binding : bool) = false;
+  // v4.1 (plans/BORROW_EXCLUSIVITY.md): local `ref(name) := …` bindings
+  // were REMOVED — `ref` exists only in parameter position. Mirrors the
+  // TS rejection in initialization-assignment.ts.
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_REF,.None), {
-    if(is_const || ctx.force_compile_time_bindings, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            String.from("'ref(name) :=' cannot be used with '::' or in a compile-time-only context — borrows are runtime constructs."),
-            false,
-            .None
-          )
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs),
+          String.from("'ref(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive."),
+          false,
+          .None
         )
-      );
-    });
-    n_ref_args := match(
-      lhs,
-      .FnCall(_, _, rargs, _, _) => rargs.len(),
-      .Atom(_, _) => usize(0)
-    );
-    if(n_ref_args != usize(1), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            `Expected one argument for 'ref' in a local binding, got ${n_ref_args.to_string()}`,
-            false,
-            .None
-          )
-        )
-      );
-    });
-    is_ref_binding = true;
-    actual_lhs = match(
-      lhs,
-      .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
+      )
     );
   });
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN,.None), {
@@ -241,51 +207,13 @@ evaluate_initialization_assignment :: (
       )
     );
   });
-  // Borrow-invalidation gate for ALIAS CREATION (1:1 with TS
-  // initialization-assignment.ts): `y := xs` on an object gives `y`
-  // reference semantics to the same storage; mutating through the alias
-  // would bypass the borrow constraints on `xs`. Conservatively reject
-  // creating a new binding from a bare borrowed source while the borrow
-  // lives (issues/flowability-growth-invalidation-method-calls.md).
-  if(ast_expr_is_atom(rhs), {
-    rhs_tok := ast_expr_token(rhs);
-    rhs_vars := get_variables_from_env(env, rhs_tok.value);
-    if(rhs_vars.len() > usize(0), {
-      match(
-        rhs_vars.get(rhs_vars.len() - usize(1)),
-        .Some(rhs_var) => match(
-          find_live_borrower_of_variable(rhs_var, env),
-          .Some(mark) => {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  rhs_tok,
-                  `Cannot create a new binding from "${rhs_tok.value}" while 'ref(${mark.ref_name}) := …' borrows from it — the new handle could mutate the borrowed storage without the borrow constraints applying to it.\n\nEnd the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
-                  false,
-                  .None
-                )
-              )
-            );
-          },
-          .None => ()
-        ),
-        .None => ()
-      );
-    });
-  });
   // Evaluate the rhs expression.
   // Save/restore context fields that are locally overridden.
   old_expected_type := ctx.expected_type;
   old_is_inside_given_handler := ctx.is_inside_given_handler;
-  old_is_evaluating_ref_binding_rhs := ctx.is_evaluating_ref_binding_rhs;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   if(is_implicit, {
     ctx.is_inside_given_handler = true;
-  });
-  // Borrow-CREATING projections on an already-borrowed source are allowed
-  // (see EvalContext.is_evaluating_ref_binding_rhs).
-  if(is_ref_binding, {
-    ctx.is_evaluating_ref_binding_rhs = true;
   });
   // Use the exn-threading (raw) evaluator so a compile error in the rhs
   // propagates to the caller's handler instead of being caught, printed,
@@ -298,36 +226,6 @@ evaluate_initialization_assignment :: (
   rhs = evaluate_expression_raw(rhs, env, ctx, exn);
   ctx.expected_type = old_expected_type;
   ctx.is_inside_given_handler = old_is_inside_given_handler;
-  ctx.is_evaluating_ref_binding_rhs = old_is_evaluating_ref_binding_rhs;
-  // The RHS of a borrow binding is NOT owned: a property-access RHS
-  // (`ref(r) := h.s`) materializes a temp variable registered as
-  // RC-owning — but no dup happened (it's a borrow), so its scope-end
-  // drop would over-release the field the owner still holds. Mark the
-  // temp non-owning (1:1 with TS initialization-assignment.ts;
-  // issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
-  if(is_ref_binding, {
-    rhs_tmp_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
-    match(
-      rhs_tmp_info,
-      .Some(rti) => match(
-        rti.variable_name,
-        .Some(tmp_name) => {
-          tmp_vars := get_variables_from_env(env, tmp_name);
-          if(tmp_vars.len() > usize(0), {
-            match(
-              tmp_vars.get(tmp_vars.len() - usize(1)),
-              .Some(tmp_var) => {
-                tmp_var.is_owning_the_rc_value = false;
-              },
-              .None => ()
-            );
-          });
-        },
-        .None => ()
-      ),
-      .None => ()
-    );
-  });
   // Update env from the evaluated rhs.
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
   match(
@@ -394,28 +292,6 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
   );
   // Disallow implicit variables as the RHS of non-given assignment.
   throw_expr_is_implicit_variable_error(rhs, env, ctx, exn);
-  // Flowability check on the RHS of `ref(name) := expr;`. The RHS must be a
-  // ref-yielding expression that roots back to a `ref`-bound parameter (or any
-  // same-function local — the borrow is bounded by the enclosing block).
-  // Otherwise the binding would hand out a reference into storage that doesn't
-  // outlive the call frame. Mirrors `initialization-assignment.ts` (the
-  // `isFlowableExpr(rhs, { allowSameFrameLocal: true })` check).
-  if(is_ref_binding, {
-    ref_flow_opts := FlowOptions(
-      allow_same_frame_local : true,
-      allow_parameter_source : false,
-      allow_comptime_source : false,
-      max_local_frame_level : Option(usize).None
-    );
-    if(!(is_flowable_expr(rhs, ctx, ref_flow_opts)), {
-      viol_msg := `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`;
-      // Flag the violation (recording its message) so that if this throw is
-      // swallowed by a def-time trial-eval, the def-time caller re-raises the
-      // same diagnostic via the real `exn` (function_type.yo).
-      flag_flow_violation(viol_msg);
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
-    });
-  });
   // --------------------------------------------------------------------------
   // Branch: atom LHS vs destructuring LHS
   // --------------------------------------------------------------------------
@@ -425,12 +301,8 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     // -------------------------------------------------------------------
     // Check if the RHS variable has been consumed (moved).
     require_expr_not_consumed(rhs, env, ctx, exn);
-    // Insert dup (Phase 2w: stub, no-op) — but NOT for a `ref(name) :=` borrow.
-    // A ref-binding aliases the RHS rather than owning it, so no clone is
-    // inserted. Mirrors the `!isRefBinding` gate in `initialization-assignment.ts`.
-    if(!(is_ref_binding), {
-      set_expr_as_needs_to_call_dup(rhs, ctx);
-    });
+    // Insert dup (Phase 2w: stub, no-op).
+    set_expr_as_needs_to_call_dup(rhs, ctx);
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
@@ -754,55 +626,6 @@ Use \`::\` for compile-time definitions inside impl.`,
       .Some(new_var) => {
         new_var.is_module_level = is_module_level;
         new_var.doc_comment = doc_comment_opt;
-        // A `ref(name) := <ref-yielding expr>` local carries `is_ref : true`
-        // (mirrors TS initialization-assignment.ts:510 `isRef: isRefBinding`).
-        // The closure ref-capture gate (values/anonymous_function.yo) keys on
-        // it — without this, a captured ref-LOCAL (vs ref-param) was not
-        // rejected (tests/ref_local_binding.test.yo `make_capturing_closure`).
-        new_var.is_ref = is_ref_binding;
-        // Same-scope borrow-invalidation gate: record on every same-frame
-        // SOURCE variable that this `ref` binding borrows from it. The
-        // assignment/consume sites reject reassign/move of a source while
-        // the ref variable is still in scope. Mirrors TS
-        // initialization-assignment.ts (collectRefBorrowSources marking).
-        if(is_ref_binding, {
-          sources := ArrayList(Variable).new();
-          collect_ref_borrow_sources(rhs, ctx, sources);
-          (srci : usize) = usize(0);
-          while(srci < sources.len(), {
-            match(
-              sources.get(srci),
-              .Some(src_var) => {
-                // Mark the source's whole ALIAS GROUP, not just the
-                // source: `xs2 := xs` before the borrow gives a second
-                // handle to the same object, and mutating through it
-                // invalidates the borrow just the same (1:1 with TS).
-                group := collect_alias_group(src_var, env);
-                (gmi : usize) = usize(0);
-                while(gmi < group.len(), {
-                  match(
-                    group.get(gmi),
-                    .Some(member) => {
-                      if(!(member.id == new_var.id), {
-                        member.ref_borrowed_by.push(
-                          RefBorrowMark(
-                            ref_name : var_name.clone(),
-                            ref_variable_id : new_var.id.clone(),
-                            token : actual_lhs_tok
-                          )
-                        );
-                      });
-                    },
-                    .None => ()
-                  );
-                  gmi = (gmi + usize(1));
-                });
-              },
-              .None => ()
-            );
-            srci = (srci + usize(1));
-          });
-        });
         // Set is_owning_the_same_rc_value_as when applicable.
         match(
           is_owning_same_rc_value_as,

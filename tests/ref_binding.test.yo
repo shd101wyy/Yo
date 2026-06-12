@@ -1,66 +1,42 @@
-/// `ref(name) := lvalue` local-binding semantics: borrows of fields of
-/// ref-bound params and of object fields, with read/write-through
-/// verified end-to-end at runtime.
-///
-/// v4 (plans/BORROW_EXCLUSIVITY.md): ref-RETURNING functions were
-/// removed — refs are second-class and appear only in parameter
-/// position and local lvalue borrows, so every borrow here is a direct
-/// `ref(r) := lvalue` binding.
+/// `ref(name) : T` parameter semantics — reads and writes through the
+/// parameter access the caller's storage. v4.1
+/// (plans/BORROW_EXCLUSIVITY.md): `ref` exists ONLY in parameter
+/// position, so every test here goes through a ref param.
 Point :: struct(x : i32, y : i32);
-/// Enum element type for the enum-field borrow regression test below.
+/// Enum regression type (was the project-enum / enum-field-borrow test).
 RefBindEnum :: enum(A(v : i32), B(w : i32));
 EnumHolder :: object(e : RefBindEnum);
-test("read through ref(name) := field of a ref-bound param", {
-  caller :: (fn(ref(outer) : Point) -> i32)({
-    ref(r) := outer.x;
-    r
-  });
+test("read through a ref param", {
+  get_x :: (fn(ref(p) : Point) -> i32)(p.x);
   pt := Point(x : i32(10), y : i32(20));
-  v := caller(pt);
-  assert(v == i32(10), "read via ref-binding returns underlying x");
+  assert(get_x(pt) == i32(10), "read via ref param");
 });
-test("write through ref(name) := field of a ref-bound param", {
-  caller :: (fn(ref(outer) : Point, value : i32) -> unit)({
-    ref(r) := outer.x;
-    r = value;
+test("write through a ref param propagates to the caller", {
+  set_x :: (fn(ref(p) : Point, value : i32) -> unit)({
+    p.x = value;
   });
   pt := Point(x : i32(10), y : i32(20));
-  caller(pt, i32(99));
-  assert(pt.x == i32(99), "write via ref-binding propagates to caller's pt.x");
+  set_x(pt, i32(99));
+  assert(pt.x == i32(99), "write via ref param propagates to caller's pt.x");
   assert(pt.y == i32(20), "unrelated field is untouched");
 });
-test("multiple ref bindings into different fields of same source", {
-  caller :: (fn(ref(outer) : Point) -> i32)({
-    ref(rx) := outer.x;
-    ref(ry) := outer.y;
-    rx + ry
+test("ref params chain through nested calls", {
+  inner :: (fn(ref(q) : Point) -> unit)({
+    q.x = (q.x + i32(1));
   });
-  pt := Point(x : i32(3), y : i32(4));
-  sum := caller(pt);
-  assert(sum == i32(7), "two ref-bindings sourced from the same ref-bound param both read correctly");
-});
-test("ref binding write-then-read returns the new value", {
-  caller :: (fn(ref(outer) : Point) -> i32)({
-    ref(r) := outer.x;
-    r = i32(100);
-    r
+  outer :: (fn(ref(p) : Point) -> unit)({
+    inner(p);
+    inner(p);
   });
   pt := Point(x : i32(0), y : i32(0));
-  v := caller(pt);
-  assert(v == i32(100), "writing through ref then reading returns the new value");
+  outer(pt);
+  assert(pt.x == i32(2), "two increments through the chained refs");
 });
-// Regression (was: ref-binding-from-project-enum-codegen): a `ref`
-// binding to an ENUM lvalue must bind the element pointer directly
-// (borrow), not deref + __dup the pointee into a value — invalid C for
-// enum/struct, and a spurious clone even if it had compiled.
-test("ref(name) := obj.field borrows an enum field (no clone)", {
+test("enum field writes in place (no borrow needed)", {
   holder := EnumHolder(e : RefBindEnum.A(i32(7)));
-  ref(first) := holder.e;
-  v0 := match(first,.A(v) => v,.B(w) => w);
-  assert(v0 == i32(7), "borrowed enum field reads 7");
-  // Writing through the ref mutates the field in place (proves it is a
-  // borrow of the live field, not a clone).
-  first = RefBindEnum.A(i32(100));
+  v0 := match(holder.e,.A(v) => v,.B(w) => w);
+  assert(v0 == i32(7), "enum field reads 7");
+  holder.e = RefBindEnum.A(i32(100));
   v0b := match(holder.e,.A(v) => v,.B(w) => w);
-  assert(v0b == i32(100), "write through ref-binding mutated the field in place");
+  assert(v0b == i32(100), "enum field write lands in place");
 });

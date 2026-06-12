@@ -34,17 +34,18 @@ open(import("std/string"));
   BF_DOT,
   BF_PANIC,
   BF_UNSAFE,
-  make_err_expr
+  make_err_expr,
+  ast_expr_to_string
 } :: import("../expr.yo");
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type }
 :: import("../expr_info.yo");
-{ Variable, Environment, RefBorrowMark, get_variables_from_env } :: import("../env.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../env.yo");
 { format_error_message } :: import("../error.yo");
 { Exception } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
-{ is_function_type } :: import("./guards.yo");
+{ is_function_type, is_object_type, is_atomic_object_type } :: import("./guards.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr }
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
@@ -498,248 +499,6 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   all_ok
 });
-/// Collect the LOCAL VARIABLES a `ref(name) := rhs;` borrow roots in.
-///
-/// Walks the same structure `is_flowable_expr` accepts (R1 names, R2
-/// projections, R3 borrowing-call arguments incl. method receivers, R4
-/// cond/match arms, `&+`/`&-` bases, `unsafe(...)` interiors) and pushes
-/// every same-frame variable that can be the borrow's backing into `out`.
-/// `ref`-bound parameters are NOT collected — their backing lives in a
-/// caller frame and cannot be invalidated by anything this scope does.
-/// Mirrors `collectRefBorrowSources` in src/evaluator/types/flowability.ts.
-collect_ref_borrow_sources :: (
-  fn(
-    expr_in : AstExpr,
-    ctx : EvalContext,
-    out : ArrayList(Variable)
-  ) -> unit
-)({
-  expr := _unwrap_begin_blocks(expr_in);
-  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
-    largs := match(expr,.FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
-    match(
-      largs.get(usize(1)),
-      .Some(lv) => {
-        recur(lv, ctx, out);
-        return(());
-      },
-      .None => ()
-    );
-  });
-  // R1: bare name — collect the variable unless it is a ref-bound param.
-  if(ast_expr_is_atom(expr), {
-    info := match(
-      _info(ctx, expr),
-      .Some(i) => i,
-      .None => {
-        return(());
-      }
-    );
-    var_name := match(
-      info.variable_name,
-      .Some(n) => n,
-      .None => {
-        return(());
-      }
-    );
-    vars := get_variables_from_env(info.env, var_name);
-    if(vars.len() == usize(0), {
-      return(());
-    });
-    v := match(
-      vars.get(vars.len() - usize(1)),
-      .Some(x) => x,
-      .None => {
-        return(());
-      }
-    );
-    if(!(v.is_ref), {
-      out.push(v);
-    });
-    return(());
-  });
-  if(!(ast_expr_is_fn_call(expr)), {
-    return(());
-  });
-  call_func := match(expr,.FnCall(_, f, _, _, _) => f.*, _ => expr);
-  call_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-  // unsafe(...) — collect inside the trusted interior.
-  if(ast_expr_is_fn_call_of(expr, BF_UNSAFE, Option(usize).None), {
-    (ui : usize) = usize(0);
-    while(ui < call_args.len(), {
-      match(
-        call_args.get(ui),
-        .Some(a) => {
-          recur(a, ctx, out);
-        },
-        .None => ()
-      );
-      ui = (ui + usize(1));
-    });
-    return(());
-  });
-  // R2: projection — collect from the base (TYPE receivers are variant ctors).
-  if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), {
-    base := match(
-      call_args.get(usize(0)),
-      .Some(a) => a,
-      .None => {
-        return(());
-      }
-    );
-    base_is_type := match(
-      _info(ctx, base),
-      .Some(bi) => match(bi.value,.Some(bv) => is_type_val(bv),.None => false),
-      .None => false
-    );
-    if(!(base_is_type), {
-      recur(base, ctx, out);
-    });
-    return(());
-  });
-  // R4: cond/match — collect from every arm body.
-  if(ast_expr_is_fn_call_of(expr, "cond", Option(usize).None), {
-    (ci : usize) = usize(0);
-    while(ci < call_args.len(), {
-      arm := match(call_args.get(ci),.Some(a) => a,.None => make_err_expr());
-      if(ast_expr_is_fn_call(arm) && ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-        match(
-          arm_args.get(usize(1)),
-          .Some(ab) => {
-            recur(ab, ctx, out);
-          },
-          .None => ()
-        );
-      });
-      ci = (ci + usize(1));
-    });
-    return(());
-  });
-  if(ast_expr_is_fn_call_of(expr, "match", Option(usize).None), {
-    (mi : usize) = usize(1);
-    while(mi < call_args.len(), {
-      arm := match(call_args.get(mi),.Some(a) => a,.None => make_err_expr());
-      if(ast_expr_is_fn_call(arm) && ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-        match(
-          arm_args.get(usize(1)),
-          .Some(ab) => {
-            recur(ab, ctx, out);
-          },
-          .None => ()
-        );
-      });
-      mi = (mi + usize(1));
-    });
-    return(());
-  });
-  // Pointer arithmetic — collect from the base.
-  if(ast_expr_is_fn_call_of(expr, "&+", Option(usize).Some(usize(2))) ||
-    ast_expr_is_fn_call_of(expr, "&-", Option(usize).Some(usize(2))), {
-    match(
-      call_args.get(usize(0)),
-      .Some(b) => {
-        recur(b, ctx, out);
-      },
-      .None => ()
-    );
-    return(());
-  });
-  // R3: borrowing call (incl. method dispatch) — collect from every argument
-  // that can source the borrow (ref params + slice-source-capable params).
-  is_method_call := ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(2)));
-  callee_ty_opt := match(
-    _info(ctx, call_func),
-    .Some(inf) => Option(TypeValue).Some(inf.ty),
-    .None => lookup_method_callee_type(ast_expr_id(expr))
-  );
-  callee_ty := match(
-    callee_ty_opt,
-    .Some(t) => t,
-    .None => {
-      return(());
-    }
-  );
-  if(!(is_function_type(callee_ty)), {
-    return(());
-  });
-  param_types := match(callee_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(callee_ty,.Func({ param_is_ref : pir }) => pir, _ => ArrayList(bool).new());
-  eff_args := ArrayList(AstExpr).new();
-  if(is_method_call, {
-    cf_args := match(call_func,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    match(
-      cf_args.get(usize(0)),
-      .Some(recv) => {
-        _r := eff_args.push(recv);
-      },
-      .None => ()
-    );
-  });
-  (ai : usize) = usize(0);
-  while(ai < call_args.len(), {
-    match(
-      call_args.get(ai),
-      .Some(a) => {
-        _r := eff_args.push(a);
-      },
-      .None => ()
-    );
-    ai = (ai + usize(1));
-  });
-  (pi : usize) = usize(0);
-  while(pi < param_types.len(), {
-    p_is_ref := match(param_is_ref.get(pi),.Some(b) => b,.None => false);
-    p_ty := match(param_types.get(pi),.Some(t) => t,.None => TypeValue.Unit);
-    needs_check := (p_is_ref || type_may_provide_slice_source(p_ty));
-    if(needs_check, {
-      match(
-        eff_args.get(pi),
-        .Some(a) => {
-          recur(a, ctx, out);
-        },
-        .None => ()
-      );
-    });
-    pi = (pi + usize(1));
-  });
-});
-
-/// Mirrors `findLiveBorrowerOfVariable` (src/evaluator/types/flowability.ts):
-/// if `variable` is a borrow SOURCE constrained by a still-live
-/// `ref(name) := …` binding, return that mark (liveness id-checked against
-/// the current env so stale marks from exited blocks don't constrain).
-find_live_borrower_of_variable :: (
-  fn(variable : Variable, env : Environment) -> Option(RefBorrowMark)
-)({
-  (found : Option(RefBorrowMark)) = Option(RefBorrowMark).None;
-  (rbi : usize) = usize(0);
-  while(rbi < variable.ref_borrowed_by.len(), {
-    match(
-      variable.ref_borrowed_by.get(rbi),
-      .Some(mark) => {
-        live_refs := get_variables_from_env(env, mark.ref_name);
-        (lri : usize) = usize(0);
-        while(lri < live_refs.len(), {
-          match(
-            live_refs.get(lri),
-            .Some(lr) => {
-              if(lr.id == mark.ref_variable_id, {
-                found = Option(RefBorrowMark).Some(mark);
-              });
-            },
-            .None => ()
-          );
-          lri = (lri + usize(1));
-        });
-      },
-      .None => ()
-    );
-    rbi = (rbi + usize(1));
-  });
-  found
-});
 /// Mirrors `aliasGroupRoot` (flowability.ts): follow
 /// `is_owning_the_same_rc_value_as` links to the primary owner's id
 /// (step-capped in place of TS's identity-set cycle guard).
@@ -763,97 +522,141 @@ alias_group_root :: (fn(variable : Variable) -> String)({
   });
   root_id
 });
-/// Mirrors `collectAliasGroup` (flowability.ts): all live variables in
-/// `env` that alias the same RC object as `variable` (same alias-group
-/// root), including `variable` itself. Used by the borrow gate so
-/// PRE-EXISTING aliases (`xs2 := xs` before the borrow) are constrained.
-collect_alias_group :: (
-  fn(variable : Variable, env : Environment) -> ArrayList(Variable)
+
+/// v4.1 (plans/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
+/// `ref` parameter. With local ref bindings removed, every borrow is an
+/// argument lvalue evaluated at the call boundary; it is safe iff the
+/// borrowed storage cannot be freed during the call. Whole variables are
+/// stable slots; field chains may not hop through an intermediate OBJECT
+/// (its handle lives in a replaceable slot) and may not root at a
+/// module-level variable (a callee could reassign the global). Mirrors
+/// `requireValidRefArgumentPlaces` in src/evaluator/types/flowability.ts.
+/// Call AFTER argument evaluation (the chain types must be resolved).
+require_valid_ref_argument_places :: (
+  fn(
+    param_is_ref : ArrayList(bool),
+    args : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
 )({
-  root_id := alias_group_root(variable);
-  group := ArrayList(Variable).new();
-  group.push(variable);
-  (fi : usize) = usize(0);
-  while(fi < env.frames.len(), {
-    match(
-      env.frames.get(fi),
-      .Some(frame) => {
-        (vi : usize) = usize(0);
-        while(vi < frame.variables.len(), {
-          match(
-            frame.variables.get(vi),
-            .Some(v) => {
-              if(!(v.id == variable.id), {
-                if(alias_group_root(v) == root_id, {
-                  group.push(v);
-                });
-              });
-            },
-            .None => ()
+  (n : usize) = param_is_ref.len();
+  if(args.len() < n, {
+    n = args.len();
+  });
+  (i : usize) = usize(0);
+  while(i < n, {
+    p_ref := match(param_is_ref.get(i),.Some(b) => b,.None => false);
+    if(p_ref, {
+      arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+      arg_tok := ast_expr_token(arg);
+      if(!(arg_tok.module_path.starts_with(String.from("auto-generated://"))), {
+        if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, BF_DOT,.Some(usize(2))), {
+          // Walk the field chain outermost-in: hops[0] = the full place,
+          // hops[k] = its base chains, cur ends as the root.
+          hops := ArrayList(AstExpr).new();
+          (cur : AstExpr) = arg;
+          (walking : bool) = true;
+          while(walking, {
+            if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT,.Some(usize(2))), {
+              hops.push(cur);
+              cur = match(
+                cur,
+                .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)),.Some(b) => b,.None => make_err_expr()),
+                .Atom(_, _) => make_err_expr()
+              );
+            }, {
+              walking = false;
+            });
+          });
+          // Namespace-style access (Type.member) is not a borrow.
+          root_is_type := match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(cur)),
+            .Some(ri) => match(ri.value,.Some(v) => is_type_val(v),.None => false),
+            .None => false
           );
-          vi = (vi + usize(1));
+          if(!(root_is_type), {
+            (h : usize) = usize(1);
+            while(h < hops.len(), {
+              hop := match(hops.get(h),.Some(x) => x,.None => make_err_expr());
+              // Deref hops (`x.*` — Box / pointer deref) are transparent:
+              // a deref is not a field slot a callee could swap underneath
+              // the borrow the way an object FIELD hop is.
+              hop_is_deref := match(
+                hop,
+                .FnCall(_, _, dh_args, _, _) => match(
+                  dh_args.get(usize(1)),
+                  .Some(fld) => cond(
+                    ast_expr_is_atom(fld) => (ast_expr_token(fld).value == "*"),
+                    true => false
+                  ),
+                  .None => false
+                ),
+                .Atom(_, _) => false
+              );
+              if(!(hop_is_deref), {
+                match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(hop)),
+                  .Some(hri) => {
+                    if(is_object_type(hri.ty) || is_atomic_object_type(hri.ty), {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            arg_tok,
+                            `A 'ref' argument cannot borrow through an intermediate object — the handle of "${ast_expr_to_string(hop)}" lives in a slot that could be replaced during the call, freeing the borrowed storage. Bind the object to a local first:\n  b := ${ast_expr_to_string(hop)};\nand pass the field of "b" instead.`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
+                    });
+                  },
+                  .None => ()
+                );
+              });
+              h = (h + usize(1));
+            });
+            if(ast_expr_is_atom(cur), {
+              root_vars := get_variables_from_env(env, ast_expr_token(cur).value);
+              if(root_vars.len() > usize(0), {
+                match(
+                  root_vars.get(root_vars.len() - usize(1)),
+                  .Some(rv) => {
+                    if(rv.is_module_level, {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            arg_tok,
+                            `A 'ref' argument cannot borrow a field of the module-level variable "${ast_expr_token(cur).value}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${ast_expr_token(cur).value};\nand pass the field of "h" instead.`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
+                    });
+                  },
+                  .None => ()
+                );
+              });
+            });
+          });
         });
-      },
-      .None => ()
-    );
-    fi = (fi + usize(1));
+      });
+    });
+    i = (i + usize(1));
   });
-  group
-});
-/// Mirrors `requireNotLiveBorrowSourceForCall` (flowability.ts): while a
-/// `ref(name) := …` binding borrows from a variable, the variable may not
-/// be used as a method receiver or call argument — object reference
-/// semantics make mutation signature-invisible, so any call could free or
-/// move the borrowed backing
-/// (issues/flowability-growth-invalidation-method-calls.md).
-require_not_live_borrow_source_for_call :: (
-  fn(expr : AstExpr, env : Environment, use_desc : str, exn : Exception) -> unit
-)({
-  if(!(ast_expr_is_atom(expr)), {
-    return(());
-  });
-  atom_tok := ast_expr_token(expr);
-  vars := get_variables_from_env(env, atom_tok.value);
-  if(vars.len() == usize(0), {
-    return(());
-  });
-  variable := match(
-    vars.get(vars.len() - usize(1)),
-    .Some(v) => v,
-    .None => {
-      return(());
-    }
-  );
-  match(
-    find_live_borrower_of_variable(variable, env),
-    .Some(mark) => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            atom_tok,
-            `Cannot use "${atom_tok.value}" as ${use_desc} while 'ref(${mark.ref_name}) := …' borrows from it. A call could mutate it (e.g. grow/free the storage the reference points into) — method signatures on object types cannot prove otherwise.\n\nEnd the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
-            false,
-            .None
-          )
-        )
-      );
-    },
-    .None => ()
-  );
 });
 export(
   FlowOptions,
   flow_options_default,
   is_flowable_expr,
-  collect_ref_borrow_sources,
   flag_flow_violation,
   clear_flow_violation,
   flow_violation_pending,
   flow_violation_message,
-  find_live_borrower_of_variable,
   alias_group_root,
-  collect_alias_group,
-  require_not_live_borrow_source_for_call,
+  require_valid_ref_argument_places,
   set_propagate_def_time_errors,
   propagate_def_time_errors
 );

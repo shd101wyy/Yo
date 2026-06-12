@@ -612,7 +612,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 ### Return-slot modifiers: `ref` is BANNED; `comptime` goes on the label
 
-**Functions cannot return `ref`** (v4, `plans/BORROW_EXCLUSIVITY.md`): refs are second-class and exist only in parameter position and local lvalue borrows. Return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives `ref(name) : T`.
+**Functions cannot return `ref`, and there are no local ref bindings** (v4/v4.1, `plans/BORROW_EXCLUSIVITY.md`): refs are second-class and exist ONLY in parameter position. `ref(r) := …` is rejected (fields read/write in place: `h.s = v`). Return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives `ref(name) : T`. A ref ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate OBJECT and module-level field roots are rejected (bind the object to a local first: `b := a.b`).
 
 | Form                                                                     | Verdict                                       |
 | ------------------------------------------------------------------------ | --------------------------------------------- |

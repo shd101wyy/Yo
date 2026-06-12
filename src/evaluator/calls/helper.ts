@@ -12,7 +12,10 @@ import {
   type Variable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { requireRefOwnArgumentExclusivity } from "../types/flowability";
+import {
+  requireRefOwnArgumentExclusivity,
+  requireValidRefArgumentPlaces,
+} from "../types/flowability";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -1448,6 +1451,15 @@ Got:   ${typeToString(typeValue.type)}`,
       argType,
     });
   }
+
+  // v4.1: validate the PLACES bound to ref parameters (after argument
+  // evaluation so the chain types are resolved) — no intermediate
+  // object hops, no module-level field roots.
+  requireValidRefArgumentPlaces({
+    parameters: functionType.parameters,
+    argExprs,
+    env: callerEnv,
+  });
 
   // After processing regular arguments, propagate resolvedConcreteType from forall SomeTypes
   // back to the calleeEnv. This handles the case where closure evaluation resolves

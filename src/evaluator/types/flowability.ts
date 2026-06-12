@@ -39,6 +39,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  exprToString,
   hasAnyControlFlow,
   type Expr,
   type FnCallExpr,
@@ -46,7 +47,12 @@ import {
 import { formatErrorMessage } from "../../error";
 import { type Token, TokenType } from "../../token";
 import type { FunctionType } from "../../types/definitions";
-import { isFunctionType } from "../../types/guards";
+import {
+  isAtomicObjectType,
+  isFunctionType,
+  isObjectType,
+  isSomeType,
+} from "../../types/guards";
 import {
   typeMayProvideSliceSource,
   typeRepresentationContainsRawPtr,
@@ -457,178 +463,6 @@ export function isFlowableExpr(
 }
 
 /**
- * Collect the LOCAL VARIABLES a `ref(name) := rhs;` borrow roots in.
- *
- * Walks the same structure `isFlowableExpr` accepts (R1 names, R2
- * projections, R3 borrowing-call arguments incl. method receivers,
- * R4 cond/match arms, `&+`/`&-` bases, `unsafe(...)` interiors) and
- * returns every same-frame variable that can be the borrow's backing.
- * `ref`-bound parameters are NOT collected — their backing lives in a
- * caller frame and cannot be invalidated by anything this scope does.
- *
- * Used by the same-scope invalidation gate: while the `ref` binding is
- * live, reassigning or consuming any collected source would free or
- * replace the borrowed backing (e.g. `xs = ArrayList.new()` after
- * `ref(r) := xs.project(0)` frees the Rc buffer `r` points into).
- */
-export function collectRefBorrowSources(expr: Expr): Variable[] {
-  const out: Variable[] = [];
-  const visit = (e: Expr): void => {
-    e = unwrapBeginBlocks(e);
-    if (exprIsFunctionCall(e) && exprIsFunctionCallOf(e, ":", 2)) {
-      const labeledValue = (e as FnCallExpr).args[1];
-      if (labeledValue) visit(labeledValue);
-      return;
-    }
-    if (exprIsAtom(e)) {
-      if (!e.$?.env || !e.$?.variableName) return;
-      const vars = getVariablesFromEnv(e.$.env, e.$.variableName);
-      if (vars.length === 0) return;
-      const v = vars[vars.length - 1]!;
-      // A ref-bound parameter's backing is caller-owned; same-scope
-      // mutation cannot invalidate it. Everything else (same-frame
-      // locals admitted by R1') is a collectable source.
-      if (!v.isRef) out.push(v);
-      return;
-    }
-    if (!exprIsFunctionCall(e)) return;
-    const call = e as FnCallExpr;
-    if (exprIsFunctionCallOf(call, BuiltinFunctions.unsafe)) {
-      for (const a of call.args) visit(a);
-      return;
-    }
-    // R2 projection: collect from the base.
-    if (exprIsFunctionCallOf(call, ".", 2)) {
-      const r2RecvValue = call.args[0]?.$?.value;
-      if (r2RecvValue && isTypeValue(r2RecvValue)) return;
-      visit(call.args[0]!);
-      return;
-    }
-    // R4 cond/match: collect from every arm body.
-    if (exprIsFunctionCallOf(call, "cond")) {
-      for (const arm of call.args) {
-        if (
-          exprIsFunctionCall(arm) &&
-          exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
-        ) {
-          visit((arm as FnCallExpr).args[1]!);
-        }
-      }
-      return;
-    }
-    if (exprIsFunctionCallOf(call, "match")) {
-      for (let i = 1; i < call.args.length; i++) {
-        const arm = call.args[i];
-        if (
-          arm &&
-          exprIsFunctionCall(arm) &&
-          exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
-        ) {
-          visit((arm as FnCallExpr).args[1]!);
-        }
-      }
-      return;
-    }
-    if (
-      exprIsFunctionCallOf(call, "&+", 2) ||
-      exprIsFunctionCallOf(call, "&-", 2)
-    ) {
-      visit(call.args[0]!);
-      return;
-    }
-    // R3 borrowing call (incl. method dispatch): collect from every
-    // argument that can source the borrow — `ref`-typed parameters and
-    // (conservatively) any argument whose type may provide the backing
-    // storage. The method receiver is the implicit first argument.
-    const isMethodCall = exprIsFunctionCallOf(call.func, ".", 2);
-    let calleeType: FunctionType | undefined;
-    if (isMethodCall) {
-      const t = call.func.$?.type;
-      if (t && isFunctionType(t)) calleeType = t;
-    } else {
-      const calleeValue = call.func.$?.value;
-      if (calleeValue && isFunctionValue(calleeValue)) {
-        const t = calleeValue.type;
-        if (isFunctionType(t)) calleeType = t;
-      }
-    }
-    if (!calleeType) return;
-    const params = calleeType.parameters;
-    const callArgs: Expr[] = isMethodCall
-      ? [(call.func as FnCallExpr).args[0]!, ...call.args]
-      : call.args;
-    for (let i = 0; i < params.length; i++) {
-      const p = params[i]!;
-      const a = callArgs[i];
-      if (!a) continue;
-      if (p.isRef || typeMayProvideSliceSource(p.type)) {
-        visit(a);
-      }
-    }
-  };
-  visit(expr);
-  return out;
-}
-
-/**
- * If `variable` is a borrow SOURCE constrained by a still-live
- * `ref(name) := …` binding, return that borrower; otherwise undefined.
- *
- * A recorded borrower constrains the source only while its ref variable is
- * still in scope — verified by object identity against the current env so
- * stale marks from exited blocks don't constrain. Shared by every
- * borrow-invalidation enforcement site (reassign, move, call-use, alias).
- */
-export function findLiveBorrowerOfVariable(
-  variable: Variable,
-  env: Environment
-): { refName: string; refVariable: Variable; token: Token } | undefined {
-  if (!variable.refBorrowedBy?.length) return undefined;
-  for (const borrower of variable.refBorrowedBy) {
-    const liveRefVars = getVariablesFromEnv(env, borrower.refName);
-    if (liveRefVars.some((v) => v === borrower.refVariable)) {
-      return borrower;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Borrow-invalidation gate for CALL USES: while a `ref(name) := …` binding
- * borrows from a variable, that variable may not be used as a method
- * receiver or call argument.
- *
- * This is deliberately conservative: Yo `object` types have reference
- * semantics, so a method's signature carries NO information about whether
- * it mutates — `push` (which may realloc the borrowed backing) and `len`
- * (read-only) both take `self : Self`. Without per-method effect
- * annotations, any call that receives the source could free or move the
- * storage the borrow points into
- * (issues/flowability-growth-invalidation-method-calls.md).
- *
- * `expr` is the use site (an identifier atom). Throws when constrained.
- */
-export function requireNotLiveBorrowSourceForCall(
-  expr: Expr,
-  env: Environment,
-  useDescription: string
-): void {
-  if (!exprIsAtom(expr) || expr.token.type !== TokenType.Identifier) return;
-  const variables = getVariablesFromEnv(env, expr.token.value);
-  if (variables.length === 0) return;
-  const variable = variables[variables.length - 1]!;
-  const borrower = findLiveBorrowerOfVariable(variable, env);
-  if (borrower) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Cannot use "${expr.token.value}" as ${useDescription} while 'ref(${borrower.refName}) := …' borrows from it. A call could mutate it (e.g. grow/free the storage the reference points into) — method signatures on object types cannot prove otherwise.
-
-End the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
-    });
-  }
-}
-
-/**
  * Resolve the alias-group ROOT of a variable: follow
  * `isOwningTheSameRcValueAs` links to the primary owner (with a cycle
  * guard). Two variables alias the same RC object iff their roots are the
@@ -642,32 +476,6 @@ export function aliasGroupRoot(variable: Variable): Variable {
     cur = cur.isOwningTheSameRcValueAs;
   }
   return cur;
-}
-
-/**
- * All live variables in `env` that alias the same RC object as `variable`
- * (including `variable` itself): same alias-group root by identity.
- *
- * Used by the borrow-invalidation gate to constrain PRE-EXISTING aliases:
- * `xs2 := xs; ref(r) := xs.project(0); xs2.push(...)` must be rejected —
- * mutation through any handle of the object invalidates the borrow
- * (issues/flowability-growth-invalidation-method-calls.md).
- */
-export function collectAliasGroup(
-  variable: Variable,
-  env: Environment
-): Variable[] {
-  const root = aliasGroupRoot(variable);
-  const group: Variable[] = [];
-  for (const frame of env.frames) {
-    for (const v of frame.variables) {
-      if (v === variable || aliasGroupRoot(v) === root) {
-        if (!group.includes(v)) group.push(v);
-      }
-    }
-  }
-  if (!group.includes(variable)) group.push(variable);
-  return group;
 }
 
 /**
@@ -747,6 +555,98 @@ export function requireRefOwnArgumentExclusivity({
           ref.index + 1
         } borrows from it (bound to the ref parameter "${ref.label}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
       });
+    }
+  }
+}
+
+/**
+ * v4.1 (plans/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
+ * `ref` parameter. With local ref bindings removed, every borrow is an
+ * argument lvalue evaluated at the call boundary; it is safe iff the
+ * borrowed storage cannot be freed during the call:
+ *
+ *  - a whole VARIABLE (any scope) → its slot is stable storage; OK.
+ *  - a field chain rooted at a LOCAL/PARAM variable with no
+ *    intermediate OBJECT hop → the place lives in the root's
+ *    allocation, kept alive by the caller's handle (own-overlap in the
+ *    same call is rejected by requireRefOwnArgumentExclusivity); OK.
+ *  - an intermediate OBJECT hop (`a.b.s` where `b` is an object field)
+ *    → `b`'s handle lives in a mutable slot that a callee may be able
+ *    to reach and replace, freeing the borrowed allocation; REJECTED
+ *    (bind the object to a local first — the local handle keeps it
+ *    alive).
+ *  - a field chain rooted at a MODULE-LEVEL variable → any callee can
+ *    reassign the global and free the object; REJECTED (bind to a
+ *    local first).
+ *
+ * Call AFTER argument evaluation (the chain types must be resolved).
+ */
+export function requireValidRefArgumentPlaces({
+  parameters,
+  argExprs,
+  env,
+}: {
+  parameters: {
+    label: string;
+    isRef?: boolean;
+    isCompileTimeOnly: boolean;
+  }[];
+  argExprs: Expr[];
+  env: Environment;
+}): void {
+  for (let i = 0; i < parameters.length && i < argExprs.length; i++) {
+    const parameter = parameters[i]!;
+    if (!parameter.isRef || parameter.isCompileTimeOnly) continue;
+    const argExpr = argExprs[i]!;
+    if (argExpr.token.modulePath.startsWith("auto-generated://")) continue;
+    if (!exprIsFunctionCall(argExpr) || !exprIsFunctionCallOf(argExpr, ".", 2))
+      continue;
+    // Walk the field chain outermost-in: hops[0] = the full place,
+    // hops[k] = its base chains, root = the innermost base.
+    const hops: Expr[] = [];
+    let cur: Expr = argExpr;
+    while (exprIsFunctionCall(cur) && exprIsFunctionCallOf(cur, ".", 2)) {
+      hops.push(cur);
+      cur = (cur as FnCallExpr).args[0]!;
+    }
+    // Namespace-style access (Type.member) is not a borrow — skip when
+    // the root resolves to a type value.
+    if (cur.$?.value && isTypeValue(cur.$.value)) continue;
+    for (let h = 1; h < hops.length; h++) {
+      // Deref hops (`x.*` — Box / pointer deref) are transparent: a
+      // deref is not a field slot a callee could swap underneath the
+      // borrow the way an object FIELD hop is; the walk continues to
+      // the root variable.
+      const hopField = (hops[h]! as FnCallExpr).args[1];
+      if (hopField && exprIsAtom(hopField) && hopField.token.value === "*") {
+        continue;
+      }
+      const rawType = hops[h]!.$?.type;
+      const hopType =
+        rawType && isSomeType(rawType) && rawType.resolvedConcreteType
+          ? rawType.resolvedConcreteType
+          : rawType;
+      if (hopType && (isObjectType(hopType) || isAtomicObjectType(hopType))) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `A 'ref' argument cannot borrow through an intermediate object — the handle of "${exprToString(
+            hops[h]!
+          )}" lives in a slot that could be replaced during the call, freeing the borrowed storage. Bind the object to a local first:\n  b := ${exprToString(
+            hops[h]!
+          )};\nand pass the field of "b" instead.`,
+        });
+      }
+    }
+    if (exprIsAtom(cur) && cur.token.type === TokenType.Identifier) {
+      const rootEnv = cur.$?.env ?? env;
+      const rootVars = getVariablesFromEnv(rootEnv, cur.token.value);
+      const rootVar = rootVars[rootVars.length - 1];
+      if (rootVar?.isModuleLevel) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `A 'ref' argument cannot borrow a field of the module-level variable "${cur.token.value}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${cur.token.value};\nand pass the field of "h" instead.`,
+        });
+      }
     }
   }
 }

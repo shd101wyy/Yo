@@ -184,11 +184,10 @@ sink :: (fn(own(victim) : Holder) -> unit)({ ... });
 
 `ref` 的位置规则：
 
-- 参数位置（`ref(name) : T`）与局部左值借用（`ref(r) := lvalue;`）是
-  `ref` 仅有的两个合法位置。
+- 参数位置（`ref(name) : T`）是 `ref` 唯一的合法位置。
 - `ref` 在**返回类型位置被拒绝**（`-> ref(T)`、`-> (ref(name) : T)`），
-  也不能出现在任何其他类型表达式中（`Option(ref(T))`、struct 字段、
-  泛型实参）。
+  作为局部绑定（`ref(r) := lvalue;`）也被拒绝，更不能出现在任何其他
+  类型表达式中（`Option(ref(T))`、struct 字段、泛型实参）。
 - 语义详见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 ## 注释和空白

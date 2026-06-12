@@ -1,20 +1,42 @@
 # Flowability soundness v4 — delete interior refs
 
-Status: **✅ IMPLEMENTED** (2026-06-12). Phase 1 (std deletions:
-ea78b3c5d), Phase 2 (test migration: c3581e8eb), Phase 3 (ref-return
-ban, both compilers: 163e46565), Phase 4 (owner pin + call-site ref/own
-exclusivity gate: c4fc74ee3), Phase 5 (docs/knowledge files). Two
-additions beyond the original plan: the `ref(r) := x` bare-local borrow
-codegen (`(&(x))`; previously only reachable via banned ref-returning
-calls) and the **call-site ref/own exclusivity gate**
-(`requireRefOwnArgumentExclusivity`) which closes the argument-position
-shape `f(h.s, h)` with `own` — the binding-site pin cannot see it. The
-yo-self mirror of that gate is blocked on the documented own/consume
-port gap (see `plans/BOOTSTRAPPING_CODEGEN.md` Phase 4).
+Status: **✅ IMPLEMENTED, including the v4.1 simplification**
+(2026-06-12). Phase 1 (std deletions: ea78b3c5d), Phase 2 (test
+migration: c3581e8eb), Phase 3 (ref-return ban, both compilers:
+163e46565), Phase 4 (owner pin + call-site ref/own exclusivity gate:
+c4fc74ee3), Phase 5 (docs/knowledge files: 2c56f1703).
+
+**v4.1 — parameter-only `ref` (owner-approved follow-up).** With
+projections and ref returns gone, the local binding form
+`ref(r) := lvalue` had ZERO users outside its own tests — and it was
+the sole reason the borrow-invalidation gates (refBorrowedBy marks,
+freeze/alias/move gates in BOTH compilers) and the v4 owner pin
+existed. v4.1 therefore:
+
+- REJECTS `ref(name) := …` with a teaching error (both compilers) —
+  fields read/write in place (`h.s = v`); binding the handle
+  (`b := a.b`) keeps an object alive;
+- DELETES the gates machinery, the owner pin, the
+  `isEvaluatingRefBindingRhs` context flag, and the binding codegen —
+  runtime artifacts of v4 drop back to literally zero;
+- ADDS the **ref-argument place rule**
+  (`requireValidRefArgumentPlaces`, mirrored in yo-self): a ref
+  argument is a whole variable, or a field chain rooted at a
+  LOCAL/PARAM with no intermediate OBJECT hop (deref hops `x.*` are
+  transparent); intermediate-object and module-level-rooted chains are
+  rejected with the bind-to-a-local recipe — the local handle pins the
+  object naturally;
+- KEEPS the call-site ref/own exclusivity gate (TS; yo-self mirror
+  blocked on the documented own/consume port gap, see
+  `plans/BOOTSTRAPPING_CODEGEN.md` Phase 4).
+
+The language rule is now one sentence: **`ref` exists only in parameter
+position, and a ref argument is a simple lvalue place.**
+
 Supersedes v3 (declared `mut` + exclusivity law), v2 (inferred
 summaries), v1 (dynamic borrow counter) — appendix has the history.
 Companion: `issues/fixed/flowability-growth-invalidation-method-calls.md`
-(closed by this design) and the landed same-scope gates (8b0b67b1).
+(closed by this design).
 
 **Owner constraints:** maximize static checking; no meaningful runtime
 overhead (perf target 0–15% of C); keep the language simple and

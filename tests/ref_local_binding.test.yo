@@ -1,58 +1,45 @@
-/// `ref(name) := lvalue;` local binding form.
-///
-/// v4 (plans/BORROW_EXCLUSIVITY.md): ref-RETURNING functions are
-/// banned, so a ref local binds directly to an lvalue — a local
-/// variable, a `ref`-bound parameter, or an object field.
-///
-/// Guarantees pinned here:
-/// - `ref(name) := expr;` is recognized as a binding form and the
-///   bound variable carries `isRef: true` (same flag as
-///   `ref(name) : T` parameter bindings).
-/// - `ref(name) :: ...` is rejected — borrows are runtime constructs.
-/// - The closure-capture gate rejects captures of a ref-bound local.
-// `ref(name) := expr;` with `::` is rejected — borrows are runtime.
+/// v4.1 (plans/BORROW_EXCLUSIVITY.md): `ref(name) := …` local bindings
+/// were REMOVED — `ref` exists only in parameter position. These tests
+/// pin the ban and the migration recipes (direct field access; binding
+/// the handle).
+open(import("std/string"));
+Holder :: object(s : String, n : i32);
+// The binding form is rejected with the teaching error.
 comptime_expect_error(
-  ref(r) :: i32(42)
-);
-// The closure-capture gate fires on a `ref`-bound local just as it
-// does on a `ref`-bound parameter: `r` is declared as a ref-local via
-// the binding form, then captured by the returned closure.
-comptime_expect_error(
-  make_capturing_closure :: (fn(ref(p) : i32) -> Impl(Fn() -> i32))({
-    ref(r) := p;
-    () => r
+  ref_binding_removed :: (fn() -> unit)({
+    x := i32(42);
+    ref(r) := x;
+    consume(r);
   })
 );
-// Smoke test: a function that does NOT bind via `ref(name) :=` still
-// compiles cleanly. Confirms the binding-form changes don't false-
-// positive on regular `:=` bindings.
-test("regular := bindings still compile", {
-  x := i32(5);
-  y := x;
-  assert(y == i32(5), "regular binding works");
+// Field-borrow shape, same ban.
+comptime_expect_error(
+  ref_field_binding_removed :: (fn() -> unit)({
+    h := Holder(s : String.from("a"), n : i32(1));
+    ref(r) := h.s;
+    consume(r);
+  })
+);
+// The comptime form is rejected too.
+comptime_expect_error(
+  ref_comptime_binding_removed :: (fn() -> unit)({
+    ref(r) :: i32(42);
+    consume(r);
+  })
+);
+// Migration recipe 1: fields read and write in place — no borrow needed.
+test("field access reads and writes in place", {
+  h := Holder(s : String.from("hello"), n : i32(1));
+  h.s = String.from("rewritten");
+  assert(h.s == "rewritten", "direct String field write");
+  h.n = i32(2);
+  assert(h.n == i32(2), "direct scalar field write");
 });
-// End-to-end positive: `ref(name) := lvalue` binds the local to the
-// source's storage. Reading and writing through the binding reach the
-// source.
-test("ref(name) := local — read through the binding", {
-  x := i32(42);
-  ref(r) := x;
-  // Reading r auto-derefs to the underlying i32 value.
-  assert(r == i32(42), "reads through the ref-binding");
-});
-test("ref(name) := local — write through the binding propagates", {
-  x := i32(5);
-  ref(r) := x;
-  // Writing through r writes through to x's storage.
-  r = i32(99);
-  assert(x == i32(99), "writes through the ref-binding propagate");
-});
-test("ref(name) := ref-bound param — write reaches the caller", {
-  bump :: (fn(ref(p) : i32) -> unit)({
-    ref(r) := p;
-    r = (r + i32(1));
-  });
-  x := i32(41);
-  bump(x);
-  assert(x == i32(42), "write through a ref-of-ref-param reaches the caller");
+// Migration recipe 2: binding the HANDLE keeps an object alive.
+test("binding the handle keeps an object alive", {
+  a := Holder(s : String.from("kept"), n : i32(0));
+  b := a;
+  a = Holder(s : String.from("other"), n : i32(1));
+  assert(b.s == "kept", "b's handle keeps the original object alive");
+  assert(a.s == "other", "a points at the replacement");
 });

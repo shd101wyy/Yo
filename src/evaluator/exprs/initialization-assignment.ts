@@ -1,9 +1,4 @@
-import {
-  addVariableToEnv,
-  getVariablesFromEnv,
-  updateExistingVariable,
-  type Environment,
-} from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
@@ -15,18 +10,12 @@ import {
   hasAnyControlFlow,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
-  type Expr,
   type FnCallExpr,
 } from "../../expr";
-import { TokenType } from "../../token";
 import { generateNewTempVariableName } from "../../utils";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { SomeType } from "../../types/definitions";
-import {
-  isAtomicObjectType,
-  isObjectType,
-  isSomeType,
-} from "../../types/guards";
+import { isSomeType } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   prohibitVoidType,
@@ -46,12 +35,6 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import {
-  collectAliasGroup,
-  collectRefBorrowSources,
-  findLiveBorrowerOfVariable,
-  isFlowableExpr,
-} from "../types/flowability";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
@@ -105,40 +88,19 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
-  // Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;`
-  // declares a local that is a second-class reference to the storage
-  // yielded by `expr`. The bound name carries `isRef: true`
-  // (same flag used for `ref(name) : T` parameter bindings), so the
-  // existing inout-aware codegen handles reads (`(*name)`) and
-  // writes (`(*name) = v`).
-  //
-  // The RHS must evaluate to an inout-yielding expression — for v1
-  // that means a call to a function whose return slot is `ref(T)`.
-  // We unwrap the `ref(...)` wrapper here so subsequent code sees
-  // the inner identifier as the lhs.
-  let isRefBinding = false;
+  // v4.1 (plans/BORROW_EXCLUSIVITY.md): local `ref(name) := …` bindings
+  // were REMOVED — `ref` exists only in parameter position. Field access
+  // already reads/writes in place (`h.s = v`), and binding the handle
+  // (`b := a.b`) keeps an object alive without borrow machinery.
   let actualLhs = lhs;
   if (
     exprIsFunctionCall(actualLhs) &&
     exprIsFunctionCallOf(actualLhs, BuiltinKeywords.ref)
   ) {
-    if (
-      exprIsFunctionCallOf(expr, "::") ||
-      context.forceCompileTimeBindings === true
-    ) {
-      throw formatErrorMessage({
-        token: actualLhs.token,
-        errorMessage: `'ref(name) :=' cannot be used with '::' or in a compile-time-only context — borrows are runtime constructs.`,
-      });
-    }
-    if (actualLhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: actualLhs.token,
-        errorMessage: `Expected one argument for 'ref' in a local binding, got ${actualLhs.args.length}`,
-      });
-    }
-    isRefBinding = true;
-    actualLhs = actualLhs.args[0]!;
+    throw formatErrorMessage({
+      token: actualLhs.token,
+      errorMessage: `'ref(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive.`,
+    });
   }
 
   // Prevent declaring variable type using :: or :=
@@ -152,28 +114,6 @@ export function evaluateInitializationAssignment({
     });
   }
 
-  // Borrow-invalidation gate for ALIAS CREATION: `y := xs` on an object
-  // gives `y` reference semantics to the same storage; mutating through
-  // the alias would bypass the borrow constraints on `xs` (the marks live
-  // on the source variable, not the object). Conservatively reject
-  // creating a new binding from a bare borrowed source while the borrow
-  // lives (issues/flowability-growth-invalidation-method-calls.md).
-  if (exprIsAtom(rhs) && rhs.token.type === TokenType.Identifier) {
-    const rhsVars = getVariablesFromEnv(env, rhs.token.value);
-    const rhsVar = rhsVars[rhsVars.length - 1];
-    if (rhsVar) {
-      const borrower = findLiveBorrowerOfVariable(rhsVar, env);
-      if (borrower) {
-        throw formatErrorMessage({
-          token: rhs.token,
-          errorMessage: `Cannot create a new binding from "${rhs.token.value}" while 'ref(${borrower.refName}) := …' borrows from it — the new handle could mutate the borrowed storage without the borrow constraints applying to it.
-
-End the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
-        });
-      }
-    }
-  }
-
   // Evaluate the rhs expression
   rhs = evaluateExpression({
     expr: rhs,
@@ -181,9 +121,6 @@ End the borrowing block first, or copy the element out (e.g. ".get(i)") instead 
     context: {
       ...context,
       expectedType: undefined,
-      // Borrow-CREATING projections on an already-borrowed source are
-      // allowed (see EvaluatorContext.isEvaluatingRefBindingRhs).
-      isEvaluatingRefBindingRhs: isRefBinding || undefined,
     },
   });
 
@@ -199,47 +136,6 @@ End the borrowing block first, or copy the element out (e.g. ".get(i)") instead 
   if (hasAnyControlFlow(rhs.$?.controlFlow)) {
     // Check if the RHS is a cond expression to provide a more specific error message
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$!.controlFlow!);
-  }
-
-  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
-  // the RHS of `ref(name) := expr;`. The RHS must root back to a
-  // `ref`-bound parameter along a projection-respecting chain
-  // (R1–R4 in the plan); otherwise the binding would hand out a
-  // reference into storage that doesn't outlive the call frame.
-  if (isRefBinding) {
-    // At the binding site, a same-frame local can root the borrow even
-    // if it isn't a `ref`-bound parameter — the binding's lifetime is
-    // bounded by its enclosing block, which is itself bounded by the
-    // local's frame. This is what makes the Phase D for-macro expansion
-    // sound: it materializes `__for_coll := coll;` and then
-    // `ref(x) := __for_coll.project(pos)`, where __for_coll outlives
-    // the per-iteration `x`. The strict R1 (ref-bound only) still
-    // applies at function-return sites; see `function-type.ts` and
-    // `anonymous-function.ts`.
-    if (!isFlowableExpr(rhs, { allowSameFrameLocal: true })) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
-      });
-    }
-
-    // The RHS of a borrow binding is NOT owned: a property-access RHS
-    // (`ref(r) := h.s`) materializes a temp variable that the generic
-    // machinery registers as RC-owning and drops at scope end — but no
-    // dup happened (it's a borrow), so that drop over-releases the field
-    // the owner still holds
-    // (issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
-    // Mark the temp non-owning so no scope-end drop is generated.
-    if (rhs.$?.variableName && rhs.$.env) {
-      const tempVars = getVariablesFromEnv(env, rhs.$.variableName);
-      const tempVar = tempVars[tempVars.length - 1];
-      if (tempVar?.isOwningTheRcValue) {
-        env = updateExistingVariable(env, tempVar, {
-          ...tempVar,
-          isOwningTheRcValue: false,
-        });
-      }
-    }
   }
 
   // §4 escape boundary 2: module-level binding type cannot be
@@ -276,16 +172,7 @@ Define handlers inside the function that uses them:
     // Insert dup
     // NOTE: For destructuring in `else` block, we don't insert dup there.
     //       Because for simplicity destructuring uses borrowing, not owning.
-    // A `ref(name) := <ref-yielding expr>` binding (isRefBinding) aliases the
-    // RHS rather than owning it: the C-level result is a pointer (`T*`) and the
-    // bound name borrows it. Inserting a dup here would deref + clone the
-    // pointee into a value and assign it to the pointer-typed binding —
-    // producing invalid C (value assigned to `T*`) for non-trivially-copyable
-    // element types (enums/structs), and defeating the borrow even when it
-    // compiled. So skip the dup for ref-bindings (scalars never dup anyway).
-    if (!isRefBinding) {
-      setExprAsNeedsToCallDup(rhs, { ...context });
-    }
+    setExprAsNeedsToCallDup(rhs, { ...context });
     if (rhs.$?.env) {
       env = rhs.$?.env;
     }
@@ -555,100 +442,16 @@ Use \`::\` for compile-time definitions inside impl.`,
         token: actualLhs.token,
         initializedAtToken: actualLhs.token,
         consumedAtToken: undefined, // Not consumed yet
-        // `ref(name) := expr;` bindings are second-class references —
-        // the variable's storage IS the caller-side storage yielded
-        // by the RHS, not an owned value. Don't mark as RC-owning;
-        // the closure-capture gate already keys off `isRef`.
-        isOwningTheRcValue: isRefBinding
-          ? false
-          : typeContainsRcType(finalLhsType),
+        isOwningTheRcValue: typeContainsRcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
         isReassignable: true,
-        isRef: isRefBinding || undefined,
         isModuleLevel,
         docComment,
       },
     });
     env = nextEnv;
-
-    // Same-scope borrow-invalidation gate (plans/SLICE_REWORK.md follow-up):
-    // record on every same-frame SOURCE variable that this `ref` binding
-    // borrows from it. The assignment / consume sites reject mutation of a
-    // source while the ref variable is still in scope — reassigning the
-    // source would free or replace the borrowed backing (e.g.
-    // `xs = ArrayList.new()` after `ref(r) := xs.project(0)` frees the Rc
-    // buffer `r` points into).
-    if (isRefBinding) {
-      const refVars = getVariablesFromEnv(env, varName);
-      const refVariable = refVars[refVars.length - 1];
-      if (refVariable) {
-        for (const source of collectRefBorrowSources(rhs)) {
-          if (source === refVariable) continue;
-          // Mark the source's whole ALIAS GROUP, not just the source:
-          // `xs2 := xs` before the borrow gives a second handle to the
-          // same object, and mutating through it (`xs2.push(...)`)
-          // invalidates the borrow just the same. Aliases created AFTER
-          // the borrow are rejected outright at the binding site above.
-          for (const member of collectAliasGroup(source, env)) {
-            if (member === refVariable) continue;
-            member.refBorrowedBy = member.refBorrowedBy ?? [];
-            member.refBorrowedBy.push({
-              refName: varName,
-              refVariable,
-              token: actualLhs.token,
-            });
-          }
-        }
-      }
-    }
-
-    // Owner pin (v4, plans/BORROW_EXCLUSIVITY.md): a `ref(name) :=
-    // obj.field` borrow points INTO the owner object's allocation. The
-    // same-scope gates stop local invalidation, but a callee that
-    // receives the owner via `own(...)` can reassign/drop it while the
-    // ref is still in use — alias-blind across the boundary. Pin the
-    // owner: register a hidden OWNING variable in this scope (the
-    // normal scope-end machinery synthesizes its drop, including on
-    // early-return paths) and tell codegen to declare it as a dup of
-    // the base handle at the binding line.
-    let refOwnerPin: { pinVariableName: string; baseExpr: Expr } | undefined;
-    if (
-      isRefBinding &&
-      !effectiveIsCompileTimeOnly &&
-      exprIsFunctionCall(rhs) &&
-      exprIsFunctionCallOf(rhs, ".", 2)
-    ) {
-      const baseExpr = rhs.args[0]!;
-      const rawBaseType = baseExpr.$?.type;
-      const baseType =
-        rawBaseType && isSomeType(rawBaseType) && rawBaseType.resolvedConcreteType
-          ? rawBaseType.resolvedConcreteType
-          : rawBaseType;
-      if (
-        baseType &&
-        (isObjectType(baseType) || isAtomicObjectType(baseType))
-      ) {
-        const pinVariableName = `__yo_pin_${varName}`;
-        const { env: envWithPin } = addVariableToEnv({
-          env,
-          variable: {
-            name: pinVariableName,
-            type: baseType,
-            isCompileTimeOnly: false,
-            value: baseExpr.$?.value ? [baseExpr.$.value] : undefined,
-            token: actualLhs.token,
-            initializedAtToken: actualLhs.token,
-            consumedAtToken: undefined,
-            isOwningTheRcValue: true,
-            isReassignable: false,
-          },
-        });
-        env = envWithPin;
-        refOwnerPin = { pinVariableName, baseExpr };
-      }
-    }
 
     // Store the renamed variable name so codegen uses it instead of "_"
     if (actualLhs.token.value === "_") {
@@ -661,7 +464,6 @@ Use \`::\` for compile-time definitions inside impl.`,
       type: VUnit.type,
       pathCollection: [],
       isCompileTimeOnlyAssignment: effectiveIsCompileTimeOnly,
-      refOwnerPin,
     };
     return expr;
   } else {

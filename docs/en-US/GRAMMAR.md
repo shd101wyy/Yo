@@ -184,11 +184,12 @@ sink :: (fn(own(victim) : Holder) -> unit)({ ... });
 
 Placement rules for `ref`:
 
-- Parameter position (`ref(name) : T`) and local lvalue borrows
-  (`ref(r) := lvalue;`) are the ONLY positions where `ref` may appear.
+- Parameter position (`ref(name) : T`) is the ONLY position where
+  `ref` may appear.
 - `ref` is **rejected in return-type position** (`-> ref(T)`,
-  `-> (ref(name) : T)`) and inside any other type expression
-  (`Option(ref(T))`, struct fields, generic arguments).
+  `-> (ref(name) : T)`), as a local binding (`ref(r) := lvalue;`), and
+  inside any other type expression (`Option(ref(T))`, struct fields,
+  generic arguments).
 - See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
 
 ## Comments and Whitespace

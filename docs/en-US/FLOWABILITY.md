@@ -8,28 +8,31 @@ not rejected by a clever analysis — they are *inexpressible*.
 
 ## Where a `ref` can exist
 
-`ref` is Yo's second-class reference. It appears in exactly two places:
+`ref` is Yo's second-class reference, and it exists in exactly ONE
+place: **parameter position**. `ref(name) : T` receives a caller lvalue
+(write-back, and no copy for big structs). Callback parameters that
+receive refs (`body : Impl(Fn(ref(v) : T) -> R)`, as in
+`Mutex.with_lock`) are the same thing one level down.
 
-- **Parameter position** — `ref(name) : T` receives a caller lvalue
-  (write-back, and no copy for big structs). Callback parameters that
-  receive refs (`body : Impl(Fn(ref(v) : T) -> R)`, as in
-  `Mutex.with_lock`) are the same thing one level down.
-- **Local lvalue borrows** — `ref(r) := lvalue;` borrows a local
-  variable, a field of a `ref`-bound parameter, or an object field.
+**Functions cannot return `ref`**, there are **no local ref bindings**
+(`ref(r) := …` is rejected with a migration recipe — fields read and
+write in place, `h.s = v`; binding the handle `b := a.b` keeps an
+object alive), and refs cannot be stored in fields, captured by
+closures, or placed inside generic types. A ref is born at a call
+boundary and dies when the call returns — it can never outlive the
+storage it points into.
 
-**Functions cannot return `ref`.** A returned ref would be a pointer
-into storage the caller can reallocate or free; the compiler rejects
-`-> ref(T)` (and the labeled forms) at signature evaluation. Refs also
-cannot be stored in fields, captured by closures, or placed inside
-generic types — they never outlive the frame below them.
+The argument passed to a `ref` parameter is a simple lvalue **place**:
 
-Every safe `ref` therefore roots in either a **frame slot** (which
-outlives the callee by construction) or an **object field** — and
-object allocations never move. For object-field borrows the compiler
-additionally **pins the owner**: `ref(r) := h.s` holds a +1 on `h`'s
-object for the borrow's scope (two refcount operations per *binding*,
-not per access), so the object cannot be freed while the borrow lives —
-no matter what aliases exist anywhere.
+- a whole variable (any scope — a variable's slot is stable storage);
+- `var.field` (or a struct-field path) rooted at a **local or
+  parameter** — the place lives inside the root's allocation, which the
+  caller's handle keeps alive for the whole call;
+- chains through an intermediate **object** (`a.b.s` where `b` is an
+  object field) and field chains rooted at **module-level** variables
+  are rejected — a callee could replace that handle's slot and free the
+  borrowed storage. The recipe is one line: bind the object to a local
+  first (`b := a.b`) — the local handle pins it naturally.
 
 ## Element access: handles and copies, not interior pointers
 
@@ -52,25 +55,21 @@ recipe. `str` remains the immortal static-bytes view (freely copyable,
 no constraints), and range indexing **copies** (`arr(a..b)` returns a
 new `ArrayList`), so mutating the source never affects the result.
 
-## Borrow invalidation diagnostics
+## One call-site rule
 
-While a `ref(r) := …` binding is live, the variable its borrow roots in
-may not be **reassigned**, **moved**, used as a **method receiver** or
-**call argument**, or **aliased** (`h2 := h`) — each is a compile error
-naming the borrow. Pre-existing aliases are constrained too (the marks
-apply to the whole alias group), and creating another borrow from the
-same owner stays allowed. The constraint ends with the binding's block.
-These gates are diagnostics on top of the pin: they catch the mistake at
-the line that makes it, rather than letting the pin silently extend the
-object's lifetime.
+**A single call may not receive the same object as both a ref-rooted
+argument and an `own` argument** (`use_and_sink(h.s, h)` with
+`own(victim)` is rejected) — `own` moves the caller's count into a
+callee that could release it while the borrow is still in use. Distinct
+objects are fine. By-value overlap is fine too: a borrowed handle can
+never release the caller's count (forwarding it to an `own` position
+dups first).
 
-One cross-function rule completes the story: **a single call may not
-receive the same object as both a ref-rooted argument and an `own`
-argument** (`use_and_sink(h.s, h)` with `own(victim)` is rejected) —
-`own` moves the caller's count into a callee that could release it while
-the borrow is still in use. Distinct objects are fine. By-value overlap
-is fine too: a borrowed handle can never release the caller's count
-(forwarding it to an `own` position dups first).
+With no local bindings there is nothing left to "invalidate": the old
+borrow-invalidation gates were deleted along with the binding form.
+Element handles from `get` survive any container operation — even
+reassigning the container — because they own a +1 on the element
+object.
 
 ## Escape hatches
 

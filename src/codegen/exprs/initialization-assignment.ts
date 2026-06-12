@@ -25,10 +25,7 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
-import {
-  generateDeferredDupExpressions,
-  generateDupCodeForValue,
-} from "./drop-dup";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
 import { getStateMachineFieldName } from "../async/state-machine";
 
@@ -43,21 +40,6 @@ export function generateInitializationAssignment(
 ): string | undefined {
   let lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
-
-  // Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;`
-  // wraps the lhs identifier in a `ref(...)` call. The evaluator
-  // has already unwrapped it for type-checking (and tagged the
-  // bound variable with `isRef: true`), but here we still see the
-  // surface AST shape `ref(r) := ...`. Unwrap to the inner atom
-  // so the existing atom-lhs codegen path takes over. The temp-
-  // var-type tweak below uses `isRef` on the bound variable to
-  // pick `T*` instead of `T`.
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.ref, 1)
-  ) {
-    lhs = lhs.args[0]!;
-  }
 
   // Debug: Log all := assignments in state machines
   const functionContext = context as FunctionGenerationContext;
@@ -305,92 +287,6 @@ export function generateInitializationAssignment(
     } else {
       // Non-array initialization - use existing logic
       let rhsCode: string;
-
-      // `ref(r) := obj.field` — borrow the FIELD LVALUE in place. The
-      // generic path materializes the field VALUE into a temp and binds
-      // the `T*` storage to it without '&' (a C compile error;
-      // issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
-      // Generate the raw lvalue (no temp materialization) and take its
-      // address — same '&' discipline as projection methods.
-      const lhsVarsForRef = lhs.$.env
-        ? getVariablesFromEnv(lhs.$.env, varName)
-        : [];
-      const lhsIsRefBinding =
-        lhsVarsForRef.length > 0 &&
-        lhsVarsForRef[lhsVarsForRef.length - 1]!.isRef === true;
-      if (
-        lhsIsRefBinding &&
-        exprIsFunctionCall(rhs) &&
-        exprIsFunctionCallOf(rhs, ".", 2)
-      ) {
-        const savedVariableName = rhs.$?.variableName;
-        if (rhs.$) rhs.$.variableName = undefined;
-        const lvalueCode = generateExpr(rhs, indent, context);
-        if (rhs.$) rhs.$.variableName = savedVariableName;
-        const refTypeString = getTypeString(lhs.$.type!, context);
-        if (!isUnitType(lhs.$.type)) {
-          context.emitter.emitLine(
-            `${indent}${refTypeString}* ${getVariableNameForCodegen(varName, lhs.$.env)} = (&(${lvalueCode}));`
-          );
-        }
-        // Owner pin (v4, plans/BORROW_EXCLUSIVITY.md): the borrowed
-        // lvalue lives inside an RC object's allocation. Declare a
-        // hidden owning handle + dup so the object stays alive for the
-        // borrow's whole scope; the matching drop is synthesized by the
-        // normal scope-end machinery (the evaluator registered the pin
-        // as an owning variable).
-        const ownerPin = expr.$?.refOwnerPin;
-        if (ownerPin) {
-          const pinBase = ownerPin.baseExpr;
-          const pinBaseCode = generateExpr(pinBase, indent, context);
-          const pinType = pinBase.$?.type;
-          if (pinType && pinBaseCode) {
-            const pinCName = getVariableNameForCodegen(
-              ownerPin.pinVariableName,
-              lhs.$.env
-            );
-            const pinTypeAndName = getVariableTypeString(
-              pinType,
-              ownerPin.pinVariableName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${pinTypeAndName} = ${pinBaseCode};`
-            );
-            const pinDupCode = generateDupCodeForValue(
-              pinCName,
-              pinType,
-              context
-            );
-            if (pinDupCode) {
-              context.emitter.emitLine(`${indent}${pinDupCode};`);
-            }
-          }
-        }
-        return "";
-      }
-      // `ref(r) := x` — borrow a LOCAL/PARAM lvalue directly. A plain
-      // local borrows via '&'; a source that is itself a ref binding /
-      // ref param is already a `T*` — copy the pointer instead.
-      if (lhsIsRefBinding && exprIsAtom(rhs) && rhs.$?.env) {
-        const sourceVars = getVariablesFromEnv(rhs.$.env, rhs.token.value);
-        const sourceIsRef =
-          sourceVars.length > 0 &&
-          sourceVars[sourceVars.length - 1]!.isRef === true;
-        const sourceName = getVariableNameForCodegen(
-          rhs.token.value,
-          rhs.$.env
-        );
-        const refTypeString = getTypeString(lhs.$.type!, context);
-        if (!isUnitType(lhs.$.type)) {
-          context.emitter.emitLine(
-            `${indent}${refTypeString}* ${getVariableNameForCodegen(varName, lhs.$.env)} = ${
-              sourceIsRef ? sourceName : `(&(${sourceName}))`
-            };`
-          );
-        }
-        return "";
-      }
 
       const rhsIsClosureConstruction =
         exprIsFunctionCall(rhs) &&
