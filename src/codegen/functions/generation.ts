@@ -1807,6 +1807,40 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 }
 
 /**
+ * Emit borrow-flag primitives for the Law of Exclusivity runtime backstop.
+ * These are needed regardless of the GC path (lightweight or full).
+ */
+function generateBorrowRuntimePrimitives(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  emitter.emitLine(`
+// Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
+// into a container's storage (e.g. xs(i)) increments the container's
+// borrow_count for the borrow's lifetime; a container operation that
+// could reallocate/free that storage asserts borrow_count == 0. This
+// turns the one statically-unprovable interior-ref residual (a container
+// reached through a global and grown while borrowed) into a deterministic
+// panic instead of a use-after-free. Cost: a same-cache-line load + a
+// predicted-not-taken branch (measured ~0% even on a tight push loop).
+static inline void __yo_borrow_acquire(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count++;
+}
+static inline void __yo_borrow_release(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count--;
+}
+static inline void __yo_borrow_assert_unborrowed(void* ptr) {
+  if (ptr == NULL) return;
+  if (((__yo_ref_header_t*)ptr)->borrow_count != 0) {
+    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    abort();
+  }
+}`);
+}
+
+/**
  * Generate non-atomic reference counting runtime functions.
  * Generate thread-local garbage collection with QuickJS-style trial deletion for cycle collection.
  * See CYCLE_COLLECTION.md for design details.
@@ -1814,6 +1848,10 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 function generateAtomicGCRuntimeFunctions(
   context: FunctionGenerationContext
 ): void {
+  // Borrow-flag primitives (Law of Exclusivity runtime backstop).
+  // Emitted unconditionally — needed regardless of GC path.
+  generateBorrowRuntimePrimitives(context);
+
   if (context.needsCycleGC) {
     generateFullGCRuntimeFunctions(context);
   } else {
@@ -1856,30 +1894,6 @@ static inline void* __yo_incr_rc(void* ptr) {
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
   return ptr;
-}
-
-// Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
-// into a container's storage (e.g. xs(i)) increments the container's
-// borrow_count for the borrow's lifetime; a container operation that
-// could reallocate/free that storage asserts borrow_count == 0. This
-// turns the one statically-unprovable interior-ref residual (a container
-// reached through a global and grown while borrowed) into a deterministic
-// panic instead of a use-after-free. Cost: a same-cache-line load + a
-// predicted-not-taken branch (measured ~0% even on a tight push loop).
-static inline void __yo_borrow_acquire(void* ptr) {
-  if (ptr == NULL) return;
-  ((__yo_ref_header_t*)ptr)->borrow_count++;
-}
-static inline void __yo_borrow_release(void* ptr) {
-  if (ptr == NULL) return;
-  ((__yo_ref_header_t*)ptr)->borrow_count--;
-}
-static inline void __yo_borrow_assert_unborrowed(void* ptr) {
-  if (ptr == NULL) return;
-  if (((__yo_ref_header_t*)ptr)->borrow_count != 0) {
-    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
-    abort();
-  }
 }`);
 
   // Atomic reference counting functions for Iso types (still needed regardless of GC)

@@ -1983,7 +1983,7 @@ export function generateOtherFunctionCall(
         // the callee's T* parameter declaration. This mirrors the regular call
         // path at lines 568-611.
         const callSigRuntimeParams = callSig.parameters.filter(
-          (p) => !p.isCompileTimeOnly
+          (p) => !p.isCompileTimeOnly && !p.isQuote
         );
         for (let i = 0; i < callSigRuntimeParams.length; i++) {
           const param = callSigRuntimeParams[i];
