@@ -153,71 +153,73 @@ test("Test array slice copies (value semantics)", {
   assert(match(full_copy.get(usize(3)),.Some(v) => (v == 4),.None => false));
 });
 // ===== Array Iterator Tests =====
-// Phase D of plans/ITERATOR_REDESIGN.md — `for(arr, ref(x) => body)`
-// is the borrow form: `arr.iter()` yields `usize` positions and the
-// for-macro pairs each with `arr.project(pos)` (Indexable) to bind
-// `x` as a `ref`-binding into element storage. Reads of `x` auto-
-// deref-copy; writes propagate back to the array.
+// Value-form iteration: `for(arr, (x) => body)` calls `arr.into_iter()`
+// and binds `x` to each element by value. In-place element mutation
+// uses index writes (`arr(i) = v`).
 test("Array iter - empty array yields nothing", {
   arr := Array(i32, 0)();
   count := usize(0);
-  for(arr, ref(x) => {
+  for(arr, (x) => {
     consume(x);
     count = (count + usize(1));
   });
   assert(count == usize(0), "empty array should yield no elements");
 });
-test("Array iter - reads elements through ref-binding", {
+test("Array iter - reads elements by value", {
   arr := [i32(10), i32(20), i32(30)];
   sum := i32(0);
   count := usize(0);
-  for(arr, ref(x) => {
+  for(arr, (x) => {
     sum = (sum + x);
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield 3 elements");
   assert(sum == i32(60), "sum should be correct");
 });
-test("Array iter - mutate through ref-binding", {
+test("Array - mutate via index writes", {
   arr := [i32(1), i32(2), i32(3)];
-  for(arr, ref(x) => {
-    x = (x * i32(10));
+  i := usize(0);
+  while(i < usize(3), {
+    arr(i) = (arr(i) * i32(10));
+    i = (i + usize(1));
   });
   assert(arr(0) == i32(10), "first element should be 10");
   assert(arr(1) == i32(20), "second element should be 20");
   assert(arr(2) == i32(30), "third element should be 30");
 });
-// ===== Slice Iterator Tests =====
-test("Slice iter - reads elements through ref-binding", {
+// ===== Range-copy Iterator Tests =====
+test("Range copy iter - reads elements by value", {
   arr := [i32(100), i32(200), i32(300)];
   slice := arr(usize(0) .. usize(3));
   sum := i32(0);
   count := usize(0);
-  for(slice, ref(x) => {
+  for(slice, (x) => {
     sum = (sum + x);
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield 3 elements");
   assert(sum == i32(600), "sum should be correct");
 });
-test("Range copy iter - mutation stays in the copy", {
-  // Ranges COPY (plans/SLICE_REWORK.md): mutating the copied elements
-  // through ref-bindings does not write back to the source array.
+test("Range copy - mutation stays in the copy", {
+  // Ranges COPY (plans/SLICE_REWORK.md): mutating the copied list does
+  // not write back to the source array.
   arr := [i32(1), i32(2), i32(3)];
   copy := arr(usize(0) .. usize(3));
-  for(copy, ref(x) => {
-    x = (x + i32(5));
+  i := usize(0);
+  while(i < usize(3), {
+    copy(i) = (copy(i) + i32(5));
+    i = (i + usize(1));
   });
   assert(arr(0) == i32(1), "source untouched");
   assert(match(copy.get(usize(0)),.Some(v) => (v == i32(6)),.None => false), "copy mutated");
   assert(match(copy.get(usize(2)),.Some(v) => (v == i32(8)),.None => false), "copy mutated end");
 });
-test("Slice iter - partial slice", {
+test("Range copy iter - partial range", {
   arr := [i32(10), i32(20), i32(30), i32(40)];
   slice := arr(usize(1) .. usize(3));
   sum := i32(0);
   count := usize(0);
-  for(slice, ref(x) => {
+  for(slice, (x) => {
     sum = (sum + x);
     count = (count + usize(1));
   });

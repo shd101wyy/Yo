@@ -9,11 +9,9 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 open(import("std/string"));
-// Phase D of plans/ITERATOR_REDESIGN.md — `coll.iter()` now yields
-// positions (for the for-macro's `ref(x) =>` form). Combinator chains
-// consume value iterators via `coll.into_iter()` — each element is
-// yielded by value, so the closure parameter binds directly without a
-// `.*` deref.
+// Combinator chains consume value iterators via `coll.into_iter()` —
+// each element is yielded by value, so the closure parameter binds
+// directly without a `.*` deref.
 test("for_each with ArrayList capture does not leak", {
   out := array_list(i32(0));
   out.clear();

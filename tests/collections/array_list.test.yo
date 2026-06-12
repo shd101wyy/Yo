@@ -753,33 +753,35 @@ test("ArrayList into_iter - multiple elements in order", {
 test("ArrayList iter - empty list", {
   list := ArrayList(i32).new();
   count := usize(0);
-  for(list, ref(x) => {
+  for(list, (x) => {
     consume(x);
     count = (count + usize(1));
   });
   assert(count == usize(0), "empty list should yield no elements");
 });
-test("ArrayList iter - reads elements through ref-binding", {
+test("ArrayList iter - reads elements by value", {
   list := ArrayList(i32).new();
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
   sum := i32(0);
   count := usize(0);
-  for(list, ref(x) => {
+  for(list, (x) => {
     sum = (sum + x);
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield all elements");
   assert(sum == i32(600), "sum should be correct");
 });
-test("ArrayList iter - mutate through ref-binding", {
+test("ArrayList - mutate via index writes", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  for(list, ref(x) => {
-    x = (x * i32(2));
+  i := usize(0);
+  while(i < list.len(), {
+    list(i) = (list(i) * i32(2));
+    i = (i + usize(1));
   });
   assert(list(usize(0)) == i32(2), "first element should be doubled");
   assert(list(usize(1)) == i32(4), "second element should be doubled");

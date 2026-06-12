@@ -1,37 +1,46 @@
-//! Same-scope borrow-invalidation gate (closes the documented flowability
-//! limitation): while a `ref(name) := …` binding is live, the variables its
-//! borrow roots in may not be REASSIGNED or MOVED — doing so would free or
-//! replace the borrowed backing. Runtime-proven hole before the gate:
-//! `ref(r) := xs.project(0); xs = ArrayList.new();` left `r` pointing into
-//! the freed Rc buffer.
+//! Same-scope borrow-invalidation gates: while a `ref(name) := …` binding
+//! is live, the variable its borrow roots in may not be REASSIGNED, MOVED,
+//! used as a METHOD RECEIVER, passed as a CALL ARGUMENT, or ALIASED —
+//! doing so could free or replace the borrowed backing.
+//!
+//! v4 (plans/BORROW_EXCLUSIVITY.md): borrows root only in locals and
+//! object FIELDS (container-interior borrows are inexpressible), so the
+//! gate sources here are object fields. The v4 element-access model
+//! (get handles surviving growth) is covered at the bottom.
 open(import("std/fmt"));
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 
-// Reassigning the borrowed container is rejected.
+Holder :: object(s : String, n : i32);
+impl(
+  Holder,
+  replace : (fn(self : Self, v : String) -> unit)({
+    self.s = v;
+  })
+);
+
+// Reassigning the borrowed owner is rejected.
 comptime_expect_error(
   reassign_while_borrowed :: (fn() -> unit)({
-    xs := ArrayList(String).new();
-    xs.push(String.from("element-zero"));
-    ref(r) := xs.project(usize(0));
-    xs = ArrayList(String).new();
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    ref(r) := h.s;
+    h = Holder(s : String.from("other"), n : i32(2));
     println(r);
   })
 );
 
-// Moving (box) the borrowed container is rejected. The TS evaluator's move
-// gate (setExprAsConsumed) fires at the `box(xs)` line. The trailing
+// Moving (box) the borrowed owner is rejected. The TS evaluator's move
+// gate (setExprAsConsumed) fires at the `box(h)` line. The trailing
 // reassignment is a fallback trigger for the self-hosted evaluator, whose
 // consume-tracking is not wired yet (set_expr_as_consumed has no callers —
 // documented port gap), so its REASSIGN gate produces the expected error
 // instead. Either way the borrow-invalidation contract holds.
 comptime_expect_error(
   move_while_borrowed :: (fn() -> unit)({
-    xs := ArrayList(String).new();
-    xs.push(String.from("element-zero"));
-    ref(r) := xs.project(usize(0));
-    boxed := box(xs);
-    xs = ArrayList(String).new();
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    ref(r) := h.s;
+    boxed := box(h);
+    h = Holder(s : String.from("other"), n : i32(2));
     println(r);
     ___ := boxed;
   })
@@ -39,127 +48,143 @@ comptime_expect_error(
 
 // Positive: the borrow ends with its block — reassigning afterwards is fine.
 test("reassign after the borrowing block ends", {
-  xs := ArrayList(String).new();
-  xs.push(String.from("element-zero"));
+  h := Holder(s : String.from("element-zero"), n : i32(1));
   {
-    ref(r) := xs.project(usize(0));
+    ref(r) := h.s;
     assert(r == "element-zero", "read through the borrow");
   };
-  xs = ArrayList(String).new();
-  assert(xs.len() == usize(0), "reassigned after borrow ended");
+  h = Holder(s : String.from("other"), n : i32(2));
+  assert(h.s == "other", "reassigned after borrow ended");
 });
 
 // Positive: reassigning an UNRELATED variable while a borrow lives is fine.
 test("reassigning an unrelated variable is unconstrained", {
-  xs := ArrayList(String).new();
-  xs.push(String.from("element-zero"));
-  other := ArrayList(String).new();
-  ref(r) := xs.project(usize(0));
-  other = ArrayList(String).new();
+  h := Holder(s : String.from("element-zero"), n : i32(1));
+  other := Holder(s : String.from("unrelated"), n : i32(0));
+  ref(r) := h.s;
+  other = Holder(s : String.from("replaced"), n : i32(0));
   assert(r == "element-zero", "borrow unaffected");
-  assert(other.len() == usize(0), "unrelated reassign fine");
+  assert(other.s == "replaced", "unrelated reassign fine");
 });
 
-// Positive: copying the element out instead of borrowing leaves the
-// container free to be reassigned.
-test("copying the element out instead of borrowing", {
-  xs := ArrayList(String).new();
-  xs.push(String.from("element-zero"));
-  copied := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
-  xs = ArrayList(String).new();
+// Positive: copying the field out instead of borrowing leaves the owner
+// free to be reassigned (the copy is a handle to the String OBJECT, which
+// the owner's reassignment cannot invalidate).
+test("copying the field out instead of borrowing", {
+  h := Holder(s : String.from("element-zero"), n : i32(1));
+  copied := h.s;
+  h = Holder(s : String.from("other"), n : i32(2));
   assert(copied == "element-zero", "copy survives the reassign");
 });
 
-// --- Call-use / alias gates (issues/flowability-growth-invalidation-method-calls.md) ---
-// Mutating METHOD CALLS on the borrowed source are rejected: object
-// reference semantics make mutation signature-invisible (`push` and `len`
-// both take `self : Self`), so any call could realloc/free the borrowed
-// backing. Runtime-proven hole before the gate: 64 pushes after
-// `ref(r) := xs.project(0)` realloc'd the buffer and `println(r)`
-// SIGSEGV'd under guard pages.
+// --- Call-use / alias gates ---
+// Mutating METHOD CALLS on the borrowed owner are rejected: object
+// reference semantics make mutation signature-invisible, so any call
+// could replace the borrowed backing.
 comptime_expect_error(
   method_call_while_borrowed :: (fn() -> unit)({
-    xs := ArrayList(String).new();
-    xs.push(String.from("element-zero"));
-    ref(r) := xs.project(usize(0));
-    xs.push(String.from("filler"));
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    ref(r) := h.s;
+    h.replace(String.from("filler"));
     println(r);
   })
 );
 
-// Passing the borrowed source as a CALL ARGUMENT is rejected for the same
+// Passing the borrowed owner as a CALL ARGUMENT is rejected for the same
 // reason — the callee receives the object handle and can mutate it.
 comptime_expect_error(
   call_argument_while_borrowed :: (fn() -> unit)({
-    grow := (fn(target : ArrayList(String)) -> unit)({
-      target.push(String.from("filler"));
+    swap_in := (fn(target : Holder) -> unit)({
+      target.s = String.from("filler");
     });
-    xs := ArrayList(String).new();
-    xs.push(String.from("element-zero"));
-    ref(r) := xs.project(usize(0));
-    grow(xs);
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    ref(r) := h.s;
+    swap_in(h);
     println(r);
   })
 );
 
-// Creating a NEW HANDLE from the borrowed source is rejected — the alias
+// Creating a NEW HANDLE from the borrowed owner is rejected — the alias
 // could mutate the storage without the borrow constraints applying.
 comptime_expect_error(
   alias_after_borrow :: (fn() -> unit)({
-    xs := ArrayList(String).new();
-    xs.push(String.from("element-zero"));
-    ref(r) := xs.project(usize(0));
-    xs2 := xs;
-    xs2.push(String.from("filler"));
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    ref(r) := h.s;
+    h2 := h;
+    h2.replace(String.from("filler"));
     println(r);
   })
 );
 
 // A PRE-EXISTING alias is constrained too: borrow marks apply to the whole
-// alias group (xs2 := xs before the borrow shares the same object).
+// alias group (h2 := h before the borrow shares the same object).
 comptime_expect_error(
   preexisting_alias_mutation :: (fn() -> unit)({
-    xs := ArrayList(String).new();
-    xs.push(String.from("element-zero"));
-    xs2 := xs;
-    ref(r) := xs.project(usize(0));
-    xs2.push(String.from("filler"));
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    h2 := h;
+    ref(r) := h.s;
+    h2.replace(String.from("filler"));
     println(r);
   })
 );
 
-// Positive: method calls on the source AFTER the borrowing block ends.
+// Positive: method calls on the owner AFTER the borrowing block ends.
 test("method calls after the borrowing block ends", {
-  xs := ArrayList(String).new();
-  xs.push(String.from("element-zero"));
+  h := Holder(s : String.from("element-zero"), n : i32(1));
   {
-    ref(r) := xs.project(usize(0));
+    ref(r) := h.s;
     assert(r == "element-zero", "read through the borrow");
   };
-  xs.push(String.from("after"));
-  assert(xs.len() == usize(2), "mutation fine after the borrow ended");
+  h.replace(String.from("after"));
+  assert(h.s == "after", "mutation fine after the borrow ended");
 });
 
-// Positive: calls on an UNRELATED container while a borrow lives.
-test("calls on an unrelated container are unconstrained", {
-  xs := ArrayList(String).new();
-  xs.push(String.from("element-zero"));
-  other := ArrayList(String).new();
-  ref(r) := xs.project(usize(0));
-  other.push(String.from("unrelated"));
+// Positive: calls on an UNRELATED owner while a borrow lives.
+test("calls on an unrelated owner are unconstrained", {
+  h := Holder(s : String.from("element-zero"), n : i32(1));
+  other := Holder(s : String.from("unrelated"), n : i32(0));
+  ref(r) := h.s;
+  other.replace(String.from("mutated"));
   assert(r == "element-zero", "borrow unaffected");
-  assert(other.len() == usize(1), "unrelated container mutates fine");
+  assert(other.s == "mutated", "unrelated owner mutates fine");
 });
 
-// Positive: multiple borrows from the same source stay allowed — a
-// borrow-CREATING projection hands out a reference, it doesn't invalidate
-// the existing ones (the ref-binding RHS is exempt from the call gate).
-test("multiple live borrows from the same source", {
+// Positive: multiple borrows from the same owner stay allowed — a
+// borrow-CREATING field access hands out a reference, it doesn't
+// invalidate the existing ones (the ref-binding RHS is exempt from the
+// call gate).
+test("multiple live borrows from the same owner", {
+  h := Holder(s : String.from("element-zero"), n : i32(9));
+  ref(a) := h.s;
+  ref(b) := h.n;
+  assert(a == "element-zero", "first borrow");
+  assert(b == i32(9), "second borrow");
+});
+
+// --- The v4 element-access model ---
+// `get` returns a HANDLE to the element object — it points at the
+// String itself, not into the list's buffer, so container growth
+// (realloc) cannot invalidate it. 64 pushes is the documented realloc
+// trigger from the pre-gate UAF repro.
+test("get handle survives container growth", {
   xs := ArrayList(String).new();
   xs.push(String.from("element-zero"));
-  xs.push(String.from("element-one"));
-  ref(a) := xs.project(usize(0));
-  ref(b) := xs.project(usize(1));
-  assert(a == "element-zero", "first borrow");
-  assert(b == "element-one", "second borrow");
+  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  i := usize(0);
+  while(i < usize(64), {
+    xs.push(String.from("filler"));
+    i = (i + usize(1));
+  });
+  assert(e == "element-zero", "handle valid after 64 pushes (realloc)");
+  assert(xs.len() == usize(65), "all pushes landed");
+});
+
+// Object elements mutate in place through the get handle — no borrow
+// needed.
+test("object element mutates in place through a get handle", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("hello"));
+  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  e.push_str(" world");
+  assert(match(xs.get(usize(0)),.Some(s) => (s == "hello world"),.None => false), "mutated in place");
 });
