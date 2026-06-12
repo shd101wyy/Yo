@@ -1898,6 +1898,11 @@ try_to_call_function_with_arguments :: (
       // v4.1: validate the PLACES bound to ref parameters (after argument
       // evaluation so the chain types are resolved). Mirrors TS
       // requireValidRefArgumentPlaces in tryToCallFunctionWithArguments.
+      vrf_param_labels := match(
+        func_type,
+        .Func({ param_labels : vrf_pl }) => vrf_pl,
+        _ => ArrayList(String).new()
+      );
       vrf_param_is_ref := match(
         func_type,
         .Func({ param_is_ref : vrf_pir }) => vrf_pir,
@@ -1909,7 +1914,8 @@ try_to_call_function_with_arguments :: (
         _ => ArrayList(bool).new()
       );
       require_ref_own_argument_exclusivity(
-        vrf_param_is_ref, vrf_param_is_owning, adjusted_args, caller_env_m, ctx, exn
+        vrf_param_labels, vrf_param_is_ref, vrf_param_is_owning,
+        adjusted_args, caller_env_m, ctx, exn
       );
       require_valid_ref_argument_places(vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
       // ----------------------------------------------------------------
