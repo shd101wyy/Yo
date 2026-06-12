@@ -173,9 +173,9 @@ impl(
             if(keys(i) == key, {
               // SAFETY: `i` is bounded by `keys.len()` and the
               // Object variant invariant says `values.len() ==
-              // keys.len()`, so `values.project(i)` yields a valid
-              // ref into the Rc-managed values list.
-              return(unsafe(&(values.project(i))));
+              // keys.len()`, so `&(values(i))` (Index trait) yields a
+              // valid pointer into the Rc-managed values list.
+              return(unsafe(&(values(i))));
             });
           });
           panic("JsonValue: key not found in Object")
@@ -198,8 +198,9 @@ impl(
           assert(idx < items.len(), "JsonValue: Array index out of bounds");
           // SAFETY: assert above bounds `idx`; `items` is the
           // Rc-managed Array list whose storage outlives this call
-          // (ref(self) keeps `self` and therefore `items` alive).
-          return(unsafe(&(items.project(idx))));
+          // (ref(self) keeps `self` and therefore `items` alive);
+          // `&(items(idx))` (Index trait) yields the element pointer.
+          return(unsafe(&(items(idx))));
         },
         _ => panic("JsonValue: index by usize requires .Array variant")
       )

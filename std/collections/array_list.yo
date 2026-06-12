@@ -543,28 +543,6 @@ impl(
     })
   )
 );
-/// Indexable impl — projection-style indexing yielding `ref(T)`.
-/// See plans/ITERATOR_REDESIGN.md. Body wraps the pointer arithmetic
-/// in `unsafe(...)` to pass the flowability check.
-impl(
-  forall(T : Type),
-  ArrayList(T),
-  Indexable(usize)(
-    Element : T,
-    project : (fn(ref(self) : Self, pos : usize) -> ref(T))({
-      assert(pos < self._length, "ArrayList: project out of bounds");
-      match(
-        self._ptr,
-        // SAFETY: assert above bounds `pos < self._length` and the
-        // length invariant guarantees `pos < self._capacity`, so
-        // `_ptr &+ pos` stays inside the Rc-managed heap buffer
-        // for the duration of the borrow.
-        .Some(_ptr) => unsafe(_ptr &+ pos),
-        .None => panic("ArrayList: project on empty list")
-      )
-    })
-  )
-);
 impl(
   forall(T : Type),
   ArrayList(T),
@@ -620,37 +598,6 @@ impl(
   ArrayList(T),
   into_iter : (fn(self : Self) -> ArrayListIter(T))(
     ArrayListIter(T)(_list : self, _index : usize(0))
-  )
-);
-/// Position iterator for ArrayList — yields `usize` indices into the
-/// list. Used by `ArrayList.iter()`; the for-macro pairs each yielded
-/// position with `ArrayList.project(pos)` (Indexable from Phase C) to
-/// bind the body's `ref`-name. See plans/ITERATOR_REDESIGN.md.
-_ArrayListPosIter :: struct(
-  _index : usize,
-  _len : usize
-);
-impl(
-  _ArrayListPosIter,
-  Iterator(
-    Item : usize,
-    next : (fn(ref(self) : Self) -> Option(usize))(
-      cond(
-        (self._index >= self._len) =>.None,
-        true => {
-          out := self._index;
-          self._index = (self._index + usize(1));
-          .Some(out)
-        }
-      )
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  ArrayList(T),
-  iter : (fn(ref(self) : Self) -> _ArrayListPosIter)(
-    _ArrayListPosIter(_index : usize(0), _len : self._length)
   )
 );
 impl(
