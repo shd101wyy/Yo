@@ -1,8 +1,130 @@
 # Borrow Exclusivity — making flowability COMPLETELY sound
 
-Status: PROPOSAL (2026-06-12). Companion to
+Status: PROPOSAL v2 (2026-06-12). Companion to
 `issues/flowability-growth-invalidation-method-calls.md` (the residual) and
 the landed call/alias gates (commit 8b0b67b1).
+
+> **v2 design constraints (from the language owner):** maximize what is
+> caught statically; eliminate runtime checks/overhead (target 0–15% of
+> C); keep the language simple and LLM-friendly. This reorders the
+> options: the PRIMARY direction is now **Option D — inferred effect
+> summaries + call-site overlap checking (Hylo-style, zero runtime
+> cost, zero new syntax)**. The dynamic backstop (Option B below) is
+> demoted to an optional fallback if Option D's rejections prove too
+> strict in practice.
+
+## Option D (RECOMMENDED, v2) — inferred summaries + call-site overlap checks
+
+Precedent: **Hylo (formerly Val)** achieves memory safety without
+lifetime annotations and without runtime checks via two rules: parameter
+passing conventions (its `inout`/`let` map to Yo's `ref`/by-value) and a
+**call-site Law of Exclusivity** — arguments that may be mutated must not
+overlap arguments that are borrowed. Yo can adopt the same shape with
+ZERO new syntax, because the missing ingredient — which parameters a
+function mutates/borrows — is **inferable**: Yo compiles whole-program
+and the evaluator already walks every function body.
+
+### Step 1 — per-function effect summaries (inferred, no annotations)
+
+For every function, compute for each object-typed parameter:
+
+```
+summary(f) = per param p:
+  MUTATES(p)        — p is a receiver/argument of an invalidating use
+                      anywhere in f's body (transitively, via callee
+                      summaries; recursion/unknown → conservatively true)
+  BORROWS(p)        — a `ref` borrow rooted in p is live across any
+                      potentially-invalidating point in f
+  ESCAPES(p)        — p is stored into a field/global/return
+```
+
+This is a bottom-up fixpoint over the call graph — the same flavor of
+analysis as the existing CTFE-capability and await-point analyses, so the
+infrastructure idioms already exist. Builtins/extern get pessimistic
+summaries.
+
+### Step 2 — call-site overlap rule (the Hylo law)
+
+At every call `f(a1, …, an)`: for every pair (ai, aj) where
+`BORROWS(pi)` (or pi is a `ref` param) and `MUTATES(pj)`, the compiler
+must prove ai and aj are **distinct objects**. Provable cases (almost
+all code):
+
+- different alias groups rooted in distinct LOCAL allocations — a
+  freshly constructed object (`ArrayList.new()`, struct literals) is
+  unique-by-construction until aliased; the existing
+  `isOwningTheSameRcValueAs` machinery already tracks this, it only
+  needs a "fresh allocation" root bit;
+- one side is a literal/copy (`.get`/`.clone()` results);
+- the same variable on both sides → immediate, precise ERROR.
+
+Unprovable cases (both handles arrived from parameters, fields, or
+returns with no local pedigree) → **compile error** with the workaround
+in the message (copy the element out, or restructure so the borrow does
+not cross the call). No runtime check is ever emitted.
+
+```rust
+// Caller-side resolution examples:
+a := ArrayList(String).new();      // fresh → unique root
+b := ArrayList(String).new();      // fresh → unique root
+copy_first(a, b);                  // OK: distinct allocations, proven statically
+copy_first(a, a);                  // ERROR: same object passed as borrowed+mutated
+g :: (fn(x : ArrayList(String), y : ArrayList(String)) -> unit)(
+  copy_first(x, y)                 // ERROR (propagated): cannot prove x ≠ y here…
+);                                 // …so g's summary inherits the obligation, and
+h := ArrayList(String).new();
+g(h, h);                           // …the question resolves at THIS call site: ERROR
+```
+
+The obligation propagates up the call graph as part of the summary
+(`copy_first` requires p1 ≠ p2 → `g` requires x ≠ y → resolved where the
+objects are born). At the top of most programs objects have local
+pedigree, so the question almost always resolves statically — this is
+exactly why Hylo's model works without annotations.
+
+### Step 3 — heap-mediated handles (the honest residue)
+
+Two handles pulled out of a heap graph (e.g. two values from a
+`HashMap`) have no pedigree. Under v2 these are REJECTED when used as a
+borrowed+mutated pair across a call — with copy-out as the suggested
+idiom. This is the simplicity trade: no runtime check, slightly stricter
+language. If real-world code hits this often, the Option B borrow
+counter can be added LATER, emitted ONLY at the (rare, statically
+identified) unproven sites — hybrid cost ≈ 0.
+
+### Why this fits the goals
+
+- **Runtime overhead: zero.** Nothing is emitted; soundness is a
+  compile-time property.
+- **Language complexity: zero new syntax.** Everything is inferred;
+  users (and LLMs) only ever SEE precise compile errors that teach the
+  rule. An optional `readonly(self)` annotation (Option C) remains a
+  pure ergonomic refinement, not a soundness requirement.
+- **LLM-friendliness:** the rule is one sentence — "while you borrow
+  from a container, nothing may mutate it, and a function may not
+  receive the same container as both borrowed and mutated" — and every
+  violation produces an error message stating the fix.
+
+### Implementation order (v2)
+
+1. "Fresh allocation" root bit on the alias machinery (constructors mark
+   the new variable as a unique root; aliasing clears it). Enables
+   call-site distinctness proofs.
+2. Effect summaries: bottom-up MUTATES/BORROWS per object param,
+   memoized per specialized function (the evaluator already specializes
+   per call — summaries piggyback on `funcId`).
+3. Call-site overlap check in `tryToCallFunctionWithArguments` (and the
+   yo-self mirror in calls/helper.yo) using summaries + alias verdicts;
+   obligation propagation into the caller's summary when unresolved.
+4. Tests: the f(list, list) family (same var, aliased var, fresh-distinct
+   OK), propagation through one and two call levels, heap-mediated
+   rejection with copy-out positive.
+5. Docs: FLOWABILITY.md "the call-site law" section (en/zh).
+
+---
+
+## Historical analysis (v1) — kept for the record
+
 
 ## Where we are
 
@@ -41,7 +163,7 @@ copy_first :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> unit)({
 });
 ```
 
-## Option B (RECOMMENDED) — dynamic exclusivity backstop, Swift-style
+## Option B (v1 recommendation, now FALLBACK) — dynamic exclusivity backstop, Swift-style
 
 Swift faced exactly this shape (reference semantics, no lifetimes) and
 solved it with the **Law of Exclusivity**: static checks where the
@@ -151,32 +273,9 @@ Semantics:
   `self`, or pass `self` to mutating positions. The annotation cannot lie.
 - Dynamic layer: readonly methods don't assert (they can't invalidate).
 
-## Recommendation
+## v1 recommendation (superseded by Option D above)
 
-1. **Ship Option B** — it is the only design that achieves complete
-   soundness without abandoning the shared-handle object model, costs no
-   memory and one branch per mutating container op, and converts the
-   remaining UB class into deterministic panics. Precedent: Swift
-   exclusivity enforcement, which shipped exactly this trade.
-2. **Follow with Option C** for ergonomics: un-freeze `len`/`get`-style
-   reads statically, verified by the compiler.
-3. **Do not pursue Option A** — static-only soundness under unrestricted
-   aliasing either changes the language into Rust or over-rejects the
-   common patterns.
-
-## Implementation order
-
-1. Header field + the three runtime helpers (both header variants,
-   atomic variant for `atomic object`).
-2. Codegen acquire/release for `ref(r) := …` bindings (sources from the
-   existing mark machinery; releases on the deferred-cleanup lists).
-3. `__yo_assert_unborrowed` builtin + std markup of invalidating methods
-   (ArrayList, String, HashMap, Deque, BTreeMap — the project()/borrow
-   providers and their mutators).
-4. Tests: the param-aliasing repro panics (run-time test with expected
-   non-zero exit), gmalloc-clean positive paths, borrow across early
-   returns/unwind.
-5. yo-self mirrors of the evaluator-side pieces; codegen pieces land
-   with the codegen port.
-6. (Phase 2) `readonly(self)` modifier: parser + verification + gate
-   relaxation + std annotation sweep.
+Option B remains the documented fallback: if Option D's rejections of
+heap-mediated handle pairs prove too strict in practice, add the borrow
+counter ONLY at statically-unproven sites (hybrid; near-zero cost). The
+`readonly(self)` modifier (Option C) composes with either direction.
