@@ -86,10 +86,9 @@ test("whole module-level variable to a ref param", {
 // borrow is still in use.
 comptime_expect_error(
   ref_and_own_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)({
-      ___ := victim;
+    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
       x.len()
-    });
+    );
     h := Holder(s : String.from("element-zero"), n : i32(1));
     n := use_and_sink(h.s, h);
     consume(n);
@@ -99,10 +98,9 @@ comptime_expect_error(
 // An ALIAS of the owner is caught too.
 comptime_expect_error(
   ref_and_own_alias_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)({
-      ___ := victim;
+    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
       x.len()
-    });
+    );
     h := Holder(s : String.from("element-zero"), n : i32(1));
     h2 := h;
     n := use_and_sink(h.s, h2);
@@ -112,10 +110,9 @@ comptime_expect_error(
 
 // Positive: ref + own of DISTINCT objects in one call is fine.
 test("ref and own arguments of distinct objects are allowed", {
-  use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)({
-    ___ := victim;
+  use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
     x.len()
-  });
+  );
   a := Holder(s : String.from("abcde"), n : i32(1));
   b := Holder(s : String.from("other"), n : i32(2));
   n := use_and_sink(a.s, b);
