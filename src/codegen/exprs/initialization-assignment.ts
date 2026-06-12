@@ -25,7 +25,10 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
-import { generateDeferredDupExpressions } from "./drop-dup";
+import {
+  generateDeferredDupExpressions,
+  generateDupCodeForValue,
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 import { getStateMachineFieldName } from "../async/state-machine";
 
@@ -329,6 +332,40 @@ export function generateInitializationAssignment(
           context.emitter.emitLine(
             `${indent}${refTypeString}* ${getVariableNameForCodegen(varName, lhs.$.env)} = (&(${lvalueCode}));`
           );
+        }
+        // Owner pin (v4, plans/BORROW_EXCLUSIVITY.md): the borrowed
+        // lvalue lives inside an RC object's allocation. Declare a
+        // hidden owning handle + dup so the object stays alive for the
+        // borrow's whole scope; the matching drop is synthesized by the
+        // normal scope-end machinery (the evaluator registered the pin
+        // as an owning variable).
+        const ownerPin = expr.$?.refOwnerPin;
+        if (ownerPin) {
+          const pinBase = ownerPin.baseExpr;
+          const pinBaseCode = generateExpr(pinBase, indent, context);
+          const pinType = pinBase.$?.type;
+          if (pinType && pinBaseCode) {
+            const pinCName = getVariableNameForCodegen(
+              ownerPin.pinVariableName,
+              lhs.$.env
+            );
+            const pinTypeAndName = getVariableTypeString(
+              pinType,
+              ownerPin.pinVariableName,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${pinTypeAndName} = ${pinBaseCode};`
+            );
+            const pinDupCode = generateDupCodeForValue(
+              pinCName,
+              pinType,
+              context
+            );
+            if (pinDupCode) {
+              context.emitter.emitLine(`${indent}${pinDupCode};`);
+            }
+          }
         }
         return "";
       }

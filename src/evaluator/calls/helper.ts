@@ -12,6 +12,7 @@ import {
   type Variable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
+import { requireRefOwnArgumentExclusivity } from "../types/flowability";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -1402,6 +1403,16 @@ Got:   ${typeToString(typeValue.type)}`,
       calleeEnv = result.env;
     }
   }
+
+  // Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+  // an own-bound argument must not alias the root of a ref-bound
+  // argument in the same call — the callee could release the object
+  // the borrow points into.
+  requireRefOwnArgumentExclusivity({
+    parameters: functionType.parameters,
+    argExprs,
+    env: callerEnv,
+  });
 
   // Check if the regular parameters match the arguments
   const parametersToProcess = functionType.parameters.length;

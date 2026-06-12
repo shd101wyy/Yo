@@ -15,13 +15,18 @@ import {
   hasAnyControlFlow,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
+  type Expr,
   type FnCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
 import { generateNewTempVariableName } from "../../utils";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { SomeType } from "../../types/definitions";
-import { isSomeType } from "../../types/guards";
+import {
+  isAtomicObjectType,
+  isObjectType,
+  isSomeType,
+} from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   prohibitVoidType,
@@ -599,6 +604,52 @@ Use \`::\` for compile-time definitions inside impl.`,
       }
     }
 
+    // Owner pin (v4, plans/BORROW_EXCLUSIVITY.md): a `ref(name) :=
+    // obj.field` borrow points INTO the owner object's allocation. The
+    // same-scope gates stop local invalidation, but a callee that
+    // receives the owner via `own(...)` can reassign/drop it while the
+    // ref is still in use — alias-blind across the boundary. Pin the
+    // owner: register a hidden OWNING variable in this scope (the
+    // normal scope-end machinery synthesizes its drop, including on
+    // early-return paths) and tell codegen to declare it as a dup of
+    // the base handle at the binding line.
+    let refOwnerPin: { pinVariableName: string; baseExpr: Expr } | undefined;
+    if (
+      isRefBinding &&
+      !effectiveIsCompileTimeOnly &&
+      exprIsFunctionCall(rhs) &&
+      exprIsFunctionCallOf(rhs, ".", 2)
+    ) {
+      const baseExpr = rhs.args[0]!;
+      const rawBaseType = baseExpr.$?.type;
+      const baseType =
+        rawBaseType && isSomeType(rawBaseType) && rawBaseType.resolvedConcreteType
+          ? rawBaseType.resolvedConcreteType
+          : rawBaseType;
+      if (
+        baseType &&
+        (isObjectType(baseType) || isAtomicObjectType(baseType))
+      ) {
+        const pinVariableName = `__yo_pin_${varName}`;
+        const { env: envWithPin } = addVariableToEnv({
+          env,
+          variable: {
+            name: pinVariableName,
+            type: baseType,
+            isCompileTimeOnly: false,
+            value: baseExpr.$?.value ? [baseExpr.$.value] : undefined,
+            token: actualLhs.token,
+            initializedAtToken: actualLhs.token,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: true,
+            isReassignable: false,
+          },
+        });
+        env = envWithPin;
+        refOwnerPin = { pinVariableName, baseExpr };
+      }
+    }
+
     // Store the renamed variable name so codegen uses it instead of "_"
     if (actualLhs.token.value === "_") {
       actualLhs.$.variableName = varName;
@@ -610,6 +661,7 @@ Use \`::\` for compile-time definitions inside impl.`,
       type: VUnit.type,
       pathCollection: [],
       isCompileTimeOnlyAssignment: effectiveIsCompileTimeOnly,
+      refOwnerPin,
     };
     return expr;
   } else {

@@ -38,3 +38,79 @@ test("value-struct field borrow", {
   rx = i32(10);
   assert(p.x == i32(10), "stack-struct field write through the borrow");
 });
+
+// --- Owner pinning + call-site ref/own exclusivity (v4) ---
+// `ref(r) := h.s` pins the OWNER (+1 for the borrow's scope, dropped by
+// the normal scope-end machinery), and a call may not receive the same
+// object as both a ref-rooted argument and an own argument.
+// Same-scope: consuming the borrowed owner via an own call is rejected
+// by the existing call-argument gate.
+comptime_expect_error(
+  own_call_while_borrowed :: (fn() -> unit)({
+    swallow :: (fn(own(victim) : Holder) -> unit)({
+      ___ := victim;
+    });
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    ref(r) := h.s;
+    swallow(h);
+    println(r);
+  })
+);
+
+// Argument-position: `f(h.s, h)` creates the borrow AT the call while
+// `own` moves the caller's count into the callee — no prior binding
+// exists for the same-scope gates to mark. The call-site ref/own
+// exclusivity gate rejects it.
+comptime_expect_error(
+  ref_and_own_same_call :: (fn() -> unit)({
+    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)({
+      ___ := victim;
+      x.len()
+    });
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    n := use_and_sink(h.s, h);
+    consume(n);
+  })
+);
+
+// An ALIAS of the owner is caught too.
+comptime_expect_error(
+  ref_and_own_alias_same_call :: (fn() -> unit)({
+    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)({
+      ___ := victim;
+      x.len()
+    });
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    h2 := h;
+    n := use_and_sink(h.s, h2);
+    consume(n);
+  })
+);
+
+// Positive: ref + own of DISTINCT objects in one call is fine.
+test("ref and own arguments of distinct objects are allowed", {
+  use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)({
+    ___ := victim;
+    x.len()
+  });
+  a := Holder(s : String.from("abcde"), n : i32(1));
+  b := Holder(s : String.from("other"), n : i32(2));
+  n := use_and_sink(a.s, b);
+  assert(n == usize(5), "borrow read fine while a distinct object was consumed");
+});
+
+// The pin's drop must fire on normal AND early-return paths without
+// leaking or double-freeing the owner.
+test("owner pin drops correctly on early return", {
+  first_len :: (fn(h : Holder, bail : bool) -> usize)({
+    ref(r) := h.s;
+    if(bail, {
+      return(usize(0));
+    });
+    r.len()
+  });
+  h := Holder(s : String.from("abc"), n : i32(1));
+  assert(first_len(h, false) == usize(3), "normal path");
+  assert(first_len(h, true) == usize(0), "early-return path");
+  assert(h.s == "abc", "owner intact after both paths");
+});

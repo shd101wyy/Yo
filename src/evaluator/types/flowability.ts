@@ -669,3 +669,84 @@ export function collectAliasGroup(
   if (!group.includes(variable)) group.push(variable);
   return group;
 }
+
+/**
+ * Walk a property-access chain (`h.s`, `a.b.c`) to its base atom.
+ * Returns the atom expr, or undefined when the chain roots in a
+ * non-atom (a call result, a literal, ...).
+ */
+export function findPropertyChainRootAtom(expr: Expr): Expr | undefined {
+  let current = expr;
+  while (
+    exprIsFunctionCall(current) &&
+    exprIsFunctionCallOf(current, ".", 2)
+  ) {
+    current = (current as FnCallExpr).args[0]!;
+  }
+  return exprIsAtom(current) ? current : undefined;
+}
+
+/**
+ * Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+ * within ONE call, an argument bound to an `own(...)` parameter must
+ * not be (or alias) the root of another argument bound to a `ref(...)`
+ * parameter. `f(h.s, h)` with `f :: fn(ref(x) : String, own(victim) :
+ * Holder)` moves the caller's count into the callee, which can release
+ * it (e.g. by forwarding `victim` to another own-consuming call) while
+ * `x` still points into the object — a use-after-free no same-scope
+ * gate can see. Non-`own` (by-value) overlap is safe: a borrowed
+ * handle's chain can never release the caller's count (passing it
+ * onward to an `own` position dups first).
+ */
+export function requireRefOwnArgumentExclusivity({
+  parameters,
+  argExprs,
+  env,
+}: {
+  parameters: { label: string; isRef?: boolean; isOwningTheRcValue: boolean }[];
+  argExprs: Expr[];
+  env: Environment;
+}): void {
+  const refRoots: { index: number; label: string; variable: Variable }[] = [];
+  const ownRoots: {
+    index: number;
+    label: string;
+    variable: Variable;
+    token: Token;
+  }[] = [];
+  for (let i = 0; i < parameters.length && i < argExprs.length; i++) {
+    const parameter = parameters[i]!;
+    const argExpr = argExprs[i]!;
+    if (argExpr.token.modulePath.startsWith("auto-generated://")) continue;
+    if (!parameter.isRef && !parameter.isOwningTheRcValue) continue;
+    const rootAtom = findPropertyChainRootAtom(argExpr);
+    if (!rootAtom) continue;
+    const rootEnv = rootAtom.$?.env ?? env;
+    const vars = getVariablesFromEnv(rootEnv, rootAtom.token.value);
+    const variable = vars[vars.length - 1];
+    if (!variable) continue;
+    if (parameter.isRef) {
+      refRoots.push({ index: i, label: parameter.label, variable });
+    } else {
+      ownRoots.push({
+        index: i,
+        label: parameter.label,
+        variable,
+        token: argExpr.token,
+      });
+    }
+  }
+  for (const own of ownRoots) {
+    for (const ref of refRoots) {
+      if (ref.index === own.index) continue;
+      if (aliasGroupRoot(ref.variable) !== aliasGroupRoot(own.variable))
+        continue;
+      throw formatErrorMessage({
+        token: own.token,
+        errorMessage: `Cannot pass "${own.variable.name}" to the own parameter "${own.label}" in the same call where argument ${
+          ref.index + 1
+        } borrows from it (bound to the ref parameter "${ref.label}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
+      });
+    }
+  }
+}

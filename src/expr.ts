@@ -301,6 +301,22 @@ export interface EvaluatedExprData {
   deferredDropExpressions?: Expr[];
 
   /**
+   * Owner pin for a `ref(name) := obj.field` binding whose borrowed
+   * lvalue lives inside an RC OBJECT's allocation. The binding's scope
+   * holds a +1 on the owner so the object cannot be freed while the
+   * borrow lives (closes the cross-function residual the static gates
+   * cannot see, e.g. a callee reassigning its `own(h)` param while a
+   * ref into `h` is still in use). Codegen declares
+   * `<OwnerType> <pinVariableName> = <base>;` plus a dup at the binding
+   * line; the matching drop rides the normal scope-end machinery via
+   * the hidden owning variable registered in the environment.
+   */
+  refOwnerPin?: {
+    pinVariableName: string;
+    baseExpr: Expr;
+  };
+
+  /**
    * Drop expressions for variables that are consumed later in the same scope.
    * They are only needed on early return/unwind paths before the consume point;
    * normal scope exit must not emit them because ownership has moved.
