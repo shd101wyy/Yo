@@ -41,22 +41,33 @@ test("value-struct field place", {
   assert(p.x == i32(2), "stack-struct field write through the ref param");
 });
 
-// --- The place rule ---
-// Borrowing through an intermediate OBJECT is rejected: `w.inner`'s
-// handle lives in a slot a callee could replace, freeing the borrowed
-// allocation.
+// --- The place rule (intermediate object hop) ---
+// Borrowing through an intermediate OBJECT (`w.inner.n` — `w.inner` is
+// an object-typed field) is dangerous ONLY when a callee can reach the
+// root `w` and reassign `w.inner`, freeing the borrowed allocation.
+// Reachable = the root is passed alongside, an alias, or module-level,
+// or any other argument could hold a handle to it.
 comptime_expect_error(
-  nested_object_hop_rejected :: (fn() -> unit)({
-    grow :: (fn(ref(v) : i32) -> unit)({
-      v = (v + i32(1));
+  nested_object_hop_with_root_rejected :: (fn() -> unit)({
+    soak :: (fn(ref(v) : i32, victim : Wrapper) -> unit)({
+      victim.inner = Holder(s : String.from("replaced"), n : i32(0));
+      v = i32(99);
     });
     w := Wrapper(inner : Holder(s : String.from("x"), n : i32(1)));
-    grow(w.inner.n);
+    soak(w.inner.n, w);
   })
 );
 
-// The recipe: bind the intermediate object to a local — the local
-// handle keeps it alive for as long as the local lives.
+// Element-only intermediate hop is SAFE: the root `w` is a local the
+// callee cannot reach, so nothing can free `w.inner` mid-call.
+test("intermediate object hop is allowed when the root is unreachable", {
+  w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
+  bump(w.inner.n);
+  assert(w.inner.n == i32(10), "write landed through the intermediate hop");
+});
+
+// The recipe for the rejected case: bind the intermediate object to a
+// local — the local handle keeps it alive for as long as the local lives.
 test("bind the intermediate object to a local first", {
   w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
   b := w.inner;
@@ -196,4 +207,50 @@ test("copy the element out to combine with container use", {
   use_both(copied, xs);
   assert(xs.len() == usize(2), "pushed the copy");
   assert(xs(usize(0)) == i32(7), "original element untouched (v=0 wrote the copy)");
+});
+
+// --- A CLOSURE argument that captures the container (audit probe P4) ---
+// The element-only rule treats any closure argument as able to reach the
+// container (it may have captured it — we don't do escape analysis). The
+// proven repro: the closure pushes to xs (realloc), then the ref write
+// hits the freed buffer → SIGSEGV before this gate.
+comptime_expect_error(
+  index_ref_with_capturing_closure :: (fn() -> unit)({
+    run :: (fn(ref(v) : i32, grow : Impl(Fn() -> unit)) -> unit)({
+      grow();
+      v = i32(99);
+    });
+    xs := ArrayList(i32).new();
+    xs.push(i32(41));
+    run(xs(usize(0)), () => {
+      xs.push(i32(0));
+    });
+  })
+);
+
+// --- Box deref `b.*.field` as a ref place (audit probe P1) ---
+// `Box` is an ordinary object; `b.*` is a field access whose result is
+// an object, i.e. an intermediate object hop. Reassigning `b.*` (needs a
+// handle to `b`) frees the boxed object, so passing `b` alongside is
+// rejected.
+comptime_expect_error(
+  box_deref_with_box_arg :: (fn() -> unit)({
+    evil :: (fn(ref(v) : i32, victim : Box(Holder)) -> unit)({
+      victim.* = Holder(s : String.from("replacement"), n : i32(7));
+      v = i32(99);
+    });
+    b := box(Holder(s : String.from("orig"), n : i32(1)));
+    evil(b.*.n, b);
+  })
+);
+
+// Positive: element-only Box deref — the box is NOT passed, so no callee
+// can reassign it. (`owner_box.*.id.clone()`-style access.)
+test("box deref is allowed when the box is unreachable", {
+  read_n :: (fn(ref(v) : i32) -> unit)({
+    v = (v + i32(1));
+  });
+  b := box(Holder(s : String.from("x"), n : i32(5)));
+  read_n(b.*.n);
+  assert(b.*.n == i32(6), "write landed through the deref place");
 });

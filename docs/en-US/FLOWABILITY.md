@@ -33,14 +33,24 @@ The argument passed to a `ref` parameter is a simple lvalue **place**:
   are rejected — a callee could replace that handle's slot and free the
   borrowed storage. The recipe is one line: bind the object to a local
   first (`b := a.b`) — the local handle pins it naturally;
-- an **indexed element** (`xs(i)`) is a pointer into the container's
-  buffer; it may be a ref argument only when the callee cannot reach
-  the container — passing the container (or an alias) in the same call,
-  or indexing a module-level container, is rejected (growth would
-  realloc the buffer under the reference). Element-only uses
-  (`to_string(xs(i))`, `${xs(i)}`, `bump(xs(i))`) are safe and legal;
-  to combine element and container in one call, copy the element out
-  with `.get(i)` first.
+- an **indexed element** (`xs(i)`) or a chain through an **intermediate
+  object** (including a `Box` deref `b.*`, since `Box` is an ordinary
+  object and `*` is just a field) is a pointer into a heap object's
+  storage; it may be a ref argument only when the callee cannot reach
+  that object — passing the container/box (or an alias), indexing a
+  module-level container, or passing **any other object/closure
+  argument** that could hold a handle to it, is rejected (growth or
+  reassignment could free the storage under the reference). Element-only
+  uses (`to_string(xs(i))`, `${xs(i)}`, `bump(xs(i))`,
+  `owner_box.*.id.clone()`) are safe and legal; to combine element and
+  container in one call, copy the element out with `.get(i)` first.
+
+> **One documented residual.** This argument-reachability check cannot
+> see a container that escaped into a *global* heap structure earlier
+> (`g.push(xs); bump(xs(i))` where `bump` grows `xs` through the
+> global) — closing it would require whole-program escape analysis.
+> The shape is contrived and never arises in ordinary code; see
+> `issues/ref-arg-heap-escape-to-global-residual.md`.
 
 ## Element access: handles and copies, not interior pointers
 

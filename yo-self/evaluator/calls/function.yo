@@ -2356,6 +2356,10 @@ Fix: wrap the call:
           );
           out_idx_rt := new_expr_info(idx_result_rt.caller_env, idx_result_rt.ty);
           out_idx_rt.value = idx_result_rt.value;
+          // Record the `*(T)` the index method returns (before auto-deref)
+          // so the ref-argument place gate recognizes `xs(i)` as a pointer
+          // into the container's buffer. Mirrors TS function.ts:2788.
+          out_idx_rt.index_trait_ptr_type = Option(TypeValue).Some(idx_result_rt.ptr_type);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           return(expr);
         });
@@ -2563,6 +2567,9 @@ Fix: wrap the call:
             );
             out_idx := new_expr_info(idx_result.caller_env, idx_result.ty);
             out_idx.value = idx_result.value;
+            // Record the index method's `*(T)` so the ref-argument place
+            // gate recognizes `xs(i)` as a buffer pointer (TS function.ts:2788).
+            out_idx.index_trait_ptr_type = Option(TypeValue).Some(idx_result.ptr_type);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             return(expr);
           });
