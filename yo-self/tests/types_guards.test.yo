@@ -5,7 +5,7 @@
 //! so a future implementation landing out of order gets caught.
 open(import("std/string"));
 { TypeValue } :: import("../types/definitions.yo");
-{ t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_slice, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_effects_row, t_iso, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../types/creators.yo");
+{ t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_effects_row, t_iso, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../types/creators.yo");
 { is_int_type, is_float_type } :: import("../types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -73,7 +73,7 @@ open(import("std/string"));
   is_boxed_type,
   is_effects_row_type,
   is_pointer_type,
-  is_slice_type,
+  is_str_type,
   is_array_type,
   is_signed_int_type,
   is_numeric_type,
@@ -132,8 +132,8 @@ test("is_comptime_float_type", {
   assert(!(is_comptime_float_type(t_f32())), "f32 not comptime_float");
 });
 test("is_comptime_string_type", {
-  assert(is_comptime_string_type(t_comptime_string()), "comptime_string");
-  assert(!(is_comptime_string_type(t_bool())), "bool not comptime_string");
+  assert(is_comptime_string_type(t_comptime_string()), "comptime_str");
+  assert(!(is_comptime_string_type(t_bool())), "bool not comptime_str");
 });
 test("is_comptime_list_type: Phase 2b stub returns false", {
   assert(!(is_comptime_list_type(t_unit())), "stub false");
@@ -195,7 +195,7 @@ test("is_union_type", {
   assert(!(is_union_type(t_i32())), "i32 not union");
 });
 test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_module_type / is_some_type", {
-  s := TypeValue.Struct(String.from(""), String.from("S"), ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false);
+  s := TypeValue.Struct(id : String.from(""), name : String.from("S"), field_labels : ArrayList(String).new(), field_types : ArrayList(TypeValue).new(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false);
   e := TypeValue.EnumT(String.from(""), String.from("E"), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   tr := t_trait_simple(String.from("T"));
@@ -344,7 +344,14 @@ test("is_function_type_generic: forall func is generic", {
     ArrayList(TypeValue).new(),
     ArrayList(bool).new(),
     ArrayList(TypeValue).new(),
-    box(t_unit())
+    box(t_unit()),
+    false,
+    ArrayList(bool).new(),
+    false,
+    false,
+    Option(String).None,
+    Option(String).None,
+    false
   );
   assert(is_function_type_generic(f), "forall func generic");
   assert(is_function_type_hard_generic(f), "forall func hard generic");
@@ -366,7 +373,14 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
     it_,
     is_,
     ArrayList(TypeValue).new(),
-    box(t_unit())
+    box(t_unit()),
+    false,
+    ArrayList(bool).new(),
+    false,
+    false,
+    Option(String).None,
+    Option(String).None,
+    false
   );
   assert(is_function_type_generic(f), "implicit func generic");
   assert(!(is_function_type_hard_generic(f)), "implicit func NOT hard generic");
@@ -384,7 +398,7 @@ test("re-exported guards from type.yo still work", {
   assert(is_signed_int_type(t_i32()), "is_signed_int_type i32");
   assert(!(is_signed_int_type(t_u32())), "u32 not signed");
   assert(is_pointer_type(t_ptr(t_i32())), "pointer");
-  assert(is_slice_type(t_slice(t_u8())), "slice");
+  assert(is_str_type(TypeValue.Str), "str");
   assert(is_array_type(t_array(t_u8(), usize(4))), "array");
 });
 // ---------------------------------------------------------------------------
@@ -449,13 +463,16 @@ test("is_rc_type: struct (not object) is not RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   struct_ty := TypeValue.Struct(
-    String.from("id1"),
-    String.from("Point"),
-    labels,
-    types,
-    false,
-    false,
-    false
+    id : String.from("id1"),
+    name : String.from("Point"),
+    field_labels : labels,
+    field_types : types,
+    is_reference_semantics : false,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   );
   assert(!(is_rc_type(struct_ty)), "struct → false");
 });
@@ -463,13 +480,16 @@ test("is_rc_type: object (is_reference_semantics=true) is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   obj_ty := TypeValue.Struct(
-    String.from("id2"),
-    String.from("MyObj"),
-    labels,
-    types,
-    true,
-    false,
-    false
+    id : String.from("id2"),
+    name : String.from("MyObj"),
+    field_labels : labels,
+    field_types : types,
+    is_reference_semantics : true,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   );
   assert(is_rc_type(obj_ty), "object → true");
 });

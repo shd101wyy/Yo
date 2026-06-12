@@ -75,7 +75,7 @@ evaluate_struct_type :: (
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.
   // This allows self-referential types like `struct(val: Option(Self))`.
   prelim_ty := TypeValue.Struct(
-    String.from(struct_id.as_str()),
+    struct_id.clone(),
     String.from(""),
     ArrayList(String).new(),
     ArrayList(TypeValue).new(),
@@ -132,7 +132,7 @@ evaluate_struct_type :: (
         )
       );
     });
-    field_labels.push(String.from(field.label.as_str()));
+    field_labels.push(field.label.clone());
     field_types.push(field.ty);
     if(!(field.is_comptime), {
       runtime_field_types.push(field.ty);
@@ -153,7 +153,7 @@ evaluate_struct_type :: (
     while((j < field_labels.len()) && deref_idx.is_none(), {
       match(
         field_labels.get(j),
-        .Some(l) => if(l.as_str() == "*", {
+        .Some(l) => if(l == "*", {
           deref_idx = Option(usize).Some(j);
         }),
         .None => ()
@@ -196,7 +196,7 @@ evaluate_struct_type :: (
   // Build final struct TypeValue with all fields populated.
   // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
   struct_ty := TypeValue.Struct(
-    String.from(struct_id.as_str()),
+    struct_id.clone(),
     String.from(""),
     field_labels,
     field_types,
@@ -212,7 +212,7 @@ evaluate_struct_type :: (
   // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in TypeScript.
   auto_derive_traits_for_struct_type(
-    String.from(struct_id.as_str()),
+    struct_id.clone(),
     runtime_field_types,
     is_reference_semantics,
     is_atomic_rc,
@@ -222,7 +222,7 @@ evaluate_struct_type :: (
   // Restore SelfType
   ctx.self_type = old_self_type;
   // Register TypeField metadata in global registry
-  register_struct_fields(String.from(struct_id.as_str()), fields);
+  register_struct_fields(struct_id.clone(), fields);
   struct_val := create_type_value(struct_ty);
   meta_ty := type_of_type(struct_ty);
   out_info := new_expr_info(env, meta_ty);

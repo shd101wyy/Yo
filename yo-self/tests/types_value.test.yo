@@ -4,8 +4,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeTag } :: import("../types/tags.yo");
 { TypeValue } :: import("../types/definitions.yo");
-{ type_value_tag, t_i32, t_u8, t_f32, t_usize, t_unit, t_bool, t_ptr, t_slice, t_array } :: import("../types/creators.yo");
-{ is_int_type, is_signed_int_type, is_numeric_type, is_pointer_type, is_slice_type, is_array_type } :: import("../types/guards.yo");
+{ type_value_tag, t_i32, t_u8, t_f32, t_usize, t_unit, t_bool, t_ptr, t_str, t_array } :: import("../types/creators.yo");
+{ is_int_type, is_signed_int_type, is_numeric_type, is_pointer_type, is_str_type, is_array_type } :: import("../types/guards.yo");
 test("primitive constructors and tags", {
   ti32 := t_i32();
   tu8t := t_u8();
@@ -28,15 +28,14 @@ test("is_int / is_signed / is_numeric", {
   assert(is_numeric_type(t_usize()), "usize numeric");
   assert(!(is_numeric_type(t_unit())), "unit not numeric");
 });
-test("compound types — pointer / slice / array", {
+test("compound types — pointer / str / array", {
   pi32 := t_ptr(t_i32());
-  si32 := t_slice(t_i32());
   ai32 := t_array(t_i32(), usize(8));
   assert(is_pointer_type(pi32), "ptr is ptr");
-  assert(is_slice_type(si32), "slice is slice");
+  assert(is_str_type(t_str()), "str is str");
   assert(is_array_type(ai32), "array is array");
   assert(type_value_tag(pi32) == TypeTag.TPtr, "ptr tag");
-  assert(type_value_tag(si32) == TypeTag.TSlice, "slice tag");
+  assert(type_value_tag(t_str()) == TypeTag.TStr, "str tag");
   assert(type_value_tag(ai32) == TypeTag.TArray, "array tag");
   // Nested pointer
   ppi32 := t_ptr(t_ptr(t_i32()));
@@ -59,7 +58,7 @@ test("compound types — pointer / slice / array", {
   // Array length stored
   match(
     ai32,
-    .Array(_, len) => assert(len == usize(8), "array length 8"),
+    .Array(_, len, _) => assert(len == usize(8), "array length 8"),
     _ => assert(false, "expected Array")
   );
 });

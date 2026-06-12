@@ -1,5 +1,29 @@
 # macOS 26.4.1 AMFI/XProtect blocks ASAN test binaries (Nix-store dylib path)
 
+> **Status update (2026-06-11, evening):** re-tested with Developer Mode
+> ENABLED (`DevToolsSecurity -enable`) — still blocked, and the root cause
+> is now known to be BROADER than the Nix dylib path: a minimal C
+> double-free probe compiled with **Apple CLT clang** (`/usr/bin/clang
+> -fsanitize=address`, Apple-signed runtime dylib) ALSO hangs forever at
+> startup, sampled inside `dyld4::prepare`. The Nix-clang probe hangs
+> identically. So macOS 26.5 blocks ASan-instrumented binaries at the
+> dyld level regardless of toolchain or Developer Mode — this is an
+> OS-level regression, not a signing/Nix issue. Practical consequence:
+> ASan is unusable on this machine for ANY local build; the
+> libgmalloc + lldb + MallocStackLogging=full + malloc_history workflow
+> (issues/fixed/yo-self-macro-dispatch-corruption.md) is the supported
+> local alternative, and Linux CI provides real ASan coverage.
+>
+> **Status update (2026-06-11 triage):** mitigated, still unresolved.
+> `--disable-sanitize` + the `asanRuntimeIsUsable` smoke-probe landed
+> (ASan auto-skips instead of hanging tests), but `--sanitize address`
+> still emits an uninstrumented binary on this machine. The working
+> alternative for memory bugs is the libgmalloc + lldb +
+> `MallocStackLogging=full` + `malloc_history` workflow (Developer Mode is
+> now enabled) — documented in
+> `issues/fixed/yo-self-macro-dispatch-corruption.md`; it produced full
+> alloc/free/use stacks for both UAF root causes without ASan.
+
 ## Status: OPEN
 
 ## Symptom

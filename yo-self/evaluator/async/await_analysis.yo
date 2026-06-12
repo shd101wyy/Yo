@@ -102,7 +102,7 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                 .Some(oe) => match(
                   oe,
                   .FnCall(_, _, _, _, _) => false,
-                  .Atom(_, tok) => (tok.value.as_str() == obj_name)
+                  .Atom(_, tok) => (tok.value == obj_name)
                 )
               );
               cond(
@@ -113,7 +113,7 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                   .Some(me) => match(
                     me,
                     .FnCall(_, _, _, _, _) => false,
-                    .Atom(_, tok) => (tok.value.as_str() == method_name)
+                    .Atom(_, tok) => (tok.value == method_name)
                   )
                 )
               )
@@ -177,7 +177,7 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
               .Some(me) => match(
                 me,
                 .FnCall(_, _, _, _, _) => false,
-                .Atom(_, tok) => (tok.value.as_str() == "await")
+                .Atom(_, tok) => (tok.value == "await")
               )
             )
           )
@@ -448,7 +448,7 @@ collect_variable_bindings_ :: (
         func_box.*,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, ftok) => (
-          (ftok.value.as_str() == "let") || (ftok.value.as_str() == ":=")
+          (ftok.value == "let") || (ftok.value == ":=")
         )
       );
       if(func_is_binding && (args.len() >= usize(2)), {

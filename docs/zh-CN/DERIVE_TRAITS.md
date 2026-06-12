@@ -240,7 +240,7 @@ derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), 
 - **Eq、Clone、Hash、Ord** — 派生规则定义在 `std/prelude.yo` 中
 - **ToString** — 派生规则定义在 `std/fmt/to_string.yo` 中（ToString 特征定义所在）
 
-这些实现使用基于字符串的代码生成，通过 `comptime_string` 和 `.to_expr()` 在编译期构建 impl 代码块。
+这些实现使用基于字符串的代码生成，通过 `comptime_str` 和 `.to_expr()` 在编译期构建 impl 代码块。
 
 ## 类型反射
 

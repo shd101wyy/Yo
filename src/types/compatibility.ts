@@ -21,6 +21,7 @@ import {
   isComptimeIntType,
   isComptimeListType,
   isComptimeStringType,
+  isStrType,
   isDynType,
   isEnumType,
   isExprType,
@@ -29,10 +30,8 @@ import {
   isFutureTraitType,
   isIsoType,
   isSourceNamespaceType,
-  isNewtypeType,
   isPrimitiveType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -129,6 +128,11 @@ export function areTypesCompatible(
     return expected.type.tag === given.type.tag;
   }
 
+  // str (builtin static string view): nominal by tag.
+  if (isStrType(expected.type) && isStrType(given.type)) {
+    return true;
+  }
+
   // comptime_int can be converted to
   // - comptime_int
   // - u8
@@ -182,20 +186,16 @@ export function areTypesCompatible(
     return true;
   }
 
-  // comptime_string can be converted to
-  // - [u8]  u8 slice
+  // comptime_str can be converted to
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
-  // - str      newtype over [u8]
+  // - str      static string view
   if (
     (isComptimeStringType(expected.type) ||
-      (isSliceType(expected.type) && // [u8]
-        isU8Type(expected.type.childType)) ||
       (isPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.childType) ||
           isCharType(expected.type.childType))) ||
-      (isNewtypeType(expected.type) && // str
-        expected.type.typeName === "str")) &&
+      isStrType(expected.type)) && // str (builtin)
     isComptimeStringType(given.type)
   ) {
     return true;
@@ -236,16 +236,6 @@ export function areTypesCompatible(
         requireExactMatch,
         visitedPairs
       )
-    );
-  }
-
-  if (isSliceType(expected.type) && isSliceType(given.type)) {
-    // Slices must have compatible element types
-    return areTypesCompatible(
-      { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env },
-      requireExactMatch,
-      visitedPairs
     );
   }
 

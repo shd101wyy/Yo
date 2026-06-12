@@ -7,8 +7,6 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import type { ArrayType, SliceType } from "../../types/definitions";
-import { isArrayType, isPtrType, isSliceType } from "../../types/guards";
 import {
   isBooleanValue,
   isComptimeStringValue,
@@ -20,7 +18,6 @@ import {
   getTypeString,
   getVariableNameForCodegen,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
-  sanitizeForCIdentifier,
 } from "../utils";
 import { generateExpr } from "./expr";
 
@@ -40,73 +37,6 @@ export function generateAddressOf(
   }
   const arg = expr.args[0]!;
 
-  // Special case: *(arr(0:3)) or *(arr(:)) should create slice values directly
-  if (exprIsFunctionCall(arg)) {
-    const funcType = arg.func.$?.type;
-    if (funcType && isArrayType(funcType)) {
-      const firstArg = arg.args[0];
-      if (
-        firstArg &&
-        exprIsFunctionCall(firstArg) &&
-        (exprIsFunctionCallOf(firstArg, "..") ||
-          exprIsFunctionCallOf(firstArg, "..="))
-      ) {
-        const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
-        // *(arr(start..end)) or *(arr(start..=end)) -> create slice value directly
-        const arrayCode = generateExpr(arg.func!, indent, context);
-        const startCode = generateExpr(firstArg.args[0]!, indent, context);
-        const endCode = generateExpr(firstArg.args[1]!, indent, context);
-
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((funcType as ArrayType).childType, context))}`;
-        if (!context.sliceStructTypes.has(sliceTypeName)) {
-          context.sliceStructTypes.set(sliceTypeName, {
-            childType: getTypeString(
-              (funcType as ArrayType).childType,
-              context
-            ),
-          });
-        }
-        if (isInclusive) {
-          return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
-        }
-        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-      }
-    } else if (
-      funcType &&
-      (isSliceType(funcType) ||
-        (isPtrType(funcType) && isSliceType(funcType.childType)))
-    ) {
-      // Handle slice-from-slice: *(slice(start..end)) or *(slice(start..=end))
-      const sliceBaseType = isSliceType(funcType)
-        ? (funcType as SliceType)
-        : (funcType.childType as SliceType);
-      const firstArg = arg.args[0];
-      if (
-        firstArg &&
-        exprIsFunctionCall(firstArg) &&
-        (exprIsFunctionCallOf(firstArg, "..") ||
-          exprIsFunctionCallOf(firstArg, "..="))
-      ) {
-        const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
-        // *(slice(start..end)) -> create sub-slice
-        const sliceCode = generateExpr(arg.func!, indent, context);
-        const startCode = generateExpr(firstArg.args[0]!, indent, context);
-        const endCode = generateExpr(firstArg.args[1]!, indent, context);
-
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.childType, context))}`;
-        if (!context.sliceStructTypes.has(sliceTypeName)) {
-          context.sliceStructTypes.set(sliceTypeName, {
-            childType: getTypeString(sliceBaseType.childType, context),
-          });
-        }
-        if (isInclusive) {
-          return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
-        }
-        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-      }
-    }
-  }
-
   // Check if the argument is a literal value that needs to be made addressable
   // In C, we can't take the address of a literal directly (&1 is invalid)
   // We need to use a compound literal: &(int32_t){1}
@@ -120,7 +50,7 @@ export function generateAddressOf(
       const typeName = getTypeString(argType, context);
       return `(&(${typeName}){${argCode}})`;
     }
-    // For comptime_string with conversion, the generateExpr already generates the struct
+    // For comptime_str with conversion, the generateExpr already generates the struct
     if (isComptimeStringValue(argValue) && arg.$?.convertedRuntimeType) {
       const argCode = generateExpr(arg, indent, context);
       return `(&${argCode})`;
@@ -175,10 +105,7 @@ export function generateAddressOf(
       const inlineOp =
         isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(methodValue);
       if (inlineOp) {
-        if (
-          BuiltinFunctions.__yo_array_index.includes(inlineOp) ||
-          BuiltinFunctions.__yo_slice_index.includes(inlineOp)
-        ) {
+        if (BuiltinFunctions.__yo_array_index.includes(inlineOp)) {
           return `(&((&${calleeCode})->data[${indexCode}]))`;
         }
       }

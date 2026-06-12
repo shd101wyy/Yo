@@ -411,6 +411,7 @@ typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
 typedef struct __yo_ref_header_t {
   size_t ref_count;
   uint8_t gc_flags;
+  uint16_t borrow_count;  // Law-of-Exclusivity flag: # of live interior refs into this object
   __yo_gc_mark_t gc_mark;
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
@@ -434,6 +435,7 @@ struct __yo_thread_gc_state {
 typedef struct __yo_ref_header_t {
   size_t ref_count;
   uint16_t type_id;
+  uint16_t borrow_count;  // Law-of-Exclusivity flag (fits in existing tail padding: 0 extra bytes)
 } __yo_ref_header_t;`);
   }
 
@@ -519,8 +521,8 @@ typedef struct __yo_io_future_t {
   // Generate array struct types after forward declarations
   generateArrayStructDeclarations(context);
 
-  // Generate slice struct types
-  generateSliceStructDeclarations(context);
+  // Generate the builtin str type
+  generateStrTypeDeclaration(context);
 
   // Generate Iso types
   generateIsoTypeDeclarations(context);
@@ -1013,17 +1015,18 @@ export function generateArrayStructDeclarations(context: CodeGenContext): void {
 }
 
 /**
- * Generate slice struct type declarations
+ * Generate the builtin `str` type declaration
  */
-export function generateSliceStructDeclarations(context: CodeGenContext): void {
+export function generateStrTypeDeclaration(context: CodeGenContext): void {
   const emitter = context.emitter;
-  for (const [sliceTypeName, { childType }] of context.sliceStructTypes) {
-    emitter.emitDeclarationLine(`typedef struct { // Slice wrapper struct`);
-    emitter.emitDeclarationLine(`  ${childType}* data;`);
-    emitter.emitDeclarationLine(`  size_t length;`);
-    emitter.emitDeclarationLine(`} ${sliceTypeName};`);
-    emitter.emitDeclarationLine("");
-  }
+  // str — builtin static string view (always emitted; trivially small).
+  emitter.emitDeclarationLine(
+    `typedef struct { // str: builtin static string view`
+  );
+  emitter.emitDeclarationLine(`  const uint8_t* ptr;`);
+  emitter.emitDeclarationLine(`  size_t len;`);
+  emitter.emitDeclarationLine(`} __yo_str;`);
+  emitter.emitDeclarationLine("");
 }
 
 /**

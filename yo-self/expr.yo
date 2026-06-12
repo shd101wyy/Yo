@@ -127,7 +127,6 @@ BF_YO_ARC4RANDOM_BUF :: "__yo_arc4random_buf";
 BF_YO_BCRYPT_GEN_RANDOM :: "__yo_bcrypt_gen_random";
 BF_YO_GETENTROPY :: "__yo_getentropy";
 BF_YO_ARRAY_INDEX :: "__yo_array_index";
-BF_YO_SLICE_INDEX :: "__yo_slice_index";
 BF_YO_MAYBE_UNINIT_ASSUME_INIT :: "__yo_maybe_uninit_assume_init";
 // Expr builtins
 BF_YO_AS :: "__yo_as";
@@ -135,10 +134,6 @@ BF_YO_AS :: "__yo_as";
 BF_YO_SLICE_NEW :: "__yo_slice_new";
 BF_YO_MAYBE_UNINIT_NEW :: "__yo_maybe_uninit_new";
 BF_YO_MAYBE_UNINIT_AS_PTR :: "__yo_maybe_uninit_as_ptr";
-BF_YO_ARRAY_INDEX_RANGE :: "__yo_array_index_range";
-BF_YO_ARRAY_INDEX_RANGE_INCLUSIVE :: "__yo_array_index_range_inclusive";
-BF_YO_SLICE_INDEX_RANGE :: "__yo_slice_index_range";
-BF_YO_SLICE_INDEX_RANGE_INCLUSIVE :: "__yo_slice_index_range_inclusive";
 // Expr builtins
 BF_YO_EXPR_IS_ATOM :: "__yo_expr_is_atom";
 BF_YO_EXPR_IS_FN_CALL :: "__yo_expr_is_fn_call";
@@ -223,11 +218,6 @@ BF_COMPTIME_STRING_INDEX_RANGE :: "__yo_comptime_string_index_range";
 BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE :: "__yo_comptime_string_index_range_inclusive";
 // Comptime array/slice index builtins
 BF_COMPTIME_ARRAY_INDEX :: "__yo_comptime_array_index";
-BF_COMPTIME_SLICE_INDEX :: "__yo_comptime_slice_index";
-BF_COMPTIME_ARRAY_INDEX_RANGE :: "__yo_comptime_array_index_range";
-BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE :: "__yo_comptime_array_index_range_inclusive";
-BF_COMPTIME_SLICE_INDEX_RANGE :: "__yo_comptime_slice_index_range";
-BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE :: "__yo_comptime_slice_index_range_inclusive";
 /// Builtin keyword strings used by the evaluator — control / declaration forms.
 /// Mirrors the `BuiltinKeywords` enum in `src/expr.ts`.
 BK_COMPTIME :: "comptime";
@@ -412,7 +402,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
       );
       func_is_tuple_kw := match(
         func_box.*,
-        .Atom(_, ftok) => (ftok.value.as_str() == BK_TUPLE),
+        .Atom(_, ftok) => (ftok.value == BK_TUPLE),
         .FnCall(_, _, _, _, _) => false
       );
       cond(
@@ -427,7 +417,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               arg0_str := recur(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()));
               is_fc := ast_expr_is_fn_call(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()));
               cond(
-                (func_tok_val.as_str() == ".") => cond(
+                (func_tok_val == ".") => cond(
                   is_fc => `${func_tok_val}(${arg0_str})`,
                   true => `${func_tok_val}${arg0_str}`
                 ),
@@ -446,7 +436,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
                 true => rhs0
               );
               cond(
-                (func_tok_val.as_str() == ".") => {
+                (func_tok_val == ".") => {
                   rhs_final := cond(
                     ast_expr_is_fn_call(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr())) => `(${rhs})`,
                     true => rhs
@@ -668,13 +658,13 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
     .FnCall(_, func_box, _, _, _) => match(
       func_box.*,
       .Atom(_, tok) => {
-        v := tok.value.as_str();
+        v := tok.value.clone();
         (v == "->") || ((v == "=>") || (v == "=>>"))
       },
       .FnCall(_, inner_func_box, _, _, _) => match(
         inner_func_box.*,
         .Atom(_, inner_tok) => {
-          iv := inner_tok.value.as_str();
+          iv := inner_tok.value.clone();
           (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
         },
         .FnCall(_, _, _, _, _) => false
@@ -711,10 +701,8 @@ export(BF_YO_PTR_ADD, BF_YO_PTR_SUB, BF_YO_PTR_DIFF);
 export(BF_YO_PTR_EQ, BF_YO_PTR_NEQ, BF_YO_PTR_LT, BF_YO_PTR_LTE, BF_YO_PTR_GT, BF_YO_PTR_GTE);
 export(BF_YO_SLICE_LEN, BF_YO_SLICE_PTR);
 export(BF_YO_GETRANDOM, BF_YO_ARC4RANDOM_BUF, BF_YO_BCRYPT_GEN_RANDOM, BF_YO_GETENTROPY);
-export(BF_YO_ARRAY_INDEX, BF_YO_SLICE_INDEX, BF_YO_MAYBE_UNINIT_ASSUME_INIT);
+export(BF_YO_ARRAY_INDEX, BF_YO_MAYBE_UNINIT_ASSUME_INIT);
 export(BF_YO_AS, BF_YO_SLICE_NEW, BF_YO_MAYBE_UNINIT_NEW, BF_YO_MAYBE_UNINIT_AS_PTR);
-export(BF_YO_ARRAY_INDEX_RANGE, BF_YO_ARRAY_INDEX_RANGE_INCLUSIVE);
-export(BF_YO_SLICE_INDEX_RANGE, BF_YO_SLICE_INDEX_RANGE_INCLUSIVE);
 export(BF_YO_EXPR_IS_ATOM, BF_YO_EXPR_IS_FN_CALL, BF_YO_EXPR_GET_CALLEE, BF_YO_EXPR_GET_ARGS);
 export(BF_YO_EXPR_TO_STRING, BF_YO_EXPR_EQ);
 export(BF_YO_COMPTIME_LIST_CAR, BF_YO_COMPTIME_LIST_CDR, BF_YO_COMPTIME_LIST_CONS);
@@ -740,9 +728,7 @@ export(BF_COMPTIME_STRING_LT, BF_COMPTIME_STRING_LTE, BF_COMPTIME_STRING_GT, BF_
 export(BF_COMPTIME_STRING_LENGTH, BF_COMPTIME_STRING_TO_UPPER, BF_COMPTIME_STRING_TO_LOWER);
 export(BF_COMPTIME_STRING_SLICE, BF_COMPTIME_STRING_INDEX, BF_COMPTIME_STRING_INDEX_RANGE);
 export(BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE);
-export(BF_COMPTIME_ARRAY_INDEX, BF_COMPTIME_SLICE_INDEX, BF_COMPTIME_ARRAY_INDEX_RANGE);
-export(BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE, BF_COMPTIME_SLICE_INDEX_RANGE);
-export(BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE);
+export(BF_COMPTIME_ARRAY_INDEX);
 /// Throws if `expr` is not a FnCall of `func_name` with an optional exact `arg_count`.
 /// Mirrors `expectExprToBeFunctionCallOf` in `src/expr.ts`.
 expect_expr_to_be_fn_call_of :: (

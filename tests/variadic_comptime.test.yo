@@ -21,11 +21,11 @@ test("variadic comptime mixed with regular params", {
   comptime_assert(mixed_count(i32, bool) == usize(1), "mixed 1 rest");
   comptime_assert(mixed_count(i32, bool, u8) == usize(2), "mixed 2 rest");
 });
-// === Variadic comptime_string ===
-str_count :: (fn(...(comptime(strs) : ComptimeList(comptime_string))) -> comptime(usize))(
+// === Variadic comptime_str ===
+str_count :: (fn(...(comptime(strs) : ComptimeList(comptime_str))) -> comptime(usize))(
   strs.len()
 );
-test("variadic comptime_string", {
+test("variadic comptime_str", {
   comptime_assert(str_count() == usize(0), "str 0");
   comptime_assert(str_count("a") == usize(1), "str 1");
   comptime_assert(str_count("a", "b", "c") == usize(3), "str 3");

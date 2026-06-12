@@ -515,30 +515,10 @@ export function tryToImplementFunctionByFunctionType({
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
 
-  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
-  // the return expression of a `-> ref(T)` function. Mirrors the
-  // identical check in `evaluateAnonymousFunctionImplementation`;
-  // this path covers top-level `name :: (fn(...) -> ref(T))(body)`
-  // definitions where the body is evaluated here rather than in
-  // the inline-lambda evaluator.
-  if (newFunctionType.return.isRef) {
-    let returnExpr: Expr = evaluatedFunctionBody;
-    if (
-      exprIsFunctionCall(evaluatedFunctionBody) &&
-      exprIsFunctionCallOf(evaluatedFunctionBody, BuiltinKeywords.begin)
-    ) {
-      const beginCall = evaluatedFunctionBody as FnCallExpr;
-      if (beginCall.args.length > 0) {
-        returnExpr = beginCall.args[beginCall.args.length - 1]!;
-      }
-    }
-    if (!isFlowableExpr(returnExpr)) {
-      throw formatErrorMessage({
-        token: returnExpr.token,
-        errorMessage: `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
-      });
-    }
-  } else if (
+  // (Ref-returning functions are banned at signature evaluation — see
+  // evaluateFunctionType — so no `-> ref(T)` return enforcement is
+  // needed here anymore.)
+  if (
     typeRepresentationContainsRawPtr(newFunctionType.return.type) &&
     !newFunctionType.return.isCompileTimeOnly &&
     !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)

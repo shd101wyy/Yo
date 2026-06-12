@@ -1,6 +1,34 @@
 # Codegen attempts to emit comptime-only function call after `exn.throw`
 
-## Status: OPEN (parametricity fix reverted)
+## Status: OPEN (parametricity fix reverted) — RE-SCOPED 2026-06-12
+
+> **Investigation update (2026-06-12):** the symptom is NOT specific to
+> dead code after `exn.throw`. The minimal failing shape is simply
+> `y := i32(mk(3));` where `mk` is a comptime-only function — the
+> evaluator leaves the cast call annotated with a typed UNKNOWN (not the
+> folded constant), and codegen has no emission route for the
+> comptime-only callee → `Unhandled function call: i32(mk(3))`. Verified
+> pre-existing (fails identically on 85c56747); no throw, match arm, or
+> dead code required. Two further findings that constrain the fix:
+> 1. A codegen-side "skip the arm tail after a control-flow statement"
+>    approach is UNSOUND: `Exception.throw` handlers may RESUME, making
+>    the post-throw tail live (a resumed continuation needs the arm
+>    value).
+> 2. The real defect is the missing comptime FOLD of
+>    `<numeric-cast>(<comptime-fn-call>)` during function-body
+>    evaluation — fix it in the evaluator's cast/call routing, after
+>    which the original `t_i32()`-after-throw case emits a constant and
+>    the issue disappears. The reverted parametricity approach is not
+>    needed.
+> 3. Probe asymmetry to start from: the SPLIT form `y := mk(3);
+>    z := i32(y);` compiles and runs (prints 3) while the NESTED
+>    `z := i32(mk(3));` fails — yet both evaluate the argument with
+>    `expectedType: undefined` (numeric-type.ts:288) and both flow into
+>    Case 2.5's UnknownValue-placeholder branch
+>    ("comptime_conversion_placeholder") during def-time body
+>    evaluation. The fold that rescues the split form happens in a LATER
+>    pass that the nested form misses — find that pass and route the
+>    nested cast through it.
 
 The original fix (commit f51ad0d3) added a "parametricity" detection in
 `src/evaluator/calls/function.ts`: when calling a function whose forall return

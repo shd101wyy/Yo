@@ -252,7 +252,7 @@ _build_def_time_body_env :: (
           match(
             cap_frame.variables.get(cap_vi),
             .Some(cv) => {
-              if(!(cv.name.as_str() == "__recur_fn"), {
+              if(!(cv.name == "__recur_fn"), {
                 cap_value := match(cv.value,.Some(actual) => Option(EvalValue).Some(actual),.None => Option(EvalValue).None);
                 is_ct := match(cap_value,.Some(_) => true,.None => false);
                 // Carry `is_reassignable` — module globals (`(x : T) = v;`)
@@ -452,7 +452,7 @@ try_to_implement_function_by_function_type :: (
               match(
                 cap_frame.variables.get(cap_vi),
                 .Some(cv) => {
-                  if(!(cv.name.as_str() == "__recur_fn"), {
+                  if(!(cv.name == "__recur_fn"), {
                     cap_names.push(cv.name);
                     cap_tys.push(cv.ty);
                     cap_val := match(
@@ -479,8 +479,8 @@ try_to_implement_function_by_function_type :: (
       // some-type in codegen-relevant position, or a generic `Self`. Every other
       // (concrete) function has its body evaluated UNCONDITIONALLY at definition
       // time, exactly as TS does at function-type.ts:499. This is the def-time
-      // body eval; the flowability *check* (is_flowable_expr) is a separate gate
-      // applied only when `result_is_ref` (function-type.ts:524), below.
+      // body eval; the flowability *check* (is_flowable_expr) below applies to
+      // returns whose representation carries a raw pointer.
       //
       // We still need a copy of the body for the trial eval because the evaluator
       // consumes its `expr` argument and the original `body_expr` must be moved
@@ -532,10 +532,10 @@ try_to_implement_function_by_function_type :: (
       match(
         expr,
         .FnCall(_, fn_type_box, _, _, _) => {
-          copy_func_param_defaults(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
-          copy_func_variadic_param(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
-          copy_func_where_constraints(ast_expr_id(fn_type_box.*).to_string().as_str(), fn_val_id.clone());
+          copy_func_param_defaults(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_variadic_param(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_macro_registration(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_where_constraints(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );
@@ -547,9 +547,8 @@ try_to_implement_function_by_function_type :: (
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
       // Def-time body evaluation (function-type.ts:499) for every non-deferred
       // (concrete) function. The flowability *check* on the evaluated final
-      // expression runs only for `-> ref(T)` returns (function-type.ts:524) —
-      // gated by `result_is_ref` so that ordinary functions are merely evaluated,
-      // not rejected.
+      // expression runs only for returns whose representation carries a raw
+      // pointer — ordinary functions are merely evaluated, not rejected.
       match(
         flow_body,
         .Some(fb) => {
@@ -562,7 +561,7 @@ try_to_implement_function_by_function_type :: (
           match(
             expr,
             .FnCall(_, vp_ft_box, _, _, _) => match(
-              get_func_variadic_param(ast_expr_id(vp_ft_box.*).to_string().as_str()),
+              get_func_variadic_param(ast_expr_id(vp_ft_box.*).to_string()),
               .Some(vp_entry) => {
                 ___vp := add_variable_to_env(
                   flow_env,
@@ -626,65 +625,33 @@ try_to_implement_function_by_function_type :: (
               )
             );
           });
-          if(result_is_ref, {
-            // The expr to flow-check is the trial-evaluated final body expr. But
-            // when the trial eval threw and was swallowed (e.g. a `cond`/`match`
-            // whose non-flowable arm fails to unify with the `*(T)` return
-            // shape), `flow_out` is empty — fall back to the raw body `fb`.
-            // `is_flowable_expr` is structural (it recurses into cond/match arms
-            // and `.field`/call shapes), so a non-flowable body is still
-            // rejected; TS reaches the same rejection because its body eval
-            // propagates that unification error.
-            eb := match(
+          // (Ref-returning functions are banned at signature evaluation —
+          // see types/function.yo — so only the raw-pointer-representation
+          // rooting check remains. Mirrors function-type.ts.)
+          if((type_representation_contains_raw_ptr(result_box.*) && !(result_is_comptime_only))
+          && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
+            seb := match(
               flow_out.get(usize(0)),
               .Some(e) => e,
               .None => fb
             );
-            if(!(is_flowable_expr(eb, flow_ctx, flow_options_default())), {
+            slice_flow_opts := FlowOptions(
+              allow_same_frame_local : false,
+              allow_parameter_source : true,
+              allow_comptime_source : true,
+              max_local_frame_level : Option(usize).None
+            );
+            if(!(is_flowable_expr(seb, flow_ctx, slice_flow_opts)), {
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(eb),
-                    `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${ast_expr_to_string(eb)}`,
+                    ast_expr_token(seb),
+                    `Function returning '${type_to_string(result_box.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`,
                     false,
                     .None
                   )
                 )
               );
-            });
-          }, {
-            // SLICE_FLOWABILITY.md Phase C — a value-typed return whose
-            // representation transitively carries a raw pointer (`Slice(T)`,
-            // `str`, a struct wrapping one) must root the returned value in
-            // caller-owned storage; otherwise the fat pointer points into the
-            // dying call frame. Mirrors function-type.ts:541-572. Slice options
-            // additionally accept a non-`ref` parameter (its storage outlives
-            // the call) and comptime/string-literal sources (static storage).
-            if((type_representation_contains_raw_ptr(result_box.*) && !(result_is_comptime_only))
-            && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
-              seb := match(
-                flow_out.get(usize(0)),
-                .Some(e) => e,
-                .None => fb
-              );
-              slice_flow_opts := FlowOptions(
-                allow_same_frame_local : false,
-                allow_parameter_source : true,
-                allow_comptime_source : true,
-                max_local_frame_level : Option(usize).None
-              );
-              if(!(is_flowable_expr(seb, flow_ctx, slice_flow_opts)), {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(seb),
-                      `Function returning '${type_to_string(result_box.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`,
-                      false,
-                      .None
-                    )
-                  )
-                );
-              });
             });
           });
         },

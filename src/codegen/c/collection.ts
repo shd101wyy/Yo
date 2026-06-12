@@ -45,7 +45,18 @@ export function emitCIncludes(context: CodeGenContext): void {
   }
   context.emitter.emitHeaderLine(``);
 
+  // Headers that simply do not exist on the other platform. A registered
+  // c_include can leak from a comptime-eliminated platform branch (the
+  // type/extern collection walks evaluated module values, e.g. std/env's
+  // POSIX `cwd()` arm importing std/libc/unistd even when targeting
+  // Windows) — emitting it would be a fatal `file not found`. Any code
+  // that genuinely uses these headers is platform-guarded in std, and the
+  // guarded block below re-adds the right ones for the actual target.
+  const posixOnlyIncludes = new Set(["<unistd.h>", "<dirent.h>"]);
+  const windowsOnlyIncludes = new Set(["<windows.h>", "<bcrypt.h>", "<io.h>"]);
   for (const include of context.cIncludes) {
+    if (isWindows && posixOnlyIncludes.has(include)) continue;
+    if (!isWindows && windowsOnlyIncludes.has(include)) continue;
     context.emitter.emitHeaderLine(`#include ${include}`);
   }
 

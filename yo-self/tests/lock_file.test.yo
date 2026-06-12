@@ -25,11 +25,11 @@ test("parse_lock_file: single dependency", {
     dep_opt,
     .None => assert(false, "dep at index 0 expected"),
     .Some(dep) => {
-      assert(dep.name.as_str() == "json-parser", "name");
-      assert(dep.url.as_str() == "https://github.com/user/json-parser.git", "url");
-      assert(dep.ref.as_str() == "v1.0.0", "ref");
-      assert(dep.commit.as_str() == "abc123", "commit");
-      assert(dep.hash.as_str() == "sha256-XXXXX", "hash");
+      assert(dep.name == "json-parser", "name");
+      assert(dep.url == "https://github.com/user/json-parser.git", "url");
+      assert(dep.ref == "v1.0.0", "ref");
+      assert(dep.commit == "abc123", "commit");
+      assert(dep.hash == "sha256-XXXXX", "hash");
     }
   );
 });
@@ -43,14 +43,14 @@ test("parse_lock_file: two dependencies", {
     a_opt,
     .None => assert(false, "dep-a missing"),
     .Some(a) => {
-      assert(a.name.as_str() == "dep-a", "first dep is dep-a");
+      assert(a.name == "dep-a", "first dep is dep-a");
     }
   );
   match(
     b_opt,
     .None => assert(false, "dep-b missing"),
     .Some(b) => {
-      assert(b.name.as_str() == "dep-b", "second dep is dep-b");
+      assert(b.name == "dep-b", "second dep is dep-b");
     }
   );
 });
@@ -66,7 +66,7 @@ test("parse_lock_file: missing ref defaults to HEAD", {
   match(
     dep_opt,
     .None => assert(false, "dep expected"),
-    .Some(dep) => assert(dep.ref.as_str() == "HEAD", "default ref is HEAD")
+    .Some(dep) => assert(dep.ref == "HEAD", "default ref is HEAD")
   );
 });
 // ---------------------------------------------------------------------------
@@ -96,11 +96,11 @@ test("write_lock_file_content: round-trip single dependency", {
     entry_opt,
     .None => assert(false, "entry expected"),
     .Some(e) => {
-      assert(e.name.as_str() == "mylib", "name");
-      assert(e.url.as_str() == "https://github.com/user/mylib.git", "url");
-      assert(e.ref.as_str() == "v2.0.0", "ref");
-      assert(e.commit.as_str() == "deadbeef", "commit");
-      assert(e.hash.as_str() == "sha256-FFFF", "hash");
+      assert(e.name == "mylib", "name");
+      assert(e.url == "https://github.com/user/mylib.git", "url");
+      assert(e.ref == "v2.0.0", "ref");
+      assert(e.commit == "deadbeef", "commit");
+      assert(e.hash == "sha256-FFFF", "hash");
     }
   );
 });
@@ -127,7 +127,7 @@ test("find_lock_entry: finds existing entry by name", {
   match(
     result,
     .None => assert(false, "expected Some"),
-    .Some(e) => assert(e.name.as_str() == "found", "correct entry returned")
+    .Some(e) => assert(e.name == "found", "correct entry returned")
   );
 });
 // ---------------------------------------------------------------------------
@@ -170,8 +170,8 @@ test("upsert_lock_entry: replaces existing entry with same name", {
     entry_opt,
     .None => assert(false, "entry expected"),
     .Some(e) => {
-      assert(e.commit.as_str() == "new", "commit replaced");
-      assert(e.ref.as_str() == "v2.0.0", "ref replaced");
+      assert(e.commit == "new", "commit replaced");
+      assert(e.ref == "v2.0.0", "ref replaced");
     }
   );
 });
@@ -207,6 +207,6 @@ test("upsert_lock_entry: preserves other entries", {
   match(
     b_opt,
     .None => assert(false, "dep-b should still be there"),
-    .Some(b) => assert(b.commit.as_str() == "bbb", "dep-b unchanged")
+    .Some(b) => assert(b.commit == "bbb", "dep-b unchanged")
   );
 });

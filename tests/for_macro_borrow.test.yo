@@ -1,113 +1,137 @@
-/// Phase D of plans/ITERATOR_REDESIGN.md — `for(coll, ref(x) => body)`
-/// runtime validation across every collection whose Indexable.project
-/// works end-to-end at runtime: `Array(T, N)`, `ArrayList(T)`, `String`,
-/// `Slice(T)`.
-pragma(Pragma.AllowUnsafe);
+/// `for` macro runtime coverage — value form `for(coll, (x) => body)`
+/// across `Array(T, N)`, `ArrayList(T)`, `String`, and range copies.
+/// The borrow form `for(coll, ref(x) => body)` was REMOVED (v4 of
+/// plans/BORROW_EXCLUSIVITY.md): interior refs into reallocatable
+/// storage are no longer expressible. In-place element mutation uses
+/// index writes (`coll(i) = v`); object elements mutate in place
+/// through the value handle.
 open(import("std/collections/array_list"));
 open(import("std/string"));
-test("Phase D — for(arr, ref(x) => body) iterates and reads", {
+test("for(arr, (x) => body) iterates and reads", {
   arr := [i32(1), i32(2), i32(3), i32(4)];
   sum := i32(0);
-  for(arr, ref(x) => {
+  for(arr, (x) => {
     sum = (sum + x);
   });
   assert(sum == i32(10), "sum of [1,2,3,4] = 10");
 });
-test("Phase D — for(arr, ref(x) => body) writes propagate", {
+test("Array index writes mutate in place", {
   arr := [i32(1), i32(2), i32(3)];
-  for(arr, ref(x) => {
-    x = (x * i32(10));
+  i := usize(0);
+  while(i < usize(3), {
+    arr(i) = (arr(i) * i32(10));
+    i = (i + usize(1));
   });
   assert(arr(usize(0)) == i32(10), "0 -> 10");
   assert(arr(usize(1)) == i32(20), "1 -> 20");
   assert(arr(usize(2)) == i32(30), "2 -> 30");
 });
-test("Phase D — for(arr, ref(x) => body) on zero-length array", {
+test("for(arr, (x) => body) on zero-length array", {
   arr := Array(i32, 0)();
   count := i32(0);
-  for(arr, ref(x) => {
+  for(arr, (x) => {
     count = (count + i32(1));
     consume(x);
   });
   assert(count == i32(0), "empty array iterates zero times");
 });
-test("Phase D — for-loop body interacts with outer locals", {
+test("for-loop body interacts with outer locals", {
   arr := [i32(10), i32(20), i32(30)];
   hits := i32(0);
   threshold := i32(15);
-  for(arr, ref(x) => {
+  for(arr, (x) => {
     if(x > threshold, {
       hits = (hits + i32(1));
     });
   });
   assert(hits == i32(2), "two elements (20, 30) exceed threshold 15");
 });
-test("Phase D — for(list, ref(x) => body) on ArrayList iterates and reads", {
+test("for(list, (x) => body) on ArrayList iterates and reads", {
   list := ArrayList(i32).new();
   list.push(i32(2));
   list.push(i32(3));
   list.push(i32(5));
   sum := i32(0);
-  for(list, ref(x) => {
+  for(list, (x) => {
     sum = (sum + x);
   });
   assert(sum == i32(10), "ArrayList sum 2+3+5=10");
 });
-test("Phase D — for(list, ref(x) => body) on ArrayList writes propagate", {
+test("ArrayList index writes mutate in place", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  for(list, ref(x) => {
-    x = (x * i32(10));
+  i := usize(0);
+  while(i < list.len(), {
+    list(i) = (list(i) * i32(10));
+    i = (i + usize(1));
   });
   assert(list(usize(0)) == i32(10), "ArrayList 0 -> 10");
   assert(list(usize(1)) == i32(20), "ArrayList 1 -> 20");
   assert(list(usize(2)) == i32(30), "ArrayList 2 -> 30");
 });
-test("Phase D — for(s, ref(b) => body) on String iterates and reads bytes", {
+test("object elements mutate in place through the value binding", {
+  // The value form binds a HANDLE for object element types — mutating
+  // the element through it is visible in the list (and survives later
+  // growth, because the handle points at the element object, not into
+  // the list's buffer).
+  names := ArrayList(String).new();
+  names.push(String.from("a"));
+  names.push(String.from("b"));
+  for(names, (s) => {
+    s.push_str("!");
+  });
+  assert(match(names.get(usize(0)),.Some(s) => (s == "a!"),.None => false), "first mutated in place");
+  assert(match(names.get(usize(1)),.Some(s) => (s == "b!"),.None => false), "second mutated in place");
+});
+test("for(s.bytes(), (b) => body) on String iterates and reads bytes", {
   s := `xyz`;
   total := i32(0);
-  for(s, ref(b) => {
+  for(s.bytes(), (b) => {
     total = (total + i32(b));
   });
   // 'x'=120 + 'y'=121 + 'z'=122 = 363
   assert(total == i32(363), "String byte sum 120+121+122=363");
 });
-test("Phase D — for(s, ref(b) => body) on String writes propagate", {
+test("String byte index writes mutate in place", {
   s := `abc`;
-  for(s, ref(b) => {
-    b = (b + u8(1));
+  i := usize(0);
+  while(i < s.len(), {
+    s(i) = (s(i) + u8(1));
+    i = (i + usize(1));
   });
   assert(s(usize(0)) == u8(98), "'a' -> 'b'");
   assert(s(usize(1)) == u8(99), "'b' -> 'c'");
   assert(s(usize(2)) == u8(100), "'c' -> 'd'");
 });
-test("Phase D — for(slice, ref(x) => body) iterates and reads", {
+test("for(range-copy, (x) => body) iterates and reads", {
   arr := [i32(10), i32(20), i32(30), i32(40), i32(50)];
   s := arr(usize(1) .. usize(4));
   sum := i32(0);
-  for(s, ref(x) => {
+  for(s, (x) => {
     sum = (sum + x);
   });
   assert(sum == i32(90), "slice sum 20+30+40=90");
 });
-test("Phase D — for(slice, ref(x) => body) writes propagate to underlying array", {
+test("range-copy index writes stay in the copy", {
+  // Ranges COPY (plans/SLICE_REWORK.md): mutating the copy's elements
+  // leaves the source array untouched.
   arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];
   s := arr(usize(1) .. usize(4));
-  for(s, ref(x) => {
-    x = (x * i32(10));
+  i := usize(0);
+  while(i < s.len(), {
+    s(i) = (s(i) * i32(10));
+    i = (i + usize(1));
   });
-  assert(arr(usize(0)) == i32(1), "untouched arr[0] stays");
-  assert(arr(usize(1)) == i32(20), "arr[1] 2 -> 20");
-  assert(arr(usize(2)) == i32(30), "arr[2] 3 -> 30");
-  assert(arr(usize(3)) == i32(40), "arr[3] 4 -> 40");
-  assert(arr(usize(4)) == i32(5), "untouched arr[4] stays");
+  assert(arr(usize(1)) == i32(2), "source untouched");
+  assert(match(s.get(usize(0)),.Some(v) => (v == i32(20)),.None => false), "copy 2 -> 20");
+  assert(match(s.get(usize(2)),.Some(v) => (v == i32(40)),.None => false), "copy 4 -> 40");
 });
-test("break inside for(arr, ref(x) => body) exits the loop", {
+test("break inside for(arr, (x) => body) exits the loop", {
   arr := [i32(10), i32(20), i32(30), i32(40), i32(50)];
   hits := i32(0);
-  for(arr, ref(x) => {
+  for(arr, (x) => {
     cond(
       (x >= i32(30)) => break,
       true => {
@@ -117,10 +141,10 @@ test("break inside for(arr, ref(x) => body) exits the loop", {
   });
   assert(hits == i32(2), "saw arr[0] and arr[1] before breaking");
 });
-test("continue inside for(arr, ref(x) => body) skips one iteration", {
+test("continue inside for(arr, (x) => body) skips one iteration", {
   arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];
   evens_sum := i32(0);
-  for(arr, ref(x) => {
+  for(arr, (x) => {
     cond(
       ((x % i32(2)) != i32(0)) => continue,
       true => {
@@ -130,19 +154,15 @@ test("continue inside for(arr, ref(x) => body) skips one iteration", {
   });
   assert(evens_sum == i32(6), "2 + 4 = 6 (skipped odds)");
 });
-test("break inside for(arr, ref(x) => body) does not block write-through", {
-  arr := [i32(0), i32(0), i32(0), i32(0)];
-  i := i32(0);
-  for(arr, ref(x) => {
-    cond(
-      (i >= i32(2)) => break,
-      true => {
-        x = i32(99);
-        i = (i + i32(1));
-      }
-    );
-  });
-  assert(arr(usize(0)) == i32(99), "first write survived");
-  assert(arr(usize(1)) == i32(99), "second write survived");
-  assert(arr(usize(2)) == i32(0), "third element untouched");
-});
+// The removed borrow form must fail with the teaching error, not a
+// resolution mystery.
+comptime_expect_error(
+  borrow_form_is_removed :: (fn() -> unit)({
+    arr := [i32(1), i32(2)];
+    total := i32(0);
+    for(arr, ref(x) => {
+      total = (total + x);
+    });
+    consume(total);
+  })
+);

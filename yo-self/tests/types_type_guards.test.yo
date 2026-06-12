@@ -24,13 +24,16 @@ mk_struct :: (
   ) -> TypeValue
 )(
   TypeValue.Struct(
-    String.from(""),
-    String.from(name),
-    field_labels,
-    ArrayList(TypeValue).new(),
-    is_reference_semantics,
-    is_atomic_rc,
-    is_newtype
+    id : String.from(""),
+    name : String.from(name),
+    field_labels : field_labels,
+    field_types : ArrayList(TypeValue).new(),
+    is_reference_semantics : is_reference_semantics,
+    is_atomic_rc : is_atomic_rc,
+    is_newtype : is_newtype,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   )
 );
 empty_labels :: (fn() -> ArrayList(String))(ArrayList(String).new());
@@ -73,13 +76,16 @@ test("is_newtype_type", {
   assert(is_newtype_type(nt), "newtype");
   assert(!(is_newtype_type(not_nt)), "plain struct");
 });
-test("is_str_type matches Struct(name=str, is_newtype=true)", {
-  str_ty := mk_struct("str", empty_labels(), false, false, true);
+test("is_str_type matches the dedicated Str variant only", {
+  // Post-slice-rework model (TS TypeTag.Str): `str` is its own TypeValue
+  // variant, NOT a newtype Struct named "str" (commit 49f51b35).
+  str_ty := TypeValue.Str;
+  legacy_struct_str := mk_struct("str", empty_labels(), false, false, true);
   not_str_name := mk_struct("string", empty_labels(), false, false, true);
-  not_str_newtype := mk_struct("str", empty_labels(), false, false, false);
-  assert(is_str_type(str_ty), "str newtype");
+  assert(is_str_type(str_ty), "TypeValue.Str");
+  assert(!(is_str_type(legacy_struct_str)), "a Struct named str is not the str type");
   assert(!(is_str_type(not_str_name)), "wrong name");
-  assert(!(is_str_type(not_str_newtype)), "not a newtype");
+  assert(!(is_str_type(t_i32())), "i32 is not str");
 });
 test("is_box_type matches reference-semantics Struct named Box(T) with single field *", {
   box_ty := mk_struct("Box(i32)", box_labels(), true, false, false);

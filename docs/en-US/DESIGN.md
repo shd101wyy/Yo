@@ -52,7 +52,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Nullable Pointers](#nullable-pointers)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
-- [Array & Slice](#array--slice)
+- [Array & Ranges](#array--ranges)
   - [Range with `..`](#range-with-)
   - [Array Methods](#array-methods)
     - [Array.fill](#arrayfill)
@@ -83,7 +83,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Traits](#traits)
 - [Pattern Matching](#pattern-matching)
 - [String](#string)
-  - [C String literal as u8 slice or C string pointer](#c-string-literal-as-u8-slice-or-c-string-pointer)
+  - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
   - [String (Immutable String)](#string-immutable-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
 - [Collections](#collections)
@@ -377,7 +377,7 @@ A type can have the following **Kind**:
 
 - `comptime_int` (compile-time known integer type)
 - `comptime_float` (compile-time known float type)
-- `comptime_string` (compile-time known string type)
+- `comptime_str` (compile-time known string type)
 - `ComptimeList` (compile-time known list type)
 - `Expr` (compile-time known expression type, used for macros and compile-time evaluation)
 
@@ -406,7 +406,7 @@ A type can have the following **Kind**:
 - Unions defined with `union(...)`
 - Reference-counted object types defined with `object(...)`
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
-- Slices: `Slice(T)` or `[T]`
+- The static string view: `str` (string literals; refers only to static data)
 - Newtypes defined with `newtype(...)`
 - Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
 
@@ -834,7 +834,7 @@ MyString :: object(
 );
 impl(MyString,
   // Methods
-  from : (fn(slice : [u8]) -> Self)({
+  from : (fn(s : str) -> Self)({
     // Implementation...
   }),
 
@@ -1121,42 +1121,45 @@ MyTuple := i32;
 MyTuple := (i32,);
 ```
 
-## Array & Slice
+## Array & Ranges
 
 ```rust
-i32_array := [i32;_](1, 2, 3); // i32_array: [i32; 5]
-                              // In C: int i32_array[5] = {1, 2, 3, 4, 5};
-i32_array.len(); // 5, compile-time known
+i32_array := [i32;_](1, 2, 3); // i32_array: [i32; 3]
+                              // In C: int i32_array[3] = {1, 2, 3};
+i32_array.len(); // 3, compile-time known
 
 (i32_array2 : [i32; _]) = [1, 2, 3]; // i32_array2: [i32; 3]
-
-// Slices are created using range syntax (:)
-// No need for & operator - DST (Dynamically Sized Types) removed
-(end : usize) = 3;
-slice := i32_array(1:end);  // slice: Slice(i32)
-slice.len(); // 2, runtime known
-
-full_slice := i32_array(0..3);  // full_slice: Slice(i32)
-
-slice(0) = 10;  // Modify through slice
-slice(1) = 20;
-// i32_array: [1, 10, 20, 4, 5]
-
-slice_of_slice := slice(0..2);  // Slice from slice
 ```
+
+There is no heap-backed slice type in Yo. Views that could dangle when
+the underlying buffer is freed are excluded by construction:
+
+- **Range operations COPY.** On `ArrayList(T)` and `String`, `xs(a..b)`
+  and `xs(a..=b)` lower to `slice_copy` / `slice_copy_inclusive` and
+  produce an independent owned value, not a window into the source.
+- **`str` is the only built-in view**, and it refers exclusively to
+  static string data — `s(a..b)` on a `str` is a zero-copy window of
+  static bytes, which can never dangle.
+- **Element access hands out values, never interior pointers** —
+  `xs.get(i)` returns the element (a handle for object types, which
+  survives container growth; a copy for struct types, written back with
+  `xs(i) = v`). See [FLOWABILITY.md](./FLOWABILITY.md).
 
 ### Range with `..`
 
-Slices use the `..` operator for range syntax:
-
 ```rust
-arr := [1, 2, 3, 4, 5];
+list := ArrayList(i32).new();
+list.push(i32(1)); list.push(i32(2)); list.push(i32(3)); list.push(i32(4));
 
-// Slice from index 1 to 3 (exclusive)
-slice1 := arr(1..3);  // Slice(i32) [2, 3]
+// Copy of elements 1..3 (end-exclusive) — an independent ArrayList(i32)
+part := list(usize(1)..usize(3));   // [2, 3]
 
-// Slice from index 1 to 3 (inclusive)
-slice2 := arr(1..=3); // Slice(i32) [2, 3, 4]
+// End-inclusive variant
+part2 := list(usize(1)..=usize(3)); // [2, 3, 4]
+
+// Mutating the copy does not affect the source
+part.set(usize(0), i32(99));
+assert(list(usize(1)) == i32(2));
 ```
 
 ### Array Methods
@@ -1181,7 +1184,7 @@ Get the length of an array:
 
 ```rust
 arr := [1, 2, 3, 4, 5];
-len := arr.len();  // 5 (compile-time for arrays, runtime for slices)
+len := arr.len();  // 5 (compile-time known for fixed-size arrays)
 
 // Works with generic arrays
 generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)
@@ -1375,51 +1378,37 @@ for(iter_expr, (variable) => {
 });
 ```
 
-The `for` macro distinguishes borrow iteration from value iteration by the **lambda's binding shape** — `ref(x) => body` borrows, `(x) => body` consumes:
-
-| Form                        | Calls              | What `x` is                                                                                                      |
-| --------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `for(coll, ref(x) => body)` | `coll.iter()`      | `ref`-bound to each element; reads auto-deref, writes propagate back to the collection; `coll` survives the loop |
-| `for(coll, (x) => body)`    | `coll.into_iter()` | Owned value; collection is moved into the iterator and consumed                                                  |
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For object element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
 
 ```rust
-arr := Array(i32, 3)(1, 2, 3);
-
-// Borrow form — `x` is bound by reference; writes propagate.
-for(arr, ref(x) => {
-  x = (x * i32(10));
-});
-// arr is now [10, 20, 30].
-
-// Value form — `coll.into_iter()` is invoked; each `x` is owned.
+// Value form — each `x` is yielded by value.
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-for(list.into_iter(), (value) => {
+for(list, (value) => {
   println(value);
 });
-```
 
-Under the hood, `for(coll, ref(x) => body)` lowers to a `while` that pairs each yielded position with a `coll.project(pos)` borrow:
-
-```rust
-__iter := coll.iter();
-while(runtime(true), {
-  match(__iter.next(),
-    .Some(__pos) => {
-      ref(x) := coll.project(__pos);
-      body
-    },
-    .None => { break; }
-  )
+// Object elements are handles — mutation lands in the collection.
+for(names, (s) => {
+  s.push_str("!");
 });
+
+// Struct/scalar elements: index writes mutate in place.
+arr := Array(i32, 3)(1, 2, 3);
+i := usize(0);
+while(i < usize(3), {
+  arr(i) = (arr(i) * i32(10));
+  i = (i + usize(1));
+});
+// arr is now [10, 20, 30].
 ```
 
-`coll.iter()` returns an `Iterator(Item := Position)` (typically `usize` for indexed collections). The collection's `Indexable(Position)` impl provides `project(pos) -> ref(Element)`, which the for-macro pairs with each position to hand the body a `ref`-binding into element storage. See `plans/ITERATOR_REDESIGN.md`.
+Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-For value iteration, `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. Combinator chains (`coll.iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape — they don't have a `Collection` to project from, so they only support the value form. A blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
+The old borrow form `for(coll, ref(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 
-Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration); the byte-level borrow form `for(s, ref(b) => body)` is available too.
+Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration).
 
 ## Algebraic Data Types (ADT)
 
@@ -1842,12 +1831,12 @@ area :: (fn(shape: Shape) -> i32)(
 
 ## String
 
-### C String literal as u8 slice or C string pointer
+### String literal as `str` or C string pointer
 
 ```rust
-s = "Hello"; // s : str; By default, a string literal converts to "str" slice.
-(s2 : *(u8)) = "Hi"; // You can explicitly declare a C string pointer.
-s3 := *(u8)("Hi"); // Or use pointer cast to get a C string pointer.
+s := "Hello"; // s : str — a string literal is the builtin static string view `str`.
+(s2 : *(u8)) = "Hi"; // You can explicitly declare a C string pointer (unsafe-capable files only).
+s3 := *(u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 ```
 
 ### String (Immutable String)
@@ -3119,7 +3108,7 @@ field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
 comptime_assert((field_count == usize(2)), "Point has 2 fields");
 
 // Match dispatch on type info
-describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
+describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",
@@ -3131,7 +3120,7 @@ describe :: (fn(comptime(T) : Type) -> comptime(comptime_string))(
 
 Guard methods on `TypeInfo`:
 
-- **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_slice()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_void()`
+- **Structural**: `is_struct()`, `is_enum()`, `is_union()`, `is_tuple()`, `is_array()`, `is_str()`, `is_function()`, `is_pointer()`, `is_trait()`, `is_void()`
 - **Numeric**: `is_primitive()`, `is_integer()`, `is_float()`, `is_numeric()`, `is_comptime()`
 
 For the full TypeInfo enum definition, metadata structs, and detailed usage, see [TYPE_REFLECTION.md](./TYPE_REFLECTION.md).
@@ -3317,7 +3306,7 @@ For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMB
 
 Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via the call-syntax assignment `value(index) = new_value`.
 
-The standard library implements `Index` for `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, and `String`. Arrays and slices use built-in indexing with the same syntax, plus range slicing with `..` and `..=`.
+The standard library implements `Index` for `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, and `String`. Fixed-size arrays and `str` use built-in indexing with the same syntax; `..` and `..=` ranges on collections produce owned copies (`slice_copy`), while ranges on `str` are zero-copy static windows.
 
 For the full design, trait definition, and implementation details, see [INDEX_TRAIT.md](./INDEX_TRAIT.md).
 

@@ -489,25 +489,27 @@ test("HashMap iter_ptr - mutate values through pointer", {
   assert(map(i32(1)) == i32(100));
   assert(map(i32(2)) == i32(200));
 });
-test("HashMap for ref(b) => body iterates occupied buckets", {
+test("HashMap for (b) => body iterates occupied buckets by value", {
   map := HashMap(i32, i32).new();
   map.set(i32(1), i32(10));
   map.set(i32(2), i32(20));
   val_sum := i32(0);
-  for(map, ref(b) => {
+  for(map, (b) => {
     val_sum = (val_sum + b.value);
   });
   assert(val_sum == i32(30));
 });
-test("HashMap for ref(b) => body mutates through borrowed bucket", {
+test("HashMap value-form bucket is a copy — writes do not reach the map", {
+  // The value form yields `Bucket(K, V)` STRUCT COPIES; in-place value
+  // mutation goes through `set` (or `iter_ptr` in privileged code).
   map := HashMap(i32, i32).new();
   map.set(i32(1), i32(10));
-  map.set(i32(2), i32(20));
-  for(map, ref(b) => {
+  for(map, (b) => {
     b.value = (b.value * i32(10));
   });
-  assert(map(i32(1)) == i32(100));
-  assert(map(i32(2)) == i32(200));
+  assert(map(i32(1)) == i32(10), "map unchanged — bucket was a copy");
+  map.set(i32(1), map(i32(1)) * i32(10));
+  assert(map(i32(1)) == i32(100), "set updates the live value");
 });
 test("HashMap keys - yields all keys", {
   map := HashMap(i32, i32).new();

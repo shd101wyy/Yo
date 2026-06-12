@@ -502,7 +502,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
         //     the named parameter, no flag — the caller of exn.throw
         //     resumes normally with the value.
         //   - anything else → conservative fallback to the unwind stub.
-        // See issues/codegen-forall-resume-handler-stub.md.
+        // See issues/fixed/codegen-forall-resume-handler-stub.md.
         const body = value.body;
         const isUnwindBody = !!body && bodyHasUnwind(body);
         const paramLabels = new Set(
@@ -1856,6 +1856,30 @@ static inline void* __yo_incr_rc(void* ptr) {
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
   return ptr;
+}
+
+// Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
+// into a container's storage (e.g. xs(i)) increments the container's
+// borrow_count for the borrow's lifetime; a container operation that
+// could reallocate/free that storage asserts borrow_count == 0. This
+// turns the one statically-unprovable interior-ref residual (a container
+// reached through a global and grown while borrowed) into a deterministic
+// panic instead of a use-after-free. Cost: a same-cache-line load + a
+// predicted-not-taken branch (measured ~0% even on a tight push loop).
+static inline void __yo_borrow_acquire(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count++;
+}
+static inline void __yo_borrow_release(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count--;
+}
+static inline void __yo_borrow_assert_unborrowed(void* ptr, const char* op) {
+  if (ptr == NULL) return;
+  if (((__yo_ref_header_t*)ptr)->borrow_count != 0) {
+    fprintf(stderr, "panic: %s while an interior reference (a 'ref' into an element/field) borrows from it\\n", op);
+    abort();
+  }
 }`);
 
   // Atomic reference counting functions for Iso types (still needed regardless of GC)
@@ -2535,6 +2559,9 @@ export function generateRefStructConstructorFunctions(
       // Initialize RC header
       emitter.emitLine(
         `  obj->header.ref_count = 1;  // Start with one reference`
+      );
+      emitter.emitLine(
+        `  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`
       );
       if (context.needsCycleGC && !type.isAtomicRc) {
         emitter.emitLine(`  obj->header.gc_flags = 0;`);

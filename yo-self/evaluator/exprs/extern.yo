@@ -132,17 +132,17 @@ User code should normally call stdlib wrappers (e.g. functions in
     lang_stripped := if(
       rn >= usize(2),
       raw_lang.substring(usize(1), rn - usize(1)),
-      String.from(raw_lang.as_str())
+      raw_lang.clone()
     );
     // Validate: must be "yo" or "c" (case-insensitive).
     lang_lower := lang_stripped.to_lowercase();
-    if(lang_lower.as_str() == "yo", {
+    if(lang_lower == "yo", {
       language = String.from("yo");
     });
-    if(lang_lower.as_str() == "c", {
+    if(lang_lower == "c", {
       language = String.from("c");
     });
-    if(!((lang_lower.as_str() == "yo") || (lang_lower.as_str() == "c")), {
+    if(!((lang_lower == "yo") || (lang_lower == "c")), {
       exn.throw(
         dyn(
           format_error_message(
@@ -171,7 +171,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !(has_dup), {
       existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
-      if(existing.as_str() == result.label.as_str(), {
+      if(existing == result.label, {
         has_dup = true;
       });
       dup_idx = (dup_idx + usize(1));
@@ -236,12 +236,12 @@ User code should normally call stdlib wrappers (e.g. functions in
         rir,
         hv,
         Option(String).Some(language.clone()),
-        Option(String).Some(String.from(result.label.as_str())),
+        Option(String).Some(result.label.clone()),
         ic
       ),
       _ => result.field_type
     );
-    field_labels.push(String.from(result.label.as_str()));
+    field_labels.push(result.label.clone());
     field_types.push(field_ty_with_extern);
     env.frames = result.env.frames;
     env.module_path = result.env.module_path;
@@ -250,9 +250,9 @@ User code should normally call stdlib wrappers (e.g. functions in
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
       env,
-      String.from(result.label.as_str()),
+      result.label.clone(),
       field_ty_with_extern,
-      Option(EvalValue).Some(create_unknown_val_with_name(field_ty_with_extern, String.from(result.label.as_str()))),
+      Option(EvalValue).Some(create_unknown_val_with_name(field_ty_with_extern, result.label.clone())),
       true,
       // is_compile_time_only
       false,

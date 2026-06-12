@@ -37,7 +37,6 @@ import type {
   ArrayType,
   FunctionParameter,
   FunctionType,
-  SliceType,
   SomeType,
   Type,
 } from "../../types/definitions";
@@ -54,7 +53,6 @@ import {
   isSourceNamespaceType,
   isObjectType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -767,6 +765,77 @@ export function evaluateFunctionCall({
     }
   }
 
+  // plans/SLICE_REWORK.md Part C — copying range indexing.
+  // `recv(a..b)` / `recv(a..=b)` on a RUNTIME receiver that provides
+  // slice_copy / slice_copy_inclusive rewrites to that method call
+  // (owned-return value semantics: Array/ArrayList ranges copy into a new
+  // ArrayList, String ranges into a new String; str stays a zero-copy
+  // static window). The Index trait's `*(Output)` pointer contract cannot
+  // express owned returns, hence the method dispatch. Comptime-valued
+  // receivers (array/slice/comptime_str literals) keep the comptime
+  // slicing path in tryToCallWithIndexTrait.
+  if (
+    !givenFunc &&
+    !methodExpr &&
+    !forMacroExpansion &&
+    functions.length === 1 &&
+    args.length === 1 &&
+    (exprIsFunctionCallOf(args[0]!, "..", 2) ||
+      exprIsFunctionCallOf(args[0]!, "..=", 2))
+  ) {
+    const recvType = functions[0]!.type;
+    const recvValue = functions[0]!.value;
+    const recvHasComptimeSliceValue =
+      recvValue !== undefined &&
+      !isUnknownValue(recvValue) &&
+      !isTypeValue(recvValue);
+    if (
+      !isFunctionType(recvType) &&
+      !isTypeValue(recvValue) &&
+      !recvHasComptimeSliceValue
+    ) {
+      const sliceCopyName = exprIsFunctionCallOf(args[0]!, "..=", 2)
+        ? "slice_copy_inclusive"
+        : "slice_copy";
+      const sliceCopyMethods = getReceiverMethodsByNameFromEnv({
+        env,
+        context,
+        methodName: sliceCopyName,
+        receiverType: recvType,
+        isInfixOperatorCall: false,
+      });
+      if (sliceCopyMethods.length > 0) {
+        const methodAtom: AtomExpr = {
+          tag: ExprTag.Atom,
+          token: {
+            ...expr.func.token,
+            value: sliceCopyName,
+            type: TokenType.Identifier,
+          },
+          $: undefined,
+        };
+        const dotAtom: AtomExpr = {
+          tag: ExprTag.Atom,
+          token: {
+            ...expr.func.token,
+            value: ".",
+            type: TokenType.Identifier,
+          },
+          $: undefined,
+        };
+        const methodAccess: FnCallExpr = {
+          tag: ExprTag.FnCall,
+          func: dotAtom,
+          args: [func, methodAtom],
+          token: expr.func.token,
+          $: undefined,
+        };
+        expr.func = methodAccess;
+        return evaluateFunctionCall({ expr, env, context });
+      }
+    }
+  }
+
   // Optimization: Skip the checking phase when there is exactly one callable
   // function-like candidate (plain function type or Impl/Dyn(Fn(...))).
   //
@@ -1387,11 +1456,10 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
               };
             }
           }
-          // array, slice, ComptimeList, comptime_string, or any type with Index impl
+          // array, ComptimeList, comptime_str, or any type with Index impl
           // — unified through Index trait dispatch
           else if (
             isArrayType(functionToCall.type) ||
-            isSliceType(functionToCall.type) ||
             (!isTypeValue(value) &&
               hasIndexImpl({
                 concreteType: functionToCall.type,
@@ -1417,17 +1485,14 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 },
               };
             } catch {
-              // Index dispatch failed (e.g., generic Slice(T) where T is
+              // Index dispatch failed (e.g., generic Array(T,N) where T is
               // a type parameter). Fall through to the fallback path.
             }
 
-            // Fallback for generic types (Slice(T)/Array(T,N) where T is a type parameter):
+            // Fallback for generic types (Array(T,N) where T is a type parameter):
             // return element type with unknown value
-            if (
-              isArrayType(functionToCall.type) ||
-              isSliceType(functionToCall.type)
-            ) {
-              const arrayType = functionToCall.type as ArrayType | SliceType;
+            if (isArrayType(functionToCall.type)) {
+              const arrayType = functionToCall.type as ArrayType;
               const returnType = arrayType.childType;
               return {
                 ...functionToCall,
@@ -1666,7 +1731,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
       (functionToCall) => {
         if (!isFunctionType(functionToCall.type)) return false;
         const params = functionToCall.type.parameters;
-        // Check if any parameter is a comptime type (comptime_int, comptime_float, comptime_string)
+        // Check if any parameter is a comptime type (comptime_int, comptime_float, comptime_str)
         return params.some(
           (param) =>
             isComptimeIntType(param.type) ||

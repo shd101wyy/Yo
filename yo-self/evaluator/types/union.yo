@@ -66,7 +66,7 @@ evaluate_union_type :: (
   // Temporarily set SelfType so fields can reference Self.
   old_self_type := ctx.self_type;
   prelim_ty := TypeValue.Union(
-    String.from(union_id.as_str()),
+    union_id.clone(),
     ArrayList(String).new(),
     ArrayList(TypeValue).new()
   );
@@ -148,7 +148,7 @@ evaluate_union_type :: (
         )
       );
     });
-    field_labels.push(String.from(field.label.as_str()));
+    field_labels.push(field.label.clone());
     field_types.push(field.ty);
     fields.push(field);
     env_mut.frames = result.env.frames;
@@ -159,12 +159,12 @@ evaluate_union_type :: (
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsForUnionType` in TypeScript.
-  auto_derive_traits_for_union_type(String.from(union_id.as_str()), field_types, env);
+  auto_derive_traits_for_union_type(union_id.clone(), field_types, env);
   // Restore SelfType.
   ctx.self_type = old_self_type;
   // Build final Union TypeValue.
   union_ty := TypeValue.Union(
-    String.from(union_id.as_str()),
+    union_id.clone(),
     field_labels,
     field_types
   );

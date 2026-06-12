@@ -4,8 +4,9 @@
 //!
 //! Handles compile-time indexing for:
 //!   ComptimeList element and range indexing
-//!   Array/Slice element and range indexing
-//!   comptime_string character and range indexing
+//!   Array element indexing (range slicing falls through to the runtime
+//!   slice_copy rewrite — plans/SLICE_REWORK.md Part C)
+//!   comptime_str character and range indexing
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -19,11 +20,6 @@ open(import("std/string"));
   BF_YO_COMPTIME_LIST_INDEX_RANGE,
   BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE,
   BF_COMPTIME_ARRAY_INDEX,
-  BF_COMPTIME_SLICE_INDEX,
-  BF_COMPTIME_ARRAY_INDEX_RANGE,
-  BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE,
-  BF_COMPTIME_SLICE_INDEX_RANGE,
-  BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE,
   BF_COMPTIME_STRING_INDEX,
   BF_COMPTIME_STRING_INDEX_RANGE,
   BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE
@@ -43,15 +39,14 @@ open(import("std/string"));
   is_str_lit,
   is_struct_val,
   is_array_val,
-  is_slice_val,
   is_ptr_val,
   is_comptime_list_val,
   is_unknown_val,
   create_unknown_val
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_ptr, t_slice, t_comptime_list, t_comptime_string } :: import("../../types/creators.yo");
-{ is_array_type, is_slice_type, is_pointer_type } :: import("../../types/guards.yo");
+{ t_ptr, t_comptime_list, t_comptime_string } :: import("../../types/creators.yo");
+{ is_array_type, is_pointer_type } :: import("../../types/guards.yo");
 { is_comptime_list_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
@@ -127,15 +122,6 @@ ci_child_of_array_ty :: (fn(ty : TypeValue) -> TypeValue)(
     _ => ty
   )
 );
-// Extract element type from Slice(T) or *(Slice(T)).
-ci_child_of_slice_ty :: (fn(ty : TypeValue) -> TypeValue)(
-  match(
-    ty,
-    .Slice(cb) => cb.*,
-    .Pointer(pb) => match(pb.*,.Slice(cb) => cb.*, _ => ty),
-    _ => ty
-  )
-);
 // Compute fallback return type for element indexing.
 // Mirrors TypeScript `computeElementReturnType`.
 ci_elem_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
@@ -145,34 +131,12 @@ ci_elem_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
       inner := pb.*;
       cond(
         is_array_type(inner) => t_ptr(match(inner,.Array(cb, _, _) => cb.*, _ => inner)),
-        is_slice_type(inner) => t_ptr(match(inner,.Slice(cb) => cb.*, _ => inner)),
         is_comptime_list_type(inner) => t_ptr(match(inner,.ComptimeListT(cb) => cb.*, _ => inner)),
         true => ty
       )
     },
     .Array(cb, _, _) => t_ptr(cb.*),
-    .Slice(cb) => t_ptr(cb.*),
     .ComptimeListT(cb) => t_ptr(cb.*),
-    _ => ty
-  )
-);
-// Compute fallback return type for range indexing.
-// Mirrors TypeScript `computeRangeReturnType`.
-ci_range_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
-  match(
-    ty,
-    .Pointer(pb) => {
-      inner := pb.*;
-      cond(
-        is_array_type(inner) => {
-          elem := match(inner,.Array(cb, _, _) => cb.*, _ => inner);
-          t_ptr(t_slice(elem))
-        },
-        true => ty
-      )
-    },
-    .Array(cb, _, _) => t_ptr(t_slice(cb.*)),
-    .Slice(_) => t_ptr(ty),
     _ => ty
   )
 );
@@ -561,14 +525,13 @@ ci_eval_list_range_index :: (
   expr
 });
 // ---------------------------------------------------------------------------
-// Handler: __yo_comptime_array_index / __yo_comptime_slice_index
+// Handler: __yo_comptime_array_index
 // ---------------------------------------------------------------------------
-ci_eval_array_slice_index :: (
+ci_eval_array_index :: (
   fn(
     expr : AstExpr,
     env : Environment,
     ctx : EvalContext,
-    is_slice : bool,
     exn : Exception
   ) -> AstExpr
 )({
@@ -597,119 +560,6 @@ ci_eval_array_slice_index :: (
   (cur_env : Environment) = self_info.env;
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime array/slice index"), exn);
   cur_env = idx_info.env;
-  // ----- Slice branch -----
-  if(is_slice, {
-    slice_ev_opt := match(
-      self_info.value,
-      .Some(sv) => if(is_slice_val(sv), Option(EvalValue).Some(sv), Option(EvalValue).None),
-      .None => Option(EvalValue).None
-    );
-    match(
-      slice_ev_opt,
-      .Some(sv) => {
-        match(
-          sv,
-          .SliceVal(src_box, sl_start, sl_end) => {
-            elem_ty := ci_child_of_slice_ty(self_info.ty);
-            out_info := new_expr_info(cur_env, elem_ty);
-            match(
-              idx_info.value,
-              .Some(iv) => {
-                if(is_int_lit(iv), {
-                  idx_raw := match(iv,.IntLit(r) => r, _ => String.from("0"));
-                  idx_i64 := match(
-                    idx_raw.parse_i64(),
-                    .Some(n) => n,
-                    .None => {
-                      exn.throw(
-                        dyn(
-                          format_error_message(
-                            ast_expr_token(idx_arg),
-                            String.from("Invalid integer literal for slice index"),
-                            false,
-                            .None
-                          )
-                        )
-                      );
-                      i64(0)
-                    }
-                  );
-                  if(idx_i64 < i64(0), {
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          ast_expr_token(idx_arg),
-                          `Slice index out of bounds: ${idx_raw}`,
-                          false,
-                          .None
-                        )
-                      )
-                    );
-                  });
-                  rel_idx := usize(idx_i64);
-                  slice_len := (sl_end - sl_start);
-                  if(rel_idx >= slice_len, {
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          ast_expr_token(idx_arg),
-                          `Slice index out of bounds: ${idx_raw}`,
-                          false,
-                          .None
-                        )
-                      )
-                    );
-                  });
-                  abs_idx := (sl_start + rel_idx);
-                  src_arr := src_box.*;
-                  match(
-                    src_arr,
-                    .ArrayVal(src_elems) => {
-                      elem_val := match(
-                        src_elems.get(abs_idx),
-                        .Some(v) => v,
-                        .None => {
-                          exn.throw(
-                            dyn(
-                              format_error_message(
-                                ast_expr_token(idx_arg),
-                                String.from("Slice index out of bounds"),
-                                false,
-                                .None
-                              )
-                            )
-                          );
-                          EvalValue.UnitVal
-                        }
-                      );
-                      out_info.value = Option(EvalValue).Some(elem_val);
-                      out_info.comptime_ref = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(src_elems, abs_idx));
-                    },
-                    _ => {
-                      out_info.value = Option(EvalValue).Some(create_unknown_val(elem_ty));
-                    }
-                  );
-                }, {
-                  out_info.value = Option(EvalValue).Some(create_unknown_val(elem_ty));
-                });
-              },
-              .None => {
-                out_info.value = Option(EvalValue).Some(create_unknown_val(elem_ty));
-              }
-            );
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-          },
-          _ => ()
-        );
-      },
-      .None => {
-        fallback_ty := ci_elem_return_ty(self_info.ty);
-        out_info := new_expr_info(cur_env, fallback_ty);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-      }
-    );
-    return(expr);
-  });
   // ----- Array branch -----
   array_ev_opt := match(
     self_info.value,
@@ -813,228 +663,6 @@ ci_eval_array_slice_index :: (
   expr
 });
 // ---------------------------------------------------------------------------
-// Handler: __yo_comptime_array_index_range / slice variants
-// ---------------------------------------------------------------------------
-ci_eval_array_slice_range_index :: (
-  fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    is_slice : bool,
-    is_inclusive : bool,
-    exn : Exception
-  ) -> AstExpr
-)({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
-  self_arg := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
-  range_arg := match(
-    args.get(usize(1)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
-  self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime range index"), exn);
-  (cur_env : Environment) = self_info.env;
-  range_info := ci_eval_arg(range_arg, cur_env, ctx, String.from("Failed to evaluate range index for comptime index"), exn);
-  cur_env = range_info.env;
-  // Fallback when range value is unknown or not a struct.
-  range_is_known := match(
-    range_info.value,
-    .Some(rv) => (is_struct_val(rv) && !(is_unknown_val(rv))),
-    .None => false
-  );
-  if(!(range_is_known), {
-    fallback_ty := ci_range_return_ty(self_info.ty);
-    out_info := new_expr_info(cur_env, fallback_ty);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    return(expr);
-  });
-  range_ev := match(
-    range_info.value,
-    .Some(rv) => rv,
-    .None => {
-      return(expr);
-    }
-  );
-  range_opt := ci_extract_range_indices(range_ev, is_inclusive);
-  ci_range := match(
-    range_opt,
-    .Some(r) => r,
-    .None => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(range_arg),
-            String.from("Expected numeric start/end in Range for comptime range index"),
-            false,
-            .None
-          )
-        )
-      );
-      CiRange(start_idx : usize(0), end_idx : usize(0))
-    }
-  );
-  start_idx := ci_range.start_idx;
-  end_idx := ci_range.end_idx;
-  // ----- Array range branch -----
-  if(!(is_slice), {
-    array_ev_opt := match(
-      self_info.value,
-      .Some(sv) => if(is_array_val(sv), Option(EvalValue).Some(sv), Option(EvalValue).None),
-      .None => Option(EvalValue).None
-    );
-    match(
-      array_ev_opt,
-      .Some(sv) => {
-        match(
-          sv,
-          .ArrayVal(elements) => {
-            elem_ty := ci_child_of_array_ty(self_info.ty);
-            result_ty := t_slice(elem_ty);
-            arr_len := elements.len();
-            if(start_idx > arr_len, {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(range_arg),
-                    `Slice start index out of bounds: ${start_idx}`,
-                    false,
-                    .None
-                  )
-                )
-              );
-            });
-            if(end_idx < start_idx, {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(range_arg),
-                    `Slice end index out of bounds: ${end_idx}`,
-                    false,
-                    .None
-                  )
-                )
-              );
-            });
-            if(end_idx > arr_len, {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(range_arg),
-                    `Slice end index out of bounds: ${end_idx}`,
-                    false,
-                    .None
-                  )
-                )
-              );
-            });
-            new_slice := EvalValue.SliceVal(Box(EvalValue)(sv), start_idx, end_idx);
-            out_info := new_expr_info(cur_env, result_ty);
-            out_info.value = Option(EvalValue).Some(new_slice);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-          },
-          _ => {
-            fallback_ty := ci_range_return_ty(self_info.ty);
-            out_info := new_expr_info(cur_env, fallback_ty);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-          }
-        );
-      },
-      .None => {
-        fallback_ty := ci_range_return_ty(self_info.ty);
-        out_info := new_expr_info(cur_env, fallback_ty);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-      }
-    );
-    return(expr);
-  });
-  // ----- Slice range branch -----
-  slice_ev_opt := match(
-    self_info.value,
-    .Some(sv) => if(is_slice_val(sv), Option(EvalValue).Some(sv), Option(EvalValue).None),
-    .None => Option(EvalValue).None
-  );
-  match(
-    slice_ev_opt,
-    .Some(sv) => {
-      match(
-        sv,
-        .SliceVal(src_box, sl_start, sl_end) => {
-          elem_ty := ci_child_of_slice_ty(self_info.ty);
-          result_ty := t_slice(elem_ty);
-          slice_len := (sl_end - sl_start);
-          if(start_idx > slice_len, {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(range_arg),
-                  `Slice start index out of bounds: ${start_idx}`,
-                  false,
-                  .None
-                )
-              )
-            );
-          });
-          if(end_idx < start_idx, {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(range_arg),
-                  `Slice end index out of bounds: ${end_idx}`,
-                  false,
-                  .None
-                )
-              )
-            );
-          });
-          if(end_idx > slice_len, {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(range_arg),
-                  `Slice end index out of bounds: ${end_idx}`,
-                  false,
-                  .None
-                )
-              )
-            );
-          });
-          abs_start := (sl_start + start_idx);
-          abs_end := (sl_start + end_idx);
-          new_slice := EvalValue.SliceVal(src_box, abs_start, abs_end);
-          out_info := new_expr_info(cur_env, result_ty);
-          out_info.value = Option(EvalValue).Some(new_slice);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-        },
-        _ => {
-          fallback_ty := ci_range_return_ty(self_info.ty);
-          out_info := new_expr_info(cur_env, fallback_ty);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-        }
-      );
-    },
-    .None => {
-      fallback_ty := ci_range_return_ty(self_info.ty);
-      out_info := new_expr_info(cur_env, fallback_ty);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    }
-  );
-  expr
-});
-// ---------------------------------------------------------------------------
 // Handler: __yo_comptime_string_index / _range / _range_inclusive
 // ---------------------------------------------------------------------------
 ci_eval_string_index :: (
@@ -1073,7 +701,7 @@ ci_eval_string_index :: (
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime string index"), exn);
   cur_env = idx_info.env;
   result_ty := self_info.ty;
-  // If self is not a known comptime_string, set no value.
+  // If self is not a known comptime_str, set no value.
   self_is_str := match(
     self_info.value,
     .Some(sv) => is_str_lit(sv),
@@ -1254,22 +882,7 @@ evaluate_yo_comptime_index_functions :: (
     return(ci_eval_list_range_index(expr, env, ctx, true, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX,.None), {
-    return(ci_eval_array_slice_index(expr, env, ctx, false, exn));
-  });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX,.None), {
-    return(ci_eval_array_slice_index(expr, env, ctx, true, exn));
-  });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX_RANGE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, false, false, exn));
-  });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, false, true, exn));
-  });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX_RANGE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, true, false, exn));
-  });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE,.None), {
-    return(ci_eval_array_slice_range_index(expr, env, ctx, true, true, exn));
+    return(ci_eval_array_index(expr, env, ctx, exn));
   });
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX,.None), {
     return(ci_eval_string_index(expr, env, ctx, false, false, exn));

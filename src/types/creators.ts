@@ -2,7 +2,6 @@ import {
   createEmptyEnv,
   type Environment,
   type Frame,
-  getVariablesFromEnv,
 } from "../env";
 import type { EvaluatorContext } from "../evaluator/context";
 import {
@@ -12,7 +11,7 @@ import {
 import type { Expr } from "../expr";
 import type { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
-import { isTypeValue, type Value, valueToString } from "../value";
+import { type Value, valueToString } from "../value";
 import type {
   ArrayType,
   ComptimeListType,
@@ -29,7 +28,7 @@ import type {
   IsoType,
   SourceNamespaceType,
   PtrType,
-  SliceType,
+  StrType,
   SomeType,
   StructType,
   TraitType,
@@ -651,45 +650,29 @@ export function createArrayType(childType: Type, length: Value): ArrayType {
   return arrayType;
 }
 
-const cachedSliceTypeMap: Map<Type, SliceType> = new Map();
-export function createSliceType(childType: Type): SliceType {
-  if (cachedSliceTypeMap.has(childType)) {
-    return cachedSliceTypeMap.get(childType)!;
+/**
+ * Look up the str type from the environment (prelude).
+ * Throws an error if str is not found.
+ */
+let cachedStrType: StrType | undefined = undefined;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function createStrType(_env?: Environment): StrType {
+  if (cachedStrType) {
+    return cachedStrType;
   }
 
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
-  const sliceType: SliceType = {
-    id: `slice_${childType.id}`,
-    tag: TypeTag.Slice,
-    childType,
+  const strType: StrType = {
+    id: TypeTag.Str,
+    tag: TypeTag.Str,
     trait,
   };
-  trait.receiverType = sliceType;
+  trait.receiverType = strType;
 
-  cachedSliceTypeMap.set(childType, sliceType);
-
-  return sliceType;
-}
-
-/**
- * Look up the str type from the environment (prelude).
- * Throws an error if str is not found.
- */
-export function createStrType(env: Environment): Type {
-  const strVariables = getVariablesFromEnv(env, "str");
-  const strVariable = strVariables.find(
-    (v) => isTypeValue(v.value?.[0]) && v.value![0].type
-  );
-
-  if (!strVariable || !isTypeValue(strVariable.value?.[0])) {
-    throw new Error(
-      "'str' type not found in environment. Make sure prelude is loaded."
-    );
-  }
-
-  return strVariable.value![0].value;
+  cachedStrType = strType;
+  return strType;
 }
 
 let cachedVoidType: VoidType | undefined = undefined;
@@ -1235,7 +1218,6 @@ export function clearAllCachedTypes(): void {
   cachedLongLongType = null;
   cachedULongLongType = null;
   cachedLongDoubleType = null;
-  cachedSliceTypeMap.clear();
   cachedVoidType = undefined;
   cachedTypeMap.clear();
   // CRITICAL: Clear these caches to prevent memory leaks

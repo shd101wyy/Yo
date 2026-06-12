@@ -492,7 +492,7 @@ function extractComptimeString(
   if (!isComptimeStringValue(value)) {
     throw formatErrorMessage({
       token,
-      errorMessage: `Build function: expected comptime_string for "${paramName}", got ${value ? "non-string" : "undefined"}`,
+      errorMessage: `Build function: expected comptime_str for "${paramName}", got ${value ? "non-string" : "undefined"}`,
     });
   }
   return value.value;
@@ -550,7 +550,7 @@ export function evaluateYoBuildFunctions({
   // During trial evaluation (function definition type-check),
   // just return unit without registering anything.
   if (isTrialEvaluation(expr)) {
-    // For functions that return comptime_string, always return a valid string value
+    // For functions that return comptime_str, always return a valid string value
     if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host)) {
       const target = hostTarget();
       return makeComptimeStringResult(expr, env, target.triple);
@@ -953,13 +953,13 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_target_host() — returns comptime_string (used as a value)
+  // __yo_build_target_host() — returns comptime_str (used as a value)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host)) {
     const target = hostTarget();
     return makeComptimeStringResult(expr, env, target.triple);
   }
 
-  // __yo_build_target_parse(triple) — returns comptime_string (used as a value)
+  // __yo_build_target_parse(triple) — returns comptime_str (used as a value)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_parse)) {
     if (expr.args.length !== 1) {
       throw formatErrorMessage({
@@ -1084,7 +1084,7 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_option(name, description, default) -> comptime_string
+  // __yo_build_option(name, description, default) -> comptime_str
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_option)) {
     if (expr.args.length < 3) {
       throw formatErrorMessage({
@@ -1267,7 +1267,7 @@ export function evaluateYoBuildFunctions({
   }
 
   // __yo_build_dep_module(dependency_name, module_name)
-  // Returns comptime_string encoding: "dep_name\0module_name"
+  // Returns comptime_str encoding: "dep_name\0module_name"
   // The build runner interprets this to resolve the module at build time.
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dep_module)) {
     if (expr.args.length < 2) {

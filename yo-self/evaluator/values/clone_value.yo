@@ -2,8 +2,8 @@
 //!
 //! Phase 3d: full structural deep-clone implementation.
 //!
-//! `preserve_pointer_refs = true` (the common case): `PtrVal` and `SliceVal`
-//! are returned unchanged to preserve reference semantics.
+//! `preserve_pointer_refs = true` (the common case): `PtrVal`
+//! is returned unchanged to preserve reference semantics.
 //! `preserve_pointer_refs = false` (CTFE checking): all compound types
 //! including pointers are recursively cloned so that mutations to the clone
 //! do not affect the original environment.
@@ -19,8 +19,8 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 /// Deep-clone `v`.
 ///
-/// When `preserve_pointer_refs` is `true` (default usage), `PtrVal` and
-/// `SliceVal` are returned unchanged to preserve reference semantics.
+/// When `preserve_pointer_refs` is `true` (default usage), `PtrVal`
+/// is returned unchanged to preserve reference semantics.
 /// When `false`, every node is recursively cloned (used in CTFE checking).
 ///
 /// Mirrors `cloneValue` in `src/evaluator/values/clone-value.ts`.
@@ -48,16 +48,6 @@ clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
       cond(
         (preserve_pointer_refs) => v,
         true => EvalValue.PtrVal(target : box(recur(tgt_box.*, preserve_pointer_refs)), index : idx)
-      ),
-    // SliceVal — preserve or deep-clone depending on flag
-    .SliceVal(source : src_box, start_idx : start, end_idx : end_idx) =>
-      cond(
-        (preserve_pointer_refs) => v,
-        true => EvalValue.SliceVal(
-          source : box(recur(src_box.*, preserve_pointer_refs)),
-          start_idx : start,
-          end_idx : end_idx
-        )
       ),
     // EnumVal — recursively clone each field
     .EnumVal(variant : vname, fields : flds) => {

@@ -1,5 +1,9 @@
 import { Emitter } from "../../emitter";
-import { type Environment, getVariablesFromEnv } from "../../env";
+import {
+  type Environment,
+  getVariablesFromEnv,
+  type Variable,
+} from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   extractFutureTraitFromType,
@@ -24,7 +28,6 @@ import type {
   FunctionType,
   IsoType,
   PtrType,
-  SliceType,
   SomeType,
   StructType,
   Type,
@@ -33,10 +36,8 @@ import type {
 } from "../../types/definitions";
 import {
   isEnumType,
-  isNewtypeType,
   isObjectType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
 } from "../../types/guards";
@@ -75,11 +76,6 @@ export interface CodeGenContext {
    * Array struct types that need to be generated
    */
   arrayStructTypes: Map<string, { childType: string; length: number }>;
-
-  /**
-   * Slice struct types that need to be generated
-   */
-  sliceStructTypes: Map<string, { childType: string }>;
 
   /**
    * Iso struct types that need to be generated
@@ -449,18 +445,8 @@ export function getTypeString(
     case TypeTag.ComptimeFloat:
       return "double"; // For comptime_float, we can use double
     case TypeTag.ComptimeString:
-      // At runtime, comptime_string values become str (Slice(u8)).
-      // Look up the str newtype from registered types for the correct C name.
-      for (const entry of Object.values(context.types)) {
-        if (
-          isNewtypeType(entry.type) &&
-          entry.type.fields.length === 1 &&
-          isSliceType(entry.type.fields[0]!.type)
-        ) {
-          return entry.cName;
-        }
-      }
-      return "uint8_t*"; // fallback if str type not found
+      // At runtime, comptime_str values materialize as the builtin str.
+      return "__yo_str";
 
     case TypeTag.Char:
       return "char"; // C char type
@@ -597,24 +583,11 @@ export function getTypeString(
       }
       break;
     }
-    case TypeTag.Slice: {
-      // Generate slice struct type name: Slice_ElementType
-      const sliceType = type as SliceType;
-      const elementTypeStr = sanitizeForCIdentifier(
-        getTypeString(sliceType.childType, context)
-      );
-      const sliceTypeName = `Slice_${elementTypeStr}`;
-
-      // Register the slice type
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(sliceType.childType, context),
-        });
-      }
-
-      return sliceTypeName;
+    case TypeTag.Str: {
+      // Builtin static string view — canonical fat pointer typedef emitted
+      // in the C preamble.
+      return "__yo_str";
     }
-
     // SomeType (used for Impl(...) or Self references in modules/traits)
     case TypeTag.SomeType: {
       const someType = type as SomeType;
@@ -760,24 +733,6 @@ export function getTypeString(
       // NOTE: In Yo, PtrType represents a borrow like `*(T)`.
       // For reference-semantics types (objects), the value is already a pointer in C,
       // so a borrow should NOT introduce another level of indirection.
-
-      // For slices, get the slice type name and add a pointer
-      // A `*([u8])` should be `Slice_uint8_t*`, a pointer to the fat pointer struct
-      if (isSliceType(childType)) {
-        const sliceType = childType as SliceType;
-        const elementTypeString = getTypeString(sliceType.childType, context);
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
-
-        // Register the slice type if not already registered
-        if (!context.sliceStructTypes.has(sliceTypeName)) {
-          context.sliceStructTypes.set(sliceTypeName, {
-            childType: elementTypeString,
-          });
-        }
-
-        // Return a pointer to the slice struct
-        return `${sliceTypeName}*`;
-      }
 
       const baseTypeStr = getTypeString(childType, context);
 
@@ -1074,6 +1029,46 @@ export function getDeferredDropTargetAtomName(
     return;
   }
   return firstArg.token.value;
+}
+
+/**
+ * Resolve the identity (Variable.id) of the variable a drop expression
+ * targets. The drop expression was evaluated in the scope-exit environment
+ * of the scope that owns the variable, where the target is the latest
+ * binding of its name. Resolving the id there lets cleanup sites
+ * distinguish the actual target from same-named shadowing bindings (e.g.
+ * a match-arm payload borrow) that are in scope at the cleanup point —
+ * emitting the drop against a shadowing borrow double-frees its payload.
+ */
+export function getDeferredDropTargetVariable(
+  dropExpr: Expr
+): Variable | undefined {
+  let atom: Expr | undefined;
+  // varName.drop() form (method call syntax)
+  if (
+    exprIsFunctionCall(dropExpr) &&
+    dropExpr.args.length === 0 &&
+    exprIsFunctionCall(dropExpr.func) &&
+    exprIsFunctionCallOf(dropExpr.func, ".", 2) &&
+    exprIsAtom(dropExpr.func.args[1]!) &&
+    dropExpr.func.args[1]!.token.value === BuiltinFunctions.___drop[0] &&
+    exprIsAtom(dropExpr.func.args[0]!)
+  ) {
+    atom = dropExpr.func.args[0]!;
+  } else if (
+    exprIsFunctionCall(dropExpr) &&
+    exprIsFunctionCallOf(dropExpr, BuiltinFunctions.___drop) &&
+    dropExpr.args.length >= 1 &&
+    dropExpr.args[0] &&
+    exprIsAtom(dropExpr.args[0])
+  ) {
+    // ___drop(varName) form
+    atom = dropExpr.args[0];
+  }
+  if (!atom?.$?.env) return undefined;
+  const variables = getVariablesFromEnv(atom.$.env, atom.token.value);
+  if (variables.length === 0) return undefined;
+  return variables[variables.length - 1];
 }
 
 export function isDeferredDropForClosureCapture(

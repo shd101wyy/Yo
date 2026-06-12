@@ -5,6 +5,7 @@
 //! it into the global cache.
 //!
 //! This mirrors `src/install-command.ts`.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { env } :: import("std/env");
@@ -12,7 +13,7 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
-{ Command, ExitStatus, Output } :: import("std/process/command");
+{ Command } :: import("std/process/command");
 { exists, read_file, write_file } :: import("std/fs/file");
 { BuildGitDependency, fetch_all_deps } :: import("./fetch.yo");
 { generate_deps_yo } :: import("./init.yo");
@@ -44,22 +45,21 @@ InstallOptions :: object(
 // Pure string helpers
 // ---------------------------------------------------------------------------
 /// Return `true` if `spec` looks like a local file-system path.
-is_local_path :: (fn(spec : str) -> bool)({
-  s := String.from(spec);
-  (spec == ".") || ((spec == "..") || ((s.starts_with(String.from("./"))) || ((s.starts_with(String.from("../"))) || s.starts_with(String.from("/")))))
-});
+is_local_path :: (fn(spec : String) -> bool)(
+  (spec == ".") || ((spec == "..") || ((spec.starts_with(String.from("./"))) || ((spec.starts_with(String.from("../"))) || spec.starts_with(String.from("/")))))
+);
 /// Extract the last path component from a URL or path, stripping `.git`.
-_url_to_dep_name :: (fn(url : str) -> String)({
-  s := String.from(url);
+_url_to_dep_name :: (fn(url : String) -> String)({
+  s := url.clone();
   s2 := if(
     s.ends_with(String.from(".git")),
-    s.substring(usize(0), s.len() - usize(4)),
+    s.substring(usize(0), s.bytes_len() - usize(4)),
     s
   );
   match(
     s2.last_index_of(String.from("/")),
     .None => s2,
-    .Some(idx) => s2.substring(idx + usize(1), s2.len())
+    .Some(idx) => s2.substring(idx + usize(1), s2.bytes_len())
   )
 });
 /// Return `true` if every character in `s` is an ASCII digit.
@@ -234,7 +234,7 @@ _parse_tags_for_latest_semver :: (fn(text : String) -> Option(String))({
 /// - `github.com/user/repo@v1.0.0`       → GitHub with pinned version
 /// - `https://host/path.git@ref`         → full URL with optional ref
 parse_package_specifier :: (fn(spec : String) -> Result(ParsedPackage, String))({
-  spec_str := spec.as_str();
+  spec_str := spec.clone();
   // Local path case
   if(is_local_path(spec_str), {
     name := _url_to_dep_name(spec_str);
@@ -289,7 +289,7 @@ parse_package_specifier :: (fn(spec : String) -> Result(ParsedPackage, String))(
       })
     }
   );
-  name := _url_to_dep_name(url.as_str());
+  name := _url_to_dep_name(url.clone());
   Result(ParsedPackage, String).Ok(
     ParsedPackage.Git(name, url, pinned_ref)
   )
@@ -298,10 +298,9 @@ parse_package_specifier :: (fn(spec : String) -> Result(ParsedPackage, String))(
 // deps.yo text manipulation helpers
 // ---------------------------------------------------------------------------
 /// Return `true` if a dependency named `name` already appears in `content`.
-dependency_exists_in_deps_file :: (fn(content : String, name : str) -> bool)({
-  name_str := String.from(name);
-  git_pat := name_str.concat(String.from(" :: build.dependency("));
-  path_pat := name_str.concat(String.from(" :: build.path_dependency("));
+dependency_exists_in_deps_file :: (fn(content : String, name : String) -> bool)({
+  git_pat := name.concat(String.from(" :: build.dependency("));
+  path_pat := name.concat(String.from(" :: build.path_dependency("));
   (content.contains(git_pat)) || (content.contains(path_pat))
 });
 /// Scan `content` for dependency binding lines and return the binding names.
@@ -445,25 +444,25 @@ append_dep_to_deps_file :: (
   fn(
     deps_path : Path,
     dep_line : String,
-    dep_name : str,
+    dep_name : String,
     io : Io,
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     // Create deps.yo from template if it does not exist yet
-    file_exists := io.await(exists(deps_path), io);
+    file_exists := e.io.await(exists(deps_path, e.io), e.io);
     if(!(file_exists), {
-      io.await(write_file(deps_path, String.from(generate_deps_yo())), io);
+      e.io.await(write_file(deps_path, String.from(generate_deps_yo()), e.io), e);
     });
-    bytes := io.await(read_file(deps_path), io);
+    bytes := e.io.await(read_file(deps_path, e.io), e);
     content := String.from_bytes(bytes);
     if(dependency_exists_in_deps_file(content, dep_name), {
       println(`Dependency "${dep_name}" already exists in deps.yo. Update it manually if needed.`);
       return(false);
     });
     updated := _append_dep_to_content(content, dep_line);
-    io.await(write_file(deps_path, updated), io);
+    e.io.await(write_file(deps_path, updated, e.io), e);
     true
   })
 );
@@ -479,27 +478,16 @@ resolve_default_branch :: (
     exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--symref"));
     cmd.arg(url);
     cmd.arg(String.from("HEAD"));
-    try_exn := Exception(
-      throw : (
-        (err) -> {
-          return(
-            Output(
-              status : ExitStatus(raw : i32(1)),
-              stdout : ArrayList(u8).new(),
-              stderr : ArrayList(u8).new()
-            )
-          );
-        }
-      )
-    );
-    out := io.await(cmd.output(io, try_exn), io);
-    if(out.status.raw != i32(0), return(String.from("main")));
+    // Nonzero exit (unreachable repo / no HEAD symref) falls back to "main";
+    // spawn failure (git missing) propagates through the ambient handler.
+    out := e.io.await(cmd.output(e.io), e);
+    if(!(out.status.success()), return(String.from("main")));
     text := String.from_bytes(out.stdout).trim();
     lines := text.split(String.from("\n"));
     prefix := String.from("ref: refs/heads/");
@@ -539,29 +527,18 @@ resolve_latest_ref :: (
     exn : Exception
   ) -> Impl(Future(Result(String, String), IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     // Disable interactive credential prompts
     env.set(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--tags"));
     cmd.arg(url);
-    try_exn := Exception(
-      throw : (
-        (err) -> {
-          return(
-            Output(
-              status : ExitStatus(raw : i32(1)),
-              stdout : ArrayList(u8).new(),
-              stderr : ArrayList(u8).new()
-            )
-          );
-        }
-      )
-    );
-    out := io.await(cmd.output(io, try_exn), io);
+    // Nonzero exit (repository not found / not accessible) yields Err below;
+    // spawn failure (git missing) propagates through the ambient handler.
+    out := e.io.await(cmd.output(e.io), e);
     if(
-      out.status.raw != i32(0),
+      !(out.status.success()),
       return(
         Result(String, String).Err(
           String.from("Repository not found or not accessible: ").concat(url)
@@ -574,7 +551,7 @@ resolve_latest_ref :: (
       semver_opt,
       .Some(latest_tag) => {
         if(verbose, {
-          println(`  Found semver tags, latest: ${latest_tag.as_str()}`);
+          println(`  Found semver tags, latest: ${latest_tag}`);
         });
         Result(String, String).Ok(latest_tag)
       },
@@ -582,7 +559,7 @@ resolve_latest_ref :: (
         if(verbose, {
           println("  No semver tags found, resolving default branch...");
         });
-        branch := io.await(resolve_default_branch(url), io);
+        branch := e.io.await(resolve_default_branch(url, e.io, e.exn), e);
         Result(String, String).Ok(branch)
       }
     )
@@ -617,14 +594,14 @@ run_install :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io) => {
+  io.async((e : IoExn) => {
     // 1. Parse package specifier
     parsed_result := parse_package_specifier(options.package_spec);
     parsed := match(
       parsed_result,
       .Err(msg) => {
-        println(`Error: ${msg.as_str()}`);
-        exit(int(1));
+        println(`Error: ${msg}`);
+        unsafe(exit(int(1)));
         ParsedPackage.Git(String.new(), String.new(), Option(String).None) // unreachable — satisfies type checker
       },
       .Ok(p) => p
@@ -641,11 +618,11 @@ run_install :: (
       .Some(s) => s
     );
     build_path := Path.new(yo_original_cwd).join(Path.new(options.build_file));
-    build_exists := io.await(exists(build_path), io);
+    build_exists := e.io.await(exists(build_path, e.io), e.io);
     if(!(build_exists), {
-      println(`Error: Build file not found: ${build_path.to_string().as_str()}`);
+      println(`Error: Build file not found: ${build_path.to_string()}`);
       println("Run 'yo init' to create a project with a build.yo file.");
-      exit(int(1));
+      unsafe(exit(int(1)));
     });
     project_dir := match(
       build_path.parent(),
@@ -658,18 +635,18 @@ run_install :: (
       parsed,
       .Path(p_name, p_rel_path) => {
         // Local path dependency — just append, no git needed
-        rel_path := p_rel_path.as_str();
-        path_exists := io.await(exists(Path.new(p_rel_path)), io);
+        rel_path := p_rel_path.clone();
+        path_exists := e.io.await(exists(Path.new(p_rel_path), e.io), e.io);
         if(!(path_exists), {
           println(`Error: Path does not exist: ${rel_path}`);
-          exit(int(1));
+          unsafe(exit(int(1)));
         });
         dep_line := p_name.concat(
           String.from(" :: build.path_dependency({ name: \"")
         ).concat(p_name).concat(
           String.from("\", path: \"")
         ).concat(p_rel_path).concat(String.from("\" });\n"));
-        added := io.await(append_dep_to_deps_file(deps_path, dep_line, p_name.as_str()), io);
+        added := e.io.await(append_dep_to_deps_file(deps_path, dep_line, p_name.clone(), e.io, e.exn), e);
         if(added, {
           println(
             String.from("Added path dependency \"").concat(p_name).concat(
@@ -683,29 +660,29 @@ run_install :: (
       },
       .Git(g_name, g_url, g_pinned_ref) => {
         if(options.verbose, {
-          println(`Package: ${g_name.as_str()}`);
-          println(`URL: ${g_url.as_str()}`);
+          println(`Package: ${g_name}`);
+          println(`URL: ${g_url}`);
         });
         // Resolve the git ref
         ref_str := match(
           g_pinned_ref,
           .Some(r) => {
-            println(`Installing ${g_name.as_str()} @ ${r.as_str()} ...`);
+            println(`Installing ${g_name} @ ${r} ...`);
             r
           },
           .None => {
-            println(`Resolving latest version for ${g_name.as_str()}...`);
-            ref_result := io.await(resolve_latest_ref(g_url, options.verbose), io);
+            println(`Resolving latest version for ${g_name}...`);
+            ref_result := e.io.await(resolve_latest_ref(g_url, options.verbose, e.io, e.exn), e);
             match(
               ref_result,
               .Err(msg) => {
-                println(`Error: ${msg.as_str()}`);
-                println(`Ensure the repository exists and is accessible: ${g_url.as_str()}`);
-                exit(int(1));
+                println(`Error: ${msg}`);
+                println(`Ensure the repository exists and is accessible: ${g_url}`);
+                unsafe(exit(int(1)));
                 String.new() // unreachable
               },
               .Ok(r) => {
-                println(`Installing ${g_name.as_str()} @ ${r.as_str()} ...`);
+                println(`Installing ${g_name} @ ${r} ...`);
                 r
               }
             )
@@ -719,7 +696,7 @@ run_install :: (
         ).concat(g_url).concat(
           String.from("\", ref: \"")
         ).concat(ref_str).concat(String.from("\" });\n"));
-        added := io.await(append_dep_to_deps_file(deps_path, dep_line, g_name.as_str()), io);
+        added := e.io.await(append_dep_to_deps_file(deps_path, dep_line, g_name, e.io, e.exn), e);
         if(added, {
           // Fetch the single new dependency
           println("\nFetching dependency...");
@@ -731,7 +708,7 @@ run_install :: (
           );
           dep_list := ArrayList(BuildGitDependency).new();
           dep_list.push(new_dep);
-          io.await(fetch_all_deps(project_dir.to_string(), dep_list, options.verbose, false), io);
+          e.io.await(fetch_all_deps(project_dir.to_string(), dep_list, options.verbose, false, e.io, e.exn), e);
           println("Done. Lock file updated: yo.lock");
         });
         println("");

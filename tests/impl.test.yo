@@ -207,3 +207,62 @@ test("Test trait method disambiguation with where-clause constraints", {
   assert(use_trait_b(p) == 20, "use_trait_b should dispatch to TraitDisambigB.get_number (returns y)");
   assert(use_trait_b_explicit(p) == 20, "use_trait_b_explicit should dispatch to TraitDisambigB.get_number (returns y)");
 });
+// Regression: issues/fixed/heterogeneous-eq-overload-dispatch.md.
+// A second same-name trait-method overload from a PARAMETRIC trait
+// (Eq(str) beside Eq(HeteroEqW)) whose impl annotation names a
+// module-scope type ("str"). The registered method's specializedType used
+// to carry the impl's parameter type exprs with the TRAIT definition's env,
+// so call-site re-evaluation of `other : str` failed with
+// "Variable str not found" and the heterogeneous overload never dispatched.
+// Also exercises the trait's `?=` default for (!=) picking the right
+// overload by argument types.
+HeteroEqW :: struct(v : i32);
+impl(
+  HeteroEqW,
+  Eq(HeteroEqW)(
+    (==) : (fn(self : Self, other : Self) -> bool)(self.v == other.v)
+  )
+);
+impl(
+  HeteroEqW,
+  Eq(str)(
+    (==) : (fn(self : Self, other : str) -> bool)(other.len() == usize(3))
+  )
+);
+hetero_eq_str :: (fn(w : HeteroEqW) -> bool)(w == "abc");
+test("Test heterogeneous trait-method overload dispatch (Eq(str) beside Eq(Self))", {
+  a := HeteroEqW(v : i32(1));
+  b := HeteroEqW(v : i32(1));
+  c := HeteroEqW(v : i32(2));
+  assert(a == b, "homogeneous (==) overload");
+  assert(a != c, "homogeneous (!=) via the trait ?= default");
+  assert(hetero_eq_str(a), "heterogeneous (==) overload from a fn body");
+  assert(a == "xyz", "heterogeneous (==) overload at a direct call site");
+  assert(a != "abcd", "heterogeneous (!=) via the trait ?= default");
+});
+// Regression: during trait-impl registration the in-progress trait's fields
+// are spliced into the receiver's trait field list ahead of the existing
+// ones; method lookup must collect ALL same-name fields (not first-match)
+// or the overload being defined shadows the inherent one and a delegating
+// body like `self.pick(self)` fails to dispatch.
+DelegateV :: struct(n : i32);
+DelegatePickStr :: trait(
+  pick : (fn(self : Self, x : str) -> i32)
+);
+impl(
+  DelegateV,
+  pick : (fn(self : Self, x : DelegateV) -> i32)(i32(1))
+);
+impl(
+  DelegateV,
+  DelegatePickStr(
+    // Delegates to the inherent same-name overload (String/str-style pattern
+    // used by std's StrPattern impl on String).
+    pick : (fn(self : Self, x : str) -> i32)(self.pick(self) + i32(1))
+  )
+);
+test("Test trait-impl body delegating to a same-name inherent overload", {
+  v := DelegateV(n : i32(0));
+  assert(v.pick(v) == i32(1), "inherent overload");
+  assert(v.pick("s") == i32(2), "trait str overload delegating to inherent");
+});

@@ -45,7 +45,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
       while((i < n) && !(found), {
         match(
           g_privileged_files.get(i),
-          .Some(entry) => if((entry.module_path.as_str() == mp.as_str()) && (entry.kind == kind), {
+          .Some(entry) => if((entry.module_path == mp) && (entry.kind == kind), {
             found = true;
           }),
           .None => ()
@@ -78,7 +78,7 @@ _clear_pragma_for_module :: (fn(module_path : String) -> unit)({
   while(i < n, {
     match(
       g_privileged_files.get(i),
-      .Some(entry) => if(entry.module_path.as_str() != module_path.as_str(), {
+      .Some(entry) => if(entry.module_path != module_path, {
         _ := kept.push(entry);
       }),
       .None => ()

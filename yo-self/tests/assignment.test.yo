@@ -37,7 +37,7 @@ open(import("std/fmt"));
 { EvalValue } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { t_bool, t_i32, t_unit } :: import("../types/creators.yo");
-{ set_evaluate_expression_fn } :: import("../evaluator/exprs/expr.yo");
+{ set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("../evaluator/exprs/expr.yo");
 {
   throw_rhs_contains_control_flow_expression_error,
   evaluate_assignment
@@ -106,6 +106,37 @@ stub_eval_i32 :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
+/// Raw (exn-threading) variants: `evaluate_assignment` dispatches the RHS
+/// through `evaluate_expression_raw` (the propagating path), so tests must
+/// register the raw hook too.
+stub_eval_bool_raw :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  _ := exn;
+  info := new_expr_info(env, t_bool());
+  info.value =.Some(EvalValue.BoolVal(true));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+stub_eval_i32_raw :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  _ := exn;
+  info := new_expr_info(env, t_i32());
+  info.value =.Some(EvalValue.IntLit(String.from("42")));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
 // ---------------------------------------------------------------------------
 // throw_rhs_contains_control_flow_expression_error
 // ---------------------------------------------------------------------------
@@ -150,6 +181,7 @@ test("cf_error: other rhs throws", {
 // ---------------------------------------------------------------------------
 test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {
@@ -182,6 +214,7 @@ test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
 });
 test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {
@@ -230,6 +263,7 @@ test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
 /// Returns true iff evaluate_assignment throws when the variable is absent.
 test_assign_missing_var_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {
@@ -253,6 +287,7 @@ test("evaluate_assignment: variable not found throws", {
 /// Returns true iff evaluate_assignment throws for a non-reassignable variable.
 test_assign_non_reassignable_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
+  set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
     throw : (
       (err) -> {
@@ -288,6 +323,7 @@ test("evaluate_assignment: non-reassignable variable throws", {
 /// Returns true iff evaluate_assignment throws for a type mismatch (bool var, i32 rhs).
 test_assign_type_mismatch_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_i32);
+  set_evaluate_expression_raw_fn(stub_eval_i32_raw);
   exn := Exception(
     throw : (
       (err) -> {

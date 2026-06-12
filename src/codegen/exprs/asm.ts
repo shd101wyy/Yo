@@ -234,7 +234,7 @@ function parseOperandForCodegen(
   let name: string | undefined;
   let constraintIdx = 0;
 
-  // Detect name — first arg is a comptime_string that is not a register class
+  // Detect name — first arg is a comptime_str that is not a register class
   if (args.length >= 2) {
     const firstArg = args[0]!;
     if (

@@ -24,7 +24,7 @@ export enum TypeTag {
   // Compile-time types
   ComptimeInt = "comptime_int",
   ComptimeFloat = "comptime_float",
-  ComptimeString = "comptime_string",
+  ComptimeString = "comptime_str",
 
   // C Compatible types
   // NOTE: C Compatible types cannot be used for compile-time known value.
@@ -62,8 +62,10 @@ export enum TypeTag {
   // Some Type
   SomeType = "SomeType",
 
-  // Slice (Fat Pointer)
-  Slice = "Slice",
+  // str — builtin immutable view of STATIC string bytes (fat pointer).
+  // The runtime materialization of comptime_str (literals / template
+  // segments); immortal backing. See plans/SLICE_REWORK.md.
+  Str = "str",
 
   // Value
   // Literal = "Literal",

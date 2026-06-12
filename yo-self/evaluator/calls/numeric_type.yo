@@ -84,7 +84,7 @@ _get_enum_discriminant :: (
   // Strip leading '.' from variant name (e.g. ".Some" → "Some")
   stripped := cond(
     variant.starts_with(`.`) => variant.substring(usize(1), variant.len()),
-    true => String.from(variant.as_str())
+    true => variant.clone()
   );
   n := variant_names.len();
   (i : usize) = usize(0);
@@ -93,7 +93,7 @@ _get_enum_discriminant :: (
     match(
       variant_names.get(i),
       .Some(name) => {
-        if(name.as_str() == stripped.as_str(), {
+        if(name == stripped, {
           match(
             discs.get(i),
             .Some(d) => {
@@ -120,7 +120,7 @@ _int_raw_in_range :: (fn(raw : String, range : IntRange) -> bool)({
   is_negative_literal := raw.starts_with(String.from("-"));
   if(!(is_negative_literal), {
     match(
-      String.from(raw.as_str()).parse_u64(),
+      raw.clone().parse_u64(),
       .Some(uv) => {
         if(uv > range.max, {
           return(false);
@@ -143,7 +143,7 @@ _int_raw_in_range :: (fn(raw : String, range : IntRange) -> bool)({
       });
       if(iv >= i64(0), {
         match(
-          String.from(raw.as_str()).parse_u64(),
+          raw.clone().parse_u64(),
           .Some(uv) => {
             if(uv > range.max, {
               return(false);
@@ -187,9 +187,9 @@ _make_comptime_info :: (
   );
   out := new_expr_info(env, target_type);
   val := cond(
-    is_comptime_float_type(target_type) => EvalValue.FloatLit(String.from(raw.as_str())),
-    is_float_type(target_type) => EvalValue.FloatLit(String.from(raw.as_str())),
-    true => EvalValue.IntLit(String.from(raw.as_str()))
+    is_comptime_float_type(target_type) => EvalValue.FloatLit(raw.clone()),
+    is_float_type(target_type) => EvalValue.FloatLit(raw.clone()),
+    true => EvalValue.IntLit(raw.clone())
   );
   out.value =.Some(val);
   out
@@ -214,8 +214,8 @@ _make_yo_as_node :: (
       row : orig_tok.row,
       column : orig_tok.column,
       character : orig_tok.character,
-      module_path : String.from(orig_tok.module_path.as_str()),
-      input : String.from(orig_tok.input.as_str())
+      module_path : orig_tok.module_path.clone(),
+      input : orig_tok.input.clone()
     )
   );
   args := ArrayList(AstExpr).new();
@@ -346,8 +346,8 @@ try_to_convert_to_numeric_type :: (
     .None => match(
       arg_val,
       .Some(v) => cond(
-        is_int_lit(v) => match(v,.IntLit(r) => Option(String).Some(String.from(r.as_str())), _ =>.None),
-        is_float_lit(v) => match(v,.FloatLit(r) => Option(String).Some(String.from(r.as_str())), _ =>.None),
+        is_int_lit(v) => match(v,.IntLit(r) => Option(String).Some(r.clone()), _ =>.None),
+        is_float_lit(v) => match(v,.FloatLit(r) => Option(String).Some(r.clone()), _ =>.None),
         true => Option(String).None
       ),
       .None => Option(String).None

@@ -67,6 +67,10 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     // in the trait-methods registry — without an id the registration
     // is silently skipped and property access (`usize.MAX`) fails.
     .Unit => String.from("__yo_t_unit"),
+    // str keeps the id "str" — impl(str, ...) methods were historically
+    // registered under the singleton struct id "str" (TS: StrType.id =
+    // TypeTag.Str = "str").
+    .Str => String.from("str"),
     .BoolT => String.from("__yo_t_bool"),
     .Void => String.from("__yo_t_void"),
     .Int(bits, signed) => cond(

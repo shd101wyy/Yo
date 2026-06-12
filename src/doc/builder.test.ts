@@ -16,7 +16,7 @@ import * as fs from "fs";
 import * as os from "os";
 
 // Use a single shared ModuleManager and temp directory for all tests.
-// Built-in types (like comptime_string) are singletons whose methods
+// Built-in types (like comptime_str) are singletons whose methods
 // persist across evaluator resets, so creating multiple ModuleManagers
 // causes "duplicate method" errors on the second prelude load.
 let sharedModuleManager: ModuleManager;

@@ -18,6 +18,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
+{ ArrayList } :: import("../collections/array_list.yo");
 { malloc, free } :: GlobalAllocator;
 /// Persistent immutable vector.
 ///
@@ -412,15 +413,19 @@ impl(
     Vec(V)(_ptr : new_ptr, _len : min_len, _cap : min_len)
   }),
   /// Create a vector from a slice, copying all elements.
-  from_slice : (fn(s : Slice(T)) -> Self)({
-    slen := s.len();
+  from_list : (fn(l : ArrayList(T)) -> Self)({
+    slen := l.len();
     cap := cond(
       (slen > usize(0)) => slen,
       true => usize(4)
     );
     new_ptr := Self._raw_alloc(cap);
     if(slen > usize(0), {
-      Self._copy_elems(new_ptr, s.ptr(), usize(0), usize(0), slen);
+      match(
+        l.ptr(),
+        .Some(src) => Self._copy_elems(new_ptr, src, usize(0), usize(0), slen),
+        .None => ()
+      );
     });
     Self(_ptr : new_ptr, _len : slen, _cap : cap)
   })

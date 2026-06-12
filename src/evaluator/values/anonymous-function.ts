@@ -30,7 +30,6 @@ import {
   isFunctionType,
   isSourceNamespaceType,
   isPtrType,
-  isSliceType,
   isArrayType,
   isIsoType,
   isSomeType,
@@ -48,7 +47,6 @@ import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { wrapFunctionBodyWithContracts } from "../builtins/contracts";
 import {
   createPtrType,
-  createSliceType,
   createArrayType,
   createFnTraitType,
   createSomeType,
@@ -145,12 +143,6 @@ function substituteSomeTypesFromEnv(
     const childSub = substituteSomeTypesFromEnv(type.childType, env, visited);
     if (childSub === type.childType) return type;
     return createPtrType(childSub);
-  }
-
-  if (isSliceType(type)) {
-    const childSub = substituteSomeTypesFromEnv(type.childType, env, visited);
-    if (childSub === type.childType) return type;
-    return createSliceType(childSub);
   }
 
   if (isArrayType(type)) {
@@ -933,24 +925,10 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // checked yet — a follow-up can walk control-flow more
   // thoroughly when the projection redesign meets real iterator
   // bodies in Phase D.
-  if (functionType.return.isRef) {
-    let returnExpr: Expr = evaluatedBody;
-    if (
-      exprIsFunctionCall(evaluatedBody) &&
-      exprIsFunctionCallOf(evaluatedBody, BuiltinKeywords.begin)
-    ) {
-      const beginCall = evaluatedBody as FnCallExpr;
-      if (beginCall.args.length > 0) {
-        returnExpr = beginCall.args[beginCall.args.length - 1]!;
-      }
-    }
-    if (!isFlowableExpr(returnExpr)) {
-      throw formatErrorMessage({
-        token: returnExpr.token,
-        errorMessage: `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
-      });
-    }
-  } else if (
+  // (Ref-returning functions are banned at signature evaluation — see
+  // evaluateFunctionType — so no `-> ref(T)` return enforcement is
+  // needed here anymore.)
+  if (
     typeRepresentationContainsRawPtr(functionType.return.type) &&
     !functionType.return.isCompileTimeOnly &&
     !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)

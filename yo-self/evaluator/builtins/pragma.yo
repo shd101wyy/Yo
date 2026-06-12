@@ -36,7 +36,7 @@ open(import("std/string"));
 /// `Pragma`. Returns `.None` when the name doesn't match any
 /// known variant — typo handling for full evaluation belongs in
 /// `evaluatePragma`; the pre-scan just ignores unknown names.
-pragma_kind_from_variant_name :: (fn(name : str) -> Option(Pragma))(
+pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
   cond(
     (name == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
     (name == "SkipPrelude") => Option(Pragma).Some(.SkipPrelude),
@@ -82,7 +82,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
         args.get(usize(1)),
         .Some(rhs) => match(
           rhs,
-          .Atom(_, tok) => pragma_kind_from_variant_name(tok.value.as_str()),
+          .Atom(_, tok) => pragma_kind_from_variant_name(tok.value.clone()),
           .FnCall(_, _, _, _, _) => Option(Pragma).None
         ),
         .None => Option(Pragma).None

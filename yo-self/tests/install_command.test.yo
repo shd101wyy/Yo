@@ -20,43 +20,43 @@ open(import("std/string"));
 // is_local_path
 // ---------------------------------------------------------------------------
 test("is_local_path: dot is local", {
-  assert(is_local_path("."), "dot is local");
+  assert(is_local_path(String.from(".")), "dot is local");
 });
 test("is_local_path: dotdot is local", {
-  assert(is_local_path(".."), "dotdot is local");
+  assert(is_local_path(String.from("..")), "dotdot is local");
 });
 test("is_local_path: ./foo is local", {
-  assert(is_local_path("./foo"), "./foo is local");
+  assert(is_local_path(String.from("./foo")), "./foo is local");
 });
 test("is_local_path: ../bar is local", {
-  assert(is_local_path("../bar"), "../bar is local");
+  assert(is_local_path(String.from("../bar")), "../bar is local");
 });
 test("is_local_path: /abs/path is local", {
-  assert(is_local_path("/abs/path"), "/abs is local");
+  assert(is_local_path(String.from("/abs/path")), "/abs is local");
 });
 test("is_local_path: user/repo is not local", {
-  assert(!(is_local_path("user/repo")), "user/repo is not local");
+  assert(!(is_local_path(String.from("user/repo"))), "user/repo is not local");
 });
 test("is_local_path: https:// is not local", {
-  assert(!(is_local_path("https://github.com/user/repo")), "https url not local");
+  assert(!(is_local_path(String.from("https://github.com/user/repo"))), "https url not local");
 });
 // ---------------------------------------------------------------------------
 // _url_to_dep_name
 // ---------------------------------------------------------------------------
 test("_url_to_dep_name: strips .git and last path segment", {
-  result := _url_to_dep_name("https://github.com/user/myrepo.git");
+  result := _url_to_dep_name(String.from("https://github.com/user/myrepo.git"));
   assert(result == String.from("myrepo"), "stripped .git and got last segment");
 });
 test("_url_to_dep_name: no .git suffix", {
-  result := _url_to_dep_name("https://github.com/user/mylib");
+  result := _url_to_dep_name(String.from("https://github.com/user/mylib"));
   assert(result == String.from("mylib"), "last segment without .git");
 });
 test("_url_to_dep_name: no slash falls back to whole string", {
-  result := _url_to_dep_name("myrepo.git");
+  result := _url_to_dep_name(String.from("myrepo.git"));
   assert(result == String.from("myrepo"), "no slash, stripped .git");
 });
 test("_url_to_dep_name: plain name with no slash and no .git", {
-  result := _url_to_dep_name("myrepo");
+  result := _url_to_dep_name(String.from("myrepo"));
   assert(result == String.from("myrepo"), "plain name unchanged");
 });
 // ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ test("parse_package_specifier: user/repo shorthand", {
   result := parse_package_specifier(String.from("user/myrepo"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -222,7 +222,7 @@ test("parse_package_specifier: user/repo@v1.2.3 pinned", {
   result := parse_package_specifier(String.from("user/myrepo@v1.2.3"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -241,7 +241,7 @@ test("parse_package_specifier: full https URL", {
   result := parse_package_specifier(String.from("https://github.com/user/repo.git"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -256,7 +256,7 @@ test("parse_package_specifier: local path", {
   result := parse_package_specifier(String.from("./my-lib"));
   match(
     result,
-    .Err(msg) => assert(false, msg.as_str()),
+    .Err(msg) => assert_dyn(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Git(_, _, _) => assert(false, "expected Path"),
@@ -282,19 +282,19 @@ test("dependency_exists_in_deps_file: finds git dep", {
   content := String.from(
     "mylib :: build.dependency(url: \"https://github.com/u/mylib.git\", ref: \"v1.0.0\");\n"
   );
-  assert(dependency_exists_in_deps_file(content, "mylib"), "git dep found");
+  assert(dependency_exists_in_deps_file(content, String.from("mylib")), "git dep found");
 });
 test("dependency_exists_in_deps_file: finds path dep", {
   content := String.from(
     "locallib :: build.path_dependency(path: \"./local\");\n"
   );
-  assert(dependency_exists_in_deps_file(content, "locallib"), "path dep found");
+  assert(dependency_exists_in_deps_file(content, String.from("locallib")), "path dep found");
 });
 test("dependency_exists_in_deps_file: not present returns false", {
   content := String.from(
     "other :: build.dependency(url: \"https://github.com/u/other.git\", ref: \"v1.0.0\");\n"
   );
-  assert(!(dependency_exists_in_deps_file(content, "mylib")), "mylib not found");
+  assert(!(dependency_exists_in_deps_file(content, String.from("mylib"))), "mylib not found");
 });
 // ---------------------------------------------------------------------------
 // parse_dependency_names

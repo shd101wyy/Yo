@@ -565,9 +565,8 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   /// Pointer iterator — yields `*(Bucket(K, V))` for each occupied bucket.
-  /// Kept as a separate method (not `iter()`) so the Phase D for-macro's
-  /// `coll.iter()` call dispatches to the position-iter variant defined
-  /// later in the file, enabling `for(map, ref(b) => body)`.
+  /// For privileged/unsafe internal use; value iteration goes through
+  /// `into_iter()`.
   iter_ptr : (fn(self : Self) -> HashMapIterPtr(K, V))(
     HashMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
@@ -688,84 +687,6 @@ impl(
         .None => panic("HashMap: key not found")
       )
     })
-  )
-);
-/// Position iterator for HashMap that walks occupied buckets and yields
-/// their bucket indices. Pairs with the `Indexable(usize)` impl below to
-/// make `for(map, ref(b) => body)` legal: `b` becomes a `ref(Bucket(K, V))`
-/// and the loop body can destructure `b.key` / `b.value`.
-HashMapPosIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(
-    _map : HashMap(K, V),
-    _index : usize
-  )
-);
-impl(
-  forall(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
-  HashMapPosIter(K, V),
-  Iterator(
-    Item : usize,
-    next : (fn(ref(self) : Self) -> Option(usize))(
-      cond(
-        (self._map.capacity == usize(0)) =>.None,
-        true => {
-          ctrl_ptr := self._map.ctrl.unwrap();
-          result := Option(usize).None;
-          while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some(self._index);
-              },
-              true => ()
-            );
-          });
-          result
-        }
-      )
-    )
-  )
-);
-/// Indexable(usize) — projects an occupied bucket index back to a
-/// `ref(Bucket(K, V))` so `for(map, ref(b) => ...)` works. The body of
-/// `for` (Phase D) calls `coll.iter()` to obtain a position iter and
-/// then `coll.project(pos)` for each yielded position. We override
-/// `iter` for HashMap to return the position-iter rather than the
-/// `*(Bucket)` iter — the for-macro only cares about which yields
-/// positions consumable by `project`.
-///
-/// See plans/ITERATOR_REDESIGN.md Open Question 3. The choice here is
-/// "projection-returns a single Bucket struct, user destructures
-/// inside the loop" — chosen over the rejected `(ref(K), ref(V))`
-/// tuple-of-inouts shape.
-impl(
-  forall(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
-  HashMap(K, V),
-  Indexable(usize)(
-    Element : Bucket(K, V),
-    project : (fn(ref(self) : Self, pos : usize) -> ref(Bucket(K, V)))(
-      cond(
-        (pos >= self.capacity) => panic("HashMap: project out of bounds"),
-        // SAFETY: cond above bounds `pos`; `_data_ptr` returns the
-        // start of the Rc-managed _data buffer, which is alive while
-        // `self` holds the Rc.
-        true => unsafe(Self._data_ptr(self) &+ pos)
-      )
-    )
-  )
-);
-/// Position-iter constructor for HashMap (paired with the Indexable
-/// impl above): `iter()` yields each occupied bucket index, and the
-/// for-macro then calls `coll.project(pos)` to materialize the
-/// `ref(Bucket)` borrow for the body.
-impl(
-  forall(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
-  HashMap(K, V),
-  iter : (fn(self : Self) -> HashMapPosIter(K, V))(
-    HashMapPosIter(K, V)(_map : self, _index : usize(0))
   )
 );
 /// Clone implementation for HashMap — deep-clones all key-value entries.

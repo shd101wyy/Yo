@@ -32,8 +32,6 @@ open(import("std/string"));
   BK_GIVEN,
   BK_REF
 } :: import("../../expr.yo");
-{ is_flowable_expr, FlowOptions, flag_flow_violation }
-:: import("../../types/flowability.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -154,45 +152,19 @@ evaluate_initialization_assignment :: (
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
-  // Detect `ref(name) := expr;` — a second-class reference (borrow) binding.
-  // The bound name aliases the ref-yielding RHS. Mirrors
-  // `initialization-assignment.ts` (the `BuiltinKeywords.ref` unwrap).
-  (is_ref_binding : bool) = false;
+  // v4.1 (plans/BORROW_EXCLUSIVITY.md): local `ref(name) := …` bindings
+  // were REMOVED — `ref` exists only in parameter position. Mirrors the
+  // TS rejection in initialization-assignment.ts.
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_REF,.None), {
-    if(is_const || ctx.force_compile_time_bindings, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            String.from("'ref(name) :=' cannot be used with '::' or in a compile-time-only context — borrows are runtime constructs."),
-            false,
-            .None
-          )
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs),
+          String.from("'ref(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive."),
+          false,
+          .None
         )
-      );
-    });
-    n_ref_args := match(
-      lhs,
-      .FnCall(_, _, rargs, _, _) => rargs.len(),
-      .Atom(_, _) => usize(0)
-    );
-    if(n_ref_args != usize(1), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            `Expected one argument for 'ref' in a local binding, got ${n_ref_args.to_string()}`,
-            false,
-            .None
-          )
-        )
-      );
-    });
-    is_ref_binding = true;
-    actual_lhs = match(
-      lhs,
-      .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
+      )
     );
   });
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN,.None), {
@@ -222,7 +194,7 @@ evaluate_initialization_assignment :: (
   });
   // Prevent declaring variable type using :: or :=.
   if(ast_expr_is_fn_call(actual_lhs) && ast_expr_is_fn_call_of(actual_lhs, BK_COLON,.None), {
-    op_str := String.from(ast_expr_token(expr).value.as_str());
+    op_str := ast_expr_token(expr).value.clone();
     exn.throw(
       dyn(
         format_error_message(
@@ -320,28 +292,6 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
   );
   // Disallow implicit variables as the RHS of non-given assignment.
   throw_expr_is_implicit_variable_error(rhs, env, ctx, exn);
-  // Flowability check on the RHS of `ref(name) := expr;`. The RHS must be a
-  // ref-yielding expression that roots back to a `ref`-bound parameter (or any
-  // same-function local — the borrow is bounded by the enclosing block).
-  // Otherwise the binding would hand out a reference into storage that doesn't
-  // outlive the call frame. Mirrors `initialization-assignment.ts` (the
-  // `isFlowableExpr(rhs, { allowSameFrameLocal: true })` check).
-  if(is_ref_binding, {
-    ref_flow_opts := FlowOptions(
-      allow_same_frame_local : true,
-      allow_parameter_source : false,
-      allow_comptime_source : false,
-      max_local_frame_level : Option(usize).None
-    );
-    if(!(is_flowable_expr(rhs, ctx, ref_flow_opts)), {
-      viol_msg := `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`;
-      // Flag the violation (recording its message) so that if this throw is
-      // swallowed by a def-time trial-eval, the def-time caller re-raises the
-      // same diagnostic via the real `exn` (function_type.yo).
-      flag_flow_violation(viol_msg);
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
-    });
-  });
   // --------------------------------------------------------------------------
   // Branch: atom LHS vs destructuring LHS
   // --------------------------------------------------------------------------
@@ -351,12 +301,8 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     // -------------------------------------------------------------------
     // Check if the RHS variable has been consumed (moved).
     require_expr_not_consumed(rhs, env, ctx, exn);
-    // Insert dup (Phase 2w: stub, no-op) — but NOT for a `ref(name) :=` borrow.
-    // A ref-binding aliases the RHS rather than owning it, so no clone is
-    // inserted. Mirrors the `!isRefBinding` gate in `initialization-assignment.ts`.
-    if(!(is_ref_binding), {
-      set_expr_as_needs_to_call_dup(rhs, ctx);
-    });
+    // Insert dup (Phase 2w: stub, no-op).
+    set_expr_as_needs_to_call_dup(rhs, ctx);
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
@@ -370,7 +316,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     );
     // Validate LHS name.
     if(!(is_valid_variable_name(actual_lhs)), {
-      lhs_tok_val := String.from(ast_expr_token(actual_lhs).value.as_str());
+      lhs_tok_val := ast_expr_token(actual_lhs).value.clone();
       exn.throw(
         dyn(
           format_error_message(
@@ -510,7 +456,7 @@ ${expr_str}`,
     );
     // Reject runtime value for a compile-time-only declaration.
     if(rhs_value_opt.is_none() && effective_is_compile_time_only, {
-      lhs_tok_val := String.from(ast_expr_token(actual_lhs).value.as_str());
+      lhs_tok_val := ast_expr_token(actual_lhs).value.clone();
       rhs_str := ast_expr_to_string(rhs);
       exn.throw(
         dyn(
@@ -539,7 +485,7 @@ ${rhs_str}`,
       .Some(rv) => match(
         rv,
         .TypeVal(tv_box) => {
-          binding_name := String.from(ast_expr_token(actual_lhs).value.as_str());
+          binding_name := ast_expr_token(actual_lhs).value.clone();
           stamped_ty := match(
             tv_box.*,
             .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
@@ -564,7 +510,7 @@ ${rhs_str}`,
             // "Send" (TS stamps any unnamed type the same way). Identity is
             // unaffected — trait matching keys on the `id` field, which is
             // preserved. Without this, diagnostics render the trait as its
-            // field dump (`(id : comptime_string)` instead of `Send`), e.g.
+            // field dump (`(id : comptime_str)` instead of `Send`), e.g.
             // the where-clause "does not implement required trait" error.
             .TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc) => cond(
               (tr_name.len() == usize(0)) => Option(TypeValue).Some(
@@ -629,7 +575,7 @@ ${rhs_str}`,
       (actual_lhs_tok.value == String.from("_")) =>
         generate_new_temp_variable_name(env.module_path),
       true =>
-        String.from(actual_lhs_tok.value.as_str())
+        actual_lhs_tok.value.clone()
     );
     // Reject mutable runtime variable inside an impl block.
     is_runtime_not_in_fn := (!(effective_is_compile_time_only) && !(ctx.is_evaluating_function_body_or_async_block.is_some()));
@@ -680,12 +626,6 @@ Use \`::\` for compile-time definitions inside impl.`,
       .Some(new_var) => {
         new_var.is_module_level = is_module_level;
         new_var.doc_comment = doc_comment_opt;
-        // A `ref(name) := <ref-yielding expr>` local carries `is_ref : true`
-        // (mirrors TS initialization-assignment.ts:510 `isRef: isRefBinding`).
-        // The closure ref-capture gate (values/anonymous_function.yo) keys on
-        // it — without this, a captured ref-LOCAL (vs ref-param) was not
-        // rejected (tests/ref_local_binding.test.yo `make_capturing_closure`).
-        new_var.is_ref = is_ref_binding;
         // Set is_owning_the_same_rc_value_as when applicable.
         match(
           is_owning_same_rc_value_as,

@@ -25,7 +25,6 @@ import type {
   Type,
   FunctionType,
   ArrayType,
-  SliceType,
   PtrType,
   IsoType,
   DynType,
@@ -592,7 +591,9 @@ function typeTagToVariantName(tag: string): string {
     case TypeTag.ComptimeFloat:
       return "ComptimeFloat";
     case TypeTag.ComptimeString:
-      return "ComptimeString";
+      return "ComptimeStr";
+    case TypeTag.Str:
+      return "Str";
     case TypeTag.Char:
       return "Char";
     case TypeTag.Short:
@@ -631,8 +632,6 @@ function typeTagToVariantName(tag: string): string {
       return "Function";
     case TypeTag.SomeType:
       return "Some";
-    case TypeTag.Slice:
-      return "Slice";
     case TypeTag.Trait:
       return "Trait";
     case TypeTag.Ptr:
@@ -714,6 +713,7 @@ export function evaluateYoTypeGetInfo({
     case TypeTag.ComptimeInt:
     case TypeTag.ComptimeFloat:
     case TypeTag.ComptimeString:
+    case TypeTag.Str:
     case TypeTag.Char:
     case TypeTag.Short:
     case TypeTag.UShort:
@@ -745,15 +745,6 @@ export function evaluateYoTypeGetInfo({
         lengthStr = "0";
       }
       code = `TypeInfo.Array(${elemTmp.name}, ${lengthStr})`;
-      break;
-    }
-
-    // === Slice(element) ===
-    case TypeTag.Slice: {
-      const sliceType = type as SliceType;
-      const elemTmp = bindTempType(evalEnv, sliceType.childType, context);
-      evalEnv = elemTmp.env;
-      code = `TypeInfo.Slice(${elemTmp.name})`;
       break;
     }
 
@@ -1371,7 +1362,7 @@ function bindTempTraitInfoList(
 // ============================================================
 
 /**
- * comptime_eval(code_string) — parse and evaluate a comptime_string as Yo code.
+ * comptime_eval(code_string) — parse and evaluate a comptime_str as Yo code.
  * Returns unit. Side effects: registers impls, defines variables, etc.
  */
 export function evaluateComptimeEval({
@@ -1396,7 +1387,7 @@ export function evaluateComptimeEval({
     });
   }
 
-  // The argument must be a comptime_string. If it's unknown (SomeType), skip evaluation.
+  // The argument must be a comptime_str. If it's unknown (SomeType), skip evaluation.
   if (!isComptimeStringValue(arg.$.value)) {
     // If the value is unknown (e.g., in a comptime function body with SomeType params),
     // return unit without executing
@@ -1448,7 +1439,7 @@ export function evaluateComptimeEval({
 // Phase 2 derive_rule builtins
 // ============================================================================
 
-/** __yo_comptime_string_to_expr(code : comptime_string) -> comptime(Expr) */
+/** __yo_comptime_string_to_expr(code : comptime_str) -> comptime(Expr) */
 export function evaluateComptimeStringToExpr({
   expr,
   env,
@@ -1482,7 +1473,7 @@ export function evaluateComptimeStringToExpr({
     }
     throw formatErrorMessage({
       token: expr.args[0]!.token,
-      errorMessage: `__yo_comptime_string_to_expr: expected a comptime_string argument`,
+      errorMessage: `__yo_comptime_string_to_expr: expected a comptime_str argument`,
     });
   }
 

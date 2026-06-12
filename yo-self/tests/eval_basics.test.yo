@@ -36,10 +36,10 @@ open(import("std/error"));
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-make_token :: (fn(kind : TokenKind, value : str) -> Token)(
+make_token :: (fn(kind : TokenKind, value : String) -> Token)(
   Token(
     kind : kind,
-    value : String.from(value),
+    value : value.clone(),
     row : usize(0),
     column : usize(0),
     character : usize(0),
@@ -47,13 +47,13 @@ make_token :: (fn(kind : TokenKind, value : str) -> Token)(
     input : String.from("")
   )
 );
-make_atom :: (fn(kind : TokenKind, value : str) -> AstExpr)(
+make_atom :: (fn(kind : TokenKind, value : String) -> AstExpr)(
   .Atom(usize(0), make_token(kind, value))
 );
-make_ident :: (fn(name : str) -> AstExpr)(
+make_ident :: (fn(name : String) -> AstExpr)(
   make_atom(TokenKind.Identifier, name)
 );
-make_infix :: (fn(op : str, lhs : AstExpr, rhs : AstExpr) -> AstExpr)(
+make_infix :: (fn(op : String, lhs : AstExpr, rhs : AstExpr) -> AstExpr)(
   .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, op))), {
     args := ArrayList(AstExpr).new();
     args.push(lhs);
@@ -65,43 +65,43 @@ make_infix :: (fn(op : str, lhs : AstExpr, rhs : AstExpr) -> AstExpr)(
 make_begin :: (fn(stmts : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, BK_BEGIN))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from(BK_BEGIN)))),
     stmts,
     false,
-    make_token(TokenKind.Identifier, BK_BEGIN)
+    make_token(TokenKind.Identifier, String.from(BK_BEGIN))
   )
 );
 /// Build the unit expression `()`.
 make_unit :: (fn() -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, BK_TUPLE))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from(BK_TUPLE)))),
     ArrayList(AstExpr).new(),
     false,
-    make_token(TokenKind.Identifier, BK_TUPLE)
+    make_token(TokenKind.Identifier, String.from(BK_TUPLE))
   )
 );
 /// Build a cond arm `condition => body` (infix =>).
 make_arm :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, "=>"))), {
+  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("=>")))), {
     a := ArrayList(AstExpr).new();
     a.push(cond_expr);
     a.push(body_expr);
     a
-  }, true, make_token(TokenKind.Operator, "=>"))
+  }, true, make_token(TokenKind.Operator, String.from("=>")))
 );
 /// Build `cond(arm1, arm2, …)`.
 make_cond :: (fn(arms : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "cond"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("cond")))),
     arms,
     false,
-    make_token(TokenKind.Identifier, "cond")
+    make_token(TokenKind.Identifier, String.from("cond"))
   )
 );
 /// Build `keyword(arg1, arg2, …)` — used for enum/struct/union/trait/object/newtype.
-make_typedef_call :: (fn(keyword : str, type_args : ArrayList(AstExpr)) -> AstExpr)(
+make_typedef_call :: (fn(keyword : String, type_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
     box(.Atom(usize(0), make_token(TokenKind.Identifier, keyword))),
@@ -111,7 +111,7 @@ make_typedef_call :: (fn(keyword : str, type_args : ArrayList(AstExpr)) -> AstEx
   )
 );
 /// Build `func_name(arg1, arg2, …)` — a non-infix function call.
-make_fncall_atom :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
+make_fncall_atom :: (fn(name : String, call_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
     box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
@@ -121,16 +121,16 @@ make_fncall_atom :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
   )
 );
 /// Build a `label : type_expr` labeled field expression (infix colon).
-make_labeled_field :: (fn(label : str, type_expr : AstExpr) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))), {
+make_labeled_field :: (fn(label : String, type_expr : AstExpr) -> AstExpr)(
+  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))), {
     a := ArrayList(AstExpr).new();
     a.push(make_ident(label));
     a.push(type_expr);
     a
-  }, true, make_token(TokenKind.Operator, ":"))
+  }, true, make_token(TokenKind.Operator, String.from(":")))
 );
 /// Build `VariantName(field1, field2, …)` — enum variant with fields.
-make_variant :: (fn(name : str, field_args : ArrayList(AstExpr)) -> AstExpr)(
+make_variant :: (fn(name : String, field_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
     box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
@@ -140,33 +140,33 @@ make_variant :: (fn(name : str, field_args : ArrayList(AstExpr)) -> AstExpr)(
   )
 );
 empty_env :: (fn() -> Environment)(Environment.new(`test`));
-check_some :: (fn(result : Option(EvalResult), label : str) -> unit)(
+check_some :: (fn(result : Option(EvalResult), label : String) -> unit)(
   match(
     result,
     .Some(_) => (),
     .None => {
       println(`FAIL [${label}]: expected Some, got None`);
-      assert(false, label);
+      assert_dyn(false, label);
     }
   )
 );
-check_none :: (fn(result : Option(EvalResult), label : str) -> unit)(
+check_none :: (fn(result : Option(EvalResult), label : String) -> unit)(
   match(
     result,
     .Some(_) => {
       println(`FAIL [${label}]: expected None, got Some`);
-      assert(false, label);
+      assert_dyn(false, label);
     },
     .None => ()
   )
 );
-check_some_eval_val :: (fn(result : Option(EvalValue), label : str) -> unit)(
+check_some_eval_val :: (fn(result : Option(EvalValue), label : String) -> unit)(
   match(
     result,
     .Some(_) => (),
     .None => {
       println(`FAIL [${label}]: expected Some(EvalValue), got None`);
-      assert(false, label);
+      assert_dyn(false, label);
     }
   )
 );
@@ -210,11 +210,11 @@ check_some_eval_val :: (fn(result : Option(EvalValue), label : str) -> unit)(
 // Phase 3d helpers: build enum-variant AST nodes
 // ---------------------------------------------------------------------------
 /// Build the dot-token and dot-atom.
-make_dot_tok :: (fn() -> Token)(make_token(TokenKind.Dot, "."));
-make_dot_atom :: (fn() -> AstExpr)(make_atom(TokenKind.Dot, "."));
+make_dot_tok :: (fn() -> Token)(make_token(TokenKind.Dot, String.from(".")));
+make_dot_atom :: (fn() -> AstExpr)(make_atom(TokenKind.Dot, String.from(".")));
 /// Build a fieldless enum variant: `.None`
 /// Parsed representation: FnCall(Atom(Dot), [Atom(Identifier, "None")], is_infix=true)
-make_fieldless_variant :: (fn(name : str) -> AstExpr)(
+make_fieldless_variant :: (fn(name : String) -> AstExpr)(
   .FnCall(usize(0), box(make_dot_atom()), {
     a := ArrayList(AstExpr).new();
     a.push(make_ident(name));
@@ -223,7 +223,7 @@ make_fieldless_variant :: (fn(name : str) -> AstExpr)(
 );
 /// Build a variant-with-args call: `.Some(arg)`
 /// Representation: FnCall(FnCall(Atom(Dot), [Atom("Some")], true), [arg], false)
-make_variant_call :: (fn(name : str, args : ArrayList(AstExpr)) -> AstExpr)(
+make_variant_call :: (fn(name : String, args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
     box(make_fieldless_variant(name)),
@@ -249,10 +249,10 @@ make_match :: (fn(scrutinee : AstExpr, arms : ArrayList(AstExpr)) -> AstExpr)({
   });
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "match"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("match")))),
     all,
     false,
-    make_token(TokenKind.Identifier, "match")
+    make_token(TokenKind.Identifier, String.from("match"))
   )
 });
 /// Build `while condition, body`.
@@ -262,10 +262,10 @@ make_while :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)({
   args.push(body_expr);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "while"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("while")))),
     args,
     false,
-    make_token(TokenKind.Identifier, "while")
+    make_token(TokenKind.Identifier, String.from("while"))
   )
 });
 /// Build `runtime(expr)`.
@@ -274,10 +274,10 @@ make_runtime :: (fn(inner : AstExpr) -> AstExpr)({
   args.push(inner);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "runtime"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("runtime")))),
     args,
     false,
-    make_token(TokenKind.Identifier, "runtime")
+    make_token(TokenKind.Identifier, String.from("runtime"))
   )
 });
 // ---------------------------------------------------------------------------
@@ -301,7 +301,7 @@ make_fn_params :: (fn(param_names : ArrayList(String)) -> AstExpr)({
     match(
       param_names.get(i),
       .Some(n) => {
-        param_exprs.push(.Atom(usize(0), make_token(TokenKind.Identifier, n.as_str())));
+        param_exprs.push(.Atom(usize(0), make_token(TokenKind.Identifier, n.clone())));
       },
       .None => ()
     );
@@ -309,10 +309,10 @@ make_fn_params :: (fn(param_names : ArrayList(String)) -> AstExpr)({
   });
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
     param_exprs,
     false,
-    make_token(TokenKind.Identifier, "fn")
+    make_token(TokenKind.Identifier, String.from("fn"))
   )
 });
 /// Build `(fn(params) -> unit)(body)`.
@@ -320,21 +320,21 @@ make_fn_def :: (fn(param_names : ArrayList(String), body : AstExpr) -> AstExpr)(
   fn_expr := make_fn_params(param_names);
   arrow_args := ArrayList(AstExpr).new();
   arrow_args.push(fn_expr);
-  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
+  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("unit"))));
   (fn_sig : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
     arrow_args,
     true,
-    make_token(TokenKind.Operator, "->")
+    make_token(TokenKind.Operator, String.from("->"))
   );
   outer_args := ArrayList(AstExpr).new();
   outer_args.push(body);
-  (result : AstExpr) =.FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  (result : AstExpr) =.FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, String.from("->")));
   result
 });
 /// Build a function call `name(args…)`.
-make_call :: (fn(name : str, call_args : ArrayList(AstExpr)) -> AstExpr)(
+make_call :: (fn(name : String, call_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
     box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
@@ -349,10 +349,10 @@ make_return :: (fn(expr : AstExpr) -> AstExpr)({
   ret_args.push(expr);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "return"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("return")))),
     ret_args,
     false,
-    make_token(TokenKind.Identifier, "return")
+    make_token(TokenKind.Identifier, String.from("return"))
   )
 });
 // ---------------------------------------------------------------------------
@@ -368,23 +368,23 @@ make_return :: (fn(expr : AstExpr) -> AstExpr)({
 // Phase 3g helpers — typed declarations and string literals
 // ---------------------------------------------------------------------------
 /// Build a string-literal atom with the given raw value.
-make_str :: (fn(s : str) -> AstExpr)(
+make_str :: (fn(s : String) -> AstExpr)(
   make_atom(TokenKind.StringLit, s)
 );
 /// Build `(name : type_name) = rhs` — typed variable declaration.
 /// e.g. `(x : i32) = i32(5)` → declares x of type i32 with value 5.
-make_typed_decl :: (fn(name : str, type_name : str, rhs : AstExpr) -> AstExpr)({
+make_typed_decl :: (fn(name : String, type_name : String, rhs : AstExpr) -> AstExpr)({
   colon_args := ArrayList(AstExpr).new();
   colon_args.push(make_ident(name));
   colon_args.push(make_ident(type_name));
   (lhs : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))),
     colon_args,
     true,
-    make_token(TokenKind.Operator, ":")
+    make_token(TokenKind.Operator, String.from(":"))
   );
-  make_infix("=", lhs, rhs)
+  make_infix(String.from("="), lhs, rhs)
 });
 // ---------------------------------------------------------------------------
 // Phase 3g — typed variable declarations
@@ -408,45 +408,45 @@ make_typed_decl :: (fn(name : str, type_name : str, rhs : AstExpr) -> AstExpr)({
 // Phase 3l helpers — build fn defs with typed / forall params
 // ---------------------------------------------------------------------------
 /// Build a typed param `name : type_name` as an infix `:` FnCall.
-make_typed_param :: (fn(name : str, type_name : str) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))), {
+make_typed_param :: (fn(name : String, type_name : String) -> AstExpr)(
+  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))), {
     a := ArrayList(AstExpr).new();
     a.push(make_atom(TokenKind.Identifier, name));
     a.push(make_atom(TokenKind.Identifier, type_name));
     a
-  }, true, make_token(TokenKind.Operator, ":"))
+  }, true, make_token(TokenKind.Operator, String.from(":")))
 );
 /// Build a forall param `forall(name)` as a non-infix FnCall.
-make_forall_param :: (fn(name : str) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Identifier, "forall"))), {
+make_forall_param :: (fn(name : String) -> AstExpr)(
+  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("forall")))), {
     a := ArrayList(AstExpr).new();
     a.push(make_atom(TokenKind.Identifier, name));
     a
-  }, false, make_token(TokenKind.Identifier, "forall"))
+  }, false, make_token(TokenKind.Identifier, String.from("forall")))
 );
 /// Build `(fn(param_exprs…) -> unit)(body)` from an ArrayList of AstExpr params.
 /// More general than `make_fn_def` which only accepts bare atom param names.
 make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : AstExpr) -> AstExpr)({
   (fn_expr : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
     param_exprs,
     false,
-    make_token(TokenKind.Identifier, "fn")
+    make_token(TokenKind.Identifier, String.from("fn"))
   );
   arrow_args := ArrayList(AstExpr).new();
   arrow_args.push(fn_expr);
-  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, "unit")));
+  arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("unit"))));
   (fn_sig : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
     arrow_args,
     true,
-    make_token(TokenKind.Operator, "->")
+    make_token(TokenKind.Operator, String.from("->"))
   );
   outer_args := ArrayList(AstExpr).new();
   outer_args.push(body);
-  (result : AstExpr) =.FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  (result : AstExpr) =.FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, String.from("->")));
   result
 });
 // ---------------------------------------------------------------------------
@@ -456,8 +456,8 @@ make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : Ast
 // Phase 3m helpers — build export, open, and import AST nodes
 // ---------------------------------------------------------------------------
 /// Build `export(names…)` as a non-infix FnCall.
-make_export :: (fn(names : ArrayList(str)) -> AstExpr)({
-  export_tok := make_token(TokenKind.Identifier, BK_EXPORT);
+make_export :: (fn(names : ArrayList(String)) -> AstExpr)({
+  export_tok := make_token(TokenKind.Identifier, String.from(BK_EXPORT));
   args := ArrayList(AstExpr).new();
   (i : usize) = usize(0);
   n := names.len();
@@ -475,22 +475,22 @@ make_export :: (fn(names : ArrayList(str)) -> AstExpr)({
 });
 /// Build `open(expr)` as a non-infix FnCall.
 make_open :: (fn(expr : AstExpr) -> AstExpr)({
-  open_tok := make_token(TokenKind.Identifier, BK_OPEN);
+  open_tok := make_token(TokenKind.Identifier, String.from(BK_OPEN));
   args := ArrayList(AstExpr).new();
   args.push(expr);
   .FnCall(usize(0), box(.Atom(usize(0), open_tok)), args, false, open_tok)
 });
 /// Build `import("path")` as a non-infix FnCall (path is a string literal).
-make_import_expr :: (fn(path : str) -> AstExpr)({
-  import_tok := make_token(TokenKind.Identifier, BK_IMPORT);
-  path_lit := `"${String.from(path)}"`;
+make_import_expr :: (fn(path : String) -> AstExpr)({
+  import_tok := make_token(TokenKind.Identifier, String.from(BK_IMPORT));
+  path_lit := `"${path}"`;
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.StringLit, path_lit.as_str()));
+  args.push(make_atom(TokenKind.StringLit, path_lit.clone()));
   .FnCall(usize(0), box(.Atom(usize(0), import_tok)), args, false, import_tok)
 });
 /// Build `{ A, B } :: import("path")` — anon-struct LHS destructure.
-make_destructure_import :: (fn(names : ArrayList(str), path : str) -> AstExpr)({
-  anon_tok := make_token(TokenKind.Identifier, BK_ANON_STRUCT);
+make_destructure_import :: (fn(names : ArrayList(String), path : String) -> AstExpr)({
+  anon_tok := make_token(TokenKind.Identifier, String.from(BK_ANON_STRUCT));
   name_exprs := ArrayList(AstExpr).new();
   (i : usize) = usize(0);
   n := names.len();
@@ -506,7 +506,7 @@ make_destructure_import :: (fn(names : ArrayList(str), path : str) -> AstExpr)({
   });
   lhs := (AstExpr).FnCall(usize(0), box(.Atom(usize(0), anon_tok)), name_exprs, false, anon_tok);
   rhs := make_import_expr(path);
-  make_infix("::", lhs, rhs)
+  make_infix(String.from("::"), lhs, rhs)
 });
 // ---------------------------------------------------------------------------
 // Phase 3m — Module system
@@ -524,23 +524,23 @@ make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
   ua.push(inner);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "using"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("using")))),
     ua,
     false,
-    make_token(TokenKind.Identifier, "using")
+    make_token(TokenKind.Identifier, String.from("using"))
   )
 });
 /// Build `name : Type` param for a function definition.
-make_using_param :: (fn(name : str, type_name : str) -> AstExpr)({
+make_using_param :: (fn(name : String, type_name : String) -> AstExpr)({
   ca := ArrayList(AstExpr).new();
   ca.push(make_ident(name));
   ca.push(make_ident(type_name));
   colon_expr := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))),
     ca,
     true,
-    make_token(TokenKind.Operator, ":")
+    make_token(TokenKind.Operator, String.from(":"))
   );
   make_using_call(colon_expr)
 });
@@ -554,24 +554,24 @@ make_typed_fn_def :: (
 )({
   fn_head := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
     fn_params,
     false,
-    make_token(TokenKind.Identifier, "fn")
+    make_token(TokenKind.Identifier, String.from("fn"))
   );
   arr_a := ArrayList(AstExpr).new();
   arr_a.push(fn_head);
   arr_a.push(ret_type);
   fn_sig := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
     arr_a,
     true,
-    make_token(TokenKind.Operator, "->")
+    make_token(TokenKind.Operator, String.from("->"))
   );
   body_args := ArrayList(AstExpr).new();
   body_args.push(body);
-  (AstExpr).FnCall(usize(0), box(fn_sig), body_args, false, make_token(TokenKind.Operator, "->"))
+  (AstExpr).FnCall(usize(0), box(fn_sig), body_args, false, make_token(TokenKind.Operator, String.from("->")))
 });
 // ---------------------------------------------------------------------------
 // Phase 3 Validation Milestone — evaluate a simple hello_world-style module
@@ -975,7 +975,7 @@ make_env_with_T :: (fn() -> Environment)({
 // Phase 5ho: two-pointer pair sum, recursive power series sum, struct linked list traversal, exponential growth 2^20, enum Action accumulator, endsWith filter .yo files, find last even, sum cubes tail, filter+map pipeline, task priority max
 // Phase 5hp: sliding window max sum, double factorial, circle contains point, halving convergence, enum BinOp eval, word length filter, score histogram, falling factorial, zigzag sum, struct immutable state update
 test("evaluate: bool literal true", {
-  e := make_atom(TokenKind.Bool, "true");
+  e := make_atom(TokenKind.Bool, String.from("true"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "bool true");
@@ -989,7 +989,7 @@ test("evaluate: bool literal true", {
   );
 });
 test("evaluate: bool literal false", {
-  e := make_atom(TokenKind.Bool, "false");
+  e := make_atom(TokenKind.Bool, String.from("false"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "bool false");
@@ -1003,7 +1003,7 @@ test("evaluate: bool literal false", {
   );
 });
 test("evaluate: integer literal", {
-  e := make_atom(TokenKind.Integer, "42");
+  e := make_atom(TokenKind.Integer, String.from("42"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "integer 42");
@@ -1017,7 +1017,7 @@ test("evaluate: integer literal", {
   );
 });
 test("evaluate: integer zero", {
-  e := make_atom(TokenKind.Integer, "0");
+  e := make_atom(TokenKind.Integer, String.from("0"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "integer 0");
@@ -1030,7 +1030,7 @@ test("evaluate: integer zero", {
   );
 });
 test("evaluate: float literal", {
-  e := make_atom(TokenKind.Float, "3.14");
+  e := make_atom(TokenKind.Float, String.from("3.14"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "float 3.14");
@@ -1044,7 +1044,7 @@ test("evaluate: float literal", {
   );
 });
 test("evaluate: string literal type", {
-  e := make_atom(TokenKind.StringLit, "hello");
+  e := make_atom(TokenKind.StringLit, String.from("hello"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "string lit");
@@ -1065,7 +1065,7 @@ test("evaluate: string literal type", {
   );
 });
 test("evaluate: template string type", {
-  e := make_atom(TokenKind.TemplateString, "hello");
+  e := make_atom(TokenKind.TemplateString, String.from("hello"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "template str");
@@ -1086,7 +1086,7 @@ test("evaluate: template string type", {
   );
 });
 test("evaluate: char literal type", {
-  e := make_atom(TokenKind.CharLit, "a");
+  e := make_atom(TokenKind.CharLit, String.from("a"));
   env := empty_env();
   result := evaluate(e, env);
   check_some(result, "char lit");
@@ -1109,7 +1109,7 @@ test("evaluate: char literal type", {
 test("evaluate: identifier found — returns VarRef when no value stored", {
   env := Environment.new(`test`);
   _d := env.define(`x`, t_i32(), false);
-  e := make_atom(TokenKind.Identifier, "x");
+  e := make_atom(TokenKind.Identifier, String.from("x"));
   result := evaluate(e, env);
   check_some(result, "identifier x");
   match(
@@ -1124,7 +1124,7 @@ test("evaluate: identifier found — returns VarRef when no value stored", {
 test("evaluate: identifier found — returns stored comptime value", {
   env := Environment.new(`test`);
   _d := env.define_val(`n`, t_comptime_int(), true,.Some(EvalValue.IntLit(String.from("7"))));
-  e := make_atom(TokenKind.Identifier, "n");
+  e := make_atom(TokenKind.Identifier, String.from("n"));
   result := evaluate(e, env);
   check_some(result, "identifier n with value");
   match(
@@ -1138,7 +1138,7 @@ test("evaluate: identifier found — returns stored comptime value", {
 });
 test("evaluate: identifier not found → None", {
   env := empty_env();
-  e := make_atom(TokenKind.Identifier, "unknown");
+  e := make_atom(TokenKind.Identifier, String.from("unknown"));
   check_none(evaluate(e, env), "unknown identifier");
 });
 test("evaluate: identifier in nested frame", {
@@ -1146,8 +1146,8 @@ test("evaluate: identifier in nested frame", {
   _d0 := env.define(`outer`, t_bool(), false);
   _pushed := env.push_frame(true);
   _d1 := env.define(`inner`, t_f32(), false);
-  e_outer := make_atom(TokenKind.Identifier, "outer");
-  e_inner := make_atom(TokenKind.Identifier, "inner");
+  e_outer := make_atom(TokenKind.Identifier, String.from("outer"));
+  e_inner := make_atom(TokenKind.Identifier, String.from("inner"));
   match(
     evaluate(e_outer, env),
     .Some(r) => assert(type_value_tag(r.ty) == TypeTag.TBool, "outer type"),
@@ -1160,17 +1160,17 @@ test("evaluate: identifier in nested frame", {
   );
 });
 test("evaluate: operator atom → None", {
-  e := make_atom(TokenKind.Operator, "+");
+  e := make_atom(TokenKind.Operator, String.from("+"));
   env := empty_env();
   check_none(evaluate(e, env), "operator atom");
 });
 test("evaluate: fn call (unknown fn) → None", {
   (e : AstExpr) =.FnCall(
     usize(0),
-    box(make_ident("foo")),
+    box(make_ident(String.from("foo"))),
     ArrayList(AstExpr).new(),
     false,
-    make_token(TokenKind.Identifier, "foo")
+    make_token(TokenKind.Identifier, String.from("foo"))
   );
   env := empty_env();
   check_none(evaluate(e, env), "fn call");
@@ -1205,9 +1205,9 @@ test("evaluate: empty begin block → unit", {
 });
 test("evaluate: begin block returns last stmt value", {
   stmts := ArrayList(AstExpr).new();
-  stmts.push(make_atom(TokenKind.Integer, "1"));
-  stmts.push(make_atom(TokenKind.Integer, "2"));
-  stmts.push(make_atom(TokenKind.Integer, "42"));
+  stmts.push(make_atom(TokenKind.Integer, String.from("1")));
+  stmts.push(make_atom(TokenKind.Integer, String.from("2")));
+  stmts.push(make_atom(TokenKind.Integer, String.from("42")));
   e := make_begin(stmts);
   env := empty_env();
   result := evaluate(e, env);
@@ -1222,10 +1222,10 @@ test("evaluate: begin block returns last stmt value", {
 });
 test("evaluate: begin block with define then lookup", {
   // { x := 99; x }
-  define_stmt := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "99"));
+  define_stmt := make_infix(String.from(":="), make_ident(String.from("x")), make_atom(TokenKind.Integer, String.from("99")));
   stmts := ArrayList(AstExpr).new();
   stmts.push(define_stmt);
-  stmts.push(make_ident("x"));
+  stmts.push(make_ident(String.from("x")));
   e := make_begin(stmts);
   env := empty_env();
   result := evaluate(e, env);
@@ -1241,20 +1241,20 @@ test("evaluate: begin block with define then lookup", {
 });
 test("evaluate: begin block scope is isolated from outer env", {
   env := Environment.new(`test`);
-  define_stmt := make_infix(":=", make_ident("tmp"), make_atom(TokenKind.Integer, "5"));
+  define_stmt := make_infix(String.from(":="), make_ident(String.from("tmp")), make_atom(TokenKind.Integer, String.from("5")));
   stmts := ArrayList(AstExpr).new();
   stmts.push(define_stmt);
   e := make_begin(stmts);
   _r := evaluate(e, env);
   // after the begin block, 'tmp' should NOT be visible in the outer env
-  lookup_result := evaluate(make_ident("tmp"), env);
+  lookup_result := evaluate(make_ident(String.from("tmp")), env);
   check_none(lookup_result, "tmp not visible outside begin");
 });
 test("evaluate: cond — first true arm wins", {
   // cond(true => 1, true => 2)  →  1
   arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "1")));
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("true")), make_atom(TokenKind.Integer, String.from("1"))));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("true")), make_atom(TokenKind.Integer, String.from("2"))));
   e := make_cond(arms);
   env := empty_env();
   result := evaluate(e, env);
@@ -1268,8 +1268,8 @@ test("evaluate: cond — first true arm wins", {
 test("evaluate: cond — false arm skipped", {
   // cond(false => 1, true => 2)  →  2
   arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_atom(TokenKind.Integer, "2")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("false")), make_atom(TokenKind.Integer, String.from("1"))));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("true")), make_atom(TokenKind.Integer, String.from("2"))));
   e := make_cond(arms);
   env := empty_env();
   result := evaluate(e, env);
@@ -1283,14 +1283,14 @@ test("evaluate: cond — false arm skipped", {
 test("evaluate: cond — no arm matches → None", {
   // cond(false => 1)  →  None (no default arm)
   arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "1")));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("false")), make_atom(TokenKind.Integer, String.from("1"))));
   e := make_cond(arms);
   env := empty_env();
   check_none(evaluate(e, env), "cond no match");
 });
 test("evaluate: define stores value in env", {
   env := Environment.new(`test`);
-  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "10"));
+  define_e := make_infix(String.from(":="), make_ident(String.from("x")), make_atom(TokenKind.Integer, String.from("10")));
   result := evaluate(define_e, env);
   check_some(result, "define result");
   match(
@@ -1299,7 +1299,7 @@ test("evaluate: define stores value in env", {
     .None => ()
   );
   // now lookup x
-  lookup := evaluate(make_ident("x"), env);
+  lookup := evaluate(make_ident(String.from("x")), env);
   check_some(lookup, "lookup after define");
   match(
     lookup,
@@ -1311,9 +1311,9 @@ test("evaluate: define stores value in env", {
 });
 test("evaluate: define bool variable", {
   env := Environment.new(`test`);
-  define_e := make_infix(":=", make_ident("flag"), make_atom(TokenKind.Bool, "true"));
+  define_e := make_infix(String.from(":="), make_ident(String.from("flag")), make_atom(TokenKind.Bool, String.from("true")));
   _r := evaluate(define_e, env);
-  lookup := evaluate(make_ident("flag"), env);
+  lookup := evaluate(make_ident(String.from("flag")), env);
   check_some(lookup, "flag lookup");
   match(
     lookup,
@@ -1327,14 +1327,14 @@ test("evaluate: define bool variable", {
 test("evaluate: assign updates stored value", {
   env := Environment.new(`test`);
   // x := 1
-  define_e := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "1"));
+  define_e := make_infix(String.from(":="), make_ident(String.from("x")), make_atom(TokenKind.Integer, String.from("1")));
   _d := evaluate(define_e, env);
   // x = 2
-  assign_e := make_infix("=", make_ident("x"), make_atom(TokenKind.Integer, "2"));
+  assign_e := make_infix(String.from("="), make_ident(String.from("x")), make_atom(TokenKind.Integer, String.from("2")));
   result := evaluate(assign_e, env);
   check_some(result, "assign result");
   // check x is now 2
-  lookup := evaluate(make_ident("x"), env);
+  lookup := evaluate(make_ident(String.from("x")), env);
   check_some(lookup, "lookup after assign");
   match(
     lookup,
@@ -1359,7 +1359,7 @@ test("evaluate: fieldless variant .None", {
 test("evaluate: variant .Some(42)", {
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Integer, "42"));
+  args.push(make_atom(TokenKind.Integer, String.from("42")));
   expr := make_variant_call("Some", args);
   result := evaluate(expr, env);
   check_some(result, ".Some(42)");
@@ -1377,7 +1377,7 @@ test("evaluate: variant .Some(42)", {
 test("evaluate: variant .Ok(true)", {
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Bool, "true"));
+  args.push(make_atom(TokenKind.Bool, String.from("true")));
   expr := make_variant_call("Ok", args);
   result := evaluate(expr, env);
   check_some(result, ".Ok(true)");
@@ -1416,10 +1416,10 @@ test("evaluate: match fieldless variant", {
   env := empty_env();
   // match(.None, .None => 1, .Some(_) => 2)
   scrutinee := make_fieldless_variant("None");
-  arm1 := make_arm(make_fieldless_variant("None"), make_atom(TokenKind.Integer, "1"));
+  arm1 := make_arm(make_fieldless_variant("None"), make_atom(TokenKind.Integer, String.from("1")));
   arm2_pat_args := ArrayList(AstExpr).new();
-  arm2_pat_args.push(make_ident("_"));
-  arm2 := make_arm(make_variant_call("Some", arm2_pat_args), make_atom(TokenKind.Integer, "2"));
+  arm2_pat_args.push(make_ident(String.from("_")));
+  arm2 := make_arm(make_variant_call("Some", arm2_pat_args), make_atom(TokenKind.Integer, String.from("2")));
   arms := ArrayList(AstExpr).new();
   arms.push(arm1);
   arms.push(arm2);
@@ -1437,12 +1437,12 @@ test("evaluate: match .Some(x) binds variable", {
   env := empty_env();
   // match(.Some(42), .None => 0, .Some(x) => x)
   scrutinee_args := ArrayList(AstExpr).new();
-  scrutinee_args.push(make_atom(TokenKind.Integer, "42"));
+  scrutinee_args.push(make_atom(TokenKind.Integer, String.from("42")));
   scrutinee := make_variant_call("Some", scrutinee_args);
-  arm_none := make_arm(make_fieldless_variant("None"), make_atom(TokenKind.Integer, "0"));
+  arm_none := make_arm(make_fieldless_variant("None"), make_atom(TokenKind.Integer, String.from("0")));
   arm_some_pat_args := ArrayList(AstExpr).new();
-  arm_some_pat_args.push(make_ident("x"));
-  arm_some := make_arm(make_variant_call("Some", arm_some_pat_args), make_ident("x"));
+  arm_some_pat_args.push(make_ident(String.from("x")));
+  arm_some := make_arm(make_variant_call("Some", arm_some_pat_args), make_ident(String.from("x")));
   arms := ArrayList(AstExpr).new();
   arms.push(arm_none);
   arms.push(arm_some);
@@ -1460,7 +1460,7 @@ test("evaluate: match wildcard arm", {
   env := empty_env();
   // match(.None, _ => 99)
   scrutinee := make_fieldless_variant("None");
-  arm_wild := make_arm(make_ident("_"), make_atom(TokenKind.Integer, "99"));
+  arm_wild := make_arm(make_ident(String.from("_")), make_atom(TokenKind.Integer, String.from("99")));
   arms := ArrayList(AstExpr).new();
   arms.push(arm_wild);
   expr := make_match(scrutinee, arms);
@@ -1477,7 +1477,7 @@ test("evaluate: match variable binding whole scrutinee", {
   env := empty_env();
   // match(.None, v => v)  — binds whole scrutinee to v
   scrutinee := make_fieldless_variant("None");
-  arm_v := make_arm(make_ident("v"), make_ident("v"));
+  arm_v := make_arm(make_ident(String.from("v")), make_ident(String.from("v")));
   arms := ArrayList(AstExpr).new();
   arms.push(arm_v);
   expr := make_match(scrutinee, arms);
@@ -1496,23 +1496,23 @@ test("evaluate: match arm scope isolated", {
   outer_env := Environment.new(`test`);
   // match(.Some(7), .Some(x) => x);  x should not leak outside
   scrutinee_args := ArrayList(AstExpr).new();
-  scrutinee_args.push(make_atom(TokenKind.Integer, "7"));
+  scrutinee_args.push(make_atom(TokenKind.Integer, String.from("7")));
   scrutinee := make_variant_call("Some", scrutinee_args);
   arm_pat_args := ArrayList(AstExpr).new();
-  arm_pat_args.push(make_ident("x"));
-  arm := make_arm(make_variant_call("Some", arm_pat_args), make_ident("x"));
+  arm_pat_args.push(make_ident(String.from("x")));
+  arm := make_arm(make_variant_call("Some", arm_pat_args), make_ident(String.from("x")));
   arms := ArrayList(AstExpr).new();
   arms.push(arm);
   expr := make_match(scrutinee, arms);
   _r := evaluate(expr, outer_env);
   // x should not exist outside the match arm
-  x_lookup := evaluate(make_ident("x"), outer_env);
+  x_lookup := evaluate(make_ident(String.from("x")), outer_env);
   check_none(x_lookup, "x should not leak out of match arm scope");
 });
 test("evaluate: while false never executes", {
   env := empty_env();
   // while false, 42  → unit (condition false on first check)
-  expr := make_while(make_atom(TokenKind.Bool, "false"), make_atom(TokenKind.Integer, "42"));
+  expr := make_while(make_atom(TokenKind.Bool, String.from("false")), make_atom(TokenKind.Integer, String.from("42")));
   result := evaluate(expr, env);
   check_some(result, "while false");
   match(
@@ -1524,17 +1524,17 @@ test("evaluate: while false never executes", {
 test("evaluate: while loop runs to completion", {
   env := Environment.new(`test`);
   // n := 3; while n > 0, { n = n - 1 }
-  define_e := make_infix(":=", make_ident("n"), make_atom(TokenKind.Integer, "3"));
+  define_e := make_infix(String.from(":="), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("3")));
   _d := evaluate(define_e, env);
-  cond_e := make_infix(">", make_ident("n"), make_atom(TokenKind.Integer, "0"));
+  cond_e := make_infix(String.from(">"), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("0")));
   body_stmts := ArrayList(AstExpr).new();
-  body_stmts.push(make_infix("=", make_ident("n"), make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1"))));
+  body_stmts.push(make_infix(String.from("="), make_ident(String.from("n")), make_infix(String.from("-"), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("1")))));
   body_e := make_begin(body_stmts);
   expr := make_while(cond_e, body_e);
   result := evaluate(expr, env);
   check_some(result, "while runs");
   // n should be 0 after loop
-  n_lookup := evaluate(make_ident("n"), env);
+  n_lookup := evaluate(make_ident(String.from("n")), env);
   check_some(n_lookup, "n after while");
   match(
     n_lookup,
@@ -1545,17 +1545,17 @@ test("evaluate: while loop runs to completion", {
 test("evaluate: while with runtime(...) wrapper", {
   env := Environment.new(`test`);
   // n := 2; while runtime(n > 0), { n = n - 1 }
-  define_e := make_infix(":=", make_ident("n"), make_atom(TokenKind.Integer, "2"));
+  define_e := make_infix(String.from(":="), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("2")));
   _d := evaluate(define_e, env);
-  raw_cond := make_infix(">", make_ident("n"), make_atom(TokenKind.Integer, "0"));
+  raw_cond := make_infix(String.from(">"), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("0")));
   wrapped_cond := make_runtime(raw_cond);
   body_stmts := ArrayList(AstExpr).new();
-  body_stmts.push(make_infix("=", make_ident("n"), make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1"))));
+  body_stmts.push(make_infix(String.from("="), make_ident(String.from("n")), make_infix(String.from("-"), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("1")))));
   body_e := make_begin(body_stmts);
   expr := make_while(wrapped_cond, body_e);
   result := evaluate(expr, env);
   check_some(result, "while(runtime runs)");
-  n_lookup := evaluate(make_ident("n"), env);
+  n_lookup := evaluate(make_ident(String.from("n")), env);
   match(
     n_lookup,
     .Some(r) => assert(r.value == EvalValue.IntLit(String.from("0")), "n should be 0 after while(runtime)"),
@@ -1567,8 +1567,8 @@ test("evaluate: fn def stores FuncVal", {
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("x"));
-  fn_def := make_fn_def(params, make_ident("x"));
-  define_e := make_infix(":=", make_ident("f"), fn_def);
+  fn_def := make_fn_def(params, make_ident(String.from("x")));
+  define_e := make_infix(String.from(":="), make_ident(String.from("f")), fn_def);
   result := evaluate(define_e, env);
   check_some(result, "fn def define");
   match(
@@ -1577,7 +1577,7 @@ test("evaluate: fn def stores FuncVal", {
     .None => ()
   );
   // Look up f — should be FuncVal
-  f_res := evaluate(make_ident("f"), env);
+  f_res := evaluate(make_ident(String.from("f")), env);
   check_some(f_res, "f is bound");
   match(
     f_res,
@@ -1594,10 +1594,10 @@ test("evaluate: fn call identity", {
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("x"));
-  fn_def := make_fn_def(params, make_ident("x"));
-  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), env);
+  fn_def := make_fn_def(params, make_ident(String.from("x")));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("f")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "42"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("42")));
   result := evaluate(make_call("f", call_args), env);
   check_some(result, "identity call");
   match(
@@ -1612,12 +1612,12 @@ test("evaluate: fn call arithmetic", {
   params := ArrayList(String).new();
   params.push(String.from("x"));
   params.push(String.from("y"));
-  body := make_infix("+", make_ident("x"), make_ident("y"));
+  body := make_infix(String.from("+"), make_ident(String.from("x")), make_ident(String.from("y")));
   fn_def := make_fn_def(params, body);
-  _d := evaluate(make_infix(":=", make_ident("add"), fn_def), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("add")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "3"));
-  call_args.push(make_atom(TokenKind.Integer, "4"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("3")));
+  call_args.push(make_atom(TokenKind.Integer, String.from("4")));
   result := evaluate(make_call("add", call_args), env);
   check_some(result, "add(3,4)");
   match(
@@ -1632,12 +1632,12 @@ test("evaluate: fn call with return", {
   params := ArrayList(String).new();
   params.push(String.from("x"));
   ret_stmts := ArrayList(AstExpr).new();
-  ret_stmts.push(make_return(make_ident("x")));
+  ret_stmts.push(make_return(make_ident(String.from("x"))));
   body := make_begin(ret_stmts);
   fn_def := make_fn_def(params, body);
-  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("f")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "99"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("99")));
   result := evaluate(make_call("f", call_args), env);
   check_some(result, "return(from fn)");
   match(
@@ -1652,13 +1652,13 @@ test("evaluate: return(stops begin(block))", {
   params := ArrayList(String).new();
   params.push(String.from("x"));
   stmts := ArrayList(AstExpr).new();
-  stmts.push(make_return(make_ident("x")));
-  stmts.push(make_atom(TokenKind.Integer, "100"));
+  stmts.push(make_return(make_ident(String.from("x"))));
+  stmts.push(make_atom(TokenKind.Integer, String.from("100")));
   body := make_begin(stmts);
   fn_def := make_fn_def(params, body);
-  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("f")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "7"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("7")));
   result := evaluate(make_call("f", call_args), env);
   check_some(result, "early return");
   match(
@@ -1673,10 +1673,10 @@ test("evaluate: fn call arity mismatch returns None", {
   params := ArrayList(String).new();
   params.push(String.from("x"));
   params.push(String.from("y"));
-  fn_def := make_fn_def(params, make_infix("+", make_ident("x"), make_ident("y")));
-  _d := evaluate(make_infix(":=", make_ident("add"), fn_def), env);
+  fn_def := make_fn_def(params, make_infix(String.from("+"), make_ident(String.from("x")), make_ident(String.from("y"))));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("add")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("1")));
   result := evaluate(make_call("add", call_args), env);
   check_none(result, "arity mismatch");
 });
@@ -1691,16 +1691,16 @@ test("evaluate: recur simple countdown", {
   params.push(String.from("n"));
   // cond(n > 0 => recur(n-1), true => n)
   recur_args := ArrayList(AstExpr).new();
-  recur_args.push(make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1")));
+  recur_args.push(make_infix(String.from("-"), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("1"))));
   recur_call := make_call("recur", recur_args);
   arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_infix(">", make_ident("n"), make_atom(TokenKind.Integer, "0")), recur_call));
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), make_ident("n")));
+  arms.push(make_arm(make_infix(String.from(">"), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("0"))), recur_call));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("true")), make_ident(String.from("n"))));
   body := make_cond(arms);
   fn_def := make_fn_def(params, body);
-  _d := evaluate(make_infix(":=", make_ident("count"), fn_def), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("count")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("1")));
   result := evaluate(make_call("count", call_args), env);
   check_some(result, "countdown");
   match(
@@ -1721,16 +1721,16 @@ test("evaluate: recur factorial", {
   params := ArrayList(String).new();
   params.push(String.from("n"));
   recur_args := ArrayList(AstExpr).new();
-  recur_args.push(make_infix("-", make_ident("n"), make_atom(TokenKind.Integer, "1")));
-  mul_recur := make_infix("*", make_ident("n"), make_call("recur", recur_args));
+  recur_args.push(make_infix(String.from("-"), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("1"))));
+  mul_recur := make_infix(String.from("*"), make_ident(String.from("n")), make_call("recur", recur_args));
   arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_infix("<=", make_ident("n"), make_atom(TokenKind.Integer, "1")), make_atom(TokenKind.Integer, "1")));
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), mul_recur));
+  arms.push(make_arm(make_infix(String.from("<="), make_ident(String.from("n")), make_atom(TokenKind.Integer, String.from("1"))), make_atom(TokenKind.Integer, String.from("1"))));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("true")), mul_recur));
   body := make_cond(arms);
   fn_def := make_fn_def(params, body);
-  _d := evaluate(make_infix(":=", make_ident("fact"), fn_def), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("fact")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "1"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("1")));
   result := evaluate(make_call("fact", call_args), env);
   check_some(result, "fact(1)");
   match(
@@ -1742,10 +1742,10 @@ test("evaluate: recur factorial", {
 test("evaluate: :: constant declaration", {
   // PI :: 314  (simulated constant binding)
   env := empty_env();
-  define_e := make_infix("::", make_ident("PI"), make_atom(TokenKind.Integer, "314"));
+  define_e := make_infix(String.from("::"), make_ident(String.from("PI")), make_atom(TokenKind.Integer, String.from("314")));
   result := evaluate(define_e, env);
   check_some(result, ":: define");
-  pi_res := evaluate(make_ident("PI"), env);
+  pi_res := evaluate(make_ident(String.from("PI")), env);
   check_some(pi_res, "PI lookup");
   match(
     pi_res,
@@ -1758,13 +1758,13 @@ test("evaluate: :: fn constant", {
   env := empty_env();
   params := ArrayList(String).new();
   params.push(String.from("x"));
-  body := make_infix("+", make_ident("x"), make_ident("x"));
+  body := make_infix(String.from("+"), make_ident(String.from("x")), make_ident(String.from("x")));
   fn_def := make_fn_def(params, body);
-  define_e := make_infix("::", make_ident("double"), fn_def);
+  define_e := make_infix(String.from("::"), make_ident(String.from("double")), fn_def);
   result := evaluate(define_e, env);
   check_some(result, ":: fn define");
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "7"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("7")));
   call_result := evaluate(make_call("double", call_args), env);
   check_some(call_result, "double(7)");
   match(
@@ -1777,7 +1777,7 @@ test("evaluate: i32 cast integer literal", {
   // i32(42) → IntLit("42") with type t_i32()
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Integer, "42"));
+  args.push(make_atom(TokenKind.Integer, String.from("42")));
   expr := make_call("i32", args);
   result := evaluate(expr, env);
   check_some(result, "i32(42)");
@@ -1793,7 +1793,7 @@ test("evaluate: usize cast integer", {
   // usize(0) → IntLit("0")
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Integer, "0"));
+  args.push(make_atom(TokenKind.Integer, String.from("0")));
   result := evaluate(make_call("usize", args), env);
   check_some(result, "usize(0)");
   match(
@@ -1806,12 +1806,12 @@ test("evaluate: i32 typed arithmetic", {
   // i32(3) + i32(4) → IntLit("7")
   env := empty_env();
   lhs_args := ArrayList(AstExpr).new();
-  lhs_args.push(make_atom(TokenKind.Integer, "3"));
+  lhs_args.push(make_atom(TokenKind.Integer, String.from("3")));
   rhs_args := ArrayList(AstExpr).new();
-  rhs_args.push(make_atom(TokenKind.Integer, "4"));
+  rhs_args.push(make_atom(TokenKind.Integer, String.from("4")));
   lhs := make_call("i32", lhs_args);
   rhs := make_call("i32", rhs_args);
-  result := evaluate(make_infix("+", lhs, rhs), env);
+  result := evaluate(make_infix(String.from("+"), lhs, rhs), env);
   check_some(result, "i32(3)+i32(4)");
   match(
     result,
@@ -1830,30 +1830,30 @@ test("evaluate: typed fibonacci fib(1)=1", {
   params := ArrayList(String).new();
   params.push(String.from("n"));
   one_args := ArrayList(AstExpr).new();
-  one_args.push(make_atom(TokenKind.Integer, "1"));
+  one_args.push(make_atom(TokenKind.Integer, String.from("1")));
   one_cast := make_call("i32", one_args);
   two_args2 := ArrayList(AstExpr).new();
-  two_args2.push(make_atom(TokenKind.Integer, "2"));
+  two_args2.push(make_atom(TokenKind.Integer, String.from("2")));
   two_cast2 := make_call("i32", two_args2);
   one_args2 := ArrayList(AstExpr).new();
-  one_args2.push(make_atom(TokenKind.Integer, "1"));
+  one_args2.push(make_atom(TokenKind.Integer, String.from("1")));
   one_cast2 := make_call("i32", one_args2);
   recur1_args := ArrayList(AstExpr).new();
-  recur1_args.push(make_infix("-", make_ident("n"), one_cast2));
+  recur1_args.push(make_infix(String.from("-"), make_ident(String.from("n")), one_cast2));
   recur2_args := ArrayList(AstExpr).new();
-  recur2_args.push(make_infix("-", make_ident("n"), two_cast2));
-  rec_sum := make_infix("+", make_call("recur", recur1_args), make_call("recur", recur2_args));
+  recur2_args.push(make_infix(String.from("-"), make_ident(String.from("n")), two_cast2));
+  rec_sum := make_infix(String.from("+"), make_call("recur", recur1_args), make_call("recur", recur2_args));
   arms := ArrayList(AstExpr).new();
-  arms.push(make_arm(make_infix("<=", make_ident("n"), one_cast), make_ident("n")));
-  arms.push(make_arm(make_atom(TokenKind.Bool, "true"), rec_sum));
+  arms.push(make_arm(make_infix(String.from("<="), make_ident(String.from("n")), one_cast), make_ident(String.from("n"))));
+  arms.push(make_arm(make_atom(TokenKind.Bool, String.from("true")), rec_sum));
   body := make_cond(arms);
   fn_def := make_fn_def(params, body);
-  _d := evaluate(make_infix("::", make_ident("fib"), fn_def), env);
+  _d := evaluate(make_infix(String.from("::"), make_ident(String.from("fib")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
   call_args.push(
     make_call("i32", {
       a := ArrayList(AstExpr).new();
-      a.push(make_atom(TokenKind.Integer, "1"));
+      a.push(make_atom(TokenKind.Integer, String.from("1")));
       a
     })
   );
@@ -1867,7 +1867,7 @@ test("evaluate: typed fibonacci fib(1)=1", {
 });
 test("evaluate: (x : bool) = false declares typed bool", {
   env := empty_env();
-  expr := make_typed_decl("found", "bool", make_atom(TokenKind.Bool, "false"));
+  expr := make_typed_decl(String.from("found"), "bool", make_atom(TokenKind.Bool, String.from("false")));
   result := evaluate(expr, env);
   check_some(result, "(found:bool)=false");
   match(
@@ -1875,7 +1875,7 @@ test("evaluate: (x : bool) = false declares typed bool", {
     .Some(r) => assert(r.value == EvalValue.UnitVal, "declaration returns unit"),
     .None => ()
   );
-  found_r := evaluate(make_ident("found"), env);
+  found_r := evaluate(make_ident(String.from("found")), env);
   check_some(found_r, "found lookup");
   match(
     found_r,
@@ -1886,12 +1886,12 @@ test("evaluate: (x : bool) = false declares typed bool", {
 test("evaluate: (i : usize) = usize(0) declares typed int", {
   env := empty_env();
   zero_args := ArrayList(AstExpr).new();
-  zero_args.push(make_atom(TokenKind.Integer, "0"));
+  zero_args.push(make_atom(TokenKind.Integer, String.from("0")));
   zero := make_call("usize", zero_args);
-  expr := make_typed_decl("i", "usize", zero);
+  expr := make_typed_decl(String.from("i"), "usize", zero);
   result := evaluate(expr, env);
   check_some(result, "(i:usize)=usize(0)");
-  i_r := evaluate(make_ident("i"), env);
+  i_r := evaluate(make_ident(String.from("i")), env);
   check_some(i_r, "i lookup");
   match(
     i_r,
@@ -1903,15 +1903,15 @@ test("evaluate: typed decl then mutate then read", {
   env := empty_env();
   // { (n : i32) = i32(5); n = (n + i32(3)); n }  → IntLit("8")
   five_args := ArrayList(AstExpr).new();
-  five_args.push(make_atom(TokenKind.Integer, "5"));
+  five_args.push(make_atom(TokenKind.Integer, String.from("5")));
   five := make_call("i32", five_args);
   three_args := ArrayList(AstExpr).new();
-  three_args.push(make_atom(TokenKind.Integer, "3"));
+  three_args.push(make_atom(TokenKind.Integer, String.from("3")));
   three := make_call("i32", three_args);
   stmts := ArrayList(AstExpr).new();
-  stmts.push(make_typed_decl("n", "i32", five));
-  stmts.push(make_infix("=", make_ident("n"), make_infix("+", make_ident("n"), three)));
-  stmts.push(make_ident("n"));
+  stmts.push(make_typed_decl(String.from("n"), "i32", five));
+  stmts.push(make_infix(String.from("="), make_ident(String.from("n")), make_infix(String.from("+"), make_ident(String.from("n")), three)));
+  stmts.push(make_ident(String.from("n")));
   result := evaluate(make_begin(stmts), env);
   check_some(result, "typed decl then mutate");
   match(
@@ -1927,16 +1927,16 @@ test("evaluate: typed decl counter with while loop", {
   // Using usize(N) would add one more evaluate() frame per literal and
   // overflow the ASAN stack when run after many preceding tests.
   // See: issues/asan-eval-frame-size-after-expr-id.md
-  i_init := make_atom(TokenKind.Integer, "0");
-  limit := make_atom(TokenKind.Integer, "3");
-  step := make_atom(TokenKind.Integer, "1");
-  cond_e := make_infix("<", make_ident("i"), limit);
+  i_init := make_atom(TokenKind.Integer, String.from("0"));
+  limit := make_atom(TokenKind.Integer, String.from("3"));
+  step := make_atom(TokenKind.Integer, String.from("1"));
+  cond_e := make_infix(String.from("<"), make_ident(String.from("i")), limit);
   body_stmts := ArrayList(AstExpr).new();
-  body_stmts.push(make_infix("=", make_ident("i"), make_infix("+", make_ident("i"), step)));
+  body_stmts.push(make_infix(String.from("="), make_ident(String.from("i")), make_infix(String.from("+"), make_ident(String.from("i")), step)));
   stmts := ArrayList(AstExpr).new();
-  stmts.push(make_typed_decl("i", "usize", i_init));
+  stmts.push(make_typed_decl(String.from("i"), "usize", i_init));
   stmts.push(make_while(make_runtime(cond_e), make_begin(body_stmts)));
-  stmts.push(make_ident("i"));
+  stmts.push(make_ident(String.from("i")));
   result := evaluate(make_begin(stmts), env);
   check_some(result, "typed counter while");
   match(
@@ -1947,7 +1947,7 @@ test("evaluate: typed decl counter with while loop", {
 });
 test("evaluate: string == equal returns true", {
   env := empty_env();
-  expr := make_infix("==", make_str("hello"), make_str("hello"));
+  expr := make_infix(String.from("=="), make_str("hello"), make_str("hello"));
   result := evaluate(expr, env);
   check_some(result, "str == str (equal)");
   match(
@@ -1958,7 +1958,7 @@ test("evaluate: string == equal returns true", {
 });
 test("evaluate: string == different returns false", {
   env := empty_env();
-  expr := make_infix("==", make_str("hello"), make_str("world"));
+  expr := make_infix(String.from("=="), make_str("hello"), make_str("world"));
   result := evaluate(expr, env);
   check_some(result, "str == str (different)");
   match(
@@ -1969,7 +1969,7 @@ test("evaluate: string == different returns false", {
 });
 test("evaluate: string != different returns true", {
   env := empty_env();
-  expr := make_infix("!=", make_str("abc"), make_str("xyz"));
+  expr := make_infix(String.from("!="), make_str("abc"), make_str("xyz"));
   result := evaluate(expr, env);
   check_some(result, "str != str (different)");
   match(
@@ -1981,11 +1981,11 @@ test("evaluate: string != different returns true", {
 test("evaluate: struct construction Point(x: i32(1), y: i32(2))", {
   env := empty_env();
   one_args := ArrayList(AstExpr).new();
-  one_args.push(make_atom(TokenKind.Integer, "1"));
+  one_args.push(make_atom(TokenKind.Integer, String.from("1")));
   two_args := ArrayList(AstExpr).new();
-  two_args.push(make_atom(TokenKind.Integer, "2"));
-  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
-  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  two_args.push(make_atom(TokenKind.Integer, String.from("2")));
+  x_arg := make_infix(String.from(":"), make_ident(String.from("x")), make_call("i32", one_args));
+  y_arg := make_infix(String.from(":"), make_ident(String.from("y")), make_call("i32", two_args));
   call_a := ArrayList(AstExpr).new();
   call_a.push(x_arg);
   call_a.push(y_arg);
@@ -2009,17 +2009,17 @@ test("evaluate: struct construction Point(x: i32(1), y: i32(2))", {
 test("evaluate: field access point.x returns IntLit(1)", {
   env := empty_env();
   one_args := ArrayList(AstExpr).new();
-  one_args.push(make_atom(TokenKind.Integer, "1"));
+  one_args.push(make_atom(TokenKind.Integer, String.from("1")));
   two_args := ArrayList(AstExpr).new();
-  two_args.push(make_atom(TokenKind.Integer, "2"));
-  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
-  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  two_args.push(make_atom(TokenKind.Integer, String.from("2")));
+  x_arg := make_infix(String.from(":"), make_ident(String.from("x")), make_call("i32", one_args));
+  y_arg := make_infix(String.from(":"), make_ident(String.from("y")), make_call("i32", two_args));
   call_a := ArrayList(AstExpr).new();
   call_a.push(x_arg);
   call_a.push(y_arg);
-  def := make_infix(":=", make_ident("point"), make_call("Point", call_a));
+  def := make_infix(String.from(":="), make_ident(String.from("point")), make_call("Point", call_a));
   _d := evaluate(def, env);
-  access := make_infix(".", make_ident("point"), make_ident("x"));
+  access := make_infix(String.from("."), make_ident(String.from("point")), make_ident(String.from("x")));
   result := evaluate(access, env);
   check_some(result, "point.x");
   match(
@@ -2031,17 +2031,17 @@ test("evaluate: field access point.x returns IntLit(1)", {
 test("evaluate: field access point.y returns IntLit(2)", {
   env := empty_env();
   one_args := ArrayList(AstExpr).new();
-  one_args.push(make_atom(TokenKind.Integer, "1"));
+  one_args.push(make_atom(TokenKind.Integer, String.from("1")));
   two_args := ArrayList(AstExpr).new();
-  two_args.push(make_atom(TokenKind.Integer, "2"));
-  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
-  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  two_args.push(make_atom(TokenKind.Integer, String.from("2")));
+  x_arg := make_infix(String.from(":"), make_ident(String.from("x")), make_call("i32", one_args));
+  y_arg := make_infix(String.from(":"), make_ident(String.from("y")), make_call("i32", two_args));
   call_a := ArrayList(AstExpr).new();
   call_a.push(x_arg);
   call_a.push(y_arg);
-  def := make_infix(":=", make_ident("point"), make_call("Point", call_a));
+  def := make_infix(String.from(":="), make_ident(String.from("point")), make_call("Point", call_a));
   _d := evaluate(def, env);
-  access := make_infix(".", make_ident("point"), make_ident("y"));
+  access := make_infix(String.from("."), make_ident(String.from("point")), make_ident(String.from("y")));
   result := evaluate(access, env);
   check_some(result, "point.y");
   match(
@@ -2057,7 +2057,7 @@ test("evaluate: closure captures outer variable (make_adder)", {
   // result := add5(3)       — evaluates x+y with x=5, y=3 → 8
   env := empty_env();
   // Build inner function body: x + y
-  inner_body := make_infix("+", make_ident("x"), make_ident("y"));
+  inner_body := make_infix(String.from("+"), make_ident(String.from("x")), make_ident(String.from("y")));
   inner_params := ArrayList(String).new();
   inner_params.push(String.from("y"));
   inner_fn := make_fn_def(inner_params, inner_body);
@@ -2066,17 +2066,17 @@ test("evaluate: closure captures outer variable (make_adder)", {
   outer_params.push(String.from("x"));
   make_adder_def := make_fn_def(outer_params, inner_fn);
   // make_adder := make_adder_def
-  _d1 := evaluate(make_infix(":=", make_ident("make_adder"), make_adder_def), env);
+  _d1 := evaluate(make_infix(String.from(":="), make_ident(String.from("make_adder")), make_adder_def), env);
   // add5 := make_adder(5)
   adder_args := ArrayList(AstExpr).new();
-  adder_args.push(make_atom(TokenKind.Integer, "5"));
+  adder_args.push(make_atom(TokenKind.Integer, String.from("5")));
   _d2 := evaluate(
-    make_infix(":=", make_ident("add5"), make_call("make_adder", adder_args)),
+    make_infix(String.from(":="), make_ident(String.from("add5")), make_call("make_adder", adder_args)),
     env
   );
   // result := add5(3)
   add5_args := ArrayList(AstExpr).new();
-  add5_args.push(make_atom(TokenKind.Integer, "3"));
+  add5_args.push(make_atom(TokenKind.Integer, String.from("3")));
   result := evaluate(make_call("add5", add5_args), env);
   check_some(result, "add5(3) closure");
   match(
@@ -2095,7 +2095,7 @@ test("evaluate: method dispatch on StructVal (manual registration)", {
   // Register Point.get_x in env
   self_param := ArrayList(String).new();
   self_param.push(String.from("self"));
-  get_x_body := make_infix(".", make_ident("self"), make_ident("x"));
+  get_x_body := make_infix(String.from("."), make_ident(String.from("self")), make_ident(String.from("x")));
   get_x_fn := make_fn_def(self_param, get_x_body);
   match(
     evaluate(get_x_fn, env),
@@ -2111,18 +2111,18 @@ test("evaluate: method dispatch on StructVal (manual registration)", {
   );
   // point := Point(x: i32(1), y: i32(2))
   one_args := ArrayList(AstExpr).new();
-  one_args.push(make_atom(TokenKind.Integer, "1"));
+  one_args.push(make_atom(TokenKind.Integer, String.from("1")));
   two_args := ArrayList(AstExpr).new();
-  two_args.push(make_atom(TokenKind.Integer, "2"));
-  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
-  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  two_args.push(make_atom(TokenKind.Integer, String.from("2")));
+  x_arg := make_infix(String.from(":"), make_ident(String.from("x")), make_call("i32", one_args));
+  y_arg := make_infix(String.from(":"), make_ident(String.from("y")), make_call("i32", two_args));
   call_a := ArrayList(AstExpr).new();
   call_a.push(x_arg);
   call_a.push(y_arg);
-  _dp := evaluate(make_infix(":=", make_ident("point"), make_call("Point", call_a)), env);
+  _dp := evaluate(make_infix(String.from(":="), make_ident(String.from("point")), make_call("Point", call_a)), env);
   // point.get_x()
   empty_args := ArrayList(AstExpr).new();
-  method_call := make_infix(".", make_ident("point"), make_call("get_x", empty_args));
+  method_call := make_infix(String.from("."), make_ident(String.from("point")), make_call("get_x", empty_args));
   result := evaluate(method_call, env);
   check_some(result, "point.get_x()");
   match(
@@ -2139,29 +2139,29 @@ test("evaluate: impl block registers methods", {
   env := empty_env();
   // point := Point(x: i32(1), y: i32(2))
   one_args := ArrayList(AstExpr).new();
-  one_args.push(make_atom(TokenKind.Integer, "1"));
+  one_args.push(make_atom(TokenKind.Integer, String.from("1")));
   two_args := ArrayList(AstExpr).new();
-  two_args.push(make_atom(TokenKind.Integer, "2"));
-  x_arg := make_infix(":", make_ident("x"), make_call("i32", one_args));
-  y_arg := make_infix(":", make_ident("y"), make_call("i32", two_args));
+  two_args.push(make_atom(TokenKind.Integer, String.from("2")));
+  x_arg := make_infix(String.from(":"), make_ident(String.from("x")), make_call("i32", one_args));
+  y_arg := make_infix(String.from(":"), make_ident(String.from("y")), make_call("i32", two_args));
   point_args := ArrayList(AstExpr).new();
   point_args.push(x_arg);
   point_args.push(y_arg);
-  _dp := evaluate(make_infix(":=", make_ident("point"), make_call("Point", point_args)), env);
+  _dp := evaluate(make_infix(String.from(":="), make_ident(String.from("point")), make_call("Point", point_args)), env);
   // Build impl(Point, get_y: (fn(self)(self.y)))
   self_p := ArrayList(String).new();
   self_p.push(String.from("self"));
-  get_y_body := make_infix(".", make_ident("self"), make_ident("y"));
+  get_y_body := make_infix(String.from("."), make_ident(String.from("self")), make_ident(String.from("y")));
   get_y_fn := make_fn_def(self_p, get_y_body);
-  impl_method := make_infix(":", make_ident("get_y"), get_y_fn);
+  impl_method := make_infix(String.from(":"), make_ident(String.from("get_y")), get_y_fn);
   impl_args := ArrayList(AstExpr).new();
-  impl_args.push(make_ident("Point"));
+  impl_args.push(make_ident(String.from("Point")));
   impl_args.push(impl_method);
   impl_expr := make_call("impl", impl_args);
   _di := evaluate(impl_expr, env);
   // point.get_y()
   empty_a := ArrayList(AstExpr).new();
-  method_call := make_infix(".", make_ident("point"), make_call("get_y", empty_a));
+  method_call := make_infix(String.from("."), make_ident(String.from("point")), make_call("get_y", empty_a));
   result := evaluate(method_call, env);
   check_some(result, "point.get_y() via impl");
   match(
@@ -2175,7 +2175,7 @@ test("evaluate: impl block registers methods", {
 });
 test("evaluate: type identifier i32 resolves to TypeVal", {
   env := empty_env();
-  result := evaluate(make_ident("i32"), env);
+  result := evaluate(make_ident(String.from("i32")), env);
   check_some(result, "i32 identifier");
   match(
     result,
@@ -2211,7 +2211,7 @@ test("evaluate: type identifier i32 resolves to TypeVal", {
 });
 test("evaluate: type identifier bool resolves to TypeVal", {
   env := empty_env();
-  result := evaluate(make_ident("bool"), env);
+  result := evaluate(make_ident(String.from("bool")), env);
   check_some(result, "bool identifier");
   match(
     result,
@@ -2235,7 +2235,7 @@ test("evaluate: type identifier bool resolves to TypeVal", {
 });
 test("evaluate: type identifier usize resolves to TypeVal", {
   env := empty_env();
-  result := evaluate(make_ident("usize"), env);
+  result := evaluate(make_ident(String.from("usize")), env);
   check_some(result, "usize identifier");
   match(
     result,
@@ -2259,7 +2259,7 @@ test("evaluate: type identifier usize resolves to TypeVal", {
 });
 test("evaluate: TypeVal is comptime", {
   env := empty_env();
-  result := evaluate(make_ident("i32"), env);
+  result := evaluate(make_ident(String.from("i32")), env);
   match(
     result,
     .Some(r) => {
@@ -2285,7 +2285,7 @@ test("evaluate: TypeVal is comptime", {
 test("evaluate: unknown identifier not a type name still returns None", {
   env := empty_env();
   // "MyCustomType" is not a primitive type name, not in env → None
-  result := evaluate(make_ident("MyCustomType"), env);
+  result := evaluate(make_ident(String.from("MyCustomType")), env);
   match(
     result,
     .None => (),
@@ -2300,13 +2300,13 @@ test("evaluate: forall param name is extracted into FuncVal.forall_names", {
   // id := (fn(forall(A), x : A) -> unit)(x)
   param_exprs := ArrayList(AstExpr).new();
   param_exprs.push(make_forall_param("A"));
-  param_exprs.push(make_typed_param("x", "A"));
-  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("x"));
-  define_e := make_infix(":=", make_ident("id"), fn_def);
+  param_exprs.push(make_typed_param(String.from("x"), "A"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident(String.from("x")));
+  define_e := make_infix(String.from(":="), make_ident(String.from("id")), fn_def);
   _ := evaluate(define_e, env);
   // Look up id — should be FuncVal with forall_names = ["A"], params = ["x"],
   // param_type_names = ["A"]
-  id_res := evaluate(make_ident("id"), env);
+  id_res := evaluate(make_ident(String.from("id")), env);
   check_some(id_res, "id is bound");
   match(
     id_res,
@@ -2318,17 +2318,17 @@ test("evaluate: forall param name is extracted into FuncVal.forall_names", {
         assert(ptnames.len() == usize(1), "1 param type name");
         match(
           fnames.get(usize(0)),
-          .Some(fn_name) => assert(fn_name.as_str() == "A", "forall name is A"),
+          .Some(fn_name) => assert(fn_name == "A", "forall name is A"),
           .None => assert(false, "expected forall name A")
         );
         match(
           ps.get(usize(0)),
-          .Some(pn) => assert(pn.as_str() == "x", "param name is x"),
+          .Some(pn) => assert(pn == "x", "param name is x"),
           .None => assert(false, "expected param x")
         );
         match(
           ptnames.get(usize(0)),
-          .Some(ptn) => assert(ptn.as_str() == "A", "param type name is A"),
+          .Some(ptn) => assert(ptn == "A", "param type name is A"),
           .None => assert(false, "expected param type name A")
         );
       },
@@ -2342,11 +2342,11 @@ test("evaluate: generic identity fn call with integer arg", {
   // id := (fn(forall(A), x : A) -> unit)(x); id(42) → IntLit("42")
   param_exprs := ArrayList(AstExpr).new();
   param_exprs.push(make_forall_param("A"));
-  param_exprs.push(make_typed_param("x", "A"));
-  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("x"));
-  _d := evaluate(make_infix(":=", make_ident("id"), fn_def), env);
+  param_exprs.push(make_typed_param(String.from("x"), "A"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident(String.from("x")));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("id")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "42"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("42")));
   result := evaluate(make_call("id", call_args), env);
   check_some(result, "id(42)");
   match(
@@ -2359,11 +2359,11 @@ test("evaluate: generic identity fn call with bool arg", {
   env := empty_env();
   param_exprs := ArrayList(AstExpr).new();
   param_exprs.push(make_forall_param("A"));
-  param_exprs.push(make_typed_param("x", "A"));
-  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("x"));
-  _d := evaluate(make_infix(":=", make_ident("id_b"), fn_def), env);
+  param_exprs.push(make_typed_param(String.from("x"), "A"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident(String.from("x")));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("id_b")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Bool, "true"));
+  call_args.push(make_atom(TokenKind.Bool, String.from("true")));
   result := evaluate(make_call("id_b", call_args), env);
   match(
     result,
@@ -2377,12 +2377,12 @@ test("evaluate: forall TypeVal is bound inside fn body", {
   // When called with an int, body returns TypeVal(ComptimeInt)
   param_exprs := ArrayList(AstExpr).new();
   param_exprs.push(make_forall_param("A"));
-  param_exprs.push(make_typed_param("x", "A"));
+  param_exprs.push(make_typed_param(String.from("x"), "A"));
   // Body: just return A (the TypeVal that should be bound)
-  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("A"));
-  _d := evaluate(make_infix(":=", make_ident("lookup_type"), fn_def), env);
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident(String.from("A")));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("lookup_type")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "99"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("99")));
   result := evaluate(make_call("lookup_type", call_args), env);
   check_some(result, "lookup_type(99)");
   match(
@@ -2413,13 +2413,13 @@ test("evaluate: two forall params both inferred correctly", {
   param_exprs := ArrayList(AstExpr).new();
   param_exprs.push(make_forall_param("A"));
   param_exprs.push(make_forall_param("B"));
-  param_exprs.push(make_typed_param("x", "A"));
-  param_exprs.push(make_typed_param("y", "B"));
-  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident("A"));
-  _d := evaluate(make_infix(":=", make_ident("type_of_first"), fn_def), env);
+  param_exprs.push(make_typed_param(String.from("x"), "A"));
+  param_exprs.push(make_typed_param(String.from("y"), "B"));
+  fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident(String.from("A")));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("type_of_first")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "1"));
-  call_args.push(make_atom(TokenKind.Bool, "false"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("1")));
+  call_args.push(make_atom(TokenKind.Bool, String.from("false")));
   result := evaluate(make_call("type_of_first", call_args), env);
   match(
     result,
@@ -2447,11 +2447,11 @@ test("evaluate: bare (untyped) params still work after Phase 3l", {
   params := ArrayList(String).new();
   params.push(String.from("x"));
   params.push(String.from("y"));
-  fn_def := make_fn_def(params, make_infix("+", make_ident("x"), make_ident("y")));
-  _d := evaluate(make_infix(":=", make_ident("add_bare"), fn_def), env);
+  fn_def := make_fn_def(params, make_infix(String.from("+"), make_ident(String.from("x")), make_ident(String.from("y"))));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("add_bare")), fn_def), env);
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "3"));
-  call_args.push(make_atom(TokenKind.Integer, "4"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("3")));
+  call_args.push(make_atom(TokenKind.Integer, String.from("4")));
   result := evaluate(make_call("add_bare", call_args), env);
   match(
     result,
@@ -2462,11 +2462,11 @@ test("evaluate: bare (untyped) params still work after Phase 3l", {
 test("evaluate: open(ModuleVal) brings all fields into scope", {
   env := empty_env();
   // Build a module body that exports x = 10 and y = false
-  define_x := make_infix(":=", make_ident("x"), make_atom(TokenKind.Integer, "10"));
-  define_y := make_infix(":=", make_ident("y"), make_atom(TokenKind.Bool, "false"));
-  export_names := ArrayList(str).new();
-  export_names.push("x");
-  export_names.push("y");
+  define_x := make_infix(String.from(":="), make_ident(String.from("x")), make_atom(TokenKind.Integer, String.from("10")));
+  define_y := make_infix(String.from(":="), make_ident(String.from("y")), make_atom(TokenKind.Bool, String.from("false")));
+  export_names := ArrayList(String).new();
+  export_names.push(String.from("x"));
+  export_names.push(String.from("y"));
   export_expr := make_export(export_names);
   exprs := ArrayList(AstExpr).new();
   exprs.push(define_x);
@@ -2478,12 +2478,12 @@ test("evaluate: open(ModuleVal) brings all fields into scope", {
   // Bind the module into a variable, then open it
   mod_val := match(mod_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
   _def := env.define_val(String.from("m"), t_i32(), true,.Some(mod_val));
-  open_expr := make_open(make_ident("m"));
+  open_expr := make_open(make_ident(String.from("m")));
   open_res := evaluate(open_expr, env);
   check_some(open_res, "open returned Some");
   // Now x and y should be in scope
-  x_res := evaluate(make_ident("x"), env);
-  y_res := evaluate(make_ident("y"), env);
+  x_res := evaluate(make_ident(String.from("x")), env);
+  y_res := evaluate(make_ident(String.from("y")), env);
   check_some(x_res, "x is in scope after open");
   check_some(y_res, "y is in scope after open");
   match(
@@ -2500,11 +2500,11 @@ test("evaluate: open(ModuleVal) brings all fields into scope", {
 test("evaluate: { A, B } :: ModuleVal destructures correctly", {
   env := empty_env();
   // Build a module val with exports a = 1, b = 2
-  define_a := make_infix(":=", make_ident("a"), make_atom(TokenKind.Integer, "1"));
-  define_b := make_infix(":=", make_ident("b"), make_atom(TokenKind.Integer, "2"));
-  export_names := ArrayList(str).new();
-  export_names.push("a");
-  export_names.push("b");
+  define_a := make_infix(String.from(":="), make_ident(String.from("a")), make_atom(TokenKind.Integer, String.from("1")));
+  define_b := make_infix(String.from(":="), make_ident(String.from("b")), make_atom(TokenKind.Integer, String.from("2")));
+  export_names := ArrayList(String).new();
+  export_names.push(String.from("a"));
+  export_names.push(String.from("b"));
   export_expr := make_export(export_names);
   exprs := ArrayList(AstExpr).new();
   exprs.push(define_a);
@@ -2516,17 +2516,17 @@ test("evaluate: { A, B } :: ModuleVal destructures correctly", {
   mod_val := match(mod_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
   // Bind module as a constant and then destructure: { a, b } :: m
   _def := env.define_val(String.from("m"), t_i32(), true,.Some(mod_val));
-  anon_tok := make_token(TokenKind.Identifier, BK_ANON_STRUCT);
+  anon_tok := make_token(TokenKind.Identifier, String.from(BK_ANON_STRUCT));
   a_arg_list := ArrayList(AstExpr).new();
-  a_arg_list.push(make_ident("a"));
-  a_arg_list.push(make_ident("b"));
+  a_arg_list.push(make_ident(String.from("a")));
+  a_arg_list.push(make_ident(String.from("b")));
   lhs := (AstExpr).FnCall(usize(0), box(.Atom(usize(0), anon_tok)), a_arg_list, false, anon_tok);
-  destr_expr := make_infix("::", lhs, make_ident("m"));
+  destr_expr := make_infix(String.from("::"), lhs, make_ident(String.from("m")));
   destr_res := evaluate(destr_expr, env);
   check_some(destr_res, "destructure result");
   // a and b should now be bound in env
-  a_res := evaluate(make_ident("a"), env);
-  b_res := evaluate(make_ident("b"), env);
+  a_res := evaluate(make_ident(String.from("a")), env);
+  b_res := evaluate(make_ident(String.from("b")), env);
   check_some(a_res, "a is bound after destructure");
   check_some(b_res, "b is bound after destructure");
   match(
@@ -2546,7 +2546,7 @@ test("evaluate: import uses module loader callback", {
   set_module_loader(
     (fn(path : String) -> Option(EvalValue))(
       cond(
-        (path.as_str() == "test/my_module") => {
+        (path == "test/my_module") => {
           mock_names_l := ArrayList(String).new();
           mock_names_l.push(String.from("val"));
           mock_vals_l := ArrayList(EvalValue).new();
@@ -2570,7 +2570,7 @@ test("evaluate: import uses module loader callback", {
           assert(names.len() == usize(1), "module has 1 export");
           match(
             names.get(usize(0)),
-            .Some(n) => assert(n.as_str() == "val", "export(name is val)"),
+            .Some(n) => assert(n == "val", "export(name is val)"),
             .None => assert(false, "missing export(name)")
           );
           match(
@@ -2587,8 +2587,8 @@ test("evaluate: import uses module loader callback", {
 test("evaluate: if true takes then branch", {
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Bool, "true"));
-  args.push(make_atom(TokenKind.Integer, "42"));
+  args.push(make_atom(TokenKind.Bool, String.from("true")));
+  args.push(make_atom(TokenKind.Integer, String.from("42")));
   result := evaluate(make_call("if", args), env);
   check_some(result, "if true then");
   match(
@@ -2600,8 +2600,8 @@ test("evaluate: if true takes then branch", {
 test("evaluate: if false returns unit (2-arg form)", {
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Bool, "false"));
-  args.push(make_atom(TokenKind.Integer, "42"));
+  args.push(make_atom(TokenKind.Bool, String.from("false")));
+  args.push(make_atom(TokenKind.Integer, String.from("42")));
   result := evaluate(make_call("if", args), env);
   check_some(result, "if false unit");
   match(
@@ -2613,9 +2613,9 @@ test("evaluate: if false returns unit (2-arg form)", {
 test("evaluate: if false takes else branch (3-arg form)", {
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Bool, "false"));
-  args.push(make_atom(TokenKind.Integer, "42"));
-  args.push(make_atom(TokenKind.Integer, "99"));
+  args.push(make_atom(TokenKind.Bool, String.from("false")));
+  args.push(make_atom(TokenKind.Integer, String.from("42")));
+  args.push(make_atom(TokenKind.Integer, String.from("99")));
   result := evaluate(make_call("if", args), env);
   check_some(result, "if false else");
   match(
@@ -2627,15 +2627,15 @@ test("evaluate: if false takes else branch (3-arg form)", {
 test("evaluate: if non-bool condition returns None", {
   env := empty_env();
   args := ArrayList(AstExpr).new();
-  args.push(make_atom(TokenKind.Integer, "1"));
-  args.push(make_atom(TokenKind.Integer, "42"));
+  args.push(make_atom(TokenKind.Integer, String.from("1")));
+  args.push(make_atom(TokenKind.Integer, String.from("42")));
   result := evaluate(make_call("if", args), env);
   check_none(result, "if non-bool returns None");
 });
 test("evaluate: float addition", {
   env := empty_env();
   result := evaluate(
-    make_infix("+", make_atom(TokenKind.Float, "1.5"), make_atom(TokenKind.Float, "2.5")),
+    make_infix(String.from("+"), make_atom(TokenKind.Float, String.from("1.5")), make_atom(TokenKind.Float, String.from("2.5"))),
     env
   );
   check_some(result, "float +");
@@ -2648,7 +2648,7 @@ test("evaluate: float addition", {
 test("evaluate: float subtraction", {
   env := empty_env();
   result := evaluate(
-    make_infix("-", make_atom(TokenKind.Float, "3.0"), make_atom(TokenKind.Float, "1.5")),
+    make_infix(String.from("-"), make_atom(TokenKind.Float, String.from("3.0")), make_atom(TokenKind.Float, String.from("1.5"))),
     env
   );
   check_some(result, "float -");
@@ -2661,7 +2661,7 @@ test("evaluate: float subtraction", {
 test("evaluate: float multiplication", {
   env := empty_env();
   result := evaluate(
-    make_infix("*", make_atom(TokenKind.Float, "2.0"), make_atom(TokenKind.Float, "3.0")),
+    make_infix(String.from("*"), make_atom(TokenKind.Float, String.from("2.0")), make_atom(TokenKind.Float, String.from("3.0"))),
     env
   );
   check_some(result, "float *");
@@ -2674,7 +2674,7 @@ test("evaluate: float multiplication", {
 test("evaluate: float division", {
   env := empty_env();
   result := evaluate(
-    make_infix("/", make_atom(TokenKind.Float, "10.0"), make_atom(TokenKind.Float, "4.0")),
+    make_infix(String.from("/"), make_atom(TokenKind.Float, String.from("10.0")), make_atom(TokenKind.Float, String.from("4.0"))),
     env
   );
   check_some(result, "float /");
@@ -2687,7 +2687,7 @@ test("evaluate: float division", {
 test("evaluate: float comparison less-than", {
   env := empty_env();
   result := evaluate(
-    make_infix("<", make_atom(TokenKind.Float, "1.5"), make_atom(TokenKind.Float, "2.5")),
+    make_infix(String.from("<"), make_atom(TokenKind.Float, String.from("1.5")), make_atom(TokenKind.Float, String.from("2.5"))),
     env
   );
   check_some(result, "float <");
@@ -2700,7 +2700,7 @@ test("evaluate: float comparison less-than", {
 test("evaluate: float equality", {
   env := empty_env();
   result := evaluate(
-    make_infix("==", make_atom(TokenKind.Float, "2.5"), make_atom(TokenKind.Float, "2.5")),
+    make_infix(String.from("=="), make_atom(TokenKind.Float, String.from("2.5")), make_atom(TokenKind.Float, String.from("2.5"))),
     env
   );
   check_some(result, "float ==");
@@ -2713,14 +2713,14 @@ test("evaluate: float equality", {
 test("evaluate: float unary negation", {
   env := empty_env();
   neg_args := ArrayList(AstExpr).new();
-  neg_args.push(make_atom(TokenKind.Float, "1.5"));
+  neg_args.push(make_atom(TokenKind.Float, String.from("1.5")));
   result := evaluate(
     .FnCall(
       usize(0),
-      box(.Atom(usize(0), make_token(TokenKind.Operator, "-"))),
+      box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("-")))),
       neg_args,
       false,
-      make_token(TokenKind.Operator, "-")
+      make_token(TokenKind.Operator, String.from("-"))
     ),
     env
   );
@@ -2735,52 +2735,52 @@ test("evaluate: comptime(Name) param extracted in fn def", {
   env := empty_env();
   // Build param: `comptime(T) : Type` (infix colon with comptime(T) as name)
   ct_inner_args := ArrayList(AstExpr).new();
-  ct_inner_args.push(make_ident("T"));
+  ct_inner_args.push(make_ident(String.from("T")));
   ct_param_name := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "comptime"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("comptime")))),
     ct_inner_args,
     false,
-    make_token(TokenKind.Identifier, "comptime")
+    make_token(TokenKind.Identifier, String.from("comptime"))
   );
   colon_args := ArrayList(AstExpr).new();
   colon_args.push(ct_param_name);
-  colon_args.push(make_ident("Type"));
+  colon_args.push(make_ident(String.from("Type")));
   colon_param := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, ":"))),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))),
     colon_args,
     true,
-    make_token(TokenKind.Operator, ":")
+    make_token(TokenKind.Operator, String.from(":"))
   );
   // Build (fn(colon_param) -> unit)(T) — body just returns T
   param_list := ArrayList(AstExpr).new();
   param_list.push(colon_param);
   fn_head := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, "fn"))),
+    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
     param_list,
     false,
-    make_token(TokenKind.Identifier, "fn")
+    make_token(TokenKind.Identifier, String.from("fn"))
   );
   arrow_args := ArrayList(AstExpr).new();
   arrow_args.push(fn_head);
-  arrow_args.push(make_ident("unit"));
+  arrow_args.push(make_ident(String.from("unit")));
   fn_sig := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, "->"))),
+    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
     arrow_args,
     true,
-    make_token(TokenKind.Operator, "->")
+    make_token(TokenKind.Operator, String.from("->"))
   );
   outer_args := ArrayList(AstExpr).new();
-  outer_args.push(make_ident("T"));
-  fn_def := (AstExpr).FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, "->"));
+  outer_args.push(make_ident(String.from("T")));
+  fn_def := (AstExpr).FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, String.from("->")));
   // f := fn_def
-  _d := evaluate(make_infix(":=", make_ident("f"), fn_def), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("f")), fn_def), env);
   // Call f(3) — T should be bound to IntLit("3"), body returns T
   call_args := ArrayList(AstExpr).new();
-  call_args.push(make_atom(TokenKind.Integer, "3"));
+  call_args.push(make_atom(TokenKind.Integer, String.from("3")));
   result := evaluate(make_call("f", call_args), env);
   check_some(result, "comptime param call");
   match(
@@ -2793,10 +2793,10 @@ test("evaluate: using param is extracted into FuncVal.evidence_params", {
   env := empty_env();
   // Build (fn(ev : bool) -> bool)(ev)
   params_e := ArrayList(AstExpr).new();
-  params_e.push(make_using_param("ev", "bool"));
-  fn_def_e := make_typed_fn_def(params_e, make_ident("bool"), make_ident("ev"));
+  params_e.push(make_using_param(String.from("ev"), "bool"));
+  fn_def_e := make_typed_fn_def(params_e, make_ident(String.from("bool")), make_ident(String.from("ev")));
   // f := fn_def_e
-  _d := evaluate(make_infix(":=", make_ident("f"), fn_def_e), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("f")), fn_def_e), env);
   // Look up f — FuncVal should have evidence_params=["ev"], params=[]
   f_var := env.lookup(String.from("f"));
   match(
@@ -2810,7 +2810,7 @@ test("evaluate: using param is extracted into FuncVal.evidence_params", {
           assert(ev_ps.len() == usize(1), "1 evidence param");
           match(
             ev_ps.get(usize(0)),
-            .Some(evn) => assert(evn.as_str() == "ev", "evidence name is ev"),
+            .Some(evn) => assert(evn == "ev", "evidence name is ev"),
             .None => assert(false, "no evidence name")
           );
         },
@@ -2826,7 +2826,7 @@ test("evaluate: name at call site evaluates to bound value", {
   // Bind: my_ev = BoolVal(false)
   _d := env.define_val(String.from("my_ev"), t_bool(), true,.Some(EvalValue.BoolVal(false)));
   // Evaluate my_ev — should look up my_ev and return BoolVal(false)
-  result := evaluate(make_using_call(make_ident("my_ev")), env);
+  result := evaluate(make_using_call(make_ident(String.from("my_ev"))), env);
   check_some(result, "my_ev");
   match(
     result,
@@ -2840,13 +2840,13 @@ test("evaluate: evidence param is in scope inside function body", {
   _dv := env.define_val(String.from("ev_val"), t_bool(), true,.Some(EvalValue.BoolVal(true)));
   // Build (fn(ev : bool) -> bool)(ev) — body returns ev
   params_b := ArrayList(AstExpr).new();
-  params_b.push(make_using_param("ev", "bool"));
-  fn_def_b := make_typed_fn_def(params_b, make_ident("bool"), make_ident("ev"));
+  params_b.push(make_using_param(String.from("ev"), "bool"));
+  fn_def_b := make_typed_fn_def(params_b, make_ident(String.from("bool")), make_ident(String.from("ev")));
   // f := fn_def_b
-  _d := evaluate(make_infix(":=", make_ident("f"), fn_def_b), env);
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("f")), fn_def_b), env);
   // Call f(ev_val) — evidence passes BoolVal(true) as ev
   call_args_b := ArrayList(AstExpr).new();
-  call_args_b.push(make_using_call(make_ident("ev_val")));
+  call_args_b.push(make_using_call(make_ident(String.from("ev_val"))));
   result := evaluate(make_call("f", call_args_b), env);
   check_some(result, "evidence in body");
   match(
@@ -2860,16 +2860,16 @@ test("evaluate: evidence param passed alongside regular params", {
   // Bind: factor = IntLit("3")
   _dv := env.define_val(String.from("factor"), t_comptime_int(), true,.Some(EvalValue.IntLit(String.from("3"))));
   // Build (fn(x : i32, m : i32) -> i32)(x * m)
-  colon_x := make_infix(":", make_ident("x"), make_ident("i32"));
+  colon_x := make_infix(String.from(":"), make_ident(String.from("x")), make_ident(String.from("i32")));
   params_m := ArrayList(AstExpr).new();
   params_m.push(colon_x);
-  params_m.push(make_using_param("m", "i32"));
-  fn_def_m := make_typed_fn_def(params_m, make_ident("i32"), make_infix("*", make_ident("x"), make_ident("m")));
-  _d := evaluate(make_infix(":=", make_ident("mul"), fn_def_m), env);
+  params_m.push(make_using_param(String.from("m"), "i32"));
+  fn_def_m := make_typed_fn_def(params_m, make_ident(String.from("i32")), make_infix(String.from("*"), make_ident(String.from("x")), make_ident(String.from("m"))));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("mul")), fn_def_m), env);
   // Call mul(5, factor) — x=5, m=3 → 15
   call_args_m := ArrayList(AstExpr).new();
-  call_args_m.push(make_atom(TokenKind.Integer, "5"));
-  call_args_m.push(make_using_call(make_ident("factor")));
+  call_args_m.push(make_atom(TokenKind.Integer, String.from("5")));
+  call_args_m.push(make_using_call(make_ident(String.from("factor"))));
   result := evaluate(make_call("mul", call_args_m), env);
   check_some(result, "mul with evidence");
   match(
@@ -2884,14 +2884,14 @@ test("evaluate: function with only using params (no regular params)", {
   _dv := env.define_val(String.from("my_flag"), t_bool(), true,.Some(EvalValue.BoolVal(true)));
   // Build (fn(flag : bool) -> bool)({ flag })
   params_f2 := ArrayList(AstExpr).new();
-  params_f2.push(make_using_param("flag", "bool"));
+  params_f2.push(make_using_param(String.from("flag"), "bool"));
   stmts_f2 := ArrayList(AstExpr).new();
-  stmts_f2.push(make_ident("flag"));
-  fn_def_f2 := make_typed_fn_def(params_f2, make_ident("bool"), make_begin(stmts_f2));
-  _d := evaluate(make_infix(":=", make_ident("get_flag"), fn_def_f2), env);
+  stmts_f2.push(make_ident(String.from("flag")));
+  fn_def_f2 := make_typed_fn_def(params_f2, make_ident(String.from("bool")), make_begin(stmts_f2));
+  _d := evaluate(make_infix(String.from(":="), make_ident(String.from("get_flag")), fn_def_f2), env);
   // Call get_flag(my_flag)
   call_args_f2 := ArrayList(AstExpr).new();
-  call_args_f2.push(make_using_call(make_ident("my_flag")));
+  call_args_f2.push(make_using_call(make_ident(String.from("my_flag"))));
   result := evaluate(make_call("get_flag", call_args_f2), env);
   check_some(result, "only-evidence call");
   match(
@@ -2904,8 +2904,8 @@ test("evaluate: anonymous struct literal _(x: 42, y: true)", {
   env := empty_env();
   // Build: _(x: 42, y: true)
   //   = FnCall(Atom("_"), [infix ":" (Atom("x"), Atom("42")), infix ":" (Atom("y"), Atom("true"))], false)
-  field_x := make_infix(":", make_ident("x"), make_atom(TokenKind.Integer, "42"));
-  field_y := make_infix(":", make_ident("y"), make_atom(TokenKind.Bool, "true"));
+  field_x := make_infix(String.from(":"), make_ident(String.from("x")), make_atom(TokenKind.Integer, String.from("42")));
+  field_y := make_infix(String.from(":"), make_ident(String.from("y")), make_atom(TokenKind.Bool, String.from("true")));
   as_args := ArrayList(AstExpr).new();
   as_args.push(field_x);
   as_args.push(field_y);
@@ -2921,19 +2921,19 @@ test("evaluate: anonymous struct literal _(x: 42, y: true)", {
         assert(field_vals.len() == usize(2), "struct has 2 values");
         match(
           field_names.get(usize(0)),
-          .Some(n) => assert(n.as_str() == "x", "first field is x"),
+          .Some(n) => assert(n == "x", "first field is x"),
           .None => assert(false, "no first field name")
         );
         match(
           field_names.get(usize(1)),
-          .Some(n) => assert(n.as_str() == "y", "second field is y"),
+          .Some(n) => assert(n == "y", "second field is y"),
           .None => assert(false, "no second field name")
         );
         match(
           field_vals.get(usize(0)),
           .Some(v) => match(
             v,
-            .IntLit(raw) => assert(raw.as_str() == "42", "x value is 42"),
+            .IntLit(raw) => assert(raw == "42", "x value is 42"),
             _ => assert(false, "x value is not IntLit")
           ),
           .None => assert(false, "no x value")
@@ -2956,7 +2956,7 @@ test("evaluate: anonymous struct shorthand _(val) — unlabeled field", {
   env := empty_env();
   // Build: _(42)  — positional/unlabeled single field
   pos_args := ArrayList(AstExpr).new();
-  pos_args.push(make_atom(TokenKind.Integer, "42"));
+  pos_args.push(make_atom(TokenKind.Integer, String.from("42")));
   anon_expr := make_call(BK_ANON_STRUCT, pos_args);
   result := evaluate(anon_expr, env);
   match(
@@ -2971,7 +2971,7 @@ test("evaluate: anonymous struct shorthand _(val) — unlabeled field", {
           vals.get(usize(0)),
           .Some(v) => match(
             v,
-            .IntLit(raw) => assert(raw.as_str() == "42", "field value is 42"),
+            .IntLit(raw) => assert(raw == "42", "field value is 42"),
             _ => assert(false, "field value is not IntLit")
           ),
           .None => assert(false, "no field value")
@@ -2984,8 +2984,8 @@ test("evaluate: anonymous struct shorthand _(val) — unlabeled field", {
 test("evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
   env := make_env_with_T();
   env_ptr := env;
-  none_expr := make_ident("None");
-  val_field := make_labeled_field("value", make_ident("T"));
+  none_expr := make_ident(String.from("None"));
+  val_field := make_labeled_field("value", make_ident(String.from("T")));
   some_args := ArrayList(AstExpr).new();
   some_args.push(val_field);
   some_expr := make_variant("Some", some_args);
@@ -3006,8 +3006,8 @@ test("evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
             tyb.*,
             .EnumT(_, _, vnames, vfields_all, _, _, _) => {
               assert(vnames.len() == usize(2), "should have 2 variants");
-              match(vnames.get(usize(0)),.Some(n) => assert(n.as_str() == "None", "first variant is None"),.None => assert(false, "no variant 0"));
-              match(vnames.get(usize(1)),.Some(n) => assert(n.as_str() == "Some", "second variant is Some"),.None => assert(false, "no variant 1"));
+              match(vnames.get(usize(0)),.Some(n) => assert(n == "None", "first variant is None"),.None => assert(false, "no variant 0"));
+              match(vnames.get(usize(1)),.Some(n) => assert(n == "Some", "second variant is Some"),.None => assert(false, "no variant 1"));
               match(vfields_all.get(usize(0)),.Some(f) => assert(f.len() == usize(0), "None has no fields"),.None => assert(false, "no fields 0"));
               match(vfields_all.get(usize(1)),.Some(f) => assert(f.len() == usize(1), "Some has 1 field"),.None => assert(false, "no fields 1"));
             },
@@ -3023,9 +3023,9 @@ test("evaluate: enum(Red, Green, Blue) plain fieldless variants", {
   env := empty_env();
   env_ptr := env;
   type_args := ArrayList(AstExpr).new();
-  type_args.push(make_ident("Red"));
-  type_args.push(make_ident("Green"));
-  type_args.push(make_ident("Blue"));
+  type_args.push(make_ident(String.from("Red")));
+  type_args.push(make_ident(String.from("Green")));
+  type_args.push(make_ident(String.from("Blue")));
   expr := make_typedef_call(BK_ENUM, type_args);
   result := evaluate(expr, env_ptr);
   check_some(result, "plain enum");
@@ -3055,8 +3055,8 @@ test("evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
   env := empty_env();
   env_ptr := env;
   type_args := ArrayList(AstExpr).new();
-  type_args.push(make_labeled_field("x", make_ident("i32")));
-  type_args.push(make_labeled_field("y", make_ident("bool")));
+  type_args.push(make_labeled_field("x", make_ident(String.from("i32"))));
+  type_args.push(make_labeled_field("y", make_ident(String.from("bool"))));
   expr := make_typedef_call(BK_STRUCT, type_args);
   result := evaluate(expr, env_ptr);
   check_some(result, "struct");
@@ -3073,8 +3073,8 @@ test("evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
               assert(labels.len() == usize(2), "2 fields");
               assert(!(is_ref_sem), "not ref sem");
               assert(!(is_newtype), "not newtype");
-              match(labels.get(usize(0)),.Some(l) => assert(l.as_str() == "x", "first field x"),.None => assert(false, "no label 0"));
-              match(labels.get(usize(1)),.Some(l) => assert(l.as_str() == "y", "second field y"),.None => assert(false, "no label 1"));
+              match(labels.get(usize(0)),.Some(l) => assert(l == "x", "first field x"),.None => assert(false, "no label 0"));
+              match(labels.get(usize(1)),.Some(l) => assert(l == "y", "second field y"),.None => assert(false, "no label 1"));
               match(types.get(usize(0)),.Some(t) => assert(type_value_tag(t) == TypeTag.TI32, "x:i32"),.None => assert(false, "no type 0"));
               match(types.get(usize(1)),.Some(t) => assert(type_value_tag(t) == TypeTag.TBool, "y:bool"),.None => assert(false, "no type 1"));
             },
@@ -3090,7 +3090,7 @@ test("evaluate: object(x: i32) creates Struct with is_reference_semantics=true",
   env := empty_env();
   env_ptr := env;
   type_args := ArrayList(AstExpr).new();
-  type_args.push(make_labeled_field("x", make_ident("i32")));
+  type_args.push(make_labeled_field("x", make_ident(String.from("i32"))));
   expr := make_typedef_call(BK_OBJECT, type_args);
   result := evaluate(expr, env_ptr);
   check_some(result, "object");
@@ -3117,7 +3117,7 @@ test("evaluate: newtype(i32) creates Struct with is_newtype=true", {
   env := empty_env();
   env_ptr := env;
   type_args := ArrayList(AstExpr).new();
-  type_args.push(make_ident("i32"));
+  type_args.push(make_ident(String.from("i32")));
   expr := make_typedef_call(BK_NEWTYPE, type_args);
   result := evaluate(expr, env_ptr);
   check_some(result, "newtype");
@@ -3133,7 +3133,7 @@ test("evaluate: newtype(i32) creates Struct with is_newtype=true", {
               assert(!(is_ref_sem), "newtype is not ref sem");
               assert(is_newtype, "is_newtype is true");
               assert(labels.len() == usize(1), "1 wrapped field");
-              match(labels.get(usize(0)),.Some(l) => assert(l.as_str() == "*", "field label is *"),.None => assert(false, "no label"));
+              match(labels.get(usize(0)),.Some(l) => assert(l == "*", "field label is *"),.None => assert(false, "no label"));
               match(types.get(usize(0)),.Some(t) => assert(type_value_tag(t) == TypeTag.TI32, "wrapped type is i32"),.None => assert(false, "no type"));
             },
             _ => assert(false, "not Struct")
@@ -3147,8 +3147,8 @@ test("evaluate: union(x: i32, y: bool) creates Union TypeVal", {
   env := empty_env();
   env_ptr := env;
   type_args := ArrayList(AstExpr).new();
-  type_args.push(make_labeled_field("x", make_ident("i32")));
-  type_args.push(make_labeled_field("y", make_ident("bool")));
+  type_args.push(make_labeled_field("x", make_ident(String.from("i32"))));
+  type_args.push(make_labeled_field("y", make_ident(String.from("bool"))));
   expr := make_typedef_call(BK_UNION, type_args);
   result := evaluate(expr, env_ptr);
   check_some(result, "union");
@@ -3163,7 +3163,7 @@ test("evaluate: union(x: i32, y: bool) creates Union TypeVal", {
             tyb.*,
             .Union(_, labels, types) => {
               assert(labels.len() == usize(2), "2 union fields");
-              match(labels.get(usize(0)),.Some(l) => assert(l.as_str() == "x", "label x"),.None => assert(false, "no label 0"));
+              match(labels.get(usize(0)),.Some(l) => assert(l == "x", "label x"),.None => assert(false, "no label 0"));
               match(types.get(usize(0)),.Some(t) => assert(type_value_tag(t) == TypeTag.TI32, "x:i32"),.None => assert(false, "no type 0"));
             },
             _ => assert(false, "not Union")
@@ -3225,7 +3225,7 @@ test("Phase 3am: box and deref round-trip", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(n) => assert(n.as_str() == "42", "deref gives 42"),
+                .IntLit(n) => assert(n == "42", "deref gives 42"),
                 _ => assert(false, "b not IntLit")
               ),
             .None => assert(false, "no b")
@@ -3324,7 +3324,7 @@ test("Phase 3am: ArrayList new returns empty ArrayVal", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(n) => assert(n.as_str() == "0", "empty ArrayList has len 0"),
+                .IntLit(n) => assert(n == "0", "empty ArrayList has len 0"),
                 _ => assert(false, "n not IntLit")
               ),
             .None => assert(false, "no n")
@@ -3361,7 +3361,7 @@ test("Phase 3am: ArrayVal push and len", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(n) => assert(n.as_str() == "2", "ArrayList has len 2 after 2 pushes"),
+                .IntLit(n) => assert(n == "2", "ArrayList has len 2 after 2 pushes"),
                 _ => assert(false, "n not IntLit")
               ),
             .None => assert(false, "no n")
@@ -3399,14 +3399,14 @@ test("Phase 3am: ArrayVal get returns Some(element)", {
               match(
                 v1,
                 .EnumVal(tag, ev_fields) => {
-                  assert(tag.as_str() == ".Some", "first is .Some");
+                  assert(tag == ".Some", "first is .Some");
                   match(
                     ev_fields.get(usize(0)),
                     .None => assert(false, "no first elem"),
                     .Some(first_elem) =>
                       match(
                         first_elem,
-                        .StrLit(s) => assert(s.as_str() == "\"hello\"", "first elem is hello"),
+                        .StrLit(s) => assert(s == "\"hello\"", "first elem is hello"),
                         _ => assert(false, "first elem not StrLit")
                       )
                   );
@@ -3447,7 +3447,7 @@ test("Phase 3am: StrLit.substring", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"ell\"", "substring(1,4) of hello is ell"),
+                .StrLit(s) => assert(s == "\"ell\"", "substring(1,4) of hello is ell"),
                 _ => assert(false, "sub not StrLit")
               ),
             .None => assert(false, "no sub")
@@ -3484,7 +3484,7 @@ test("Phase 3an: StrLit.replace_all", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"hello there\"", "replace_all works"),
+                .StrLit(s) => assert(s == "\"hello there\"", "replace_all works"),
                 _ => assert(false, "r not StrLit")
               ),
             .None => assert(false, "no r")
@@ -3521,7 +3521,7 @@ test("Phase 3an: StrLit.trim", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"hello\"", "trim removes surrounding whitespace"),
+                .StrLit(s) => assert(s == "\"hello\"", "trim removes surrounding whitespace"),
                 _ => assert(false, "t not StrLit")
               ),
             .None => assert(false, "no t")
@@ -3558,7 +3558,7 @@ test("Phase 3an: StrLit.to_uppercase", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"HELLO\"", "to_uppercase works"),
+                .StrLit(s) => assert(s == "\"HELLO\"", "to_uppercase works"),
                 _ => assert(false, "u not StrLit")
               ),
             .None => assert(false, "no u")
@@ -3595,7 +3595,7 @@ test("Phase 3an: StrLit.to_lowercase", {
             .Some(v1) =>
               match(
                 v1,
-                .StrLit(s) => assert(s.as_str() == "\"hello\"", "to_lowercase works"),
+                .StrLit(s) => assert(s == "\"hello\"", "to_lowercase works"),
                 _ => assert(false, "l not StrLit")
               ),
             .None => assert(false, "no l")
@@ -3633,14 +3633,14 @@ test("Phase 3ao: StrLit.parse_i64 valid integer", {
               match(
                 v1,
                 .EnumVal(tag, ev_fields_pi) => {
-                  assert(tag.as_str() == ".Some", "parse_i64 42 is Some");
+                  assert(tag == ".Some", "parse_i64 42 is Some");
                   match(
                     ev_fields_pi.get(usize(0)),
                     .None => assert(false, "no elem"),
                     .Some(elem_pi) =>
                       match(
                         elem_pi,
-                        .IntLit(n) => assert(n.as_str() == "42", "parse_i64 42 gives IntLit 42"),
+                        .IntLit(n) => assert(n == "42", "parse_i64 42 gives IntLit 42"),
                         _ => assert(false, "elem not IntLit")
                       )
                   );
@@ -3681,7 +3681,7 @@ test("Phase 3ao: StrLit.parse_i64 invalid string returns None", {
             .Some(v1) =>
               match(
                 v1,
-                .EnumVal(tag, _) => assert(tag.as_str() == ".None", "parse_i64 invalid is None"),
+                .EnumVal(tag, _) => assert(tag == ".None", "parse_i64 invalid is None"),
                 _ => assert(false, "r not EnumVal")
               ),
             .None => assert(false, "no r")
@@ -3718,7 +3718,7 @@ test("Phase 3ap: while loop with break exits early", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "3", "break at i=3"),
+                .IntLit(raw) => assert(raw == "3", "break at i=3"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3755,7 +3755,7 @@ test("Phase 3ap: for loop iterates over array", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "6", "sum 1+2+3=6"),
+                .IntLit(raw) => assert(raw == "6", "sum 1+2+3=6"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3792,7 +3792,7 @@ test("Phase 3ap: for loop with break exits early", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "20", "break found 20"),
+                .IntLit(raw) => assert(raw == "20", "break found 20"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3829,7 +3829,7 @@ test("Phase 3aq: struct field mutation updates value", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "5", "x should be 5"),
+                .IntLit(raw) => assert(raw == "5", "x should be 5"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")
@@ -3866,7 +3866,7 @@ test("Phase 3aq: multiple struct field mutations", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "10", "count=10"),
+                .IntLit(raw) => assert(raw == "10", "count=10"),
                 _ => assert(false, "r1 not IntLit")
               ),
             .None => assert(false, "no r1")
@@ -3876,7 +3876,7 @@ test("Phase 3aq: multiple struct field mutations", {
             .Some(v2) =>
               match(
                 v2,
-                .IntLit(raw) => assert(raw.as_str() == "3", "step=3"),
+                .IntLit(raw) => assert(raw == "3", "step=3"),
                 _ => assert(false, "r2 not IntLit")
               ),
             .None => assert(false, "no r2")
@@ -3913,7 +3913,7 @@ test("Phase 3aq: struct field mutation in loop", {
             .Some(v1) =>
               match(
                 v1,
-                .IntLit(raw) => assert(raw.as_str() == "5", "total=5"),
+                .IntLit(raw) => assert(raw == "5", "total=5"),
                 _ => assert(false, "r not IntLit")
               ),
             .None => assert(false, "no r")

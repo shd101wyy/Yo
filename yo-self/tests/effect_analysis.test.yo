@@ -82,9 +82,9 @@ get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
   Option(ExprInfo).None
 );
 /// Build an EffectsRowT with a single function-type effect named `effect_name`.
-make_effects_row_with :: (fn(effect_name : str) -> TypeValue)({
+make_effects_row_with :: (fn(effect_name : String) -> TypeValue)({
   labels := ArrayList(String).new();
-  labels.push(String.from(effect_name));
+  labels.push(effect_name.clone());
   types := ArrayList(TypeValue).new();
   // Use a simple function type: fn() -> unit
   forall_labels := ArrayList(String).new();
@@ -104,7 +104,14 @@ make_effects_row_with :: (fn(effect_name : str) -> TypeValue)({
     implicit_types,
     implicit_spreads,
     where_types,
-    Box(TypeValue)(t_unit())
+    Box(TypeValue)(t_unit()),
+    false,
+    ArrayList(bool).new(),
+    false,
+    false,
+    Option(String).None,
+    Option(String).None,
+    false
   );
   types.push(fn_ty);
   TypeValue.EffectsRowT(labels, types)
@@ -196,7 +203,7 @@ test("is_effect_call_: dotted call with wrong field_path => false", {
 // has_effect_in_spread_: EffectsRowT detection
 // ---------------------------------------------------------------------------
 test("has_effect_in_spread_: direct EffectsRowT with matching name => true", {
-  ert := make_effects_row_with("raise");
+  ert := make_effects_row_with(String.from("raise"));
   env := make_empty_env();
   result := has_effect_in_spread_(
     String.from("effects"),
@@ -214,13 +221,16 @@ test("has_effect_in_spread_: direct EffectsRowT with struct evidence => true", {
   struct_types := ArrayList(TypeValue).new();
   types.push(
     TypeValue.Struct(
-      String.from("struct_raise"),
-      String.from("Raise"),
-      struct_labels,
-      struct_types,
-      false,
-      false,
-      false
+      id : String.from("struct_raise"),
+      name : String.from("Raise"),
+      field_labels : struct_labels,
+      field_types : struct_types,
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
     )
   );
   ert := TypeValue.EffectsRowT(labels, types);
@@ -234,7 +244,7 @@ test("has_effect_in_spread_: direct EffectsRowT with struct evidence => true", {
   assert(result, "EffectsRowT with struct(evidence should return(true))");
 });
 test("has_effect_in_spread_: direct EffectsRowT with non-matching name => false", {
-  ert := make_effects_row_with("other_effect");
+  ert := make_effects_row_with(String.from("other_effect"));
   env := make_empty_env();
   result := has_effect_in_spread_(
     String.from("effects"),
@@ -344,7 +354,7 @@ test("analyze_effect_call_points: result has correct param name", {
     Option(ArrayList(String)).None,
     get_info_none
   );
-  assert(result.effect_parameter_name.as_str() == "my_effect", "param name should be preserved");
+  assert(result.effect_parameter_name == "my_effect", "param name should be preserved");
 });
 test("analyze_effect_call_points: result field_path is preserved", {
   body := make_ident("unit");

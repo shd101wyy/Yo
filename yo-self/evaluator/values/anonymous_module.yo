@@ -59,14 +59,14 @@ AnonModuleResult :: object(
   partial_module_error : Option(String)
 );
 /// Helper: find the first index of `label` in `field_labels`, or `.None`.
-_find_field_label_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
+_find_field_label_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := field_labels.len();
   while((i < n) && idx.is_none(), {
     match(
       field_labels.get(i),
-      .Some(lbl) => if(lbl.as_str() == label, {
+      .Some(lbl) => if(lbl == label, {
         idx =.Some(i);
       }),
       .None => ()
@@ -76,14 +76,14 @@ _find_field_label_index :: (fn(field_labels : ArrayList(String), label : str) ->
   idx
 });
 /// Helper: check if `label` is in `excluded` list.
-_is_excluded_label :: (fn(excluded : ArrayList(String), label : str) -> bool)({
+_is_excluded_label :: (fn(excluded : ArrayList(String), label : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := excluded.len();
   while((i < n) && !(found), {
     match(
       excluded.get(i),
-      .Some(lbl) => if(lbl.as_str() == label, {
+      .Some(lbl) => if(lbl == label, {
         found = true;
       }),
       .None => ()
@@ -233,7 +233,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             match(
                               ext_mod_type,
                               .Struct({ field_labels : efls }) => {
-                                if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
+                                if(_find_field_label_index(efls, lbl.clone()).is_none(), {
                                   exn.throw(
                                     dyn(
                                       format_error_message(
@@ -281,7 +281,7 @@ evaluate_anonymous_module_begin_exprs :: (
                                   match(
                                     ext_mod_type,
                                     .Struct({ field_labels : efls }) => {
-                                      if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
+                                      if(_find_field_label_index(efls, lbl.clone()).is_none(), {
                                         exn.throw(
                                           dyn(
                                             format_error_message(
@@ -326,9 +326,9 @@ evaluate_anonymous_module_begin_exprs :: (
                         while((k < nk) && !(should_stop), {
                           ext_label := match(efls.get(k),.Some(l) => l,.None => String.from(""));
                           ext_type := match(efts.get(k),.Some(t) => t,.None => TypeValue.Unit);
-                          if(!(_is_excluded_label(excluded_labels, ext_label.as_str())), {
+                          if(!(_is_excluded_label(excluded_labels, ext_label.clone())), {
                             // Check for duplicate label
-                            if(_find_field_label_index(field_labels, ext_label.as_str()).is_some(), {
+                            if(_find_field_label_index(field_labels, ext_label.clone()).is_some(), {
                               exn.throw(
                                 dyn(
                                   format_error_message(
@@ -477,7 +477,7 @@ evaluate_anonymous_module_begin_exprs :: (
                       }
                     );
                     // Check for duplicate export
-                    if(_find_field_label_index(field_labels, variable_name.as_str()).is_some(), {
+                    if(_find_field_label_index(field_labels, variable_name.clone()).is_some(), {
                       exn.throw(
                         dyn(
                           format_error_message(
@@ -554,7 +554,7 @@ evaluate_anonymous_module_begin_exprs :: (
   // plans/MODULE_AS_STRUCT_ALIGNMENT.md.
   sns_id := `source_namespace_${random_id(env.module_path)}`;
   module_type := TypeValue.Struct(
-    String.from(sns_id.as_str()),
+    sns_id.clone(),
     String.from(""),
     field_labels,
     field_types,
@@ -570,7 +570,7 @@ evaluate_anonymous_module_begin_exprs :: (
     // type_arguments
     true // is_source_namespace
   );
-  module_val := EvalValue.StructVal(String.from(sns_id.as_str()), module_names, module_vals);
+  module_val := EvalValue.StructVal(sns_id.clone(), module_names, module_vals);
   AnonModuleResult(
     module_value : module_val,
     module_type : module_type,

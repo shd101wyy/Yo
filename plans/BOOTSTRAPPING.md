@@ -96,7 +96,7 @@ below).
 **Hard requirement to run yo-self-bin:** `ulimit -s 65520` before
 invoking the binary on non-trivial input. The recursive evaluator
 carries large by-value structs and blows macOS's default 8 MB stack at
-~40–50 frames. See [`yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md)
+~40–50 frames. See [`yo-self-evaluator-stack-overflow.md`](../issues/fixed/yo-self-evaluator-stack-overflow.md)
 and §I below.
 
 What is **not yet working**:
@@ -123,11 +123,11 @@ What is **not yet working**:
 | Types                      | ~6500    | ⚠️ mostly ported (`yo-self/types/`, `yo-self/evaluator/types/`). HKT `SomeT.kindFunctionType` field added but not yet read — see §A.                                                                                                                            |
 | Evaluator — proper port    | ~35,000  | ⚠️ partial (`yo-self/evaluator/exprs/_expr.yo` + per-handler files). 133 `.yo` files vs 125 `.ts` files; structurally complete.                                                                                                                                 |
 | Evaluator — proto (legacy) | n/a      | bootstrap-only `yo-self/evaluator/eval.yo` (8258 lines) — to be retired                                                                                                                                                                                         |
-| Codegen handlers (37 TS)   | ~16,000  | 33 of 37 ported; see [Codegen handler port status](#codegen-handler-port-status).                                                                                                                                                                               |
+| Codegen handlers           | ~16,000  | ❌ DELETED 2026-06-11 — the untyped bootstrap walker was removed; the port restarts clean per `plans/BOOTSTRAPPING_CODEGEN.md`.                                                                                                                                  |
 | Codegen — async runtime    | ~15,500  | ❌ not ported — blocks all async / effect tests                                                                                                                                                                                                                 |
-| Codegen — functions        | ~4500    | ⚠️ partial (`yo-self/codegen/functions/`)                                                                                                                                                                                                                       |
-| Codegen — utils            | ~1100    | ⚠️ 12/16 TS exports covered in `yo-self/codegen/utils/`. Pending: `findReturnedAsyncBlock`, `getRuntimeStructFields`, `isComptimeOnlyStructField`, `isComptimeFunction`.                                                                                        |
-| Codegen — types            | ~2100    | ⚠️ struct / enum + RC helper fns done (`yo-self/codegen/types/generation.yo`). Not yet: iso/dyn/some/forall lowering, `src/codegen/types/{collection,dyn}.ts` split.                                                                                            |
+| Codegen — functions        | ~4500    | ❌ DELETED with the walker (see above)                                                                                                                                                                                                                          |
+| Codegen — utils            | ~1100    | ❌ DELETED with the walker (see above) |
+| Codegen — types            | ~2100    | ❌ DELETED with the walker (see above) |
 | Doc system                 | ~1500    | ✅ ported (`yo-self/doc/`)                                                                                                                                                                                                                                      |
 | Build system               | ~1500    | ✅ ported (`yo-self/build_runner.yo` + `yo-self/evaluator/builtins/build.yo`)                                                                                                                                                                                   |
 | Dependency / cache         | ~800     | ✅ ported (`yo-self/cache.yo`, `yo-self/fetch.yo`, `yo-self/lock_file.yo`)                                                                                                                                                                                      |
@@ -160,8 +160,8 @@ check`:
 **22 / 25 (88%)** of extracted real-test fixtures pass cleanly.
 
 The 3 SIGSEGV / fail cases are all the same underlying throw-propagation
-shape — see `issues/yo-self-where-clause-trait-eval-segfault.md` and
-`issues/yo-self-nested-typeapp-in-impl-return-segfault.md`.
+shape — see `issues/fixed/yo-self-where-clause-trait-eval-segfault.md` and
+`issues/fixed/yo-self-nested-typeapp-in-impl-return-segfault.md`.
 
 ### `./tests/` pass rate under `yo-self/yo-self-bin`
 
@@ -454,7 +454,7 @@ the prelude's `(-)` and similar ops will yield `UnknownVal`.
 ### §I. Stack overflow on default macOS 8 MB stack (workaround only)
 
 Tracked separately in
-[`yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md).
+[`yo-self-evaluator-stack-overflow.md`](../issues/fixed/yo-self-evaluator-stack-overflow.md).
 Workaround: `ulimit -s 65520`. Real fix is one of: explicit `setrlimit`
 in the binary's `main`, boxed parameter passing for hot recursive sites,
 or an iterative eval driver instead of native recursion. Not blocking
@@ -542,7 +542,7 @@ operator-trait dispatch when §H is done.)
 lldb backtrace at "iter 924" pinpointed `__yo_dispose_dispatch`
 prologue crashing with `sp` past an unmapped page — stack overflow,
 not a memory bug. `ulimit -s 65520` documented in `yo-self/README.md`
-and `issues/yo-self-evaluator-stack-overflow.md`.
+and `issues/fixed/yo-self-evaluator-stack-overflow.md`.
 
 ### efec44dc — UnknownVal-tolerant struct/enum construction (§5h)
 
@@ -719,20 +719,18 @@ ulimit -s 65520
 
 ## Related issue files
 
-- [`yo-self-evaluator-stack-overflow.md`](../issues/yo-self-evaluator-stack-overflow.md)
+- [`yo-self-evaluator-stack-overflow.md`](../issues/fixed/yo-self-evaluator-stack-overflow.md)
   — `ulimit` workaround + lldb backtrace.
-- [`yo-self-impl-fn-parametric-return-sigsegv.md`](../issues/yo-self-impl-fn-parametric-return-sigsegv.md)
+- [`yo-self-impl-fn-parametric-return-sigsegv.md`](../issues/fixed/yo-self-impl-fn-parametric-return-sigsegv.md)
   — original "iter 924 SIGSEGV" diagnosis; misdiagnosis chain
   resolved.
-- [`yo-self-typevalue-variants-too-narrow-for-stub-ports.md`](../issues/yo-self-typevalue-variants-too-narrow-for-stub-ports.md)
-  — TypeValue shape mismatches with TS.
-- [`yo-self-where-clause-trait-eval-segfault.md`](../issues/yo-self-where-clause-trait-eval-segfault.md)
+- [`yo-self-where-clause-trait-eval-segfault.md`](../issues/fixed/yo-self-where-clause-trait-eval-segfault.md)
   — one specific where-clause crash (fixed shape).
-- [`yo-self-nested-typeapp-in-impl-return-segfault.md`](../issues/yo-self-nested-typeapp-in-impl-return-segfault.md)
+- [`yo-self-nested-typeapp-in-impl-return-segfault.md`](../issues/fixed/yo-self-nested-typeapp-in-impl-return-segfault.md)
   — nested TypeApplication crash class.
-- [`yo-self-evaluator-enum-memory-leak.md`](../issues/yo-self-evaluator-enum-memory-leak.md)
+- [`yo-self-evaluator-enum-memory-leak.md`](../issues/fixed/yo-self-evaluator-enum-memory-leak.md)
   — RC leak observed in evaluator.
-- [`yo-self-codegen-typeid-needs-typed-ast.md`](../issues/yo-self-codegen-typeid-needs-typed-ast.md),
-  [`yo-self-codegen-parallelism-needs-closure-metadata.md`](../issues/yo-self-codegen-parallelism-needs-closure-metadata.md),
-  [`yo-self-bin-rebuild-segfaults-after-may14-src-codegen-changes.md`](../issues/yo-self-bin-rebuild-segfaults-after-may14-src-codegen-changes.md)
-  — codegen-side issues (separate from this evaluator port).
+- (The historical codegen-side issue files — typeid-needs-typed-ast,
+  parallelism-needs-closure-metadata, bin-rebuild-segfaults — were deleted
+  2026-06-11: they described the since-deleted untyped bootstrap codegen.
+  Superseded by `plans/BOOTSTRAPPING_CODEGEN.md`.)

@@ -33,7 +33,6 @@ import type {
   ExprType,
   FunctionType,
   PtrType,
-  SliceType,
   StructType,
   TraitType,
   TupleType,
@@ -132,28 +131,6 @@ export type ArrayValue = {
   elements: Value[];
 };
 
-/**
- * Compile-time slice value that references a portion of an ArrayValue.
- * The sourceArray is shared with the original array, enabling mutable semantics.
- */
-export type SliceValue = {
-  tag: ValueTag.Slice;
-  type: SliceType;
-  /**
-   * Reference to the source array. Wrapped in [ArrayValue] for sharing semantics,
-   * similar to PtrValue's targetValue.
-   */
-  sourceArray: [ArrayValue];
-  /**
-   * Start index into the source array (inclusive).
-   */
-  startIndex: number;
-  /**
-   * End index into the source array (exclusive).
-   */
-  endIndex: number;
-};
-
 export type ExprValue = {
   tag: ValueTag.Expr;
   type: ExprType;
@@ -226,7 +203,6 @@ export type Value =
   | UnitValue
   | BooleanValue
   | ArrayValue
-  | SliceValue
   | TupleValue
   | StructValue
   | EnumValue
@@ -281,13 +257,6 @@ export function valueToString(value?: Value): string {
       return `[${value.elements.map(valueToString).join(", ")}${
         value.elements.length === 1 ? "," : ""
       }]`;
-    }
-    case ValueTag.Slice: {
-      const elements = value.sourceArray[0].elements.slice(
-        value.startIndex,
-        value.endIndex
-      );
-      return `slice[${elements.map(valueToString).join(", ")}]`;
     }
     case ValueTag.Tuple: {
       if (value.fields.length === 0) {
@@ -448,10 +417,6 @@ export function isStructValue(value?: Value): value is StructValue {
 
 export function isArrayValue(value?: Value): value is ArrayValue {
   return value?.tag === ValueTag.Array;
-}
-
-export function isSliceValue(value?: Value): value is SliceValue {
-  return value?.tag === ValueTag.Slice;
 }
 
 export function isEnumValue(value?: Value): value is EnumValue {
@@ -689,21 +654,6 @@ export function createArrayValue(
   };
 }
 
-export function createSliceValue(
-  type: SliceType,
-  sourceArray: [ArrayValue],
-  startIndex: number,
-  endIndex: number
-): SliceValue {
-  return {
-    tag: ValueTag.Slice,
-    type,
-    sourceArray,
-    startIndex,
-    endIndex,
-  };
-}
-
 export function createExprValue(expr: Expr): ExprValue {
   return {
     tag: ValueTag.Expr,
@@ -792,26 +742,6 @@ export function areValuesEqual(
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
           { value: value2.elements[i], env: given.env }
-        )
-      ) {
-        return false;
-      }
-    }
-    return true;
-  } else if (isSliceValue(value1) && isSliceValue(value2)) {
-    // Compare by checking if they reference the same elements
-    const len1 = value1.endIndex - value1.startIndex;
-    const len2 = value2.endIndex - value2.startIndex;
-    if (len1 !== len2) {
-      return false;
-    }
-    for (let i = 0; i < len1; i++) {
-      const elem1 = value1.sourceArray[0].elements[value1.startIndex + i];
-      const elem2 = value2.sourceArray[0].elements[value2.startIndex + i];
-      if (
-        !areValuesEqual(
-          { value: elem1, env: expected.env },
-          { value: elem2, env: given.env }
         )
       ) {
         return false;

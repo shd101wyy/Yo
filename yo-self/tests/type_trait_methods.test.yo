@@ -36,7 +36,10 @@ _synth_struct :: (fn(id : String, name : String) -> TypeValue)(
     field_types : ArrayList(TypeValue).new(),
     is_reference_semantics : false,
     is_atomic_rc : false,
-    is_newtype : false
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
   )
 );
 _entry :: (fn(label : String) -> MethodEntry)(
@@ -52,11 +55,13 @@ _entry :: (fn(label : String) -> MethodEntry)(
 test("type_id_or_empty: extracts struct id", {
   s := _synth_struct(String.from("ty_a"), String.from("A"));
   id := type_id_or_empty(s);
-  assert(id.as_str() == "ty_a", "expected struct id");
+  assert(id == "ty_a", "expected struct id");
 });
-test("type_id_or_empty: empty for variant without id", {
+test("type_id_or_empty: synthetic id for primitive types", {
+  // Primitives carry stable synthetic ids so `impl(unit, ...)` etc. can
+  // register methods in the trait-methods registry.
   id := type_id_or_empty(TypeValue.Unit);
-  assert(id.as_str() == "", "Unit has no id");
+  assert(id == "__yo_t_unit", "Unit has the synthetic unit id");
 });
 test("register + get_type_trait_methods_for_type: appends entries", {
   clear_type_trait_methods();
@@ -206,7 +211,7 @@ test("get_receiver_methods_by_name_from_env: comptime receiver does not crash", 
     t_comptime_string(),
     false
   );
-  assert(hits_str.len() == usize(0), "no methods on comptime_string");
+  assert(hits_str.len() == usize(0), "no methods on comptime_str");
 });
 test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   clear_type_trait_methods();
@@ -224,7 +229,14 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
     implicit_types : ArrayList(TypeValue).new(),
     implicit_spreads : ArrayList(bool).new(),
     where_types : ArrayList(TypeValue).new(),
-    result : Box(TypeValue)(t_i32())
+    result : Box(TypeValue)(t_i32()),
+    result_is_comptime_only : false,
+    param_is_ref : ArrayList(bool).new(),
+    result_is_ref : false,
+    has_variadic : false,
+    is_extern : Option(String).None,
+    extern_name : Option(String).None,
+    is_control : false
   );
   trait_field_labels := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
@@ -291,7 +303,14 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
     implicit_types : ArrayList(TypeValue).new(),
     implicit_spreads : ArrayList(bool).new(),
     where_types : ArrayList(TypeValue).new(),
-    result : Box(TypeValue)(t_i32())
+    result : Box(TypeValue)(t_i32()),
+    result_is_comptime_only : false,
+    param_is_ref : ArrayList(bool).new(),
+    result_is_ref : false,
+    has_variadic : false,
+    is_extern : Option(String).None,
+    extern_name : Option(String).None,
+    is_control : false
   );
   trait_field_labels := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
@@ -350,7 +369,14 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     implicit_types : ArrayList(TypeValue).new(),
     implicit_spreads : ArrayList(bool).new(),
     where_types : ArrayList(TypeValue).new(),
-    result : Box(TypeValue)(t_i32())
+    result : Box(TypeValue)(t_i32()),
+    result_is_comptime_only : false,
+    param_is_ref : ArrayList(bool).new(),
+    result_is_ref : false,
+    has_variadic : false,
+    is_extern : Option(String).None,
+    extern_name : Option(String).None,
+    is_control : false
   );
   // Trait `Functor` with `fmap` method.
   trait_field_labels := ArrayList(String).new();
@@ -424,13 +450,13 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     .None => assert(false, "expected a method entry")
   );
 });
-test("get_receiver_methods_by_name_from_env: infix call drops *(Self)-first-param methods", {
+test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-param methods without ptr conversion", {
   clear_type_trait_methods();
   s := _synth_struct(String.from("ty_infix"), String.from("I"));
   // Build `+ : (fn(self : *(I), other : I) -> i32)` — a Self-as-ptr
-  // first-param shape. Under TS, an infix `a + b` lookup should
-  // NOT pick this method (auto-pointer-conversion is suppressed
-  // for infix calls); a regular method call would keep it.
+  // first-param shape. Mirrors TS env.ts:1278: infix calls suppress
+  // the auto-pointer-conversion MARKING but never drop the method —
+  // pointer-receiver operators (`zp &+ zi`) match `*(T)` directly.
   param_labels := ArrayList(String).new();
   param_labels.push(String.from("self"));
   param_labels.push(String.from("other"));
@@ -446,7 +472,14 @@ test("get_receiver_methods_by_name_from_env: infix call drops *(Self)-first-para
     implicit_types : ArrayList(TypeValue).new(),
     implicit_spreads : ArrayList(bool).new(),
     where_types : ArrayList(TypeValue).new(),
-    result : Box(TypeValue)(t_i32())
+    result : Box(TypeValue)(t_i32()),
+    result_is_comptime_only : false,
+    param_is_ref : ArrayList(bool).new(),
+    result_is_ref : false,
+    has_variadic : false,
+    is_extern : Option(String).None,
+    extern_name : Option(String).None,
+    is_control : false
   );
   register_type_trait_method(
     String.from("ty_infix"),
@@ -468,14 +501,22 @@ test("get_receiver_methods_by_name_from_env: infix call drops *(Self)-first-para
     false
   );
   assert(hits_normal.len() == usize(1), "non-infix call keeps *(Self) method");
-  // Infix call → drop the method.
+  // Infix call → keep the method, but without the conversion flag.
   hits_infix := get_receiver_methods_by_name_from_env(
     env,
     String.from("+"),
     s,
     true
   );
-  assert(hits_infix.len() == usize(0), "infix call drops *(Self) method");
+  assert(hits_infix.len() == usize(1), "infix call keeps *(Self) method");
+  match(
+    hits_infix.get(usize(0)),
+    .Some(m) => assert(
+      !(m.needs_pointer_conversion),
+      "infix call does not mark pointer conversion"
+    ),
+    .None => assert(false, "expected a method entry")
+  );
 });
 test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_conversion", {
   clear_type_trait_methods();
@@ -493,7 +534,14 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
     implicit_types : ArrayList(TypeValue).new(),
     implicit_spreads : ArrayList(bool).new(),
     where_types : ArrayList(TypeValue).new(),
-    result : Box(TypeValue)(t_i32())
+    result : Box(TypeValue)(t_i32()),
+    result_is_comptime_only : false,
+    param_is_ref : ArrayList(bool).new(),
+    result_is_ref : false,
+    has_variadic : false,
+    is_extern : Option(String).None,
+    extern_name : Option(String).None,
+    is_control : false
   );
   register_type_trait_method(
     String.from("ty_ptrconv"),
@@ -537,7 +585,14 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
     implicit_types : ArrayList(TypeValue).new(),
     implicit_spreads : ArrayList(bool).new(),
     where_types : ArrayList(TypeValue).new(),
-    result : Box(TypeValue)(t_i32())
+    result : Box(TypeValue)(t_i32()),
+    result_is_comptime_only : false,
+    param_is_ref : ArrayList(bool).new(),
+    result_is_ref : false,
+    has_variadic : false,
+    is_extern : Option(String).None,
+    extern_name : Option(String).None,
+    is_control : false
   );
   trait_field_labels := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));

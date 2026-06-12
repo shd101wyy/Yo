@@ -44,7 +44,7 @@ open(import("std/string"));
 evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value.as_str() == BF_UNWIND),
+    .Atom(_, tok) => (tok.value == BF_UNWIND),
     .FnCall(_, func_box, args, _, _) => {
       is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
       is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
@@ -118,7 +118,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => {
-      v := tok.value.as_str();
+      v := tok.value.clone();
       (v == BK_RETURN) || (v == BF_UNWIND)
     },
     .FnCall(_, func_box, args, _, _) => {
@@ -196,7 +196,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, tok) => {
-      s := tok.value.as_str();
+      s := tok.value.clone();
       (s == BK_BREAK) || ((s == BK_RETURN) || (s == BF_UNWIND))
     },
     .FnCall(_, fn_box, args, _, _) => {

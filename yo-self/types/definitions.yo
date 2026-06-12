@@ -27,6 +27,10 @@ TypeValue :: enum(
   Unit,
   BoolT,
   Void,
+  /// `str` — builtin immutable fat-pointer view of STATIC string bytes.
+  /// Mirrors TS `StrType` (tag TypeTag.Str, fieldless). C lowering:
+  /// `typedef struct { const uint8_t* ptr; size_t len; } __yo_str;`
+  Str,
   /// Fixed-width integer. `bits` ∈ {8, 16, 32, 64}; `signed` distinguishes
   /// `iN` vs `uN`.
   Int(bits : u8, signed : bool),
@@ -56,7 +60,6 @@ TypeValue :: enum(
   TypeUni(level : usize),
   // Compound types ---------------------------------------------------------
   Pointer(pointee : Box(Self)),
-  Slice(element : Box(Self)),
   /// `length_var` mirrors the VALUE-ness of TS `ArrayType.length: Value`:
   /// "" = `length` is the concrete element count; non-empty = the length is
   /// an unresolved forall VARIABLE of that name (e.g. the `U` in

@@ -50,9 +50,11 @@ open(import("std/fmt"));
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
   type_contains_some_type,
+  type_representation_contains_raw_ptr,
   get_all_some_types
 }
 :: import("../../types/utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
@@ -104,36 +106,36 @@ register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
   ___ := g_macro_return_is_unquote.set(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
-get_macro_quoted_param_indices :: (fn(func_id : str) -> ArrayList(usize))(
+get_macro_quoted_param_indices :: (fn(func_id : String) -> ArrayList(usize))(
   match(
-    g_macro_quoted_param_indices.get(String.from(func_id)),
+    g_macro_quoted_param_indices.get(func_id.clone()),
     .Some(idxs) => idxs,
     .None => ArrayList(usize).new()
   )
 );
 /// Returns true if the function's return type is `unquote(...)`.
-macro_return_is_unquote :: (fn(func_id : str) -> bool)(
+macro_return_is_unquote :: (fn(func_id : String) -> bool)(
   match(
-    g_macro_return_is_unquote.get(String.from(func_id)),
+    g_macro_return_is_unquote.get(func_id.clone()),
     .Some(_) => true,
     .None => false
   )
 );
 /// Returns true if the function is a macro (quoted params OR unquote return).
-is_macro_fn :: (fn(func_id : str) -> bool)(
+is_macro_fn :: (fn(func_id : String) -> bool)(
   cond(
     macro_return_is_unquote(func_id) => true,
     true => match(
-      g_macro_quoted_param_indices.get(String.from(func_id)),
+      g_macro_quoted_param_indices.get(func_id.clone()),
       .Some(idxs) => (idxs.len() > usize(0)),
       .None => false
     )
   )
 );
 /// Returns true if the parameter at `param_index` is quoted for `func_id`.
-is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
+is_param_quoted :: (fn(func_id : String, param_index : usize) -> bool)(
   match(
-    g_macro_quoted_param_indices.get(String.from(func_id)),
+    g_macro_quoted_param_indices.get(func_id.clone()),
     .Some(idxs) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -162,16 +164,16 @@ is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
 /// `FuncVal` id, which is what the call site has in hand — the same
 /// two-step as `copy_func_param_defaults` below. No-op when `from_id`
 /// has no entries.
-copy_macro_registration :: (fn(from_id : str, to_id : String) -> unit)({
+copy_macro_registration :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_macro_quoted_param_indices.get(String.from(from_id)),
+    g_macro_quoted_param_indices.get(from_id.clone()),
     .Some(idxs) => {
       ___ := g_macro_quoted_param_indices.set(to_id.clone(), idxs);
     },
     .None => ()
   );
   match(
-    g_macro_return_is_unquote.get(String.from(from_id)),
+    g_macro_return_is_unquote.get(from_id.clone()),
     .Some(_) => {
       ___ := g_macro_return_is_unquote.set(to_id.clone(), true);
     },
@@ -218,9 +220,9 @@ register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Optio
 /// Copy a registered default-values entry from `from_id` to `to_id`
 /// (used to re-key from the fn-type-expr id to the FuncVal id). No-op
 /// when `from_id` has no entry.
-copy_func_param_defaults :: (fn(from_id : str, to_id : String) -> unit)({
+copy_func_param_defaults :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_func_param_defaults.get(String.from(from_id)),
+    g_func_param_defaults.get(from_id.clone()),
     .Some(defaults) => {
       ___ := g_func_param_defaults.set(to_id.clone(), defaults);
     },
@@ -239,27 +241,27 @@ VariadicParamEntry :: struct(label : String, ty : TypeValue);
 (g_func_variadic_params : HashMap(String, VariadicParamEntry)) =
   HashMap(String, VariadicParamEntry).new();
 register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeValue) -> unit)({
-  if(label.as_str() != "...", {
+  if(label != "...", {
     ___ := g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
   });
 });
-copy_func_variadic_param :: (fn(from_id : str, to_id : String) -> unit)({
+copy_func_variadic_param :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_func_variadic_params.get(String.from(from_id)),
+    g_func_variadic_params.get(from_id.clone()),
     .Some(entry) => {
       ___ := g_func_variadic_params.set(to_id.clone(), entry);
     },
     .None => ()
   );
 });
-get_func_variadic_param :: (fn(func_id : str) -> Option(VariadicParamEntry))(
-  g_func_variadic_params.get(String.from(func_id))
+get_func_variadic_param :: (fn(func_id : String) -> Option(VariadicParamEntry))(
+  g_func_variadic_params.get(func_id.clone())
 );
 /// Return the per-parameter default values for `func_id`, or an empty
 /// list when none are registered (i.e. all parameters required).
-get_func_param_defaults :: (fn(func_id : str) -> ArrayList(Option(EvalValue)))(
+get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue)))(
   match(
-    g_func_param_defaults.get(String.from(func_id)),
+    g_func_param_defaults.get(func_id.clone()),
     .Some(defaults) => defaults,
     .None => ArrayList(Option(EvalValue)).new()
   )
@@ -294,9 +296,9 @@ register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(Whe
 });
 /// Copy a registered where-constraints entry from `from_id` to `to_id`
 /// (re-key from the fn-type-expr id to the FuncVal id). No-op when absent.
-copy_func_where_constraints :: (fn(from_id : str, to_id : String) -> unit)({
+copy_func_where_constraints :: (fn(from_id : String, to_id : String) -> unit)({
   match(
-    g_func_where_constraints.get(String.from(from_id)),
+    g_func_where_constraints.get(from_id.clone()),
     .Some(entries) => {
       ___ := g_func_where_constraints.set(to_id.clone(), entries);
     },
@@ -304,9 +306,9 @@ copy_func_where_constraints :: (fn(from_id : str, to_id : String) -> unit)({
   );
 });
 /// Return the where-clause constraints for `func_id` (empty when none).
-get_func_where_constraints :: (fn(func_id : str) -> ArrayList(WhereConstraintEntry))(
+get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraintEntry))(
   match(
-    g_func_where_constraints.get(String.from(func_id)),
+    g_func_where_constraints.get(func_id.clone()),
     .Some(entries) => entries,
     .None => ArrayList(WhereConstraintEntry).new()
   )
@@ -509,7 +511,7 @@ _is_dots_atom :: (fn(expr : AstExpr) -> bool)(
     false,
     begin(
       tok := ast_expr_token(expr),
-      tok.value.as_str() == "..."
+      tok.value == "..."
     )
   )
 );
@@ -953,11 +955,11 @@ evaluate_function_parameter :: (
           env_mut.input_string = info.env.input_string;
           dv_val_opt := info.value;
           captured_default_value = dv_val_opt;
-          // Coerce comptime types (e.g. comptime_string) to their runtime
+          // Coerce comptime types (e.g. comptime_str) to their runtime
           // equivalents when the param has an explicit annotation. Mirrors
           // TS `convertComptimeTypeToRuntimeType` at default-value sites —
           // lets `(msg : str) ?= "Assertion failed."` typecheck because the
-          // comptime_string literal coerces to `str` (or `*(u8)`/`*(char)`/
+          // comptime_str literal coerces to `str` (or `*(u8)`/`*(char)`/
           // `[u8]` if explicitly expected).
           dv_ty := convert_comptime_type_to_runtime_type_with_expected(
             info.ty,
@@ -1036,6 +1038,24 @@ evaluate_function_parameter :: (
       TypeValue.Unit
     }
   );
+  // Raw-view naming gate (plans/SLICE_REWORK.md): a SAFE file may not
+  // annotate a parameter with a type whose representation carries a raw
+  // pointer (RawSlice(T), structs wrapping *(T), ...). Mirrors the TS gate
+  // in src/evaluator/types/function.ts.
+  if((!(ctx.unsafe_context)) &&
+    (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())))) &&
+      type_representation_contains_raw_ptr(final_param_type), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'ref(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
   // Validate comptime + type compatibility
   if(is_compile_time_only &&
     !(type_contains_some_type(final_param_type)) &&
@@ -3172,37 +3192,22 @@ evaluate_function_type :: (
     ret_args := _fn_call_args(return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     return_type_expr = match(ret_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-    // ref(name) : T — return label ref (mirrors TS lines 2380-2410)
-    if(ast_expr_is_fn_call_of(rl_expr, BK_REF, Option(usize).None), {
-      r_ref_args := _fn_call_args(rl_expr);
-      if(!(r_ref_args.len() == usize(1)), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(rl_expr),
-              `Expected one argument for "ref" in return label, got ${r_ref_args.len()}`,
-              false,
-              .None
-            )
+    // `(ref(name) : T)` / `(name : ref(T))` — ref-return forms are
+    // BANNED: refs are second-class and may appear only in parameter
+    // position and local lvalue borrows. (Mirrors the TS ban in
+    // evaluateFunctionType.)
+    if(ast_expr_is_fn_call_of(rl_expr, BK_REF, Option(usize).None) ||
+      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(rl_expr),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            false,
+            .None
           )
-        );
-      });
-      // Forbid `(ref(name) : ref(T))` — `ref` appears twice for the same
-      // return slot. Pick one form, not both. Mirrors function.ts:2396-2406.
-      if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(return_type_expr),
-              String.from("Cannot use 'ref' on both the label and the type of a return slot. Pick one: '-> (ref(name) : T)' or '-> (name : ref(T))'."),
-              false,
-              .None
-            )
-          )
-        );
-      });
-      rl_expr = match(r_ref_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-      is_return_type_ref = true;
+        )
+      );
     });
     // comptime modifier
     if(ast_expr_is_fn_call_of(rl_expr, BK_COMPTIME, Option(usize).None), {
@@ -3315,23 +3320,20 @@ evaluate_function_type :: (
     return_label =.Some(ast_expr_token(rl_expr).value);
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
-    // Unwrap ref(T) before comptime/unquote — ref is outermost.
+    // `-> ref(T)` is BANNED: refs are second-class and may appear only
+    // in parameter position and local lvalue borrows. (Mirrors the TS
+    // ban in evaluateFunctionType.)
     if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
-      rr_args := _fn_call_args(return_type_expr);
-      if(!(rr_args.len() == usize(1)), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(return_type_expr),
-              `Expected one argument for "ref" return slot, got ${rr_args.len()}`,
-              false,
-              .None
-            )
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(return_type_expr),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            false,
+            .None
           )
-        );
-      });
-      is_return_type_ref = true;
-      return_type_expr = match(rr_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+        )
+      );
     });
     if(ast_expr_is_fn_call_of(return_type_expr, BK_COMPTIME, Option(usize).None), {
       is_return_comptime_only = true;
@@ -3397,36 +3399,20 @@ evaluate_function_type :: (
       );
     });
   });
-  // Unwrap ref(T) in return type slot (mirrors TS lines 2492-2509).
-  // ref(T) is only legal at the outermost position of a return slot.
+  // `-> ref(T)` in the return slot is BANNED: refs are second-class and
+  // may appear only in parameter position and local lvalue borrows.
+  // (Mirrors the TS ban in evaluateFunctionType.)
   if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
-    rt_args := _fn_call_args(return_type_expr);
-    if(!(rt_args.len() == usize(1)), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(return_type_expr),
-            `Expected one argument for "ref" return slot, got ${rt_args.len()}`,
-            false,
-            .None
-          )
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(return_type_expr),
+          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+          false,
+          .None
         )
-      );
-    });
-    if(is_return_unquote, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(return_type_expr),
-            `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
-            false,
-            .None
-          )
-        )
-      );
-    });
-    is_return_type_ref = true;
-    return_type_expr = match(rt_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      )
+    );
   });
   // Evaluate return type expression
   prev_eval_fn := ctx.is_evaluating_function_type;

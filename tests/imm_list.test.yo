@@ -1,3 +1,4 @@
+open(import("std/collections/array_list"));
 open(import("std/fmt"));
 { List } :: import("std/imm/list");
 test("List new creates empty list", {
@@ -65,14 +66,13 @@ test("List contains", {
   assert(xs.contains(i32(2)), "should contain 2");
   assert(!(xs.contains(i32(5))), "should not contain 5");
 });
-test("List from_slice", {
+test("List from_list", {
   arr := [i32(10), i32(20), i32(30)];
-  slice := arr(usize(0) .. usize(3));
-  xs := List(i32).from_slice(slice);
-  assert(xs.len() == usize(3), "from_slice length should be 3");
-  assert(xs(usize(0)) == i32(10), "from_slice[0] should be 10");
-  assert(xs(usize(1)) == i32(20), "from_slice[1] should be 20");
-  assert(xs(usize(2)) == i32(30), "from_slice[2] should be 30");
+  xs := List(i32).from_list(ArrayList(i32).from_array(arr));
+  assert(xs.len() == usize(3), "from_list length should be 3");
+  assert(xs(usize(0)) == i32(10), "from_list[0] should be 10");
+  assert(xs(usize(1)) == i32(20), "from_list[1] should be 20");
+  assert(xs(usize(2)) == i32(30), "from_list[2] should be 30");
 });
 test("List equality", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2));

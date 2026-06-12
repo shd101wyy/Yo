@@ -1,0 +1,45 @@
+//! Regression tests: a begin-block used as an initialization RHS must keep
+//! its non-tail statements. Before the fix, a runtime-condition `cond` whose
+//! arms are unit-typed annotated itself with a typed UNKNOWN value, which the
+//! begin evaluator's fold check treated as compile-time — the block folded to
+//! its tail value and codegen silently deleted the statement (including a
+//! conditional early `return`). issues/fixed/codegen-block-rhs-drops-nontail-statements.md
+open(import("std/fmt"));
+
+returns_early :: (fn(flag : bool) -> i32)({
+  inner := {
+    cond(
+      flag => {
+        return(i32(10));
+      },
+      true => ()
+    );
+    i32(20)
+  };
+  inner
+});
+
+test("block-RHS keeps a conditional early return", {
+  assert(returns_early(true) == i32(10), "early-return path must execute");
+  assert(returns_early(false) == i32(20), "fall-through path yields the tail value");
+});
+
+mutates_outer :: (fn(flag : bool) -> i32)({
+  (acc : i32) = i32(0);
+  inner := {
+    cond(
+      flag => {
+        acc = i32(5);
+        ()
+      },
+      true => ()
+    );
+    i32(1)
+  };
+  acc + inner
+});
+
+test("block-RHS keeps a conditional side-effecting statement", {
+  assert(mutates_outer(true) == i32(6), "mutation must execute");
+  assert(mutates_outer(false) == i32(1), "no mutation on the false path");
+});

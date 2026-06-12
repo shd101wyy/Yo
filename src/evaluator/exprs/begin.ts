@@ -42,7 +42,7 @@ import {
   typeToString,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { isFunctionValue, isTypeValue } from "../../value";
+import { isFunctionValue, isTypeValue, isUnknownValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -1244,25 +1244,10 @@ Install the handler at its use site instead:
           context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
         ) {
           const fnType = context.isEvaluatingFunctionBodyOrAsyncBlock.type;
-          // Defense-in-depth for `-> ref(T)` returns. The
-          // `isFlowableExpr` walk at function-body level vacuously
-          // accepts `return(...)` because the return wrapper has
-          // controlFlow → true; that walk would otherwise validate
-          // the returned expression. In practice the dangling-ref
-          // attempts get rejected by the return-arg type-check
-          // ("Expected i32, got *(i32)" or vice versa) because
-          // `return(expr)` always evaluates `expr` to its value-typed
-          // form. Re-running the flowability predicate here makes
-          // the soundness story explicit instead of relying on the
-          // type-mismatch fallback.
-          if (fnType.return.isRef) {
-            if (!isFlowableExpr(evaluatedReturnArgExpr)) {
-              throw formatErrorMessage({
-                token: returnArg.token,
-                errorMessage: `'return(...)' from a function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The returned expression is not flowable:\n  ${exprToString(returnArg)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
-              });
-            }
-          } else if (
+          // (Ref-returning functions are banned at signature
+          // evaluation, so only the raw-pointer-representation
+          // rooting check remains for explicit `return(...)`.)
+          if (
             !fnType.return.isCompileTimeOnly &&
             typeRepresentationContainsRawPtr(fnType.return.type) &&
             !isImplicitlyUnsafeCapableFile(returnArg.token.modulePath)
@@ -1570,12 +1555,27 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         // but they produce runtime side effects when their RHS is a runtime
         // expression. Check isCompileTimeOnlyAssignment which is set by the
         // assignment evaluator when the operation is provably compile-time.
+        // This branch must take PRECEDENCE over the UnknownValue check
+        // below: a comptime-only assignment in a comptime fn body carries a
+        // typed unknown during the validation pass, and marking it runtime
+        // broke every `comptime(ref(...))` function (CI unit-test catch).
         else if (
           exprIsFunctionCall(evaluatedExpr) &&
           (exprIsFunctionCallOf(evaluatedExpr, "=") ||
-            exprIsFunctionCallOf(evaluatedExpr, ":=")) &&
-          !evaluatedExpr.$.isCompileTimeOnlyAssignment
+            exprIsFunctionCallOf(evaluatedExpr, ":="))
         ) {
+          if (!evaluatedExpr.$.isCompileTimeOnlyAssignment) {
+            hasRuntimeSideEffects = true;
+          }
+        }
+        // For NON-assignment statements, only a CONCRETELY known value
+        // proves the statement effect-free. An UnknownValue (e.g. a
+        // runtime-condition cond over unit arms, which annotates itself
+        // with a typed unknown) may execute anything at runtime — including
+        // a conditional `return` — so folding the block to its tail value
+        // would silently delete the statement
+        // (issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
+        else if (isUnknownValue(evaluatedExpr.$.value)) {
           hasRuntimeSideEffects = true;
         }
       }
@@ -2015,9 +2015,32 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
           // Mark the variable as consumed so it won't generate a drop call at end of function
           // This handles the end-of-scope drop. Early return drops are handled separately.
+          //
+          // Record the consume point at the cancelled dup's USE SITE when
+          // there is exactly one regular runtime dup: from that point on,
+          // ownership lives in the dup's consumer (e.g. a struct literal
+          // the variable was moved into), so early returns AFTER it must
+          // not receive an early-return-only drop for this variable —
+          // doing so double-freed the moved value (the consumer's dispose
+          // drops it again). Early returns BEFORE the transfer still fall
+          // inside the [init, consume) window and keep their drop. With a
+          // branch-group dup (or no runtime dup at all) the transfer point
+          // is not a single source location — keep the end-of-scope token,
+          // which preserves the drop on every early return.
+          let consumeSiteToken = lastExpr.token;
+          if (runtimeDupCount === 1 && branchGroups.length === 0) {
+            const regularDup = allDupExprsToRemove.find(
+              (dupExpr) =>
+                !(dupExpr as FnCallExpr & { __isEarlyReturnDup?: boolean })
+                  .__isEarlyReturnDup
+            ) as (FnCallExpr & { __useSiteToken?: Token }) | undefined;
+            if (regularDup?.__useSiteToken) {
+              consumeSiteToken = regularDup.__useSiteToken;
+            }
+          }
           env = updateExistingVariable(env, variable, {
             ...variable,
-            consumedAtToken: lastExpr.token,
+            consumedAtToken: consumeSiteToken,
           });
         } else {
           // Multiple runtime dups - can't simply cancel them all with one drop

@@ -18,7 +18,7 @@ That is the rule. It is enforced by removing UB-capable constructs from the user
 
 Everything you'd expect from a modern general-purpose language:
 
-- **Value types.** `i32`, `bool`, `str`, structs, enums, tuples, `Array(T, N)`, `Slice(T)`.
+- **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
 - **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `LinkedList(T)`, `String`, immutable variants in `std/imm/*`.
 - **Shared ownership.** `object` types (single-threaded Rc), `Arc(T)` (atomic Rc for cross-thread sharing), `Iso(T)` (ownership transfer).
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro dispatches on the body's parameter shape: `(item) => …` iterates by value (calls `.into_iter()` under the hood), and `for(coll, ref(item) => …)` iterates by reference so writes through `item` propagate back into the collection.
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Object elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, write back with index assignment (`coll(i) = v`). The old borrow form `for(coll, ref(item) => …)` was removed and produces a compile error with this recipe.
 
 ## What Safe Code Cannot Do
 
@@ -54,12 +54,12 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 | Construct                                               | Diagnostic (short)                                                               | Safe alternative                                                                              |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | `Slice(T)`, `ref(name) : T`, an `object` type, or a stdlib wrapper                            |
-| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` parameter, or take a `Slice(T)`                                               |
+| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `ref(name) : T`, an `object` type, or a stdlib wrapper                            |
+| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` parameter, or pass the owned collection                                               |
 | `unsafe(...)` call                                      | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops |
 | `asm(...)` block                                        | "inline assembly is not available in safe code"                                  | Same                                                                                          |
 | `extern(...)` / `c_include(...)` declaration            | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                             |
-| Pointer arithmetic (`&+`, `&-`, `&/`)                   | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `Slice(T)` / `ArrayList(T)`                                                       |
+| Pointer arithmetic (`&+`, `&-`, `&/`)                   | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `ArrayList(T)` / `Array(T, N)`                                                       |
 | `consume(p.* = v)` on a pointer                         | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                 |
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
@@ -83,23 +83,29 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(name) : T` is **second-class**: it can only appear in parameter position, never as a type by itself. There is no syntax for "a variable of `ref` type", so it cannot leak into a struct field, a let-binding, or a closure capture. The compiler enforces this structurally — there's no escape route to enforce, because there's no syntax to escape with.
+`ref` is **second-class** and exists ONLY in parameter position (`ref(name) : T`). Functions cannot return `ref`, there are no local ref bindings (`ref(r) := …` is rejected — fields read and write in place), there is no first-class "`ref` type", and a borrow cannot leak into a struct field or a closure capture. A ref argument is a simple lvalue place (a variable, or `var.field` rooted at a local/param), so the borrowed storage is alive for the whole call by construction. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 
 - Stdlib trait methods that mutate (`Hash.hash`, `Clone.clone`, `Iterator.next`) all take `ref(self) : Self`. You write `value.hash()`, `it.next()` — no `&()` needed.
 - Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `ref(name) : T`.
-- Iterating with mutation: `for(coll, ref(item) => body)` borrows each element in place.
+- Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(ref(v) : T) -> R))`.
 
 ## Stdlib Collections Stay Safe
 
-`Slice(T)`, `ArrayList(T)`, `HashMap(K, V)`, `String`, and friends all carry raw pointers in their internal representation. They are safe to use because the implementation hides the pointer:
+`ArrayList(T)`, `HashMap(K, V)`, `String`, and friends all carry raw pointers in their internal representation. They are safe to use because the implementation hides the pointer:
 
 1. **No public method has `*(T)` in its signature.** Methods take and return safe types only.
-2. **All indexing is bounds-checked.** `slice(i)`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
-3. **No raw construction.** You can't build a `Slice(T)` or `ArrayList(T)` with an arbitrary pointer; the constructors are safe.
+2. **All indexing is bounds-checked.** `s(i)` on a `str`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
+3. **No raw construction.** You can't build an `ArrayList(T)` with an arbitrary pointer; the constructors are safe.
 
-The stdlib also closes the **dangling-slice hole** that other languages with raw-pointer abstractions have to manage by hand: returning a `Slice(T)` whose underlying storage dies with the call frame is rejected at compile time. See `plans/SLICE_FLOWABILITY.md` for the structural rule; you don't need to know it to use slices safely. A user-facing walkthrough of the rule is in [FLOWABILITY.md](./FLOWABILITY.md).
+The language also closes the **dangling-view hole** that other languages with raw-pointer abstractions have to manage by hand, by construction:
+
+- `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
+- **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
+- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for object elements that is a handle to the element *object* (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
+
+The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 
@@ -159,11 +165,11 @@ When you write `unsafe(...)`, you're claiming a specific contract holds. Documen
 ```rust
 match(
   self._ptr,
-  // SAFETY: pos has been bounds-checked above (pos < self._length);
+  // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => unsafe(_ptr &+ pos),
-  .None => panic("ArrayList: project on empty list")
+  .Some(_ptr) => (_ptr &+ idx),
+  .None => panic("ArrayList: index on empty list")
 )
 ```
 
@@ -289,7 +295,8 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 ## Further Reading
 
 - `plans/MEMORY_SAFETY.md` — the design document for the safety model. Covers the full rationale, phase rollout, alternatives considered.
-- `plans/SLICE_FLOWABILITY.md` — the rule that closes the dangling-slice hole.
+- [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `ref`/borrow rules (flowability + borrow invalidation).
+- `plans/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
 - `plans/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
 - `docs/en-US/DESIGN.md` — the broader language design; the pointer / unsafe sections cross-reference this page.

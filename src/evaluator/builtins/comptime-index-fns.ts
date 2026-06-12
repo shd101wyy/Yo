@@ -10,25 +10,21 @@ import type { Token } from "../../token";
 import {
   createComptimeListType,
   createPtrType,
-  createSliceType,
 } from "../../types/creators";
 import type {
   ArrayType,
   ComptimeListType,
   PtrType,
-  SliceType,
   Type,
 } from "../../types/definitions";
 import {
   isArrayType,
   isComptimeListType,
   isPtrType,
-  isSliceType,
 } from "../../types/guards";
 import {
   createComptimeListValue,
   createComptimeStringValue,
-  createSliceValue,
   createUnknownValue,
   isArrayValue,
   isComptimeIntValue,
@@ -36,7 +32,6 @@ import {
   isComptimeStringValue,
   isNumberValue,
   isPtrValue,
-  isSliceValue,
   isStructValue,
   isUnknownValue,
   type ComptimeListValue,
@@ -74,20 +69,17 @@ function extractRangeIndices(
 }
 
 /**
- * Evaluate comptime array/slice element indexing builtins:
+ * Evaluate the comptime array element indexing builtin:
  * - __yo_comptime_array_index(self, idx)
- * - __yo_comptime_slice_index(self, idx)
  */
 function evaluateComptimeElementIndex({
   expr,
   env,
   context,
-  isSlice,
 }: {
   expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-  isSlice: boolean;
 }): FnCallExpr {
   const selfExpr = expr.args[0]!;
   const idxExpr = expr.args[1]!;
@@ -120,48 +112,7 @@ function evaluateComptimeElementIndex({
 
   const selfValue = evaluatedSelf.$.value;
 
-  if (isSlice && selfValue && isSliceValue(selfValue)) {
-    const sliceValue = selfValue;
-    const elementType = (sliceValue.type as SliceType).childType;
-
-    if (evaluatedIdx.$.value && isNumberValue(evaluatedIdx.$.value)) {
-      const relativeIndex = extractIndex(evaluatedIdx.$.value.value);
-      const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
-      if (relativeIndex < 0 || relativeIndex >= sliceLength) {
-        throw formatErrorMessage({
-          token: idxExpr.token,
-          errorMessage: `Slice index out of bounds: ${relativeIndex}. Expected index in range [0, ${sliceLength - 1}].`,
-        });
-      }
-      const absoluteIndex = sliceValue.startIndex + relativeIndex;
-      const sourceArray = sliceValue.sourceArray[0]!;
-      const value = sourceArray.elements[absoluteIndex]!;
-
-      expr.$ = {
-        env,
-        type: elementType,
-        value,
-        pathCollection: [],
-        comptimeRef: {
-          kind: "array",
-          arrayValue: sourceArray,
-          index: absoluteIndex,
-        },
-      };
-      return expr;
-    }
-
-    // Unknown index — return unknown value
-    expr.$ = {
-      env,
-      type: elementType,
-      value: createUnknownValue(elementType, { env, context }),
-      pathCollection: [],
-    };
-    return expr;
-  }
-
-  if (!isSlice && selfValue && isArrayValue(selfValue)) {
+  if (selfValue && isArrayValue(selfValue)) {
     const arrayValue = selfValue;
     const elementType = (arrayValue.type as ArrayType).childType;
 
@@ -210,7 +161,7 @@ function evaluateComptimeElementIndex({
 
 /**
  * Compute the correct return type for element indexing.
- * For *(Array(T, N)) or *(Slice(T)), returns *(T) (element pointer).
+ * For *(Array(T, N)), returns *(T) (element pointer).
  * Falls back to the input type if it can't be determined.
  */
 function computeElementReturnType(selfType: Type): Type {
@@ -219,18 +170,12 @@ function computeElementReturnType(selfType: Type): Type {
     if (isArrayType(pointee)) {
       return createPtrType((pointee as ArrayType).childType);
     }
-    if (isSliceType(pointee)) {
-      return createPtrType((pointee as SliceType).childType);
-    }
     if (isComptimeListType(pointee)) {
       return createPtrType((pointee as ComptimeListType).childType);
     }
   }
   if (isArrayType(selfType)) {
     return createPtrType((selfType as ArrayType).childType);
-  }
-  if (isSliceType(selfType)) {
-    return createPtrType((selfType as SliceType).childType);
   }
   if (isComptimeListType(selfType)) {
     return createPtrType((selfType as ComptimeListType).childType);
@@ -486,197 +431,6 @@ function computeListRangeReturnType(selfType: Type): Type {
 }
 
 /**
- * Evaluate comptime array/slice range indexing builtins:
- * - __yo_comptime_array_index_range(self, range)
- * - __yo_comptime_array_index_range_inclusive(self, range)
- * - __yo_comptime_slice_index_range(self, range)
- * - __yo_comptime_slice_index_range_inclusive(self, range)
- *
- * Range is struct(start: T, end: T), fields[0] = start, fields[1] = end.
- */
-function evaluateComptimeRangeIndex({
-  expr,
-  env,
-  context,
-  isSlice,
-  isInclusive,
-}: {
-  expr: FnCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-  isSlice: boolean;
-  isInclusive: boolean;
-}): FnCallExpr {
-  const selfExpr = expr.args[0]!;
-  const idxExpr = expr.args[1]!;
-
-  const evaluatedSelf = evaluateExpression({
-    expr: selfExpr,
-    env,
-    context: { ...context },
-  });
-  if (!evaluatedSelf.$) {
-    throw formatErrorMessage({
-      token: selfExpr.token,
-      errorMessage: `Failed to evaluate self for comptime range index`,
-    });
-  }
-  env = evaluatedSelf.$.env;
-
-  const evaluatedIdx = evaluateExpression({
-    expr: idxExpr,
-    env,
-    context: { ...context },
-  });
-  if (!evaluatedIdx.$) {
-    throw formatErrorMessage({
-      token: idxExpr.token,
-      errorMessage: `Failed to evaluate range index for comptime index`,
-    });
-  }
-  env = evaluatedIdx.$.env;
-
-  const selfValue = evaluatedSelf.$.value;
-  const rangeValue = evaluatedIdx.$.value;
-
-  // Range value is not a known comptime struct (e.g., runtime range, or
-  // UnknownValue during generic impl specialization) — return fallback
-  // The return type for range indexing is always *(Slice(childType))
-  if (!rangeValue || isUnknownValue(rangeValue) || !isStructValue(rangeValue)) {
-    const selfType = evaluatedSelf.$.type;
-    const fallbackType = computeRangeReturnType(selfType);
-    expr.$ = {
-      env,
-      type: fallbackType,
-      value: undefined,
-      pathCollection: [],
-    };
-    return expr;
-  }
-
-  const indices = extractRangeIndices(rangeValue, isInclusive);
-  if (!indices) {
-    throw formatErrorMessage({
-      token: idxExpr.token,
-      errorMessage: `Expected numeric start/end in Range for comptime range index`,
-    });
-  }
-
-  const { start: startIndex, end: endIndex } = indices;
-
-  if (!isSlice && selfValue && isArrayValue(selfValue)) {
-    const arrayValue = selfValue;
-    const elementType = (arrayValue.type as ArrayType).childType;
-    const resultSliceType = createSliceType(elementType);
-
-    if (startIndex < 0 || startIndex > arrayValue.elements.length) {
-      throw formatErrorMessage({
-        token: idxExpr.token,
-        errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
-      });
-    }
-    if (endIndex < startIndex || endIndex > arrayValue.elements.length) {
-      throw formatErrorMessage({
-        token: idxExpr.token,
-        errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
-      });
-    }
-
-    const newSliceValue = createSliceValue(
-      resultSliceType,
-      [arrayValue],
-      startIndex,
-      endIndex
-    );
-    expr.$ = {
-      env,
-      type: resultSliceType,
-      value: newSliceValue,
-      pathCollection: [],
-    };
-    return expr;
-  }
-
-  if (isSlice && selfValue && isSliceValue(selfValue)) {
-    const sliceValue = selfValue;
-    const elementType = (sliceValue.type as SliceType).childType;
-    const resultSliceType = createSliceType(elementType);
-    const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
-
-    if (startIndex < 0 || startIndex > sliceLength) {
-      throw formatErrorMessage({
-        token: idxExpr.token,
-        errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${sliceLength}].`,
-      });
-    }
-    if (endIndex < startIndex || endIndex > sliceLength) {
-      throw formatErrorMessage({
-        token: idxExpr.token,
-        errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${sliceLength}].`,
-      });
-    }
-
-    const absoluteStart = sliceValue.startIndex + startIndex;
-    const absoluteEnd = sliceValue.startIndex + endIndex;
-
-    const newSliceValue = createSliceValue(
-      resultSliceType,
-      sliceValue.sourceArray,
-      absoluteStart,
-      absoluteEnd
-    );
-    expr.$ = {
-      env,
-      type: resultSliceType,
-      value: newSliceValue,
-      pathCollection: [],
-    };
-    return expr;
-  }
-
-  // Self is not a known comptime value (e.g., during generic impl evaluation)
-  // For range indexing, return *(Slice(childType))
-  const selfType = evaluatedSelf.$.type;
-  const fallbackType = computeRangeReturnType(selfType);
-  expr.$ = {
-    env,
-    type: fallbackType,
-    value: undefined,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/**
- * Compute the correct return type for range indexing.
- * For *(Array(T, N)) or *(Slice(T)), returns *(Slice(T)).
- * Falls back to the input type if it can't be determined.
- */
-function computeRangeReturnType(selfType: Type): Type {
-  // Self is a pointer to array or slice: *(Array(T,N)) or *(Slice(T))
-  if (isPtrType(selfType)) {
-    const pointee = (selfType as PtrType).childType;
-    if (isArrayType(pointee)) {
-      const elementType = (pointee as ArrayType).childType;
-      return createPtrType(createSliceType(elementType));
-    }
-    if (isSliceType(pointee)) {
-      // Slice range index returns same slice type
-      return selfType;
-    }
-  }
-  // Array or slice directly (without pointer wrapper)
-  if (isArrayType(selfType)) {
-    const elementType = (selfType as ArrayType).childType;
-    return createPtrType(createSliceType(elementType));
-  }
-  if (isSliceType(selfType)) {
-    return createPtrType(selfType);
-  }
-  return selfType;
-}
-
-/**
  * Evaluate comptime string indexing builtins:
  * - __yo_comptime_string_index(self, idx)
  * - __yo_comptime_string_index_range(self, range)
@@ -725,11 +479,11 @@ function evaluateComptimeStringIndex({
   env = evaluatedIdx.$.env;
 
   const selfValue = evaluatedSelf.$.value;
-  // Normalize the result type to `*(comptime_string)` regardless of
+  // Normalize the result type to `*(comptime_str)` regardless of
   // how `self` was passed. Pre-inout, the trait took `comptime(self)
   // : *(Self)` so the input was already pointer-typed. With
   // `comptime(inout(self)) : Self`, the input is plain
-  // `comptime_string`. The trait's return is `*(Self.Output)` in
+  // `comptime_str`. The trait's return is `*(Self.Output)` in
   // both shapes — we always wrap here so the type matches.
   const inputType = evaluatedSelf.$.type;
   const baseType: Type = isPtrType(inputType)
@@ -831,7 +585,7 @@ function evaluateComptimeStringIndex({
 }
 
 /**
- * Dispatch function for all comptime array/slice/string index builtins.
+ * Dispatch function for all comptime array/string index builtins.
  */
 export function evaluateYoComptimeIndexFunctions({
   expr,
@@ -843,10 +597,7 @@ export function evaluateYoComptimeIndexFunctions({
   context: EvaluatorContext;
 }): FnCallExpr {
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_array_index)) {
-    return evaluateComptimeElementIndex({ expr, env, context, isSlice: false });
-  }
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_slice_index)) {
-    return evaluateComptimeElementIndex({ expr, env, context, isSlice: true });
+    return evaluateComptimeElementIndex({ expr, env, context });
   }
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_index)) {
     return evaluateComptimeListIndex({ expr, env, context });
@@ -871,56 +622,6 @@ export function evaluateYoComptimeIndexFunctions({
       expr,
       env,
       context,
-      isInclusive: true,
-    });
-  }
-  if (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_array_index_range)
-  ) {
-    return evaluateComptimeRangeIndex({
-      expr,
-      env,
-      context,
-      isSlice: false,
-      isInclusive: false,
-    });
-  }
-  if (
-    exprIsFunctionCallOf(
-      expr,
-      BuiltinFunctions.__yo_comptime_array_index_range_inclusive
-    )
-  ) {
-    return evaluateComptimeRangeIndex({
-      expr,
-      env,
-      context,
-      isSlice: false,
-      isInclusive: true,
-    });
-  }
-  if (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_slice_index_range)
-  ) {
-    return evaluateComptimeRangeIndex({
-      expr,
-      env,
-      context,
-      isSlice: true,
-      isInclusive: false,
-    });
-  }
-  if (
-    exprIsFunctionCallOf(
-      expr,
-      BuiltinFunctions.__yo_comptime_slice_index_range_inclusive
-    )
-  ) {
-    return evaluateComptimeRangeIndex({
-      expr,
-      env,
-      context,
-      isSlice: true,
       isInclusive: true,
     });
   }
@@ -969,7 +670,7 @@ export function evaluateYoComptimeIndexFunctions({
 }
 
 /**
- * Handle comptime_string indexing directly with pre-evaluated values.
+ * Handle comptime_str indexing directly with pre-evaluated values.
  * Called from the function dispatch for `comptime_string_value(arg)`.
  *
  * @param strValue - The JavaScript string from the ComptimeStringValue
@@ -978,7 +679,7 @@ export function evaluateYoComptimeIndexFunctions({
  * @param token - Token for error messages
  * @param isRange - Whether this is a range index
  * @param isInclusive - Whether this is an inclusive range
- * @returns The result comptime_string value
+ * @returns The result comptime_str value
  */
 export function computeComptimeStringIndex({
   strValue,

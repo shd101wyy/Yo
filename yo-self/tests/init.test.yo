@@ -15,19 +15,19 @@ open(import("std/fmt"));
 // ---------------------------------------------------------------------------
 test("sanitize_project_name: alphanumeric unchanged", {
   name := sanitize_project_name(String.from("my_project-123"));
-  assert(name.as_str() == "my_project-123", "valid chars unchanged");
+  assert(name == "my_project-123", "valid chars unchanged");
 });
 test("sanitize_project_name: spaces replaced with hyphens", {
   name := sanitize_project_name(String.from("my project"));
-  assert(name.as_str() == "my-project", "spaces become hyphens");
+  assert(name == "my-project", "spaces become hyphens");
 });
 test("sanitize_project_name: dots replaced with hyphens", {
   name := sanitize_project_name(String.from("my.project"));
-  assert(name.as_str() == "my-project", "dots become hyphens");
+  assert(name == "my-project", "dots become hyphens");
 });
 test("sanitize_project_name: mixed special chars", {
   name := sanitize_project_name(String.from("foo@bar!baz"));
-  assert(name.as_str() == "foo-bar-baz", "special chars replaced");
+  assert(name == "foo-bar-baz", "special chars replaced");
 });
 test("sanitize_project_name: empty string returns empty", {
   name := sanitize_project_name(String.from(""));

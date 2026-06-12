@@ -105,6 +105,7 @@ open(import("std/string"));
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message } :: import("../../error.yo");
+{ require_valid_ref_argument_places } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
   is_control_fn,
@@ -174,7 +175,7 @@ _module_type_contains_ctl_field :: (
               .Some(fv) => match(
                 fv,
                 .FuncVal(_, _, _, _, _, _, _, _, fid) => {
-                  if(is_control_fn(fid.as_str()), {
+                  if(is_control_fn(fid.clone()), {
                     found = true;
                   });
                 },
@@ -241,7 +242,7 @@ generate_deferred_drop_expressions :: (
       .Some(variable) => {
         // Build the drop expression: ___drop(varName)
         drop_code := `___drop(${variable.name})`;
-        drop_expr := generate_expr_from_code(drop_code.as_str(), exn);
+        drop_expr := generate_expr_from_code(drop_code.clone(), exn);
         evaluated := evaluate_expression_raw(drop_expr, cur_env, ctx, exn);
         // Phase 3: env update from ExprInfo is skipped; cur_env stays unchanged.
         _ := evaluated;
@@ -455,9 +456,9 @@ check_if_function_parameter_matches_argument :: (
   // mirroring the default-value-site coercion (types/env_lookup.yo). Only
   // when the parameter type is CONCRETE (not a `SomeT` type variable) —
   // generic params must bind the raw comptime type via synthesis. Without
-  // this, e.g. `comptime_string.to_string()` (the desugaring of a backtick
-  // template) matched the self arg `comptime_string` against `Self = str`
-  // and `synthesize_types` rejected the `str` vs `comptime_string` tag
+  // this, e.g. `comptime_str.to_string()` (the desugaring of a backtick
+  // template) matched the self arg `comptime_str` against `Self = str`
+  // and `synthesize_types` rejected the `str` vs `comptime_str` tag
   // mismatch before any coercion could run. `convert_…` returns the type
   // unchanged for non-comptime inputs, so this is a no-op for normal args.
   // GUARD: only coerce against a genuine RUNTIME concrete parameter type —
@@ -743,7 +744,7 @@ compute_compile_time_signature :: (
 _find_specialization_cache :: (
   fn(
     ctx : EvalContext,
-    func_id : str,
+    func_id : String,
     compile_time_arg_values : ArrayList(EvalValue),
     runtime_parameter_types : ArrayList(TypeValue),
     caller_env : Environment
@@ -757,7 +758,7 @@ _find_specialization_cache :: (
     match(
       entry_opt,
       .Some(entry) => {
-        if(entry.func_id.as_str() == func_id, {
+        if(entry.func_id == func_id, {
           n_caches := entry.caches.len();
           (ci : usize) = usize(0);
           while((ci < n_caches) && result.is_none(), {
@@ -840,7 +841,7 @@ _store_specialization_cache :: (
     match(
       entry_opt,
       .Some(entry) => {
-        if(entry.func_id.as_str() == func_id.as_str(), {
+        if(entry.func_id == func_id, {
           found = true;
           // Push into existing entry's caches
           entry.caches.push(new_cache);
@@ -961,7 +962,7 @@ create_specialized_function_inline :: (
       // ------------------------------------------------------------------
       cached := _find_specialization_cache(
         ctx,
-        func_id.as_str(),
+        func_id.clone(),
         compile_time_args,
         runtime_param_tys,
         caller_env
@@ -1078,7 +1079,7 @@ create_specialized_function_inline :: (
           // function OR if the specialized body contains unwind.
           // Mirrors the `isControlFunction: originalFunction.isControlFunction ||
           //   evaluatedBodyContainsEscape(specializedBody)` logic in TypeScript.
-          parent_is_ctl := is_control_fn(func_id.as_str());
+          parent_is_ctl := is_control_fn(func_id.clone());
           body_has_unwind := evaluated_body_contains_unwind(specialized_body);
           if(parent_is_ctl || body_has_unwind, {
             mark_as_control_fn(specialized_func_id.clone());
@@ -1163,7 +1164,7 @@ evaluate_ctl_function_body_inline :: (
   // Mirrors:
   //   originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()
   // -------------------------------------------------------------------------
-  enclosing_return_ty := get_definition_site_return(orig_func_id.as_str());
+  enclosing_return_ty := get_definition_site_return(orig_func_id.clone());
   // -------------------------------------------------------------------------
   // Build cache key: <original_func_id>_ctl_<sanitized_type_string>.
   // Mirrors:
@@ -1182,7 +1183,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_ct_args.push(create_type_value(concrete_type_for_forall));
   cached_result := _find_specialization_cache(
     ctx,
-    ctl_func_id.as_str(),
+    ctl_func_id.clone(),
     ctl_ct_args,
     ArrayList(TypeValue).new(),
     caller_env
@@ -1335,7 +1336,7 @@ evaluate_ctl_function_body_inline :: (
   // Build the specialized FuncVal.
   // Mirrors: funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
   // -------------------------------------------------------------------------
-  ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
+  ctl_parent_is_ctl := is_control_fn(orig_func_id.clone());
   ctl_body_has_unwind := evaluated_body_contains_unwind(ctl_body);
   if(ctl_parent_is_ctl || ctl_body_has_unwind, {
     mark_as_control_fn(ctl_func_id.clone());
@@ -1429,7 +1430,7 @@ evaluate_ctl_function_body_inline :: (
 /// Widen as the trait checker closes those gaps.
 validate_where_constraints_for_call :: (
   fn(
-    func_id : str,
+    func_id : String,
     callee_env : Environment,
     tok : Token,
     exn : Exception
@@ -1608,7 +1609,7 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(fvv) => match(
           fvv,
-          .FuncVal(_, _, _, _, _, _, _, _, fvid) => get_func_param_defaults(fvid.as_str()),
+          .FuncVal(_, _, _, _, _, _, _, _, fvid) => get_func_param_defaults(fvid.clone()),
           _ => ArrayList(Option(EvalValue)).new()
         ),
         .None => ArrayList(Option(EvalValue)).new()
@@ -1894,6 +1895,15 @@ try_to_call_function_with_arguments :: (
         );
         pi = (pi + usize(1));
       });
+      // v4.1: validate the PLACES bound to ref parameters (after argument
+      // evaluation so the chain types are resolved). Mirrors TS
+      // requireValidRefArgumentPlaces in tryToCallFunctionWithArguments.
+      vrf_param_is_ref := match(
+        func_type,
+        .Func({ param_is_ref : vrf_pir }) => vrf_pir,
+        _ => ArrayList(bool).new()
+      );
+      require_valid_ref_argument_places(vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
       // ----------------------------------------------------------------
       // Step 8: Extract resolved forall values from callee_env.
       // ----------------------------------------------------------------
@@ -1938,7 +1948,7 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(wfv) => match(
           wfv,
-          .FuncVal(_, _, _, _, _, _, _, _, wfvid) => validate_where_constraints_for_call(wfvid.as_str(), callee_env_m, tok, exn),
+          .FuncVal(_, _, _, _, _, _, _, _, wfvid) => validate_where_constraints_for_call(wfvid.clone(), callee_env_m, tok, exn),
           _ => ()
         ),
         .None => ()
@@ -2149,7 +2159,7 @@ try_to_call_function_with_arguments :: (
             .Some(fv) => match(
               fv,
               .FuncVal(_, _, _, _, _, _, _, _, fid) =>
-                (spec_info.original_func_id.as_str() == fid.as_str()),
+                (spec_info.original_func_id == fid),
               _ => false
             ),
             .None => false
@@ -2173,7 +2183,7 @@ try_to_call_function_with_arguments :: (
             .FuncVal(_, _, _, _, _, _, _, _, fid2) => fid2,
             _ => String.from("")
           );
-          is_ctl := is_control_fn(fv2_func_id.as_str());
+          is_ctl := is_control_fn(fv2_func_id.clone());
           has_forall := (fl.len() > usize(0));
           if(is_ctl && has_forall, {
             spec_func_val = Option(EvalValue).Some(

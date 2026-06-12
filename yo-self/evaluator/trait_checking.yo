@@ -226,9 +226,9 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
   while((i < markers.len()) && found.is_empty(), {
     marker := match(markers.get(i),.Some(m) => m,.None => String.from(""));
     match(
-      get_trait_type_from_env(env, String.from(marker.as_str())),
+      get_trait_type_from_env(env, marker.clone()),
       .Some(mt) => if(_trait_type_id(mt) == tid, {
-        found = String.from(marker.as_str());
+        found = marker.clone();
       }),
       .None => ()
     );
@@ -245,7 +245,7 @@ _ondemand_guard_contains :: (fn(key : String) -> bool)({
   while((i < g_ondemand_marker_guard.len()) && !(found), {
     match(
       g_ondemand_marker_guard.get(i),
-      .Some(k) => if(k.as_str() == key.as_str(), {
+      .Some(k) => if(k == key, {
         found = true;
       }),
       .None => ()
@@ -332,6 +332,7 @@ type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
+    .Str => Option(bool).Some(true),
     .Func({ result : _ }) => Option(bool).Some(true),
     // Undecided — env / Comptime trait lookup needed.
     _ => Option(bool).None
@@ -375,6 +376,7 @@ type_implements_send_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
+    .Str => Option(bool).Some(true),
     .CChar => Option(bool).Some(true),
     // Everything else defers (incl. comptime_*, other C types, type-level —
     // the prelude declares no `impl(_, Send())` for those).
@@ -383,7 +385,7 @@ type_implements_send_builtin :: (fn(ty : TypeValue) -> Option(bool))(
 );
 /// Returns Some(true) for EXACTLY the primitives the prelude declares
 /// `impl(<prim>, Acyclic())` for: the Send set PLUS `comptime_int,
-/// comptime_float, comptime_string, Expr` (comptime data + Expr are acyclic but
+/// comptime_float, comptime_str, Expr` (comptime data + Expr are acyclic but
 /// NOT Send). NOT other C scalar types, NOT type-level values. Same rationale as
 /// the Send builtin (encodes the prelude's primitive Acyclic impls).
 type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
@@ -396,6 +398,7 @@ type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .Isize => Option(bool).Some(true),
     .Int(_, _) => Option(bool).Some(true),
     .Float(_) => Option(bool).Some(true),
+    .Str => Option(bool).Some(true),
     .CChar => Option(bool).Some(true),
     .ComptimeInt => Option(bool).Some(true),
     .ComptimeFloat => Option(bool).Some(true),
@@ -475,7 +478,7 @@ type_implements_trait :: (
   // (registration site impl.yo). Generic negative impls
   // (`impl(forall(T), Pattern, !(Trait))`) are matched structurally via
   // `find_matching_negative_generic_impl` (TS findMatchingNegativeGenericImpl).
-  if(has_negative_impl(type_id_or_empty(target).as_str(), get_trait_key(trait_type).as_str()), {
+  if(has_negative_impl(type_id_or_empty(target), get_trait_key(trait_type)), {
     return(TraitCheckResult(implemented : false, env : env));
   });
   if(find_matching_negative_generic_impl(target, trait_type, env), {
@@ -610,7 +613,7 @@ type_implements_trait :: (
   // generic-impls), guarded against self-referential cycles.
   marker_name := _marker_name_of(trait_type, env);
   if((!(marker_name.is_empty())) && !(_ondemand_guard_contains(`${type_id}:${_trait_type_id(trait_type)}`)), {
-    tn := marker_name.as_str();
+    tn := marker_name.clone();
     marker_relevant := ((((tn == "Send") || (tn == "Comptime")) || (tn == "Acyclic")) || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).
@@ -1266,7 +1269,7 @@ type_contains_some_type_for_codegen_param :: (
     while((ci < checked_ids.len()) && !(seen), {
       match(
         checked_ids.get(ci),
-        .Some(k) => if(k.as_str() == nominal_id.as_str(), {
+        .Some(k) => if(k == nominal_id, {
           seen = true;
         }),
         .None => ()
@@ -1276,7 +1279,7 @@ type_contains_some_type_for_codegen_param :: (
     if(seen, {
       return(false);
     });
-    _push := checked_ids.push(String.from(nominal_id.as_str()));
+    _push := checked_ids.push(nominal_id.clone());
   });
   if(is_some_type(ty), {
     // SomeType: TS excludes extern + resolved-concrete (no-ops in yo-self) and
@@ -1292,7 +1295,6 @@ type_contains_some_type_for_codegen_param :: (
   match(
     ty,
     .Array(element, _, _) => recur(element.*, checked_ids),
-    .Slice(element) => recur(element.*, checked_ids),
     .Pointer(pointee) => recur(pointee.*, checked_ids),
     .Tuple(_, field_types) => {
       (found : bool) = false;

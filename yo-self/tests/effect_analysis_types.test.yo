@@ -48,7 +48,7 @@ test("effect_analysis_result_empty has no effects", {
   assert(!(r.has_effects), "has_effects false");
   assert(r.effect_call_points.len() == usize(0), "no call points");
   assert(r.captured_variables.len() == usize(0), "no captured vars");
-  assert(r.effect_parameter_name.as_str() == "raise", "param name");
+  assert(r.effect_parameter_name == "raise", "param name");
   has_infos := match(r.effect_handler_infos,.Some(_) => true,.None => false);
   assert(!(has_infos), "no handler infos");
 });
@@ -102,8 +102,8 @@ test("EffectCapturedVariable base fields accessible", {
     ),
     is_owning_the_same_rc_value_as : Option(Box(EffectCapturedVariable)).None
   );
-  assert(cv.base.id.as_str() == "v0", "id");
-  assert(cv.base.name.as_str() == "counter", "name");
+  assert(cv.base.id == "v0", "id");
+  assert(cv.base.name == "counter", "name");
   has_alias := match(cv.is_owning_the_same_rc_value_as,.Some(_) => true,.None => false);
   assert(!(has_alias), "no alias");
 });
@@ -140,7 +140,7 @@ test("EffectHandlerInfo fields accessible", {
     operation_arg_types : ArrayList(TypeValue).new(),
     operation_result_type : t_unit()
   );
-  assert(info.effect_parameter_name.as_str() == "raise", "param name");
+  assert(info.effect_parameter_name == "raise", "param name");
   has_field_path := match(info.effect_field_path,.Some(_) => true,.None => false);
   assert(!(has_field_path), "no field path");
 });
@@ -177,7 +177,7 @@ test("EffectAnalysisResult variable_id_remapping", {
   ___ := r.variable_id_remapping.set(String.from("old_v0"), String.from("new_v0"));
   got := r.variable_id_remapping.get(String.from("old_v0"));
   result := match(got,.Some(v) => v,.None => String.from(""));
-  assert(result.as_str() == "new_v0", "remapping lookup");
+  assert(result == "new_v0", "remapping lookup");
 });
 test("EffectAnalysisResult effect_handler_infos can be set", {
   r := effect_analysis_result_empty(String.from("raise"), t_unit());

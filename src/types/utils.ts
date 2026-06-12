@@ -21,7 +21,6 @@ import type {
   IsoType,
   TypeField,
   PtrType,
-  SliceType,
   SomeType,
   StructType,
   TraitType,
@@ -57,7 +56,6 @@ import {
   isObjectType,
   isPtrType,
   isRcType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -266,8 +264,6 @@ export function typeIsControlBound(
       );
     case TypeTag.Array:
       return typeIsControlBound((type as ArrayType).childType, checkedTypes);
-    case TypeTag.Slice:
-      return typeIsControlBound((type as SliceType).childType, checkedTypes);
     case TypeTag.Ptr:
       return typeIsControlBound((type as PtrType).childType, checkedTypes);
     case TypeTag.SomeType: {
@@ -288,7 +284,7 @@ export function typeIsControlBound(
  * but **stops at heap-owning `object` types** — those manage their own
  * pointer's lifetime via Rc and cannot dangle through a return slot.
  *
- * Used by the Slice-flowability rule from `plans/SLICE_FLOWABILITY.md`:
+ * Used by the flowability rule from `plans/SLICE_FLOWABILITY.md`:
  * a function returning a type for which this predicate is true (and
  * whose return is NOT already `-> ref(T)`) must have a flowable
  * return expression, because the return slot would otherwise smuggle
@@ -296,24 +292,22 @@ export function typeIsControlBound(
  *
  * Rules:
  * - `Ptr` → true (a raw pointer is the base case).
- * - `Slice` → true (a slice IS a fat pointer; its user-visible type
- *   elides the inner `*(T)`, but the representation has one).
  * - `Struct` with `isReferenceSemantics` (i.e. `object` / `atomic(object(...))`)
  *   → **false**. Heap-owning types manage their own pointer; passing
  *   them around at the value layer does not give the receiver an
  *   alias to dying storage.
  * - `Struct` without reference semantics (plain struct, newtype) →
- *   recurse into each field's type. This catches `str` (newtype over
- *   `Slice(u8)`) and any user wrapper that stores a `Slice` field.
+ *   recurse into each field's type. This catches any user wrapper
+ *   that stores a raw-pointer field.
  * - `Tuple` / `Union` → recurse into each field.
  * - `Enum` → recurse into each variant's fields. Catches
- *   `Option(Slice(T))`, `Result(Slice(T), E)`, etc.
+ *   `Option(*(T))`, `Result(*(T), E)`, etc.
  * - `Array(T, N)` → recurse into `T`. (Arrays inline their elements
  *   contiguously, so if `T` carries a raw pointer the array does too.)
  * - `Function` → false. A function pointer is itself a pointer at the
  *   C ABI, but it points at code (static), not at data — it cannot
- *   dangle through a stack-local source the way a `Slice` can. The
- *   closure-capture story is handled by the separate
+ *   dangle through a stack-local source the way a raw data pointer
+ *   can. The closure-capture story is handled by the separate
  *   `cannot-capture-ref` gate.
  * - `SomeType` → follow `resolvedConcreteType` if resolved; otherwise
  *   false. An unresolved generic type variable doesn't tell us anything
@@ -351,11 +345,13 @@ export function typeRepresentationContainsRawPtr(
   switch (type.tag) {
     case TypeTag.Ptr:
       return true;
-    case TypeTag.Slice:
-      return true;
+    // str is the builtin view of STATIC string bytes (immortal backing) —
+    // it carries a pointer, but never a dangling one: as_str/as_slice are
+    // deleted and ranges copy (plans/SLICE_REWORK.md). No flow constraints.
+    case TypeTag.Str:
+      return false;
     case TypeTag.Struct:
-      // Plain struct or newtype — walk fields. `str` is
-      // `newtype(bytes : Slice(u8))`; this catches it via the Slice field.
+      // Plain struct or newtype — walk fields.
       return (type as StructType).fields.some((field) =>
         typeRepresentationContainsRawPtr(field.type, checkedTypes)
       );
@@ -436,8 +432,6 @@ export function typeMayProvideSliceSource(
 
   switch (type.tag) {
     case TypeTag.Ptr:
-      return true;
-    case TypeTag.Slice:
       return true;
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
@@ -564,8 +558,6 @@ export function typeContainsSomeType(
     }
     case TypeTag.Ptr:
       return typeContainsSomeType((type as PtrType).childType, checkedTypes);
-    case TypeTag.Slice:
-      return typeContainsSomeType((type as SliceType).childType, checkedTypes);
     case TypeTag.TypeApplication:
       // TypeApplication always contains a SomeType (the constructor)
       return true;
@@ -675,12 +667,6 @@ export function typeContainsUnboundSomeType(
         boundNames,
         checkedTypes
       );
-    case TypeTag.Slice:
-      return typeContainsUnboundSomeType(
-        (type as SliceType).childType,
-        boundNames,
-        checkedTypes
-      );
     case TypeTag.TypeApplication:
       return true;
     default:
@@ -771,11 +757,6 @@ export function typeContainsSomeTypeForCodegenParam(
         (type as PtrType).childType,
         checkedTypes
       );
-    case TypeTag.Slice:
-      return typeContainsSomeTypeForCodegenParam(
-        (type as SliceType).childType,
-        checkedTypes
-      );
     case TypeTag.TypeApplication:
       return true;
     default:
@@ -804,9 +785,6 @@ export function typeContainsUnknownValue(
     return typeContainsUnknownValue(type.childType, visited);
   }
   if (isPtrType(type)) {
-    return typeContainsUnknownValue(type.childType, visited);
-  }
-  if (isSliceType(type)) {
     return typeContainsUnknownValue(type.childType, visited);
   }
   if (isTupleType(type)) {
@@ -963,7 +941,7 @@ export function typeRequiresInference(type?: Type): boolean {
 /**
  * Convert comptime types to their runtime equivalents.
  * If expr is provided and a conversion happens, sets expr.$.convertedRuntimeType
- * NOTE: We only convert scalar comptime types here (comptime_int, comptime_float, comptime_string), like Zig.
+ * NOTE: We only convert scalar comptime types here (comptime_int, comptime_float, comptime_str), like Zig.
  */
 export function convertComptimeTypeToRuntimeType({
   type,
@@ -992,14 +970,11 @@ export function convertComptimeTypeToRuntimeType({
         (isU8Type(expectedType.childType) || isCharType(expectedType.childType))
       ) {
         convertedType = expectedType;
-      } else if (isSliceType(expectedType)) {
-        // [u8] in Yo is a fat pointer (the slice value itself)
-        convertedType = expectedType;
       }
     }
 
     if (!convertedType) {
-      // Default: Convert the comptime_string to str from prelude
+      // Default: Convert the comptime_str to str from prelude
       convertedType = createStrType(env);
     }
   } else {
@@ -1345,11 +1320,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       return `[${typeToString((type as ArrayType).childType, visited)}; ${valueToString(
         (type as ArrayType).length
       )}]`;
-    }
-
-    case TypeTag.Slice: {
-      const sliceType = type as ArrayType;
-      return `[${typeToString(sliceType.childType, visited)}]`;
     }
 
     case TypeTag.Tuple: {
@@ -2057,16 +2027,6 @@ function typeCanFormCyclicRcReference(
     );
   }
 
-  // Check through slices
-  if (isSliceType(type)) {
-    return typeCanFormCyclicRcReference(
-      type.childType,
-      originalRefStruct,
-      visitedTypes,
-      env
-    );
-  }
-
   // Check through tuples
   if (isTupleType(type)) {
     for (const field of type.fields) {
@@ -2138,13 +2098,6 @@ export function typeContainsSelfTypeForDynamicDispatchCheck(
 
   // Check compound types recursively
   if (isArrayType(type)) {
-    return typeContainsSelfTypeForDynamicDispatchCheck(
-      type.childType,
-      selfType
-    );
-  }
-
-  if (isSliceType(type)) {
     return typeContainsSelfTypeForDynamicDispatchCheck(
       type.childType,
       selfType

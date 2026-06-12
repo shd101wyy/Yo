@@ -61,13 +61,13 @@ _fn_call_func :: (fn(e : AstExpr) -> AstExpr)(
   match(e,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, _) => e)
 );
 /// Check if `variant_names` contains `name`.
-_has_variant :: (fn(variant_names : ArrayList(String), name : str) -> bool)({
+_has_variant :: (fn(variant_names : ArrayList(String), name : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while((i < variant_names.len()) && !(found), {
     match(
       variant_names.get(i),
-      .Some(vn) => if(vn.as_str() == name, {
+      .Some(vn) => if(vn == name, {
         found = true;
       }),
       .None => ()
@@ -178,16 +178,15 @@ _evaluate_discriminant :: (
 /// carries shells one level deeper — those resolve via the enum-final
 /// registry at use sites (types/creators.yo resolve_enum_shell).
 _patch_self_shell :: (
-  fn(t : TypeValue, shell_id : str, final_ty : TypeValue) -> TypeValue
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
 )(
   match(
     t,
     .EnumT(eid, _, vns, _, _, _, _) => cond(
-      ((eid.as_str() == shell_id) && (vns.len() == usize(0))) => final_ty,
+      ((eid == shell_id) && (vns.len() == usize(0))) => final_ty,
       true => t
     ),
     .Pointer(inner) =>.Pointer(box(recur(inner.*, shell_id, final_ty))),
-    .Slice(el) =>.Slice(box(recur(el.*, shell_id, final_ty))),
     .Array(el, n, lv) =>.Array(box(recur(el.*, shell_id, final_ty)), n, lv),
     .ComptimeListT(el) =>.ComptimeListT(box(recur(el.*, shell_id, final_ty))),
     .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => {
@@ -240,7 +239,7 @@ evaluate_enum_type :: (
   // for post-definition lookups of the real enum (std/encoding/json.yo).
   shell_id := `${enum_id}__self_shell`;
   prelim_ty := TypeValue.EnumT(
-    String.from(shell_id.as_str()),
+    shell_id.clone(),
     String.from(""),
     ArrayList(String).new(),
     ArrayList(ArrayList(TypeValue)).new(),
@@ -334,7 +333,7 @@ evaluate_enum_type :: (
           );
         });
         variant_name := ast_expr_token(variant_name_expr).value;
-        if(_has_variant(variant_names, variant_name.as_str()), {
+        if(_has_variant(variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -347,7 +346,7 @@ evaluate_enum_type :: (
           );
         });
         disc := _evaluate_discriminant(discriminant_expr, env, ctx, exn);
-        variant_names.push(String.from(variant_name.as_str()));
+        variant_names.push(variant_name.clone());
         variant_fields.push(ArrayList(TypeValue).new());
         variant_field_labels.push(ArrayList(String).new());
         variant_discriminants.push(disc);
@@ -391,7 +390,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        if(_has_variant(variant_names, variant_name.as_str()), {
+        if(_has_variant(variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -403,7 +402,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_names.push(String.from(variant_name.as_str()));
+        variant_names.push(variant_name.clone());
         variant_fields.push(ArrayList(TypeValue).new());
         variant_field_labels.push(ArrayList(String).new());
         variant_discriminants.push(next_discriminant);
@@ -448,7 +447,7 @@ evaluate_enum_type :: (
           );
         });
         variant_name := ast_expr_token(_fn_call_func(variant_expr)).value;
-        if(_has_variant(variant_names, variant_name.as_str()), {
+        if(_has_variant(variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -509,7 +508,7 @@ evaluate_enum_type :: (
             );
           });
           v_field_types.push(field.ty);
-          v_field_labels.push(String.from(field.label.as_str()));
+          v_field_labels.push(field.label.clone());
           env.frames = result.env.frames;
           env.module_path = result.env.module_path;
           env.function_declaration_frame_level = result.env.function_declaration_frame_level;
@@ -517,7 +516,7 @@ evaluate_enum_type :: (
           j = (j + usize(1));
         });
         disc := match(custom_disc,.Some(d) => d,.None => next_discriminant);
-        variant_names.push(String.from(variant_name.as_str()));
+        variant_names.push(variant_name.clone());
         variant_fields.push(v_field_types);
         variant_field_labels.push(v_field_labels);
         variant_discriminants.push(disc);
@@ -585,7 +584,7 @@ evaluate_enum_type :: (
   // `gadtReturnTypeArgs` (enum.ts:364-365). typeConstructorArgs (enum.ts:369-391)
   // is populated by the caller/match path.
   if(any_gadt, {
-    register_gadt_enum(enum_id.as_str(), all_variant_gadt_args);
+    register_gadt_enum(enum_id.clone(), all_variant_gadt_args);
     // typeConstructorArgs (enum.ts:369-391): when a GADT enum is built
     // inside its type-constructor fn body (`Value(i32)` → `enum(...)`),
     // record the concrete type args the constructor was called with —
@@ -644,7 +643,7 @@ evaluate_enum_type :: (
                 cti = (cti + usize(1));
               });
               if((tca.len() > usize(0)) && (tca.len() == n_comptime), {
-                register_gadt_type_constructor_args(enum_id.as_str(), tca);
+                register_gadt_type_constructor_args(enum_id.clone(), tca);
               });
             },
             _ => ()
@@ -657,13 +656,13 @@ evaluate_enum_type :: (
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
-  auto_derive_traits_for_enum_type(String.from(enum_id.as_str()), variant_fields, env);
+  auto_derive_traits_for_enum_type(enum_id.clone(), variant_fields, env);
   // Restore SelfType.
   ctx.self_type = old_self_type;
   // Build the final EnumT in two steps: an UNPATCHED pre-final used as the
   // replacement target, then the real final with shell-patched fields.
   pre_final_ty := TypeValue.EnumT(
-    String.from(enum_id.as_str()),
+    enum_id.clone(),
     String.from(""),
     variant_names,
     variant_fields,
@@ -687,14 +686,14 @@ evaluate_enum_type :: (
     (pf_j : usize) = usize(0);
     while(pf_j < vf_list.len(), {
       ft := match(vf_list.get(pf_j),.Some(t) => t,.None => t_unit());
-      new_list.push(_patch_self_shell(ft, shell_id.as_str(), pre_final_ty));
+      new_list.push(_patch_self_shell(ft, shell_id.clone(), pre_final_ty));
       pf_j = (pf_j + usize(1));
     });
     patched_fields.push(new_list);
     pf_i = (pf_i + usize(1));
   });
   enum_ty := TypeValue.EnumT(
-    String.from(enum_id.as_str()),
+    enum_id.clone(),
     String.from(""),
     variant_names,
     patched_fields,
@@ -704,7 +703,7 @@ evaluate_enum_type :: (
   );
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
-  register_enum_final(String.from(shell_id.as_str()), enum_ty);
+  register_enum_final(shell_id.clone(), enum_ty);
   enum_val := create_type_value(enum_ty);
   meta_ty := type_of_type(enum_ty);
   out_info := new_expr_info(env, meta_ty);

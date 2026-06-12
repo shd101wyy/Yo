@@ -62,7 +62,7 @@ str_lit_quote :: (fn(s : String) -> String)(
   (String.from("\"") + s) + String.from("\"")
 );
 // ---------------------------------------------------------------------------
-// Helper — evaluate one argument and validate it is comptime_string type.
+// Helper — evaluate one argument and validate it is comptime_str type.
 // ---------------------------------------------------------------------------
 eval_comptime_str_arg :: (
   fn(
@@ -82,7 +82,7 @@ eval_comptime_str_arg :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+            `Expected comptime_str type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
             false,
             .None
           )
@@ -96,7 +96,7 @@ eval_comptime_str_arg :: (
       dyn(
         format_error_message(
           ast_expr_token(arg),
-          `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+          `Expected comptime_str type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
           false,
           .None
         )
@@ -126,7 +126,7 @@ eval_comptime_int_arg :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+            `Expected comptime_int type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
             false,
             .None
           )
@@ -140,7 +140,7 @@ eval_comptime_int_arg :: (
       dyn(
         format_error_message(
           ast_expr_token(arg),
-          `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+          `Expected comptime_int type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
           false,
           .None
         )
@@ -220,7 +220,7 @@ evaluate_yo_comptime_string_functions :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              String.from("Unexpected comptime_string unary function"),
+              String.from("Unexpected comptime_str unary function"),
               false,
               .None
             )
@@ -232,7 +232,7 @@ evaluate_yo_comptime_string_functions :: (
     // Derive the result type from the VALUE'S TYPE (mirrors TS `type: value.type`,
     // comptime-string-fns.ts:106) — NOT the value tag. For an unknown-valued
     // operand `length(x)` builds `UnknownVal(comptime_int)`; a tag-based match
-    // (UnknownVal ≠ IntLit) wrongly typed it `comptime_string`.
+    // (UnknownVal ≠ IntLit) wrongly typed it `comptime_str`.
     result_ty := type_of_eval_value(result_val);
     out_info := new_expr_info(cur_env, result_ty);
     out_info.value =.Some(result_val);
@@ -379,7 +379,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(ls.as_str() == rs.as_str()),
+            .Some(rs) => EvalValue.BoolVal(ls == rs),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -389,7 +389,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(!(ls.as_str() == rs.as_str())),
+            .Some(rs) => EvalValue.BoolVal(!(ls == rs)),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -399,7 +399,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(ls.as_str() < rs.as_str()),
+            .Some(rs) => EvalValue.BoolVal(ls < rs),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -409,7 +409,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(!(rs.as_str() < ls.as_str())),
+            .Some(rs) => EvalValue.BoolVal(!(rs < ls)),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -419,7 +419,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(rs.as_str() < ls.as_str()),
+            .Some(rs) => EvalValue.BoolVal(rs < ls),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -429,7 +429,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(!(ls.as_str() < rs.as_str())),
+            .Some(rs) => EvalValue.BoolVal(!(ls < rs)),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -439,7 +439,7 @@ evaluate_yo_comptime_string_functions :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Unexpected function call for comptime_string operations:\n${ast_expr_to_string(expr)}`,
+              `Unexpected function call for comptime_str operations:\n${ast_expr_to_string(expr)}`,
               false,
               .None
             )
@@ -450,7 +450,7 @@ evaluate_yo_comptime_string_functions :: (
     );
     // Derive the result type from the VALUE'S TYPE (mirrors TS `type: value.type`)
     // — NOT the value tag. An unknown-valued comparison builds `UnknownVal(bool)`;
-    // a tag-based match (UnknownVal ≠ BoolVal) wrongly typed it `comptime_string`.
+    // a tag-based match (UnknownVal ≠ BoolVal) wrongly typed it `comptime_str`.
     result_ty := type_of_eval_value(result_val);
     out_info := new_expr_info(cur_env, result_ty);
     out_info.value =.Some(result_val);

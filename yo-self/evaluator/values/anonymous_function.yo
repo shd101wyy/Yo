@@ -91,7 +91,7 @@ _collect_anon_param_names :: (
     .FnCall(_, fb, args, _, _) => match(
       fb.*,
       .Atom(_, ptok) => cond(
-        (ptok.value.as_str() == BK_TUPLE) => {
+        (ptok.value == BK_TUPLE) => {
           (i : usize) = usize(0);
           n := args.len();
           while(i < n, {
@@ -194,7 +194,7 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
     .FnCall(_, fb, args, _, _) => match(
       fb.*,
       .Atom(_, fbtok) => cond(
-        (fbtok.value.as_str() == ":") => match(
+        (fbtok.value == ":") => match(
           args.get(usize(0)),
           .Some(name_expr) => match(
             name_expr,
@@ -298,7 +298,7 @@ _check_anon_fn_captures :: (
         },
         .Some(k) => {
           match(
-            caps.get(String.from(k.as_str())),
+            caps.get(k.clone()),
             .Some(ci) => if(ci.frame_level < outer_frames_len, {
               if(names.len() > usize(0), {
                 names = `${names}, `;
@@ -337,7 +337,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
       },
       .Some(k) => {
         match(
-          caps.get(String.from(k.as_str())),
+          caps.get(k.clone()),
           .Some(ci) => {
             // Mirror TS: `if (captureInfo.frameLevel >= env.frames.length)
             // continue` — only true outer captures are checked.
@@ -350,7 +350,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
                   while(vi < n_v, {
                     match(
                       frame.variables.get(vi),
-                      .Some(v) => if(v.name.as_str() == k.as_str(), {
+                      .Some(v) => if(v.name == k, {
                         if(v.is_ref, {
                           exn.throw(
                             dyn(
@@ -444,7 +444,7 @@ evaluate_anonymous_function_implementation :: (
   // (`->`).  For closures the expected type is normally SomeT or FnTraitT
   // (the Fn-trait wrapper); for regular functions it is Func.
   // -------------------------------------------------------------------------
-  op_is_arrow := (op_str.as_str() == "->");
+  op_is_arrow := (op_str == "->");
   is_creating_closure := (!(op_is_arrow));
   // Resolve the concrete Func type to use for parameter/return information.
   // For Func expected types: use directly.
@@ -523,7 +523,7 @@ evaluate_anonymous_function_implementation :: (
     .FnCall(_, fb2, decl_args, _, _) => match(
       fb2.*,
       .Atom(_, ptok) => cond(
-        (ptok.value.as_str() == BK_TUPLE) => decl_args,
+        (ptok.value == BK_TUPLE) => decl_args,
         true => {
           single_list := ArrayList(AstExpr).new();
           single_list.push(param_decl);
@@ -620,7 +620,7 @@ evaluate_anonymous_function_implementation :: (
             cap_frame.variables.get(cap_vi),
             .Some(cv) => {
               cond(
-                (!(cv.name.as_str() == "__recur_fn")) => {
+                (!(cv.name == "__recur_fn")) => {
                   cap_names.push(cv.name);
                   cap_tys.push(cv.ty);
                   cap_val := match(

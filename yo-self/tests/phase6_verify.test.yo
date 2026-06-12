@@ -27,7 +27,7 @@ test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
       }
     )
   );
-  src := String.from("// @skip_prelude\nx := 1;\nexport(x);\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\nx :: 1;\nexport(x);\n");
   eval := Evaluator.new(
     String.from("<verify1>"),
     String.from("<no-std>"),
@@ -55,7 +55,7 @@ test("Phase6 verify: quote(42) produces ExprVal", {
       }
     )
   );
-  src := String.from("// @skip_prelude\nq := quote(42);\nexport(q);\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\nq :: quote(42);\nexport(q);\n");
   eval := Evaluator.new(
     String.from("<verify2>"),
     String.from("<no-std>"),
@@ -78,7 +78,7 @@ test("Phase6 verify: quote(42) produces ExprVal", {
     },
     .Some(mv) => match(
       mv,
-      .ModuleVal(names, values) => {
+      .StructVal(_, names, values) => {
         // names should contain "q"
         (found_idx : Option(usize)) =.None;
         (i : usize) = usize(0);
@@ -87,7 +87,7 @@ test("Phase6 verify: quote(42) produces ExprVal", {
           match(
             names.get(i),
             .Some(nm) => cond(
-              (nm.as_str() == "q") => {
+              (nm == "q") => {
                 found_idx =.Some(i);
               },
               true => ()
@@ -136,7 +136,7 @@ test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
       }
     )
   );
-  src := String.from("// @skip_prelude\ny := quote(7);\nz := quote(unquote(y));\nexport(z);\n");
+  src := String.from("pragma(Pragma.SkipPrelude);\ny :: quote(7);\nz :: quote(unquote(y));\nexport(z);\n");
   eval := Evaluator.new(
     String.from("<verify3>"),
     String.from("<no-std>"),
@@ -158,7 +158,7 @@ test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
     },
     .Some(mv) => match(
       mv,
-      .ModuleVal(names, values) => {
+      .StructVal(_, names, values) => {
         (found_idx : Option(usize)) =.None;
         (i : usize) = usize(0);
         n := names.len();
@@ -166,7 +166,7 @@ test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
           match(
             names.get(i),
             .Some(nm) => cond(
-              (nm.as_str() == "z") => {
+              (nm == "z") => {
                 found_idx =.Some(i);
               },
               true => ()

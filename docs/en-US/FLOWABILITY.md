@@ -1,185 +1,106 @@
-# Flowability — safe slices and references by default
+# Flowability — safe-by-default references
 
-Yo lets safe code use `Slice(T)`, `str`, and `ref(name) : T` borrows freely,
-yet it is **impossible to produce a dangling slice or reference from safe
-code**. The compile-time check that guarantees this is called **flowability**.
+Yo guarantees, at compile time, that safe code cannot construct a
+dangling reference. The design is **sound by construction**: the safe
+language has no way to form a pointer into reallocatable storage, so
+the classic invalidation footguns (grow a list, dangle a borrow) are
+not rejected by a clever analysis — they are *inexpressible*.
 
-You normally never think about it — the stdlib is written so the everyday
-patterns just work. This document explains the rule for the cases where the
-compiler does say *"the expression is not flowable"*, and for anyone writing
-low-level code that hands out borrowed views.
+## Where a `ref` can exist
 
-## The problem it solves
+`ref` is Yo's second-class reference, and it exists in exactly ONE
+place: **parameter position**. `ref(name) : T` receives a caller lvalue
+(write-back, and no copy for big structs). Callback parameters that
+receive refs (`body : Impl(Fn(ref(v) : T) -> R)`, as in
+`Mutex.with_lock`) are the same thing one level down.
 
-A `Slice(T)` is a *fat pointer* — a `(data pointer, length)` view into storage
-it does **not** own. `str` is the same shape. A `ref(name) : T` parameter is a
-second-class pointer into a caller's variable. None of these keep their backing
-storage alive. If one escaped to a place that outlives that storage, reading it
-later would be a **use-after-free**:
+**Functions cannot return `ref`**, there are **no local ref bindings**
+(`ref(r) := …` is rejected with a migration recipe — fields read and
+write in place, `h.s = v`; binding the handle `b := a.b` keeps an
+object alive), and refs cannot be stored in fields, captured by
+closures, or placed inside generic types. A ref is born at a call
+boundary and dies when the call returns — it can never outlive the
+storage it points into.
 
-```rust
-// REJECTED — would dangle.
-first :: (fn() -> Slice(i32))({
-  local := ArrayList(i32).new();
-  local.push(i32(7));
-  match(local.as_slice(), .Some(s) => s, .None => panic("empty"))
-  // `local`'s heap buffer is freed when this frame returns;
-  // the returned slice would point into freed memory.
-});
-```
+The argument passed to a `ref` parameter is a simple lvalue **place**:
 
-Flowability rejects exactly this class of escape, at compile time, with no
-runtime cost and no lifetime annotations.
+- a whole variable (any scope — a variable's slot is stable storage);
+- `var.field` (or a struct-field path) rooted at a **local or
+  parameter** — the place lives inside the root's allocation, which the
+  caller's handle keeps alive for the whole call;
+- chains through an intermediate **object** (`a.b.s` where `b` is an
+  object field) and field chains rooted at **module-level** variables
+  are rejected — a callee could replace that handle's slot and free the
+  borrowed storage. The recipe is one line: bind the object to a local
+  first (`b := a.b`) — the local handle pins it naturally;
+- an **indexed element** (`xs(i)`) or a chain through an **intermediate
+  object** (including a `Box` deref `b.*`, since `Box` is an ordinary
+  object and `*` is just a field) is a pointer into a heap object's
+  storage; it may be a ref argument only when the callee cannot reach
+  that object — passing the container/box (or an alias), indexing a
+  module-level container, or passing **any other object/closure
+  argument** that could hold a handle to it, is rejected (growth or
+  reassignment could free the storage under the reference). Element-only
+  uses (`to_string(xs(i))`, `${xs(i)}`, `bump(xs(i))`,
+  `owner_box.*.id.clone()`) are safe and legal; to combine element and
+  container in one call, copy the element out with `.get(i)` first.
 
-## The model: "the value must flow into storage that outlives it"
+> **One documented residual.** This argument-reachability check cannot
+> see a container that escaped into a *global* heap structure earlier
+> (`g.push(xs); bump(xs(i))` where `bump` grows `xs` through the
+> global) — closing it would require whole-program escape analysis.
+> The shape is contrived and never arises in ordinary code; see
+> `issues/ref-arg-heap-escape-to-global-residual.md`.
 
-A value is **flowable into a destination** when the compiler can prove, purely
-structurally, that the value's backing storage lives at least as long as the
-destination. There are no lifetime variables; the proof follows the syntax of
-the expression back to a *root* whose lifetime is known.
+## Element access: handles and copies, not interior pointers
 
-Flowability only constrains values whose representation **transitively carries
-a raw pointer** — `Slice(T)`, `str`, `*(T)`, and any `struct` / tuple / `enum`
-/ `Array` that wraps one. Plain `i32`, `bool`, owned `String` / `ArrayList`
-(they own a reference-counted buffer that travels with the value), and other
-self-contained values are never constrained — they have nothing that can
-dangle.
-
-## Where it is enforced
-
-The check runs at the five places a borrowed view can be parked into
-longer-lived storage:
-
-| # | Site | Example |
-|---|------|---------|
-| 1 | `-> ref(T)` function return | `fn(ref(b) : Slice) -> ref(i32)` |
-| 2 | value return carrying a raw ptr | `fn(...) -> Slice(i32)` / `-> str` / `-> StructWithSlice` |
-| 3 | `ref(name) := expr` local binding | `ref(r) := p` |
-| 4 | simple reassignment `name = expr` | `cur = other_slice` |
-| 5 | field / index / destructure write | `holder.s = x`, `arr(0) = x`, `(a, b) = (x, y)` |
-
-## What counts as a flowable source
-
-When the compiler walks an expression, these are the roots it accepts. The set
-differs slightly per site (a function *return* is stricter than a local
-*binding*, because a return must outlive the whole call):
-
-- **A `ref`-bound name** — `ref(name) : T` parameter or `ref(name) := …` local.
-  It points at storage in an active caller frame, so it outlives this call.
-  *(All sites.)*
-- **Any parameter** (not just `ref`) — the caller's argument value is alive for
-  the whole call, so a slice rooted in it can be returned to the caller.
-  *(Return + binding/assignment sites.)*
-- **A `comptime` value or a string / char literal** — it lives in static
-  storage and never dangles at runtime. *(All sites.)*
-- **An enclosing-scope local** — a local whose scope *encloses* (and therefore
-  outlives) the destination. Accepted at the binding (`ref(r) := local`) and
-  reassignment/field-write sites, **not** at function-return position (a callee
-  local never outlives the caller). For a `name = expr` reassignment or a
-  `holder.s = expr` field write, the source local must live in a scope no
-  deeper than the destination's container.
-
-## The structural rules
-
-Walking inward from the expression, it is flowable iff one of:
-
-- **R1 — name.** A flowable source per the list above.
-- **R2 — projection `base.field`.** Flowable iff `base` is. (Projecting a field
-  out of a flowable aggregate yields a borrow with the same root.)
-- **R3 — call returning a borrow.** A call whose return slot is `ref(T)` (or, at
-  a slice-return site, a value type carrying a raw pointer) is flowable iff
-  every argument that could be the borrow's *source* — its `ref`-typed
-  parameters, and slice/object parameters that could back the result — is itself
-  flowable. (So `slice.project(i)` is flowable iff `slice` is.)
-- **R4 — `cond` / `match`.** Flowable iff **every** arm is flowable. One
-  dangling arm taints the whole expression.
-- **Constructors** — `.Variant(args)`, `Struct(field : arg)`, and tuples
-  `(a, b)` are flowable iff every argument/element whose own representation
-  carries a raw pointer is flowable. (A freshly built aggregate can only smuggle
-  a pointer through its arguments.) Labeled arguments `field : value` are
-  transparent — the *value* is what flows.
-
-The net guarantee: every flowable expression's root is something the compiler
-knows outlives the destination, so the stored view can never dangle.
-
-## Examples
+Containers hand out **values**, never pointers into their buffers:
 
 ```rust
-// ACCEPTED — projects a slice out of a `ref` parameter; the buffer is the
-// caller's and outlives the call.
-window :: (fn(ref(buf) : Slice(i32)) -> Slice(i32))(buf);
-
-// ACCEPTED — both match arms root in the parameter `seed`.
-pick :: (fn(seed : Slice(i32), other : Slice(i32), c : bool) -> Slice(i32))(
-  cond(c => seed, true => other)
-);
-
-// REJECTED (site 5, field write) — a slice into an inner-block local stored
-// into an outer struct field would outlive its backing.
-SliceBox :: struct(s : Slice(i32));
-store :: (fn(seed : Slice(i32)) -> unit)({
-  (holder : SliceBox) = SliceBox(s : seed);
-  {
-    tmp := ArrayList(i32).new();
-    tmp.push(i32(1));
-    holder.s = match(tmp.as_slice(), .Some(s) => s, .None => seed); // ✗
-  };
-  ()
-});
+e := xs.get(i);          // object elements: a HANDLE to the element
+e.push_str("!");         //   mutates the element in place; the handle
+                         //   survives xs.push / realloc — it points at
+                         //   the String object, not into xs's buffer
+xs(i) = v;               // index WRITE for in-place element replacement
+t := xs.get(i).unwrap(); // struct elements: copy out …
+xs(i) = t2;              //   … write back
+for(xs, (x) => { ... }); // iteration is the value form (into_iter)
 ```
 
-## The escape hatch
+There is no `project`, no `Indexable`, and no borrow form of `for` —
+`for(coll, ref(x) => …)` produces a compile error with this migration
+recipe. `str` remains the immortal static-bytes view (freely copyable,
+no constraints), and range indexing **copies** (`arr(a..b)` returns a
+new `ArrayList`), so mutating the source never affects the result.
 
-A file that declares `pragma(Pragma.AllowUnsafe);` opts out of the flow gates
-entirely (it is already trusted to use raw pointers), and within any file an
-`unsafe(expr)` expression is treated as flowable — the documented "I have
-checked this" marker. The stdlib's low-level projections (`Slice`, `ArrayList`,
-`String` indexing) use exactly this: they compute an element address with
-pointer arithmetic and wrap the result in `unsafe(...)`, so callers get a safe
-API over an audited unsafe core. See [MEMORY_SAFETY.md](./MEMORY_SAFETY.md).
+## One call-site rule
 
-## Scope and limitations
+**A single call may not receive the same object as both a ref-rooted
+argument and an `own` argument** (`use_and_sink(h.s, h)` with
+`own(victim)` is rejected) — `own` moves the caller's count into a
+callee that could release it while the borrow is still in use. Distinct
+objects are fine. By-value overlap is fine too: a borrowed handle can
+never release the caller's count (forwarding it to an `own` position
+dups first).
 
-Flowability is a **structural, scope-nesting** proof, not a full
-borrow-checker. It guarantees that a stored view's backing *scope* encloses the
-view's destination. It deliberately does **not** track two things:
+With no local bindings there is nothing left to "invalidate": the old
+borrow-invalidation gates were deleted along with the binding form.
+Element handles from `get` survive any container operation — even
+reassigning the container — because they own a +1 on the element
+object.
 
-1. **Invalidation of the backing while a borrow lives** — the
-   slice-invalidation problem. Flowability proves the backing's *scope*
-   encloses the borrow; it does not track events inside that scope that
-   replace or move the backing buffer. Three triggers, all currently
-   accepted:
+## Escape hatches
 
-   ```rust
-   buf := ArrayList(i32).new();
-   buf.push(i32(42));
-   s := match(buf.as_slice(), .Some(x) => x, .None => panic("e"));
-
-   buf = ArrayList(i32).new();   // (a) reassignment — old buffer freed
-   buf.push(i32(1));             // (b) growth past capacity — realloc moves
-                                 //     the buffer; `s` points at the old one
-   alias := buf;
-   alias.clear();                // (c) mutation through an Rc alias — same
-                                 //     effect, invisible to any per-variable
-                                 //     analysis
-   ```
-
-   After any of these, reading `s` is undefined behavior — typically *silent
-   stale reads*, not a crash. This is the known boundary of the scope-nesting
-   model. Closing it fully requires either aliasing-aware borrow exclusivity
-   (a Rust-style borrow checker, which conflicts with Yo's shared-mutable
-   `object` model) or a change to `Slice`'s representation (e.g. snapshot
-   slices that co-own their buffer) — see
-   `issues/slice-invalidation-design.md` for the design discussion.
-
-2. **`unsafe` / pragma'd code.** By design, the gates do not run there.
-
-Within those boundaries — safe code, no in-scope move of the backing — a
-dangling slice or reference is **not constructible**.
+`pragma(Pragma.AllowUnsafe);` exempts a whole file (std's audited
+internals); `unsafe(expr)` marks a single expression. The raw-pointer
+`Index` impl (`index : … -> *(T)`) is the supported zero-copy escape for
+hot loops that measurably need it. See
+[MEMORY_SAFETY.md](./MEMORY_SAFETY.md).
 
 ## Tests
 
-`tests/flowability_comprehensive.test.yo` exercises every rule × enforcement
-site × accept/reject, plus `tests/slice_flowability.test.yo`,
-`tests/ref_flowability.test.yo`, `tests/ref_local_binding.test.yo`, and
-`tests/ref_closure_capture.test.yo`.
+`tests/ref_binding.test.yo`, `tests/ref_local_binding.test.yo`,
+`tests/ref_params.test.yo`, `tests/ref_field_borrow.test.yo` (incl. the
+owner pin and the ref/own call gate), `tests/ref_borrow_invalidation.test.yo`
+(the gate matrix + the get-handle model), `tests/ref_return_ban.test.yo`,
+and `tests/flowability_comprehensive.test.yo`.

@@ -192,7 +192,7 @@ export interface EvaluatedExprData {
   /**
    * When a compile-time type needs to be converted to a different runtime type,
    * this field stores the target runtime type.
-   * For example: string literal "hello" with type `comptime_string` converted to `str`
+   * For example: string literal "hello" with type `comptime_str` converted to `str`
    */
   convertedRuntimeType?: Type;
   /**
@@ -785,29 +785,16 @@ export const BuiltinFunctions = {
   __yo_ptr_set: ["__yo_ptr_set"],
 
   // Slice related functions
-  __yo_slice_len: ["__yo_slice_len"],
-  __yo_slice_new: ["__yo_slice_new"],
-  __yo_slice_ptr: ["__yo_slice_ptr"],
+  __yo_str_from_raw_parts: ["__yo_str_from_raw_parts"],
+  __yo_str_len: ["__yo_str_len"],
+  __yo_str_ptr: ["__yo_str_ptr"],
+  __yo_str_byte: ["__yo_str_byte"],
 
-  // Array/Slice indexing builtins (used by Index trait impls)
+  // Array indexing builtins (used by Index trait impls)
   __yo_array_index: ["__yo_array_index"],
-  __yo_slice_index: ["__yo_slice_index"],
-  __yo_array_index_range: ["__yo_array_index_range"],
-  __yo_array_index_range_inclusive: ["__yo_array_index_range_inclusive"],
-  __yo_slice_index_range: ["__yo_slice_index_range"],
-  __yo_slice_index_range_inclusive: ["__yo_slice_index_range_inclusive"],
 
-  // Comptime array/slice indexing builtins (used by ComptimeIndex trait impls)
+  // Comptime array indexing builtins (used by ComptimeIndex trait impls)
   __yo_comptime_array_index: ["__yo_comptime_array_index"],
-  __yo_comptime_slice_index: ["__yo_comptime_slice_index"],
-  __yo_comptime_array_index_range: ["__yo_comptime_array_index_range"],
-  __yo_comptime_array_index_range_inclusive: [
-    "__yo_comptime_array_index_range_inclusive",
-  ],
-  __yo_comptime_slice_index_range: ["__yo_comptime_slice_index_range"],
-  __yo_comptime_slice_index_range_inclusive: [
-    "__yo_comptime_slice_index_range_inclusive",
-  ],
 
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
@@ -1148,7 +1135,7 @@ export const BuiltinFunctions = {
     "__yo_comptime_bool_to_comptime_string",
   ],
 
-  // comptime_string related functions
+  // comptime_str related functions
   /// 2 args
   __yo_comptime_string_concat: ["__yo_comptime_string_concat"],
   __yo_comptime_string_eq: ["__yo_comptime_string_eq"],
@@ -1190,7 +1177,7 @@ export const BuiltinFunctions = {
   derive: ["derive"],
   derive_rule: ["derive_rule"],
 
-  // comptime_string to Expr conversion
+  // comptime_str to Expr conversion
   __yo_comptime_string_to_expr: ["__yo_comptime_string_to_expr"],
 
   // Expr-based type iteration builtins (for derive rules)
@@ -1283,8 +1270,8 @@ export const BuiltinFunctions = {
   __yo_maybe_uninit_assume_init: ["__yo_maybe_uninit_assume_init"],
 
   // Process related functions
-  __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_string
-  __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
+  __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_str
+  __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_str
   __yo_pointer_size_bits: ["__yo_pointer_size_bits"], // returns target pointer size in bits (32 or 64) as comptime_int
 
   // Build system functions (compile-time only)
@@ -2578,6 +2565,16 @@ export function setExprAsNeedsToCallDup(
         }
       }
     }
+
+    // Stamp the USE SITE's source token on the dup expression. The dup
+    // expr itself is built from generated code (auto-generated token, not
+    // comparable with source tokens); the dup/drop optimizer needs the real
+    // source position of the ownership transfer to record an accurate
+    // consumedAtToken (see begin.ts — using the end-of-scope token instead
+    // made early returns AFTER the transfer re-drop the moved value).
+    (
+      evaluatedDupCallExpr as FnCallExpr & { __useSiteToken?: Token }
+    ).__useSiteToken = expr.token;
 
     expr.$.deferredDupExpressions = [evaluatedDupCallExpr];
     expr.$.env = evaluatedDupCallExpr.$!.env;

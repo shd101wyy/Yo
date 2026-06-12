@@ -23,6 +23,7 @@ open(import("std/string"));
   clone_expr_fresh_ids,
   alloc_global_expr_id,
   ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
   BF_DOT
 } :: import("../../expr.yo");
 { is_auto_generated_expansion } :: import("../memory_safety.yo");
@@ -61,7 +62,7 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_slice_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
@@ -80,9 +81,12 @@ open(import("std/string"));
 { try_to_implement_array_by_array_type } :: import("./array_type.yo");
 { has_index_impl, try_to_call_with_index_trait } :: import("./index_trait.yo");
 /// Master switch for macro-call dispatch in the FuncVal arm — see the
-/// comment at its use site. Flipped to `true` by the def-eval propagation
-/// experiment patch.
-MACRO_DISPATCH_ENABLED :: false;
+/// comment at its use site. ENABLED 2026-06-11: the heap corruption that
+/// kept it off was root-caused to two general early-return RC bugs in the
+/// TS compiler (issues/fixed/yo-self-macro-dispatch-corruption.md), both
+/// fixed; dispatch-ON sweeps are clean (std 152/152 ×5, yo-self 240/240,
+/// gmalloc-clean) and the phase6 macro tests run for real against it.
+MACRO_DISPATCH_ENABLED :: true;
 { try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime_list_type.yo");
 {
   is_convertible_numeric_type,
@@ -102,10 +106,11 @@ MACRO_DISPATCH_ENABLED :: false;
 /// (tests/variadic_comptime.test.yo). Template-free name (hot path).
 _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := String.from("call_result_");
-  nm.push_str(random_id(env.module_path).as_str());
+  nm.push_string(random_id(env.module_path));
   create_unknown_val_with_name(ty, nm)
 });
 { format_error_message } :: import("../../error.yo");
+{ require_valid_ref_argument_places } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
@@ -376,7 +381,7 @@ _try_expand_call_overload :: (
   while((li < s_fls.len()) && call_idx.is_none(), {
     match(
       s_fls.get(li),
-      .Some(l) => if(l.as_str() == "Call", {
+      .Some(l) => if(l == "Call", {
         call_idx = Option(usize).Some(li);
       }),
       .None => ()
@@ -403,7 +408,7 @@ _try_expand_call_overload :: (
         while((vi < v_names.len()) && vidx.is_none(), {
           match(
             v_names.get(vi),
-            .Some(n) => if(n.as_str() == "Call", {
+            .Some(n) => if(n == "Call", {
               vidx = Option(usize).Some(vi);
             }),
             .None => ()
@@ -546,6 +551,60 @@ _try_expand_call_overload :: (
   out.value = Option(EvalValue).Some(winner_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated_callee), out);
 });
+/// plans/SLICE_REWORK.md Part C — copying range indexing.
+/// `recv(a..b)` / `recv(a..=b)` on a RUNTIME receiver that provides
+/// slice_copy / slice_copy_inclusive rewrites to that method call
+/// (owned-return value semantics; the Index trait's `*(Output)` pointer
+/// contract cannot express owned returns). Mirrors TS function.ts's
+/// pre-checking-phase rewrite. Returns `.Some(rewritten_call)` — the
+/// caller re-enters `evaluate_function_call` on it — or `.None` when the
+/// call is not a range index / the receiver has no slice_copy method.
+_try_rewrite_range_index_to_slice_copy :: (
+  fn(
+    expr : AstExpr,
+    func_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    recv_ty : TypeValue,
+    env : Environment
+  ) -> Option(AstExpr)
+)({
+  if(args.len() != usize(1), {
+    return(Option(AstExpr).None);
+  });
+  arg0 := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  is_excl := ast_expr_is_fn_call_of(arg0, "..", Option(usize).Some(usize(2)));
+  is_incl := ast_expr_is_fn_call_of(arg0, "..=", Option(usize).Some(usize(2)));
+  if(!(is_excl || is_incl), {
+    return(Option(AstExpr).None);
+  });
+  // Function-typed receivers are real calls, not indexing.
+  if(is_function_type(recv_ty), {
+    return(Option(AstExpr).None);
+  });
+  method_name := if(is_incl, String.from("slice_copy_inclusive"), String.from("slice_copy"));
+  methods := get_receiver_methods_by_name_from_env(env, method_name.clone(), recv_ty, false);
+  if(methods.len() == usize(0), {
+    return(Option(AstExpr).None);
+  });
+  tok := ast_expr_token(expr);
+  method_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(method_name, env.module_path));
+  dot_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from(BF_DOT), env.module_path));
+  ma_args := ArrayList(AstExpr).new();
+  ma_args.push(func_expr);
+  ma_args.push(method_atom);
+  method_access := AstExpr.FnCall(alloc_global_expr_id(), box(dot_atom), ma_args, true, tok);
+  new_args := ArrayList(AstExpr).new();
+  new_args.push(arg0);
+  // Keep the ORIGINAL call id so the result's ExprInfo lands on the same
+  // node (TS mutates expr.func in place — same node identity).
+  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), box(method_access), new_args, false, tok))
+});
 /// arguments, and returning the annotated expression.
 ///
 /// Phase 2bn: handles function definitions (TypeVal callee) and simple FuncVal calls.
@@ -590,14 +649,14 @@ evaluate_function_call :: (
     _ => String.new()
   );
   is_neg_call :=
-    (neg_callee_str.as_str() == "-") && (args.len() == usize(1));
+    (neg_callee_str == "-") && (args.len() == usize(1));
   if(is_neg_call, {
     arg0 := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     match(
       arg0,
       .Atom(_, atok) => {
         if(atok.kind == TokenKind.Integer, {
-          neg_raw := `-${atok.value.as_str()}`;
+          neg_raw := `-${atok.value}`;
           out_neg := new_expr_info(env, t_comptime_int());
           out_neg.value = Option(EvalValue).Some(EvalValue.IntLit(neg_raw));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_neg);
@@ -629,7 +688,7 @@ evaluate_function_call :: (
   // ------------------------------------------------------------------
   is_infix_call := match(expr,.FnCall(_, _, _, inf, _) => inf,.Atom(_, _) => false);
   op_name := match(func_expr,.Atom(_, ftok) => ftok.value, _ => String.new());
-  op_is_operator := string_is_operator(op_name.as_str());
+  op_is_operator := string_is_operator(op_name.clone());
   if((is_infix_call && op_is_operator) && (args.len() >= usize(1)), {
     first_arg := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     // Evaluate the first operand with `expected_type` cleared — the
@@ -713,7 +772,7 @@ evaluate_function_call :: (
                         agreed = Option(TypeValue).Some(cand_ty);
                       },
                       .Some(prev) => {
-                        if(type_to_string(prev).as_str() != type_to_string(cand_ty).as_str(), {
+                        if(type_to_string(prev) != type_to_string(cand_ty), {
                           diverged = true;
                         });
                       }
@@ -936,7 +995,7 @@ evaluate_function_call :: (
   callee_ty_for_gate := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
   gate_is_extern_c := match(
     callee_ty_for_gate,
-    .Func({ is_extern : ie }) => match(ie,.Some(lang) => (lang.as_str() == "c"),.None => false),
+    .Func({ is_extern : ie }) => match(ie,.Some(lang) => (lang == "c"),.None => false),
     _ => false
   );
   gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
@@ -1171,7 +1230,7 @@ Fix: wrap the call:
                 tf := ArrayList(TypeField).new();
                 (tfi : usize) = usize(0);
                 while(tfi < struct_field_labels.len(), {
-                  sf_lbl := match(struct_field_labels.get(tfi),.Some(l) => String.from(l.as_str()),.None => String.new());
+                  sf_lbl := match(struct_field_labels.get(tfi),.Some(l) => l.clone(),.None => String.new());
                   sf_ty := match(struct_field_types.get(tfi),.Some(t) => t,.None => TypeValue.Unit);
                   tf.push(
                     TypeField(
@@ -1226,7 +1285,7 @@ Fix: wrap the call:
                     match(
                       inner_v_s,
                       .Some(v_s2) => {
-                        lbl_s := match(fields.get(bi_s),.Some(f) => String.from(f.label.as_str()),.None => String.new());
+                        lbl_s := match(fields.get(bi_s),.Some(f) => f.label.clone(),.None => String.new());
                         fnames_s.push(lbl_s);
                         fvals_s.push(v_s2);
                       },
@@ -1237,7 +1296,7 @@ Fix: wrap the call:
                 );
                 bi_s = (bi_s + usize(1));
               });
-              Option(EvalValue).Some(EvalValue.StructVal(String.from(struct_name.as_str()), fnames_s, fvals_s))
+              Option(EvalValue).Some(EvalValue.StructVal(struct_name.clone(), fnames_s, fvals_s))
             }, Option(EvalValue).None);
             out_s := new_expr_info(call_result_s.caller_env, func_type);
             out_s.value = struct_val;
@@ -1273,7 +1332,7 @@ Fix: wrap the call:
               match(
                 variant_names.get(vs_i),
                 .Some(vn) => {
-                  if(vn.as_str() == variant_name.as_str(), {
+                  if(vn == variant_name, {
                     variant_idx = vs_i;
                     found_variant = true;
                   });
@@ -1300,7 +1359,7 @@ Fix: wrap the call:
             (tfi_e : usize) = usize(0);
             while(tfi_e < fields_for_var.len(), {
               vf_ty := match(fields_for_var.get(tfi_e),.Some(t) => t,.None => TypeValue.Unit);
-              vf_lbl := match(labels_for_var.get(tfi_e),.Some(l) => String.from(l.as_str()),.None => String.new());
+              vf_lbl := match(labels_for_var.get(tfi_e),.Some(l) => l.clone(),.None => String.new());
               tf_e.push(
                 TypeField(
                   label : vf_lbl,
@@ -1373,7 +1432,7 @@ Fix: wrap the call:
             tf_u := ArrayList(TypeField).new();
             (tfi_u : usize) = usize(0);
             while(tfi_u < union_labels.len(), {
-              u_lbl := match(union_labels.get(tfi_u),.Some(l) => String.from(l.as_str()),.None => String.new());
+              u_lbl := match(union_labels.get(tfi_u),.Some(l) => l.clone(),.None => String.new());
               u_ty := match(union_types.get(tfi_u),.Some(t) => t,.None => TypeValue.Unit);
               tf_u.push(
                 TypeField(
@@ -1444,11 +1503,6 @@ Fix: wrap the call:
           // Array construction: ArrayType(elem1, elem2, ...).
           // ----------------------------------------------------------------
           .Array(_, _, _) =>
-            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, exn),
-          // ----------------------------------------------------------------
-          // Slice construction (routed to array handler).
-          // ----------------------------------------------------------------
-          .Slice(_) =>
             try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, exn),
           // ----------------------------------------------------------------
           // ComptimeList construction: ComptimeListT(elem1, elem2, ...).
@@ -1576,7 +1630,7 @@ Fix: wrap the call:
         // `value`). Looked up by this FuncVal's id (see
         // evaluator/types/function.yo). `fv_param_types` carries the
         // declared regular-param types for the omitted-binding fallback.
-        fv_defaults := get_func_param_defaults(func_id_fv.as_str());
+        fv_defaults := get_func_param_defaults(func_id_fv.clone());
         fv_param_types := match(
           callee_info_opt,
           .Some(ci) => match(
@@ -1641,24 +1695,26 @@ Fix: wrap the call:
         // and issues/yo-self-macro-dispatch-corruption.md. The REGISTRY
         // (quoted params / unquote returns) stays populated so the
         // experiment patch only has to flip this constant.
-        fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.as_str()));
+        fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
         // Evaluate all arguments.
         evaled_arg_infos := ArrayList(ExprInfo).new();
         (ai : usize) = usize(0);
         while(ai < n_a, {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
           // Quoted parameter: bind the raw argument AST as an `Expr` value
-          // WITHOUT evaluating it (TS helper.ts:350 — "This is for macro
-          // function, no need to evaluate the argExpr"). if/else rather
-          // than an early `continue` — the continue shape in this loop
-          // coincided with intermittent malloc SIGTRAPs (heap corruption
-          // bisected to this file); the branch shape is equivalent and
-          // avoids the skipped loop tail.
-          if(fv_is_macro && is_param_quoted(func_id_fv.as_str(), ai), {
+          // WITHOUT evaluating it (TS helper.ts:350). The early-continue
+          // shape matches the TS original; the 2026-06-07 corruption it was
+          // once bisected to no longer reproduces (0/52 on the original
+          // 4-file protocol, post-slice-rework) — see
+          // issues/codegen-continue-in-while-heap-corruption.md.
+          if(fv_is_macro && is_param_quoted(func_id_fv.clone(), ai), {
             q_info := new_expr_info(env, t_expr_t());
             q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(box(clone_expr_fresh_ids(arg_expr))));
             _push_q := evaled_arg_infos.push(q_info);
-          }, {
+            ai = (ai + usize(1));
+            continue;
+          });
+          {
             // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
             // (helper.ts:330) — leaving the caller's expected type in place
             // leaked e.g. a single-expr fn body's expected `bool` into the
@@ -1701,7 +1757,7 @@ Fix: wrap the call:
               }
             );
             _push_arg := evaled_arg_infos.push(arg_info);
-          });
+          };
           ai = (ai + usize(1));
         });
         // Build a fresh environment for the function body.
@@ -1757,7 +1813,7 @@ Fix: wrap the call:
         // method whose body uses `K`/`V`, or one dispatched via `Self`) is bound
         // positionally from these. Faithful stand-in for TS recovering the
         // substitution from `StructType.env`. See
-        // issues/self-dispatch-loses-type-args.md.
+        // issues/fixed/self-dispatch-loses-type-args.md.
         recv_type_args := match(
           _static_dot_receiver_self_type(func_expr, ctx),
           .Some(rt) => match(rt,.Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new()),
@@ -1778,7 +1834,7 @@ Fix: wrap the call:
           (fa_bound : bool) = false;
           while((ptn_i < n_ptn) && (!(fa_bound)), {
             ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
-            if(ptn.as_str() == fa_name.as_str(), {
+            if(ptn == fa_name, {
               arg_info := match(
                 evaled_arg_infos.get(ptn_i),
                 .Some(i) => i,
@@ -1827,6 +1883,11 @@ Fix: wrap the call:
           });
           fa_i = (fa_i + usize(1));
         });
+        // v4.1: validate the PLACES bound to ref parameters (after argument
+        // evaluation so the chain types are resolved). Mirrors TS
+        // requireValidRefArgumentPlaces; this inline FuncVal arm is
+        // yo-self's second call path, so the gate runs here too.
+        require_valid_ref_argument_places(fv_param_is_ref, args, env, ctx, exn);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
         // its recorded default value (typed by its declared type) so the
@@ -1857,12 +1918,12 @@ Fix: wrap the call:
             );
             arg_info.value = Option(EvalValue).Some(omitted_val);
           });
-          // comptime_string → str/String value coercion. When a
-          // `comptime_string` literal (e.g. `"hi"`) is bound to a concrete
+          // comptime_str → str/String value coercion. When a
+          // `comptime_str` literal (e.g. `"hi"`) is bound to a concrete
           // runtime string parameter (`str`, `String`, …), bind it under the
           // DECLARED parameter type with a runtime value, NOT under its raw
-          // `comptime_string` type. Otherwise in-body method dispatch resolves
-          // against `comptime_string` (`comptime_string.len() -> comptime_int
+          // `comptime_str` type. Otherwise in-body method dispatch resolves
+          // against `comptime_str` (`comptime_str.len() -> comptime_int
           // -> i32`) instead of the declared runtime type (`str.len() ->
           // usize`) — the source of the spurious "Cannot unify i32 and usize"
           // when CTFE-evaluating `String.from("hi")`. The comptime value cannot
@@ -1871,7 +1932,7 @@ Fix: wrap the call:
           // declared type. This is the FuncVal-call counterpart of the
           // comptime→runtime conversion `helper.ts:504-568` performs.
           //
-          // Narrow guard — only comptime_string args against a concrete,
+          // Narrow guard — only comptime_str args against a concrete,
           // non-comptime-string, non-`SomeT` declared param. This avoids
           // touching comptime type-parameter args (e.g.
           // `(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`), which must keep
@@ -1931,7 +1992,7 @@ Fix: wrap the call:
         // the default-args side table), so the Step-8b validation from
         // helper.yo must run here too. Rejects e.g. `Mutex(NonSendObj)`
         // against `where(T <: Send)`.
-        validate_where_constraints_for_call(func_id_fv.as_str(), fresh_env, tok, exn);
+        validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, exn);
         // Set function body context on ctx.
         // We need the declared return type from the callee's type (if available).
         ret_type := match(
@@ -2084,7 +2145,7 @@ Fix: wrap the call:
           // the caller env and store its info as this call's info — the
           // expansion's type/value ARE the call's type/value
           // (TS function.ts:1976-2005).
-          if(macro_return_is_unquote(func_id_fv.as_str()), {
+          if(macro_return_is_unquote(func_id_fv.clone()), {
             match(
               ct_result.value,
               .ExprVal(expanded_box) => {
@@ -2162,7 +2223,7 @@ Fix: wrap the call:
                     (bni : usize) = usize(0);
                     while(bni < fa_bound_names.len(), {
                       bn := match(fa_bound_names.get(bni),.Some(x) => x,.None => String.from(""));
-                      if(bn.as_str() == rst_name.as_str(), {
+                      if(bn == rst_name, {
                         bt := match(fa_bound_types.get(bni),.Some(t) => t,.None => t_unit());
                         subst_add(s_ret, rst_name.clone(), rst_lvl, bt);
                         s_ret_any = true;
@@ -2267,13 +2328,22 @@ Fix: wrap the call:
           .Some(ci) => ci.ty,
           .None => t_unit()
         );
+        // plans/SLICE_REWORK.md Part C: range indexing on a runtime receiver
+        // rewrites to slice_copy / slice_copy_inclusive method dispatch.
+        match(
+          _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty, callee_env),
+          .Some(rewritten) => {
+            return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
+          },
+          .None => ()
+        );
         // Index-trait dispatch — mirrors TS `function.ts:1392-1411`: a
-        // value-call `x(i)` whose callee type is Array/Slice or has an
+        // value-call `x(i)` whose callee type is Array or has an
         // Index impl routes through the Index trait. UnknownVal-valued
         // callees (def-time body evaluation) land in this arm; without
         // the route, `s.bytes(i)` / `data(i)` on unknown values soft-fell
         // to `unit` and poisoned every expression built on the element.
-        if((is_array_type(callee_ty) || is_slice_type(callee_ty))
+        if(is_array_type(callee_ty)
         || has_index_impl(callee_ty, args, callee_env, ctx), {
           idx_result_rt := try_to_call_with_index_trait(
             expr,
@@ -2286,6 +2356,10 @@ Fix: wrap the call:
           );
           out_idx_rt := new_expr_info(idx_result_rt.caller_env, idx_result_rt.ty);
           out_idx_rt.value = idx_result_rt.value;
+          // Record the `*(T)` the index method returns (before auto-deref)
+          // so the ref-argument place gate recognizes `xs(i)` as a pointer
+          // into the container's buffer. Mirrors TS function.ts:2788.
+          out_idx_rt.index_trait_ptr_type = Option(TypeValue).Some(idx_result_rt.ptr_type);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           return(expr);
         });
@@ -2348,8 +2422,8 @@ Fix: wrap the call:
                   row : recv_tok.row,
                   column : recv_tok.column,
                   character : recv_tok.character,
-                  module_path : String.from(recv_tok.module_path.as_str()),
-                  input : String.from(recv_tok.input.as_str())
+                  module_path : recv_tok.module_path.clone(),
+                  input : recv_tok.input.clone()
                 )
               );
               amp_args := ArrayList(AstExpr).new();
@@ -2464,14 +2538,23 @@ Fix: wrap the call:
             .Some(ci) => ci.ty,
             .None => t_unit()
           );
+          // plans/SLICE_REWORK.md Part C: range indexing on a runtime receiver
+          // rewrites to slice_copy / slice_copy_inclusive method dispatch.
+          match(
+            _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty_none, callee_env),
+            .Some(rewritten) => {
+              return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
+            },
+            .None => ()
+          );
           // Index-trait dispatch — mirrors TS `function.ts:1392-1411`: a
-          // value-call `x(i)` whose callee type is Array/Slice or has an
+          // value-call `x(i)` whose callee type is Array or has an
           // Index impl routes through the Index trait. This is the path for
           // UNKNOWN receivers under def-time body evaluation (concrete
           // comptime indexing resolves earlier); without it, `s.bytes(i)` /
           // `data(i)` on unknown values soft-fell to `unit` and poisoned
           // every expression built on the element.
-          if((is_array_type(callee_ty_none) || is_slice_type(callee_ty_none))
+          if(is_array_type(callee_ty_none)
           || has_index_impl(callee_ty_none, args, callee_env, ctx), {
             idx_result := try_to_call_with_index_trait(
               expr,
@@ -2484,6 +2567,9 @@ Fix: wrap the call:
             );
             out_idx := new_expr_info(idx_result.caller_env, idx_result.ty);
             out_idx.value = idx_result.value;
+            // Record the index method's `*(T)` so the ref-argument place
+            // gate recognizes `xs(i)` as a buffer pointer (TS function.ts:2788).
+            out_idx.index_trait_ptr_type = Option(TypeValue).Some(idx_result.ptr_type);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             return(expr);
           });
@@ -2512,3 +2598,4 @@ Fix: wrap the call:
   )
 });
 export(evaluate_function_call);
+export(MACRO_DISPATCH_ENABLED);

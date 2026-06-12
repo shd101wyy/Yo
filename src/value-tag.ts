@@ -20,7 +20,6 @@ export enum ValueTag {
   Unit = "Unit",
   Bool = "Bool",
   Array = "Array",
-  Slice = "Slice",
   Function = "Function",
   Tuple = "Tuple",
   Struct = "Struct",

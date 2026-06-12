@@ -42,7 +42,6 @@ open(import("std/string"));
   is_union_type,
   is_iso_type,
   is_array_type,
-  is_slice_type,
   is_comptime_list_type,
   is_module_type,
   is_trait_type,
@@ -409,7 +408,6 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       res
     },
     .Array(elem, _, _) => recur(some_type_id, some_type_name, elem.*, visited, exn),
-    .Slice(elem) => recur(some_type_id, some_type_name, elem.*, visited, exn),
     .ComptimeListT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
@@ -1323,7 +1321,7 @@ _synthesize_types_impl :: (
     // comparing `functionValue.funcId`.
     exp_cfid3 := match(expected_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
     giv_cfid3 := match(given_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
-    same_constructor3 := ((exp_cfid3.len() > usize(0)) && (exp_cfid3.as_str() == giv_cfid3.as_str()));
+    same_constructor3 := ((exp_cfid3.len() > usize(0)) && (exp_cfid3 == giv_cfid3));
     if((exp_id3 != giv_id3) && !(same_constructor3), {
       exn.throw(
         dyn(
@@ -1378,7 +1376,7 @@ _synthesize_types_impl :: (
     // constructor → unify variant fields. Mirrors the struct same_constructor.
     exp_enum_cf := lookup_enum_cfid(exp_enum_id);
     giv_enum_cf := lookup_enum_cfid(giv_enum_id);
-    same_enum_ctor := ((exp_enum_cf.len() > usize(0)) && (exp_enum_cf.as_str() == giv_enum_cf.as_str()));
+    same_enum_ctor := ((exp_enum_cf.len() > usize(0)) && (exp_enum_cf == giv_enum_cf));
     // Structural fallback when EITHER side lacks a recorded constructor id:
     // enums minted on the fn-SPECIALIZATION path (`enum(...)` re-evaluated
     // inside a specialized ctor body) bypass `evaluate_comptime_fn_call`'s
@@ -1594,15 +1592,6 @@ _synthesize_types_impl :: (
     // Concrete-vs-concrete mismatched lengths fail compatibility later
     // (compatibility.yo's Array arm); synthesis itself stays permissive,
     // matching TS (which only binds, never rejects lengths here).
-    return(SynthesizeResult(expected_env : ee, given_env : ge));
-  });
-  // Case: Slice + Slice
-  if(is_slice_type(expected_ty) && is_slice_type(given_ty), {
-    exp_elem := match(expected_ty,.Slice(e) => e.*, _ => TypeValue.Unit);
-    giv_elem := match(given_ty,.Slice(e) => e.*, _ => TypeValue.Unit);
-    res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: ComptimeList + ComptimeList

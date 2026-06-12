@@ -12,7 +12,7 @@
 // `Comptime` and `Runtime` are defined first because every other
 // type (including `Pragma` below) is type-checked against them.
 /// Comptime trait — indicates a type that can be used at compile-time.
-/// Examples: `i32`, `bool`, `Type`, `comptime_int`, `comptime_float`, `comptime_string`.
+/// Examples: `i32`, `bool`, `Type`, `comptime_int`, `comptime_float`, `comptime_str`.
 /// Non-examples: `int`, `ushort` (runtime-only types).
 Comptime :: trait(
   id := "Comptime"
@@ -20,7 +20,7 @@ Comptime :: trait(
 export(Comptime);
 /// Runtime trait — indicates a type that can be used at runtime.
 /// Examples: `i32`, `bool`, `*(i32)`, `void`.
-/// Non-examples: `comptime_int`, `comptime_float`, `comptime_string`, `Type` (compile-time-only types).
+/// Non-examples: `comptime_int`, `comptime_float`, `comptime_str`, `Type` (compile-time-only types).
 Runtime :: trait(
   id := "Runtime"
 );
@@ -145,27 +145,27 @@ extern(
     fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_gte :
     fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
-  // slice related
-  __yo_slice_len :
-    fn(forall(T : Type), slice : Slice(T)) -> usize,
-  __yo_slice_new :
-    fn(forall(T : Type), ptr : *(T), length : usize) -> Slice(T),
-  __yo_slice_ptr :
-    fn(forall(T : Type), slice : Slice(T)) -> *(T),
-  // array/slice indexing builtins (used by Index trait impls)
+  // str (builtin static string view) intrinsics
+  __yo_str_from_raw_parts :
+    fn(ptr : *(u8), length : usize) -> str,
+  __yo_str_len :
+    fn(s : str) -> usize,
+  __yo_str_ptr :
+    fn(s : str) -> *(u8),
+  __yo_str_byte :
+    fn(s : str, idx : usize) -> u8,
+  // array indexing builtin (used by Index trait impls)
   __yo_array_index :
     fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T),
-  __yo_slice_index :
-    fn(forall(T : Type), self : *(Slice(T)), idx : usize) -> *(T),
   // C macro related
-  __yo_c_macro_defined : (fn(comptime(name) : comptime_string) -> comptime(bool)),
-  __yo_c_macro_value : (fn(comptime(name) : comptime_string) -> comptime(comptime_string)),
+  __yo_c_macro_defined : (fn(comptime(name) : comptime_str) -> comptime(bool)),
+  __yo_c_macro_value : (fn(comptime(name) : comptime_str) -> comptime(comptime_str)),
   // Process related functions
-  __yo_process_platform : (fn() -> comptime(comptime_string)),
-  __yo_process_arch : (fn() -> comptime(comptime_string)),
-  __yo_process_cwd : (fn() -> comptime(comptime_string)),
-  __yo_process_env_get : (fn(comptime(key) : comptime_string) -> comptime(comptime_string)),
-  __yo_process_node_version : (fn() -> comptime(comptime_string))
+  __yo_process_platform : (fn() -> comptime(comptime_str)),
+  __yo_process_arch : (fn() -> comptime(comptime_str)),
+  __yo_process_cwd : (fn() -> comptime(comptime_str)),
+  __yo_process_env_get : (fn(comptime(key) : comptime_str) -> comptime(comptime_str)),
+  __yo_process_node_version : (fn() -> comptime(comptime_str))
 );
 export(__yo_as);
 /// The `unsafe` module — provides low-level unwind hatches.
@@ -181,7 +181,7 @@ export(unsafe);
 // c_macro :: impl {
 //   /// Check if a C macro is defined
 //   /// Returns true if the macro exists, false otherwise
-//   defined :: (fn(comptime(name) : comptime_string) -> comptime(bool))(
+//   defined :: (fn(comptime(name) : comptime_str) -> comptime(bool))(
 //     __yo_c_macro_defined(name)
 //   );
 //   export defined;
@@ -189,13 +189,13 @@ export(unsafe);
 //   /// Get the value of a C macro as a compile-time string
 //   /// Returns the macro's value as a string, or empty string "" if not defined
 //   /// Note: For function-like macros, returns the definition without expansion
-//   value :: (fn(comptime(name) : comptime_string) -> comptime(comptime_string))(
+//   value :: (fn(comptime(name) : comptime_str) -> comptime(comptime_str))(
 //     __yo_c_macro_value(name)
 //   );
 //   export value;
 //
 //   /// Get a macro value with a default fallback
-//   value_or :: (fn(comptime(name) : comptime_string, comptime(default_val) : comptime_string) -> comptime(comptime_string))(
+//   value_or :: (fn(comptime(name) : comptime_str, comptime(default_val) : comptime_str) -> comptime(comptime_str))(
 //     cond(
 //       defined(name) => value(name),
 //       true => default_val
@@ -239,21 +239,6 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   )
 );
 export(Index);
-/// Indexable trait — projection-style indexing yielding a borrow.
-/// Companion to `Index`, but instead of returning a raw `*(T)` the
-/// `project` method returns a `ref(Element)` — a second-class
-/// reference that flows through Yo's flowability rule (R1–R4) and
-/// can be received by a `ref(name) := coll.project(pos);` local
-/// binding. The for-loop macro lowers iteration through this trait
-/// so user code never sees a raw pointer. See
-/// plans/ITERATOR_REDESIGN.md.
-Indexable :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
-  trait(
-    Element : Type,
-    project : (fn(ref(self) : Self, pos : Idx) -> ref(Self.Element))
-  )
-);
-export(Indexable);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
@@ -283,39 +268,17 @@ RangeInclusiveOp :: trait(
   (..=) : (fn(start : Self, end : Self) -> RangeInclusive(Self))
 );
 export(RangeInclusiveOp);
-// array/slice range indexing builtins (declared after Range/RangeInclusive types)
-extern(
-  "Yo",
-  __yo_array_index_range :
-    fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : Range(usize)) -> *(Slice(T)),
-  __yo_array_index_range_inclusive :
-    fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : RangeInclusive(usize)) -> *(Slice(T)),
-  __yo_slice_index_range :
-    fn(forall(T : Type), self : *(Slice(T)), idx : Range(usize)) -> *(Slice(T)),
-  __yo_slice_index_range_inclusive :
-    fn(forall(T : Type), self : *(Slice(T)), idx : RangeInclusive(usize)) -> *(Slice(T))
-);
 // comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls)
 extern(
   "Yo",
   __yo_comptime_array_index :
     (fn(forall(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
-  __yo_comptime_slice_index :
-    (fn(forall(T : Type), comptime(self) : *(Slice(T)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
-  __yo_comptime_array_index_range :
-    (fn(forall(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
-  __yo_comptime_array_index_range_inclusive :
-    (fn(forall(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
-  __yo_comptime_slice_index_range :
-    (fn(forall(T : Type), comptime(self) : *(Slice(T)), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
-  __yo_comptime_slice_index_range_inclusive :
-    (fn(forall(T : Type), comptime(self) : *(Slice(T)), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(Slice(T)))),
   __yo_comptime_string_index :
-    (fn(comptime(self) : comptime_string, comptime(idx) : comptime_int) -> comptime(comptime_string)),
+    (fn(comptime(self) : comptime_str, comptime(idx) : comptime_int) -> comptime(comptime_str)),
   __yo_comptime_string_index_range :
-    (fn(comptime(self) : comptime_string, comptime(idx) : Range(comptime_int)) -> comptime(comptime_string)),
+    (fn(comptime(self) : comptime_str, comptime(idx) : Range(comptime_int)) -> comptime(comptime_str)),
   __yo_comptime_string_index_range_inclusive :
-    (fn(comptime(self) : comptime_string, comptime(idx) : RangeInclusive(comptime_int)) -> comptime(comptime_string)),
+    (fn(comptime(self) : comptime_str, comptime(idx) : RangeInclusive(comptime_int)) -> comptime(comptime_str)),
   __yo_comptime_list_index :
     (fn(forall(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
   __yo_comptime_list_index_range :
@@ -739,11 +702,11 @@ Isolation :: trait(
 export(Isolation);
 /// ComptimeToString trait — compile-time string conversion.
 ComptimeToString :: trait(
-  to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_string)),
+  to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_str)),
   where(Self <: Comptime)
 );
 // SAFETY: All builtin primitive types (unit, void, comptime_int,
-// comptime_float, comptime_string, bool, i8/i16/i32/i64, u8/u16/u32/u64,
+// comptime_float, comptime_str, bool, i8/i16/i32/i64, u8/u16/u32/u64,
 // f32/f64, isize/usize, char/int/uint/short/ushort/long/ulong/longlong/
 // ulonglong/longdouble) are plain value types with no heap allocations
 // or thread-local state. They are trivially safe to send across threads
@@ -974,13 +937,13 @@ impl(
 );
 _comptime_float :: comptime_float;
 export(comptime_float : _comptime_float);
-/// comptime_string
-impl(comptime_string, Acyclic());
-impl(comptime_string, Comptime());
+/// comptime_str
+impl(comptime_str, Acyclic());
+impl(comptime_str, Comptime());
 impl(
-  comptime_string,
-  ComptimeAdd(comptime_string)(
-    Output : comptime_string,
+  comptime_str,
+  ComptimeAdd(comptime_str)(
+    Output : comptime_str,
     (+) : (
       (lhs, rhs) ->
         __yo_comptime_string_concat(lhs, rhs)
@@ -988,8 +951,8 @@ impl(
   )
 );
 impl(
-  comptime_string,
-  ComptimeEq(comptime_string)(
+  comptime_str,
+  ComptimeEq(comptime_str)(
     (==) : (
       (lhs, rhs) ->
         __yo_comptime_string_eq(lhs, rhs)
@@ -1001,8 +964,8 @@ impl(
   )
 );
 impl(
-  comptime_string,
-  ComptimeOrd(comptime_string)(
+  comptime_str,
+  ComptimeOrd(comptime_str)(
     (<) : (
       (lhs, rhs) ->
         __yo_comptime_string_lt(lhs, rhs)
@@ -1022,25 +985,25 @@ impl(
   )
 );
 impl(
-  comptime_string,
-  len : (fn(comptime(self) : comptime_string) -> comptime(comptime_int))(
+  comptime_str,
+  len : (fn(comptime(self) : comptime_str) -> comptime(comptime_int))(
     __yo_comptime_string_length(self)
   ),
-  (to_upper) : (fn(comptime(self) : comptime_string) -> comptime(comptime_string))(
+  (to_upper) : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
     __yo_comptime_string_to_upper(self)
   ),
-  (to_lower) : (fn(comptime(self) : comptime_string) -> comptime(comptime_string))(
+  (to_lower) : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
     __yo_comptime_string_to_lower(self)
   ),
-  slice : (fn(comptime(self) : comptime_string, comptime(start) : comptime_int, comptime(end) : comptime_int) -> comptime(comptime_string))(
+  slice : (fn(comptime(self) : comptime_str, comptime(start) : comptime_int, comptime(end) : comptime_int) -> comptime(comptime_str))(
     __yo_comptime_string_slice(self, start, end)
   ),
-  to_expr : (fn(comptime(self) : comptime_string) -> comptime(Expr))(
+  to_expr : (fn(comptime(self) : comptime_str) -> comptime(Expr))(
     __yo_comptime_string_to_expr(self)
   )
 );
-_comptime_string :: comptime_string;
-export(comptime_string : _comptime_string);
+_comptime_string :: comptime_str;
+export(comptime_str : _comptime_string);
 /// bool
 impl(bool, Send());
 impl(bool, Acyclic());
@@ -5605,119 +5568,19 @@ impl(
     )
   )
 );
-impl(
-  forall(T : Type, N : usize),
-  Array(T, N),
-  Index(Range(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
-      __yo_array_index_range(&(self), idx)
-    )
-  )
+/// RawSlice — a plain ptr+len pair for PRIVILEGED (pragma'd) code: C
+/// interop and std internals. Carries a raw pointer, so the existing
+/// raw-pointer gates apply: safe code cannot name or construct it.
+/// Replaces the builtin Slice(T) for internal plumbing
+/// (plans/SLICE_REWORK.md step 4).
+RawSlice :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(ptr : *(T), len : usize)
 );
-impl(
-  forall(T : Type, N : usize),
-  Array(T, N),
-  Index(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_array_index_range_inclusive(&(self), idx)
-    )
-  )
-);
-/// Array Indexable impl — projection-style indexing yielding `ref(T)`.
-/// Body takes `&(self)` so `__yo_array_index`'s `self : *(Array(T, N))`
-/// parameter is satisfied — the `ref(self) : Self` binding gives the
-/// body a value-typed view of `self` even though the C ABI passes a
-/// pointer. The `unsafe` wrap is the trusted escape from the
-/// flowability rule (privileged code only). See plans/ITERATOR_REDESIGN.md.
-impl(
-  forall(T : Type, N : usize),
-  Array(T, N),
-  Indexable(usize)(
-    Element : T,
-    project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
-      cond(
-        (pos >= N) => panic("Array: project out of bounds"),
-        true => unsafe(__yo_array_index(&(self), pos))
-      )
-    )
-  )
-);
-/// Slice
-// SAFETY: Slice(T) is a value-typed view (pointer + length) over a backing
+export(RawSlice);
 // array. Sending a slice across threads copies the header; both threads
 // can independently read the backing array. The backing array's lifetime
 // is managed by its owning collection (which must itself be Send to cross
 // threads). Slice is always Acyclic — it is a value type with no ARC.
-impl(forall(T : Type), where(T <: Send), Slice(T), Send());
-impl(forall(T : Type), Slice(T), Acyclic());
-impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), Slice(T), Runtime());
-impl(forall(T : Type), Range(T), Acyclic());
-impl(forall(T : Type), where(T <: Comptime), Range(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), Range(T), Runtime());
-impl(forall(T : Type), RangeInclusive(T), Acyclic());
-impl(forall(T : Type), where(T <: Comptime), RangeInclusive(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), RangeInclusive(T), Runtime());
-impl(
-  forall(T : Type),
-  Slice(T),
-  from_raw_parts : (fn(ptr : *(T), length : usize) -> Self)(
-    __yo_slice_new(ptr, length)
-  ),
-  len : (fn(self : Self) -> usize)(
-    __yo_slice_len(self)
-  ),
-  ptr : (fn(self : Self) -> *(T))(
-    __yo_slice_ptr(self)
-  )
-);
-/// Slice Index impls (same `&(self)` rationale as Array above).
-impl(
-  forall(T : Type),
-  Slice(T),
-  Index(usize)(
-    Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
-      __yo_slice_index(&(self), idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  Slice(T),
-  Index(Range(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
-      __yo_slice_index_range(&(self), idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  Slice(T),
-  Index(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_slice_index_range_inclusive(&(self), idx)
-    )
-  )
-);
-/// Slice Indexable impl — see Array Indexable above.
-impl(
-  forall(T : Type),
-  Slice(T),
-  Indexable(usize)(
-    Element : T,
-    project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
-      cond(
-        (pos >= self.len()) => panic("Slice: project out of bounds"),
-        true => unsafe(__yo_slice_index(&(self), pos))
-      )
-    )
-  )
-);
 /// Array ComptimeIndex impls
 impl(
   forall(T : Type, N : usize),
@@ -5730,67 +5593,11 @@ impl(
     )
   )
 );
+/// comptime_str ComptimeIndex impls
 impl(
-  forall(T : Type, N : usize),
-  where(T <: Comptime),
-  Array(T, N),
-  ComptimeIndex(Range(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_array_index_range(self, idx)
-    )
-  )
-);
-impl(
-  forall(T : Type, N : usize),
-  where(T <: Comptime),
-  Array(T, N),
-  ComptimeIndex(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_array_index_range_inclusive(self, idx)
-    )
-  )
-);
-/// Slice ComptimeIndex impls
-impl(
-  forall(T : Type),
-  where(T <: Comptime),
-  Slice(T),
-  ComptimeIndex(usize)(
-    Output : T,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
-      __yo_comptime_slice_index(self, idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  where(T <: Comptime),
-  Slice(T),
-  ComptimeIndex(Range(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_slice_index_range(self, idx)
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  where(T <: Comptime),
-  Slice(T),
-  ComptimeIndex(RangeInclusive(usize))(
-    Output : Slice(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
-      __yo_comptime_slice_index_range_inclusive(self, idx)
-    )
-  )
-);
-/// comptime_string ComptimeIndex impls
-impl(
-  comptime_string,
+  comptime_str,
   ComptimeIndex(comptime_int)(
-    Output : comptime_string,
+    Output : comptime_str,
     index : (
       (self, idx) ->
         __yo_comptime_string_index(self, idx)
@@ -5798,9 +5605,9 @@ impl(
   )
 );
 impl(
-  comptime_string,
+  comptime_str,
   ComptimeIndex(Range(comptime_int))(
-    Output : comptime_string,
+    Output : comptime_str,
     index : (
       (self, idx) ->
         __yo_comptime_string_index_range(self, idx)
@@ -5808,36 +5615,57 @@ impl(
   )
 );
 impl(
-  comptime_string,
+  comptime_str,
   ComptimeIndex(RangeInclusive(comptime_int))(
-    Output : comptime_string,
+    Output : comptime_str,
     index : (
       (self, idx) ->
         __yo_comptime_string_index_range_inclusive(self, idx)
     )
   )
 );
-/// `str` — an immutable UTF-8 byte string view (newtype over `Slice(u8)`).
+/// `str` — the BUILTIN immutable view of STATIC string bytes (TypeTag.Str,
+/// a fat pointer `{ const uint8_t* ptr; size_t len; }` in C).
 ///
-/// String literals `"hello"` produce `str` at runtime.
+/// String literals `"hello"` and template-literal segments produce `str`
+/// at runtime; the backing bytes live in static storage (immortal), so a
+/// `str` is freely copyable and storable with no lifetime constraints.
 /// For heap-allocated growable strings, see `String`.
-str :: newtype(
-  /// The underlying byte slice.
-  bytes : Slice(u8)
-);
 impl(
   str,
   /// Construct a `str` from a raw pointer and length.
+  /// SAFETY: callers must guarantee the bytes outlive every use of the
+  /// view — the safe surface only ever does this with static storage.
   from_raw_parts : (fn(ptr : *(u8), length : usize) -> Self)(
-    Self(bytes : __yo_slice_new(ptr, length))
+    __yo_str_from_raw_parts(ptr, length)
   ),
   /// Return the length in bytes.
   len : (fn(self : Self) -> usize)(
-    __yo_slice_len(self.bytes)
+    __yo_str_len(self)
   ),
   ptr : (fn(self : Self) -> *(u8))(
-    __yo_slice_ptr(self.bytes)
+    __yo_str_ptr(self)
+  ),
+  /// Return the byte at `idx` (bounds are the caller's responsibility,
+  /// mirroring slice indexing).
+  bytes : (fn(self : Self, idx : usize) -> u8)(
+    __yo_str_byte(self, idx)
   )
+);
+/// Range slicing on `str` stays a ZERO-COPY `str` — a window of static
+/// bytes is still static (byte indices). `s(a..b)` lowers to this.
+impl(
+  str,
+  slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
+    e := cond((r.end > __yo_str_len(self)) => __yo_str_len(self), true => r.end);
+    st := cond((r.start > e) => e, true => r.start);
+    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+  }),
+  slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)({
+    e := cond(((r.end + usize(1)) > __yo_str_len(self)) => __yo_str_len(self), true => (r.end + usize(1)));
+    st := cond((r.start > e) => e, true => r.start);
+    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+  })
 );
 impl(
   str,
@@ -5898,7 +5726,8 @@ impl(
     })
   )
 );
-export(str);
+// (str is a builtin type — no export needed; the identifier resolves
+// everywhere like bool/i32.)
 assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(
   cond(
     flag => (),
@@ -6026,7 +5855,7 @@ impl(
   neq : (fn(comptime(a) : Type, comptime(b) : Type) -> comptime(bool))({
     return(!(__yo_are_types_equal(a, b)));
   }),
-  to_comptime_string : (fn(comptime(self) : Type) -> comptime(comptime_string))({
+  to_comptime_string : (fn(comptime(self) : Type) -> comptime(comptime_str))({
     return(__yo_type_to_comptime_string(self));
   })
 );
@@ -6055,7 +5884,7 @@ export(StructKind);
 /// TypeFieldInfo — metadata for a single struct/object field.
 TypeFieldInfo :: struct(
   /// Field name.
-  name : comptime_string,
+  name : comptime_str,
   /// Field type.
   field_type : Type
 );
@@ -6078,7 +5907,7 @@ export(TraitInfo);
 /// TraitFieldInfo — metadata for a single trait field.
 TraitFieldInfo :: struct(
   /// Field name.
-  name : comptime_string,
+  name : comptime_str,
   /// Field type.
   field_type : Type,
   /// `true` if this field is an associated type (not a method).
@@ -6089,7 +5918,7 @@ export(TraitFieldInfo);
 /// ParamInfo — metadata for a function parameter.
 ParamInfo :: struct(
   /// Parameter name.
-  name : comptime_string,
+  name : comptime_str,
   /// Parameter type.
   param_type : Type,
   /// `true` if the parameter is compile-time (`comptime`).
@@ -6103,14 +5932,14 @@ impl(ParamInfo, Comptime());
 export(ParamInfo);
 /// ForallParamInfo — metadata for a forall type parameter.
 ForallParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type
 );
 impl(ForallParamInfo, Comptime());
 export(ForallParamInfo);
 /// ImplicitParamInfo — metadata for a `using`/effect parameter.
 ImplicitParamInfo :: struct(
-  name : comptime_string,
+  name : comptime_str,
   param_type : Type
 );
 impl(ImplicitParamInfo, Comptime());
@@ -6144,7 +5973,7 @@ export(TraitKind);
 /// VariantInfo — metadata for an enum variant.
 VariantInfo :: struct(
   /// Variant name.
-  name : comptime_string,
+  name : comptime_str,
   /// Variant fields (may be empty for unit variants).
   fields : ComptimeList(TypeFieldInfo),
   _enum_type : Type,
@@ -6182,9 +6011,10 @@ TypeInfo :: enum(
   ULongLong,
   LongDouble,
   Void,
+  /// `str` — static string view (fieldless)
+  Str,
   // Compound types (with metadata)
   Array(element : Type, length : comptime_int),
-  Slice(element : Type),
   Tuple(fields : ComptimeList(TypeFieldInfo)),
   Struct(
     fields : ComptimeList(TypeFieldInfo),
@@ -6210,7 +6040,7 @@ TypeInfo :: enum(
   ),
   Type(level : comptime_int),
   Some(
-    name : comptime_string,
+    name : comptime_str,
     required_traits : ComptimeList(TraitInfo),
     negative_traits : ComptimeList(TraitInfo),
     resolved_type : Type
@@ -6218,7 +6048,7 @@ TypeInfo :: enum(
   // Comptime only
   ComptimeInt,
   ComptimeFloat,
-  ComptimeString,
+  ComptimeStr,
   ComptimeList(element : Type),
   // Metaprogramming (fieldless)
   Expr,
@@ -6243,8 +6073,8 @@ impl(
   is_array : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,.Array(_, _) => true, _ => false)
   ),
-  is_slice : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Slice(_) => true, _ => false)
+  is_str : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self,.Str => true, _ => false)
   ),
   is_function : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self,.Function(_) => true, _ => false)
@@ -6284,6 +6114,7 @@ impl(
       .LongLong => true,
       .ULongLong => true,
       .LongDouble => true,
+      .Str => true,
       _ => false
     )
   ),
@@ -6326,7 +6157,7 @@ impl(
       self,
       .ComptimeInt => true,
       .ComptimeFloat => true,
-      .ComptimeString => true,
+      .ComptimeStr => true,
       .ComptimeList(_) => true,
       .Expr => true,
       _ => false
@@ -6388,7 +6219,7 @@ impl(
   })
 );
 /// `FieldInfo` — compile-time struct field metadata for derive rules (legacy alias).
-FieldInfo :: struct(name : comptime_string, field_type : Type);
+FieldInfo :: struct(name : comptime_str, field_type : Type);
 impl(FieldInfo, Comptime());
 impl(
   FieldInfo,
@@ -6685,9 +6516,9 @@ export(DeriveContext);
 __yo_comptime_fold_range :: (
   fn(
     comptime(n) : usize,
-    comptime(init) : comptime_string,
-    comptime(f) : (fn(comptime(acc) : comptime_string, comptime(i) : usize) -> comptime(comptime_string))
-  ) -> comptime(comptime_string)
+    comptime(init) : comptime_str,
+    comptime(f) : (fn(comptime(acc) : comptime_str, comptime(i) : usize) -> comptime(comptime_str))
+  ) -> comptime(comptime_str)
 )(
   cond(
     (n == usize(0)) => init,
@@ -6696,17 +6527,17 @@ __yo_comptime_fold_range :: (
   )
 );
 // Helper: concat 2 strings
-__s2 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string) -> comptime(comptime_string))(a + b);
+__s2 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str) -> comptime(comptime_str))(a + b);
 // Helper: concat 3 strings
-__s3 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string) -> comptime(comptime_string))(
+__s3 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str) -> comptime(comptime_str))(
   (a + b) + c
 );
 // Helper: concat 4 strings
-__s4 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string) -> comptime(comptime_string))(
+__s4 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str) -> comptime(comptime_str))(
   ((a + b) + c) + d
 );
 // Helper: concat 5 strings
-__s5 :: (fn(comptime(a) : comptime_string, comptime(b) : comptime_string, comptime(c) : comptime_string, comptime(d) : comptime_string, comptime(e) : comptime_string) -> comptime(comptime_string))(
+__s5 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str, comptime(e) : comptime_str) -> comptime(comptime_str))(
   (((a + b) + c) + d) + e
 );
 // --- derive_rule for Eq ---
@@ -6738,7 +6569,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       eq_branches :: __yo_comptime_fold_range(
         vc,
         "",
-        (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))({
+        (fn(comptime(acc) : comptime_str, comptime(vi) : usize) -> comptime(comptime_str))({
           v :: variants.get(vi);
           branch :: cond(
             (v.fields.len() == 0) =>
@@ -6747,7 +6578,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
               lhs_bindings :: __yo_comptime_fold_range(
                 v.fields.len(),
                 "",
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   cond(
                     (a == "") => __s2("__lhs_", fname),
@@ -6758,7 +6589,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
               rhs_bindings :: __yo_comptime_fold_range(
                 v.fields.len(),
                 "",
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   cond(
                     (a == "") => __s2("__rhs_", fname),
@@ -6769,7 +6600,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
               eq_cmp :: __yo_comptime_fold_range(
                 v.fields.len(),
                 "",
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   part :: __s4("(__lhs_", fname, " == __rhs_", fname);
                   cond(
@@ -6828,7 +6659,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       cloned_fields :: __yo_comptime_fold_range(
         fc,
         "",
-        (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+        (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: fields.get(fi).name;
           part :: __s3("self.", fname, ".clone()");
           cond(
@@ -6852,7 +6683,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       clone_branches :: __yo_comptime_fold_range(
         vc,
         "",
-        (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))({
+        (fn(comptime(acc) : comptime_str, comptime(vi) : usize) -> comptime(comptime_str))({
           v :: variants.get(vi);
           branch :: cond(
             (v.fields.len() == 0) => __s4(".", v.name, " => .", v.name),
@@ -6860,7 +6691,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
               bindings :: __yo_comptime_fold_range(
                 v.fields.len(),
                 "",
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   cond(
                     (a == "") => __s2("__v_", fname),
@@ -6871,7 +6702,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
               cloned :: __yo_comptime_fold_range(
                 v.fields.len(),
                 "",
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   cond(
                     (a == "") => __s3("__v_", fname, ".clone()"),
@@ -6934,7 +6765,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           hash_stmts :: __yo_comptime_fold_range(
             fc,
             "",
-            (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+            (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
               cond(
                 (fi == 0) => __s3("(h : u64) = self.", fname, ".hash()"),
@@ -6959,7 +6790,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
       hash_branches :: __yo_comptime_fold_range(
         vc,
         "",
-        (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))({
+        (fn(comptime(acc) : comptime_str, comptime(vi) : usize) -> comptime(comptime_str))({
           v :: variants.get(vi);
           vi_str :: __yo_comptime_usize_to_comptime_string(vi);
           branch :: cond(
@@ -6968,7 +6799,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
               bindings :: __yo_comptime_fold_range(
                 v.fields.len(),
                 "",
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   cond(
                     (a == "") => __s2("__v_", fname),
@@ -6979,7 +6810,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
               hash_stmts :: __yo_comptime_fold_range(
                 v.fields.len(),
                 __s3("(h : u64) = u64(", vi_str, ")"),
-                (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   __s4(a, "; h = ((h * u64(31)) + __v_", fname, ".hash())")
                 })
@@ -7021,7 +6852,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
 derive_rule(Hash, __derive_hash);
 // --- derive_rule for Ord ---
 // Helper: generate lexicographic comparison for struct fields
-__derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_string) -> comptime(comptime_string))({
+__derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_str) -> comptime(comptime_str))({
   fields :: Type.get_struct_fields(T);
   fc :: fields.len();
   cond(
@@ -7033,7 +6864,7 @@ __derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_stri
       branches :: __yo_comptime_fold_range(
         fc,
         "",
-        (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+        (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: fields.get(fi).name;
           branch :: cond(
             (fi == (fc - 1)) =>
@@ -7052,7 +6883,7 @@ __derive_ord_struct_body :: (fn(comptime(T) : Type, comptime(op) : comptime_stri
   )
 });
 // Helper: generate lexicographic comparison for enum variant bindings
-__derive_ord_variant_body :: (fn(comptime(v) : VariantInfo, comptime(op) : comptime_string) -> comptime(comptime_string))(
+__derive_ord_variant_body :: (fn(comptime(v) : VariantInfo, comptime(op) : comptime_str) -> comptime(comptime_str))(
   cond(
     (v.fields.len() == 1) => {
       fname :: v.fields.get(0).name;
@@ -7062,7 +6893,7 @@ __derive_ord_variant_body :: (fn(comptime(v) : VariantInfo, comptime(op) : compt
       branches :: __yo_comptime_fold_range(
         v.fields.len(),
         "",
-        (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+        (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: v.fields.get(fi).name;
           branch :: cond(
             (fi == (v.fields.len() - 1)) =>
@@ -7120,11 +6951,11 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       variants :: Type.get_enum_variants(T);
       vc :: variants.len();
       // Generate one operator's match branches
-      __gen_op_branches :: (fn(comptime(op) : comptime_string, comptime(eq_val) : comptime_string) -> comptime(comptime_string))({
+      __gen_op_branches :: (fn(comptime(op) : comptime_str, comptime(eq_val) : comptime_str) -> comptime(comptime_str))({
         branches :: __yo_comptime_fold_range(
           vc,
           "",
-          (fn(comptime(acc) : comptime_string, comptime(vi) : usize) -> comptime(comptime_string))({
+          (fn(comptime(acc) : comptime_str, comptime(vi) : usize) -> comptime(comptime_str))({
             v :: variants.get(vi);
             branch :: cond(
               (v.fields.len() == 0) =>
@@ -7133,7 +6964,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
                 lhs_bindings :: __yo_comptime_fold_range(
                   v.fields.len(),
                   "",
-                  (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                  (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                     fname :: v.fields.get(fi).name;
                     cond(
                       (a == "") => __s2("__lhs_", fname),
@@ -7144,7 +6975,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
                 rhs_bindings :: __yo_comptime_fold_range(
                   v.fields.len(),
                   "",
-                  (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
+                  (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                     fname :: v.fields.get(fi).name;
                     cond(
                       (a == "") => __s2("__rhs_", fname),
@@ -7696,23 +7527,24 @@ IntoIterator :: trait(
 );
 export(IntoIterator);
 /// === Array Iterator ===
-/// Position iterator for Array(T, N) — yields `usize` indices.
-/// Used by `Array.iter()`; the for-macro pairs each yielded position
-/// with `Array.project(pos)` (Indexable trait) to hand the body a
-/// `ref(T)`-binding into the element. See plans/ITERATOR_REDESIGN.md.
-_ArrayPosIter :: struct(
-  _index : usize,
-  _len : usize
+/// Value iterator for Array(T, N) — yields elements by value. Backs
+/// the for-macro value form `for(arr, (x) => body)` via `into_iter`.
+_ArrayIter :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
+  struct(
+    _arr : Array(T, N),
+    _index : usize
+  )
 );
 impl(
-  _ArrayPosIter,
+  forall(T : Type, N : usize),
+  _ArrayIter(T, N),
   Iterator(
-    Item : usize,
-    next : (fn(ref(self) : Self) -> Option(usize))(
+    Item : T,
+    next : (fn(ref(self) : Self) -> Option(T))(
       cond(
-        (self._index >= self._len) =>.None,
+        (self._index >= N) =>.None,
         true => {
-          out := self._index;
+          out := self._arr(self._index);
           self._index = (self._index + usize(1));
           .Some(out)
         }
@@ -7723,40 +7555,8 @@ impl(
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
-  iter : (fn(ref(self) : Self) -> _ArrayPosIter)(
-    _ArrayPosIter(_index : usize(0), _len : N)
-  )
-);
-/// === Slice Iterator ===
-/// Position iterator for Slice(T) — yields `usize` indices into the
-/// slice. Used by `Slice.iter()`; the for-macro pairs each yielded
-/// position with `Slice.project(pos)` (Indexable) to bind the body's
-/// `ref`-name. See plans/ITERATOR_REDESIGN.md.
-_SlicePosIter :: struct(
-  _index : usize,
-  _len : usize
-);
-impl(
-  _SlicePosIter,
-  Iterator(
-    Item : usize,
-    next : (fn(ref(self) : Self) -> Option(usize))(
-      cond(
-        (self._index >= self._len) =>.None,
-        true => {
-          out := self._index;
-          self._index = (self._index + usize(1));
-          .Some(out)
-        }
-      )
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  Slice(T),
-  iter : (fn(ref(self) : Self) -> _SlicePosIter)(
-    _SlicePosIter(_index : usize(0), _len : self.len())
+  into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
+    _ArrayIter(T, N)(_arr : self, _index : usize(0))
   )
 );
 /// TryFrom trait — fallible conversion from one type to another.
@@ -7822,33 +7622,30 @@ try :: (fn(quote(expr_to_try) : Expr) -> unquote(Expr))({
   })
 });
 export(try);
-/// `for` macro — iterate over a collection. The lambda's binding shape
-/// dictates whether the iteration borrows or consumes:
+/// `for` macro — iterate over a collection.
 ///
-///   `for(coll, ref(x) => body)` — borrow form. Calls `coll.iter()`
-///     (must yield positions) + `coll.project(pos)` for each. `x` is
-///     `ref`-bound to the element; reads auto-deref, writes propagate
-///     back to the collection; `coll` survives the loop.
+///   `for(coll, (x) => body)` — calls `coll.into_iter()` and binds `x`
+///     to each yielded value. The collection is moved into the
+///     iterator; object elements are handles, so mutating `x` in the
+///     body mutates the element in place.
 ///
-///   `for(coll, (x) => body)` — value form. Calls `coll.into_iter()`
-///     and binds `x` to each yielded value. The collection is moved
-///     into the iterator and consumed.
+/// The old borrow form `for(coll, ref(x) => body)` was REMOVED: it
+/// required `ref`s into reallocatable storage, which is no longer
+/// expressible. Object elements mutate in place through the value
+/// handle; struct elements use an index loop with `get`/`set`.
 ///
-/// Combinator chains (`coll.iter().map(f)`, etc.) only support the
-/// value form — they yield computed values, not borrows. A blanket
-/// `into_iter` impl on `Iterator` (below) makes the value form work
-/// transparently on iterator chains.
-///
-/// See plans/ITERATOR_REDESIGN.md.
+/// Combinator chains (`coll.into_iter().map(f)`, etc.) work
+/// transparently: a blanket `into_iter` impl on `Iterator` (below)
+/// makes every iterator its own `IntoIterator`.
 ///
 /// # Examples
 /// ```rust
-/// // Borrow form — mutate elements in place.
-/// for(arr, ref(x) => {
-///   x = (x + i32(1));
+/// // Object elements — mutate in place through the handle.
+/// for(names, (s) => {
+///   s.push_str("!");
 /// });
 ///
-/// // Value form — consume the collection.
+/// // Consume an iterator chain.
 /// for(list.into_iter(), (x) => print(x));
 /// ```
 for :: (
@@ -7879,38 +7676,14 @@ for :: (
             );
             cond(
               is_ref_form => {
-                v_args :: variable.get_args();
-                comptime_assert(v_args.len() == 1, "'for' macro: ref(name) requires exactly one name");
-                name :: v_args.car();
-                iter_var :: gensym("for_iter_var");
-                pos_var :: gensym("for_pos_var");
-                // Note: the borrow form does NOT materialize a local
-                // copy of `coll`. Writes through `ref(x) := …
-                // coll.project(pos)` need to propagate to the caller's
-                // storage; a value-typed local copy would receive the
-                // writes silently. The for-macro consumes `coll` as an
-                // expression directly so the `&coll` pointer it
-                // implicitly forms reaches the caller's collection.
-                // (This is correct for `coll : Array(T, N)` /
-                // `Slice(T)` / `String` value-typed collections and
-                // for `ref(coll)`-bound parameter inputs; for owning
-                // collections like `ArrayList` whose internal storage
-                // is heap, the receiver-by-ref semantics already work.)
-                quote({
-                  unquote(iter_var) := unquote(coll).iter();
-                  while(runtime(true), {
-                    match(
-                      unquote(iter_var).next(),
-                      .Some(unquote(pos_var)) => {
-                        ref(unquote(name)) := unquote(coll).project(unquote(pos_var));
-                        unquote(body);
-                      },
-                      .None => {
-                        break;
-                      }
-                    );
-                  });
-                })
+                // The borrow form is gone: it handed out refs into
+                // reallocatable storage. Teach the migration instead
+                // of failing with a resolution error.
+                comptime_assert(
+                  false,
+                  "'for(coll, ref(x) => ...)' was removed - use the value form 'for(coll, (x) => ...)'. Object elements are handles and mutate in place; for struct elements use an index loop with get/set."
+                );
+                quote(())
               },
               true => {
                 iter_var :: gensym("for_iter_var");

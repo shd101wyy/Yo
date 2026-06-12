@@ -143,7 +143,7 @@ structure).
 >   free-var set; `issues/yo-self-flowability-swallow.md`) **and `slice_flowability`**
 >   (a long tail of distinct positive-case gaps — first is `comptime_str`, blocked
 >   by recorded-`ExprInfo.env` aliasing + begin `pop_frame`;
->   `issues/yo-self-recorded-env-aliasing.md`).
+>   `issues/fixed/yo-self-recorded-env-aliasing.md`).
 > - **comptime arithmetic — ✅ Tier 1 done (cf6219f0)** — `comptime_ref` now
 >   passes (`n + usize(1)` types as `usize`, not `unit`). Tier 1 = correct
 >   typing (operator → trait dispatch via `string_is_operator`, gated on
@@ -654,7 +654,7 @@ impl(forall(K : Type), M(K), make : (fn(v : K) -> Self)(Self(x : v)));
 
 `M(i32)` works, `M(String)` fails; returning `i32` works, returning `Self`
 (with a `String` field) fails. Full diagnosis + recommended approach in
-[`issues/phase3-nested-generic-instantiation-identity.md`](../issues/phase3-nested-generic-instantiation-identity.md).
+[`issues/fixed/phase3-nested-generic-instantiation-identity.md`](../issues/fixed/phase3-nested-generic-instantiation-identity.md).
 
 **Foundation LANDED (regression-neutral, contributes to the eventual fix):**
 
@@ -720,17 +720,14 @@ tried and reverted (regressed `check ./std` 151→71; see memory
 | Full-directory `check` SIGSEGV (cross-file state pollution; prelude-populated registries)                                       | (Phase 3 — measurement note)                                   | 3     | known limitation — measure per-file by exit code                      |
 | **Generic-instantiation identity knot** (`.new()`/method on a generic type → `unit`; ≈170 `./yo-self` fails)                    | `issues/fixed/phase3-nested-generic-method-resolution-unit.md` | 3     | **✅ fixed (`e3936a98`) — comptime-fn cache collision, not identity** |
 
-(Several earlier Phase-2 issue docs — `yo-self-where-clause-trait-eval-segfault`,
-`yo-self-nested-typeapp-in-impl-return-segfault`,
-`yo-self-impl-fn-parametric-return-sigsegv`,
-`yo-self-typevalue-variants-too-narrow-for-stub-ports`,
-`yo-self-evaluator-enum-memory-leak` — were the historical `./tests` cluster;
-Phase 2 reached 169/170 via the swallow-pattern + cycle-guard fixes above, so
-they no longer block the count and may be stale. The `yo-self-codegen-*` and
-`yo-self-bin-rebuild-segfaults-*` issues are
-codegen concerns — out of scope for the `check` goal, though the rebuild
-issue should be re-checked since it is a year old and the toolchain has
-moved on substantially.)
+(The earlier Phase-2 issue docs — where-clause-trait-eval-segfault,
+nested-typeapp-in-impl-return-segfault, impl-fn-parametric-return-sigsegv,
+evaluator-enum-memory-leak — were all verified fixed in the 2026-06-11
+issues triage and now live in `issues/fixed/`. The
+typevalue-variants-too-narrow and `yo-self-codegen-*`/bin-rebuild-segfaults
+docs were deleted in the same triage: they described the since-deleted
+untyped bootstrap codegen and the pre-alignment type model, both superseded
+by `plans/BOOTSTRAPPING_CODEGEN.md` and the completed TypeValue alignment.)
 
 ---
 

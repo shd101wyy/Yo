@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { rune } :: import("./rune.yo");
 { memcpy, memcmp, strlen } :: import("../libc/string.yo");
+{ fwrite, stderr } :: import("../libc/stdio.yo");
 /// String operation error variants.
 StringError :: enum(
   /// The input bytes are not valid UTF-8.
@@ -162,14 +163,23 @@ impl(
   * Get a str view into the string's UTF-8 bytes
   * Returns a fat pointer (pointer + length) without copying
   */
-  as_str : (fn(self : Self) -> str)(
+  /**
+  * PRIVILEGED raw view of the heap buffer (ptr + byte length) for C
+  * interop and pragma'd std internals. Naming RawSlice requires
+  * pragma(Pragma.AllowUnsafe); the view dangles if the String mutates
+  * or dies — callers must not let it escape the borrow site.
+  * (This replaces the deleted `as_str()`: heap bytes can no longer be
+  * viewed as `str`, which is the STATIC string view.
+  * See plans/SLICE_REWORK.md.)
+  */
+  raw_bytes : (fn(self : Self) -> RawSlice(u8))(
     match(
       self._bytes,
-      .None => str.from_raw_parts(*(u8)(""), usize(0)),
+      .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0)),
       .Some(al) => match(
         al._ptr,
-        .Some(p) => str.from_raw_parts(p, al._length),
-        .None => str.from_raw_parts(*(u8)(""), usize(0))
+        .Some(p) => RawSlice(u8)(ptr : p, len : al._length),
+        .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0))
       )
     )
   ),
@@ -414,6 +424,31 @@ impl(
   /// Use `len()` for Unicode character count.
   bytes_len : (fn(self : Self) -> usize)(
     match(self._bytes,.Some(b) => b.len(),.None => usize(0))
+  ),
+  /// Get the byte at the given index. Panics if the index is out of
+  /// bounds (mirrors `str`'s byte indexing). Use `bytes_len()` for the
+  /// valid range and `bytes()` for sequential iteration.
+  byte_at : (fn(self : Self, index : usize) -> u8)(
+    match(
+      self._bytes,
+      .Some(b) => match(
+        b.get(index),
+        .Some(v) => v,
+        .None => panic("String.byte_at: index out of bounds")
+      ),
+      .None => panic("String.byte_at: index out of bounds")
+    )
+  ),
+  /**
+  * Owned copy of the characters in `[r.start, r.end)` — `s(a..b)` lowers
+  * to this (JS-style range slicing; rune indices like `substring`).
+  */
+  slice_copy : (fn(self : Self, r : Range(usize)) -> Self)(
+    self.substring(r.start, r.end)
+  ),
+  /// Inclusive-range companion (`s(a..=b)`).
+  slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)(
+    self.substring(r.start, r.end + usize(1))
   ),
   /**
   * Extract a substring from start to end character indices (like JavaScript substring)
@@ -1414,6 +1449,143 @@ impl(
     })
   )
 );
+/// Heterogeneous comparison: `String == str` (and `!=`). Compares bytes
+/// DIRECTLY against the static `str` — no intermediate view of the String's
+/// heap buffer is constructed (`as_str()` is being removed; see
+/// plans/SLICE_REWORK.md step 1). This is the replacement for the dominant
+/// `x.as_str() == "literal"` pattern: write `x == "literal"`.
+impl(
+  String,
+  Eq(str)(
+    (==) : (fn(self : Self, other : str) -> bool)({
+      (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
+      other_len := other.len();
+      cond(
+        (self_len != other_len) => false,
+        (self_len == usize(0)) => true,
+        true =>
+          match(
+            self._bytes,
+            .Some(self_al) =>
+              match(
+                self_al.ptr(),
+                // SAFETY: self_len equals other_len (checked above) and both
+                // equal the respective byte counts; the str's backing is
+                // static storage and the String's buffer is Rc-managed —
+                // memcmp reads exactly self_len bytes from each.
+                .Some(self_ptr) =>
+                  (unsafe(memcmp((*(void))(self_ptr), (*(void))(other.ptr()), self_len)) == int(0)),
+                .None => false
+              ),
+            .None => false
+          )
+      )
+    })
+    // `(!=)` comes from the trait's `?=` default (not(Self.(==)(lhs, rhs))),
+    // which dispatches to this overload by argument types.
+  )
+);
+/// The symmetric direction: `str == String` (and `!=`), so literal-first
+/// comparisons (`"x" == name`) work too. Lives here (not the prelude)
+/// because the prelude is layered below `String`.
+impl(
+  str,
+  Eq(String)(
+    (==) : (fn(self : Self, other : String) -> bool)({
+      self_len := self.len();
+      (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+      cond(
+        (self_len != other_len) => false,
+        (self_len == usize(0)) => true,
+        true =>
+          match(
+            other._bytes,
+            .Some(other_al) =>
+              match(
+                other_al.ptr(),
+                // SAFETY: lengths equal & nonzero; str backing is static.
+                .Some(other_ptr) =>
+                  (unsafe(memcmp((*(void))(self.ptr()), (*(void))(other_ptr), self_len)) == int(0)),
+                .None => false
+              ),
+            .None => false
+          )
+      )
+    })
+    // `(!=)` comes from the trait's `?=` default.
+  )
+);
+/// Byte-lexicographic ordering, mirroring `str`'s `Ord(str)` impl in the
+/// prelude. Enables `a < b` on Strings directly (the `a.as_str() <
+/// b.as_str()` workaround is retired; see plans/SLICE_REWORK.md step 3).
+impl(
+  String,
+  Ord(String)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)({
+      lhs_len := lhs.bytes_len();
+      rhs_len := rhs.bytes_len();
+      min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
+      i := usize(0);
+      while(i < min_len, i = (i + usize(1)), {
+        cond(
+          (lhs.byte_at(i) < rhs.byte_at(i)) => {
+            return(true);
+          },
+          (lhs.byte_at(i) > rhs.byte_at(i)) => {
+            return(false);
+          },
+          true => ()
+        );
+      });
+      lhs_len < rhs_len
+    }),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)({
+      return(!(rhs < lhs));
+    }),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)({
+      return(rhs < lhs);
+    }),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)({
+      return(!(lhs < rhs));
+    })
+  )
+);
+/// Search/pattern operations accepting a static `str` argument
+/// (plans/SLICE_REWORK.md step 1). Inherent methods cannot be overloaded
+/// in Yo, so the `str`-pattern variants of `contains`/`starts_with`/… are
+/// provided through this trait; method dispatch picks the overload by
+/// argument type (`x.contains("lit")` vs `x.contains(other_string)`).
+StrPattern :: trait(
+  contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool),
+  starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool),
+  ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool),
+  index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize)),
+  last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize)),
+  split : (fn(self : Self, separator : str) -> ArrayList(Self))
+);
+impl(
+  String,
+  StrPattern(
+    contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool)(
+      self.contains(String.from(substr), from_index)
+    ),
+    starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool)(
+      self.starts_with(String.from(prefix), position)
+    ),
+    ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool)(
+      self.ends_with(String.from(suffix), end_position)
+    ),
+    index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize))(
+      self.index_of(String.from(substr), from_index)
+    ),
+    last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize))(
+      self.last_index_of(String.from(substr), from_index)
+    ),
+    split : (fn(self : Self, separator : str) -> ArrayList(Self))(
+      self.split(String.from(separator))
+    )
+  )
+);
 /// Hash trait implementation — FNV-1a hash over the string's bytes.
 impl(
   String,
@@ -1513,31 +1685,6 @@ impl(
     )
   )
 );
-/// Byte-position iterator for `String` — yields `usize` byte indices.
-/// Used by `String.iter()`; the for-macro pairs each yielded position
-/// with `String.project(pos)` (Indexable from Phase C) to bind the
-/// body's `ref`-name to a byte in `self._bytes.Some`. See
-/// plans/ITERATOR_REDESIGN.md.
-_StringPosIter :: struct(
-  _index : usize,
-  _len : usize
-);
-impl(
-  _StringPosIter,
-  Iterator(
-    Item : usize,
-    next : (fn(ref(self) : Self) -> Option(usize))(
-      cond(
-        (self._index >= self._len) =>.None,
-        true => {
-          out := self._index;
-          self._index = (self._index + usize(1));
-          .Some(out)
-        }
-      )
-    )
-  )
-);
 impl(
   String,
   /**
@@ -1551,17 +1698,6 @@ impl(
   */
   bytes : (fn(self : Self) -> StringBytes)(
     StringBytes(_string : self, _index : usize(0))
-  ),
-  /// Byte-position iterator for `for(s, ref(b) => body)`. Yields
-  /// `usize` byte indices; the for-macro pairs each with
-  /// `s.project(pos)` (Indexable) so the body sees `ref(u8)` bound
-  /// to each byte. Iteration is byte-level, not rune-level — for
-  /// codepoint iteration use `chars()` explicitly.
-  iter : (fn(ref(self) : Self) -> _StringPosIter)(
-    _StringPosIter(
-      _index : usize(0),
-      _len : match(self._bytes,.Some(b) => b.len(),.None => usize(0))
-    )
   ),
   /**
   * Consume the string and return a rune iterator (default iteration)
@@ -2157,27 +2293,6 @@ impl(
     )
   )
 );
-/// String Indexable impl — projection-style byte access yielding
-/// `ref(u8)`. Body uses `unsafe(...)` because `&(bytes(pos))` produces
-/// a raw `*(u8)` borrow into `self._bytes.Some.bytes` storage; the
-/// `unsafe` wrap is the trusted escape from the flowability rule
-/// (privileged code only). See plans/ITERATOR_REDESIGN.md.
-impl(
-  String,
-  Indexable(usize)(
-    Element : u8,
-    project : (fn(ref(self) : Self, pos : usize) -> ref(u8))(
-      match(
-        self._bytes,
-        // SAFETY: `pos < self.len()` is the precondition; the `_bytes` is the
-        // String's own owned ArrayList whose `data[pos]` lives as long as the
-        // ref-bound `self`. `bytes(pos)` is auto-bounds-checked by ArrayList.project.
-        .Some(bytes) => unsafe(&(bytes(pos))),
-        .None => panic("String: project on empty string")
-      )
-    )
-  )
-);
 /// Clone implementation — produces an independent byte-level copy.
 impl(
   String,
@@ -2205,29 +2320,41 @@ impl(
     )
   )
 );
-/// Like `assert`, but accepts a runtime `String` message (e.g. a template
-/// string with interpolation: `` `error: ${value}` ``).
-///
-/// Example:
-///   name := String.from("rule1");
-///   assert_dyn(name.len() > usize(0), `Invalid rule name: ${name}`);
-assert_dyn :: (fn(flag : bool, msg : String) -> unit)({
-  assert(flag, msg.as_str());
-});
 /// Like `panic`, but accepts a runtime `String` message (e.g. a template
 /// string with interpolation: `` `error: ${value}` ``).
 ///
 /// Example:
 ///   panic_dyn(`Something went wrong: ${details}`);
 panic_dyn :: (fn(msg : String) -> unit)({
-  panic(msg.as_str());
+  // Write the heap message bytes to stderr, then abort via panic.
+  // (str is the STATIC string view now — a heap String can't be passed
+  // to panic(str); see plans/SLICE_REWORK.md.)
+  rb := msg.raw_bytes();
+  // SAFETY: rb points into msg's live buffer for the duration of the call.
+  // fwrite (ANSI C) instead of POSIX write(2, …) so the emitted C is portable
+  // to Windows targets.
+  ___ := unsafe(fwrite(*(void)(rb.ptr), usize(1), rb.len, stderr));
+  panic("");
+}); /// Like `assert`, but accepts a runtime `String` message (e.g. a template
+/// string with interpolation: `` `error: ${value}` ``).
+///
+/// Example:
+///   name := String.from("rule1");
+///   assert_dyn(name.len() > usize(0), `Invalid rule name: ${name}`);
+assert_dyn :: (fn(flag : bool, msg : String) -> unit)({
+  cond(
+    flag => (),
+    true => panic_dyn(msg)
+  );
 });
+
 export(
   String,
   StringError,
   StringChars,
   StringBytes,
   StringLines,
+  StrPattern,
   assert_dyn,
   panic_dyn
 );

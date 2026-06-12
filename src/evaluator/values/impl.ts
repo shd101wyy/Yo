@@ -40,7 +40,6 @@ import {
   isArrayType,
   isFnTraitType,
   isFunctionType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTraitType,
@@ -1017,6 +1016,17 @@ function clearImplRecordsFromModule(modulePath: string): void {
  * Use this to completely reset global state between independent compilation runs.
  */
 export function clearAllGlobalImplState(): void {
+  // Strip module-sourced fields from every trait the registry touched BEFORE
+  // dropping the tracking. Builtin type singletons (str, i32, …) are cached
+  // process-wide; without this their traits keep the previous session's impl
+  // fields and the next prelude evaluation sees stale duplicates.
+  for (const typesWithImpls of implRegistry.values()) {
+    for (const traitType of typesWithImpls) {
+      traitType.fields = traitType.fields.filter(
+        (field) => !field.sourceModulePath
+      );
+    }
+  }
   implRegistry.clear();
   genericImplRegistry.clear();
   typeImplRegistry.clear();
@@ -2858,13 +2868,26 @@ function attachTraitToReceiverType(
           (f) => f.label === field.label && isFunctionType(f.type)
         );
         if (existingField) {
-          throw formatErrorMessage({
-            token: expr.token,
-            errorMessage:
-              `Method "${field.label}" is already defined for type "${typeToString(receiverType)}".\n` +
-              `Cannot define duplicate method names across impl blocks. ` +
-              `Use a different name (e.g., "comptime_${field.label}") for the comptime variant.`,
-          });
+          // Re-evaluating the SAME module's impl on a process-cached builtin
+          // type singleton (e.g. the prelude's inherent methods on `str`):
+          // replace the stale registration instead of rejecting. Distinct
+          // modules still conflict.
+          if (
+            sourceModulePath &&
+            existingField.sourceModulePath === sourceModulePath
+          ) {
+            receiverType.trait.fields = receiverType.trait.fields.filter(
+              (f) => f !== existingField
+            );
+          } else {
+            throw formatErrorMessage({
+              token: expr.token,
+              errorMessage:
+                `Method "${field.label}" is already defined for type "${typeToString(receiverType)}".\n` +
+                `Cannot define duplicate method names across impl blocks. ` +
+                `Use a different name (e.g., "comptime_${field.label}") for the comptime variant.`,
+            });
+          }
         }
       }
 
@@ -3171,8 +3194,7 @@ export function evaluateImplBlock({
     env = evaluatedReceiverTypeArg.$.env;
     const receiverType = evaluatedReceiverTypeArg.$.value.value;
 
-    const isStructuralType =
-      isSliceType(receiverType) || isArrayType(receiverType);
+    const isStructuralType = isArrayType(receiverType);
 
     // Pre-register concrete trait impls being evaluated so that recursive types
     // (e.g. TreeNode containing Box(TreeNode)) can find their own Clone impl

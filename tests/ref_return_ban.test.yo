@@ -1,0 +1,75 @@
+//! v4 (plans/BORROW_EXCLUSIVITY.md): `ref` may not appear in
+//! return-type position — refs are second-class and exist only as
+//! parameters and local lvalue borrows. A returned ref would be a
+//! pointer into storage the caller can reallocate or free.
+open(import("std/string"));
+
+Point :: struct(x : i32, y : i32);
+
+// Unlabeled `-> ref(T)` is rejected.
+comptime_expect_error(
+  unlabeled_ref_return :: (fn(ref(p) : Point) -> ref(i32))(
+    p.x
+  )
+);
+
+// Labeled `-> (ref(name) : T)` is rejected.
+comptime_expect_error(
+  labeled_ref_return :: (fn(ref(p) : Point) -> (ref(out) : i32))(
+    p.x
+  )
+);
+
+// Labeled `-> (name : ref(T))` is rejected.
+comptime_expect_error(
+  labeled_type_ref_return :: (fn(ref(p) : Point) -> (out : ref(i32)))(
+    p.x
+  )
+);
+
+// A trait method declaring `-> ref(T)` is rejected.
+comptime_expect_error(
+  trait_method_ref_return :: trait(
+    Element : Type,
+    project_like : (fn(ref(self) : Self, pos : usize) -> ref(Self.Element))
+  )
+);
+
+// `ref(T)` cannot appear as a parameter TYPE either (only as the
+// parameter modifier `ref(name) : T`).
+comptime_expect_error(
+  takes_ref_typed :: (fn(p : ref(i32)) -> i32)(i32(0))
+);
+
+// `ref(T)` cannot appear inside a generic type — borrows must not flow
+// through type constructors. (The diagnostic surfaces as a resolution
+// error: `ref` is only a keyword in parameter position.)
+comptime_expect_error(
+  ref_inside_option :: (fn(ref(p) : Point) -> Option(ref(i32)))(
+    Option(ref(i32)).None
+  )
+);
+
+// Positive: the callback pattern — a parameter that RECEIVES a ref —
+// stays legal (`std/sync/mutex.yo` is the live std precedent).
+test("callback-style ref params remain legal", {
+  with_x :: (fn(ref(p) : Point, body : Impl(Fn(ref(v) : i32) -> i32)) -> i32)(
+    body(p.x)
+  );
+  pt := Point(x : i32(21), y : i32(0));
+  doubled := with_x(pt, (v) => (v + v));
+  assert(doubled == i32(42), "callback received the field by ref");
+});
+
+// Positive: returning the VALUE is the idiom — object values are
+// handles that mutate in place.
+Holder :: object(s : String);
+test("returning the value instead of a ref", {
+  get_s :: (fn(h : Holder) -> String)(
+    h.s
+  );
+  h := Holder(s : String.from("hello"));
+  s := get_s(h);
+  s.push_str(" world");
+  assert(h.s == "hello world", "returned handle mutates the same object");
+});

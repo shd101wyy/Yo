@@ -1,3 +1,4 @@
+import { isComptimeStringType } from "../../types/guards";
 import {
   findInnermostFrameWithGivenVariable,
   getVariablesFromEnv,
@@ -18,7 +19,6 @@ import {
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
 import type {
-  ArrayType,
   FunctionType,
   SomeType,
   Type,
@@ -29,7 +29,6 @@ import {
   isEnumType,
   isFunctionType,
   isPtrType,
-  isSliceType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -464,7 +463,7 @@ export function generateOtherFunctionCall(
               arg.$.env
             );
             if (argCode !== sanitizedVarName) {
-              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_str -> str)
               const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
                 effectiveType,
@@ -686,7 +685,13 @@ export function generateOtherFunctionCall(
             // the codegen ultimately emits the constant value rather
             // than declaring the temp — so the c-string is just a bare
             // literal in those cases.
-            const argRuntimeType = runtimeArgExprs[i]!.$?.type;
+            // Prefer the converted runtime type when present: a
+            // comptime_str literal coerced to `str` records its real C
+            // type (__yo_str) there, while `$.type` still says
+            // comptime_str (whose default C mapping is uint8_t*).
+            const argRuntimeType =
+              runtimeArgExprs[i]!.$?.convertedRuntimeType ??
+              runtimeArgExprs[i]!.$?.type;
             const cIsBareLiteral =
               // signed/unsigned integer literal, possibly with L/LL/U
               // suffixes, possibly negated
@@ -713,8 +718,12 @@ export function generateOtherFunctionCall(
             if (isAddressableCExpr(c)) {
               args[i] = `(&(${c}))`;
             } else {
+              // comptime_str args materialize as __yo_str (mirrors the
+              // comptime-value fallback) — the spill var must match.
               const spillType = argRuntimeType
-                ? getTypeString(argRuntimeType, context)
+                ? isComptimeStringType(argRuntimeType)
+                  ? "__yo_str"
+                  : getTypeString(argRuntimeType, context)
                 : "size_t";
               const spillName = `__yo_ref_spill_${refSpillCounter++}`;
               context.emitter.emitLine(
@@ -1726,7 +1735,7 @@ export function generateOtherFunctionCall(
               // 1. The expression doesn't already handle it
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
-              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_str -> str)
               const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
                 effectiveType,
@@ -2519,79 +2528,11 @@ export function generateOtherFunctionCall(
   } else if (isArrayType(functionType)) {
     const firstArg = expr.args[0];
 
-    // Check if this is a range slicing operation: arr(start..end) or arr(start..=end)
-    if (
-      firstArg &&
-      exprIsFunctionCall(firstArg) &&
-      (exprIsFunctionCallOf(firstArg, "..") ||
-        exprIsFunctionCallOf(firstArg, "..="))
-    ) {
-      const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
-      const arrayCode = generateExpr(expr.func!, indent, context);
-      const startCode = generateExpr(firstArg.args[0]!, indent, context);
-      const endCode = generateExpr(firstArg.args[1]!, indent, context);
-
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as ArrayType).childType, context))}`;
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(
-            (functionType as ArrayType).childType,
-            context
-          ),
-        });
-      }
-      if (isInclusive) {
-        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
-      }
-      return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-    }
-
     // Array access by index: arr[index] or arr(index)
     const arrayCode = generateExpr(expr.func!, indent, context);
     const indexCode = generateExpr(firstArg!, indent, context);
     // Generate array access with struct wrapper
     return `${arrayCode}.data[${indexCode}]`; // Access the element at the index
-  } else if (isSliceType(functionType)) {
-    const firstArg = expr.args[0];
-
-    // Check if this is a range sub-slicing operation: slice(start..end) or slice(start..=end)
-    if (
-      firstArg &&
-      exprIsFunctionCall(firstArg) &&
-      (exprIsFunctionCallOf(firstArg, "..") ||
-        exprIsFunctionCallOf(firstArg, "..="))
-    ) {
-      const isInclusive = exprIsFunctionCallOf(firstArg, "..=");
-      const sliceCode = generateExpr(expr.func!, indent, context);
-      const startCode = generateExpr(firstArg.args[0]!, indent, context);
-      const endCode = generateExpr(firstArg.args[1]!, indent, context);
-
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(functionType.childType, context))}`;
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          childType: getTypeString(functionType.childType, context),
-        });
-      }
-      if (isInclusive) {
-        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) + 1 }`;
-      }
-      return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
-    }
-
-    // Slice access by index: slice.data[index]
-    const sliceCode = generateExpr(expr.func!, indent, context);
-    const indexCode = generateExpr(firstArg!, indent, context);
-    return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
-  } else if (
-    functionType &&
-    isPtrType(functionType) &&
-    isSliceType(functionType.childType)
-  ) {
-    // This case should no longer exist since slices are no longer behind pointers
-    // But keep it for backward compatibility during migration
-    const sliceCode = generateExpr(expr.func!, indent, context);
-    const indexCode = generateExpr(expr.args[0]!, indent, context);
-    return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
   }
 }
 

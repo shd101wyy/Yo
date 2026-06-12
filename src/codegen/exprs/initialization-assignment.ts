@@ -11,7 +11,6 @@ import {
 import {
   isArrayType,
   isObjectType,
-  isSliceType,
   isStructType,
   isTupleType,
   isUnitType,
@@ -41,21 +40,6 @@ export function generateInitializationAssignment(
 ): string | undefined {
   let lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
-
-  // Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;`
-  // wraps the lhs identifier in a `ref(...)` call. The evaluator
-  // has already unwrapped it for type-checking (and tagged the
-  // bound variable with `isRef: true`), but here we still see the
-  // surface AST shape `ref(r) := ...`. Unwrap to the inner atom
-  // so the existing atom-lhs codegen path takes over. The temp-
-  // var-type tweak below uses `isRef` on the bound variable to
-  // pick `T*` instead of `T`.
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.ref, 1)
-  ) {
-    lhs = lhs.args[0]!;
-  }
 
   // Debug: Log all := assignments in state machines
   const functionContext = context as FunctionGenerationContext;
@@ -411,7 +395,7 @@ export function generateInitializationAssignment(
             // If so, don't generate a redundant assignment
             if (rhsExprCode.trim() !== tempVarName) {
               // Generate temp variable assignment first
-              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_str -> str)
               const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type!;
               let tempVarType = getVariableTypeString(
                 effectiveType,
@@ -498,85 +482,58 @@ export function generateInitializationAssignment(
         }
       }
 
-      // Special handling for slice initialization.
-      if (isSliceType(lhs.$.type)) {
-        const sliceType = lhs.$.type; // Get the slice type directly
-
-        if (isStateMachineVar && varId) {
-          // In state machine - assign to sm field (alias-aware for overlapping slots)
-          const fieldName = getStateMachineFieldName(
-            varId,
-            "local",
-            functionContext.stateMachineFieldAliases
-          );
-          context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
-        } else {
-          // Skip unit type variables (zero-sized types, optimized away like Rust)
-          if (!isUnitType(sliceType)) {
-            const varTypeAndName = getVariableTypeString(
-              sliceType,
-              varName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
-            );
-          }
-        }
+      // Normal initialization
+      if (isStateMachineVar && varId) {
+        // In state machine - assign to sm field (alias-aware for overlapping slots)
+        const fieldName = getStateMachineFieldName(
+          varId,
+          "local",
+          functionContext.stateMachineFieldAliases
+        );
+        context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
       } else {
-        // Normal initialization
-        if (isStateMachineVar && varId) {
-          // In state machine - assign to sm field (alias-aware for overlapping slots)
-          const fieldName = getStateMachineFieldName(
-            varId,
-            "local",
-            functionContext.stateMachineFieldAliases
-          );
-          context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
-        } else {
-          // Check if RHS is a temp variable with a registered async struct name
-          const rhsIsTempVar = isTempVariableName(
-            rhs.$!.env.modulePath,
+        // Check if RHS is a temp variable with a registered async struct name
+        const rhsIsTempVar = isTempVariableName(
+          rhs.$!.env.modulePath,
+          rhsCode.trim()
+        );
+        let cTypeString: string;
+
+        if (rhsIsTempVar && context.tempVarAsyncStructNames) {
+          const asyncStructName = context.tempVarAsyncStructNames.get(
             rhsCode.trim()
           );
-          let cTypeString: string;
-
-          if (rhsIsTempVar && context.tempVarAsyncStructNames) {
-            const asyncStructName = context.tempVarAsyncStructNames.get(
-              rhsCode.trim()
-            );
-            if (asyncStructName) {
-              cTypeString = `${asyncStructName}*`;
-            } else {
-              cTypeString = getTypeString(lhs.$.type, context);
-            }
+          if (asyncStructName) {
+            cTypeString = `${asyncStructName}*`;
           } else {
             cTypeString = getTypeString(lhs.$.type, context);
           }
+        } else {
+          cTypeString = getTypeString(lhs.$.type, context);
+        }
 
-          // Phase B of plans/ITERATOR_REDESIGN.md — a `ref(name) := expr;`
-          // binding's `name` has `isRef: true`. The C-level storage
-          // is `T*` (the same shape as `ref(name) : T` parameters);
-          // subsequent reads of `name` emit `(*name)` via the
-          // existing inout-aware atom codegen, and writes emit
-          // `(*name) = v`.
-          const lhsVars = lhs.$.env
-            ? getVariablesFromEnv(lhs.$.env, varName)
-            : [];
-          if (
-            lhsVars.length > 0 &&
-            lhsVars[lhsVars.length - 1]!.isRef &&
-            !cTypeString.endsWith("*")
-          ) {
-            cTypeString = `${cTypeString}*`;
-          }
+        // Phase B of plans/ITERATOR_REDESIGN.md — a `ref(name) := expr;`
+        // binding's `name` has `isRef: true`. The C-level storage
+        // is `T*` (the same shape as `ref(name) : T` parameters);
+        // subsequent reads of `name` emit `(*name)` via the
+        // existing inout-aware atom codegen, and writes emit
+        // `(*name) = v`.
+        const lhsVars = lhs.$.env
+          ? getVariablesFromEnv(lhs.$.env, varName)
+          : [];
+        if (
+          lhsVars.length > 0 &&
+          lhsVars[lhsVars.length - 1]!.isRef &&
+          !cTypeString.endsWith("*")
+        ) {
+          cTypeString = `${cTypeString}*`;
+        }
 
-          // Skip unit type variables (zero-sized types, optimized away like Rust)
-          if (!isUnitType(lhs.$.type)) {
-            context.emitter.emitLine(
-              `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
-            );
-          }
+        // Skip unit type variables (zero-sized types, optimized away like Rust)
+        if (!isUnitType(lhs.$.type)) {
+          context.emitter.emitLine(
+            `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
+          );
         }
       }
     }

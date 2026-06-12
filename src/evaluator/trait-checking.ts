@@ -131,6 +131,7 @@ function typeImplementsComptimeBuiltin(
     }
 
     // Primitive types available in both contexts - return true
+    case TypeTag.Str:
     case TypeTag.Unit:
     case TypeTag.Bool:
     case TypeTag.Usize:
@@ -218,6 +219,7 @@ function typeImplementsRuntimeBuiltin(
     case TypeTag.I64:
     case TypeTag.F32:
     case TypeTag.F64:
+    case TypeTag.Str:
     case TypeTag.Function:
     case TypeTag.Union: {
       return true;
@@ -626,7 +628,7 @@ export function checkTypeImplementsSelfConstraints({
  * Check if a type implements the Comptime trait.
  *
  * Comptime types can be used at compile-time.
- * Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
+ * Examples: i32, bool, Type, comptime_int, comptime_float, comptime_str
  * Non-examples: void (runtime-only type)
  */
 export function typeImplementsComptime(type: Type, env: Environment): boolean {
@@ -722,7 +724,7 @@ export function findSomeTypeMissingComptimeConstraint(
  *
  * Runtime types can be used at runtime.
  * Examples: i32, bool, *(i32), void
- * Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
+ * Non-examples: comptime_int, comptime_float, comptime_str, Type (compile-time-only types)
  */
 export function typeImplementsRuntime(type: Type, env: Environment): boolean {
   const builtin = typeImplementsRuntimeBuiltin(type);

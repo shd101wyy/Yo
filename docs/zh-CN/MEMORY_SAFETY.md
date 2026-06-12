@@ -18,7 +18,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 
 任何你期望一个现代通用语言提供的能力：
 
-- **值类型。** `i32`、`bool`、`str`、struct、enum、tuple、`Array(T, N)`、`Slice(T)`。
+- **值类型。** `i32`、`bool`、`str`（指向**静态**字符串字节的视图 —— 背后存储永生）、struct、enum、tuple、`Array(T, N)`。
 - **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`LinkedList(T)`、`String`，以及 `std/imm/*` 中的不可变版本。
 - **共享所有权。** `object` 类型（单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）、`Iso(T)`（所有权转移）。
 - **和类型 / Option / Result 类型。** `Option(T)`、`Result(T, E)`，以及你自定义的 `enum`。
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`for` 宏会根据 body 的参数形式自动选择：`(item) => …` 是按值迭代（底层调用 `.into_iter()`），`for(coll, ref(item) => …)` 是按引用迭代，对 `item` 的写入会传播回集合。
+`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。object 元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素用索引赋值写回（`coll(i) = v`）。旧的借用形式 `for(coll, ref(item) => …)` 已移除，使用时会产生带上述迁移指引的编译错误。
 
 ## 安全代码不能做什么
 
@@ -54,12 +54,12 @@ main :: (fn() -> unit)({
 
 | 构造                                  | 诊断（简短）                                                                     | 安全替代方案                                                                 |
 | ------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 参数、字段或返回值中的 `*(T)` 类型    | "raw pointer types are not available in safe code"                               | `Slice(T)`、`ref(name) : T`、`object` 类型，或标准库包装                     |
-| `&(expr)` 取地址                      | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` 参数，或取 `Slice(T)`                                        |
+| 参数、字段或返回值中的 `*(T)` 类型    | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`ref(name) : T`、`object` 类型，或标准库包装                     |
+| `&(expr)` 取地址                      | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` 参数，或直接传自有集合                                        |
 | `unsafe(...)` 调用                    | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);` |
 | `asm(...)` 块                         | "inline assembly is not available in safe code"                                  | 同上                                                                         |
 | `extern(...)` / `c_include(...)` 声明 | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                     |
-| 指针算术（`&+`、`&-`、`&/`）          | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `Slice(T)` / `ArrayList(T)` 上使用索引                                    |
+| 指针算术（`&+`、`&-`、`&/`）          | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                    |
 | 在指针上 `consume(p.* = v)`           | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                           |
 
 原则：**任何可能让用户写出 UB 的构造都被门控。** 用户既然无法构造原始指针，就无法解引用 —— 就这样。
@@ -83,23 +83,29 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(name) : T` 是**二等的**：只能出现在参数位置，永远不能作为独立类型。没有"`ref` 类型的变量"这种语法，所以它无法泄漏到 struct 字段、let 绑定或闭包捕获中。编译器是结构性强制的 —— 没有逃逸路径需要强制，因为没有逃逸用的语法。
+`ref` 是**二等的**，且只存在于参数位置（`ref(name) : T`）。函数不能返回 `ref`，没有局部 ref 绑定（`ref(r) := …` 会被拒绝 —— 字段本来就能就地读写），不存在一等的"`ref` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中。ref 实参是一个简单的左值位置（变量，或以局部/参数为根的 `var.field`），因此被借用的存储按构造在整个调用期间存活。见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 使用场景：
 
 - 标准库中带变异的 trait 方法（`Hash.hash`、`Clone.clone`、`Iterator.next`）都接收 `ref(self) : Self`。你写 `value.hash()`、`it.next()` —— 不需要 `&()`。
 - 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `ref(name) : T`。
-- 带变异的迭代：`for(coll, ref(item) => body)` 原地借用每个元素。
+- 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(ref(v) : T) -> R))`。
 
 ## 标准库集合保持安全
 
-`Slice(T)`、`ArrayList(T)`、`HashMap(K, V)`、`String` 等在它们的内部表示中都携带了原始指针。它们能安全使用是因为实现把指针藏起来了：
+`ArrayList(T)`、`HashMap(K, V)`、`String` 等在它们的内部表示中都携带了原始指针。它们能安全使用是因为实现把指针藏起来了：
 
 1. **没有公共方法的签名中包含 `*(T)`。** 方法的入参和返回值都是安全类型。
-2. **所有索引都经过边界检查。** `slice(i)`、`arr.get(i)`、`list(usize(0))` 在越界时要么 trap 要么返回 `Option(T)`。背后的指针算术位于 `unsafe(...)` 块中，并伴随已验证的边界不变式。
-3. **没有原始构造。** 你无法用任意指针构造 `Slice(T)` 或 `ArrayList(T)`；构造器是安全的。
+2. **所有索引都经过边界检查。** `str` 上的 `s(i)`、`arr.get(i)`、`list(usize(0))` 在越界时要么 trap 要么返回 `Option(T)`。背后的指针算术位于 `unsafe(...)` 块中，并伴随已验证的边界不变式。
+3. **没有原始构造。** 你无法用任意指针构造 `ArrayList(T)`；构造器是安全的。
 
-标准库还关闭了**悬空切片漏洞** —— 即在其他使用原始指针抽象的语言中需要手动管理的那种：返回一个底层存储随调用帧消亡的 `Slice(T)` 会在编译时被拒绝。结构性规则的细节见 `plans/SLICE_FLOWABILITY.md`；要安全地使用切片，你不需要了解它。 面向用户的规则讲解见 [FLOWABILITY.md](./FLOWABILITY.md)。
+语言层面还从构造上关闭了**悬空视图漏洞** —— 即其他使用原始指针抽象的语言需要手动管理的那种：
+
+- `str` 是唯一的内建视图类型，且只能指向**静态**字符串数据（字面量、`comptime_str`）—— 它永远不会指向可能被释放的堆缓冲区。
+- **集合上的区间操作是拷贝。** `list(usize(1)..usize(3))` 与 `String` 的区间产生一个独立持有的值，而不是源缓冲区上的窗口 —— 不存在可悬空的堆切片类型。
+- **元素访问只交出值，从不交出内部指针。** `xs.get(i)` 返回元素 —— object 元素返回指向元素*对象*的句柄（就地变异、且在容器增长/realloc 之后依然有效）；struct 元素返回拷贝，用 `xs(i) = v` 写回。安全表达式无法产生指向容器缓冲区内部的指针，因此增长失效根本无法表达。
+
+这些规则的讲解见 [FLOWABILITY.md](./FLOWABILITY.md)；编写安全代码不需要了解它们 —— 危险的形态会被编译器直接拒绝。
 
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 
@@ -158,11 +164,11 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 ```rust
 match(
   self._ptr,
-  // SAFETY: pos has been bounds-checked above (pos < self._length);
+  // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => unsafe(_ptr &+ pos),
-  .None => panic("ArrayList: project on empty list")
+  .Some(_ptr) => (_ptr &+ idx),
+  .None => panic("ArrayList: index on empty list")
 )
 ```
 
@@ -288,7 +294,8 @@ y := (x + i32(1));      // y == i32(-2147483648) —— 定义的回卷，不是
 ## 延伸阅读
 
 - `plans/MEMORY_SAFETY.md` —— 安全模型的设计文档。覆盖完整的理由、阶段化推进和考虑过的替代方案。
-- `plans/SLICE_FLOWABILITY.md` —— 关闭悬空切片漏洞的规则。
+- [FLOWABILITY.md](./FLOWABILITY.md) —— 面向用户的 `ref`/借用规则（流动性 + 借用失效）。
+- `plans/SLICE_REWORK.md` —— 移除堆切片的设计（内建 `str`、拷贝式区间）。
 - `plans/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
 - `plans/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
 - `docs/zh-CN/DESIGN.md` —— 更广的语言设计；指针 / unsafe 部分与本页交叉引用。

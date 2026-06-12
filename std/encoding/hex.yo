@@ -76,18 +76,18 @@ _hex_nibble :: (fn(c : u8, exn : Exception) -> u8)(
   )
 );
 /// Decode a hexadecimal string to bytes. Throws via `Exception` on invalid input.
-hex_decode :: (fn(s : str, exn : Exception) -> ArrayList(u8))({
+hex_decode :: (fn(s : String, exn : Exception) -> ArrayList(u8))({
   cond(
-    ((s.len() % usize(2)) != usize(0)) => {
+    ((s.bytes_len() % usize(2)) != usize(0)) => {
       exn.throw(dyn(EncodingError.OddLength));
     },
     true => ()
   );
-  out := ArrayList(u8).with_capacity(s.len() / usize(2));
+  out := ArrayList(u8).with_capacity(s.bytes_len() / usize(2));
   i := usize(0);
-  while(i < s.len(), i = (i + usize(2)), {
-    hi := _hex_nibble(s.bytes(i), exn);
-    lo := _hex_nibble(s.bytes(i + usize(1)), exn);
+  while(i < s.bytes_len(), i = (i + usize(2)), {
+    hi := _hex_nibble(s.byte_at(i), exn);
+    lo := _hex_nibble(s.byte_at(i + usize(1)), exn);
     out.push((hi << u8(4)) | lo);
   });
   out

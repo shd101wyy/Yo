@@ -69,7 +69,7 @@ test("AwaitPoint future_type can be set", {
   has_ftype := match(ap.future_type,.Some(_) => true,.None => false);
   assert(has_ftype, "has future_type");
   fvar := match(ap.future_variable_id,.Some(id) => id,.None => String.from(""));
-  assert(fvar.as_str() == "fv0", "future_variable_id");
+  assert(fvar == "fv0", "future_variable_id");
 });
 test("AwaitPoint target_variable_id from parent assign", {
   sp := SuspensionPoint(
@@ -90,7 +90,7 @@ test("AwaitPoint target_variable_id from parent assign", {
     future_variable_id : Option(String).None
   );
   target := match(ap.base.target_variable_id,.Some(id) => id,.None => String.from(""));
-  assert(target.as_str() == "var_0", "target_variable_id");
+  assert(target == "var_0", "target_variable_id");
 });
 test("CapturedVariableKind Local and Outer variants", {
   local_kind := CapturedVariableKind.Local;
@@ -111,8 +111,8 @@ test("CapturedVariable base fields and kind", {
     kind : CapturedVariableKind.Local,
     is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
   );
-  assert(cv.base.id.as_str() == "v0", "id");
-  assert(cv.base.name.as_str() == "x", "name");
+  assert(cv.base.id == "v0", "id");
+  assert(cv.base.name == "x", "name");
   is_local := match(cv.kind,.Local => true,.Outer => false);
   assert(is_local, "kind Local");
 });
@@ -174,5 +174,5 @@ test("AwaitAnalysisResult variable_id_remapping", {
   ___ := r.variable_id_remapping.set(String.from("ssa_v1"), String.from("orig_v0"));
   got := r.variable_id_remapping.get(String.from("ssa_v1"));
   result := match(got,.Some(v) => v,.None => String.from(""));
-  assert(result.as_str() == "orig_v0", "remapping lookup");
+  assert(result == "orig_v0", "remapping lookup");
 });

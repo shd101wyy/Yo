@@ -122,7 +122,6 @@ import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future-trait";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
-import { evaluateSliceType } from "../types/slice";
 import { evaluateStructType } from "../types/struct";
 import { evaluateTraitType } from "../types/trait";
 import { evaluateTupleType } from "../types/tuple";
@@ -197,6 +196,28 @@ export function _printEvalProfile() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Cooperative evaluation deadline — test-RUNNER infrastructure, not language
+// semantics (no yo-self mirror until the runner itself is ported; see
+// issues/fixed/test-runner-no-compile-timeout.md).
+//
+// Sequential test mode (`--parallel 1`) runs the Yo→C compile synchronously
+// in-process, where a hung evaluator (e.g. runaway comptime recursion)
+// cannot be interrupted from outside the thread. The runner arms a wall-clock
+// deadline before compiling; the dispatch hot path checks it every 16384
+// calls and throws past it. The throw is NOT one-shot: swallowing layers
+// (trial-eval) may catch it, but every subsequent evaluation re-throws
+// within another 16384 dispatches, so the compile unwinds to completion
+// (as a compile error) instead of hanging forever.
+// ---------------------------------------------------------------------------
+let _evalDeadlineMs = 0;
+let _evalDeadlineCounter = 0;
+
+export function setEvaluatorDeadline(deadlineMs: number | undefined): void {
+  _evalDeadlineMs = deadlineMs ?? 0;
+  _evalDeadlineCounter = 0;
+}
+
 export function _evaluateExpression({
   expr,
   env,
@@ -206,6 +227,15 @@ export function _evaluateExpression({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
+  if (
+    _evalDeadlineMs !== 0 &&
+    (++_evalDeadlineCounter & 0x3fff) === 0 &&
+    Date.now() > _evalDeadlineMs
+  ) {
+    throw new Error(
+      `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
+    );
+  }
   if (isEvalProfilerEnabled) {
     if (!_evalProfilerState.evalStart) {
       _evalProfilerState.evalStart = Date.now();
@@ -542,13 +572,6 @@ ${exprToString(expr)}`,
     ) {
       // __yo_array_fill
       return evaluateYoArrayFill({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
-      // Slice type
-      return evaluateSliceType({
         expr,
         env,
         context: { ...context },
@@ -927,7 +950,7 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     }
-    // comptime_string related functions
+    // comptime_str related functions
     else if (
       exprIsFunctionCallOf(
         expr,
@@ -975,26 +998,9 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     }
-    // Comptime array/slice/string index builtins
+    // Comptime array/string index builtins
     else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_array_index) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_slice_index) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_array_index_range
-      ) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_array_index_range_inclusive
-      ) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_slice_index_range
-      ) ||
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_comptime_slice_index_range_inclusive
-      ) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_index) ||
       exprIsFunctionCallOf(
         expr,

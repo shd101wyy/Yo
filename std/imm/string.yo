@@ -4,6 +4,7 @@
 //! All "modification" operations return a new string; the original is unchanged.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
+{ ArrayList } :: import("../collections/array_list.yo");
 { malloc, free } :: GlobalAllocator;
 { memcpy, memcmp } :: import("../libc/string.yo");
 { rune } :: import("../string/rune.yo");
@@ -68,8 +69,8 @@ impl(
       return(Self(_ptr :.None, _len : usize(0), _capacity : usize(0)));
     });
     ptr := _alloc_bytes(slen);
-    (as_str : str) = s.as_str();
-    unsafe(memcpy(*(void)(ptr), *(void)(as_str.ptr()), slen));
+    rb := s.raw_bytes();
+    unsafe(memcpy(*(void)(ptr), *(void)(rb.ptr), slen));
     return(Self(_ptr :.Some(ptr), _len : slen, _capacity : slen));
   }),
   /// Byte length of the string.
@@ -722,9 +723,15 @@ impl(
 impl(
   String,
   ToString(
-    to_string : (fn(ref(self) : Self) -> std_string.String)(
-      std_string.String.from(self.as_str())
-    )
+    to_string : (fn(ref(self) : Self) -> std_string.String)({
+      bytes := ArrayList(u8).new();
+      match(
+        self._ptr,
+        .None => (),
+        .Some(p) => bytes.extend_from_ptr(p, self._len)
+      );
+      std_string.String.from_bytes(bytes)
+    })
   )
 );
 export(String);

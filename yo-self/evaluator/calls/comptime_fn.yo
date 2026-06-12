@@ -109,7 +109,7 @@ _ctfe_args_equal :: (
           // `(?*)(ME)` entry and returned `Option(*(ME))` — making
           // `HashMap(.., ArrayList(<RC>)).new()`'s data field `?*(ME)` and
           // failing method resolution. See
-          // issues/phase3-nested-generic-method-resolution-unit.md.
+          // issues/fixed/phase3-nested-generic-method-resolution-unit.md.
           true => are_types_compatible_exact(aty, bty)
         )
       },
@@ -151,7 +151,7 @@ lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))(
   while((i < n) && match(found,.None => true,.Some(_) => false), {
     match(
       g_recursive_type_refs.get(i),
-      .Some(r) => if(r.some_id.as_str() == some_id.as_str(), {
+      .Some(r) => if(r.some_id == some_id, {
         found = Option(RecursiveTypeRef).Some(r);
       }),
       .None => ()
@@ -235,7 +235,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
     while((ci < n_c) && match(bucket_opt,.None => true,.Some(_) => false), {
       match(
         g_comptime_fn_caches.get(ci),
-        .Some(e) => if(e.func_id.as_str() == rref.func_id.as_str(), {
+        .Some(e) => if(e.func_id == rref.func_id, {
           bucket_opt = Option(ComptimeFnCacheEntry).Some(e);
         }),
         .None => ()
@@ -308,7 +308,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
 /// string (hot path — template-string Rc corruption family).
 _ctfe_unknown :: (fn(return_type : TypeValue, env : Environment) -> EvalValue)({
   nm := String.from("ctfe_result_");
-  nm.push_str(random_id(env.module_path).as_str());
+  nm.push_string(random_id(env.module_path));
   create_unknown_val_with_name(return_type, nm)
 });
 /// Build the in-progress recursion placeholder for a type-constructor call.
@@ -429,7 +429,7 @@ evaluate_comptime_fn_call :: (
       (ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime) &&
         (!(is_type_hierarchy_type(return_type)))
     ) &&
-      (!(macro_return_is_unquote(func_id_str.as_str())))
+      (!(macro_return_is_unquote(func_id_str.clone())))
   ) &&
     (ctfe_gate_forall_n == usize(0)), {
     return(
@@ -602,7 +602,7 @@ evaluate_comptime_fn_call :: (
     while((ci < n_c) && match(entry_idx_opt,.None => true,.Some(_) => false), {
       match(
         g_comptime_fn_caches.get(ci),
-        .Some(e) => if(e.func_id.as_str() == func_id_str.as_str(), {
+        .Some(e) => if(e.func_id == func_id_str, {
           entry_idx_opt = Option(usize).Some(ci);
         }),
         .None => ()

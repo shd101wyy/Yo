@@ -326,7 +326,7 @@ throw_expr_is_implicit_variable_error :: (
   // Fall back to the atom token if no path_collection entry was found.
   if(var_name_opt.is_none(), {
     if(ast_expr_is_atom(rhs), {
-      var_name_opt = Option(String).Some(String.from(ast_expr_token(rhs).value.as_str()));
+      var_name_opt = Option(String).Some(ast_expr_token(rhs).value.clone());
     });
   });
   match(
@@ -688,7 +688,7 @@ merge_and_check_envs :: (
   // env's), because in TS an arm body's `.$.env` sits at the outer frame level.
   // In yo-self each cond/match arm body is evaluated under a per-arm
   // `push_frame` (cond.yo / match.yo), and the recorded-`ExprInfo.env` SNAPSHOT
-  // (issues/yo-self-recorded-env-aliasing.md) is taken DURING the arm eval, so
+  // (issues/fixed/yo-self-recorded-env-aliasing.md) is taken DURING the arm eval, so
   // every arm env is one frame DEEPER than the outer env — uniformly. Comparing
   // to the outer `max_frame_level` would then spuriously throw for EVERY
   // cond/match (swallowed at def-time, but it aborts the enclosing fn body —
@@ -1121,13 +1121,13 @@ are_values_equal :: (
     val1,
     // val1 is VarRef — try to resolve from env1.
     .VarRef(name1) => {
-      vars1 := get_variables_from_env(env1, String.from(name1.as_str()));
+      vars1 := get_variables_from_env(env1, name1.clone());
       resolved1 := _try_resolve_last_var(vars1);
       match(
         val2,
         // Both VarRef: resolve both and compare; fall back to type compat.
         .VarRef(name2) => {
-          vars2 := get_variables_from_env(env2, String.from(name2.as_str()));
+          vars2 := get_variables_from_env(env2, name2.clone());
           resolved2 := _try_resolve_last_var(vars2);
           match(
             resolved1,
@@ -1170,7 +1170,7 @@ are_values_equal :: (
       val2,
       // val2 is VarRef: resolve and compare.
       .VarRef(name2) => {
-        vars2 := get_variables_from_env(env2, String.from(name2.as_str()));
+        vars2 := get_variables_from_env(env2, name2.clone());
         resolved2 := _try_resolve_last_var(vars2);
         match(resolved2,.Some(r2) => recur(val1, env1, r2, env2),.None => false)
       },

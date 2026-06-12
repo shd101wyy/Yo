@@ -49,9 +49,6 @@ is_numeric_type :: (fn(t : TypeValue) -> bool)(
 is_pointer_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Pointer(_) => true, _ => false)
 );
-is_slice_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Slice(_) => true, _ => false)
-);
 is_array_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Array(_, _, _) => true, _ => false)
 );
@@ -201,16 +198,11 @@ is_atomic_object_type :: (fn(t : TypeValue) -> bool)(
 is_newtype_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Struct({ is_newtype : is_nt }) => is_nt, _ => false)
 );
-/// True if `t` is the `str` newtype (a `Struct` named "str" with
-/// `is_newtype = true`). Used by `panic` / `fprintf` codegen to choose
-/// between `%s` and `%.*s` format specifiers.
+/// True if `t` is the builtin `str` static string view (TypeValue.Str).
+/// Used by `panic` / `fprintf` codegen to choose between `%s` and `%.*s`
+/// format specifiers.
 is_str_type :: (fn(t : TypeValue) -> bool)(
-  match(
-    t,
-    .Struct({ name, is_newtype : is_nt }) =>
-      (is_nt && (name.as_str() == "str")),
-    _ => false
-  )
+  match(t,.Str => true, _ => false)
 );
 /// True if `t` is `Box(T)` — a single-field reference-semantics Struct
 /// whose name starts with `Box(` and whose only field is labeled `*`.
@@ -221,10 +213,10 @@ is_box_type :: (fn(t : TypeValue) -> bool)(
     .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
       (!(is_ref)) => false,
       (field_labels.len() != usize(1)) => false,
-      (!(String.from(name.as_str()).starts_with(String.from("Box(")))) => false,
+      (!(name.clone().starts_with(String.from("Box(")))) => false,
       true => match(
         field_labels.get(usize(0)),
-        .Some(label) => (label.as_str() == "*"),
+        .Some(label) => (label == "*"),
         .None => false
       )
     ),
@@ -524,7 +516,6 @@ export(
   is_signed_int_type,
   is_numeric_type,
   is_pointer_type,
-  is_slice_type,
   is_array_type,
   is_function_type,
   is_trait_type,

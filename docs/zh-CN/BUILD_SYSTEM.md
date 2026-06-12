@@ -98,16 +98,16 @@ test_step.depend_on(tests);
 
 | 字段   | 类型              | 默认值     | 描述                             |
 | ------ | ----------------- | ---------- | -------------------------------- |
-| `name` | `comptime_string` | _（必填）_ | 模块名称（可通过 `"name"` 导入） |
-| `root` | `comptime_string` | _（必填）_ | 根源文件路径（如 `src/lib.yo`）  |
+| `name` | `comptime_str` | _（必填）_ | 模块名称（可通过 `"name"` 导入） |
+| `root` | `comptime_str` | _（必填）_ | 根源文件路径（如 `src/lib.yo`）  |
 
 ### `Executable`
 
 | 字段        | 类型              | 默认值               | 描述                                   |
 | ----------- | ----------------- | -------------------- | -------------------------------------- |
-| `name`      | `comptime_string` | _（必填）_           | 产物名称                               |
-| `root`      | `comptime_string` | _（必填）_           | 主源文件路径                           |
-| `target`    | `comptime_string` | `target_host`        | 目标三元组（如 `"wasm32-emscripten"`） |
+| `name`      | `comptime_str` | _（必填）_           | 产物名称                               |
+| `root`      | `comptime_str` | _（必填）_           | 主源文件路径                           |
+| `target`    | `comptime_str` | `target_host`        | 目标三元组（如 `"wasm32-emscripten"`） |
 | `optimize`  | `Optimize`        | `Optimize.Debug`     | 优化级别                               |
 | `allocator` | `Allocator`       | `Allocator.Mimalloc` | 内存分配器                             |
 | `sanitize`  | `Sanitize`        | `Sanitize.None`      | 检测器                                 |
@@ -116,18 +116,18 @@ test_step.depend_on(tests);
 
 | 字段       | 类型              | 默认值           | 描述         |
 | ---------- | ----------------- | ---------------- | ------------ |
-| `name`     | `comptime_string` | _（必填）_       | 产物名称     |
-| `root`     | `comptime_string` | _（必填）_       | 库源文件路径 |
-| `target`   | `comptime_string` | `target_host`    | 目标三元组   |
+| `name`     | `comptime_str` | _（必填）_       | 产物名称     |
+| `root`     | `comptime_str` | _（必填）_       | 库源文件路径 |
+| `target`   | `comptime_str` | `target_host`    | 目标三元组   |
 | `optimize` | `Optimize`        | `Optimize.Debug` | 优化级别     |
 
 ### `SharedLibrary`
 
 | 字段       | 类型              | 默认值           | 描述         |
 | ---------- | ----------------- | ---------------- | ------------ |
-| `name`     | `comptime_string` | _（必填）_       | 产物名称     |
-| `root`     | `comptime_string` | _（必填）_       | 库源文件路径 |
-| `target`   | `comptime_string` | `target_host`    | 目标三元组   |
+| `name`     | `comptime_str` | _（必填）_       | 产物名称     |
+| `root`     | `comptime_str` | _（必填）_       | 库源文件路径 |
+| `target`   | `comptime_str` | `target_host`    | 目标三元组   |
 | `optimize` | `Optimize`        | `Optimize.Debug` | 优化级别     |
 
 共享库使用 `-shared -fPIC` 编译，生成 `.so`（Linux）、`.dylib`（macOS）或 `.dll`（Windows）。
@@ -136,9 +136,9 @@ test_step.depend_on(tests);
 
 | 字段     | 类型              | 默认值        | 描述               |
 | -------- | ----------------- | ------------- | ------------------ |
-| `name`   | `comptime_string` | _（必填）_    | 测试套件名称       |
-| `root`   | `comptime_string` | _（必填）_    | 测试文件或目录路径 |
-| `target` | `comptime_string` | `target_host` | 目标三元组         |
+| `name`   | `comptime_str` | _（必填）_    | 测试套件名称       |
+| `root`   | `comptime_str` | _（必填）_    | 测试文件或目录路径 |
+| `target` | `comptime_str` | `target_host` | 目标三元组         |
 
 ### 优化级别
 
@@ -227,7 +227,7 @@ Level 2: install                （依赖 app, tests）
 
 | 字段   | 类型              | 描述                                                                                                    |
 | ------ | ----------------- | ------------------------------------------------------------------------------------------------------- |
-| `name` | `comptime_string` | 步骤名称（产物名称，或 `build.step` 的自定义名称）                                                      |
+| `name` | `comptime_str` | 步骤名称（产物名称，或 `build.step` 的自定义名称）                                                      |
 | `kind` | `StepKind`        | 步骤类型：`Executable`、`StaticLibrary`、`SharedLibrary`、`SystemLibrary`、`TestSuite`、`Run`、`Custom` |
 
 ### Step 方法
@@ -322,8 +322,8 @@ install.depend_on(exe);
 
 | 字段   | 类型              | 默认值     | 描述         |
 | ------ | ----------------- | ---------- | ------------ |
-| `name` | `comptime_string` | _（必填）_ | 模块名称     |
-| `root` | `comptime_string` | _（必填）_ | 根源文件路径 |
+| `name` | `comptime_str` | _（必填）_ | 模块名称     |
+| `root` | `comptime_str` | _（必填）_ | 根源文件路径 |
 
 ### 从依赖导入模块
 
@@ -368,7 +368,7 @@ exe.add_import_list(import_list);
 
 | 字段     | 类型              | 描述                                |
 | -------- | ----------------- | ----------------------------------- |
-| `name`   | `comptime_string` | 导入名称（用于 `import "name"`）    |
+| `name`   | `comptime_str` | 导入名称（用于 `import "name"`）    |
 | `module` | `BuildModule`     | 要导入的模块（来自 `dep.module()`） |
 
 ### 工作原理
@@ -535,9 +535,9 @@ yo build -Dstrip       # 等同于 -Dstrip=true
 
 | 字段          | 类型              | 默认值     | 描述             |
 | ------------- | ----------------- | ---------- | ---------------- |
-| `name`        | `comptime_string` | _（必填）_ | 选项名称         |
-| `description` | `comptime_string` | _（必填）_ | 帮助文本         |
-| `default`     | `comptime_string` | `""`       | 未设置时的默认值 |
+| `name`        | `comptime_str` | _（必填）_ | 选项名称         |
+| `description` | `comptime_str` | _（必填）_ | 帮助文本         |
+| `default`     | `comptime_str` | `""`       | 未设置时的默认值 |
 
 ## 交叉编译
 
@@ -1211,15 +1211,15 @@ DocFormat :: enum(
 
 ```rust
 DocConfig :: struct(
-  name : comptime_string,                            // 步骤名称
-  root : comptime_string,                            // 源码根文件/目录
-  (output : comptime_string) ?= "yo-out/doc",       // 输出目录
+  name : comptime_str,                            // 步骤名称
+  root : comptime_str,                            // 源码根文件/目录
+  (output : comptime_str) ?= "yo-out/doc",       // 输出目录
   (format : DocFormat) ?= DocFormat.Html,             // 输出格式
   (include_private : bool) ?= false,                 // 文档化非导出项
   (include_deps : bool) ?= false,                    // 文档化依赖项
-  (title : comptime_string) ?= "",                   // 自定义站点标题
-  (logo : comptime_string) ?= "",                    // Logo 图片路径
-  (favicon : comptime_string) ?= ""                  // Favicon 路径
+  (title : comptime_str) ?= "",                   // 自定义站点标题
+  (logo : comptime_str) ?= "",                    // Logo 图片路径
+  (favicon : comptime_str) ?= ""                  // Favicon 路径
 );
 ```
 

@@ -163,7 +163,7 @@ _compat_impl :: (
           require_exact => false,
           true => match(
             expected,
-            .Slice(einner) => is_u8_type(einner.*),
+            .Str => true,
             .Pointer(einner) => cond(
               is_u8_type(einner.*) => true,
               is_char_type(einner.*) => true,
@@ -279,6 +279,7 @@ _compat_impl :: (
     .Void => match(expected,.Void => true, _ => false),
     .Usize => match(expected,.Usize => true, _ => false),
     .Isize => match(expected,.Isize => true, _ => false),
+    .Str => match(expected,.Str => true, _ => false),
     .ComptimeInt => match(expected,.ComptimeInt => true, _ => false),
     .ComptimeFloat => match(expected,.ComptimeFloat => true, _ => false),
     .ComptimeString => match(expected,.ComptimeString => true, _ => false),
@@ -301,11 +302,6 @@ _compat_impl :: (
     .Pointer(ainner) => match(
       expected,
       .Pointer(einner) => recur(ainner.*, einner.*, true, visited),
-      _ => false
-    ),
-    .Slice(ainner) => match(
-      expected,
-      .Slice(einner) => recur(ainner.*, einner.*, require_exact, visited),
       _ => false
     ),
     .Array(ainner, alen, alvar) => match(
@@ -396,7 +392,7 @@ _compat_impl :: (
         // ("ArgParser" vs ""), and the mixed pair must stay compatible
         // (previously everything was "" so this never arose).
         !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
-        (aid.as_str() == eid.as_str()) => true,
+        (aid == eid) => true,
         // Exact, different ids → structural. But the SEMANTICS KIND must match
         // first: a value `struct`, a reference `object`, an `atomic object`, and
         // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the
@@ -450,7 +446,7 @@ _compat_impl :: (
         // with the same cycle guard as the Struct arm.
         .EnumT(eid, ename, evns, evfs, _, evls, _) => cond(
           !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
-          (aid.as_str() == eid.as_str()) => true,
+          (aid == eid) => true,
           (avns.len() != evns.len()) => false,
           true => {
             vkey := ((aid.clone() + String.from("=>")) + eid);

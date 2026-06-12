@@ -71,7 +71,7 @@ is_atom_like_token :: (fn(kind : TokenKind) -> bool)(
 );
 /// True iff `name` is a directory the formatter should skip when walking
 /// `format_yo_files`. Mirrors `IGNORED_FORMAT_DIRS`.
-is_ignored_format_dir :: (fn(name : str) -> bool)(
+is_ignored_format_dir :: (fn(name : String) -> bool)(
   cond(
     (name == ".git") => true,
     (name == ".yo-cache") => true,
@@ -121,7 +121,7 @@ paren_is_call_delimiter :: (fn(previous : Option(Token)) -> bool)(
 /// True iff `operator` is one of `:=`, `::`, `=`, `:`, `=>`, `->` — operators
 /// whose right-hand side does not require parenthesisation. Mirrors
 /// `operatorAllowsUngroupedRhs`.
-operator_allows_ungrouped_rhs :: (fn(op : str) -> bool)(
+operator_allows_ungrouped_rhs :: (fn(op : String) -> bool)(
   cond(
     (op == ":=") => true,
     (op == "::") => true,
@@ -134,7 +134,7 @@ operator_allows_ungrouped_rhs :: (fn(op : str) -> bool)(
 );
 /// True iff `value` is one of the function-type keywords (`fn` or
 /// `unsafe_fn`). Mirrors `isFunctionTypeKeyword`.
-is_function_type_keyword :: (fn(value : str) -> bool)(
+is_function_type_keyword :: (fn(value : String) -> bool)(
   cond(
     (value == "fn") => true,
     (value == "unsafe_fn") => true,
@@ -169,9 +169,9 @@ prefix_operator_needs_leading_space :: (fn(token : Token, previous : Option(Toke
     previous,
     .None => false,
     .Some(p) => cond(
-      (((p.kind == TokenKind.Operator) && (p.value.as_str() == "...")) && (token.value.as_str() == "#")) => false,
+      (((p.kind == TokenKind.Operator) && (p.value == "...")) && (token.value == "#")) => false,
       (p.kind == TokenKind.Comma) => true,
-      ((p.kind == TokenKind.Operator) && (p.value.as_str() != ".")) => true,
+      ((p.kind == TokenKind.Operator) && (p.value != ".")) => true,
       true => false
     )
   )
@@ -203,12 +203,12 @@ _trim_trailing_h_ws :: (fn(s : String) -> String)({
 });
 /// Count the leading `[ \t]*` characters of `line`. Mirrors
 /// `leadingWhitespaceLength`.
-leading_whitespace_length :: (fn(line : str) -> usize)({
-  n := line.len();
+leading_whitespace_length :: (fn(line : String) -> usize)({
+  n := line.bytes_len();
   (i : usize) = usize(0);
   (done : bool) = false;
   while((i < n) && (!(done)), {
-    b := line.bytes(i);
+    b := line.byte_at(i);
     cond(
       (b == u8(32)) => {
         i = (i + usize(1));
@@ -620,7 +620,7 @@ should_force_control_flow_multiline :: (
     .Some(p) => cond(
       (p.kind != TokenKind.Identifier) => false,
       true => {
-        v := p.value.as_str();
+        v := p.value.clone();
         ((v == "cond") || ((v == "if") || (v == "match"))) &&
           has_top_level_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
         }
@@ -710,7 +710,7 @@ has_top_level_field_block :: (
         true => {
           at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
           cond(
-            (((t.kind == TokenKind.Operator) && (t.value.as_str() == ":")) && at_top_level) => {
+            (((t.kind == TokenKind.Operator) && (t.value == ":")) && at_top_level) => {
               saw_top_level_colon = true;
             },
             (((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0))) && saw_top_level_colon) => {
@@ -760,7 +760,7 @@ has_direct_top_level_closure_argument :: (
     .Some(p) => cond(
       (p.kind != TokenKind.Identifier) => false,
       true => {
-        v := p.value.as_str();
+        v := p.value.clone();
         (v == "cond") || ((v == "if") || ((v == "match") || ((v == "test") || (v == "while"))))
       }
     )
@@ -785,7 +785,7 @@ has_direct_top_level_closure_argument :: (
               at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
               cond(
                 ((t.kind == TokenKind.Operator) && at_top_level) => {
-                  v := t.value.as_str();
+                  v := t.value.clone();
                   cond(
                     (v == ":") => {
                       saw_top_level_colon = true;
@@ -870,7 +870,7 @@ is_parenthesized_dot_deref :: (
           .None => false,
           .Some(inner) => (
             (inner.kind == TokenKind.Operator) &&
-              ((inner.value.as_str() == "*") && (inner_count == usize(1)))
+              ((inner.value == "*") && (inner_count == usize(1)))
           )
         )
       )
@@ -900,7 +900,7 @@ is_redundant_grouping_paren :: (
             .None => false,
             .Some(p) => (
               (p.kind == TokenKind.Operator) &&
-                (!(operator_allows_ungrouped_rhs(p.value.as_str())))
+                (!(operator_allows_ungrouped_rhs(p.value.clone())))
             )
           );
           cond(
@@ -937,7 +937,7 @@ is_redundant_grouping_paren :: (
                         .None => false,
                         .Some(fi) => (
                           (fi.kind == TokenKind.Identifier) &&
-                            is_function_type_keyword(fi.value.as_str())
+                            is_function_type_keyword(fi.value.clone())
                         )
                       );
                       cond(
@@ -1305,7 +1305,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
               cond((lk == ll_n) => usize(0), true => (ll_n - lk))
             };
             if(stripped_len > usize(0), {
-              indent := leading_whitespace_length(line.as_str());
+              indent := leading_whitespace_length(line.clone());
               common_indent = match(
                 common_indent,
                 .None => Option(usize).Some(indent),
@@ -2174,7 +2174,7 @@ format_yo_source :: (
                   },
                   (token.kind == TokenKind.Operator) => {
                     // Operator-handling cascade matches TS lines 386-426
-                    is_colon_in_inline_curly := ((token.value.as_str() == ":") && (inline_curly_depth > usize(0)));
+                    is_colon_in_inline_curly := ((token.value == ":") && (inline_curly_depth > usize(0)));
                     cond(
                       is_colon_in_inline_curly => {
                         if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
@@ -2349,7 +2349,7 @@ collect_yo_files :: (
               entry_name := entry.name;
               skip := match(
                 entry.file_type,
-                .Directory => is_ignored_format_dir(entry_name.as_str()),
+                .Directory => is_ignored_format_dir(entry_name.clone()),
                 _ => false
               );
               if(!(skip), {
@@ -2425,7 +2425,7 @@ format_yo_files :: (
         bytes := io.await(read_file(Path.new(file), io), IoExn(io : io, exn : exn));
         original := String.from_bytes(bytes);
         formatted := format_yo_source(original, file, exn);
-        if(formatted.as_str() != original.as_str(), {
+        if(formatted != original, {
           _r := changed.push(file);
           if(!(options.check), {
             io.await(write_file(Path.new(file), formatted, io), IoExn(io : io, exn : exn));

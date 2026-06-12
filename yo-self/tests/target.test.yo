@@ -124,7 +124,7 @@ test("parse_target: three-part triple (arch-os-abi)", {
   assert(ti.arch == Arch.X86_64, "arch");
   assert(ti.os == Os.Linux, "os");
   assert(ti.abi == Option(Abi).Some(Abi.Musl), "abi is musl");
-  assert(ti.triple.as_str() == "x86_64-linux-musl", "triple string");
+  assert(ti.triple == "x86_64-linux-musl", "triple string");
 });
 test("parse_target: wasm shorthand", {
   result := parse_target(String.from("wasm-wasi"));
@@ -152,7 +152,7 @@ test("parse_target: aarch64-macos (no ABI)", {
     }
   );
   assert(ti.abi == Option(Abi).None, "no ABI for macos");
-  assert(ti.triple.as_str() == "aarch64-macos", "triple string");
+  assert(ti.triple == "aarch64-macos", "triple string");
 });
 test("parse_target: invalid triple returns Err", {
   result := parse_target(String.from("badarch-linux"));
@@ -183,7 +183,7 @@ test("clang_triple: linux gnu", {
     triple : String.from("x86_64-linux-gnu")
   );
   s := clang_triple(ti);
-  assert(s.as_str() == "x86_64-linux-gnu", "linux gnu clang triple");
+  assert(s == "x86_64-linux-gnu", "linux gnu clang triple");
 });
 test("clang_triple: macos", {
   ti := TargetInfo(
@@ -194,7 +194,7 @@ test("clang_triple: macos", {
     triple : String.from("aarch64-macos")
   );
   s := clang_triple(ti);
-  assert(s.as_str() == "aarch64-apple-darwin", "macos clang triple");
+  assert(s == "aarch64-apple-darwin", "macos clang triple");
 });
 test("clang_triple: wasi", {
   ti := TargetInfo(
@@ -205,7 +205,7 @@ test("clang_triple: wasi", {
     triple : String.from("wasm32-wasi")
   );
   s := clang_triple(ti);
-  assert(s.as_str() == "wasm32-wasi", "wasi clang triple");
+  assert(s == "wasm32-wasi", "wasi clang triple");
 });
 // ---------------------------------------------------------------------------
 // Convenience queries

@@ -18,7 +18,7 @@ import {
   type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
-import { isPtrType, isSomeType, isUnitType } from "../../types/guards";
+import { isSomeType, isUnitType } from "../../types/guards";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -156,38 +156,9 @@ function generateIndexTraitCall(
   if (inlineOp) {
     // Inline the builtin expansion directly at the call site.
     // This avoids generating a standalone C function for the specialized method.
-    // Element index: __yo_array_index / __yo_slice_index → &(self->data[idx])
-    if (
-      BuiltinFunctions.__yo_array_index.includes(inlineOp) ||
-      BuiltinFunctions.__yo_slice_index.includes(inlineOp)
-    ) {
+    // Element index: __yo_array_index → &(self->data[idx])
+    if (BuiltinFunctions.__yo_array_index.includes(inlineOp)) {
       callCode = `(&((&${calleeCode})->data[${indexCode}]))`;
-    }
-    // Range index: produce compound literal *(Slice(T))
-    else if (
-      (BuiltinFunctions.__yo_array_index_range.includes(inlineOp) ||
-        BuiltinFunctions.__yo_slice_index_range.includes(inlineOp)) &&
-      expr.$?.indexTraitPtrType &&
-      isPtrType(expr.$.indexTraitPtrType)
-    ) {
-      const sliceCType = getTypeString(
-        expr.$.indexTraitPtrType.childType,
-        context
-      );
-      callCode = `(&(${sliceCType}){ .data = &((&${calleeCode})->data[(${indexCode}).start]), .length = (${indexCode}).end - (${indexCode}).start })`;
-    }
-    // Range inclusive index
-    else if (
-      (BuiltinFunctions.__yo_array_index_range_inclusive.includes(inlineOp) ||
-        BuiltinFunctions.__yo_slice_index_range_inclusive.includes(inlineOp)) &&
-      expr.$?.indexTraitPtrType &&
-      isPtrType(expr.$.indexTraitPtrType)
-    ) {
-      const sliceCType = getTypeString(
-        expr.$.indexTraitPtrType.childType,
-        context
-      );
-      callCode = `(&(${sliceCType}){ .data = &((&${calleeCode})->data[(${indexCode}).start]), .length = (${indexCode}).end - (${indexCode}).start + 1 })`;
     } else {
       // Fallback: call the function by name
       const cFuncName = context.functions[methodValue.funcId]?.cName;

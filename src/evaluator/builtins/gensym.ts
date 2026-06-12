@@ -57,7 +57,7 @@ export function evaluateGensym({
     if (!isComptimeStringValue(evaluatedPrefixArg.$.value)) {
       throw formatErrorMessage({
         token: prefixArg.token,
-        errorMessage: `Expected comptime_string for prefix argument, got:\n${exprToString(prefixArg)}`,
+        errorMessage: `Expected comptime_str for prefix argument, got:\n${exprToString(prefixArg)}`,
       });
     }
     const prefixArgValue = evaluatedPrefixArg.$.value;

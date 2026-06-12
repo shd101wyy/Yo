@@ -39,19 +39,31 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  exprToString,
   hasAnyControlFlow,
   type Expr,
   type FnCallExpr,
 } from "../../expr";
-import { TokenType } from "../../token";
+import { formatErrorMessage } from "../../error";
+import { type Token, TokenType } from "../../token";
 import type { FunctionType } from "../../types/definitions";
-import { isFunctionType } from "../../types/guards";
 import {
+  isAtomicObjectType,
+  isFunctionType,
+  isObjectType,
+  isSomeType,
+} from "../../types/guards";
+import {
+  typeContainsRcType,
   typeMayProvideSliceSource,
   typeRepresentationContainsRawPtr,
 } from "../../types/utils";
 import { isFunctionValue, isTypeValue } from "../../value";
-import { getVariablesFromEnv } from "../../env";
+import {
+  type Environment,
+  getVariablesFromEnv,
+  type Variable,
+} from "../../env";
 
 /**
  * Strip outer `begin(...)` wrappers from an expression so we can
@@ -449,4 +461,296 @@ export function isFlowableExpr(
     if (!isFlowableExpr(a, options)) return false;
   }
   return true;
+}
+
+/**
+ * Resolve the alias-group ROOT of a variable: follow
+ * `isOwningTheSameRcValueAs` links to the primary owner (with a cycle
+ * guard). Two variables alias the same RC object iff their roots are the
+ * same variable.
+ */
+export function aliasGroupRoot(variable: Variable): Variable {
+  let cur = variable;
+  const seen = new Set<Variable>();
+  while (cur.isOwningTheSameRcValueAs && !seen.has(cur)) {
+    seen.add(cur);
+    cur = cur.isOwningTheSameRcValueAs;
+  }
+  return cur;
+}
+
+/**
+ * Walk a property-access chain (`h.s`, `a.b.c`) to its base atom.
+ * Returns the atom expr, or undefined when the chain roots in a
+ * non-atom (a call result, a literal, ...).
+ */
+export function findPropertyChainRootAtom(expr: Expr): Expr | undefined {
+  let current = expr;
+  while (
+    exprIsFunctionCall(current) &&
+    exprIsFunctionCallOf(current, ".", 2)
+  ) {
+    current = (current as FnCallExpr).args[0]!;
+  }
+  return exprIsAtom(current) ? current : undefined;
+}
+
+/**
+ * Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+ * within ONE call, an argument bound to an `own(...)` parameter must
+ * not be (or alias) the root of another argument bound to a `ref(...)`
+ * parameter. `f(h.s, h)` with `f :: fn(ref(x) : String, own(victim) :
+ * Holder)` moves the caller's count into the callee, which can release
+ * it (e.g. by forwarding `victim` to another own-consuming call) while
+ * `x` still points into the object — a use-after-free no same-scope
+ * gate can see. Non-`own` (by-value) overlap is safe: a borrowed
+ * handle's chain can never release the caller's count (passing it
+ * onward to an `own` position dups first).
+ */
+export function requireRefOwnArgumentExclusivity({
+  parameters,
+  argExprs,
+  env,
+}: {
+  parameters: { label: string; isRef?: boolean; isOwningTheRcValue: boolean }[];
+  argExprs: Expr[];
+  env: Environment;
+}): void {
+  const refRoots: { index: number; label: string; variable: Variable }[] = [];
+  const ownRoots: {
+    index: number;
+    label: string;
+    variable: Variable;
+    token: Token;
+  }[] = [];
+  for (let i = 0; i < parameters.length && i < argExprs.length; i++) {
+    const parameter = parameters[i]!;
+    const argExpr = argExprs[i]!;
+    if (argExpr.token.modulePath.startsWith("auto-generated://")) continue;
+    if (!parameter.isRef && !parameter.isOwningTheRcValue) continue;
+    const rootAtom = findPropertyChainRootAtom(argExpr);
+    if (!rootAtom) continue;
+    const rootEnv = rootAtom.$?.env ?? env;
+    const vars = getVariablesFromEnv(rootEnv, rootAtom.token.value);
+    const variable = vars[vars.length - 1];
+    if (!variable) continue;
+    if (parameter.isRef) {
+      refRoots.push({ index: i, label: parameter.label, variable });
+    } else {
+      ownRoots.push({
+        index: i,
+        label: parameter.label,
+        variable,
+        token: argExpr.token,
+      });
+    }
+  }
+  for (const own of ownRoots) {
+    for (const ref of refRoots) {
+      if (ref.index === own.index) continue;
+      if (aliasGroupRoot(ref.variable) !== aliasGroupRoot(own.variable))
+        continue;
+      throw formatErrorMessage({
+        token: own.token,
+        errorMessage: `Cannot pass "${own.variable.name}" to the own parameter "${own.label}" in the same call where argument ${
+          ref.index + 1
+        } borrows from it (bound to the ref parameter "${ref.label}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
+      });
+    }
+  }
+}
+
+/**
+ * v4.1 (plans/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
+ * `ref` parameter. With local ref bindings removed, every borrow is an
+ * argument lvalue evaluated at the call boundary; it is safe iff the
+ * borrowed storage cannot be freed during the call:
+ *
+ *  - a whole VARIABLE (any scope) → its slot is stable storage; OK.
+ *  - a field chain rooted at a LOCAL/PARAM variable with no
+ *    intermediate OBJECT hop → the place lives in the root's
+ *    allocation, kept alive by the caller's handle (own-overlap in the
+ *    same call is rejected by requireRefOwnArgumentExclusivity); OK.
+ *  - an intermediate OBJECT hop (`a.b.s` where `b` is an object field)
+ *    → `b`'s handle lives in a mutable slot that a callee may be able
+ *    to reach and replace, freeing the borrowed allocation; REJECTED
+ *    (bind the object to a local first — the local handle keeps it
+ *    alive).
+ *  - a field chain rooted at a MODULE-LEVEL variable → any callee can
+ *    reassign the global and free the object; REJECTED (bind to a
+ *    local first).
+ *
+ * Call AFTER argument evaluation (the chain types must be resolved).
+ */
+export function requireValidRefArgumentPlaces({
+  parameters,
+  argExprs,
+  env,
+}: {
+  parameters: {
+    label: string;
+    isRef?: boolean;
+    isCompileTimeOnly: boolean;
+  }[];
+  argExprs: Expr[];
+  env: Environment;
+}): void {
+  // A ref argument's place may live inside a CONTAINER's allocation: an
+  // indexed element lives in the container's heap buffer, and a `box.*`
+  // deref points into the boxed object. Such a place dangles if the
+  // callee can reach the container and free/realloc it DURING the call.
+  // The callee can reach it only when the container (or an alias) is
+  // also an argument, or the container is module-level. Element-only
+  // uses (the container is not otherwise reachable) are safe — the
+  // callee holds only the inner pointer and has nothing to free it
+  // with. `refArgExpr`/`refArgIndex` identify the ref argument under
+  // scrutiny; `containerAtom` is the reachable container; `kind`
+  // tailors the message.
+  const rejectIfContainerReachable = (
+    containerAtom: Expr,
+    refArgExpr: Expr,
+    refArgIndex: number,
+    kind: "index" | "object-hop"
+  ): void => {
+    if (!exprIsAtom(containerAtom)) return;
+    if (containerAtom.token.type !== TokenType.Identifier) return;
+    const containerEnv = containerAtom.$?.env ?? env;
+    const containerVars = getVariablesFromEnv(
+      containerEnv,
+      containerAtom.token.value
+    );
+    const containerVar = containerVars[containerVars.length - 1];
+    if (!containerVar) return;
+    const containerName = containerAtom.token.value;
+    const fix =
+      kind === "index"
+        ? `Copy the element out with ".get(i)" first, or split the calls.`
+        : `Bind the intermediate object to a local first ("b := …;") and pass a field of "b" instead, or split the calls.`;
+    // (a) The container is reachable GLOBALLY — module-level itself, or
+    // aliased to a module-level variable (`g = xs` then `f(xs(i), ...)`).
+    // Any callee can name a global and grow it.
+    const containerRoot = aliasGroupRoot(containerVar);
+    if (containerVar.isModuleLevel || containerRoot.isModuleLevel) {
+      throw formatErrorMessage({
+        token: refArgExpr.token,
+        errorMessage: `A 'ref' argument ("${exprToString(
+          refArgExpr
+        )}") borrows into the module-level container "${containerName}" — any callee could reach it and free/reallocate the storage the reference points into. ${fix}`,
+      });
+    }
+    // (b) An ELEMENT-ONLY call is the only safe shape: every OTHER
+    // argument must be incapable of holding a handle to the container.
+    // A value/scalar arg cannot; an object, a closure (which may have
+    // captured the container — escape analysis we deliberately avoid),
+    // or any pointer-carrier COULD reach it and grow/realloc the buffer
+    // the reference points into. This is conservative by design — it
+    // can reject calls whose other object argument happens to be
+    // unrelated — but it is sound without whole-program escape
+    // analysis, and the common cases (`to_string(xs(i))`, `${xs(i)}`,
+    // `bump(xs(i))`, scalar companions) pass because they have no
+    // container-capable other argument.
+    for (let j = 0; j < argExprs.length && j < parameters.length; j++) {
+      if (j === refArgIndex) continue;
+      const otherExpr = argExprs[j]!;
+      const isClosure = otherExpr.$?.closureFunctionValue !== undefined;
+      const otherType = otherExpr.$?.type;
+      const couldReach =
+        isClosure ||
+        (otherType !== undefined &&
+          (typeContainsRcType(otherType) ||
+            typeRepresentationContainsRawPtr(otherType)));
+      if (couldReach) {
+        throw formatErrorMessage({
+          token: refArgExpr.token,
+          errorMessage: `A 'ref' argument ("${exprToString(
+            refArgExpr
+          )}") borrows into the container "${containerName}", but argument ${
+            j + 1
+          } of the same call could hold a handle to "${containerName}" and grow it, reallocating the buffer the reference points into. ${fix}`,
+        });
+      }
+    }
+  };
+
+  for (let i = 0; i < parameters.length && i < argExprs.length; i++) {
+    const parameter = parameters[i]!;
+    if (!parameter.isRef || parameter.isCompileTimeOnly) continue;
+    const argExpr = argExprs[i]!;
+    if (argExpr.token.modulePath.startsWith("auto-generated://")) continue;
+    // `xs(i)` via the Index trait yields a raw `*(T)` into the
+    // container's heap buffer; binding it to a `ref` parameter keeps
+    // the pointer for the call. Reject when the container is reachable.
+    if (argExpr.$?.indexTraitPtrType && exprIsFunctionCall(argExpr)) {
+      const containerAtom = findPropertyChainRootAtom(
+        (argExpr as FnCallExpr).func
+      );
+      if (containerAtom) {
+        rejectIfContainerReachable(containerAtom, argExpr, i, "index");
+      }
+      continue;
+    }
+    if (!exprIsFunctionCall(argExpr) || !exprIsFunctionCallOf(argExpr, ".", 2))
+      continue;
+    // Walk the field chain outermost-in: hops[0] = the full place,
+    // hops[k] = its base chains, root = the innermost base.
+    const hops: Expr[] = [];
+    let cur: Expr = argExpr;
+    while (exprIsFunctionCall(cur) && exprIsFunctionCallOf(cur, ".", 2)) {
+      hops.push(cur);
+      cur = (cur as FnCallExpr).args[0]!;
+    }
+    // Namespace-style access (Type.member) is not a borrow — skip when
+    // the root resolves to a type value.
+    if (cur.$?.value && isTypeValue(cur.$.value)) continue;
+    // An INTERMEDIATE object-field hop (`a.objField.x`, and equally
+    // `box.*.x` — `Box` is an ordinary object whose deref `*` is just a
+    // field, so it needs no special-casing) borrows into a heap object
+    // whose handle lives in a slot. A callee can free that object by
+    // reassigning the slot — but only if it can REACH the chain root to
+    // do so. So this is the same reachability question as the index
+    // case: reject iff the root is reachable (module-level/global-alias,
+    // or any other argument could hold a handle to it). Element-only
+    // chains rooted in an unescaped local (`owner_box.*.id.clone()`,
+    // `grow(w.inner.n)`) stay legal — nothing the callee holds can free
+    // the intermediate object.
+    let hasObjectHop = false;
+    for (let h = 1; h < hops.length; h++) {
+      const rawType = hops[h]!.$?.type;
+      const hopType =
+        rawType && isSomeType(rawType) && rawType.resolvedConcreteType
+          ? rawType.resolvedConcreteType
+          : rawType;
+      if (hopType && (isObjectType(hopType) || isAtomicObjectType(hopType))) {
+        hasObjectHop = true;
+        break;
+      }
+    }
+    if (hasObjectHop && exprIsAtom(cur)) {
+      rejectIfContainerReachable(cur, argExpr, i, "object-hop");
+    }
+    // A field of a MODULE-LEVEL OBJECT root (`g_obj.field`, no
+    // intermediate hop) is also unsafe: any callee can reassign the
+    // global object and free the allocation the reference points into.
+    // (A module-level VALUE struct lives in fixed static storage, so its
+    // field address is stable — those are not rejected here.)
+    if (
+      !hasObjectHop &&
+      exprIsAtom(cur) &&
+      cur.token.type === TokenType.Identifier
+    ) {
+      const rootEnv = cur.$?.env ?? env;
+      const rootVars = getVariablesFromEnv(rootEnv, cur.token.value);
+      const rootVar = rootVars[rootVars.length - 1];
+      const rootType = rootVar?.type;
+      const rootIsObject =
+        rootType !== undefined &&
+        (isObjectType(rootType) || isAtomicObjectType(rootType));
+      if (rootVar?.isModuleLevel && rootIsObject) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `A 'ref' argument cannot borrow a field of the module-level object "${cur.token.value}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${cur.token.value};\nand pass the field of "h" instead.`,
+        });
+      }
+    }
+  }
 }

@@ -2700,7 +2700,7 @@ test("Test comptime_int", {
     // div_by_zero :: (a / zero);  // Should cause compile-time error
   };
 });
-test("Test comptime_string", {
+test("Test comptime_str", {
   /**
   * Test compile-time string operations
   * This file tests the __yo_comptime_string_* functions that operate
@@ -3131,21 +3131,13 @@ test("Test comptime Array value", {
   comptime_assert(arr(2) == i32(2));
 });
 // Test 8: Test Slice
-test("Test comptime Slice value", {
+test("Test comptime array element access stays", {
+  // (Former "comptime Slice value" test: comptime range slicing retired
+  // with the builtin Slice — plans/SLICE_REWORK.md. Element access and
+  // writes on comptime arrays are unchanged.)
   arr :: [i32(0), i32(1), i32(2), i32(3), i32(4)];
-  s :: arr(1 .. 4); // Slice of arr from index 1 to 3
-  s(0) = 10; // Modify first element of slice
-  s(2) = 30; // Modify last element of slice
   comptime_assert(arr(0) == i32(0));
-  comptime_assert(arr(1) == i32(10));
-  comptime_assert(arr(2) == i32(2));
-  comptime_assert(arr(3) == i32(30));
   comptime_assert(arr(4) == i32(4));
-  s2 :: s(0 .. 2); // Slice of slice s from index 0 to 1
-  s2(1) = 20; // Modify second element of slice s2
-  comptime_assert(arr(1) == i32(10));
-  comptime_assert(arr(2) == i32(20));
-  comptime_assert(arr(3) == i32(30));
 });
 // Test: Comptime bitwise results preserve typed integer type when used at runtime
 // This tests the fix for a bug where comptime bitwise operations (bit_or, bit_and, etc.)

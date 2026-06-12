@@ -56,16 +56,16 @@ test("Pointer → TypeUni(0)", {
   result := type_of_type(TypeValue.Pointer(Box(TypeValue)(TypeValue.Unit)));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "Pointer should be TypeUni(0)");
 });
-test("Slice → TypeUni(0)", {
-  result := type_of_type(TypeValue.Slice(Box(TypeValue)(TypeValue.Unit)));
-  assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "Slice should be TypeUni(0)");
+test("str → TypeUni(0)", {
+  result := type_of_type(TypeValue.Str);
+  assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "str should be TypeUni(0)");
 });
 test("Array of i32 → TypeUni(0)", {
-  result := type_of_type(TypeValue.Array(Box(TypeValue)(t_i32()), usize(4)));
+  result := type_of_type(TypeValue.Array(Box(TypeValue)(t_i32()), usize(4), String.from("")));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "Array(i32) should be TypeUni(0)");
 });
 test("Array of TypeUni(0) → TypeUni(1)", {
-  result := type_of_type(TypeValue.Array(Box(TypeValue)(TypeValue.TypeUni(usize(0))), usize(4)));
+  result := type_of_type(TypeValue.Array(Box(TypeValue)(TypeValue.TypeUni(usize(0))), usize(4), String.from("")));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(1)), _ => false), "Array(TypeUni(0)) should give TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ test("Struct with primitive fields → TypeUni(0)", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(TypeValue.BoolT);
-  result := type_of_type(TypeValue.Struct(String.from(""), String.from("Point"), labels, types, false, false, false));
+  result := type_of_type(TypeValue.Struct(id : String.from(""), name : String.from("Point"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "Struct with primitive fields → TypeUni(0)");
 });
 test("Struct with TypeUni(0) field → TypeUni(1)", {
@@ -109,7 +109,7 @@ test("Struct with TypeUni(0) field → TypeUni(1)", {
   labels.push(String.from("ty"));
   types := ArrayList(TypeValue).new();
   types.push(TypeValue.TypeUni(usize(0)));
-  result := type_of_type(TypeValue.Struct(String.from(""), String.from("TypeBox"), labels, types, false, false, false));
+  result := type_of_type(TypeValue.Struct(id : String.from(""), name : String.from("TypeBox"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(1)), _ => false), "Struct with TypeUni(0) field → TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
@@ -146,16 +146,24 @@ test("TraitT → TypeUni(1)", {
   );
   assert(match(result,.TypeUni(lvl) => (lvl == usize(1)), _ => false), "TraitT should be TypeUni(1)");
 });
-test("ModuleT → TypeUni(1)", {
+test("source-namespace Struct (module) → TypeUni(1)", {
+  // Modules ARE structs with the source-namespace marker (TS has no
+  // separate module type) — they always live one universe up.
   result := type_of_type(
-    TypeValue.ModuleT(
-      String.from(""),
-      String.from("std/fmt"),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new()
+    TypeValue.Struct(
+      id : String.from(""),
+      name : String.from("std/fmt"),
+      field_labels : ArrayList(String).new(),
+      field_types : ArrayList(TypeValue).new(),
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : true
     )
   );
-  assert(match(result,.TypeUni(lvl) => (lvl == usize(1)), _ => false), "ModuleT should be TypeUni(1)");
+  assert(match(result,.TypeUni(lvl) => (lvl == usize(1)), _ => false), "module struct should be TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
 // SomeT: returns parent_type

@@ -276,10 +276,7 @@ test("Test Send on pointer-bearing types is conditional on the pointee", {
   // *(T): Send iff T: Send.
   comptime_assert(Type.impls(*(i32), Send) == true);
   comptime_assert(Type.impls(*(NonSendCarrier), Send) == false);
-  // Slice(T) / [T]: Send iff T: Send (the missing impl this test pins).
-  comptime_assert(Type.impls([i32], Send) == true);
-  comptime_assert(Type.impls([NonSendCarrier], Send) == false);
-  // `str` is Slice(u8) — should be Send.
+  // str (builtin static string view) is Send.
   comptime_assert(Type.impls(str, Send) == true);
   // Array(T, N): Send iff T: Send.
   comptime_assert(Type.impls(Array(i32, 4), Send) == true);
@@ -292,7 +289,7 @@ test("Test type auto derive Acyclic", {
   // Compile-time only types
   comptime_assert(Type.impls(comptime_int, Acyclic));
   comptime_assert(Type.impls(comptime_float, Acyclic));
-  comptime_assert(Type.impls(comptime_string, Acyclic));
+  comptime_assert(Type.impls(comptime_str, Acyclic));
   comptime_assert(Type.impls(Expr, Acyclic));
   comptime_assert(Type.impls(ComptimeList(i32), Acyclic));
   // Primitive types that can exist at comptime
@@ -347,7 +344,7 @@ test("Test type auto derive Comptime", {
   // Compile-time only types
   comptime_assert(Type.impls(comptime_int, Comptime));
   comptime_assert(Type.impls(comptime_float, Comptime));
-  comptime_assert(Type.impls(comptime_string, Comptime));
+  comptime_assert(Type.impls(comptime_str, Comptime));
   comptime_assert(Type.impls(Expr, Comptime));
   comptime_assert(Type.impls(ComptimeList(i32), Comptime));
   // Primitive types that can exist at comptime
@@ -382,9 +379,6 @@ test("Test type auto derive Comptime", {
   comptime_assert(Type.impls(Array(comptime_int, 3), Comptime));
   comptime_assert(Type.impls(Array(Box(i32), 3), Comptime) == false);
   // Slice
-  comptime_assert(Type.impls(Slice(i32), Comptime));
-  comptime_assert(Type.impls(Slice(comptime_int), Comptime));
-  comptime_assert(Type.impls(Slice(Box(i32)), Comptime) == false);
   // Tuple
   comptime_assert(Type.impls(Tuple(i32), Comptime));
   comptime_assert(Type.impls(Tuple(comptime_int), Comptime));
@@ -465,7 +459,7 @@ test("Test type auto derive Runtime", {
   // Compile-time only types are not runtime available
   comptime_assert(Type.impls(comptime_int, Runtime) == false);
   comptime_assert(Type.impls(comptime_float, Runtime) == false);
-  comptime_assert(Type.impls(comptime_string, Runtime) == false);
+  comptime_assert(Type.impls(comptime_str, Runtime) == false);
   comptime_assert(Type.impls(Expr, Runtime) == false);
   comptime_assert(Type.impls(ComptimeList(i32), Runtime) == false);
   // Primitive types that can exist at runtime
@@ -502,9 +496,6 @@ test("Test type auto derive Runtime", {
   comptime_assert(Type.impls(Array(comptime_int, 3), Runtime) == false);
   comptime_assert(Type.impls(Array(Box(i32), 3), Runtime));
   // Slice
-  comptime_assert(Type.impls(Slice(i32), Runtime));
-  comptime_assert(Type.impls(Slice(comptime_int), Runtime) == false);
-  comptime_assert(Type.impls(Slice(Box(i32)), Runtime));
   // Tuple
   comptime_assert(Type.impls(Tuple(i32), Runtime));
   comptime_assert(Type.impls(Tuple(comptime_int), Runtime) == false);

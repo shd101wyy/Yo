@@ -1,4 +1,4 @@
-import { getVariablesFromEnv } from "../../env";
+import { getVariablesFromEnv, type Variable } from "../../env";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
   type AtomExpr,
@@ -17,6 +17,7 @@ import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
   getDeferredDropTargetAtomName,
+  getDeferredDropTargetVariable,
   getTypeString,
   getVariableNameForCodegen,
   isDeferredDropForClosureCapture,
@@ -178,6 +179,50 @@ function variableWasConsumedBeforeCleanupPoint(
   return tokenIsAtOrBefore(consumedAtToken, cleanupPoint);
 }
 
+/**
+ * Resolve which in-scope variable a pending drop targets at a cleanup point.
+ *
+ * Matching by NAME alone let a same-named shadowing binding (e.g. a
+ * match-arm payload borrow) stand in for an outer variable declared later
+ * in the source — the emitted C drop resolved to the borrow and
+ * double-freed its payload (the ExprInfo-table use-after-free). Matching
+ * strictly by Variable.id over-corrects the other way: reassignment
+ * re-versions a variable's id (`current_opt_6` → `current_opt_9`), so the
+ * recorded target id may legitimately be absent from the cleanup-point
+ * env, and skipping the drop leaks the owned value (caught by ASan in
+ * LinkedList.contains).
+ *
+ * So: prefer the id match; when the id is absent, decide by DECLARATION
+ * POSITION — a target declared AFTER the cleanup point is the
+ * shadowing-bug case (skip); a target declared before it is the same
+ * logical variable with a re-versioned id (emit against the latest
+ * binding, the pre-identity behavior).
+ */
+function resolveDropTargetInScope(
+  dropExpr: Expr,
+  variables: Variable[],
+  cleanupToken: Token
+): Variable | undefined {
+  const targetVar = getDeferredDropTargetVariable(dropExpr);
+  if (!targetVar) {
+    return variables[variables.length - 1];
+  }
+  const byId = variables.find((v) => v.id === targetVar.id);
+  if (byId) return byId;
+
+  const declToken = targetVar.initializedAtToken ?? targetVar.token;
+  if (
+    declToken &&
+    tokensAreComparable(declToken, cleanupToken) &&
+    declToken.position.character > cleanupToken.position.character
+  ) {
+    // Declared after this cleanup point: only a same-named shadowing
+    // binding is in scope here — the drop must not fire.
+    return undefined;
+  }
+  return variables[variables.length - 1];
+}
+
 function generateEarlyReturnOnlyDeferredDropExpressions(
   expr: Expr,
   indent: string,
@@ -275,9 +320,20 @@ export function generatePendingDeferredDrops(
             if (additionalSkipVarNames?.has(varName)) return false;
             const variables = getVariablesFromEnv(expr.$!.env, varName);
             if (variables.length === 0) return false;
+            // Match the drop target by variable identity, not just name: a
+            // same-named shadowing binding in scope at the cleanup point
+            // (e.g. a match-arm payload borrow) must not stand in for the
+            // outer variable this drop targets — the emitted drop would
+            // resolve to the inner binding in C and double-free its payload
+            // (the ExprInfo-table use-after-free).
+            const latestVar = resolveDropTargetInScope(
+              dropExpr,
+              variables,
+              expr.token
+            );
+            if (!latestVar) return false;
             // Skip drops only for variables consumed before this cleanup point.
             // A later consume in another branch must not suppress this return's drop.
-            const latestVar = variables[variables.length - 1]!;
             if (
               latestVar.consumedAtToken &&
               variableWasConsumedBeforeCleanupPoint(
@@ -357,12 +413,18 @@ export function generateConsumedVarDropsForEscape(
           if (!varName) return false;
           const variables = getVariablesFromEnv(expr.$!.env, varName);
           if (variables.length === 0) return false;
+          // Same shadowing guard as generatePendingDeferredDrops.
+          const latestVar = resolveDropTargetInScope(
+            dropExpr,
+            variables,
+            expr.token
+          );
+          if (!latestVar) return false;
           // Skip variables that exist in the env but are not yet initialized —
           // evaluateBinding adds the LHS to the env before the RHS runs, so the
           // variable appears in the env at the unwind site but its C declaration
           // hasn't been emitted yet. Dropping it here would reference an
           // undeclared C identifier (same guard as generatePendingDeferredDrops).
-          const latestVar = variables[variables.length - 1]!;
           if (!latestVar.initializedAtToken) return false;
           return true;
         })

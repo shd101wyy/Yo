@@ -34,16 +34,19 @@ open(import("std/string"));
   BF_DOT,
   BF_PANIC,
   BF_UNSAFE,
-  make_err_expr
+  make_err_expr,
+  ast_expr_to_string
 } :: import("../expr.yo");
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type }
 :: import("../expr_info.yo");
-{ get_variables_from_env } :: import("../env.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../env.yo");
+{ format_error_message } :: import("../error.yo");
+{ Exception } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
-{ is_function_type } :: import("./guards.yo");
-{ type_may_provide_slice_source, type_representation_contains_raw_ptr }
+{ is_function_type, is_object_type, is_atomic_object_type } :: import("./guards.yo");
+{ type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type }
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
 /// def-time body eval is a deliberate flow-soundness REJECTION (a
@@ -496,6 +499,287 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   all_ok
 });
+/// Mirrors `aliasGroupRoot` (flowability.ts): follow
+/// `is_owning_the_same_rc_value_as` links to the primary owner's id
+/// (step-capped in place of TS's identity-set cycle guard).
+alias_group_root :: (fn(variable : Variable) -> String)({
+  (cur : Variable) = variable;
+  (root_id : String) = variable.id.clone();
+  (steps : usize) = usize(0);
+  (done : bool) = false;
+  while(!(done) && (steps < usize(64)), {
+    match(
+      cur.is_owning_the_same_rc_value_as,
+      .Some(next_box) => {
+        cur = next_box.*;
+        root_id = cur.id.clone();
+      },
+      .None => {
+        done = true;
+      }
+    );
+    steps = (steps + usize(1));
+  });
+  root_id
+});
+
+/// v4.1 (plans/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
+/// `ref` parameter. With local ref bindings removed, every borrow is an
+/// argument lvalue evaluated at the call boundary; it is safe iff the
+/// borrowed storage cannot be freed during the call. Whole variables are
+/// stable slots; field chains may not hop through an intermediate OBJECT
+/// (its handle lives in a replaceable slot) and may not root at a
+/// module-level variable (a callee could reassign the global). Mirrors
+/// `requireValidRefArgumentPlaces` in src/evaluator/types/flowability.ts.
+/// Call AFTER argument evaluation (the chain types must be resolved).
+/// Walk a field chain (`h.s`, `a.b.c`) to its base atom; deref hops are
+/// part of the chain. Returns None when the chain roots in a non-atom.
+_place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
+  (cur : AstExpr) = expr_in;
+  (walking : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT,.Some(usize(2))), {
+      cur = match(
+        cur,
+        .FnCall(_, _, pr_args, _, _) => match(pr_args.get(usize(0)),.Some(b) => b,.None => make_err_expr()),
+        .Atom(_, _) => make_err_expr()
+      );
+    }, {
+      walking = false;
+    });
+  });
+  cond(
+    ast_expr_is_atom(cur) => Option(AstExpr).Some(cur),
+    true => Option(AstExpr).None
+  )
+});
+/// Reject a ref argument whose place lives inside `container_atom`'s heap
+/// allocation when the callee can REACH that container and free/realloc it
+/// during the call: (a) the container is module-level or aliases a
+/// module-level variable; (b) any OTHER argument could hold a handle to it
+/// — an object, a closure (may have captured it), or a pointer-carrier.
+/// Pure value/scalar other-args cannot reach it. Mirrors the TS
+/// `rejectIfContainerReachable`. `kind` is "index" or "object-hop".
+_reject_if_container_reachable :: (
+  fn(
+    container_atom : AstExpr,
+    ref_arg : AstExpr,
+    ref_arg_index : usize,
+    kind : str,
+    args : ArrayList(AstExpr),
+    n : usize,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  if(!(ast_expr_is_atom(container_atom)), {
+    return(());
+  });
+  cvars := get_variables_from_env(env, ast_expr_token(container_atom).value);
+  if(cvars.len() == usize(0), {
+    return(());
+  });
+  cvar := match(cvars.get(cvars.len() - usize(1)),.Some(v) => v,.None => return(()));
+  cname := ast_expr_token(container_atom).value;
+  fix := cond(
+    (kind == "index") => String.from("Copy the element out with \".get(i)\" first, or split the calls."),
+    true => String.from("Bind the intermediate object to a local first (\"b := ...;\") and pass a field of \"b\" instead, or split the calls.")
+  );
+  // (a) globally reachable: module-level itself, or aliases a module-level var.
+  c_root_id := alias_group_root(cvar);
+  (root_module : bool) = cvar.is_module_level;
+  if(!(root_module), {
+    // Walk env for a variable whose id == c_root_id and is module-level.
+    (fi : usize) = usize(0);
+    while(fi < env.frames.len(), {
+      match(
+        env.frames.get(fi),
+        .Some(frame) => {
+          (vi : usize) = usize(0);
+          while(vi < frame.variables.len(), {
+            match(
+              frame.variables.get(vi),
+              .Some(fv) => {
+                if((fv.id == c_root_id) && fv.is_module_level, {
+                  root_module = true;
+                });
+              },
+              .None => ()
+            );
+            vi = (vi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+  });
+  if(root_module, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(ref_arg),
+          `A 'ref' argument ("${ast_expr_to_string(ref_arg)}") borrows into the module-level container "${cname}" — any callee could reach it and free/reallocate the storage the reference points into. ${fix}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  // (b) element-only: any OTHER argument that could hold a handle to the
+  // container — object, closure, or pointer-carrier — could grow/free it.
+  (j : usize) = usize(0);
+  while(j < n, {
+    if(!(j == ref_arg_index), {
+      other := match(args.get(j),.Some(a) => a,.None => make_err_expr());
+      could_reach := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(other)),
+        .Some(oi) => {
+          is_closure := match(oi.closure_function_value,.Some(_) => true,.None => false);
+          (is_closure || type_contains_rc_type(oi.ty)) || type_representation_contains_raw_ptr(oi.ty)
+        },
+        .None => false
+      );
+      if(could_reach, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(ref_arg),
+              `A 'ref' argument ("${ast_expr_to_string(ref_arg)}") borrows into the container "${cname}", but argument ${(j + usize(1)).to_string()} of the same call could hold a handle to "${cname}" and grow it, reallocating the buffer the reference points into. ${fix}`,
+              false,
+              .None
+            )
+          )
+        );
+      });
+    });
+    j = (j + usize(1));
+  });
+});
+require_valid_ref_argument_places :: (
+  fn(
+    param_is_ref : ArrayList(bool),
+    args : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  (n : usize) = param_is_ref.len();
+  if(args.len() < n, {
+    n = args.len();
+  });
+  (i : usize) = usize(0);
+  while(i < n, {
+    p_ref := match(param_is_ref.get(i),.Some(b) => b,.None => false);
+    if(p_ref, {
+      arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+      arg_tok := ast_expr_token(arg);
+      if(!(arg_tok.module_path.starts_with(String.from("auto-generated://"))), {
+        // `xs(i)` (Index trait) yields a raw `*(T)` into the container's
+        // heap buffer; reject when the container is reachable.
+        arg_is_index_place := match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
+          .Some(ai_info) => match(ai_info.index_trait_ptr_type,.Some(_) => true,.None => false),
+          .None => false
+        );
+        if(arg_is_index_place && ast_expr_is_fn_call(arg), {
+          container_atom := match(
+            arg,
+            .FnCall(_, icallee, _, _, _) => _place_root_atom(icallee.*),
+            .Atom(_, _) => Option(AstExpr).None
+          );
+          match(
+            container_atom,
+            .Some(catom) => _reject_if_container_reachable(catom, arg, i, "index", args, n, env, ctx, exn),
+            .None => ()
+          );
+        }, {
+          if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, BF_DOT,.Some(usize(2))), {
+            // Walk the field chain; collect hops; find the root atom.
+            hops := ArrayList(AstExpr).new();
+            (cur : AstExpr) = arg;
+            (walking : bool) = true;
+            while(walking, {
+              if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT,.Some(usize(2))), {
+                hops.push(cur);
+                cur = match(
+                  cur,
+                  .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)),.Some(b) => b,.None => make_err_expr()),
+                  .Atom(_, _) => make_err_expr()
+                );
+              }, {
+                walking = false;
+              });
+            });
+            // Namespace-style access (Type.member) is not a borrow.
+            root_is_type := match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(cur)),
+              .Some(ri) => match(ri.value,.Some(v) => is_type_val(v),.None => false),
+              .None => false
+            );
+            if(!(root_is_type), {
+              // An INTERMEDIATE object-field hop (`a.objField.x`, and
+              // equally `box.*.x` — `*` is just a field) borrows into a heap
+              // object whose handle lives in a slot; a callee can free it by
+              // reassigning the slot, but only if it can REACH the root. Same
+              // reachability question as the index case. (No `*` special-case.)
+              (has_object_hop : bool) = false;
+              (h : usize) = usize(1);
+              while(h < hops.len(), {
+                hop := match(hops.get(h),.Some(x) => x,.None => make_err_expr());
+                match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(hop)),
+                  .Some(hri) => {
+                    if(is_object_type(hri.ty) || is_atomic_object_type(hri.ty), {
+                      has_object_hop = true;
+                    });
+                  },
+                  .None => ()
+                );
+                h = (h + usize(1));
+              });
+              if(has_object_hop && ast_expr_is_atom(cur), {
+                _reject_if_container_reachable(cur, arg, i, "object-hop", args, n, env, ctx, exn);
+              });
+              // A field of a MODULE-LEVEL OBJECT root (no intermediate hop)
+              // is unsafe too: a callee can reassign the global object and
+              // free the allocation. (Module-level VALUE structs are static
+              // storage — stable address — and are not rejected here.)
+              if(!(has_object_hop) && ast_expr_is_atom(cur), {
+                root_vars := get_variables_from_env(env, ast_expr_token(cur).value);
+                if(root_vars.len() > usize(0), {
+                  match(
+                    root_vars.get(root_vars.len() - usize(1)),
+                    .Some(rv) => {
+                      root_is_object := (is_object_type(rv.ty) || is_atomic_object_type(rv.ty));
+                      if(rv.is_module_level && root_is_object, {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              arg_tok,
+                              `A 'ref' argument cannot borrow a field of the module-level object "${ast_expr_token(cur).value}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${ast_expr_token(cur).value};\nand pass the field of "h" instead.`,
+                              false,
+                              .None
+                            )
+                          )
+                        );
+                      });
+                    },
+                    .None => ()
+                  );
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+    i = (i + usize(1));
+  });
+});
+
 export(
   FlowOptions,
   flow_options_default,
@@ -504,6 +788,8 @@ export(
   clear_flow_violation,
   flow_violation_pending,
   flow_violation_message,
+  alias_group_root,
+  require_valid_ref_argument_places,
   set_propagate_def_time_errors,
   propagate_def_time_errors
 );

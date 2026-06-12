@@ -61,7 +61,7 @@ export function evaluateTest({
   const testNameExpr = expr.args[0]!;
   const testBodyExpr = expr.args[1]!;
 
-  // Evaluate test name to ensure it's a comptime_string
+  // Evaluate test name to ensure it's a comptime_str
   const evaluatedTestNameExpr = evaluateExpression({
     expr: testNameExpr,
     env,

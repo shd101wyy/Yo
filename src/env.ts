@@ -1365,7 +1365,7 @@ export function getReceiverMethodsByNameFromEnv({
           continue; // skip (was return false)
         }
 
-        // Special case: comptime types (comptime_int, comptime_float, comptime_string) can call
+        // Special case: comptime types (comptime_int, comptime_float, comptime_str) can call
         // methods from their runtime type equivalents (i32, f64, [u8])
         if (
           isComptimeIntType(receiverType) ||
@@ -1491,21 +1491,33 @@ export function getReceiverMethodsByNameFromEnv({
 
   // Check if th receiverType itself has method that can be called
   if (receiverType !== dereferencedReceiverType && receiverType.trait) {
-    // First check direct methods
-    const directMethod = receiverType.trait.fields.find(
+    // First check direct methods. Collect ALL same-name fields, not just the
+    // first: same-name overloads from different traits (e.g. Eq(String) and
+    // Eq(str) both providing `(==)`) coexist as separate fields — notably
+    // while an impl registration is in flight, when the in-progress trait's
+    // fields are spliced into receiverType.trait.fields ahead of the
+    // existing ones (see tryToImplementTraitWithArgumentsByTraitType).
+    // Returning only the first would shadow the other overloads and make
+    // argument-type dispatch fail.
+    const directMethods = receiverType.trait.fields.filter(
       (field) => field.label === methodName && isFunctionType(field.type)
     );
 
-    if (directMethod && isFunctionType(directMethod.type)) {
-      let value: Value | undefined = directMethod.assignedValue;
-      if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, {
-          variableName: directMethod.label,
-          env,
-          context,
-        });
+    if (directMethods.length > 0) {
+      for (const directMethod of directMethods) {
+        if (!isFunctionType(directMethod.type)) {
+          continue;
+        }
+        let value: Value | undefined = directMethod.assignedValue;
+        if (isUnknownValue(value)) {
+          value = createUnknownValue(directMethod.type, {
+            variableName: directMethod.label,
+            env,
+            context,
+          });
+        }
+        methods.push({ type: directMethod.type, value });
       }
-      methods.push({ type: directMethod.type, value });
     } else {
       // If no direct method found, recursively check nested traits
       checkTraitForMethod(receiverType.trait, methodName);
@@ -1565,28 +1577,34 @@ export function getReceiverMethodsByNameFromEnv({
     !isDynType(dereferencedReceiverType) &&
     !skipSomeTypeWithResolvedConcreteType
   ) {
-    // First check direct methods (can be FunctionType or SourceNamespaceType with Call)
-    const directMethod = dereferencedReceiverType.trait.fields.find(
+    // First check direct methods (can be FunctionType or SourceNamespaceType
+    // with Call). Collect ALL same-name fields, not just the first — see the
+    // overload-shadowing note on the receiverType.trait lookup above.
+    const directMethods = dereferencedReceiverType.trait.fields.filter(
       (field) =>
         field.label === methodName &&
         (isFunctionType(field.type) || isSourceNamespaceType(field.type))
     );
 
-    if (directMethod && isFunctionType(directMethod.type)) {
-      let value: Value | undefined = directMethod.assignedValue;
-      if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, {
-          variableName: directMethod.label,
-          env,
-          context,
-        });
-      }
-      methods.push({ type: directMethod.type, value });
-    } else if (directMethod && isSourceNamespaceType(directMethod.type)) {
-      // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
-      const moduleValue_ = directMethod.assignedValue;
-      if (isStructValue(moduleValue_)) {
-        checkModuleSelfCall(moduleValue_);
+    if (directMethods.length > 0) {
+      for (const directMethod of directMethods) {
+        if (isFunctionType(directMethod.type)) {
+          let value: Value | undefined = directMethod.assignedValue;
+          if (isUnknownValue(value)) {
+            value = createUnknownValue(directMethod.type, {
+              variableName: directMethod.label,
+              env,
+              context,
+            });
+          }
+          methods.push({ type: directMethod.type, value });
+        } else if (isSourceNamespaceType(directMethod.type)) {
+          // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
+          const moduleValue_ = directMethod.assignedValue;
+          if (isStructValue(moduleValue_)) {
+            checkModuleSelfCall(moduleValue_);
+          }
+        }
       }
     } else {
       // If no direct method found, recursively check nested traits

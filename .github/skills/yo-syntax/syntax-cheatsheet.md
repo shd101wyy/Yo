@@ -95,7 +95,7 @@ if(done, println("done"), println("pending"));
 | Syntax             | Type              | Context                          |
 | ------------------ | ----------------- | -------------------------------- |
 | `"hello"`          | `str`             | Runtime contexts (most code)     |
-| `"hello"`          | `comptime_string` | Inside `comptime` functions      |
+| `"hello"`          | `comptime_str` | Inside `comptime` functions      |
 | `` `hello ${x}` `` | `String`          | Always (template string)         |
 | `` `hello` ``      | `String`          | Always (template without interp) |
 | `*(u8)("hello")`   | `*(u8)`           | Pointer cast for C interop       |
@@ -103,7 +103,7 @@ if(done, println("done"), println("pending"));
 Key rules:
 
 - In **runtime** code, `"hello"` is `str`. Mixing literals and variables in `cond`/`match` branches is fine.
-- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string` — it does NOT auto-convert to `str`.
+- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
 - **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes.
 - **`assert` takes `str`, not `String`**: `assert(cond, "message")` — always use `""`. Passing a template string `` `...` `` causes a type mismatch. Use a custom `check_str` helper when you need `String` diagnostics.
@@ -130,11 +130,11 @@ masked := ((A | B) | C);
 - **Pointer deref (`p.*`), arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)` require `unsafe(...)`, AND the file must declare `pragma(Pragma.AllowUnsafe);` at the top before `unsafe(...)` is usable.** Pointer comparison (`&==`, `&<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p &+ usize(1))`. Every file in `std/`, `yo-self/`, and `tests/` declares the pragma explicitly. User code (default) does not, so attempts to use `unsafe(...)` are rejected with a hint to add the pragma. See `plans/MEMORY_SAFETY.md`.
 - **In-place mutation without raw pointers:** use the `ref(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `ref(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `forall`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(ref(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
 - **Object-type params:** use plain `name : Type`, NOT `*(Type)` or `ref(name) : Type`. Object types (`Environment`, `EvalContext`, `CodegenContext`, `Emitter`, `HashMap`, `ArrayList`, …) carry reference semantics — passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `ref(name) : Type` is redundant since object semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap object arguments with `&(obj)`; just pass `obj`. For receivers on object methods, plain `self : Self` is the idiom (`yo-self/env.yo`, `yo-self/codegen/context.yo`, `yo-self/emitter.yo` all follow this). `ref(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
-- **Byte-buffer params:** prefer `Slice(u8)` over `*(u8) + usize` for public signatures (e.g. `random_bytes`, `fnv1a_hash_bytes`). `Slice` carries the length, eliminating the (`ptr`, `wrong-size`) footgun. Convert at the FFI seam with `slice.ptr()` and `slice.len()`; construct from existing storage with `Slice(u8).from_raw_parts(&(buf(0)), len)`. The `_cstr` family is the explicit raw-pointer variant — those names signal raw-pointer use by contract.
+- **Byte-buffer params:** for SAFE public signatures use owned collections (`ArrayList(u8)`/`String`). For pragma'd internals/FFI, `RawSlice(u8)` carries ptr+len (construct with `RawSlice(u8)(ptr : &(buf(0)), len : n)`; read `.ptr`/`.len` fields). The `_cstr` family is the explicit raw-pointer variant — those names signal raw-pointer use by contract.
 - **Audit public stdlib safety with `./yo-cli public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./yo-self`; keep it that way when adding new APIs.
 - **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/EXTERN_UNSAFE_WRAP.md`.
-- **Slice-flowability rule:** a function returning a slice-bearing type (`Slice(T)`, `str`, a struct wrapping a Slice, ...) must root the returned value in caller-owned storage (a `ref`-bound parameter, any non-`ref` parameter, a `comptime`/literal source, or a flowable projection chain). `(fn() -> Option(Slice(i32)))({ arr := ArrayList(i32).new(); arr.as_slice() })` is rejected; `(fn(ref(arr) : ArrayList(i32)) -> Option(Slice(i32)))(arr.as_slice())` is accepted. See `plans/SLICE_FLOWABILITY.md`.
-- **Return-slot modifier placement: on the LABEL, not the type.** In a _labeled_ return slot, a `ref`/`comptime` modifier attaches to the label, mirroring the parameter convention (`ref(name) : T`). Valid: `-> ref(T)` and `-> comptime(T)` (unlabeled — modifier on the sole type), `-> (ref(name) : T)`, `-> (comptime(name) : T)`. **Rejected:** `-> (name : ref(T))`, `-> (name : comptime(T))` (modifier on the type when labeled), and `-> (ref(name) : ref(T))` (double-ref — "pick one"). Enforced at function-type eval in `src/evaluator/types/function.ts` (and the yo-self port).
+- **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
+- **`ref` is PARAMETER-ONLY (v4.1, plans/BORROW_EXCLUSIVITY.md).** `-> ref(T)`, `-> (ref(name) : T)`, `-> (name : ref(T))` AND the local binding form `ref(r) := lvalue` are all rejected (both compilers, teaching errors). Refs exist ONLY as `ref(name) : T` parameters. Migrations: return the value (object values are handles that mutate in place; struct values copy); read/write fields directly (`h.s = v`); bind the handle (`b := a.b`) to keep an object alive; or take a callback parameter receiving `ref(v) : T` (`Mutex.with_lock` pattern). A ref ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate-OBJECT hops and module-level field roots are rejected (bind to a local first). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo`, `tests/ref_field_borrow.test.yo`.
 - **Signed-integer overflow is defined (wrap-around).** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on `i32(MAX)` wraps to `i32(MIN)` instead of UB. Opt-out: `--cflags='-fno-wrapv'`.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
@@ -227,8 +227,10 @@ caller :: (fn() -> i32)({
 result := closure(i32(5));
 
 transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for(list, ref(x) => {
-    x = f(x);
+  i := usize(0);
+  while(i < list.len(), {
+    list(i) = f(list(i));
+    i = (i + usize(1));
   });
 });
 ```
@@ -382,29 +384,34 @@ while(comptime((i < 10)), {
   // body evaluated/unrolled at compile time
 });
 
-// for loop — 2-arg prelude macro. First arg is the collection
-// directly; the macro dispatches on the body's binding shape to
-// pick value-form vs borrow-form iteration:
-for(list, (x) => {            // value form: implicit .into_iter()
+// for loop — 2-arg prelude macro iterating BY VALUE (implicit
+// .into_iter()). Object elements are handles: mutating them in the
+// body mutates the element in place.
+for(list, (x) => {
   process(x);
 });
+for(names, (s) => {
+  s.push_str("!");            // String element mutated in place
+});
 
-for(list, ref(x) => {         // borrow form: iter() + project(pos)
-  x = transform(x);           // writes propagate back into list
+// In-place struct/scalar element mutation: index loop + index writes.
+i := usize(0);
+while(i < list.len(), {
+  list(i) = transform(list(i));
+  i = (i + usize(1));
 });
 
 // Combinator chains (.map / .filter / .into_iter / etc.) yield
-// computed values; pass them as the first arg in the value form:
-for(list.iter().map((x) => (x + i32(1))), (y) => println(y));
+// computed values; pass them as the first arg:
+for(list.into_iter().map((x) => (x + i32(1))), (y) => println(y));
 ```
 
 - Use `recur(...)` for self-recursion
 - `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
-- **`for(coll, (x) => body)`** — value form; macro expands to `coll.into_iter()` then iterates by value (`x : T`).
-- **`for(coll, ref(x) => body)`** — borrow form; macro expands to `coll.iter()` (position iterator) + `coll.project(pos)` (`Indexable.project` impl) so `x` is a writable binding. Writes propagate back into the collection.
-- **Do NOT write `for(coll.iter(), (x) => …)` for the value form** — `.iter()` yields positions (usize), not the collection's elements. Use the bare collection or `.into_iter()`.
+- **`for(coll, (x) => body)`** — the only form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for object element types).
+- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error with the migration recipe.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
 
 ## Return and branch safety
@@ -444,7 +451,7 @@ get_value :: (fn(opt : Option(i32)) -> i32)(
 ## String concatenation pitfall
 
 ```rust
-// WRONG — str + str causes "comptime_string vs str" type unification error:
+// WRONG — str + str causes "comptime_str vs str" type unification error:
 content := String.from("line1\n" + "line2\n");
 
 // CORRECT — use .concat() on String objects:
@@ -455,7 +462,7 @@ content := String.from("line1\nline2\n");
 ```
 
 - `"hello" + "world"` at runtime uses `+` on `str` values, which can cause type mismatches
-- The `str + str` operator can produce a `comptime_string` in some contexts, which is not always compatible with `str`
+- The `str + str` operator can produce a `comptime_str` in some contexts, which is not always compatible with `str`
 - Prefer `.concat()` method on `String` objects when building multi-part strings at runtime
 
 ## Iterator and for loop
@@ -467,22 +474,23 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
-// Value form — implicit .into_iter().
+// Value form — implicit .into_iter(). The only form.
 for(list, (value) => {
   println(value);
 });
 
-// Borrow form — implicit .iter() + .project(pos). `x` is a writable
-// binding into the collection; assignments propagate back.
-for(list, ref(x) => {
-  x = (x + i32(1));
+// In-place element mutation: index writes (struct/scalar elements) or
+// mutate the handle (object elements).
+i := usize(0);
+while(i < list.len(), {
+  list(i) = (list(i) + i32(1));
+  i = (i + usize(1));
 });
 ```
 
-- `for(coll, (x) => body)` — value form. Macro expands to `coll.into_iter()` and yields elements by value.
-- `for(coll, ref(x) => body)` — borrow form. Macro expands to `coll.iter()` (a position iterator yielding `usize`) + `coll.project(pos)` (from the `Indexable` trait) so the body sees a writable binding.
-- Combinator chains (`coll.iter().map(f).filter(g)`) only support the value form — pass the chain as the first arg with `(x) => body`.
-- The for macro accepts the collection directly; do NOT call `.iter()` for the value form, that yields positions (usize), not elements.
+- `for(coll, (x) => body)` — macro expands to `coll.into_iter()` and yields elements by value (a handle for object element types — mutating it mutates the element in place).
+- The borrow form `for(coll, ref(x) => body)` was REMOVED (v4); it emits a teaching compile error.
+- Combinator chains (`coll.into_iter().map(f).filter(g)`) work as the first arg with `(x) => body`.
 
 ## Testing
 
@@ -641,7 +649,7 @@ Variable :: object(name : String, ty : TypeValue);
 
 ### 1-element array literals require a trailing comma
 
-`[expr]` without a trailing comma is **parsed as a Slice type** `Slice(expr)`, not an array literal. To create a 1-element array value, add a trailing comma:
+`[expr]` without a trailing comma is **parsed as a slice-type form** (now an error — the builtin Slice type is deleted, so it surfaces "Variable \"Slice\" not found"), not an array literal. To create a 1-element array value, add a trailing comma:
 
 ```rust
 // WRONG — parsed as Slice type, not array literal:
@@ -862,19 +870,12 @@ but cannot rebind the variable (`env = other_env`).
 
 ### String cloning
 
-Calling `.clone()` on a `String` field from a struct/method chain requires a
-reference — take `&` first:
+`.clone()` on a `String` works directly, including on struct fields and
+method-chain results (the historical `*(Self)`-overload ambiguity no
+longer reproduces; verified 2026-06):
 
 ```rust
-// WRONG — .clone() requires *(Self) but gets Self value from field access:
-name := token.value.clone();            // ERROR
-
-// CORRECT — take reference first:
-tok := some_fn_call();
-name := (&tok.value).clone();           // OK
-
-// ALSO CORRECT — use String.from on the str slice:
-name := String.from(token.value.as_str());
+name := token.value.clone();            // OK
 ```
 
 ### Template strings produce `String`, literals are `str`
@@ -882,12 +883,12 @@ name := String.from(token.value.as_str());
 ```rust
 // Template string `` `...` `` → String
 // String literal "..." → str
-
-// If a function takes `str`, call .as_str() on a template string:
-fn_taking_str((`prefix_${value}`).as_str());
-
-// Or change the function to take String
 ```
+
+A heap `String` can NEVER become `str` (`as_str()` is deleted — `str` is
+the STATIC string view; plans/SLICE_REWORK.md). If a function must accept
+runtime text, its parameter should be `String`; `str` parameters are for
+literals/static text only.
 
 These features are powerful but less commonly used. Consult the linked docs for full details.
 
@@ -943,23 +944,11 @@ The `+` operator does not accept mixed `String`/`str` operands.
 ```rust
 // ❌ Type error
 result := (parts + ", ");
-result := (parts + item.as_str());
+result := (parts + item);
 
 // ✅ Template strings
 result := `${parts}, `;
 result := `${parts}${item}`;
-```
-
-### `clone()` on extracted String fields is ambiguous
-
-When a `String` field is bound in a match arm, calling `.clone()` triggers an ambiguity error (two impls: `fn(self: String)` and `fn(self: *(String))`).
-
-```rust
-// ❌ Ambiguous
-.StructVal(name, fields) => name.clone()
-
-// ✅ Use from + as_str
-.StructVal(name, fields) => String.from(name.as_str())
 ```
 
 ### `box(val)` is a move — cannot box the same value twice
@@ -1017,17 +1006,17 @@ lines.push(`**Implements:** ${sep.join(names)}`);
 
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
-String (and other RC object) fields of structs can be passed directly to `ArrayList.push()`. Calling `.clone()` triggers an ambiguity error between `fn(self: String)` and `fn(self: *(String))` overloads.
+String (and other RC object) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
 
 ```rust
-// ❌ Ambiguous clone call
-names.push(param.name.clone());
-
-// ✅ Push directly — RC bump happens automatically
 names.push(param.name);
 ```
 
-If explicit clone is needed elsewhere, use `(&field).clone()` to select the pointer overload.
+`.clone()` on String fields also works (`names.push(param.name.clone())`,
+`h.name.clone()` — verified 2026-06); the historical
+`fn(self: String)` vs `fn(self: *(String))` ambiguity error no longer
+reproduces. `x.clone()` is the idiomatic replacement for the retired
+`String.from(x.as_str())` roundtrip.
 
 ### `.Some(expr)` in expression position is parsed as a 2-arg property access
 
@@ -1147,13 +1136,13 @@ You cannot write `.Some(.IntLit(n))` — this is a parser error.
 ```rust
 // ❌ WRONG — nested enum pattern, parser error:
 match(v.get(usize(0)),
-  .Some(.IntLit(n)) => assert(n.as_str() == "3", "ok"),
+  .Some(.IntLit(n)) => assert(n == "3", "ok"),
   _ => assert(false, "err")
 )
 
 // ✅ CORRECT — two-level match:
 match(v.get(usize(0)),
-  .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "ok"), _ => assert(false, "err")),
+  .Some(x) => match(x, .IntLit(n) => assert(n == "3", "ok"), _ => assert(false, "err")),
   .None => assert(false, "err")
 )
 ```

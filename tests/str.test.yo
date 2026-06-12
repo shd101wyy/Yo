@@ -11,38 +11,13 @@ test("Test str.from_raw_parts with zero length", {
   s := str.from_raw_parts(*(u8)(""), usize(0));
   assert(s.len() == usize(0), "str.from_raw_parts with zero length should have length 0");
 });
-test("Test Slice(u8).from_raw_parts", {
-  slice := Slice(u8).from_raw_parts(*(u8)("hello"), usize(5));
-  assert(slice.len() == usize(5), "Slice.from_raw_parts should have length 5");
-  assert(slice(usize(0)) == u8(104), "first byte should be 'h' (104)");
-  assert(slice(usize(4)) == u8(111), "last byte should be 'o' (111)");
-});
-test("Test String.as_str", {
+test("String.raw_bytes privileged view lengths", {
+  // as_str() was deleted (str is the STATIC string view —
+  // plans/SLICE_REWORK.md); raw_bytes is the pragma-gated replacement.
   greeting := String.from("hello world");
-  view := greeting.as_str();
-  assert(view.len() == usize(11), "as_str should have length 11");
-  assert(view.bytes(usize(0)) == u8(104), "first byte should be 'h' (104)");
-});
-test("Test String.as_str empty", {
+  assert(greeting.raw_bytes().len == usize(11), "raw_bytes len");
   empty := String.new();
-  empty_view := empty.as_str();
-  assert(empty_view.len() == usize(0), "empty as_str should have length 0");
-});
-test("Test String.as_str roundtrip", {
-  original := String.from("hello world");
-  view := original.as_str();
-  roundtrip := String.from(view);
-  roundtrip_view := roundtrip.as_str();
-  assert(roundtrip_view.len() == view.len(), "roundtrip should preserve length");
-  // Verify byte-by-byte equality
-  i := usize(0);
-  while(i < view.len(), i = (i + usize(1)), {
-    assert(view.bytes(i) == roundtrip_view.bytes(i), "roundtrip bytes should match");
-  });
-});
-test("Test String.as_str with unicode", {
-  s := String.from("café");
-  view := s.as_str();
-  // "café" is 5 bytes in UTF-8 (c=1, a=1, f=1, é=2)
-  assert(view.len() == usize(5), "as_str of 'café' should have 5 bytes");
+  assert(empty.raw_bytes().len == usize(0), "empty raw_bytes len");
+  cafe := String.from("caf\u00e9");
+  assert(cafe.raw_bytes().len == usize(5), "utf8 raw_bytes len");
 });

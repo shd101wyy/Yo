@@ -1,0 +1,256 @@
+//! v4.1 (plans/BORROW_EXCLUSIVITY.md): `ref` is parameter-only, and a
+//! ref ARGUMENT is a simple lvalue place. Covered here:
+//! - field places of locals / ref params are legal (read + write-through);
+//! - a chain through an intermediate OBJECT is rejected (its handle
+//!   lives in a slot that could be replaced during the call — bind the
+//!   object to a local first);
+//! - a field chain rooted at a MODULE-LEVEL variable is rejected (a
+//!   callee could reassign the global);
+//! - a call may not receive the same object as both a ref-rooted
+//!   argument and an `own` argument.
+open(import("std/fmt"));
+open(import("std/string"));
+
+Holder :: object(s : String, n : i32);
+Wrapper :: object(inner : Holder);
+
+bump :: (fn(ref(v) : i32) -> unit)({
+  v = (v + i32(1));
+});
+
+test("field of a local object passed to a ref param", {
+  h := Holder(s : String.from("x"), n : i32(41));
+  bump(h.n);
+  assert(h.n == i32(42), "write-through landed in the field");
+});
+
+test("String field write-through via a ref param", {
+  replace_s :: (fn(ref(v) : String, nv : String) -> unit)({
+    v = nv;
+  });
+  h := Holder(s : String.from("hello"), n : i32(1));
+  replace_s(h.s, String.from("rewritten"));
+  assert(h.s == "rewritten", "owner sees the write");
+});
+
+PointS :: struct(x : i32, y : i32);
+
+test("value-struct field place", {
+  p := PointS(x : i32(1), y : i32(2));
+  bump(p.x);
+  assert(p.x == i32(2), "stack-struct field write through the ref param");
+});
+
+// --- The place rule (intermediate object hop) ---
+// Borrowing through an intermediate OBJECT (`w.inner.n` — `w.inner` is
+// an object-typed field) is dangerous ONLY when a callee can reach the
+// root `w` and reassign `w.inner`, freeing the borrowed allocation.
+// Reachable = the root is passed alongside, an alias, or module-level,
+// or any other argument could hold a handle to it.
+comptime_expect_error(
+  nested_object_hop_with_root_rejected :: (fn() -> unit)({
+    soak :: (fn(ref(v) : i32, victim : Wrapper) -> unit)({
+      victim.inner = Holder(s : String.from("replaced"), n : i32(0));
+      v = i32(99);
+    });
+    w := Wrapper(inner : Holder(s : String.from("x"), n : i32(1)));
+    soak(w.inner.n, w);
+  })
+);
+
+// Element-only intermediate hop is SAFE: the root `w` is a local the
+// callee cannot reach, so nothing can free `w.inner` mid-call.
+test("intermediate object hop is allowed when the root is unreachable", {
+  w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
+  bump(w.inner.n);
+  assert(w.inner.n == i32(10), "write landed through the intermediate hop");
+});
+
+// The recipe for the rejected case: bind the intermediate object to a
+// local — the local handle keeps it alive for as long as the local lives.
+test("bind the intermediate object to a local first", {
+  w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
+  b := w.inner;
+  bump(b.n);
+  assert(w.inner.n == i32(10), "write landed through the local handle");
+});
+
+// A field chain rooted at a MODULE-LEVEL variable is rejected — any
+// callee could reassign the global and free the object.
+g_holder := Holder(s : String.from("g"), n : i32(0));
+comptime_expect_error(
+  module_root_field_rejected :: (fn() -> unit)({
+    bump(g_holder.n);
+  })
+);
+
+// A WHOLE module-level variable is fine — its slot is stable storage.
+g_counter := i32(0);
+test("whole module-level variable to a ref param", {
+  bump(g_counter);
+  assert(g_counter == i32(1), "global slot written through the ref param");
+});
+
+// --- Call-site ref/own exclusivity ---
+// `f(h.s, h)` creates the borrow AT the call while `own` moves the
+// caller's count into the callee, which could release it while the
+// borrow is still in use.
+comptime_expect_error(
+  ref_and_own_same_call :: (fn() -> unit)({
+    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
+      x.len()
+    );
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    n := use_and_sink(h.s, h);
+    consume(n);
+  })
+);
+
+// An ALIAS of the owner is caught too.
+comptime_expect_error(
+  ref_and_own_alias_same_call :: (fn() -> unit)({
+    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
+      x.len()
+    );
+    h := Holder(s : String.from("element-zero"), n : i32(1));
+    h2 := h;
+    n := use_and_sink(h.s, h2);
+    consume(n);
+  })
+);
+
+// Positive: ref + own of DISTINCT objects in one call is fine.
+test("ref and own arguments of distinct objects are allowed", {
+  use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
+    x.len()
+  );
+  a := Holder(s : String.from("abcde"), n : i32(1));
+  b := Holder(s : String.from("other"), n : i32(2));
+  n := use_and_sink(a.s, b);
+  assert(n == usize(5), "borrow read fine while a distinct object was consumed");
+});
+
+// --- Indexed-element places: `xs(i)` as a ref argument ---
+// `xs(i)` (Index trait) yields a pointer INTO the container's heap
+// buffer; a plain read auto-derefs it, but a `ref` parameter keeps the
+// pointer for the call's duration. That is a use-after-free ONLY when
+// the callee can REACH the container and grow it (realloc moves the
+// buffer): the proven repro was `evil(xs(0), xs)` — 64 pushes through
+// the second argument, then a write through the first → SIGSEGV/138
+// before this gate. Element-only uses are safe: the callee never sees
+// the container, so nothing can move the buffer mid-call.
+{ ArrayList } :: import("std/collections/array_list");
+
+// The UAF shape: the same call receives both the indexed element (as
+// ref) and the container — rejected.
+comptime_expect_error(
+  index_ref_with_container_same_call :: (fn() -> unit)({
+    evil :: (fn(ref(v) : i32, victim : ArrayList(i32)) -> unit)({
+      victim.push(i32(0));
+      v = i32(99);
+    });
+    xs := ArrayList(i32).new();
+    xs.push(i32(41));
+    evil(xs(usize(0)), xs);
+  })
+);
+
+// An ALIAS of the container is caught too.
+comptime_expect_error(
+  index_ref_with_container_alias :: (fn() -> unit)({
+    evil :: (fn(ref(v) : i32, victim : ArrayList(i32)) -> unit)({
+      victim.push(i32(0));
+      v = i32(99);
+    });
+    xs := ArrayList(i32).new();
+    xs.push(i32(41));
+    xs2 := xs;
+    evil(xs(usize(0)), xs2);
+  })
+);
+
+// A MODULE-LEVEL container's element is rejected as a ref arg — any
+// callee can reach a global and grow it.
+g_list := ArrayList(i32).new();
+comptime_expect_error(
+  index_ref_of_module_container :: (fn() -> unit)({
+    bump2 :: (fn(ref(v) : i32) -> unit)({
+      v = (v + i32(1));
+    });
+    bump2(g_list(usize(0)));
+  })
+);
+
+// Positive: element-only ref use — the callee receives ONLY the element
+// pointer and has no handle to grow the container with, so the buffer
+// cannot move during the call. Write-through lands in the live element.
+test("indexed element to a ref param without the container", {
+  bump3 :: (fn(ref(v) : i32) -> unit)({
+    v = (v + i32(1));
+  });
+  xs := ArrayList(i32).new();
+  xs.push(i32(41));
+  bump3(xs(usize(0)));
+  assert(xs(usize(0)) == i32(42), "in-place element bump through the ref");
+});
+
+// Positive: the migration recipe — copy the element out, then the
+// container is freely usable in the same call.
+test("copy the element out to combine with container use", {
+  use_both :: (fn(ref(v) : i32, target : ArrayList(i32)) -> unit)({
+    target.push(v);
+    v = i32(0);
+  });
+  xs := ArrayList(i32).new();
+  xs.push(i32(7));
+  copied := match(xs.get(usize(0)),.Some(v) => v,.None => i32(0));
+  use_both(copied, xs);
+  assert(xs.len() == usize(2), "pushed the copy");
+  assert(xs(usize(0)) == i32(7), "original element untouched (v=0 wrote the copy)");
+});
+
+// --- A CLOSURE argument that captures the container (audit probe P4) ---
+// The element-only rule treats any closure argument as able to reach the
+// container (it may have captured it — we don't do escape analysis). The
+// proven repro: the closure pushes to xs (realloc), then the ref write
+// hits the freed buffer → SIGSEGV before this gate.
+comptime_expect_error(
+  index_ref_with_capturing_closure :: (fn() -> unit)({
+    run :: (fn(ref(v) : i32, grow : Impl(Fn() -> unit)) -> unit)({
+      grow();
+      v = i32(99);
+    });
+    xs := ArrayList(i32).new();
+    xs.push(i32(41));
+    run(xs(usize(0)), () => {
+      xs.push(i32(0));
+    });
+  })
+);
+
+// --- Box deref `b.*.field` as a ref place (audit probe P1) ---
+// `Box` is an ordinary object; `b.*` is a field access whose result is
+// an object, i.e. an intermediate object hop. Reassigning `b.*` (needs a
+// handle to `b`) frees the boxed object, so passing `b` alongside is
+// rejected.
+comptime_expect_error(
+  box_deref_with_box_arg :: (fn() -> unit)({
+    evil :: (fn(ref(v) : i32, victim : Box(Holder)) -> unit)({
+      victim.* = Holder(s : String.from("replacement"), n : i32(7));
+      v = i32(99);
+    });
+    b := box(Holder(s : String.from("orig"), n : i32(1)));
+    evil(b.*.n, b);
+  })
+);
+
+// Positive: element-only Box deref — the box is NOT passed, so no callee
+// can reassign it. (`owner_box.*.id.clone()`-style access.)
+test("box deref is allowed when the box is unreachable", {
+  read_n :: (fn(ref(v) : i32) -> unit)({
+    v = (v + i32(1));
+  });
+  b := box(Holder(s : String.from("x"), n : i32(5)));
+  read_n(b.*.n);
+  assert(b.*.n == i32(6), "write landed through the deref place");
+});

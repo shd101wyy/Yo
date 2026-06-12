@@ -63,7 +63,7 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 /// Return the last index in `labels` where `labels[i] == name`, or `.None`.
 /// Mirrors `Array.findLast` from the TypeScript source.
-find_last_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(usize))({
+find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
@@ -71,7 +71,7 @@ find_last_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(u
     match(
       labels.get(i),
       .Some(lbl) => {
-        if(lbl.as_str() == name, {
+        if(lbl == name, {
           result = Option(usize).Some(i);
         });
       },
@@ -83,7 +83,7 @@ find_last_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(u
 });
 /// Return the first index in `labels` where `labels[i] == name`, or `.None`.
 /// Mirrors `Array.findIndex` from the TypeScript source.
-find_first_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(usize))({
+find_first_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
@@ -91,7 +91,7 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(
     match(
       labels.get(i),
       .Some(lbl) => {
-        if(lbl.as_str() == name, {
+        if(lbl == name, {
           result = Option(usize).Some(i);
         });
       },
@@ -266,8 +266,8 @@ evaluate_property_access :: (
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-    if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value.as_str() == "Type")) && ast_expr_is_atom(prop_expr), {
-      kind_name := ast_expr_token(prop_expr).value.as_str();
+    if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value == "Type")) && ast_expr_is_atom(prop_expr), {
+      kind_name := ast_expr_token(prop_expr).value.clone();
       (is_kind : bool) = cond(
         (kind_name == "Struct") => true,
         (kind_name == "Enum") => true,
@@ -355,7 +355,7 @@ evaluate_property_access :: (
           resolve_enum_shell(exp_ctx_1.ty),
           .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1) => {
             // Find the variant.
-            fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.as_str());
+            fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.clone());
             match(
               fidx_1,
               .None => {
@@ -654,7 +654,7 @@ Raw pointer operations may dereference invalid memory.`,
     // receivers — the only spelling these in-impl references use — so
     // unrelated TypeVal property accesses are untouched.
     if((ast_expr_is_atom(property_expr) && ast_expr_is_atom(object_expr)) &&
-      (ast_expr_token(object_expr).value.as_str() == "Self"), {
+      (ast_expr_token(object_expr).value == "Self"), {
       wt_prop := ast_expr_token(property_expr).value;
       n_wt := ctx.current_impl_trait_field_labels.len();
       (wt_i : usize) = usize(0);
@@ -701,7 +701,7 @@ Raw pointer operations may dereference invalid memory.`,
         // Same Self-shell resolution as the shorthand path above.
         resolve_enum_shell(type_val_inner),
         .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs) => {
-          fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.as_str());
+          fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.clone());
           match(
             fidx_tv_en,
             .None => {
@@ -792,7 +792,7 @@ Raw pointer operations may dereference invalid memory.`,
         _ => ArrayList(TypeValue).new()
       );
       // Search field_labels (replaces TS trait.fields.findLast).
-      fidx_su := find_last_field_index(su_labels, prop_name_su.as_str());
+      fidx_su := find_last_field_index(su_labels, prop_name_su.clone());
       match(
         fidx_su,
         .Some(fi_su) => {
@@ -930,7 +930,7 @@ Raw pointer operations may dereference invalid memory.`,
         .Struct({ field_types : types }) => types,
         _ => ArrayList(TypeValue).new()
       );
-      fidx_mt := find_first_field_index(mt_labels, prop_name_mt.as_str());
+      fidx_mt := find_first_field_index(mt_labels, prop_name_mt.clone());
       match(
         fidx_mt,
         .Some(fi_mt) => {
@@ -976,7 +976,7 @@ Raw pointer operations may dereference invalid memory.`,
         .TraitT(_, _, _, types, _, _, _, _) => types,
         _ => ArrayList(TypeValue).new()
       );
-      fidx_tt := find_first_field_index(tt_labels, prop_name_tt.as_str());
+      fidx_tt := find_first_field_index(tt_labels, prop_name_tt.clone());
       match(
         fidx_tt,
         .Some(fi_tt) => {
@@ -1054,7 +1054,7 @@ Raw pointer operations may dereference invalid memory.`,
               .TraitT(_, _, _, types, _, _, _, _) => types,
               _ => ArrayList(TypeValue).new()
             );
-            st_fidx := find_first_field_index(st_labels, st_prop_name.as_str());
+            st_fidx := find_first_field_index(st_labels, st_prop_name.clone());
             match(
               st_fidx,
               .Some(st_fi) => {
@@ -1232,7 +1232,7 @@ Raw pointer operations may dereference invalid memory.`,
       // --- Label name access ----------------------------------------------
       if(is_valid_variable_name(property_expr), {
         label_str := ast_expr_token(property_expr).value;
-        field_idx_lbl := find_first_field_index(fields_labels, label_str.as_str());
+        field_idx_lbl := find_first_field_index(fields_labels, label_str.clone());
         match(
           field_idx_lbl,
           .None => {
@@ -1360,7 +1360,7 @@ Raw pointer operations may dereference invalid memory.`,
           .Struct({ field_types : types }) => types,
           _ => ArrayList(TypeValue).new()
         );
-        mod_fidx := find_first_field_index(mod_labels_rt, mod_label.as_str());
+        mod_fidx := find_first_field_index(mod_labels_rt, mod_label.clone());
         match(
           mod_fidx,
           .None => {
@@ -1451,7 +1451,7 @@ Raw pointer operations may dereference invalid memory.`,
           match(
             ev_sel,
             .Some(sel_vname) => {
-              sel_vi_opt := find_first_field_index(ev_vnames, sel_vname.as_str());
+              sel_vi_opt := find_first_field_index(ev_vnames, sel_vname.clone());
               match(
                 sel_vi_opt,
                 .Some(sel_vi) => {
@@ -1465,7 +1465,7 @@ Raw pointer operations may dereference invalid memory.`,
                     .Some(ft) => ft,
                     .None => ArrayList(TypeValue).new()
                   );
-                  prop_fidx_ev := find_first_field_index(vfl, prop_name_ev.as_str());
+                  prop_fidx_ev := find_first_field_index(vfl, prop_name_ev.clone());
                   match(
                     prop_fidx_ev,
                     .None => {
@@ -1496,7 +1496,7 @@ Raw pointer operations may dereference invalid memory.`,
                             eov,
                             .EnumVal(ev_vn, ev_flds) => {
                               dot_sel := `.${ sel_vname }`;
-                              if(ev_vn.as_str() == dot_sel.as_str(), {
+                              if(ev_vn == dot_sel, {
                                 match(
                                   ev_flds.get(pfi),
                                   .Some(efv) => {

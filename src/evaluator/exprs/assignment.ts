@@ -238,7 +238,7 @@ export function evaluateAssignment({
     if (!variable.isReassignable) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Cannot reassign "${variableName}".  
+        errorMessage: `Cannot reassign "${variableName}".
 You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign itself.`,
       });
     }
@@ -355,7 +355,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
 
     // Convert compile-time types to runtime types if needed
-    // For example: comptime_string -> [u8] when assigning to a [u8] variable
+    // For example: comptime_str -> [u8] when assigning to a [u8] variable
     if (!variable.isCompileTimeOnly) {
       rhsType = convertComptimeTypeToRuntimeType({
         type: rhsType,
@@ -621,7 +621,14 @@ comptime(${variableName}) : ${typeToString(variable.type)}
         initializedAtToken: lhs.token,
         value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
-        isOwningTheRcValue: typeContainsRcType(variableType),
+        // A `ref` binding/parameter NEVER owns: writing through the borrow
+        // stores into the OWNER's storage (the owner's dispose frees the
+        // new value). Flipping it to owning here generated a spurious
+        // scope-end drop of `(*r)` → double free
+        // (issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
+        isOwningTheRcValue: variable.isRef
+          ? false
+          : typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
     } else {
@@ -729,7 +736,10 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
-        isOwningTheRcValue: typeContainsRcType(variableType),
+        // See the isRef note above — a borrow never owns.
+        isOwningTheRcValue: variable.isRef
+          ? false
+          : typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
       isMutatingDefinedVariable = true;
@@ -956,7 +966,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     }
 
     // Convert compile-time types to runtime types if needed
-    // For example: comptime_string -> str when assigning to a str field
+    // For example: comptime_str -> str when assigning to a str field
     // Only convert when the target type is a runtime type (not comptime_int, etc.)
     if (
       !isComptimeIntType(expectedType) &&

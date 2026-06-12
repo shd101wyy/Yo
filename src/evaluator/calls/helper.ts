@@ -13,6 +13,10 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  requireRefOwnArgumentExclusivity,
+  requireValidRefArgumentPlaces,
+} from "../types/flowability";
+import {
   BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
@@ -1403,6 +1407,16 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
+  // Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+  // an own-bound argument must not alias the root of a ref-bound
+  // argument in the same call — the callee could release the object
+  // the borrow points into.
+  requireRefOwnArgumentExclusivity({
+    parameters: functionType.parameters,
+    argExprs,
+    env: callerEnv,
+  });
+
   // Check if the regular parameters match the arguments
   const parametersToProcess = functionType.parameters.length;
 
@@ -1437,6 +1451,15 @@ Got:   ${typeToString(typeValue.type)}`,
       argType,
     });
   }
+
+  // v4.1: validate the PLACES bound to ref parameters (after argument
+  // evaluation so the chain types are resolved) — no intermediate
+  // object hops, no module-level field roots.
+  requireValidRefArgumentPlaces({
+    parameters: functionType.parameters,
+    argExprs,
+    env: callerEnv,
+  });
 
   // After processing regular arguments, propagate resolvedConcreteType from forall SomeTypes
   // back to the calleeEnv. This handles the case where closure evaluation resolves

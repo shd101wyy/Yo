@@ -108,7 +108,7 @@ _get_or_create_some_ty_for_trait :: (
   // "Self" case
   if(ast_expr_is_atom(lhs_expr), {
     var_name := ast_expr_token(lhs_expr).value;
-    if(var_name.as_str() == "Self", {
+    if(var_name == "Self", {
       return(_SomeTyResolvedResult(self_type, true));
     });
     // Look up existing var in env
@@ -1217,7 +1217,7 @@ evaluate_trait_type :: (
     while(li < field_labels.len(), {
       existing_label := match(field_labels.get(li),.Some(s) => s,.None => String.from(""));
       li = (li + usize(1));
-      if(existing_label.as_str() == field_result.label.as_str(), {
+      if(existing_label == field_result.label, {
         is_duplicate = true;
         li = field_labels.len();
       });

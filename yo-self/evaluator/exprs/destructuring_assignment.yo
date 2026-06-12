@@ -59,14 +59,14 @@ DestructuringResult :: object(
 // Internal helpers
 // ---------------------------------------------------------------------------
 /// True if `label` is already in the `seen` list.
-_label_already_seen :: (fn(seen : ArrayList(String), label : str) -> bool)({
+_label_already_seen :: (fn(seen : ArrayList(String), label : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while((i < seen.len()) && !(found), {
     match(
       seen.get(i),
       .Some(s) => {
-        if(s.as_str() == label, {
+        if(s == label, {
           found = true;
         });
       },
@@ -89,14 +89,14 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
 );
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
-_find_field_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
+_find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
   i := usize(0);
   (result : Option(usize)) = Option(usize).None;
   while((i < field_labels.len()) && match(result,.None => true, _ => false), {
     match(
       field_labels.get(i),
       .Some(s) => {
-        if(s.as_str() == label, {
+        if(s == label, {
           result = Option(usize).Some(i);
         });
       },
@@ -210,14 +210,14 @@ handle_member_destructuring :: (
           match(
             lhs_field,
             .FnCall(_, _, args, _, _) => (
-              (match(args.get(usize(0)),.Some(a) => (ast_expr_token(a).value.as_str() == "..."),.None => false)) &&
-                (match(args.get(usize(1)),.Some(b) => (ast_expr_token(b).value.as_str() == "..."),.None => false))
+              (match(args.get(usize(0)),.Some(a) => (ast_expr_token(a).value == "..."),.None => false)) &&
+                (match(args.get(usize(1)),.Some(b) => (ast_expr_token(b).value == "..."),.None => false))
             ),
             _ => false
           )
       ) => true,
       // bare `...` atom
-      (ast_expr_is_atom(lhs_field) && (ast_expr_token(lhs_field).value.as_str() == "...")) => true,
+      (ast_expr_is_atom(lhs_field) && (ast_expr_token(lhs_field).value == "...")) => true,
       true => false
     );
     if(is_spread, {
@@ -238,15 +238,15 @@ handle_member_destructuring :: (
       while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get(j),.Some(l) => l,.None => String.from(""));
         fty := match(rhs_field_types.get(j),.Some(t) => t,.None => TypeValue.Unit);
-        if(!(_label_already_seen(seen_labels, flab.as_str())), {
+        if(!(_label_already_seen(seen_labels, flab.clone())), {
           {
-            ___ := seen_labels.push(String.from(flab.as_str()));
+            ___ := seen_labels.push(flab.clone());
           };
           {
             ___ := runtime_destructurings.push(
               RuntimeDestructuring(
-                label : String.from(flab.as_str()),
-                variable_name : String.from(flab.as_str()),
+                label : flab.clone(),
+                variable_name : flab.clone(),
                 ty : fty
               )
             );
@@ -271,7 +271,7 @@ handle_member_destructuring :: (
           {
             ___ := add_variable_to_env(
               env,
-              String.from(flab.as_str()),
+              flab.clone(),
               fty,
               match(fval_opt,.Some(fv) => Option(EvalValue).Some(clone_value(fv, true)),.None => Option(EvalValue).None),
               is_compile_time_only,
@@ -325,7 +325,7 @@ handle_member_destructuring :: (
         });
         label_expr_opt = Option(AstExpr).Some(left_side);
         label := ast_expr_token(left_side).value;
-        fi_opt := _find_field_index(rhs_field_labels, label.as_str());
+        fi_opt := _find_field_index(rhs_field_labels, label.clone());
         match(
           fi_opt,
           .None => {
@@ -354,7 +354,7 @@ handle_member_destructuring :: (
         );
         if(ast_expr_is_atom(right_side) && is_valid_variable_name(right_side), {
           rename_expr_opt = Option(AstExpr).Some(right_side);
-          variable_name_opt = Option(String).Some(String.from(ast_expr_token(right_side).value.as_str()));
+          variable_name_opt = Option(String).Some(ast_expr_token(right_side).value.clone());
           variable_token_opt = Option(AstExpr).Some(right_side);
         }, {
           exn.throw(
@@ -368,7 +368,7 @@ handle_member_destructuring :: (
             )
           );
         });
-        if(_label_already_seen(seen_labels, rhs_field_label.as_str()), {
+        if(_label_already_seen(seen_labels, rhs_field_label.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -381,12 +381,12 @@ handle_member_destructuring :: (
           );
         });
         {
-          ___ := seen_labels.push(String.from(rhs_field_label.as_str()));
+          ___ := seen_labels.push(rhs_field_label.clone());
         };
         {
           ___ := runtime_destructurings.push(
             RuntimeDestructuring(
-              label : String.from(rhs_field_label.as_str()),
+              label : rhs_field_label.clone(),
               variable_name : match(variable_name_opt,.Some(s) => s,.None => String.from("")),
               ty : rhs_field_type
             )
@@ -426,7 +426,7 @@ handle_member_destructuring :: (
             )
           );
         });
-        if(_label_already_seen(seen_labels, rhs_field_label.as_str()), {
+        if(_label_already_seen(seen_labels, rhs_field_label.clone()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -439,14 +439,14 @@ handle_member_destructuring :: (
           );
         });
         {
-          ___ := seen_labels.push(String.from(rhs_field_label.as_str()));
+          ___ := seen_labels.push(rhs_field_label.clone());
         };
-        pos_var_name := String.from(ast_expr_token(lhs_field).value.as_str());
+        pos_var_name := ast_expr_token(lhs_field).value.clone();
         {
           ___ := runtime_destructurings.push(
             RuntimeDestructuring(
-              label : String.from(rhs_field_label.as_str()),
-              variable_name : String.from(pos_var_name.as_str()),
+              label : rhs_field_label.clone(),
+              variable_name : pos_var_name.clone(),
               ty : rhs_field_type
             )
           );
@@ -495,7 +495,7 @@ handle_member_destructuring :: (
           });
           added_var_opt := add_variable_to_env(
             env,
-            String.from(var_name.as_str()),
+            var_name.clone(),
             rhs_field_type,
             match(field_value_opt,.Some(fv) => Option(EvalValue).Some(clone_value(fv, true)),.None => Option(EvalValue).None),
             is_compile_time_only,
@@ -672,7 +672,7 @@ evaluate_destructuring_assignment :: (
     // Find the variant index.
     vnames := match(rhs_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
     vfields := match(rhs_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-    vi_opt := _find_field_index(vnames, svn.as_str());
+    vi_opt := _find_field_index(vnames, svn.clone());
     match(
       vi_opt,
       .None => {

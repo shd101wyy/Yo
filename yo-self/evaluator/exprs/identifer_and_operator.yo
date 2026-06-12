@@ -20,7 +20,7 @@ open(import("std/string"));
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
 :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_bool, t_void, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
+{ t_str, t_unit, t_bool, t_void, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
 { is_some_type, is_function_type } :: import("../../types/guards.yo");
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
@@ -46,7 +46,7 @@ evaluate_identifier_and_operator :: (
 )({
   token := ast_expr_token(expr);
   // `str` view used for all literal comparisons; token.value (String) used for APIs.
-  identifier := token.value.as_str();
+  identifier := token.value.clone();
   // ------------------------------------------------------------------
   // Built-in type keywords
   // Match identifier to a TypeValue. If matched, build the ExprInfo
@@ -59,7 +59,8 @@ evaluate_identifier_and_operator :: (
     (identifier == "unit") => Option(TypeValue).Some(t_unit()),
     (identifier == "comptime_int") => Option(TypeValue).Some(t_comptime_int()),
     (identifier == "comptime_float") => Option(TypeValue).Some(t_comptime_float()),
-    (identifier == "comptime_string") => Option(TypeValue).Some(t_comptime_string()),
+    (identifier == "comptime_str") => Option(TypeValue).Some(t_comptime_string()),
+    (identifier == "str") => Option(TypeValue).Some(t_str()),
     (identifier == "bool") => Option(TypeValue).Some(t_bool()),
     (identifier == "usize") => Option(TypeValue).Some(t_usize()),
     (identifier == "isize") => Option(TypeValue).Some(t_isize()),
@@ -149,7 +150,7 @@ evaluate_identifier_and_operator :: (
     // hits this for operator-trait names like `==` (bound to
     // `impl({...})` in a way the bootstrap's lookup can't yet resolve).
     // Tracked in `issues/yo-self-evaluator-gaps.md`.
-    if(string_is_operator(identifier_string.as_str()), {
+    if(string_is_operator(identifier_string.clone()), {
       fallback_info := new_expr_info(env, t_unit());
       fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);

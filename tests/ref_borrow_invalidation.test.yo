@@ -1,0 +1,60 @@
+//! v4.1 (plans/BORROW_EXCLUSIVITY.md): the borrow-invalidation gates were
+//! REMOVED together with `ref(name) := …` local bindings — with no local
+//! borrows left, there is nothing to invalidate. These tests pin the
+//! element-access model that replaced them: `get` returns the element (a
+//! HANDLE for object types) that no container operation can invalidate,
+//! so the container stays freely usable.
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+// The old borrow shapes are inexpressible — the binding form itself is
+// rejected (with the migration recipe in the error).
+comptime_expect_error(
+  borrow_binding_removed :: (fn() -> unit)({
+    xs := ArrayList(String).new();
+    xs.push(String.from("element-zero"));
+    ref(r) := xs;
+    consume(r);
+  })
+);
+
+// `get` returns a HANDLE to the element object — it points at the
+// String itself, not into the list's buffer, so container growth
+// (realloc) cannot invalidate it. 64 pushes is the realloc trigger from
+// the historical UAF repro that motivated the (now deleted) gates.
+test("get handle survives container growth", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  i := usize(0);
+  while(i < usize(64), {
+    xs.push(String.from("filler"));
+    i = (i + usize(1));
+  });
+  assert(e == "element-zero", "handle valid after 64 pushes (realloc)");
+  assert(xs.len() == usize(65), "all pushes landed");
+});
+
+// Even REASSIGNING the container cannot invalidate a held element
+// handle — the handle owns a +1 on the element object. This exact shape
+// was a compile error under the old gates; under the value model it is
+// simply safe.
+test("container freely reassignable while holding an element handle", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  xs = ArrayList(String).new();
+  assert(e == "element-zero", "element handle survives the reassign");
+  assert(xs.len() == usize(0), "container replaced");
+});
+
+// Object elements mutate in place through the get handle — no borrow
+// needed.
+test("object element mutates in place through a get handle", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("hello"));
+  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  e.push_str(" world");
+  assert(match(xs.get(usize(0)),.Some(s) => (s == "hello world"),.None => false), "mutated in place");
+});

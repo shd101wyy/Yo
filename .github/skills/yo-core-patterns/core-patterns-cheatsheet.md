@@ -24,14 +24,14 @@ println("plain str is also fine");
 
 | Type              | When you see it                              | Key behavior                           |
 | ----------------- | -------------------------------------------- | -------------------------------------- |
-| `str`             | `"hello"` in runtime contexts                | Slice of bytes, no ownership           |
+| `str`             | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
 | `String`          | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
-| `comptime_string` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
+| `comptime_str` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
 
 Key rules:
 
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
-- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_string`. It does NOT auto-convert to `str`. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if a comptime function needs to return `str`.
+- In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str`. It does NOT auto-convert to `str`. A comptime function returning `str` materializes its `comptime_str` result automatically.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
 - **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
@@ -261,6 +261,29 @@ impl(forall(T), where(T <: ToString), Box(T),
 - `forall(T)` + `where(T <: Trait)` for generic impls
 - Trait impls: `impl(MyType, MyTrait(args), : trait_field_bindings...)`
 
+### Method overloading: inherent NO, trait YES
+
+Inherent methods cannot be overloaded — a second same-name inherent method is
+rejected ("Method already defined" across impl blocks, "variable shadowing"
+within one). But **trait-provided methods may share a name** with an inherent
+method and with same-name methods from other traits; dispatch picks by
+argument types. This is how std gives `String` both `contains(String)`
+(inherent) and `contains(str)` (via the `StrPattern` trait), and both
+`Eq(String)` and `Eq(str)` `(==)` overloads:
+
+```rust
+PickStr :: trait(pick : (fn(self : Self, x : str) -> i32));
+impl(V, pick : (fn(self : Self, x : V) -> i32)(i32(1)));        // inherent
+impl(V, PickStr(pick : (fn(self : Self, x : str) -> i32)(i32(2))));
+v.pick(v);    // 1 — inherent overload
+v.pick("s");  // 2 — trait overload, chosen by argument type
+```
+
+- Heterogeneous parametric-trait impls work: `impl(String, Eq(str)(...))`
+  beside `impl(String, Eq(String)(...))`; `x == "lit"` dispatches by RHS type.
+- Provide only `(==)`; `(!=)` comes from the `Eq` trait's `?=` default and
+  resolves to the right overload by argument types.
+
 ## Partial application
 
 ```rust
@@ -400,8 +423,10 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 result := inc(i32(5));
 
 transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for(values, ref(x) => {
-    x = f(x);
+  i := usize(0);
+  while(i < values.len(), {
+    values(i) = f(values(i));
+    i = (i + usize(1));
   });
 });
 ```
@@ -420,27 +445,28 @@ list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 
-// Value form — implicit .into_iter().
+// Value form — implicit .into_iter(). The only form.
 for(list, (value) => {
   println(value);
 });
 
-// Borrow form — implicit .iter() + .project(pos). `x` is a writable
-// binding into the collection; assignments propagate back.
-for(list, ref(x) => {
-  x = (x + i32(10));
+// In-place element mutation: index writes.
+i := usize(0);
+while(i < list.len(), {
+  list(i) = (list(i) + i32(10));
+  i = (i + usize(1));
 });
 ```
 
-| Form                          | Expansion                                  | When to use                                   |
-| ----------------------------- | ------------------------------------------ | --------------------------------------------- |
-| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value    | Read-only iteration; combinator chains        |
-| `for(coll, ref(x) => …)`      | `coll.iter()` + `coll.project(pos)` borrow | Mutation in place; writes propagate to `coll` |
-| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form)  | Computed values; chains support only value    |
+| Form                          | Expansion                                 | When to use                                                                  |
+| ----------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; object elements are handles and mutate in place               |
+| index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                       |
+| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                               |
 
+- The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
 - `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.
 - `IntoIterator` trait — defines `into_iter() -> IntoIter`. Collections impl this so `for(coll, ...)` works.
-- `Indexable(Position)` trait — defines `project(pos) -> ref(Element)`. Collections impl this to support the borrow form.
 
 ## Module-level mutable variables
 
@@ -474,13 +500,17 @@ result := my_module.helper(i32(5));
 
 Several `yo-self/` APIs take `String` (not `str`) parameters even when the argument is conceptually a name:
 
-- `get_variables_from_env(env, name: String)` — pass the `String` directly, do NOT call `.as_str()` first
+- `get_variables_from_env(env, name: String)` — pass the `String` directly
 - Most other env/value/type lookup functions follow the same convention
+- (`as_str()` no longer exists — heap Strings can never become `str`.)
 
 ```rust
-// ❌ Wrong — .as_str() converts String → str but the param is String
-vars := get_variables_from_env(env, prop_name_su.as_str());
-
-// ✅ Correct — pass the String directly
+// ✅ Pass the String directly
 vars := get_variables_from_env(env, prop_name_su);
 ```
+
+String/str comparisons never need `as_str()` either (slice-rework step 2
+swept all of them): `token.value == "fn"`, `name != other_string`, and
+`"lit" == x` all dispatch directly via the heterogeneous `Eq(str)`/
+`Eq(String)` impls. `as_str()` itself is slated for deletion
+(plans/SLICE_REWORK.md) — do not introduce new calls to it.

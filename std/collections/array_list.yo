@@ -37,19 +37,6 @@ impl(
   ptr : (fn(self : Self) -> ?*(T))(
     self._ptr
   ),
-  /**
-  * Get a slice view of the ArrayList
-  * Returns a fat pointer Slice(T) with data pointer and length
-  * This allows passing ArrayList to functions expecting slices
-  * Returns .None for an empty ArrayList with no allocated buffer
-  */
-  as_slice : (fn(self : Self) -> Option(Slice(T)))(
-    match(
-      self._ptr,
-      .Some(p) =>.Some(Slice(T).from_raw_parts(p, self._length)),
-      .None =>.None
-    )
-  ),
   /**     * Directly set the length of the ArrayList
   * UNSAFE: This does not initialize new elements or free removed elements
   * Only use when you've manually populated the buffer (e.g., via direct memory writes)
@@ -72,6 +59,55 @@ impl(
       _capacity : usize(0)
     )
   ),
+  /**
+  * Create an ArrayList by copying the elements of a fixed-size array.
+  * The owned-copy companion to array range-indexing
+  * (plans/SLICE_REWORK.md).
+  */
+  /**
+  * Owned copy of the elements in `[r.start, r.end)` — JS-style range
+  * slicing with value semantics (plans/SLICE_REWORK.md: `list(a..b)`
+  * lowers to this).
+  */
+  slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
+    e := cond((r.end > self.len()) => self.len(), true => r.end);
+    out := Self.new();
+    i := r.start;
+    while(i < e, i = (i + usize(1)), {
+      match(
+        self.get(i),
+        .Some(v) => {
+          ___ := out.push(v);
+        },
+        .None => ()
+      );
+    });
+    out
+  }),
+  /// Inclusive-range companion of `slice_copy` (`list(a..=b)`).
+  slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)({
+    last := cond((r.end >= self.len()) => self.len(), true => (r.end + usize(1)));
+    out := Self.new();
+    i := r.start;
+    while(i < last, i = (i + usize(1)), {
+      match(
+        self.get(i),
+        .Some(v) => {
+          ___ := out.push(v);
+        },
+        .None => ()
+      );
+    });
+    out
+  }),
+  from_array : (fn(forall(N : usize), arr : Array(T, N)) -> Self)({
+    out := Self.with_capacity(N);
+    i := usize(0);
+    while(i < N, i = (i + usize(1)), {
+      out.push(arr(i));
+    });
+    out
+  }),
   /**
   * Create an ArrayList with a specific initial cap
   */
@@ -507,28 +543,6 @@ impl(
     })
   )
 );
-/// Indexable impl — projection-style indexing yielding `ref(T)`.
-/// See plans/ITERATOR_REDESIGN.md. Body wraps the pointer arithmetic
-/// in `unsafe(...)` to pass the flowability check.
-impl(
-  forall(T : Type),
-  ArrayList(T),
-  Indexable(usize)(
-    Element : T,
-    project : (fn(ref(self) : Self, pos : usize) -> ref(T))({
-      assert(pos < self._length, "ArrayList: project out of bounds");
-      match(
-        self._ptr,
-        // SAFETY: assert above bounds `pos < self._length` and the
-        // length invariant guarantees `pos < self._capacity`, so
-        // `_ptr &+ pos` stays inside the Rc-managed heap buffer
-        // for the duration of the borrow.
-        .Some(_ptr) => unsafe(_ptr &+ pos),
-        .None => panic("ArrayList: project on empty list")
-      )
-    })
-  )
-);
 impl(
   forall(T : Type),
   ArrayList(T),
@@ -584,37 +598,6 @@ impl(
   ArrayList(T),
   into_iter : (fn(self : Self) -> ArrayListIter(T))(
     ArrayListIter(T)(_list : self, _index : usize(0))
-  )
-);
-/// Position iterator for ArrayList — yields `usize` indices into the
-/// list. Used by `ArrayList.iter()`; the for-macro pairs each yielded
-/// position with `ArrayList.project(pos)` (Indexable from Phase C) to
-/// bind the body's `ref`-name. See plans/ITERATOR_REDESIGN.md.
-_ArrayListPosIter :: struct(
-  _index : usize,
-  _len : usize
-);
-impl(
-  _ArrayListPosIter,
-  Iterator(
-    Item : usize,
-    next : (fn(ref(self) : Self) -> Option(usize))(
-      cond(
-        (self._index >= self._len) =>.None,
-        true => {
-          out := self._index;
-          self._index = (self._index + usize(1));
-          .Some(out)
-        }
-      )
-    )
-  )
-);
-impl(
-  forall(T : Type),
-  ArrayList(T),
-  iter : (fn(ref(self) : Self) -> _ArrayListPosIter)(
-    _ArrayListPosIter(_index : usize(0), _len : self._length)
   )
 );
 impl(
@@ -859,4 +842,28 @@ array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
     unquote(tmp)
   })
 });
+/// Range slicing on fixed-size arrays returns an OWNED ArrayList copy
+/// (`arr(a..b)` lowers to this — plans/SLICE_REWORK.md).
+impl(
+  forall(T : Type, N : usize),
+  Array(T, N),
+  slice_copy : (fn(self : Array(T, N), r : Range(usize)) -> ArrayList(T))({
+    e := cond((r.end > N) => N, true => r.end);
+    out := ArrayList(T).new();
+    i := r.start;
+    while(i < e, i = (i + usize(1)), {
+      out.push(self(i));
+    });
+    out
+  }),
+  slice_copy_inclusive : (fn(self : Array(T, N), r : RangeInclusive(usize)) -> ArrayList(T))({
+    last := cond((r.end >= N) => N, true => (r.end + usize(1)));
+    out := ArrayList(T).new();
+    i := r.start;
+    while(i < last, i = (i + usize(1)), {
+      out.push(self(i));
+    });
+    out
+  })
+);
 export(array_list);

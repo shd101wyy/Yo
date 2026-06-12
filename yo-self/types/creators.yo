@@ -3,7 +3,7 @@
 //! Mirrors `src/types/creators.ts`. Provides:
 //!   * `generate_some_type_id` — global counter for fresh SomeType IDs
 //!   * `t_unit` / `t_bool` / `t_i32` / … — primitive constructors
-//!   * `t_ptr` / `t_slice` / `t_array` — pointer/slice/array constructors
+//!   * `t_ptr` / `t_array` — pointer/array constructors
 //!   * `t_func_simple` / `t_trait` / `t_trait_simple` / `t_module` / `t_module_simple`
 //!   * `t_some_t` — SomeType constructor (consumes a fresh id from the counter)
 //!   * `t_expr_t` / `t_comptime_list` / `t_effects_row` / `t_type_app` / `t_iso`
@@ -33,6 +33,9 @@ generate_some_type_id :: (fn() -> String)({
 // Convenience constructors for primitive and pointer-sized types
 // ---------------------------------------------------------------------------
 t_unit :: (fn() -> TypeValue)(.Unit);
+/// `str` — the builtin static string view (mirrors TS TypeTag.Str: a
+/// dedicated fieldless tag; impl registry keys it by id "str").
+t_str :: (fn() -> TypeValue)(.Str);
 t_bool :: (fn() -> TypeValue)(.BoolT);
 t_void :: (fn() -> TypeValue)(.Void);
 t_i8 :: (fn() -> TypeValue)(.Int(u8(8), true));
@@ -65,7 +68,6 @@ t_c_longlong :: (fn() -> TypeValue)(.CLongLong);
 t_c_ulonglong :: (fn() -> TypeValue)(.CULongLong);
 t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
 t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
-t_slice :: (fn(element : TypeValue) -> TypeValue)(.Slice(box(element)));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
   .Array(box(element), length, String.from(""))
 );
@@ -286,7 +288,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .CLongDouble => TypeTag.TCLongDouble,
     .TypeUni(_) => TypeTag.TType,
     .Pointer(_) => TypeTag.TPtr,
-    .Slice(_) => TypeTag.TSlice,
+    .Str => TypeTag.TStr,
     .Array(_, _, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
     .Func({ result : _ }) => TypeTag.TFunction,
@@ -339,7 +341,7 @@ resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
       while((i < n) && r.is_none(), {
         match(
           g_enum_finals.get(i),
-          .Some(e) => if(e.enum_id.as_str() == eid.as_str(), {
+          .Some(e) => if(e.enum_id == eid, {
             r = Option(TypeValue).Some(e.ty);
           }),
           .None => ()
@@ -356,6 +358,7 @@ export(register_enum_final, resolve_enum_shell);
 export(
   generate_some_type_id,
   t_unit,
+  t_str,
   t_bool,
   t_void,
   t_i8,
@@ -386,7 +389,6 @@ export(
   t_c_ulonglong,
   t_c_longdouble,
   t_ptr,
-  t_slice,
   t_array,
   t_array_var,
   t_func_simple,

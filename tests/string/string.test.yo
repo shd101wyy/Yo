@@ -18,10 +18,11 @@ test("String.from_bytes creates string from byte array", {
   assert(not(s.is_empty()));
   assert(s.len() == usize(5));
 });
-test("String.from creates string from byte slice", {
-  arr := [u8(72), u8(101), u8(108), u8(108), u8(111)];
-  slice := arr(usize(0) .. usize(5));
-  s := String.from(str(slice));
+test("String.from creates string from str", {
+  // (Former "from byte slice" test: constructing a str view over mortal
+  // stack bytes is no longer possible — str is the builtin STATIC view;
+  // see plans/SLICE_REWORK.md.)
+  s := String.from("Hello");
   assert(s.len() == usize(5));
 });
 // ===== ASCII String Tests =====
@@ -1862,4 +1863,64 @@ test("Test String.substring", {
   assert(sub2 == `world`, "substring(6,11) should be 'world'");
   empty := s.substring(usize(3), usize(3));
   assert(empty == ``, "substring with equal start/end should be empty");
+});
+// ===== Heterogeneous Eq: String <-> str (plans/SLICE_REWORK.md step 1) =====
+test("String == str compares bytes directly", {
+  x := String.from("abc");
+  e := String.new();
+  assert(x == "abc", "String==str equal");
+  assert(x != "abd", "String!=str different bytes");
+  assert(x != "abcd", "String!=str different length");
+  assert(x != "", "nonempty String != empty str");
+  assert(e == "", "empty String == empty str");
+  assert(e != "a", "empty String != nonempty str");
+});
+test("str == String compares bytes directly", {
+  x := String.from("abc");
+  e := String.new();
+  assert("abc" == x, "str==String equal");
+  assert("abd" != x, "str!=String different bytes");
+  assert("abcd" != x, "str!=String different length");
+  assert("" == e, "empty str == empty String");
+  assert("a" != e, "nonempty str != empty String");
+});
+test("String str-pattern overloads (StrPattern trait)", {
+  x := String.from("hello world");
+  assert(x.contains("world"), "contains str");
+  assert(!(x.contains("worlds")), "contains str negative");
+  assert(x.contains("o w", usize(3)), "contains str with from_index");
+  assert(x.starts_with("hello"), "starts_with str");
+  assert(!(x.starts_with("world")), "starts_with str negative");
+  assert(x.ends_with("world"), "ends_with str");
+  assert(!(x.ends_with("hello")), "ends_with str negative");
+  assert(match(x.index_of("lo"),.Some(i) => (i == usize(3)),.None => false), "index_of str");
+  assert(match(x.index_of("zz"),.Some(_) => false,.None => true), "index_of str none");
+  assert(match(x.last_index_of("o"),.Some(i) => (i == usize(7)),.None => false), "last_index_of str");
+  parts := x.split(" ");
+  assert(parts.len() == usize(2), "split str count");
+  assert(match(parts.get(usize(0)),.Some(p) => (p == "hello"),.None => false), "split str first");
+  assert(match(parts.get(usize(1)),.Some(p) => (p == "world"),.None => false), "split str second");
+  // The String-typed inherent methods still dispatch alongside the
+  // str-typed trait overloads.
+  assert(x.contains(String.from("world")), "contains String");
+  assert(x.starts_with(String.from("hello")), "starts_with String");
+});
+test("String.byte_at indexes bytes", {
+  s := String.from("abc");
+  assert(s.byte_at(usize(0)) == u8(97), "byte 0");
+  assert(s.byte_at(usize(2)) == u8(99), "byte 2");
+  multi := String.from("café");
+  assert(multi.bytes_len() == usize(5), "UTF-8 byte length");
+  assert(multi.byte_at(usize(3)) == u8(195), "UTF-8 lead byte");
+});
+test("String Ord compares byte-lexicographically", {
+  a := String.from("apple");
+  b := String.from("banana");
+  assert(a < b, "apple < banana");
+  assert(b > a, "banana > apple");
+  assert(a <= a.clone(), "a <= a");
+  assert(a >= a.clone(), "a >= a");
+  assert(!(b < a), "not banana < apple");
+  assert(String.from("ab") < String.from("abc"), "prefix sorts first");
+  assert(String.new() < String.from("a"), "empty sorts first");
 });

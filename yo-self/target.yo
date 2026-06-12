@@ -74,31 +74,31 @@ abi_to_str :: (fn(a : Abi) -> str)(
 );
 parse_arch :: (fn(s : String) -> Option(Arch))(
   cond(
-    (s.as_str() == "x86_64") => Option(Arch).Some(Arch.X86_64),
-    (s.as_str() == "aarch64") => Option(Arch).Some(Arch.Aarch64),
-    (s.as_str() == "x86") => Option(Arch).Some(Arch.X86),
-    (s.as_str() == "arm") => Option(Arch).Some(Arch.Arm),
-    (s.as_str() == "wasm32") => Option(Arch).Some(Arch.Wasm32),
+    (s == "x86_64") => Option(Arch).Some(Arch.X86_64),
+    (s == "aarch64") => Option(Arch).Some(Arch.Aarch64),
+    (s == "x86") => Option(Arch).Some(Arch.X86),
+    (s == "arm") => Option(Arch).Some(Arch.Arm),
+    (s == "wasm32") => Option(Arch).Some(Arch.Wasm32),
     true => Option(Arch).None
   )
 );
 parse_os :: (fn(s : String) -> Option(Os))(
   cond(
-    (s.as_str() == "linux") => Option(Os).Some(Os.Linux),
-    (s.as_str() == "macos") => Option(Os).Some(Os.Macos),
-    (s.as_str() == "windows") => Option(Os).Some(Os.Windows),
-    (s.as_str() == "freebsd") => Option(Os).Some(Os.FreeBSD),
-    (s.as_str() == "wasi") => Option(Os).Some(Os.Wasi),
-    (s.as_str() == "emscripten") => Option(Os).Some(Os.Emscripten),
+    (s == "linux") => Option(Os).Some(Os.Linux),
+    (s == "macos") => Option(Os).Some(Os.Macos),
+    (s == "windows") => Option(Os).Some(Os.Windows),
+    (s == "freebsd") => Option(Os).Some(Os.FreeBSD),
+    (s == "wasi") => Option(Os).Some(Os.Wasi),
+    (s == "emscripten") => Option(Os).Some(Os.Emscripten),
     true => Option(Os).None
   )
 );
 parse_abi :: (fn(s : String) -> Option(Abi))(
   cond(
-    (s.as_str() == "gnu") => Option(Abi).Some(Abi.Gnu),
-    (s.as_str() == "musl") => Option(Abi).Some(Abi.Musl),
-    (s.as_str() == "msvc") => Option(Abi).Some(Abi.Msvc),
-    (s.as_str() == "wasm") => Option(Abi).Some(Abi.Wasm_),
+    (s == "gnu") => Option(Abi).Some(Abi.Gnu),
+    (s == "musl") => Option(Abi).Some(Abi.Musl),
+    (s == "msvc") => Option(Abi).Some(Abi.Msvc),
+    (s == "wasm") => Option(Abi).Some(Abi.Wasm_),
     true => Option(Abi).None
   )
 );
@@ -210,7 +210,7 @@ parse_target :: (fn(triple : String) -> Result(TargetInfo, String))({
       s.push_string(triple.substring(usize(5), triple.len()));
       s
     },
-    true => String.from(triple.as_str())
+    true => triple.clone()
   );
   parts := expanded.split(String.from("-"));
   parts_n := parts.len();
@@ -238,7 +238,7 @@ parse_target :: (fn(triple : String) -> Result(TargetInfo, String))({
   );
   abi := cond(
     (parts_n < usize(3)) => _default_abi_for_os(o),
-    (abi_str.as_str() == "none") => Option(Abi).None,
+    (abi_str == "none") => Option(Abi).None,
     true => {
       parsed := parse_abi(abi_str);
       match(

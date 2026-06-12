@@ -19,6 +19,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { List } :: import("./list.yo");
+{ ArrayList } :: import("../collections/array_list.yo");
 { Pair } :: import("./map.yo");
 /// Color of a red-black tree node.
 Color :: enum(Red, Black);
@@ -614,12 +615,12 @@ impl(
     _collect_values(K, V, self._root, List(V).new())
   ),
   /// Create a sorted map from a slice of key-value pairs.
-  from_entries : (fn(pairs : Slice(Pair(K, V))) -> Self)({
+  from_entries : (fn(pairs : ArrayList(Pair(K, V))) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();
     while(i < plen, i = (i + usize(1)), {
-      p := (pairs.ptr() &+ i).*;
+      p := match(pairs.get(i),.Some(__e) => __e,.None => panic("from_entries: index out of bounds"));
       result = result.insert(p.key, p.value);
     });
     result

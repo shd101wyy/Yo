@@ -13,7 +13,7 @@ open(import("std/fmt"));
 { EvalValue } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { t_i32, t_comptime_int } :: import("../types/creators.yo");
-{ set_evaluate_expression_fn, evaluate_expression }
+{ set_evaluate_expression_fn, set_evaluate_expression_raw_fn, evaluate_expression }
 :: import("../evaluator/exprs/expr.yo");
 { evaluate_runtime } :: import("../evaluator/exprs/runtime.yo");
 { Exception } :: import("std/error");
@@ -50,8 +50,20 @@ stub_evaluate_comptime_int :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
+/// Raw-seam variant of the stub: same behavior, ignores the custom handler.
+stub_evaluate_comptime_int_raw :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)(
+  stub_evaluate_comptime_int(expr, env, ctx)
+);
 test("evaluate_runtime: converts comptime_int argument to i32", {
   set_evaluate_expression_fn(stub_evaluate_comptime_int);
+  set_evaluate_expression_raw_fn(stub_evaluate_comptime_int_raw);
   exn := Exception(
     throw : (
       (err) -> {

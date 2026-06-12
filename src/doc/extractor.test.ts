@@ -628,9 +628,9 @@ describe("extractInlineDocs", () => {
   it("extracts docs for optional fields with ?= syntax", () => {
     const docs = inlineDocsFromSource(`Config :: struct(
       /// Step name.
-      name : comptime_string,
+      name : comptime_str,
       /// Compilation target triple.
-      (target : comptime_string) ?= "host",
+      (target : comptime_str) ?= "host",
       /// Optimization level.
       (optimize : i32) ?= 0
     );`);

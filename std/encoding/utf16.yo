@@ -20,34 +20,34 @@ open(import("../string"));
 /// Convert a UTF-8 string to an `ArrayList(u16)` of UTF-16 code units.
 ///
 /// Handles BMP characters directly and encodes supplementary characters as surrogate pairs.
-utf8_to_utf16 :: (fn(s : str) -> ArrayList(u16))({
+utf8_to_utf16 :: (fn(s : String) -> ArrayList(u16))({
   out := ArrayList(u16).new();
   i := usize(0);
-  while(i < s.len(), {
-    b0 := u32(s.bytes(i));
+  while(i < s.bytes_len(), {
+    b0 := u32(s.byte_at(i));
     cond(
       (b0 < u32(0x80)) => {
         out.push(u16(b0));
         i = (i + usize(1));
       },
       ((b0 & u32(0xE0)) == u32(0xC0)) => {
-        b1 := u32(s.bytes(i + usize(1)));
+        b1 := u32(s.byte_at(i + usize(1)));
         cp := (((b0 & u32(0x1F)) << u32(6)) | (b1 & u32(0x3F)));
         out.push(u16(cp));
         i = (i + usize(2));
       },
       ((b0 & u32(0xF0)) == u32(0xE0)) => {
-        b1 := u32(s.bytes(i + usize(1)));
-        b2 := u32(s.bytes(i + usize(2)));
+        b1 := u32(s.byte_at(i + usize(1)));
+        b2 := u32(s.byte_at(i + usize(2)));
         cp := ((((b0 & u32(0x0F)) << u32(12)) | ((b1 & u32(0x3F)) << u32(6))) | (b2 & u32(0x3F)));
         out.push(u16(cp));
         i = (i + usize(3));
       },
       true => {
         // 4-byte sequence → surrogate pair
-        b1 := u32(s.bytes(i + usize(1)));
-        b2 := u32(s.bytes(i + usize(2)));
-        b3 := u32(s.bytes(i + usize(3)));
+        b1 := u32(s.byte_at(i + usize(1)));
+        b2 := u32(s.byte_at(i + usize(2)));
+        b3 := u32(s.byte_at(i + usize(3)));
         cp := (((((b0 & u32(0x07)) << u32(18)) | ((b1 & u32(0x3F)) << u32(12))) | ((b2 & u32(0x3F)) << u32(6))) | (b3 & u32(0x3F)));
         cp2 := (cp - u32(0x10000));
         hi := u16((cp2 >> u32(10)) + u32(0xD800));

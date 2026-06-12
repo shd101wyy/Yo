@@ -274,6 +274,7 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     .TI64 =>.Some(true),
     .TF32 =>.Some(true),
     .TF64 =>.Some(true),
+    .TStr =>.Some(true),
     .TFunction =>.Some(true),
     .TUnion =>.Some(true),
     // Undecided — would need the env / Runtime trait to settle.
@@ -306,9 +307,6 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       ty,
       // Array — recurse on element type
       .Array(element : elem, length : _) =>
-        recur(elem.*, depth + u32(1)),
-      // Slice — recurse on element type
-      .Slice(element : elem) =>
         recur(elem.*, depth + u32(1)),
       // Tuple — check all field types
       .Tuple(field_labels : _, field_types : fields) => {
@@ -500,7 +498,6 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
       // control-bound — `*(Raise)` must be rejected).
       .Array(element : elem, length : _, length_var : _) => recur(elem.*, depth + u32(1)),
-      .Slice(element : elem) => recur(elem.*, depth + u32(1)),
       .Pointer(pointee : p) => recur(p.*, depth + u32(1)),
       // SomeT carries no resolved concrete type in yo-self → conservatively
       // false (mirrors TS returning false when `resolvedConcreteType` is unset).
@@ -532,7 +529,7 @@ can_type_form_rc_cycle :: (fn(_ty : TypeValue) -> bool)(false);
 /// types like `[T; ?]` where the size is a runtime expression; yo-self
 /// rejects unknown array lengths at parse time. Once yo-self gains
 /// the same deferred-length mechanism this stub should walk
-/// `Array.length` and recurse on `Array.element` / `Slice.element` /
+/// `Array.length` and recurse on `Array.element` /
 /// tuple/struct/enum field types.
 type_requires_inference :: (fn(_ty : TypeValue) -> bool)(false);
 /// Return `true` if `ty` contains any unresolved generic type variable
@@ -591,9 +588,6 @@ _collect_some_types_into :: (
       });
     },
     .Array(element : el, _, _) => {
-      recur(el.*, acc, visited_ids);
-    },
-    .Slice(element : el) => {
       recur(el.*, acc, visited_ids);
     },
     .Pointer(pointee : pt) => {
@@ -824,8 +818,8 @@ get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
     .Array({ element : el }) => recur(el.*),
-    // Slice: pointer-aligned (fat pointer)
-    .Slice(_) =>.Some(usize(get_target_pointer_size_bytes())),
+    // str: pointer-aligned (fat pointer {ptr,len})
+    .Str =>.Some(usize(get_target_pointer_size_bytes())),
     // Struct: reference-semantics (object) → pointer-aligned; newtype →
     // inner field's alignment; otherwise the max field alignment.
     .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
@@ -903,8 +897,8 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
       .Some(elem_bits) =>.Some(elem_bits * n),
       .None =>.None
     ),
-    // Slice: fat pointer (pointer + length) = 2 × pointer size
-    .Slice(_) =>.Some(usize(u32(2) * get_target_pointer_size_bits())),
+    // str: fat pointer (pointer + length) = 2 × pointer size
+    .Str =>.Some(usize(u32(2) * get_target_pointer_size_bits())),
     // Struct: reference-semantics (object) → pointer-sized; newtype → inner
     // field's size; otherwise the C-laid-out aggregate size.
     .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
@@ -989,7 +983,7 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 // Raw-pointer / slice-source representation predicates (for flow analysis)
 // ---------------------------------------------------------------------------
 /// Internal: does `ty`'s representation transitively contain a raw pointer
-/// (`Ptr`/`Slice`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
+/// (`Ptr`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
 /// buffer alive across a value return). `depth` caps recursion in place of TS's
 /// object-identity `checkedTypes` set (yo-self `TypeValue` is value-semantic).
 /// Field loops are inlined (via `recur`) to avoid a mutual forward reference.
@@ -1002,7 +996,9 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
     true => match(
       ty,
       .Pointer(_) => true,
-      .Slice(_) => true,
+      // str is the builtin view of STATIC string bytes (immortal backing) —
+      // it carries a pointer, but never a dangling one (TS utils.ts Str arm).
+      .Str => false,
       .Struct({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;
@@ -1077,7 +1073,6 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
     true => match(
       ty,
       .Pointer(_) => true,
-      .Slice(_) => true,
       .Struct({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;

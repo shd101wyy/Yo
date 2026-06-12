@@ -114,12 +114,12 @@ ParenExpression ::=
   | '(' Expression (',' Expression)+ ')'              ;; 元组（逗号分隔）
   | '(' Expression (';' Expression)+ ';'? ')'         ;; 元组类型（分号分隔）
 
-;; 数组/切片表达式
+;; 数组表达式
 ;; 方括号，使用逗号或分号作为分隔符
 ArrayExpression ::=
   | '[' ']'                                           ;; 空数组字面量
   | '[' Expression (',' Expression)* ']'              ;; 数组字面量 [1, 2, 3]
-  | '[' Expression (';' Expression)? ']'              ;; 数组类型 [i32; 5] 或切片类型 [i32]
+  | '[' Expression (';' Expression)? ']'              ;; 数组类型 [i32; 5]
 
 ;; 花括号表达式
 ;; 可以是：结构体字面量（匿名记录）或 begin 块
@@ -160,6 +160,35 @@ FunctionCall ::=
 
 ArgumentList ::= [Expression (',' Expression)*]
 ```
+
+## 函数签名与参数修饰符
+
+参数形如 `label : Type`，可选地由**一个**修饰符调用包裹。修饰符包裹的
+是**标签**，而不是类型：
+
+```abnf
+Parameter ::= ParameterLabel ':' Type
+ParameterLabel ::=
+  | Identifier                  ;; 按值传递（object 类型即共享句柄）
+  | 'ref' '(' Identifier ')'    ;; 指向调用者左值的二等引用
+  | 'own' '(' Identifier ')'    ;; 消耗调用者的句柄（移动）
+  | 'inout' '(' Identifier ')'  ;; ref 的别名（绑定写回）
+  | 'comptime' '(' Identifier ')' ;; 仅编译期参数
+  | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
+```
+
+```rust
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ ... });
+sink :: (fn(own(victim) : Holder) -> unit)({ ... });
+```
+
+`ref` 的位置规则：
+
+- 参数位置（`ref(name) : T`）是 `ref` 唯一的合法位置。
+- `ref` 在**返回类型位置被拒绝**（`-> ref(T)`、`-> (ref(name) : T)`），
+  作为局部绑定（`ref(r) := lvalue;`）也被拒绝，更不能出现在任何其他
+  类型表达式中（`Option(ref(T))`、struct 字段、泛型实参）。
+- 语义详见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 ## 注释和空白
 

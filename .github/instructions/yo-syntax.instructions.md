@@ -366,7 +366,7 @@ The same applies at call sites: don't wrap object arguments with `&(obj)` to pas
 When choosing between `ref(self) : Self` and `self : Self` for a method receiver:
 
 - If the receiver type is fundamentally a value type (anything other than `object`), use `ref(self) : Self` for mutators.
-- If the receiver type is `object`, plain `self : Self` is the idiom — the methods documented in `yo-self/env.yo`, `yo-self/codegen/context.yo`, etc. follow this.
+- If the receiver type is `object`, plain `self : Self` is the idiom — the methods documented in `yo-self/env.yo`, `yo-self/emitter.yo`, etc. follow this.
 - Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `ref(self) : Self` for the reasons above; new traits that are object-specific can use plain `self : Self`.
 
 ## Recursion requires `recur`
@@ -477,7 +477,7 @@ open(import("std/collections/array_list"));
 open(import("std/string"));
 
 // WRONG — `import "path" as name` does NOT work for .yo files:
-// import "./node.yo" as node;  // causes "Invalid function call on type: comptime_string"
+// import "./node.yo" as node;  // causes "Invalid function call on type: comptime_str"
 
 // WRONG — absolute-style paths from within a subdirectory:
 // import "std/regex/node" as node;  // module resolution fails
@@ -590,39 +590,37 @@ len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
 
 `auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/EXTERN_UNSAFE_WRAP.md`.
 
-### Slice-flowability rule
+### Raw views and the static-str model (post slice-rework)
 
-A function whose return type transitively carries a raw pointer in its representation (`Slice(T)`, `str`, a struct wrapping a Slice, ...) must root the returned value in caller-owned storage. The evaluator runs the same R1–R4 flowability check used for `-> ref(T)` returns, with carve-outs for non-ref parameters and `comptime`/literal sources:
+The builtin `Slice(T)` and the view methods `String.as_str()` /
+`ArrayList.as_slice()` are DELETED (plans/SLICE_REWORK.md). The model:
 
-```rust
-// REJECTED: arr is a local, dies with the call frame.
-make_dangling :: (fn() -> Option(Slice(i32)))({
-  arr := ArrayList(i32).new();
-  arr.push(i32(1));
-  arr.as_slice()
-});
+- `str` is the builtin view of STATIC string bytes (literals / template
+  segments) — immortal backing, freely storable/returnable, no flow
+  constraints.
+- Range indexing COPIES: `arr(a..b)` → new `ArrayList(T)`, `s(a..b)` on
+  `String` → new `String`; `str` ranges stay zero-copy static windows.
+- Safe sub-range *views* use `ListView(T)`
+  (`std/collections/list_view.yo`) — an alias window over the live
+  Rc'd backing.
+- Privileged ptr+len plumbing uses `RawSlice(T)` (prelude). Naming it —
+  or any type whose representation carries a raw pointer — in a
+  parameter annotation requires `pragma(Pragma.AllowUnsafe);` (a
+  representation-based gate, not just the `*(T)` syntax gate).
+- `ref(name) : T` flowability (rules R1–R4) is unchanged. See
+  `docs/en-US/FLOWABILITY.md` and `tests/flowability_comprehensive.test.yo`.
 
-// ACCEPTED: caller's storage outlives the call.
-borrow :: (fn(ref(arr) : ArrayList(i32)) -> Option(Slice(i32)))(arr.as_slice());
+### Return-slot modifiers: `ref` is BANNED; `comptime` goes on the label
 
-// ACCEPTED: string literal lives in static storage.
-greet :: (fn() -> str)("hello");
-```
+**Functions cannot return `ref`, and there are no local ref bindings** (v4/v4.1, `plans/BORROW_EXCLUSIVITY.md`): refs are second-class and exist ONLY in parameter position. `ref(r) := …` is rejected (fields read/write in place: `h.s = v`). Return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives `ref(name) : T`. A ref ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate OBJECT and module-level field roots are rejected (bind the object to a local first: `b := a.b`).
 
-See `plans/SLICE_FLOWABILITY.md` and `tests/slice_flowability.test.yo`.
+| Form                                                                     | Verdict                                       |
+| ------------------------------------------------------------------------ | --------------------------------------------- |
+| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled)        | ✅ valid                                      |
+| `-> ref(T)`, `-> (ref(name) : T)`, `-> (name : ref(T))`                  | ❌ rejected — functions cannot return `ref`   |
+| `-> (name : comptime(T))`                                                | ❌ rejected — modifier goes on the label      |
 
-### Return-slot modifier placement: on the label, not the type
-
-In a **labeled** return slot, a `ref`/`comptime` modifier attaches to the **label**, mirroring the parameter convention (`ref(name) : T`). Unlabeled returns put the modifier on the sole type expression.
-
-| Form                                            | Verdict                                      |
-| ----------------------------------------------- | -------------------------------------------- |
-| `-> ref(T)`, `-> comptime(T)`                   | ✅ valid (unlabeled)                         |
-| `-> (ref(name) : T)`, `-> (comptime(name) : T)` | ✅ valid (modifier on the label)             |
-| `-> (name : ref(T))`, `-> (name : comptime(T))` | ❌ rejected — move the modifier to the label |
-| `-> (ref(name) : ref(T))`                       | ❌ rejected (double-ref — "pick one")        |
-
-Enforced at function-type evaluation (`src/evaluator/types/function.ts`, in the labeled-return branch, after label-side modifier processing) and the yo-self port (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_labeled.test.yo`.
+Enforced at function-type evaluation (`src/evaluator/types/function.ts`) and the yo-self port (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
 
 ### Signed-integer overflow is defined (wrap-around)
 
@@ -635,9 +633,9 @@ Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` commen
 ```rust
 match(
   self._ptr,
-  // SAFETY: pos bounds-checked above (pos < self._length);
+  // SAFETY: idx bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer.
-  .Some(_ptr) => unsafe(_ptr &+ pos),
+  .Some(_ptr) => (_ptr &+ idx),
   .None => panic("ArrayList: empty")
 )
 ```
@@ -673,27 +671,24 @@ Rules:
 
 ### Public stdlib boundary — no raw pointer leaks
 
-Every public top-level `fn(...)` in `std/` should take and return value or `ref`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to `Slice(T)` for buffers, `ref(name) : T` for in-place mutation, or a higher-level safe type.
+Every public top-level `fn(...)` in `std/` should take and return value or `ref`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `ref(name) : T` for in-place mutation, or a higher-level safe type (`RawSlice(T)` for pragma'd internals).
 
 Verify with `./yo-cli public-safe-report ./std` (or `./yo-self`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `src/public-safe-report.ts`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
 
 ## `for` loop macro — correct form
 
-The `for` macro is a 2-argument prelude macro. The **first argument is the collection or an iterator chain** (the macro inserts `.into_iter()` / `.iter()` as needed based on the body's binding shape):
+The `for` macro is a 2-argument prelude macro iterating BY VALUE (it expands to `coll.into_iter()`):
 
 ```rust
 for(list, (x) => { process(x); });               // value form: macro expands to list.into_iter()
-for(list, ref(x) => { x = transform(x); });      // borrow form: macro expands to list.iter() + list.project(pos)
+for(names, (s) => { s.push_str("!"); });         // object elements are HANDLES: mutates in place
 for(chain.map(f), (y) => println(y));            // combinator chain: pass as the value-form iterator
 ```
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
-- Second argument: an anonymous closure. The binding shape selects the form:
-  - `(x) => body` — value form. Macro expands to `coll.into_iter()`; `x` is `T` by value.
-  - `ref(x) => body` — borrow form. Macro expands to `coll.iter()` (a position iterator yielding `usize`) + `coll.project(pos)` (from the `Indexable` trait); `x` is a writable binding into the collection.
-- **Do NOT write `for(coll.iter(), (x) => …)` for the value form** — `.iter()` now yields _positions_ (usize), not elements. The macro calls `.into_iter()` itself for the value form.
+- Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for object element types — mutating it mutates the element in place).
+- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, `plans/BORROW_EXCLUSIVITY.md` — no interior refs). It produces a teaching compile error. For in-place struct/scalar element mutation use an index loop with index writes: `while(i < coll.len(), { coll(i) = transform(coll(i)); i = (i + usize(1)); })`.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
-- Combinator chains support **only the value form** — they yield computed values, not borrows. `coll.iter().map(f)` works as the first arg in `(x) => body`.
 
 ## Function call syntax — required immediate `(`
 
@@ -752,10 +747,10 @@ Better yet, if the entire function body is just a match/cond expression, use the
 
 ```rust
 // BEST — expression form, no return needed:
-as_str : (fn(self: Self) -> str)(
+raw_bytes : (fn(self: Self) -> RawSlice(u8))(
   match(self._bytes._ptr,
-    .Some(p) => str.from_raw_parts(p, self._bytes._length),
-    .None => str.from_raw_parts(*(u8)(""), usize(0))
+    .Some(p) => RawSlice(u8)(ptr : p, len : self._bytes._length),
+    .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0))
   )
 )
 ```
@@ -828,10 +823,10 @@ The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)`
 
 ## String literal types
 
-- Double-quoted strings `"hello"` return `str` type (a newtype over `Slice(u8)`) at runtime, but `comptime_string` at compile time.
-- `comptime_string` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if you need a runtime `str`.
-- `*(u8)("literal")` works — casting `comptime_string` to pointer is valid.
-- Only pointer-to-pointer and `comptime_string`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
+- Double-quoted strings `"hello"` return `str` (the BUILTIN view of static string bytes) at runtime, but `comptime_str` at compile time.
+- `comptime_str` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if you need a runtime `str`.
+- `*(u8)("literal")` works — casting `comptime_str` to pointer is valid.
+- Only pointer-to-pointer and `comptime_str`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
 - **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.
 
 ## Trait method dispatch syntax
@@ -1079,7 +1074,7 @@ a nested block — is a syntax error. (Type-body invariants inside
   are SEPARATE builtins; do not write `ghost(some_fn_value)`.
 
 ```rust
-permutation :: ghost_fn((fn(a : Slice(i32), b : Slice(i32)) -> bool)(/* ... */));
+permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)(/* ... */));
 ```
 
 ### Pragmas

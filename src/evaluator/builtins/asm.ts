@@ -213,7 +213,7 @@ function parseOperand(
   let name: string | undefined;
   let constraintIdx: number;
 
-  // Detect if first arg is a name (comptime_string that is NOT a register class)
+  // Detect if first arg is a name (comptime_str that is NOT a register class)
   if (args.length >= 2) {
     const firstArg = args[0]!;
     // If it's a register class atom, skip name detection
@@ -545,7 +545,7 @@ break the type system. To use it, declare at the top of this file:
   }
 
   // --- Parse template strings ---
-  // Collect leading comptime_string args as the template (multi-string support)
+  // Collect leading comptime_str args as the template (multi-string support)
   const templateParts: string[] = [];
   let argIdx = 0;
 
@@ -569,7 +569,7 @@ break the type system. To use it, declare at the top of this file:
       isUnknownValue(evaluated.$.value) &&
       isComptimeStringType(evaluated.$.value.type)
     ) {
-      // comptime_string but unknown value — still valid as template
+      // comptime_str but unknown value — still valid as template
       templateParts.push(""); // placeholder
       argIdx++;
     } else {
@@ -796,7 +796,7 @@ export function evaluateGlobalAsm({
     });
   }
 
-  // Evaluate template — must be comptime_string
+  // Evaluate template — must be comptime_str
   const templateExpr = expr.args[0]!;
   const evaluated = evaluateExpression({
     expr: templateExpr,

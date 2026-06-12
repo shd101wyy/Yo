@@ -93,7 +93,7 @@ parse_lock_file :: (fn(content : String) -> LockFile)({
       continue;
     });
     // New dependency section header
-    if(line.as_str() == "[[dependencies]]", {
+    if(line == "[[dependencies]]", {
       if(in_entry, {
         deps.push(_finalize_entry(cur_name, cur_url, cur_ref, cur_commit, cur_hash));
       });
@@ -114,19 +114,19 @@ parse_lock_file :: (fn(content : String) -> LockFile)({
         key := line.substring(usize(0), eq_pos).trim();
         value := _strip_quotes(line.substring(eq_pos + usize(1), line.len()).trim());
         cond(
-          (key.as_str() == "name") => {
+          (key == "name") => {
             cur_name = value;
           },
-          (key.as_str() == "url") => {
+          (key == "url") => {
             cur_url = value;
           },
-          (key.as_str() == "ref") => {
+          (key == "ref") => {
             cur_ref = value;
           },
-          (key.as_str() == "commit") => {
+          (key == "commit") => {
             cur_commit = value;
           },
-          (key.as_str() == "hash") => {
+          (key == "hash") => {
             cur_hash = value;
           },
           true => ()
@@ -180,13 +180,13 @@ read_lock_file :: (
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
-  io.async((io) => {
+  io.async((e) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
-    file_exists := io.await(exists(lock_path, io), io);
+    file_exists := e.io.await(exists(lock_path, e.io), e.io);
     cond(
       (!(file_exists)) => LockFile.empty(),
       true => {
-        content := io.await(read_string(lock_path, io), io);
+        content := e.io.await(read_string(lock_path, e.io), e);
         parse_lock_file(content)
       }
     )
@@ -201,10 +201,10 @@ save_lock_file :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((io) => {
+  io.async((e) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
     content := write_lock_file_content(lock);
-    io.await(write_file(lock_path, content, io), io);
+    e.io.await(write_file(lock_path, content, e.io), e);
   })
 );
 // ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ find_lock_entry :: (fn(lock : LockFile, name : String) -> Option(LockEntry))({
       dep_opt,
       .None => (),
       .Some(dep) => {
-        if(dep.name.as_str() == name.as_str(), {
+        if(dep.name == name, {
           result =.Some(dep);
         });
       }
@@ -242,7 +242,7 @@ upsert_lock_entry :: (fn(lock : LockFile, entry : LockEntry) -> LockFile)({
       .None => (),
       .Some(dep) => {
         cond(
-          (dep.name.as_str() == entry.name.as_str()) => {
+          (dep.name == entry.name) => {
             new_deps.push(entry);
             replaced = true;
           },

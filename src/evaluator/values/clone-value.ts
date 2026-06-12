@@ -11,7 +11,6 @@ import type {
   StructValue,
   NumberValue,
   PtrValue,
-  SliceValue,
   TraitValue,
   TupleValue,
   UnknownValue,
@@ -164,46 +163,6 @@ export function cloneValue(
           cloneValue(e, preservePointerReferences, targetValueMapping)
         ),
       } as ArrayValue;
-    }
-
-    case ValueTag.Slice: {
-      if (preservePointerReferences) {
-        // Slices are fat pointers - don't clone the source array reference
-        // This preserves reference semantics so mutations through the slice
-        // affect the original array
-        return value as SliceValue;
-      }
-      // For CTFE checking, use mapping to maintain slice-array relationships
-      const sliceValue = value as SliceValue;
-
-      // Check if we already have a cloned version of this sourceArray
-      if (targetValueMapping) {
-        const existingClone = targetValueMapping.get(sliceValue.sourceArray);
-        if (existingClone) {
-          return {
-            ...sliceValue,
-            sourceArray: existingClone as [ArrayValue],
-          } as SliceValue;
-        }
-      }
-
-      // Clone the source array and register in mapping
-      const clonedArray = cloneValue(
-        sliceValue.sourceArray[0],
-        preservePointerReferences,
-        targetValueMapping
-      ) as ArrayValue;
-      const newSourceArray: [ArrayValue] = [clonedArray];
-      if (targetValueMapping) {
-        targetValueMapping.set(
-          sliceValue.sourceArray as unknown as [Value],
-          newSourceArray as unknown as [Value]
-        );
-      }
-      return {
-        ...sliceValue,
-        sourceArray: newSourceArray,
-      } as SliceValue;
     }
 
     case ValueTag.ComptimeList: {

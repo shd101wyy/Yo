@@ -8,7 +8,6 @@ import {
   isNewtypeType,
   isObjectType,
   isPtrType,
-  isSliceType,
   isStructType,
   isTupleType,
 } from "../../types/guards";
@@ -364,12 +363,6 @@ export function generateFieldAccess(
         // Regular dereference for pointers/references
         // Ensure proper parenthesization: (*ptr) not *(ptr)
         return `(*${objectCode})`; // Dereference the pointer/reference
-      }
-      // Special handling for slice types: pointer-to-slice field access
-      // (but not dereference which was already handled above)
-      else if (isSliceType(objectType.childType)) {
-        // For pointer-to-slice, use arrow notation for field access
-        return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
       } else {
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;

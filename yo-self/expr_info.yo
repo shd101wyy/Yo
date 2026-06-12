@@ -318,7 +318,7 @@ ExprInfo :: object(
   // --- Optional ---
   /// Compile-time value; `.None` for runtime expressions.
   value : Option(EvalValue),
-  /// Runtime type after comptime-to-runtime conversion (e.g. comptime_string → str).
+  /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
   converted_runtime_type : Option(TypeValue),
   /// Name of the temporary variable holding the value in `env`.
   variable_name : Option(String),
@@ -396,7 +396,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     // recorded env reflects the scope at evaluation time and survives a later
     // in-place `pop_frame` on the live env (e.g. a begin block popping its
     // scope frame). Storing the live env by reference let `pop_frame` corrupt
-    // recorded begin-local bindings. See issues/yo-self-recorded-env-aliasing.md.
+    // recorded begin-local bindings. See issues/fixed/yo-self-recorded-env-aliasing.md.
     env : snapshot_env(env),
     ty : ty,
     path_collection : ArrayList(ArrayList(String)).new(),
