@@ -599,6 +599,66 @@ export function requireValidRefArgumentPlaces({
     if (!parameter.isRef || parameter.isCompileTimeOnly) continue;
     const argExpr = argExprs[i]!;
     if (argExpr.token.modulePath.startsWith("auto-generated://")) continue;
+    // `xs(i)` via the Index trait yields a raw `*(T)` INTO the
+    // container's reallocatable buffer (the `index` method returns
+    // `*(Output)`); a plain read auto-derefs it to a value, but binding
+    // it to a `ref` parameter keeps the pointer for the call's
+    // duration. That is dangerous ONLY when the callee can REACH the
+    // container and grow/realloc it during the call:
+    //  (a) the same call also receives the container or an alias of it
+    //      — ANY binding mode suffices (a by-value handle can push);
+    //  (b) the container is module-level — every callee can reach it.
+    // Element-only uses stay legal (`to_string(xs(i))`, `${xs(i)}`,
+    // comparisons): the callee only ever sees the element pointer and
+    // has no handle to invalidate it with.
+    if (argExpr.$?.indexTraitPtrType && exprIsFunctionCall(argExpr)) {
+      const containerAtom = findPropertyChainRootAtom(
+        (argExpr as FnCallExpr).func
+      );
+      if (containerAtom && containerAtom.token.type === TokenType.Identifier) {
+        const containerEnv = containerAtom.$?.env ?? env;
+        const containerVars = getVariablesFromEnv(
+          containerEnv,
+          containerAtom.token.value
+        );
+        const containerVar = containerVars[containerVars.length - 1];
+        if (containerVar?.isModuleLevel) {
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `A 'ref' argument cannot borrow an indexed element of the module-level container "${containerAtom.token.value}" — any callee could grow it and reallocate the buffer the reference points into. Copy the element out with ".get(i)", or write back with an index assignment ("xs(i) = v").`,
+          });
+        }
+        if (containerVar) {
+          const containerRoot = aliasGroupRoot(containerVar);
+          for (let j = 0; j < argExprs.length && j < parameters.length; j++) {
+            if (j === i) continue;
+            const otherExpr = argExprs[j]!;
+            const otherAtom = exprIsAtom(otherExpr)
+              ? otherExpr
+              : findPropertyChainRootAtom(otherExpr);
+            if (!otherAtom || !exprIsAtom(otherAtom)) continue;
+            if (otherAtom.token.type !== TokenType.Identifier) continue;
+            const otherEnv = otherAtom.$?.env ?? env;
+            const otherVars = getVariablesFromEnv(
+              otherEnv,
+              otherAtom.token.value
+            );
+            const otherVar = otherVars[otherVars.length - 1];
+            if (otherVar && aliasGroupRoot(otherVar) === containerRoot) {
+              throw formatErrorMessage({
+                token: argExpr.token,
+                errorMessage: `A 'ref' argument cannot borrow an indexed element ("${exprToString(
+                  argExpr
+                )}") in a call that also receives the container "${containerAtom.token.value}" (argument ${
+                  j + 1
+                }) — the callee could grow it and reallocate the buffer the reference points into. Copy the element out with ".get(i)" first, or split the calls.`,
+              });
+            }
+          }
+        }
+      }
+      continue;
+    }
     if (!exprIsFunctionCall(argExpr) || !exprIsFunctionCallOf(argExpr, ".", 2))
       continue;
     // Walk the field chain outermost-in: hops[0] = the full place,

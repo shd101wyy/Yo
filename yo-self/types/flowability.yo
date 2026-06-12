@@ -532,6 +532,27 @@ alias_group_root :: (fn(variable : Variable) -> String)({
 /// module-level variable (a callee could reassign the global). Mirrors
 /// `requireValidRefArgumentPlaces` in src/evaluator/types/flowability.ts.
 /// Call AFTER argument evaluation (the chain types must be resolved).
+/// Walk a field chain (`h.s`, `a.b.c`) to its base atom; deref hops are
+/// part of the chain. Returns None when the chain roots in a non-atom.
+_place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
+  (cur : AstExpr) = expr_in;
+  (walking : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT,.Some(usize(2))), {
+      cur = match(
+        cur,
+        .FnCall(_, _, pr_args, _, _) => match(pr_args.get(usize(0)),.Some(b) => b,.None => make_err_expr()),
+        .Atom(_, _) => make_err_expr()
+      );
+    }, {
+      walking = false;
+    });
+  });
+  cond(
+    ast_expr_is_atom(cur) => Option(AstExpr).Some(cur),
+    true => Option(AstExpr).None
+  )
+});
 require_valid_ref_argument_places :: (
   fn(
     param_is_ref : ArrayList(bool),
@@ -552,7 +573,95 @@ require_valid_ref_argument_places :: (
       arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
       arg_tok := ast_expr_token(arg);
       if(!(arg_tok.module_path.starts_with(String.from("auto-generated://"))), {
-        if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, BF_DOT,.Some(usize(2))), {
+        // `xs(i)` via the Index trait yields a raw `*(T)` INTO the
+        // container's reallocatable buffer; binding it to a `ref` param
+        // keeps the pointer for the call's duration. Dangerous ONLY when
+        // the callee can REACH the container: (a) the same call also
+        // receives the container or an alias (any binding mode — a
+        // by-value handle can push); (b) the container is module-level.
+        // Element-only uses (`to_string(xs(i))`, comparisons) stay legal.
+        // Mirrors the TS rule in requireValidRefArgumentPlaces.
+        arg_is_index_place := match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
+          .Some(ai_info) => match(ai_info.index_trait_ptr_type,.Some(_) => true,.None => false),
+          .None => false
+        );
+        if(arg_is_index_place && ast_expr_is_fn_call(arg), {
+          container_atom := match(
+            arg,
+            .FnCall(_, icallee, _, _, _) => _place_root_atom(icallee.*),
+            .Atom(_, _) => Option(AstExpr).None
+          );
+          match(
+            container_atom,
+            .Some(catom) => {
+              cvars := get_variables_from_env(env, ast_expr_token(catom).value);
+              if(cvars.len() > usize(0), {
+                match(
+                  cvars.get(cvars.len() - usize(1)),
+                  .Some(cvar) => {
+                    if(cvar.is_module_level, {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            arg_tok,
+                            `A 'ref' argument cannot borrow an indexed element of the module-level container "${ast_expr_token(catom).value}" — any callee could grow it and reallocate the buffer the reference points into. Copy the element out with ".get(i)", or write back with an index assignment ("xs(i) = v").`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
+                    });
+                    c_root := alias_group_root(cvar);
+                    (j : usize) = usize(0);
+                    while(j < n, {
+                      if(!(j == i), {
+                        other := match(args.get(j),.Some(a) => a,.None => make_err_expr());
+                        other_atom := cond(
+                          ast_expr_is_atom(other) => Option(AstExpr).Some(other),
+                          true => _place_root_atom(other)
+                        );
+                        match(
+                          other_atom,
+                          .Some(oatom) => {
+                            if(ast_expr_is_atom(oatom), {
+                              ovars := get_variables_from_env(env, ast_expr_token(oatom).value);
+                              if(ovars.len() > usize(0), {
+                                match(
+                                  ovars.get(ovars.len() - usize(1)),
+                                  .Some(ovar) => {
+                                    if(alias_group_root(ovar) == c_root, {
+                                      exn.throw(
+                                        dyn(
+                                          format_error_message(
+                                            arg_tok,
+                                            `A 'ref' argument cannot borrow an indexed element ("${ast_expr_to_string(arg)}") in a call that also receives the container "${ast_expr_token(catom).value}" — the callee could grow it and reallocate the buffer the reference points into. Copy the element out with ".get(i)" first, or split the calls.`,
+                                            false,
+                                            .None
+                                          )
+                                        )
+                                      );
+                                    });
+                                  },
+                                  .None => ()
+                                );
+                              });
+                            });
+                          },
+                          .None => ()
+                        );
+                      });
+                      j = (j + usize(1));
+                    });
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+        });
+        if(!(arg_is_index_place) && (ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, BF_DOT,.Some(usize(2)))), {
           // Walk the field chain outermost-in: hops[0] = the full place,
           // hops[k] = its base chains, cur ends as the root.
           hops := ArrayList(AstExpr).new();

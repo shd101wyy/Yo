@@ -32,7 +32,15 @@ The argument passed to a `ref` parameter is a simple lvalue **place**:
   object field) and field chains rooted at **module-level** variables
   are rejected — a callee could replace that handle's slot and free the
   borrowed storage. The recipe is one line: bind the object to a local
-  first (`b := a.b`) — the local handle pins it naturally.
+  first (`b := a.b`) — the local handle pins it naturally;
+- an **indexed element** (`xs(i)`) is a pointer into the container's
+  buffer; it may be a ref argument only when the callee cannot reach
+  the container — passing the container (or an alias) in the same call,
+  or indexing a module-level container, is rejected (growth would
+  realloc the buffer under the reference). Element-only uses
+  (`to_string(xs(i))`, `${xs(i)}`, `bump(xs(i))`) are safe and legal;
+  to combine element and container in one call, copy the element out
+  with `.get(i)` first.
 
 ## Element access: handles and copies, not interior pointers
 
