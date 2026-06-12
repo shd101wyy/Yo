@@ -110,6 +110,13 @@ TypeValue :: enum(
     /// `isRef` bit). Used by `is_flowable_expr` (the `ref(T)`-flow soundness
     /// check). Empty/all-false for functions with no `ref` parameters.
     param_is_ref : ArrayList(bool),
+    /// Per-parameter `own` flags, parallel to param_labels/param_types.
+    /// `param_is_owning(i)` is true when the i-th parameter was declared
+    /// `own(name) : T` (the callee takes ownership of the Rc value). Mirrors
+    /// `FunctionParameter.isOwningTheRcValue`. Used by
+    /// `require_ref_own_argument_exclusivity` to reject calls that pass the
+    /// same object as both a ref-rooted and an own argument.
+    param_is_owning : ArrayList(bool),
     /// True when the return type was declared `-> ref(T)` (a by-reference
     /// return borrow). Mirrors `FunctionType.return.isRef`. Used by
     /// `is_flowable_expr` to require the return expression be flowable.
