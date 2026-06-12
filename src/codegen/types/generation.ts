@@ -411,6 +411,7 @@ typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
 typedef struct __yo_ref_header_t {
   size_t ref_count;
   uint8_t gc_flags;
+  uint16_t borrow_count;  // Law-of-Exclusivity flag: # of live interior refs into this object
   __yo_gc_mark_t gc_mark;
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
@@ -434,6 +435,7 @@ struct __yo_thread_gc_state {
 typedef struct __yo_ref_header_t {
   size_t ref_count;
   uint16_t type_id;
+  uint16_t borrow_count;  // Law-of-Exclusivity flag (fits in existing tail padding: 0 extra bytes)
 } __yo_ref_header_t;`);
   }
 
