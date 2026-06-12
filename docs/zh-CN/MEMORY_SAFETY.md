@@ -1,6 +1,6 @@
 # 内存安全
 
-Yo **默认是内存安全的**。作为普通用户编写的代码无法解引用悬空指针、越界访问数组、双重释放或以其他方式触发未定义行为。你不需要学习借用检查器、管理生命周期或为引用添加注解就能获得这个保证 —— 安全性的论证是结构性的：导致 C 语言出现内存不安全的构造（原始指针、取地址、指针算术、FFI、内联汇编）在安全代码中根本不可用。
+Yo **默认是内存安全的**。作为普通用户编写的代码无法解引用悬空指针、越界访问数组、双重释放或以其他方式触发未定义行为。你不需要学习借用检查器、管理生命周期或为引用添加注解就能获得这个保证 —— 安全性的论证是结构性的：导致 C 语言出现内存不安全的构造（原始指针、取地址、指针算术、FFI、内联汇编）在安全代码中根本不可用。在静态分析到达极限的地方，一个轻量级运行时借用标志（零额外内存，~0% 开销）将唯一残留的内部引用形态转为确定性 panic，而非静默内存破坏。
 
 标准库内部使用原始指针来构建你调用的安全抽象。那部分代码通过 `pragma(Pragma.AllowUnsafe);` 在文件级别选择进入 unsafe-capable 模式，并作为可信基础进行审计。你的代码保持干净。
 
@@ -52,15 +52,15 @@ main :: (fn() -> unit)({
 
 在没有 `pragma(Pragma.AllowUnsafe);` 的文件中，下列每一项都是编译错误。每个错误都附带"请改用"提示。
 
-| 构造                                  | 诊断（简短）                                                                     | 安全替代方案                                                                 |
-| ------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 参数、字段或返回值中的 `*(T)` 类型    | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`ref(name) : T`、`object` 类型，或标准库包装                     |
-| `&(expr)` 取地址                      | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` 参数，或直接传自有集合                                        |
-| `unsafe(...)` 调用                    | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);` |
-| `asm(...)` 块                         | "inline assembly is not available in safe code"                                  | 同上                                                                         |
-| `extern(...)` / `c_include(...)` 声明 | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                     |
-| 指针算术（`&+`、`&-`、`&/`）          | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                    |
-| 在指针上 `consume(p.* = v)`           | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                           |
+| 构造                                  | 诊断（简短）                                                                     | 安全替代方案                                                                   |
+| ------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 参数、字段或返回值中的 `*(T)` 类型    | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`ref(name) : T`、`object` 类型，或标准库包装 |
+| `&(expr)` 取地址                      | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` 参数，或直接传自有集合                                         |
+| `unsafe(...)` 调用                    | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`   |
+| `asm(...)` 块                         | "inline assembly is not available in safe code"                                  | 同上                                                                           |
+| `extern(...)` / `c_include(...)` 声明 | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                       |
+| 指针算术（`&+`、`&-`、`&/`）          | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                   |
+| 在指针上 `consume(p.* = v)`           | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                             |
 
 原则：**任何可能让用户写出 UB 的构造都被门控。** 用户既然无法构造原始指针，就无法解引用 —— 就这样。
 

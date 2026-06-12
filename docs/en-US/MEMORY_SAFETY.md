@@ -1,6 +1,6 @@
 # Memory Safety
 
-Yo is **memory-safe by default**. The code you write as a regular user cannot dereference a dangling pointer, walk off the end of an array, double-free, or otherwise trigger undefined behavior. You do not need to learn a borrow checker, manage lifetimes, or annotate references to get this guarantee — the safety story is structural: the constructs that cause memory unsafety in C (raw pointers, address-of, pointer arithmetic, FFI, inline assembly) are simply unavailable in safe code.
+Yo is **memory-safe by default**. The code you write as a regular user cannot dereference a dangling pointer, walk off the end of an array, double-free, or otherwise trigger undefined behavior. You do not need to learn a borrow checker, manage lifetimes, or annotate references to get this guarantee — the safety story is structural: the constructs that cause memory unsafety in C (raw pointers, address-of, pointer arithmetic, FFI, inline assembly) are simply unavailable in safe code. Where static analysis reaches its limit, a lightweight runtime borrow flag (zero extra memory, ~0% overhead) turns the one remaining interior-reference shape into a deterministic panic instead of silent corruption.
 
 Stdlib internals use raw pointers to build the safe abstractions you call. That code opts into a per-file unsafe-capable mode via `pragma(Pragma.AllowUnsafe);` and is audited as the trusted base. Your code stays clean.
 
@@ -52,15 +52,15 @@ The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under th
 
 Each of the following is a compile error in a file without `pragma(Pragma.AllowUnsafe);`. Each error includes a "use this instead" hint.
 
-| Construct                                               | Diagnostic (short)                                                               | Safe alternative                                                                              |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `ref(name) : T`, an `object` type, or a stdlib wrapper                            |
-| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` parameter, or pass the owned collection                                               |
-| `unsafe(...)` call                                      | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops |
-| `asm(...)` block                                        | "inline assembly is not available in safe code"                                  | Same                                                                                          |
-| `extern(...)` / `c_include(...)` declaration            | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                             |
+| Construct                                               | Diagnostic (short)                                                               | Safe alternative                                                                                 |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `ref(name) : T`, an `object` type, or a stdlib wrapper |
+| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` parameter, or pass the owned collection                                          |
+| `unsafe(...)` call                                      | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops    |
+| `asm(...)` block                                        | "inline assembly is not available in safe code"                                  | Same                                                                                             |
+| `extern(...)` / `c_include(...)` declaration            | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                                |
 | Pointer arithmetic (`&+`, `&-`, `&/`)                   | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `ArrayList(T)` / `Array(T, N)`                                                       |
-| `consume(p.* = v)` on a pointer                         | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                 |
+| `consume(p.* = v)` on a pointer                         | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                    |
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
 
@@ -103,7 +103,7 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 - `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
 - **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
-- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for object elements that is a handle to the element *object* (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
+- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for object elements that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 

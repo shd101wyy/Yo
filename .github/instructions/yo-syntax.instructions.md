@@ -600,7 +600,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
   constraints.
 - Range indexing COPIES: `arr(a..b)` → new `ArrayList(T)`, `s(a..b)` on
   `String` → new `String`; `str` ranges stay zero-copy static windows.
-- Safe sub-range *views* use `ListView(T)`
+- Safe sub-range _views_ use `ListView(T)`
   (`std/collections/list_view.yo`) — an alias window over the live
   Rc'd backing.
 - Privileged ptr+len plumbing uses `RawSlice(T)` (prelude). Naming it —
@@ -614,11 +614,11 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 **Functions cannot return `ref`, and there are no local ref bindings** (v4/v4.1, `plans/BORROW_EXCLUSIVITY.md`): refs are second-class and exist ONLY in parameter position. `ref(r) := …` is rejected (fields read/write in place: `h.s = v`). Return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives `ref(name) : T`. A ref ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate OBJECT and module-level field roots are rejected (bind the object to a local first: `b := a.b`).
 
-| Form                                                                     | Verdict                                       |
-| ------------------------------------------------------------------------ | --------------------------------------------- |
-| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled)        | ✅ valid                                      |
-| `-> ref(T)`, `-> (ref(name) : T)`, `-> (name : ref(T))`                  | ❌ rejected — functions cannot return `ref`   |
-| `-> (name : comptime(T))`                                                | ❌ rejected — modifier goes on the label      |
+| Form                                                              | Verdict                                     |
+| ----------------------------------------------------------------- | ------------------------------------------- |
+| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled) | ✅ valid                                    |
+| `-> ref(T)`, `-> (ref(name) : T)`, `-> (name : ref(T))`           | ❌ rejected — functions cannot return `ref` |
+| `-> (name : comptime(T))`                                         | ❌ rejected — modifier goes on the label    |
 
 Enforced at function-type evaluation (`src/evaluator/types/function.ts`) and the yo-self port (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
 
@@ -665,7 +665,7 @@ Rules:
 - `ref` CAN combine with `comptime` as `comptime(ref(name)) : T` (outer comptime, inner ref). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(ref(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
 - Inside the callee, the ref-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
 - Calls through ref-params chain naturally: `fn outer(ref(x))` calling `fn inner(ref(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
-- At codegen, `ref(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. No runtime cost vs hand-written pointer code. `comptime(ref(name))` has zero codegen impact (the parameter is erased).
+- At codegen, `ref(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. For interior-ref arguments (`xs(i)`, `self->_inner(i)`), the codegen emits `__yo_borrow_acquire/release` bracketing the call (a same-cache-line counter increment/decrement on the container's RC header — ~0% overhead). Container growth operations (realloc/free inside an `object` method) auto-assert the counter is zero, turning the one statically-unprovable interior-ref shape into a deterministic panic. `comptime(ref(name))` has zero codegen impact (the parameter is erased).
 
 `ref` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(ref(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/MEMORY_SAFETY.md`).
 

@@ -298,9 +298,10 @@ Gate: G1–G2 + final G5 + CI green. Commit + push.
 - No `let`/`var` binding keywords; locals stay mutable. The language
   rule: _mutability is free; aliasing is safe; interior pointers don't
   exist._
-- No runtime exclusivity checks; the only runtime artifact of v4 is the
-  per-binding owner pin (2 refcount ops), which is a lifetime guarantee,
-  not a check.
+- Static exclusivity for all reachable cases; one residual (global-escape
+  interior-ref) closed by a lightweight runtime borrow flag (`borrow_count`
+  in existing RC header padding, ~0% overhead) — deterministic panic
+  instead of UAF. See `issues/fixed/ref-arg-heap-escape-to-global-residual.md`.
 
 ## Benchmark source (reproduce before changing course)
 
