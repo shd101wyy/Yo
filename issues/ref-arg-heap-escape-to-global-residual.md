@@ -1,9 +1,26 @@
 # Soundness residual: indexed/deref ref-arg into a container that escaped to a global
 
-**Status: KNOWN LIMITATION (2026-06-12 audit).** The only memory-safety
-gap found in the flowability + 2nd-class-`ref` audit that the element-only
-rule does NOT close. Requires deliberate construction; not reachable by
-ordinary code.
+**Status: FIX IN PROGRESS — runtime borrow-flag backstop (Swift's model).**
+Decided 2026-06-12 to close completely via a runtime exclusivity flag
+(after a benchmark proved ~0% time / 0 bytes memory — same-cache-line
+load + predicted branch). **Foundation landed (commit 0ca4b7784):**
+`uint16 borrow_count` in the RC header (free, in existing padding), init,
+and the `__yo_borrow_acquire/release/assert_unborrowed` runtime
+primitives. **Remaining (scheduled for the codegen-port RC phase, see
+`plans/BOOTSTRAPPING_CODEGEN.md`):**
+1. assert `borrow_count == 0` at container growth-method entry
+   (push/insert/reserve/resize on ArrayList/HashMap/String);
+2. `acquire`/`release` bracketing the interior-ref-arg call sites the
+   static rule allows — the release MUST be unwind-safe (survive an
+   effect-unwind through the borrowed call), which requires the
+   deferred-cleanup machinery the RC phase reworks. Building it on the
+   current runtime would duplicate that machinery and risk a stuck
+   counter (→ spurious panics, worse than the residual), so it is
+   sequenced into the port rather than bolted on first;
+3. yo-self mirror of 1+2.
+
+Until 1+2 land, the residual below remains (exotic; not reachable by
+ordinary code).
 
 ## The shape (confirmed UAF, rc=139 under gmalloc, 5/5)
 

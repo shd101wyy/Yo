@@ -342,6 +342,28 @@ v4.1 borrow-soundness status the port must know
   (`requireValidRefArgumentPlaces` / `require_valid_ref_argument_places`)
   is already mirrored in both compilers (evaluator-only; nothing for
   codegen).
+- **Runtime borrow flag — COMPLETE HERE.** The foundation landed (commit
+  0ca4b7784): `uint16 borrow_count` in `__yo_ref_header_t` (free, in
+  existing padding), init to 0 in the object constructor, and the
+  `__yo_borrow_acquire/release/assert_unborrowed` runtime primitives.
+  This phase finishes it — it's the right home because both halves need
+  the RC machinery this phase owns:
+  (a) assert `borrow_count == 0` at container growth-method entry
+      (push/insert/reserve/resize on ArrayList/HashMap/String) — needs a
+      std↔runtime call path for `__yo_borrow_assert_unborrowed(self,…)`
+      (extern in the pragma'd std files, or a builtin);
+  (b) `__yo_borrow_acquire`/`release` bracketing the interior-ref-arg
+      call sites `requireValidRefArgumentPlaces` ALLOWS (element-only
+      `xs(i)`/`box.*` ref-args). The evaluator should tag those calls
+      with the container expr; codegen brackets the call, and the
+      **release must ride the deferred-cleanup lists** (same as drops)
+      so an effect-unwind through the borrowed call can't leave a stuck
+      counter (→ spurious panics). This unwind-safe release is exactly
+      the machinery this phase builds for drops, hence the sequencing.
+  Then mirror (a)+(b) in yo-self. Closes
+  `issues/ref-arg-heap-escape-to-global-residual.md` — flip its probe
+  (`g.push(xs); bump(xs(i))`) from a documented UAF into a passing
+  deterministic-panic test.
 
 **Gate:** full non-async `tests/` differential pass, guard-page-clean.
 
