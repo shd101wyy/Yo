@@ -25,6 +25,7 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
+  isObjectType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -353,6 +354,49 @@ function emitBorrowReleases(
       `${indent}__yo_borrow_release((void*)(${containers[ai]!}));`
     );
   }
+}
+
+/**
+ * Check whether the current function being generated is a method of an
+ * RC-managed object type (i.e., has a `self` parameter whose type is an
+ * object with a borrow_count in its RC header).
+ */
+function isInsideObjectMethod(context: CodeGenContext): boolean {
+  const funcCtx = context as FunctionGenerationContext;
+  const fnType = funcCtx.currentFunctionType;
+  if (!fnType || !fnType.parameters[0]) return false;
+  const selfParam = fnType.parameters[0];
+  if (selfParam.label !== "self") return false;
+  return isObjectType(selfParam.type);
+}
+
+/**
+ * Auto-emit __yo_borrow_assert_unborrowed before a realloc/free call inside
+ * an RC-managed object method. This turns the interior-ref-into-reallocated-
+ * buffer residual into a deterministic panic without requiring manual
+ * annotations in container code.
+ *
+ * Conservative: asserts on EVERY realloc/free inside an object method, not
+ * just those operating on self's buffer. False positives are negligible in
+ * practice — an object method that frees/reallocs a buffer NOT owned by self
+ * while self is simultaneously borrowed is a pathologically contrived shape.
+ */
+function maybeEmitAutoBorrowAssert(
+  externFuncName: string,
+  _expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): void {
+  // Only intercept realloc and free — the two operations that invalidate
+  // existing buffers (realloc moves, free releases).
+  if (externFuncName !== "__yo_realloc" && externFuncName !== "__yo_free")
+    return;
+  if (!isInsideObjectMethod(context)) return;
+
+  // Emit the assertion on self before the realloc/free call.
+  context.emitter.emitLine(
+    `${indent}__yo_borrow_assert_unborrowed((void*)self);`
+  );
 }
 
 /**
@@ -818,6 +862,17 @@ export function generateOtherFunctionCall(
       // Check if this is an extern "yo" function - handle these first before regular function values
       if (functionType.isExtern === "yo" && functionType.externName) {
         const externFuncName = functionType.externName;
+
+        // Auto-assert borrow before realloc/free on a buffer derived from self
+        // inside an RC-managed object method. Turns the interior-ref-into-
+        // reallocated-buffer residual into a deterministic panic without
+        // requiring manual annotation in container code.
+        maybeEmitAutoBorrowAssert(
+          externFuncName,
+          expr,
+          indent,
+          context as FunctionGenerationContext
+        );
 
         if (BuiltinYoInlineFunctions.includes(externFuncName)) {
           return generateYoInlineFunctionCall(

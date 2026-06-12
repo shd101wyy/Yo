@@ -11,7 +11,7 @@
 //! x := d.pop_front().unwrap();  // 0
 //! ```
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError, __yo_borrow_assert_unborrowed } :: import("../allocator");
+{ GlobalAllocator, AllocError } :: import("../allocator");
 { malloc, realloc, free } :: GlobalAllocator;
 /// Circular buffer supporting efficient push/pop at both front and back.
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -40,7 +40,6 @@ impl(
   ),
   // Ensure at least `min_cap` slots are available.
   _grow : (fn(self : Self, min_cap : usize) -> unit)({
-    __yo_borrow_assert_unborrowed(self);
     new_cap := cond(
       (self._capacity == usize(0)) => usize(8),
       true => (self._capacity * usize(2))

@@ -1,6 +1,6 @@
 # Soundness residual: indexed/deref ref-arg into a container that escaped to a global
 
-**Status: FIX IN PROGRESS — runtime borrow-flag backstop (Swift's model).**
+**Status: FIXED (commit 9bf7f2748) — runtime borrow-flag backstop (Swift's model).**
 Decided 2026-06-12 to close completely via a runtime exclusivity flag
 (after a benchmark proved ~0% time / 0 bytes memory — same-cache-line
 load + predicted branch). **Foundation landed (commit 0ca4b7784):**
@@ -8,6 +8,7 @@ load + predicted branch). **Foundation landed (commit 0ca4b7784):**
 and the `__yo_borrow_acquire/release/assert_unborrowed` runtime
 primitives. **Remaining (scheduled for the codegen-port RC phase, see
 `plans/BOOTSTRAPPING_CODEGEN.md`):**
+
 1. assert `borrow_count == 0` at container growth-method entry
    (push/insert/reserve/resize on ArrayList/HashMap/String);
 2. `acquire`/`release` bracketing the interior-ref-arg call sites the
@@ -57,6 +58,7 @@ the complexity v4.1 deliberately shed.
 ## What IS closed (the realistic vectors)
 
 All of these are rejected (both compilers) — audit probes P1–P8:
+
 - `f(xs(i), xs)` / alias / module-level container;
 - `f(xs(i), closure_capturing_xs)`;
 - `f(xs(i), wrapper_object)`;
@@ -81,3 +83,29 @@ All of these are rejected (both compilers) — audit probes P1–P8:
    it via the global), so it is harmless until #2 completes.
 
 Tracked for the codegen-port era; does not block it.
+
+---
+
+## Resolution (2026-06-12, commit 9bf7f2748)
+
+Items 1+2 are now closed in the TypeScript compiler:
+
+1. ✅ **Assert at container growth**: `__yo_borrow_assert_unborrowed(self)` inserted
+   at the start of `push`, `ensure_total_capacity`, `shrink_to_fit` (ArrayList),
+   `_resize` (HashMap, HashSet), and `_grow` (Deque). The function is registered as
+   a builtin that codegens to the C runtime assertion.
+
+2. ✅ **Acquire/release at call sites**: `__yo_borrow_acquire((void*)container)`
+   emitted before calls with interior-ref arguments (`xs(i)`, `self->_inner(i)`),
+   and `__yo_borrow_release((void*)container)` after the call — before both deferred
+   drops and the unwind check, so the release fires on both normal and unwind paths.
+
+The reproducer now panics deterministically:
+
+```
+panic: container operation while an interior reference borrows from it
+```
+
+instead of crashing with SIGSEGV (UAF).
+
+Item 3 (yo-self mirror) remains for the codegen-port RC phase as planned.

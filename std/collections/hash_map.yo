@@ -1,6 +1,6 @@
 //! Hash map using SwissTable algorithm with SIMD-accelerated lookup.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError, __yo_borrow_assert_unborrowed } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError } :: import("../allocator.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashMap operations.
 HashMapError :: enum(
@@ -209,7 +209,6 @@ impl(
   * Resize and rehash the HashMap to a new capacity
   */
   _resize : (fn(self : Self, new_capacity : usize) -> Result(unit, HashMapError))({
-    __yo_borrow_assert_unborrowed(self);
     result := Self._alloc_with_capacity(new_capacity);
     match(
       result,
