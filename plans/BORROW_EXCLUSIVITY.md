@@ -16,13 +16,26 @@ the landed call/alias gates (commit 8b0b67b1).
 ## Option D (RECOMMENDED, v2) — inferred summaries + call-site overlap checks
 
 Precedent: **Hylo (formerly Val)** achieves memory safety without
-lifetime annotations and without runtime checks via two rules: parameter
-passing conventions (its `inout`/`let` map to Yo's `ref`/by-value) and a
-**call-site Law of Exclusivity** — arguments that may be mutated must not
-overlap arguments that are borrowed. Yo can adopt the same shape with
-ZERO new syntax, because the missing ingredient — which parameters a
-function mutates/borrows — is **inferable**: Yo compiles whole-program
-and the evaluator already walks every function body.
+lifetime annotations and without runtime checks via two rules: DECLARED
+parameter conventions (`let` = immutable borrow, the default — the body
+may not mutate through it; `inout` = exclusive mutable access; `sink` =
+consume) and a **call-site Law of Exclusivity** — arguments that may be
+mutated must not overlap arguments that are borrowed.
+
+Yo deliberately has NO declared conventions: object parameters are
+mutable shared handles, and `push`/`len` are signature-identical. That
+does not break the model — it moves the convention from DECLARED to
+INFERRED. The per-parameter summary below (`MUTATES(p)` ≈ Hylo `inout`;
+no inferred mutation ≈ Hylo `let`) plays exactly the role Hylo's
+declarations play, and is sound by construction: it is computed from the
+body, not trusted. The costs are conservatism where the body is
+unknowable (recursion back-edges, `dyn` dispatch, extern) — softened by
+Yo's per-call-site specialization, which lets summaries see CONCRETE
+callees (closure arguments, resolved trait impls) keyed by `funcId`.
+Option C's `readonly(self)` is the opt-in declared equivalent of Hylo's
+`let`, verified, never required for soundness. Yo can therefore adopt
+the same shape with ZERO new syntax: Yo compiles whole-program and the
+evaluator already walks every function body.
 
 ### Step 1 — per-function effect summaries (inferred, no annotations)
 
