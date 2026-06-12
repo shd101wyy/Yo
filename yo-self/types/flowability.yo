@@ -743,10 +743,11 @@ require_valid_ref_argument_places :: (
               if(has_object_hop && ast_expr_is_atom(cur), {
                 _reject_if_container_reachable(cur, arg, i, "object-hop", args, n, env, ctx, exn);
               });
-              // A field of a MODULE-LEVEL OBJECT root (no intermediate hop)
-              // is unsafe too: a callee can reassign the global object and
-              // free the allocation. (Module-level VALUE structs are static
-              // storage — stable address — and are not rejected here.)
+              // A field of a MODULE-LEVEL root is unsafe when overwriting
+              // it through the ref could free heap storage: OBJECT roots
+              // (the callee can reassign the global), and non-object roots
+              // whose ref'd element type contains Rc (e.g. a tuple field
+              // holding an ArrayList — overwriting the handle frees it).
               if(!(has_object_hop) && ast_expr_is_atom(cur), {
                 root_vars := get_variables_from_env(env, ast_expr_token(cur).value);
                 if(root_vars.len() > usize(0), {
@@ -754,7 +755,12 @@ require_valid_ref_argument_places :: (
                     root_vars.get(root_vars.len() - usize(1)),
                     .Some(rv) => {
                       root_is_object := (is_object_type(rv.ty) || is_atomic_object_type(rv.ty));
-                      if(rv.is_module_level && root_is_object, {
+                      ref_type_contains_rc := match(
+                        _info(ctx, arg),
+                        .Some(inf) => type_contains_rc_type(inf.ty),
+                        .None => false
+                      );
+                      if(rv.is_module_level && (root_is_object || ref_type_contains_rc), {
                         exn.throw(
                           dyn(
                             format_error_message(
