@@ -24,12 +24,12 @@ refs are deleted, and `ref` return types are banned outright.
 Empirical basis (2026-06-12, M-series Mac, `--release` -O2, 100M element
 accesses, 1000-element lists, benchmark source preserved below):
 
-| variant                          | per access | delta            |
-| -------------------------------- | ---------- | ---------------- |
-| `ArrayList(String)` via project  | ~6.9 ns    | baseline         |
-| `ArrayList(String)` via get      | ~7.6 ns    | +10% (worst case: empty loop body; RC dup+drop ≈ 0.7 ns) |
-| `ArrayList(Big64B)` via project  | ~0.38 ns   | baseline         |
-| `ArrayList(Big64B)` via get      | ~0.27 ns   | **−29% — the copy is FASTER** (vectorizes; ref indirection pessimizes) |
+| variant                         | per access | delta                                                                  |
+| ------------------------------- | ---------- | ---------------------------------------------------------------------- |
+| `ArrayList(String)` via project | ~6.9 ns    | baseline                                                               |
+| `ArrayList(String)` via get     | ~7.6 ns    | +10% (worst case: empty loop body; RC dup+drop ≈ 0.7 ns)               |
+| `ArrayList(Big64B)` via project | ~0.38 ns   | baseline                                                               |
+| `ArrayList(Big64B)` via get     | ~0.27 ns   | **−29% — the copy is FASTER** (vectorizes; ref indirection pessimizes) |
 
 And the decisive structural fact: **yo-self — the largest Yo program in
 existence — contains ZERO uses of `.project(` and ZERO uses of the
@@ -40,12 +40,12 @@ interior-pointer feature standing, and every UAF since has come from it.
 
 ## What goes, what stays
 
-| REMOVED | KEPT |
-| --- | --- |
-| `Indexable` trait + all `project` impls | `ref(x) : T` PARAMETERS (write-back, big-struct no-copy) |
-| `ref` in RETURN-TYPE position (new evaluator gate) | `ref(r) := lvalue` local borrows of locals & object FIELDS |
-| for-macro borrow form `for(coll, ref(x) => …)` | callback-style ref params (`Mutex.with_lock`) |
-| flowability return-root rules (now dead code) | the same-scope borrow-invalidation gates (free, good diagnostics) |
+| REMOVED                                                            | KEPT                                                                                     |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `Indexable` trait + all `project` impls                            | `ref(x) : T` PARAMETERS (write-back, big-struct no-copy)                                 |
+| `ref` in RETURN-TYPE position (new evaluator gate)                 | `ref(r) := lvalue` local borrows of locals & object FIELDS                               |
+| for-macro borrow form `for(coll, ref(x) => …)`                     | callback-style ref params (`Mutex.with_lock`)                                            |
+| flowability return-root rules (now dead code)                      | the same-scope borrow-invalidation gates (free, good diagnostics)                        |
 | ALL of v3 (`mut`, exclusivity law, deep immutability, fresh roots) | raw-pointer `Index` impl (`-> *(T)`) as the explicit `unsafe` escape hatch for hot loops |
 
 Element access model after v4 (the Java/Python model — zero new
@@ -83,6 +83,20 @@ The same-scope gates remain purely as high-quality early diagnostics
 pin). The cross-function aliasing residual of the gates becomes moot:
 mutating an aliased container while holding `get` handles is safe,
 because handles don't point into buffers.
+
+Callback-style APIs cannot smuggle interior refs back in, either. A
+`with`-style method (`xs.with(i, (ref(e) : T) => …)`) would have to
+MANUFACTURE a `ref` into its own heap buffer to feed the callback — and
+no safe expression does that: the safe sources of `ref` are exhaustively
+locals, object fields, and `ref` parameters (inductively the same set),
+and the raw `Index` pointer converts only under `unsafe(...)`. So the
+classic counterexample (callback captures `xs`, pushes during the
+borrow, reads `e` → UAF) is unwritable in safe code. `Mutex.with_lock`
+remains safe and legal: its `ref(v)` roots at an object FIELD (stable
+address, pinned owner), not in a growable buffer. The safe replacement
+for `with` needs no callback at all: `e := xs.get(i)` → `xs.push(…)` →
+use `e` — the handle points at the element object, which realloc does
+not move.
 
 `unsafe` remains outside this story by definition: the raw `Index` impl
 (`index : … -> *(T)`) is the documented escape hatch when a hot loop
@@ -128,8 +142,8 @@ Exact surface (verified by grep 2026-06-12 — the complete list):
    (~7729–7772). Replace the ref arm's expansion with a
    `comptime_assert(false, …)` carrying the migration message:
    `'for(coll, ref(x) => …)' was removed — use the value form
-   'for(coll, (x) => …)'; object elements mutate in place through the
-   handle; for struct elements use an index loop with get/set`. (A
+'for(coll, (x) => …)'; object elements mutate in place through the
+handle; for struct elements use an index loop with get/set`. (A
    teaching error beats silent removal; LLMs self-correct from it.)
 2. `std/collections/array_list.yo` — project impl (546–567); the
    `_ArrayListPosIter` position iterator + `iter()` (~625+) IF its only
@@ -167,7 +181,7 @@ worklist; use the failure list, don't pre-guess). Commit.
   value form (object elements behave identically through handles).
 - `tests/ref_binding.test.yo`, `tests/ref_borrow_invalidation.test.yo` —
   project-based borrows must become field/local borrows (`ref(r) :=
-  h.s`); the GATES under test remain. Cases that specifically tested
+h.s`); the GATES under test remain. Cases that specifically tested
   "borrow from container then grow" become unrepresentable — convert the
   best of them into positive tests (get-handle survives `xs.push`,
   asserted by value).
@@ -179,9 +193,9 @@ Gate: G2 + G3 + G5. Commit.
 - TS: in `src/evaluator/types/function.ts`, where the return type is
   evaluated, reject a `ref(...)`-wrapped return type for functions,
   closures, and trait-method signatures alike. Error text: `functions
-  cannot return 'ref' — return the value (object elements are handles;
-  struct elements copy), or take a callback parameter that receives
-  'ref(x) : T'`. (Must not reference plans/*.md paths.)
+cannot return 'ref' — return the value (object elements are handles;
+struct elements copy), or take a callback parameter that receives
+'ref(x) : T'`. (Must not reference plans/\*.md paths.)
 - yo-self mirror: `yo-self/evaluator/types/function.yo`, same placement
   and text.
 - Delete the now-dead flowability return-root machinery: the
@@ -250,8 +264,8 @@ Gate: G1–G2 + final G5 + CI green. Commit + push.
   for API documentation and a parallelism story, decoupled from memory
   safety; do not implement as part of v4.
 - No `let`/`var` binding keywords; locals stay mutable. The language
-  rule: *mutability is free; aliasing is safe; interior pointers don't
-  exist.*
+  rule: _mutability is free; aliasing is safe; interior pointers don't
+  exist._
 - No runtime exclusivity checks; the only runtime artifact of v4 is the
   per-binding owner pin (2 refcount ops), which is a lifetime guarantee,
   not a check.
