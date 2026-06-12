@@ -64,19 +64,20 @@ All of these are rejected (both compilers) — audit probes P1–P8:
 - method receivers (`xs(i).m(xs)`), nested containers;
 - `f(o.s, own(o))` (ref/own gate).
 
-## Options to close it (user decision)
+## Options considered (decision: #2)
 
-1. **Flow-sensitive escape bit** — mark an object local "escaped" when it
-   is stored to a global/field, passed as a non-receiver argument, or
-   captured; reject `xs(i)`/`box.*` ref-args when the container escaped.
-   Sound and zero-runtime-cost, but reintroduces escape tracking (fragile:
-   a missed escape site = silent UAF) and over-rejects after any escape.
-2. **Runtime borrow flag** (Swift-style) — a counter in the RC header,
-   asserted on container mutation; turns the residual into a deterministic
-   panic. Closes it fully with a small per-mutation cost. Conflicts with
-   the zero-runtime-check goal.
-3. **Document + accept** (current) — the shape is contrived (store a local
-   into a global, then index-ref it while a callee grows it via the
-   global); ordinary code never hits it.
+1. **Flow-sensitive escape bit** — REJECTED. Sound and zero-runtime, but
+   reintroduces escape tracking (fragile: a missed escape site = silent
+   UAF) and over-rejects read-only element access after any escape.
+2. **Runtime borrow flag** (Swift-style) — **CHOSEN.** A counter in the RC
+   header, asserted on container growth; turns the residual into a
+   deterministic panic. Benchmark-confirmed ~0% time / 0 bytes memory
+   (same-cache-line load + predicted branch), so it does not meaningfully
+   conflict with the zero-overhead goal. Foundation landed (see Status);
+   completion in the codegen-port RC phase. This is exactly what Swift
+   does for shared-reference/global storage it can't prove statically.
+3. **Document + accept** — superseded by #2; the shape is contrived
+   (store a local into a global, then index-ref it while a callee grows
+   it via the global), so it is harmless until #2 completes.
 
 Tracked for the codegen-port era; does not block it.
