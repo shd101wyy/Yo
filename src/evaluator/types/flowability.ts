@@ -733,11 +733,15 @@ export function requireValidRefArgumentPlaces({
     if (hasObjectHop && exprIsAtom(cur)) {
       rejectIfContainerReachable(cur, argExpr, i, "object-hop");
     }
-    // A field of a MODULE-LEVEL OBJECT root (`g_obj.field`, no
-    // intermediate hop) is also unsafe: any callee can reassign the
-    // global object and free the allocation the reference points into.
-    // (A module-level VALUE struct lives in fixed static storage, so its
-    // field address is stable — those are not rejected here.)
+    // A field of a MODULE-LEVEL root is unsafe when overwriting it
+    // through the ref could free heap storage:
+    //   - OBJECT roots (`g_obj.field`): the callee can reassign the
+    //     global object and free the allocation the reference points into.
+    //   - Non-object roots whose ref'd element type contains an Rc type
+    //     (e.g. a tuple field `GLOBAL_TUPLE.0` holding an ArrayList):
+    //     overwriting the Rc handle through the ref drops the old value.
+    // (A module-level VALUE struct/field of non-Rc type lives in fixed
+    // static storage — those are not rejected here.)
     if (
       !hasObjectHop &&
       exprIsAtom(cur) &&
@@ -750,7 +754,10 @@ export function requireValidRefArgumentPlaces({
       const rootIsObject =
         rootType !== undefined &&
         (isObjectType(rootType) || isAtomicObjectType(rootType));
-      if (rootVar?.isModuleLevel && rootIsObject) {
+      const refArgType = argExprs[i]?.$?.type;
+      const refTypeContainsRc =
+        refArgType !== undefined && typeContainsRcType(refArgType);
+      if (rootVar?.isModuleLevel && (rootIsObject || refTypeContainsRc)) {
         throw formatErrorMessage({
           token: argExpr.token,
           errorMessage: `A 'ref' argument cannot borrow a field of the module-level object "${cur.token.value}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${cur.token.value};\nand pass the field of "h" instead.`,

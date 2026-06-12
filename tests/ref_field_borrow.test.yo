@@ -254,3 +254,53 @@ test("box deref is allowed when the box is unreachable", {
   read_n(b.*.n);
   assert(b.*.n == i32(6), "write landed through the deref place");
 });
+
+// Regression: module-level non-Rc field is fine (the storage is static
+// and overwriting an i32 does not free heap storage).
+g_static_struct :: struct(s : String, n : i32);
+g_static_val := g_static_struct(s : String.from("x"), n : i32(42));
+bump_static :: (fn(ref(v) : i32) -> unit)({
+  v = (v + i32(1));
+});
+test("module-level struct i32 field is allowed (non-Rc)", {
+  bump_static(g_static_val.n);
+  assert(g_static_val.n == i32(43), "i32 field write-through should work");
+});
+
+// Module-level tuple with Rc-typed field: a ref into the tuple's Rc
+// slot can be overwritten by the callee, freeing the old Rc value.
+// This should be REJECTED.
+g_rc_tuple := (ArrayList(i32).new(), i32(42));
+comptime_expect_error(
+  borrow_module_tuple_rc_field :: (fn() -> unit)({
+    overwrite_rc :: (fn(ref(v) : ArrayList(i32)) -> unit)({
+      v = ArrayList(i32).new();
+    });
+    overwrite_rc(g_rc_tuple.0);
+  })
+);
+
+// Module-level struct with Rc-typed field: same shape as the tuple case.
+g_rc_struct_ty :: struct(list : ArrayList(i32), tag : i32);
+g_rc_s := g_rc_struct_ty(list : ArrayList(i32).new(), tag : i32(0));
+comptime_expect_error(
+  borrow_module_struct_rc_field :: (fn() -> unit)({
+    overwrite_rc2 :: (fn(ref(v) : ArrayList(i32)) -> unit)({
+      v = ArrayList(i32).new();
+    });
+    overwrite_rc2(g_rc_s.list);
+  })
+);
+
+// Index-trait ref/own exclusivity: passing xs(0) as ref and xs as own
+// in the same call should be REJECTED.
+comptime_expect_error(
+  borrow_index_ref_own_overlap :: (fn() -> unit)({
+    own_and_ref :: (fn(ref(x) : i32, own(victim) : ArrayList(i32)) -> unit)({
+      x = i32(99);
+    });
+    xs := ArrayList(i32).new();
+    xs.push(i32(41));
+    own_and_ref(xs(usize(0)), xs);
+  })
+);
