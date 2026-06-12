@@ -18,9 +18,6 @@ that apply to EVERY phase below:
 - Every TS evaluator change must be mirrored 1:1 in yo-self (same logic,
   same order of checks, same error text).
 - `./yo-cli fmt <file>` every `.yo` file you create or modify.
-- Commit per phase (or per labelled batch inside a phase) with
-  `git commit --no-verify`, message ending in
-  `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`, and push.
 - Run the validation gates listed in each phase before committing.
 
 ---
@@ -77,6 +74,33 @@ For an immutable object parameter `p`, the body may not:
 
 Everything else is allowed: reads, non-mut method calls, passing `p` to
 immutable positions, comparisons, printing.
+
+**Immutability is DEEP (transitive), and rules 1–5 apply to DERIVED
+handles as if they were `p` itself.** A handle is *derived from `p`*
+when it is bound from: a direct alias (`q := p`); a field read at any
+depth (`xs := p.array_list`, `xs := p.a.b`); or the return value of a
+method/function call whose receiver or argument chain roots in a derived
+handle — EXCEPT when the callee is **returns-fresh** (§4: its return
+value is a new allocation, e.g. `.clone()`), which BREAKS the chain.
+Without depth, one field extraction would launder any interior mutation
+(`xs := data.array_list; xs.push(v)` mutates `data`'s reachable state).
+The idiom for "modify what I was given, without `mut`" is therefore
+always *copy, then mutate*:
+
+```rust
+process :: (fn(data : Data) -> unit)({
+  xs := data.array_list;          // derived from immutable `data`
+  xs.push(v);                     // ERROR: mutates data's interior
+  xs = other_list;                // OK: rebinding the LOCAL binding is free
+  ys := data.array_list.clone();  // returns-fresh breaks the chain
+  ys.push(v);                     // OK: your own copy
+});
+```
+
+Note the asymmetry is binding-vs-object: the local BINDING `xs` stays
+reassignable (locals are mutable, §7); only the OBJECT it refers to
+inherits `data`'s convention. `mut(data)` is deep in the same way:
+it permits interior mutation through any derived handle.
 
 ### 3. The call-site exclusivity law
 
@@ -342,6 +366,22 @@ from `src/evaluator/types/flowability.ts`; add a shared helper there:
    `isOwningTheSameRcValueAs`, extend the capture path in the closure
    machinery to link them — find it via
    `/usr/bin/grep -rn "capture" src/evaluator/calls/closure-type.ts`).
+5. **Derived-handle marking (deep immutability, §2)** — in
+   `src/evaluator/exprs/initialization-assignment.ts`, when `:=` binds
+   from (a) a property-access chain whose base atom resolves to an
+   immutable param or a derived/aliased handle of one, or (b) a call
+   whose receiver/argument chain roots in one AND whose callee is NOT
+   returns-fresh, set a new `Variable` field
+   `derivedFromImmutableParam?: Variable` (pointing at the originating
+   parameter; yo-self: `derived_from_immutable_param :
+   Option(Box(Variable))` — construction-site churn precedent applies).
+   `findImmutableParamRootForVariable` must then answer "yes" for: the
+   param itself, alias-group members, and derived handles (follow the
+   chain, cycle-capped). **The returns-fresh predicate is therefore
+   needed HERE, not first in Phase 6** — implement it in this phase
+   (in `src/evaluator/types/flowability.ts` as specified in Phase 6
+   step 3) and let Phase 6 reuse it. Conditional RHS (`cond`/`match`
+   mixing derived and non-derived branches) → derived if ANY branch is.
 
 **Warn vs error mechanics:** one helper,
 `reportMutViolation(context, token, message)` — `off` → no-op; `warn` →
@@ -401,11 +441,17 @@ checker is the source of truth — no speculative annotations).
    `comptime_expect_error` (project convention) for: field write through
    immutable param; mut-method receiver; passing immutable param to a
    mut position; mutation through a local alias (`q := p; q.push(...)`);
-   mutation through a closure capture; store-into-global escape;
-   store-into-field escape. Positives: reads + non-mut methods on
-   immutable params; `mut` param mutating freely; `own` param mutating
-   freely; returning an immutable param; trait impl declaring non-mut
-   where trait says mut. Negative: trait impl declaring mut where the
+   mutation through a DERIVED handle — field extraction
+   (`xs := p.array_list; xs.push(v)`), nested depth (`xs := p.a.b`),
+   and a non-returns-fresh method-return handle; mutation through a
+   closure capture; store-into-global escape; store-into-field escape.
+   Positives: reads + non-mut methods on immutable params; `mut` param
+   mutating freely (including through derived handles — deep `mut`);
+   `own` param mutating freely; returning an immutable param;
+   clone-then-mutate (`ys := p.array_list.clone(); ys.push(v)` —
+   returns-fresh breaks the derivation chain); REBINDING a derived
+   local (`xs := p.f; xs = other` is legal — binding vs object); trait
+   impl declaring non-mut where trait says mut. Negative: trait impl declaring mut where the
    trait says non-mut (variance).
 3. Verify each negative FAILS before the enforcement existed (sanity:
    temporarily `--mut-check off`) and passes with it on.
@@ -444,12 +490,15 @@ Update `tests/ref_borrow_invalidation.test.yo`: the
 2. Set the fresh bit in
    `src/evaluator/exprs/initialization-assignment.ts` when the RHS is a
    direct object construction, or a call to a returns-fresh function.
-3. **returns-fresh analysis**: a memoized predicate keyed by specialized
-   `funcId` (side-table, mirroring the default-args side-table precedent
-   in yo-self) — walk the function's return-position exprs: construction
-   → fresh; call → recurse (cycle → false); anything else → false.
-   Place it in `src/evaluator/types/flowability.ts` next to the gate
-   helpers; yo-self mirror in `yo-self/types/flowability.yo`.
+3. **returns-fresh analysis** — ALREADY IMPLEMENTED in Phase 2 check #5
+   (deep immutability needs it to break derivation chains); reuse it
+   here. For reference, the spec: a memoized predicate keyed by
+   specialized `funcId` (side-table, mirroring the default-args
+   side-table precedent in yo-self) — walk the function's
+   return-position exprs: construction → fresh; call → recurse (cycle →
+   false); anything else → false. Place it in
+   `src/evaluator/types/flowability.ts` next to the gate helpers;
+   yo-self mirror in `yo-self/types/flowability.yo`.
 4. Clear/avoid: a variable whose `:=` RHS is a param/global/field-read
    atom joins that group (existing) and is NOT fresh. Set
    `mayHaveEscaped` on a fresh variable when it (or a group member) is
