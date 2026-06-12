@@ -1244,25 +1244,10 @@ Install the handler at its use site instead:
           context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
         ) {
           const fnType = context.isEvaluatingFunctionBodyOrAsyncBlock.type;
-          // Defense-in-depth for `-> ref(T)` returns. The
-          // `isFlowableExpr` walk at function-body level vacuously
-          // accepts `return(...)` because the return wrapper has
-          // controlFlow → true; that walk would otherwise validate
-          // the returned expression. In practice the dangling-ref
-          // attempts get rejected by the return-arg type-check
-          // ("Expected i32, got *(i32)" or vice versa) because
-          // `return(expr)` always evaluates `expr` to its value-typed
-          // form. Re-running the flowability predicate here makes
-          // the soundness story explicit instead of relying on the
-          // type-mismatch fallback.
-          if (fnType.return.isRef) {
-            if (!isFlowableExpr(evaluatedReturnArgExpr)) {
-              throw formatErrorMessage({
-                token: returnArg.token,
-                errorMessage: `'return(...)' from a function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The returned expression is not flowable:\n  ${exprToString(returnArg)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
-              });
-            }
-          } else if (
+          // (Ref-returning functions are banned at signature
+          // evaluation, so only the raw-pointer-representation
+          // rooting check remains for explicit `return(...)`.)
+          if (
             !fnType.return.isCompileTimeOnly &&
             typeRepresentationContainsRawPtr(fnType.return.type) &&
             !isImplicitlyUnsafeCapableFile(returnArg.token.modulePath)

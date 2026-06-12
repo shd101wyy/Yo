@@ -3192,37 +3192,22 @@ evaluate_function_type :: (
     ret_args := _fn_call_args(return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     return_type_expr = match(ret_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-    // ref(name) : T — return label ref (mirrors TS lines 2380-2410)
-    if(ast_expr_is_fn_call_of(rl_expr, BK_REF, Option(usize).None), {
-      r_ref_args := _fn_call_args(rl_expr);
-      if(!(r_ref_args.len() == usize(1)), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(rl_expr),
-              `Expected one argument for "ref" in return label, got ${r_ref_args.len()}`,
-              false,
-              .None
-            )
+    // `(ref(name) : T)` / `(name : ref(T))` — ref-return forms are
+    // BANNED: refs are second-class and may appear only in parameter
+    // position and local lvalue borrows. (Mirrors the TS ban in
+    // evaluateFunctionType.)
+    if(ast_expr_is_fn_call_of(rl_expr, BK_REF, Option(usize).None) ||
+      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(rl_expr),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            false,
+            .None
           )
-        );
-      });
-      // Forbid `(ref(name) : ref(T))` — `ref` appears twice for the same
-      // return slot. Pick one form, not both. Mirrors function.ts:2396-2406.
-      if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(return_type_expr),
-              String.from("Cannot use 'ref' on both the label and the type of a return slot. Pick one: '-> (ref(name) : T)' or '-> (name : ref(T))'."),
-              false,
-              .None
-            )
-          )
-        );
-      });
-      rl_expr = match(r_ref_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-      is_return_type_ref = true;
+        )
+      );
     });
     // comptime modifier
     if(ast_expr_is_fn_call_of(rl_expr, BK_COMPTIME, Option(usize).None), {
@@ -3335,23 +3320,20 @@ evaluate_function_type :: (
     return_label =.Some(ast_expr_token(rl_expr).value);
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
-    // Unwrap ref(T) before comptime/unquote — ref is outermost.
+    // `-> ref(T)` is BANNED: refs are second-class and may appear only
+    // in parameter position and local lvalue borrows. (Mirrors the TS
+    // ban in evaluateFunctionType.)
     if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
-      rr_args := _fn_call_args(return_type_expr);
-      if(!(rr_args.len() == usize(1)), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(return_type_expr),
-              `Expected one argument for "ref" return slot, got ${rr_args.len()}`,
-              false,
-              .None
-            )
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(return_type_expr),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            false,
+            .None
           )
-        );
-      });
-      is_return_type_ref = true;
-      return_type_expr = match(rr_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+        )
+      );
     });
     if(ast_expr_is_fn_call_of(return_type_expr, BK_COMPTIME, Option(usize).None), {
       is_return_comptime_only = true;
@@ -3417,36 +3399,20 @@ evaluate_function_type :: (
       );
     });
   });
-  // Unwrap ref(T) in return type slot (mirrors TS lines 2492-2509).
-  // ref(T) is only legal at the outermost position of a return slot.
+  // `-> ref(T)` in the return slot is BANNED: refs are second-class and
+  // may appear only in parameter position and local lvalue borrows.
+  // (Mirrors the TS ban in evaluateFunctionType.)
   if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
-    rt_args := _fn_call_args(return_type_expr);
-    if(!(rt_args.len() == usize(1)), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(return_type_expr),
-            `Expected one argument for "ref" return slot, got ${rt_args.len()}`,
-            false,
-            .None
-          )
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(return_type_expr),
+          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+          false,
+          .None
         )
-      );
-    });
-    if(is_return_unquote, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(return_type_expr),
-            `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
-            false,
-            .None
-          )
-        )
-      );
-    });
-    is_return_type_ref = true;
-    return_type_expr = match(rt_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      )
+    );
   });
   // Evaluate return type expression
   prev_eval_fn := ctx.is_evaluating_function_type;

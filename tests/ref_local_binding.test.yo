@@ -1,42 +1,25 @@
-/// Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;` local
-/// binding form.
+/// `ref(name) := lvalue;` local binding form.
 ///
-/// Parser-side coverage (this commit):
-/// - `ref(name) := expr;` is recognized as a binding form.
-/// - The bound variable carries `isRef: true` (same flag as
-///   `ref(name) : T` parameter bindings), so the existing Phase B
-///   closure-capture gate rejects captures of the binding too.
-/// - `ref(name) := ...` is rejected with `::` or in a comptime-only
-///   context (borrows are runtime constructs).
+/// v4 (plans/BORROW_EXCLUSIVITY.md): ref-RETURNING functions are
+/// banned, so a ref local binds directly to an lvalue — a local
+/// variable, a `ref`-bound parameter, or an object field.
 ///
-/// Deferred to Phase B.5 (codegen):
-/// - Type-checking the RHS as a flowable / ref-yielding expression.
-/// - The C-codegen plumbing so the binding's `T*` storage receives
-///   the call's `T*` return value without an intermediate
-///   type-mismatched temp. Today, end-to-end compile of a
-///   `ref(name) := call(...)` to executable C still fails — only
-///   the parser-side guarantees below are covered.
-pragma(Pragma.AllowUnsafe);
+/// Guarantees pinned here:
+/// - `ref(name) := expr;` is recognized as a binding form and the
+///   bound variable carries `isRef: true` (same flag as
+///   `ref(name) : T` parameter bindings).
+/// - `ref(name) :: ...` is rejected — borrows are runtime constructs.
+/// - The closure-capture gate rejects captures of a ref-bound local.
 // `ref(name) := expr;` with `::` is rejected — borrows are runtime.
 comptime_expect_error(
   ref(r) :: i32(42)
 );
 // The closure-capture gate fires on a `ref`-bound local just as it
-// does on a `ref`-bound parameter. The capture site here is the
-// closure inside the `make_reader` function — `r` is declared as a
-// ref-local via the binding form, then captured by the closure.
-// Today this is rejected because the underlying gate triggers on
-// `isRef: true`, which the binding form sets.
-//
-// NOTE: this test compiles the surface AST but the produced C will
-// not link until the Phase B codegen story is fully wired (see
-// plans/ITERATOR_REDESIGN.md). We rely on `comptime_expect_error`
-// catching the closure-capture rejection during evaluation, which
-// happens BEFORE codegen runs.
-identity :: (fn(ref(p) : i32) -> ref(i32))(p);
+// does on a `ref`-bound parameter: `r` is declared as a ref-local via
+// the binding form, then captured by the returned closure.
 comptime_expect_error(
   make_capturing_closure :: (fn(ref(p) : i32) -> Impl(Fn() -> i32))({
-    ref(r) := identity(p);
+    ref(r) := p;
     () => r
   })
 );
@@ -48,19 +31,28 @@ test("regular := bindings still compile", {
   y := x;
   assert(y == i32(5), "regular binding works");
 });
-// End-to-end positive: `ref(name) := call(...)` binds the local
-// to the storage yielded by a `-> ref(T)` function call. Reading
-// and writing through the binding reach the caller's storage.
-test("ref(name) := call(...) — read through the binding", {
+// End-to-end positive: `ref(name) := lvalue` binds the local to the
+// source's storage. Reading and writing through the binding reach the
+// source.
+test("ref(name) := local — read through the binding", {
   x := i32(42);
-  ref(r) := identity(x);
+  ref(r) := x;
   // Reading r auto-derefs to the underlying i32 value.
   assert(r == i32(42), "reads through the ref-binding");
 });
-test("ref(name) := call(...) — write through the binding propagates to caller", {
+test("ref(name) := local — write through the binding propagates", {
   x := i32(5);
-  ref(r) := identity(x);
-  // Writing through r writes through the projection to x.
+  ref(r) := x;
+  // Writing through r writes through to x's storage.
   r = i32(99);
   assert(x == i32(99), "writes through the ref-binding propagate");
+});
+test("ref(name) := ref-bound param — write reaches the caller", {
+  bump :: (fn(ref(p) : i32) -> unit)({
+    ref(r) := p;
+    r = (r + i32(1));
+  });
+  x := i32(41);
+  bump(x);
+  assert(x == i32(42), "write through a ref-of-ref-param reaches the caller");
 });

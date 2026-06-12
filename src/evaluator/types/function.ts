@@ -2397,56 +2397,19 @@ export function evaluateFunctionType({
         errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
       });
     }
-    // `(ref(name) : T)` — labeled-ref-return form. Mirrors the
-    // parameter-side `ref(name) : T` shape so users don't have to
-    // remember a different convention for return-slot labels.
-    // Sets isReturnTypeRef just like `-> ref(T)` does at the
-    // unlabeled path below (lines 2336+); the inner identifier
-    // becomes the label.
+    // `(ref(name) : T)` / `(name : ref(T))` — ref-return forms are
+    // BANNED: refs are second-class and may appear only in parameter
+    // position and local lvalue borrows. A returned ref would be a
+    // pointer into storage the caller can reallocate or free.
     if (
-      exprIsFunctionCall(returnLabelExpr) &&
-      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.ref)
-    ) {
-      if (returnLabelExpr.args.length !== 1) {
-        throw formatErrorMessage({
-          token: returnLabelExpr.token,
-          errorMessage: `Expected one argument for "ref" in return label, got ${returnLabelExpr.args.length}`,
-        });
-      }
-      // Forbid `(ref(name) : ref(T))` — ref appears twice for the
-      // same return slot. Pick one form, not both.
-      if (
-        exprIsFunctionCall(returnTypeExpr) &&
-        exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
-      ) {
-        throw formatErrorMessage({
-          token: returnTypeExpr.token,
-          errorMessage: `Cannot use 'ref' on both the label and the type of a return slot. Pick one: '-> (ref(name) : T)' or '-> (name : ref(T))'.`,
-        });
-      }
-      if (isReturnTypeUnquote) {
-        throw formatErrorMessage({
-          token: returnLabelExpr.token,
-          errorMessage: `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
-        });
-      }
-      isReturnTypeRef = true;
-      returnLabelExpr = returnLabelExpr.args[0]!;
-    }
-    // In a labeled return slot, a `ref`/`comptime` modifier goes on the LABEL,
-    // never on the TYPE. `-> (name : ref(T))` / `-> (name : comptime(T))` are
-    // rejected; use `-> (ref(name) : T)` / `-> (comptime(name) : T)` (or the
-    // unlabeled `-> ref(T)` / `-> comptime(T)`). This keeps return-slot labels
-    // consistent with the parameter convention (`ref(name) : T`). The
-    // `(ref(name) : ref(T))` double-ref case is caught above with a more
-    // specific message.
-    if (
-      exprIsFunctionCall(returnTypeExpr) &&
-      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
+      (exprIsFunctionCall(returnLabelExpr) &&
+        exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.ref)) ||
+      (exprIsFunctionCall(returnTypeExpr) &&
+        exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref))
     ) {
       throw formatErrorMessage({
-        token: returnTypeExpr.token,
-        errorMessage: `In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (ref(name) : T)' (or unlabeled '-> ref(T)'), not '-> (name : ref(T))'.`,
+        token: returnLabelExpr.token,
+        errorMessage: `Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'.`,
       });
     }
     if (
@@ -2518,40 +2481,21 @@ export function evaluateFunctionType({
     }
   }
 
-  // `ref(T)` in the return slot — Phase A of plans/ITERATOR_REDESIGN.md.
-  // The function yields a second-class reference into storage rooted
-  // in one of its `ref`-typed parameters; the C-ABI return is `T*`
-  // and the call site receives a `ref`-bindable expression. We
-  // unwrap `ref(...)` here to evaluate `T` as the underlying type,
-  // and mark `isReturnTypeRef` so the function type carries the
-  // distinction.
-  //
-  // `ref(T)` is only legal at the OUTERMOST position of a return
-  // slot. The rule that bars it from appearing inside `Option(...)`,
-  // generic args, struct fields, etc. is enforced by NOT recognizing
-  // `ref(...)` anywhere else in the type evaluator — outside this
-  // narrow spot, the evaluator falls through and tries to evaluate
-  // `ref` as a regular identifier, producing a "Variable not found"
-  // error. (We could add a more targeted diagnostic later; for v1
-  // the structural impossibility is sufficient.)
+  // `-> ref(T)` — ref-return form is BANNED: refs are second-class and
+  // may appear only in parameter position and local lvalue borrows. A
+  // returned ref would be a pointer into storage the caller can
+  // reallocate or free. (Inside `Option(...)`, generic args, struct
+  // fields, etc., `ref(...)` is structurally impossible already: the
+  // type evaluator does not recognize it there and fails with
+  // "Variable not found".)
   if (
     exprIsFunctionCall(returnTypeExpr) &&
     exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
   ) {
-    if (returnTypeExpr.args.length !== 1) {
-      throw formatErrorMessage({
-        token: returnTypeExpr.token,
-        errorMessage: `Expected one argument for "ref" return slot, got ${returnTypeExpr.args.length}`,
-      });
-    }
-    if (isReturnTypeUnquote) {
-      throw formatErrorMessage({
-        token: returnTypeExpr.token,
-        errorMessage: `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
-      });
-    }
-    isReturnTypeRef = true;
-    returnTypeExpr = returnTypeExpr.args[0]!;
+    throw formatErrorMessage({
+      token: returnTypeExpr.token,
+      errorMessage: `Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'.`,
+    });
   }
 
   // Evaluate the return type expression

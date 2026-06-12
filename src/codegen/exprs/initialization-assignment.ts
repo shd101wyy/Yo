@@ -332,6 +332,28 @@ export function generateInitializationAssignment(
         }
         return "";
       }
+      // `ref(r) := x` — borrow a LOCAL/PARAM lvalue directly. A plain
+      // local borrows via '&'; a source that is itself a ref binding /
+      // ref param is already a `T*` — copy the pointer instead.
+      if (lhsIsRefBinding && exprIsAtom(rhs) && rhs.$?.env) {
+        const sourceVars = getVariablesFromEnv(rhs.$.env, rhs.token.value);
+        const sourceIsRef =
+          sourceVars.length > 0 &&
+          sourceVars[sourceVars.length - 1]!.isRef === true;
+        const sourceName = getVariableNameForCodegen(
+          rhs.token.value,
+          rhs.$.env
+        );
+        const refTypeString = getTypeString(lhs.$.type!, context);
+        if (!isUnitType(lhs.$.type)) {
+          context.emitter.emitLine(
+            `${indent}${refTypeString}* ${getVariableNameForCodegen(varName, lhs.$.env)} = ${
+              sourceIsRef ? sourceName : `(&(${sourceName}))`
+            };`
+          );
+        }
+        return "";
+      }
 
       const rhsIsClosureConstruction =
         exprIsFunctionCall(rhs) &&
