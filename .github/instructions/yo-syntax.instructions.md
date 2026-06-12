@@ -610,18 +610,17 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 - `ref(name) : T` flowability (rules R1–R4) is unchanged. See
   `docs/en-US/FLOWABILITY.md` and `tests/flowability_comprehensive.test.yo`.
 
-### Return-slot modifier placement: on the label, not the type
+### Return-slot modifiers: `ref` is BANNED; `comptime` goes on the label
 
-In a **labeled** return slot, a `ref`/`comptime` modifier attaches to the **label**, mirroring the parameter convention (`ref(name) : T`). Unlabeled returns put the modifier on the sole type expression.
+**Functions cannot return `ref`** (v4, `plans/BORROW_EXCLUSIVITY.md`): refs are second-class and exist only in parameter position and local lvalue borrows. Return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives `ref(name) : T`.
 
-| Form                                            | Verdict                                      |
-| ----------------------------------------------- | -------------------------------------------- |
-| `-> ref(T)`, `-> comptime(T)`                   | ✅ valid (unlabeled)                         |
-| `-> (ref(name) : T)`, `-> (comptime(name) : T)` | ✅ valid (modifier on the label)             |
-| `-> (name : ref(T))`, `-> (name : comptime(T))` | ❌ rejected — move the modifier to the label |
-| `-> (ref(name) : ref(T))`                       | ❌ rejected (double-ref — "pick one")        |
+| Form                                                                     | Verdict                                       |
+| ------------------------------------------------------------------------ | --------------------------------------------- |
+| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled)        | ✅ valid                                      |
+| `-> ref(T)`, `-> (ref(name) : T)`, `-> (name : ref(T))`                  | ❌ rejected — functions cannot return `ref`   |
+| `-> (name : comptime(T))`                                                | ❌ rejected — modifier goes on the label      |
 
-Enforced at function-type evaluation (`src/evaluator/types/function.ts`, in the labeled-return branch, after label-side modifier processing) and the yo-self port (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_labeled.test.yo`.
+Enforced at function-type evaluation (`src/evaluator/types/function.ts`) and the yo-self port (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
 
 ### Signed-integer overflow is defined (wrap-around)
 
@@ -634,9 +633,9 @@ Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` commen
 ```rust
 match(
   self._ptr,
-  // SAFETY: pos bounds-checked above (pos < self._length);
+  // SAFETY: idx bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer.
-  .Some(_ptr) => unsafe(_ptr &+ pos),
+  .Some(_ptr) => (_ptr &+ idx),
   .None => panic("ArrayList: empty")
 )
 ```
@@ -678,21 +677,18 @@ Verify with `./yo-cli public-safe-report ./std` (or `./yo-self`). It scans every
 
 ## `for` loop macro — correct form
 
-The `for` macro is a 2-argument prelude macro. The **first argument is the collection or an iterator chain** (the macro inserts `.into_iter()` / `.iter()` as needed based on the body's binding shape):
+The `for` macro is a 2-argument prelude macro iterating BY VALUE (it expands to `coll.into_iter()`):
 
 ```rust
 for(list, (x) => { process(x); });               // value form: macro expands to list.into_iter()
-for(list, ref(x) => { x = transform(x); });      // borrow form: macro expands to list.iter() + list.project(pos)
+for(names, (s) => { s.push_str("!"); });         // object elements are HANDLES: mutates in place
 for(chain.map(f), (y) => println(y));            // combinator chain: pass as the value-form iterator
 ```
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
-- Second argument: an anonymous closure. The binding shape selects the form:
-  - `(x) => body` — value form. Macro expands to `coll.into_iter()`; `x` is `T` by value.
-  - `ref(x) => body` — borrow form. Macro expands to `coll.iter()` (a position iterator yielding `usize`) + `coll.project(pos)` (from the `Indexable` trait); `x` is a writable binding into the collection.
-- **Do NOT write `for(coll.iter(), (x) => …)` for the value form** — `.iter()` now yields _positions_ (usize), not elements. The macro calls `.into_iter()` itself for the value form.
+- Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for object element types — mutating it mutates the element in place).
+- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, `plans/BORROW_EXCLUSIVITY.md` — no interior refs). It produces a teaching compile error. For in-place struct/scalar element mutation use an index loop with index writes: `while(i < coll.len(), { coll(i) = transform(coll(i)); i = (i + usize(1)); })`.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
-- Combinator chains support **only the value form** — they yield computed values, not borrows. `coll.iter().map(f)` works as the first arg in `(x) => body`.
 
 ## Function call syntax — required immediate `(`
 

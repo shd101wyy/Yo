@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`for` 宏会根据 body 的参数形式自动选择：`(item) => …` 是按值迭代（底层调用 `.into_iter()`），`for(coll, ref(item) => …)` 是按引用迭代，对 `item` 的写入会传播回集合。
+`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。object 元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素用索引赋值写回（`coll(i) = v`）。旧的借用形式 `for(coll, ref(item) => …)` 已移除，使用时会产生带上述迁移指引的编译错误。
 
 ## 安全代码不能做什么
 
@@ -83,13 +83,13 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref` 是**二等的**：只出现在参数位置（`ref(name) : T`）、函数返回（`-> ref(T)`）和局部借用绑定（`ref(r) := expr`）中。不存在一等的"`ref` 类型"，所以借用无法泄漏到 struct 字段或闭包捕获中。返回与借用绑定还受结构性**流动性（flowability）**规则约束 —— 包括借用失效检查：当一个 `ref` 绑定仍借用某变量时，禁止对该变量重新赋值或移动。见 [FLOWABILITY.md](./FLOWABILITY.md)。
+`ref` 是**二等的**：只出现在参数位置（`ref(name) : T`）和局部左值借用（`ref(r) := lvalue` —— 局部变量、`ref` 绑定参数的字段、或 object 字段）中。**函数不能返回 `ref`**，不存在一等的"`ref` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中 —— 因此每个借用都扎根于栈帧槽位或 object 字段，且 object 字段借用还会**钉住所有者**（借用作用域内 +1），对象不可能在借用之下被释放。借用绑定还受**借用失效**诊断约束：当一个 `ref` 绑定仍借用某变量时，禁止对该变量重新赋值、移动、调用方法或取别名。见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 使用场景：
 
 - 标准库中带变异的 trait 方法（`Hash.hash`、`Clone.clone`、`Iterator.next`）都接收 `ref(self) : Self`。你写 `value.hash()`、`it.next()` —— 不需要 `&()`。
 - 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `ref(name) : T`。
-- 带变异的迭代：`for(coll, ref(item) => body)` 原地借用每个元素。
+- 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(ref(v) : T) -> R))`。
 
 ## 标准库集合保持安全
 
@@ -103,7 +103,7 @@ main :: (fn() -> unit)({
 
 - `str` 是唯一的内建视图类型，且只能指向**静态**字符串数据（字面量、`comptime_str`）—— 它永远不会指向可能被释放的堆缓冲区。
 - **集合上的区间操作是拷贝。** `list(usize(1)..usize(3))` 与 `String` 的区间产生一个独立持有的值，而不是源缓冲区上的窗口 —— 不存在可悬空的堆切片类型。
-- **原位借用通过 `ref` 进行。** 不拷贝的元素访问（`xs.project(i)`）返回 `ref(T)`，受结构性流动性规则与上文的借用失效检查约束。
+- **元素访问只交出值，从不交出内部指针。** `xs.get(i)` 返回元素 —— object 元素返回指向元素*对象*的句柄（就地变异、且在容器增长/realloc 之后依然有效）；struct 元素返回拷贝，用 `xs(i) = v` 写回。安全表达式无法产生指向容器缓冲区内部的指针，因此增长失效根本无法表达。
 
 这些规则的讲解见 [FLOWABILITY.md](./FLOWABILITY.md)；编写安全代码不需要了解它们 —— 危险的形态会被编译器直接拒绝。
 
@@ -164,11 +164,11 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 ```rust
 match(
   self._ptr,
-  // SAFETY: pos has been bounds-checked above (pos < self._length);
+  // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => unsafe(_ptr &+ pos),
-  .None => panic("ArrayList: project on empty list")
+  .Some(_ptr) => (_ptr &+ idx),
+  .None => panic("ArrayList: index on empty list")
 )
 ```
 

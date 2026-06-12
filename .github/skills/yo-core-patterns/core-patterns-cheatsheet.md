@@ -423,8 +423,10 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 result := inc(i32(5));
 
 transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for(values, ref(x) => {
-    x = f(x);
+  i := usize(0);
+  while(i < values.len(), {
+    values(i) = f(values(i));
+    i = (i + usize(1));
   });
 });
 ```
@@ -443,27 +445,28 @@ list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 
-// Value form — implicit .into_iter().
+// Value form — implicit .into_iter(). The only form.
 for(list, (value) => {
   println(value);
 });
 
-// Borrow form — implicit .iter() + .project(pos). `x` is a writable
-// binding into the collection; assignments propagate back.
-for(list, ref(x) => {
-  x = (x + i32(10));
+// In-place element mutation: index writes.
+i := usize(0);
+while(i < list.len(), {
+  list(i) = (list(i) + i32(10));
+  i = (i + usize(1));
 });
 ```
 
-| Form                          | Expansion                                  | When to use                                   |
-| ----------------------------- | ------------------------------------------ | --------------------------------------------- |
-| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value    | Read-only iteration; combinator chains        |
-| `for(coll, ref(x) => …)`      | `coll.iter()` + `coll.project(pos)` borrow | Mutation in place; writes propagate to `coll` |
-| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form)  | Computed values; chains support only value    |
+| Form                          | Expansion                                 | When to use                                                                  |
+| ----------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; object elements are handles and mutate in place               |
+| index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                       |
+| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                               |
 
+- The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
 - `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.
 - `IntoIterator` trait — defines `into_iter() -> IntoIter`. Collections impl this so `for(coll, ...)` works.
-- `Indexable(Position)` trait — defines `project(pos) -> ref(Element)`. Collections impl this to support the borrow form.
 
 ## Module-level mutable variables
 

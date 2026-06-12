@@ -161,6 +161,36 @@ FunctionCall ::=
 ArgumentList ::= [Expression (',' Expression)*]
 ```
 
+## Function Signatures and Parameter Modifiers
+
+A parameter is `label : Type`, optionally wrapped by ONE modifier call.
+Modifiers wrap the **label**, never the type:
+
+```abnf
+Parameter ::= ParameterLabel ':' Type
+ParameterLabel ::=
+  | Identifier                  ;; by value (object types: a shared handle)
+  | 'ref' '(' Identifier ')'    ;; second-class reference to a caller lvalue
+  | 'own' '(' Identifier ')'    ;; consumes the caller's handle (move)
+  | 'inout' '(' Identifier ')'  ;; alias of ref (binding write-back)
+  | 'comptime' '(' Identifier ')' ;; compile-time-only parameter
+  | 'quote' '(' Identifier ')'  ;; macro parameter (receives the AST)
+```
+
+```rust
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ ... });
+sink :: (fn(own(victim) : Holder) -> unit)({ ... });
+```
+
+Placement rules for `ref`:
+
+- Parameter position (`ref(name) : T`) and local lvalue borrows
+  (`ref(r) := lvalue;`) are the ONLY positions where `ref` may appear.
+- `ref` is **rejected in return-type position** (`-> ref(T)`,
+  `-> (ref(name) : T)`) and inside any other type expression
+  (`Option(ref(T))`, struct fields, generic arguments).
+- See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
+
 ## Comments and Whitespace
 
 ```abnf

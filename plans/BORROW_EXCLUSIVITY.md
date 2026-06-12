@@ -1,9 +1,19 @@
 # Flowability soundness v4 — delete interior refs
 
-Status: **APPROVED DESIGN, IMPLEMENTATION HANDOFF** (2026-06-12).
+Status: **✅ IMPLEMENTED** (2026-06-12). Phase 1 (std deletions:
+ea78b3c5d), Phase 2 (test migration: c3581e8eb), Phase 3 (ref-return
+ban, both compilers: 163e46565), Phase 4 (owner pin + call-site ref/own
+exclusivity gate: c4fc74ee3), Phase 5 (docs/knowledge files). Two
+additions beyond the original plan: the `ref(r) := x` bare-local borrow
+codegen (`(&(x))`; previously only reachable via banned ref-returning
+calls) and the **call-site ref/own exclusivity gate**
+(`requireRefOwnArgumentExclusivity`) which closes the argument-position
+shape `f(h.s, h)` with `own` — the binding-site pin cannot see it. The
+yo-self mirror of that gate is blocked on the documented own/consume
+port gap (see `plans/BOOTSTRAPPING_CODEGEN.md` Phase 4).
 Supersedes v3 (declared `mut` + exclusivity law), v2 (inferred
 summaries), v1 (dynamic borrow counter) — appendix has the history.
-Companion: `issues/flowability-growth-invalidation-method-calls.md`
+Companion: `issues/fixed/flowability-growth-invalidation-method-calls.md`
 (closed by this design) and the landed same-scope gates (8b0b67b1).
 
 **Owner constraints:** maximize static checking; no meaningful runtime

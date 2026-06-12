@@ -1136,7 +1136,9 @@ Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后�
   独立持有的值，而不是源缓冲区上的窗口。
 - **`str` 是唯一的内建视图**，且只指向静态字符串数据 —— `str` 上的
   `s(a..b)` 是静态字节上的零拷贝窗口，永远不会悬空。
-- **原位借用元素**使用 `ref`（`xs.project(i)` 返回 `ref(T)`），受流动性
+- **元素访问只交出值，从不交出内部指针** —— `xs.get(i)` 返回元素
+  （object 类型返回句柄，容器增长后依然有效；struct 类型返回拷贝，用
+  `xs(i) = v` 写回），受流动性
   规则约束（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
 
 ### 使用 `..` 的区间
@@ -1372,51 +1374,37 @@ for(iter_expr, (variable) => {
 });
 ```
 
-`for` 宏通过 **lambda 参数的绑定形式** 区分借用迭代和值迭代——`ref(x) => body` 借用，`(x) => body` 消费：
-
-| 形式                        | 调用               | `x` 是什么                                                                        |
-| --------------------------- | ------------------ | --------------------------------------------------------------------------------- |
-| `for(coll, ref(x) => body)` | `coll.iter()`      | 按引用绑定到每个元素；读取自动解引用，写入回传到集合；`coll` 在循环结束后仍然有效 |
-| `for(coll, (x) => body)`    | `coll.into_iter()` | 持有元素值；集合被移入迭代器并被消费                                              |
+`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对 object 元素类型，`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。struct/标量元素的就地变异使用索引循环 + 索引写：
 
 ```rust
-arr := Array(i32, 3)(1, 2, 3);
-
-// 借用形式 — `x` 按引用绑定；写入会传播。
-for(arr, ref(x) => {
-  x = (x * i32(10));
-});
-// arr 现在是 [10, 20, 30]。
-
-// 值形式 — 调用 `coll.into_iter()`；每个 `x` 都是拥有的值。
+// 值形式 — 每个 `x` 按值产出。
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-for(list.into_iter(), (value) => {
+for(list, (value) => {
   println(value);
 });
-```
 
-`for(coll, ref(x) => body)` 在底层展开为一个 `while`，将 `next()` 产出的每个位置与 `coll.project(pos)` 的借用配对：
-
-```rust
-__iter := coll.iter();
-while(runtime(true), {
-  match(__iter.next(),
-    .Some(__pos) => {
-      ref(x) := coll.project(__pos);
-      body
-    },
-    .None => { break; }
-  )
+// object 元素是句柄 — 变异落在集合里。
+for(names, (s) => {
+  s.push_str("!");
 });
+
+// struct/标量元素：索引写就地变异。
+arr := Array(i32, 3)(1, 2, 3);
+i := usize(0);
+while(i < usize(3), {
+  arr(i) = (arr(i) * i32(10));
+  i = (i + usize(1));
+});
+// arr 现在是 [10, 20, 30]。
 ```
 
-`coll.iter()` 返回一个 `Iterator(Item := Position)`（对于有索引的集合通常是 `usize`）。集合的 `Indexable(Position)` 实现提供 `project(pos) -> ref(Element)`，for 宏将其与每个位置配对，把元素存储的 `ref`-绑定交给循环体。详见 `plans/ITERATOR_REDESIGN.md`。
+组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-值迭代 `for(coll, (x) => body)` 展开为 `coll.into_iter()`，后接标准的 `next()` 循环。组合器链（`coll.iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状——它们没有 `Collection` 可投射，因此只支持值形式。一个全覆盖的 `into_iter` 实现 `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
+旧的借用形式 `for(coll, ref(x) => body)` 已移除（指向可重分配存储的内部引用已无法表达 —— 见 [FLOWABILITY.md](./FLOWABILITY.md)）；使用它会产生带迁移指引的编译错误。
 
-字符串有专门的 `chars()`（rune 迭代）和 `bytes()`（字节迭代）方法；字节级借用形式 `for(s, ref(b) => body)` 也可用。
+字符串有专门的 `chars()`（rune 迭代）和 `bytes()`（字节迭代）方法。
 
 ## 代数数据类型 (ADT)
 

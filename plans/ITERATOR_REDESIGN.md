@@ -1,6 +1,15 @@
 # Iterator Redesign — Projection-Style Borrowed Iteration
 
-Status: **✅ Landed.** All phases (A–E) implemented; the "Status" section near the end of this file has the per-phase commit references. The `for` macro dispatches on `(x) =>` vs `ref(x) =>` to pick value vs borrow iteration; `Indexable(Position)` impls cover Array, Slice, ArrayList, String, HashMap. Verdicts pinned in `tests/indexable_runtime.test.yo`, `tests/iterator_combinators.test.yo`, `tests/for_macro_borrow.test.yo`, and the slice-flowability suite. Originally deferred from `plans/MEMORY_SAFETY.md` Phase D and tracked separately here.
+Status: **⛔ SUPERSEDED by `plans/BORROW_EXCLUSIVITY.md` v4 (2026-06-12).**
+The projection machinery this plan introduced — the `Indexable` trait,
+`project` impls, `-> ref(T)` returns, and the for-macro borrow form
+`for(coll, ref(x) => body)` — was DELETED: interior refs into
+reallocatable storage were the root of the borrow-invalidation UAF
+family, and benchmarks showed `get`-based value access costs ≤10% in the
+worst case (and is faster for struct elements). Iteration is the value
+form only (`into_iter`); in-place element mutation uses index writes.
+The historical design below is kept for the record. (Originally landed
+as phases A–E, deferred from `plans/MEMORY_SAFETY.md` Phase D.)
 
 ## Problem
 

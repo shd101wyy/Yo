@@ -1,6 +1,22 @@
 # Flowability: mutating method calls invalidate live `ref` borrows (growth realloc UAF)
 
-**Status: LARGELY FIXED 2026-06-12 — one residual below.** The same-scope
+**Status: ✅ RESOLVED 2026-06-12 — closed by `plans/BORROW_EXCLUSIVITY.md`
+v4.** The entire bug class became INEXPRESSIBLE: `project`/`Indexable`
+and `ref` returns were deleted, so no safe expression can produce a
+pointer into reallocatable storage. Element access is value-based
+(`get` returns the element — a handle for object types, which survives
+container growth by construction; the old 64-push UAF repro is now a
+PASSING runtime test, `tests/ref_borrow_invalidation.test.yo` "get
+handle survives container growth"). The cross-function residual below
+is moot for containers, and for object-FIELD borrows it is closed by
+the owner pin (codegen holds +1 on the owner for the borrow's scope)
+plus the call-site ref/own exclusivity gate
+(`requireRefOwnArgumentExclusivity`). The same-scope gates remain as
+diagnostics.
+
+Historical record of the gate work that preceded v4:
+
+The same-scope
 forms are closed in BOTH compilers by extending the borrow-invalidation
 gate to call sites:
 

@@ -1,88 +1,89 @@
 # Flowability — safe-by-default references
 
-Yo's **flowability** check guarantees, at compile time, that safe code
-cannot construct a dangling reference. After the slice rework
-(static `str`, copying ranges), the rule surface is small:
+Yo guarantees, at compile time, that safe code cannot construct a
+dangling reference. The design is **sound by construction**: the safe
+language has no way to form a pointer into reallocatable storage, so
+the classic invalidation footguns (grow a list, dangle a borrow) are
+not rejected by a clever analysis — they are *inexpressible*.
 
-## What can dangle — and what cannot
+## Where a `ref` can exist
 
-- **`ref(name) : T` parameters and `ref(r) := …` bindings** are
-  second-class references to caller/outer storage. They are the ONLY
-  borrowed views left in safe code, and flowability constrains where they
-  may flow.
-- **`str`** is the builtin view of **static** string bytes (literals and
-  template-literal segments). Its backing is immortal, so a `str` is
-  freely copyable, storable in fields, returnable — no flow constraints
-  and no runtime cost. There is no way to view a heap `String`'s bytes as
-  `str` from safe code (`as_str()` does not exist).
-- **Range indexing copies.** `arr(a..b)` on `Array`/`ArrayList` returns a
-  new `ArrayList(T)`; `s(a..b)` on `String` returns a new `String`;
-  `v(a..b)` on `str` returns a `str` window of the same static bytes.
-  Mutating or growing the source never affects the copy, and vice versa —
-  the classic slice-invalidation footgun is *unconstructible*.
-- **Owned values** (`i32`, `bool`, `String`, `ArrayList`, structs of
-  them, …) carry their storage with them and are never constrained.
-- **Raw views** (`*(T)`, `RawSlice(T)`, structs wrapping them, and
-  `String.raw_bytes()`) belong to PRIVILEGED code: a file must declare
-  `pragma(Pragma.AllowUnsafe);` to even name such a type in an
-  annotation. Safe code cannot receive, store, or return them.
+`ref` is Yo's second-class reference. It appears in exactly two places:
 
-## The `ref` rules
+- **Parameter position** — `ref(name) : T` receives a caller lvalue
+  (write-back, and no copy for big structs). Callback parameters that
+  receive refs (`body : Impl(Fn(ref(v) : T) -> R)`, as in
+  `Mutex.with_lock`) are the same thing one level down.
+- **Local lvalue borrows** — `ref(r) := lvalue;` borrows a local
+  variable, a field of a `ref`-bound parameter, or an object field.
 
-A `ref` may only be placed into storage that **outlives** it. The
-compiler proves this structurally (no lifetime annotations) at two sites:
-function `-> ref(T)` returns and `ref(r) := …` local bindings.
+**Functions cannot return `ref`.** A returned ref would be a pointer
+into storage the caller can reallocate or free; the compiler rejects
+`-> ref(T)` (and the labeled forms) at signature evaluation. Refs also
+cannot be stored in fields, captured by closures, or placed inside
+generic types — they never outlive the frame below them.
 
-- **R1 — names.** A `ref`-bound name flows anywhere; at binding sites, an
-  enclosing-scope local also flows (its scope contains the target's).
-- **R2 — projection.** `base.field` flows iff `base` does.
-- **R3 — borrowing calls.** A call returning `ref(T)` flows iff every
-  argument that can source the borrow flows.
-- **R4 — `cond`/`match`.** Flows iff every branch flows.
+Every safe `ref` therefore roots in either a **frame slot** (which
+outlives the callee by construction) or an **object field** — and
+object allocations never move. For object-field borrows the compiler
+additionally **pins the owner**: `ref(r) := h.s` holds a +1 on `h`'s
+object for the borrow's scope (two refcount operations per *binding*,
+not per access), so the object cannot be freed while the borrow lives —
+no matter what aliases exist anywhere.
 
-A function's local can never be returned by `ref` — the callee's frame
-dies first. See `tests/ref_*.test.yo` for the full matrix.
+## Element access: handles and copies, not interior pointers
 
-## Borrow invalidation
-
-While a `ref(name) := …` binding is live, the same-frame variables its
-borrow roots in (the R1–R4 sources) may not be **reassigned** or
-**moved** — doing so would free or replace the borrowed backing:
+Containers hand out **values**, never pointers into their buffers:
 
 ```rust
-ref(r) := xs.project(usize(0));
-xs = ArrayList(String).new();   // ✗ rejected: would free the buffer r points into
-println(r);
+e := xs.get(i);          // object elements: a HANDLE to the element
+e.push_str("!");         //   mutates the element in place; the handle
+                         //   survives xs.push / realloc — it points at
+                         //   the String object, not into xs's buffer
+xs(i) = v;               // index WRITE for in-place element replacement
+t := xs.get(i).unwrap(); // struct elements: copy out …
+xs(i) = t2;              //   … write back
+for(xs, (x) => { ... }); // iteration is the value form (into_iter)
 ```
 
-The same constraint applies to **call uses and aliases** of the source:
-while the borrow lives, the source may not be used as a method receiver
-or call argument (`xs.push(...)`, `grow(xs)`), and no new binding may be
-created from it (`xs2 := xs`) — object types have reference semantics, so
-a method's signature cannot prove it doesn't mutate (`push` and `len`
-both take `self : Self`). Pre-existing aliases are constrained too (the
-marks apply to the whole alias group). Creating ANOTHER borrow from the
-same source stays allowed (`ref(b) := xs.project(1)` while `a` is live).
+There is no `project`, no `Indexable`, and no borrow form of `for` —
+`for(coll, ref(x) => …)` produces a compile error with this migration
+recipe. `str` remains the immortal static-bytes view (freely copyable,
+no constraints), and range indexing **copies** (`arr(a..b)` returns a
+new `ArrayList`), so mutating the source never affects the result.
 
-The constraint ends with the binding's block — reassigning or mutating
-the source after the borrow's scope closes is fine, as is mutating
-unrelated variables. To keep the container freely usable, copy the
-element out (`xs.get(i)`) instead of borrowing it.
-See `tests/ref_borrow_invalidation.test.yo`.
+## Borrow invalidation diagnostics
 
-**Known limitation:** aliasing that crosses a function boundary is
-invisible to these checks — a function receiving the same object through
-two parameters can mutate through one while borrowing through the other
-(`issues/flowability-growth-invalidation-method-calls.md` tracks this).
+While a `ref(r) := …` binding is live, the variable its borrow roots in
+may not be **reassigned**, **moved**, used as a **method receiver** or
+**call argument**, or **aliased** (`h2 := h`) — each is a compile error
+naming the borrow. Pre-existing aliases are constrained too (the marks
+apply to the whole alias group), and creating another borrow from the
+same owner stays allowed. The constraint ends with the binding's block.
+These gates are diagnostics on top of the pin: they catch the mistake at
+the line that makes it, rather than letting the pin silently extend the
+object's lifetime.
+
+One cross-function rule completes the story: **a single call may not
+receive the same object as both a ref-rooted argument and an `own`
+argument** (`use_and_sink(h.s, h)` with `own(victim)` is rejected) —
+`own` moves the caller's count into a callee that could release it while
+the borrow is still in use. Distinct objects are fine. By-value overlap
+is fine too: a borrowed handle can never release the caller's count
+(forwarding it to an `own` position dups first).
 
 ## Escape hatches
 
-`pragma(Pragma.AllowUnsafe);` exempts a whole file (the std's audited
-internals use this); `unsafe(expr)` marks a single expression as checked
-by the author. See [MEMORY_SAFETY.md](./MEMORY_SAFETY.md).
+`pragma(Pragma.AllowUnsafe);` exempts a whole file (std's audited
+internals); `unsafe(expr)` marks a single expression. The raw-pointer
+`Index` impl (`index : … -> *(T)`) is the supported zero-copy escape for
+hot loops that measurably need it. See
+[MEMORY_SAFETY.md](./MEMORY_SAFETY.md).
 
 ## Tests
 
-`tests/flowability_comprehensive.test.yo` (static-str model, copying
-ranges, raw-view gating) and `tests/ref_*.test.yo` (the `ref` rule
-matrix).
+`tests/ref_binding.test.yo`, `tests/ref_local_binding.test.yo`,
+`tests/ref_params.test.yo`, `tests/ref_field_borrow.test.yo` (incl. the
+owner pin and the ref/own call gate), `tests/ref_borrow_invalidation.test.yo`
+(the gate matrix + the get-handle model), `tests/ref_return_ban.test.yo`,
+and `tests/flowability_comprehensive.test.yo`.

@@ -161,6 +161,36 @@ FunctionCall ::=
 ArgumentList ::= [Expression (',' Expression)*]
 ```
 
+## 函数签名与参数修饰符
+
+参数形如 `label : Type`，可选地由**一个**修饰符调用包裹。修饰符包裹的
+是**标签**，而不是类型：
+
+```abnf
+Parameter ::= ParameterLabel ':' Type
+ParameterLabel ::=
+  | Identifier                  ;; 按值传递（object 类型即共享句柄）
+  | 'ref' '(' Identifier ')'    ;; 指向调用者左值的二等引用
+  | 'own' '(' Identifier ')'    ;; 消耗调用者的句柄（移动）
+  | 'inout' '(' Identifier ')'  ;; ref 的别名（绑定写回）
+  | 'comptime' '(' Identifier ')' ;; 仅编译期参数
+  | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
+```
+
+```rust
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ ... });
+sink :: (fn(own(victim) : Holder) -> unit)({ ... });
+```
+
+`ref` 的位置规则：
+
+- 参数位置（`ref(name) : T`）与局部左值借用（`ref(r) := lvalue;`）是
+  `ref` 仅有的两个合法位置。
+- `ref` 在**返回类型位置被拒绝**（`-> ref(T)`、`-> (ref(name) : T)`），
+  也不能出现在任何其他类型表达式中（`Option(ref(T))`、struct 字段、
+  泛型实参）。
+- 语义详见 [FLOWABILITY.md](./FLOWABILITY.md)。
+
 ## 注释和空白
 
 ```abnf

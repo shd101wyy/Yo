@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro dispatches on the body's parameter shape: `(item) => …` iterates by value (calls `.into_iter()` under the hood), and `for(coll, ref(item) => …)` iterates by reference so writes through `item` propagate back into the collection.
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Object elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, write back with index assignment (`coll(i) = v`). The old borrow form `for(coll, ref(item) => …)` was removed and produces a compile error with this recipe.
 
 ## What Safe Code Cannot Do
 
@@ -83,13 +83,13 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref` is **second-class**: it appears only in parameter position (`ref(name) : T`), as a function return (`-> ref(T)`), and in local borrow bindings (`ref(r) := expr`). There is no first-class "`ref` type", so a borrow cannot leak into a struct field or a closure capture. Returns and borrow bindings are additionally guarded by the structural **flowability** rules — including the borrow-invalidation check that rejects reassigning or moving a variable while a `ref` binding still borrows from it. See [FLOWABILITY.md](./FLOWABILITY.md).
+`ref` is **second-class**: it appears only in parameter position (`ref(name) : T`) and in local lvalue borrows (`ref(r) := lvalue` — a local, a field of a `ref`-bound param, or an object field). **Functions cannot return `ref`**, there is no first-class "`ref` type", and a borrow cannot leak into a struct field or a closure capture — so every borrow roots in a frame slot or an object field, and object-field borrows additionally **pin the owner** (+1 for the borrow's scope) so the object cannot be freed under them. Borrow bindings are further guarded by the **borrow-invalidation** diagnostics that reject reassigning, moving, calling methods on, or aliasing a variable while a `ref` binding still borrows from it. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 
 - Stdlib trait methods that mutate (`Hash.hash`, `Clone.clone`, `Iterator.next`) all take `ref(self) : Self`. You write `value.hash()`, `it.next()` — no `&()` needed.
 - Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `ref(name) : T`.
-- Iterating with mutation: `for(coll, ref(item) => body)` borrows each element in place.
+- Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(ref(v) : T) -> R))`.
 
 ## Stdlib Collections Stay Safe
 
@@ -103,7 +103,7 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 - `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
 - **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
-- **In-place borrows go through `ref`.** Element access without a copy (`xs.project(i)`) returns `ref(T)`, guarded by the structural flowability rules and the borrow-invalidation check above.
+- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for object elements that is a handle to the element *object* (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
@@ -165,11 +165,11 @@ When you write `unsafe(...)`, you're claiming a specific contract holds. Documen
 ```rust
 match(
   self._ptr,
-  // SAFETY: pos has been bounds-checked above (pos < self._length);
+  // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => unsafe(_ptr &+ pos),
-  .None => panic("ArrayList: project on empty list")
+  .Some(_ptr) => (_ptr &+ idx),
+  .None => panic("ArrayList: index on empty list")
 )
 ```
 

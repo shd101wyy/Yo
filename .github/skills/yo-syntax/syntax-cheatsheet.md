@@ -134,7 +134,7 @@ masked := ((A | B) | C);
 - **Audit public stdlib safety with `./yo-cli public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./yo-self`; keep it that way when adding new APIs.
 - **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/EXTERN_UNSAFE_WRAP.md`.
 - **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
-- **Return-slot modifier placement: on the LABEL, not the type.** In a _labeled_ return slot, a `ref`/`comptime` modifier attaches to the label, mirroring the parameter convention (`ref(name) : T`). Valid: `-> ref(T)` and `-> comptime(T)` (unlabeled — modifier on the sole type), `-> (ref(name) : T)`, `-> (comptime(name) : T)`. **Rejected:** `-> (name : ref(T))`, `-> (name : comptime(T))` (modifier on the type when labeled), and `-> (ref(name) : ref(T))` (double-ref — "pick one"). Enforced at function-type eval in `src/evaluator/types/function.ts` (and the yo-self port).
+- **Functions CANNOT return `ref` (v4, plans/BORROW_EXCLUSIVITY.md).** `-> ref(T)`, `-> (ref(name) : T)`, and `-> (name : ref(T))` are all rejected at function-type eval (both compilers). Refs exist ONLY in parameter position (`ref(name) : T`) and local lvalue borrows (`ref(r) := lvalue`). Return the value instead — object values are handles that mutate in place; struct values copy — or take a callback parameter receiving `ref(v) : T` (`Mutex.with_lock` pattern). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`.
 - **Signed-integer overflow is defined (wrap-around).** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on `i32(MAX)` wraps to `i32(MIN)` instead of UB. Opt-out: `--cflags='-fno-wrapv'`.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
@@ -227,8 +227,10 @@ caller :: (fn() -> i32)({
 result := closure(i32(5));
 
 transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for(list, ref(x) => {
-    x = f(x);
+  i := usize(0);
+  while(i < list.len(), {
+    list(i) = f(list(i));
+    i = (i + usize(1));
   });
 });
 ```
@@ -382,29 +384,34 @@ while(comptime((i < 10)), {
   // body evaluated/unrolled at compile time
 });
 
-// for loop — 2-arg prelude macro. First arg is the collection
-// directly; the macro dispatches on the body's binding shape to
-// pick value-form vs borrow-form iteration:
-for(list, (x) => {            // value form: implicit .into_iter()
+// for loop — 2-arg prelude macro iterating BY VALUE (implicit
+// .into_iter()). Object elements are handles: mutating them in the
+// body mutates the element in place.
+for(list, (x) => {
   process(x);
 });
+for(names, (s) => {
+  s.push_str("!");            // String element mutated in place
+});
 
-for(list, ref(x) => {         // borrow form: iter() + project(pos)
-  x = transform(x);           // writes propagate back into list
+// In-place struct/scalar element mutation: index loop + index writes.
+i := usize(0);
+while(i < list.len(), {
+  list(i) = transform(list(i));
+  i = (i + usize(1));
 });
 
 // Combinator chains (.map / .filter / .into_iter / etc.) yield
-// computed values; pass them as the first arg in the value form:
-for(list.iter().map((x) => (x + i32(1))), (y) => println(y));
+// computed values; pass them as the first arg:
+for(list.into_iter().map((x) => (x + i32(1))), (y) => println(y));
 ```
 
 - Use `recur(...)` for self-recursion
 - `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
-- **`for(coll, (x) => body)`** — value form; macro expands to `coll.into_iter()` then iterates by value (`x : T`).
-- **`for(coll, ref(x) => body)`** — borrow form; macro expands to `coll.iter()` (position iterator) + `coll.project(pos)` (`Indexable.project` impl) so `x` is a writable binding. Writes propagate back into the collection.
-- **Do NOT write `for(coll.iter(), (x) => …)` for the value form** — `.iter()` yields positions (usize), not the collection's elements. Use the bare collection or `.into_iter()`.
+- **`for(coll, (x) => body)`** — the only form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for object element types).
+- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error with the migration recipe.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
 
 ## Return and branch safety
@@ -467,22 +474,23 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
-// Value form — implicit .into_iter().
+// Value form — implicit .into_iter(). The only form.
 for(list, (value) => {
   println(value);
 });
 
-// Borrow form — implicit .iter() + .project(pos). `x` is a writable
-// binding into the collection; assignments propagate back.
-for(list, ref(x) => {
-  x = (x + i32(1));
+// In-place element mutation: index writes (struct/scalar elements) or
+// mutate the handle (object elements).
+i := usize(0);
+while(i < list.len(), {
+  list(i) = (list(i) + i32(1));
+  i = (i + usize(1));
 });
 ```
 
-- `for(coll, (x) => body)` — value form. Macro expands to `coll.into_iter()` and yields elements by value.
-- `for(coll, ref(x) => body)` — borrow form. Macro expands to `coll.iter()` (a position iterator yielding `usize`) + `coll.project(pos)` (from the `Indexable` trait) so the body sees a writable binding.
-- Combinator chains (`coll.iter().map(f).filter(g)`) only support the value form — pass the chain as the first arg with `(x) => body`.
-- The for macro accepts the collection directly; do NOT call `.iter()` for the value form, that yields positions (usize), not elements.
+- `for(coll, (x) => body)` — macro expands to `coll.into_iter()` and yields elements by value (a handle for object element types — mutating it mutates the element in place).
+- The borrow form `for(coll, ref(x) => body)` was REMOVED (v4); it emits a teaching compile error.
+- Combinator chains (`coll.into_iter().map(f).filter(g)`) work as the first arg with `(x) => body`.
 
 ## Testing
 

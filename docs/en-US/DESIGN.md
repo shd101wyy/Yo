@@ -1140,9 +1140,10 @@ the underlying buffer is freed are excluded by construction:
 - **`str` is the only built-in view**, and it refers exclusively to
   static string data — `s(a..b)` on a `str` is a zero-copy window of
   static bytes, which can never dangle.
-- **Borrowing an element in place** uses `ref` (`xs.project(i)` returns
-  `ref(T)`), guarded by the flowability rules
-  (see [FLOWABILITY.md](./FLOWABILITY.md)).
+- **Element access hands out values, never interior pointers** —
+  `xs.get(i)` returns the element (a handle for object types, which
+  survives container growth; a copy for struct types, written back with
+  `xs(i) = v`). See [FLOWABILITY.md](./FLOWABILITY.md).
 
 ### Range with `..`
 
@@ -1377,51 +1378,37 @@ for(iter_expr, (variable) => {
 });
 ```
 
-The `for` macro distinguishes borrow iteration from value iteration by the **lambda's binding shape** — `ref(x) => body` borrows, `(x) => body` consumes:
-
-| Form                        | Calls              | What `x` is                                                                                                      |
-| --------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `for(coll, ref(x) => body)` | `coll.iter()`      | `ref`-bound to each element; reads auto-deref, writes propagate back to the collection; `coll` survives the loop |
-| `for(coll, (x) => body)`    | `coll.into_iter()` | Owned value; collection is moved into the iterator and consumed                                                  |
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For object element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
 
 ```rust
-arr := Array(i32, 3)(1, 2, 3);
-
-// Borrow form — `x` is bound by reference; writes propagate.
-for(arr, ref(x) => {
-  x = (x * i32(10));
-});
-// arr is now [10, 20, 30].
-
-// Value form — `coll.into_iter()` is invoked; each `x` is owned.
+// Value form — each `x` is yielded by value.
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-for(list.into_iter(), (value) => {
+for(list, (value) => {
   println(value);
 });
-```
 
-Under the hood, `for(coll, ref(x) => body)` lowers to a `while` that pairs each yielded position with a `coll.project(pos)` borrow:
-
-```rust
-__iter := coll.iter();
-while(runtime(true), {
-  match(__iter.next(),
-    .Some(__pos) => {
-      ref(x) := coll.project(__pos);
-      body
-    },
-    .None => { break; }
-  )
+// Object elements are handles — mutation lands in the collection.
+for(names, (s) => {
+  s.push_str("!");
 });
+
+// Struct/scalar elements: index writes mutate in place.
+arr := Array(i32, 3)(1, 2, 3);
+i := usize(0);
+while(i < usize(3), {
+  arr(i) = (arr(i) * i32(10));
+  i = (i + usize(1));
+});
+// arr is now [10, 20, 30].
 ```
 
-`coll.iter()` returns an `Iterator(Item := Position)` (typically `usize` for indexed collections). The collection's `Indexable(Position)` impl provides `project(pos) -> ref(Element)`, which the for-macro pairs with each position to hand the body a `ref`-binding into element storage. See `plans/ITERATOR_REDESIGN.md`.
+Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-For value iteration, `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. Combinator chains (`coll.iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape — they don't have a `Collection` to project from, so they only support the value form. A blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
+The old borrow form `for(coll, ref(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 
-Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration); the byte-level borrow form `for(s, ref(b) => body)` is available too.
+Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration).
 
 ## Algebraic Data Types (ADT)
 

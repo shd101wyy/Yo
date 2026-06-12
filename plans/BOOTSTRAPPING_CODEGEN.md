@@ -325,6 +325,25 @@ Validate every differential run additionally under guard pages
 available. Explicit regression corpus: `tests/continue_rc_cleanup.test.yo`,
 `tests/ref_borrow_invalidation.test.yo`, deep-recursion stack sizing.
 
+v4 borrow-soundness machinery the port must carry
+(`plans/BORROW_EXCLUSIVITY.md`; landed in TS 2026-06-12):
+
+- **Ref-binding codegen** (`exprs/initialization-assignment.ts`): a
+  `ref(r) := obj.field` binding emits `(&(lvalue))`; a bare-local
+  source emits `(&(x))` (a ref source copies the pointer instead); and
+  an RC-object base ALSO emits the **owner pin** — a hidden owning
+  handle (`__yo_pin_<r>`) + dup at the binding line, whose drop rides
+  the normal scope-end lists via the `refOwnerPin` ExprInfo field the
+  evaluator sets (the hidden owning variable is already registered in
+  the env by the evaluator, so drop synthesis is automatic).
+- **Call-site ref/own exclusivity** (`requireRefOwnArgumentExclusivity`
+  in `evaluator/types/flowability.ts`, called from
+  `tryToCallFunctionWithArguments`): its yo-self mirror is BLOCKED on
+  landmine 3 (own/consume tracking) — wire it together with
+  consume-tracking in this phase.
+- Note `-> ref(T)` is banned (both evaluators already enforce it), so
+  the TS codegen's ref-RETURN plumbing is dead code — do NOT port it.
+
 **Gate:** full non-async `tests/` differential pass, guard-page-clean.
 
 ### Phase 5 — Async/effects state machines + I/O runtimes
