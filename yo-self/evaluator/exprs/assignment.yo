@@ -78,7 +78,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding } :: import("./binding.yo");
@@ -946,7 +946,15 @@ evaluate_assignment :: (
     is_compile_time_only : updated_variable.is_compile_time_only,
     frame_level : updated_variable.frame_level,
     value : value_to_store,
-    is_owning_the_rc_value : updated_variable.is_owning_the_rc_value,
+    // A `ref` binding/parameter NEVER owns: writing through the borrow
+    // stores into the OWNER's storage. Mirrors TS assignment.ts
+    // (`variable.isRef ? false : typeContainsRcType(...)`) — flipping a
+    // borrow to owning generated a spurious scope-end drop / double free
+    // (issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
+    is_owning_the_rc_value : cond(
+      updated_variable.is_ref => false,
+      true => type_contains_rc_type(rhs_type)
+    ),
     is_owning_the_same_rc_value_as : Option(Box(Variable)).None,
     is_reassignable : updated_variable.is_reassignable,
     token : updated_variable.token,
@@ -959,8 +967,11 @@ evaluate_assignment :: (
     is_effect_param : updated_variable.is_effect_param,
     is_module_level : updated_variable.is_module_level,
     doc_comment : updated_variable.doc_comment,
-    is_ref : false,
-    is_parameter : false,
+    // Preserve the borrow/parameter flags across reassignment (1:1 with
+    // the TS `...variable` spread — the previous `false` literals DROPPED
+    // is_ref on write-through, silently disabling the ref-aware gates).
+    is_ref : updated_variable.is_ref,
+    is_parameter : updated_variable.is_parameter,
     ref_borrowed_by : updated_variable.ref_borrowed_by
   );
   update_existing_variable(env, updated_variable, new_variable);

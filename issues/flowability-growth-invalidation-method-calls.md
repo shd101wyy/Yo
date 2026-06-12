@@ -1,7 +1,53 @@
 # Flowability: mutating method calls invalidate live `ref` borrows (growth realloc UAF)
 
-**Status: OPEN** — verified live 2026-06-12. The LAST known soundness hole
-in safe (non-pragma) Yo code.
+**Status: LARGELY FIXED 2026-06-12 — one residual below.** The same-scope
+forms are closed in BOTH compilers by extending the borrow-invalidation
+gate to call sites:
+
+- **Method receivers / call arguments**: while a `ref` borrow lives, the
+  source variable may not be used as a method receiver or call argument
+  (`requireNotLiveBorrowSourceForCall`, enforced in evaluateFunctionCall;
+  yo-self: calls/function.yo). Conservative by design — object reference
+  semantics make mutation signature-invisible. Exemptions: compiler-
+  synthesized uses (auto-generated `___drop`/`___dup`/`___dispose`) and
+  the RHS subtree of a `ref(...) :=` binding (borrow-CREATING projections,
+  so multiple live borrows from one source still work).
+- **Alias creation**: `y := xs` from a borrowed source is rejected
+  (initialization-assignment gate).
+- **Pre-existing aliases**: borrow marks apply to the source's whole
+  ALIAS GROUP (`collectAliasGroup` over `isOwningTheSameRcValueAs`
+  roots), so `xs2 := xs; ref(r) := xs.project(0); xs2.push(...)` is
+  rejected too.
+
+Regression tests: tests/ref_borrow_invalidation.test.yo (4 negative
+shapes incl. the alias-group case, 3 positives incl. unrelated-container
+calls and multi-borrow). The original runtime repro (64 pushes →
+gmalloc SIGSEGV) is now rejected at compile time.
+
+## RESIDUAL (open): aliasing invisible across function boundaries
+
+```rust
+f :: (fn(xs : ArrayList(String), xs2 : ArrayList(String)) -> unit)({
+  ref(r) := xs.project(usize(0));
+  xs2.push(String.from("filler"));   // xs2 MAY be the same list as xs
+  println(r);
+});
+// caller: f(list, list);
+```
+
+Inside `f`, parameters carry no alias information
+(`isOwningTheSameRcValueAs: undefined` for params), so the alias-group
+marking cannot see that `xs2` aliases `xs`. Closing this statically
+requires either Rust-style exclusivity (reject `f(list, list)` at call
+sites AND track reachability through fields/returns) or per-parameter
+may-alias assumptions (freeze every same-type object parameter while a
+borrow lives — likely too restrictive). A dynamic alternative: borrow
+epochs / pinned buffers on RC collections. Design decision needed; the
+same limitation exists for any handle reaching the object through struct
+fields or returns.
+
+---
+
 
 ## Symptom
 

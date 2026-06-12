@@ -32,8 +32,14 @@ open(import("std/string"));
   BK_GIVEN,
   BK_REF
 } :: import("../../expr.yo");
-{ is_flowable_expr, collect_ref_borrow_sources, FlowOptions, flag_flow_violation }
-:: import("../../types/flowability.yo");
+{
+  is_flowable_expr,
+  collect_ref_borrow_sources,
+  collect_alias_group,
+  find_live_borrower_of_variable,
+  FlowOptions,
+  flag_flow_violation
+} :: import("../../types/flowability.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -42,7 +48,7 @@ open(import("std/string"));
   has_any_control_flow,
   path_collection_new
 } :: import("../../expr_info.yo");
-{ Environment, Variable, RefBorrowMark, add_variable_to_env } :: import("../../env.yo");
+{ Environment, Variable, RefBorrowMark, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -235,13 +241,51 @@ evaluate_initialization_assignment :: (
       )
     );
   });
+  // Borrow-invalidation gate for ALIAS CREATION (1:1 with TS
+  // initialization-assignment.ts): `y := xs` on an object gives `y`
+  // reference semantics to the same storage; mutating through the alias
+  // would bypass the borrow constraints on `xs`. Conservatively reject
+  // creating a new binding from a bare borrowed source while the borrow
+  // lives (issues/flowability-growth-invalidation-method-calls.md).
+  if(ast_expr_is_atom(rhs), {
+    rhs_tok := ast_expr_token(rhs);
+    rhs_vars := get_variables_from_env(env, rhs_tok.value);
+    if(rhs_vars.len() > usize(0), {
+      match(
+        rhs_vars.get(rhs_vars.len() - usize(1)),
+        .Some(rhs_var) => match(
+          find_live_borrower_of_variable(rhs_var, env),
+          .Some(mark) => {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  rhs_tok,
+                  `Cannot create a new binding from "${rhs_tok.value}" while 'ref(${mark.ref_name}) := …' borrows from it — the new handle could mutate the borrowed storage without the borrow constraints applying to it.\n\nEnd the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
+                  false,
+                  .None
+                )
+              )
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+  });
   // Evaluate the rhs expression.
   // Save/restore context fields that are locally overridden.
   old_expected_type := ctx.expected_type;
   old_is_inside_given_handler := ctx.is_inside_given_handler;
+  old_is_evaluating_ref_binding_rhs := ctx.is_evaluating_ref_binding_rhs;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   if(is_implicit, {
     ctx.is_inside_given_handler = true;
+  });
+  // Borrow-CREATING projections on an already-borrowed source are allowed
+  // (see EvalContext.is_evaluating_ref_binding_rhs).
+  if(is_ref_binding, {
+    ctx.is_evaluating_ref_binding_rhs = true;
   });
   // Use the exn-threading (raw) evaluator so a compile error in the rhs
   // propagates to the caller's handler instead of being caught, printed,
@@ -254,6 +298,36 @@ evaluate_initialization_assignment :: (
   rhs = evaluate_expression_raw(rhs, env, ctx, exn);
   ctx.expected_type = old_expected_type;
   ctx.is_inside_given_handler = old_is_inside_given_handler;
+  ctx.is_evaluating_ref_binding_rhs = old_is_evaluating_ref_binding_rhs;
+  // The RHS of a borrow binding is NOT owned: a property-access RHS
+  // (`ref(r) := h.s`) materializes a temp variable registered as
+  // RC-owning — but no dup happened (it's a borrow), so its scope-end
+  // drop would over-release the field the owner still holds. Mark the
+  // temp non-owning (1:1 with TS initialization-assignment.ts;
+  // issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
+  if(is_ref_binding, {
+    rhs_tmp_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
+    match(
+      rhs_tmp_info,
+      .Some(rti) => match(
+        rti.variable_name,
+        .Some(tmp_name) => {
+          tmp_vars := get_variables_from_env(env, tmp_name);
+          if(tmp_vars.len() > usize(0), {
+            match(
+              tmp_vars.get(tmp_vars.len() - usize(1)),
+              .Some(tmp_var) => {
+                tmp_var.is_owning_the_rc_value = false;
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
   // Update env from the evaluated rhs.
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
   match(
@@ -699,14 +773,29 @@ Use \`::\` for compile-time definitions inside impl.`,
             match(
               sources.get(srci),
               .Some(src_var) => {
-                if(!(src_var.id == new_var.id), {
-                  src_var.ref_borrowed_by.push(
-                    RefBorrowMark(
-                      ref_name : var_name.clone(),
-                      ref_variable_id : new_var.id.clone(),
-                      token : actual_lhs_tok
-                    )
+                // Mark the source's whole ALIAS GROUP, not just the
+                // source: `xs2 := xs` before the borrow gives a second
+                // handle to the same object, and mutating through it
+                // invalidates the borrow just the same (1:1 with TS).
+                group := collect_alias_group(src_var, env);
+                (gmi : usize) = usize(0);
+                while(gmi < group.len(), {
+                  match(
+                    group.get(gmi),
+                    .Some(member) => {
+                      if(!(member.id == new_var.id), {
+                        member.ref_borrowed_by.push(
+                          RefBorrowMark(
+                            ref_name : var_name.clone(),
+                            ref_variable_id : new_var.id.clone(),
+                            token : actual_lhs_tok
+                          )
+                        );
+                      });
+                    },
+                    .None => ()
                   );
+                  gmi = (gmi + usize(1));
                 });
               },
               .None => ()

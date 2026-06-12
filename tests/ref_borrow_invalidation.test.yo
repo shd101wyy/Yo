@@ -69,3 +69,97 @@ test("copying the element out instead of borrowing", {
   xs = ArrayList(String).new();
   assert(copied == "element-zero", "copy survives the reassign");
 });
+
+// --- Call-use / alias gates (issues/flowability-growth-invalidation-method-calls.md) ---
+// Mutating METHOD CALLS on the borrowed source are rejected: object
+// reference semantics make mutation signature-invisible (`push` and `len`
+// both take `self : Self`), so any call could realloc/free the borrowed
+// backing. Runtime-proven hole before the gate: 64 pushes after
+// `ref(r) := xs.project(0)` realloc'd the buffer and `println(r)`
+// SIGSEGV'd under guard pages.
+comptime_expect_error(
+  method_call_while_borrowed :: (fn() -> unit)({
+    xs := ArrayList(String).new();
+    xs.push(String.from("element-zero"));
+    ref(r) := xs.project(usize(0));
+    xs.push(String.from("filler"));
+    println(r);
+  })
+);
+
+// Passing the borrowed source as a CALL ARGUMENT is rejected for the same
+// reason — the callee receives the object handle and can mutate it.
+comptime_expect_error(
+  call_argument_while_borrowed :: (fn() -> unit)({
+    grow := (fn(target : ArrayList(String)) -> unit)({
+      target.push(String.from("filler"));
+    });
+    xs := ArrayList(String).new();
+    xs.push(String.from("element-zero"));
+    ref(r) := xs.project(usize(0));
+    grow(xs);
+    println(r);
+  })
+);
+
+// Creating a NEW HANDLE from the borrowed source is rejected — the alias
+// could mutate the storage without the borrow constraints applying.
+comptime_expect_error(
+  alias_after_borrow :: (fn() -> unit)({
+    xs := ArrayList(String).new();
+    xs.push(String.from("element-zero"));
+    ref(r) := xs.project(usize(0));
+    xs2 := xs;
+    xs2.push(String.from("filler"));
+    println(r);
+  })
+);
+
+// A PRE-EXISTING alias is constrained too: borrow marks apply to the whole
+// alias group (xs2 := xs before the borrow shares the same object).
+comptime_expect_error(
+  preexisting_alias_mutation :: (fn() -> unit)({
+    xs := ArrayList(String).new();
+    xs.push(String.from("element-zero"));
+    xs2 := xs;
+    ref(r) := xs.project(usize(0));
+    xs2.push(String.from("filler"));
+    println(r);
+  })
+);
+
+// Positive: method calls on the source AFTER the borrowing block ends.
+test("method calls after the borrowing block ends", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  {
+    ref(r) := xs.project(usize(0));
+    assert(r == "element-zero", "read through the borrow");
+  };
+  xs.push(String.from("after"));
+  assert(xs.len() == usize(2), "mutation fine after the borrow ended");
+});
+
+// Positive: calls on an UNRELATED container while a borrow lives.
+test("calls on an unrelated container are unconstrained", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  other := ArrayList(String).new();
+  ref(r) := xs.project(usize(0));
+  other.push(String.from("unrelated"));
+  assert(r == "element-zero", "borrow unaffected");
+  assert(other.len() == usize(1), "unrelated container mutates fine");
+});
+
+// Positive: multiple borrows from the same source stay allowed — a
+// borrow-CREATING projection hands out a reference, it doesn't invalidate
+// the existing ones (the ref-binding RHS is exempt from the call gate).
+test("multiple live borrows from the same source", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  xs.push(String.from("element-one"));
+  ref(a) := xs.project(usize(0));
+  ref(b) := xs.project(usize(1));
+  assert(a == "element-zero", "first borrow");
+  assert(b == "element-one", "second borrow");
+});

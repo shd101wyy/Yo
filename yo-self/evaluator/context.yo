@@ -231,6 +231,12 @@ EvalContext :: object(
   force_compile_time_bindings : bool,
   /// Whether we are analysing CTFE capability with `UnknownValue` parameters.
   is_analyzing_ctfe_capability : bool,
+  /// True while evaluating the RHS of a `ref(name) := …` borrow binding.
+  /// The borrow-invalidation call gate is suppressed for this subtree:
+  /// creating ANOTHER borrow from an already-borrowed source is allowed —
+  /// the projection hands out a reference, it doesn't invalidate the
+  /// existing ones. Mirrors `EvaluatorContext.isEvaluatingRefBindingRhs`.
+  is_evaluating_ref_binding_rhs : bool,
   /// Whether we are in the argument-checking phase of a function call.
   is_in_function_call_checking_phase : bool,
   /// Whether we are evaluating the closure argument of an `io.async(...)` call.
@@ -301,6 +307,7 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     function_return_impl_concrete_type : Option(ArrayList(ImplConcreteTypeInfo)).None,
     force_compile_time_bindings : false,
     is_analyzing_ctfe_capability : false,
+    is_evaluating_ref_binding_rhs : false,
     is_in_function_call_checking_phase : false,
     is_inside_io_async_call : false,
     is_inside_given_handler : false,

@@ -270,6 +270,19 @@ export interface EvaluatorContext {
   isAnalyzingCtfeCapability?: boolean;
 
   /**
+   * True while evaluating the RHS of a `ref(name) := …` borrow binding.
+   * The borrow-invalidation call gate is suppressed for this subtree:
+   * creating ANOTHER borrow from an already-borrowed source (e.g.
+   * `ref(again) := list.project(0)` while `first` is live) is allowed —
+   * the projection call hands out a reference, it doesn't invalidate the
+   * existing ones. The new binding then records its own marks on the same
+   * sources. (Residual: a ref-returning method that ALSO mutates would
+   * slip through here — needs per-method effect annotations; tracked in
+   * issues/flowability-growth-invalidation-method-calls.md.)
+   */
+  isEvaluatingRefBindingRhs?: boolean;
+
+  /**
    * When true, we're in the "checking phase" of function call resolution where we
    * verify that arguments match parameter types. During this phase, we should NOT
    * execute CTFE functions - only verify types. This prevents exponential blowup

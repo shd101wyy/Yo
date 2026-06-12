@@ -303,6 +303,36 @@ export function generateInitializationAssignment(
       // Non-array initialization - use existing logic
       let rhsCode: string;
 
+      // `ref(r) := obj.field` — borrow the FIELD LVALUE in place. The
+      // generic path materializes the field VALUE into a temp and binds
+      // the `T*` storage to it without '&' (a C compile error;
+      // issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
+      // Generate the raw lvalue (no temp materialization) and take its
+      // address — same '&' discipline as projection methods.
+      const lhsVarsForRef = lhs.$.env
+        ? getVariablesFromEnv(lhs.$.env, varName)
+        : [];
+      const lhsIsRefBinding =
+        lhsVarsForRef.length > 0 &&
+        lhsVarsForRef[lhsVarsForRef.length - 1]!.isRef === true;
+      if (
+        lhsIsRefBinding &&
+        exprIsFunctionCall(rhs) &&
+        exprIsFunctionCallOf(rhs, ".", 2)
+      ) {
+        const savedVariableName = rhs.$?.variableName;
+        if (rhs.$) rhs.$.variableName = undefined;
+        const lvalueCode = generateExpr(rhs, indent, context);
+        if (rhs.$) rhs.$.variableName = savedVariableName;
+        const refTypeString = getTypeString(lhs.$.type!, context);
+        if (!isUnitType(lhs.$.type)) {
+          context.emitter.emitLine(
+            `${indent}${refTypeString}* ${getVariableNameForCodegen(varName, lhs.$.env)} = (&(${lvalueCode}));`
+          );
+        }
+        return "";
+      }
+
       const rhsIsClosureConstruction =
         exprIsFunctionCall(rhs) &&
         rhs.$?.closureFunctionValue &&

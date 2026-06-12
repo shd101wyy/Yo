@@ -55,11 +55,25 @@ xs = ArrayList(String).new();   // ✗ rejected: would free the buffer r points 
 println(r);
 ```
 
-The constraint ends with the binding's block — reassigning the source
-after the borrow's scope closes is fine, as is mutating unrelated
-variables. To keep the container freely reassignable, copy the element
-out (`xs.get(i)`) instead of borrowing it.
+The same constraint applies to **call uses and aliases** of the source:
+while the borrow lives, the source may not be used as a method receiver
+or call argument (`xs.push(...)`, `grow(xs)`), and no new binding may be
+created from it (`xs2 := xs`) — object types have reference semantics, so
+a method's signature cannot prove it doesn't mutate (`push` and `len`
+both take `self : Self`). Pre-existing aliases are constrained too (the
+marks apply to the whole alias group). Creating ANOTHER borrow from the
+same source stays allowed (`ref(b) := xs.project(1)` while `a` is live).
+
+The constraint ends with the binding's block — reassigning or mutating
+the source after the borrow's scope closes is fine, as is mutating
+unrelated variables. To keep the container freely usable, copy the
+element out (`xs.get(i)`) instead of borrowing it.
 See `tests/ref_borrow_invalidation.test.yo`.
+
+**Known limitation:** aliasing that crosses a function boundary is
+invisible to these checks — a function receiving the same object through
+two parameters can mutate through one while borrowing through the other
+(`issues/flowability-growth-invalidation-method-calls.md` tracks this).
 
 ## Escape hatches
 

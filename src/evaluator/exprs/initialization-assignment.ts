@@ -1,4 +1,9 @@
-import { addVariableToEnv, getVariablesFromEnv, type Environment } from "../../env";
+import {
+  addVariableToEnv,
+  getVariablesFromEnv,
+  updateExistingVariable,
+  type Environment,
+} from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
@@ -12,6 +17,7 @@ import {
   setExprAsNeedsToCallDup,
   type FnCallExpr,
 } from "../../expr";
+import { TokenType } from "../../token";
 import { generateNewTempVariableName } from "../../utils";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { SomeType } from "../../types/definitions";
@@ -35,7 +41,12 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import { isFlowableExpr, collectRefBorrowSources } from "../types/flowability";
+import {
+  collectAliasGroup,
+  collectRefBorrowSources,
+  findLiveBorrowerOfVariable,
+  isFlowableExpr,
+} from "../types/flowability";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
@@ -136,6 +147,28 @@ export function evaluateInitializationAssignment({
     });
   }
 
+  // Borrow-invalidation gate for ALIAS CREATION: `y := xs` on an object
+  // gives `y` reference semantics to the same storage; mutating through
+  // the alias would bypass the borrow constraints on `xs` (the marks live
+  // on the source variable, not the object). Conservatively reject
+  // creating a new binding from a bare borrowed source while the borrow
+  // lives (issues/flowability-growth-invalidation-method-calls.md).
+  if (exprIsAtom(rhs) && rhs.token.type === TokenType.Identifier) {
+    const rhsVars = getVariablesFromEnv(env, rhs.token.value);
+    const rhsVar = rhsVars[rhsVars.length - 1];
+    if (rhsVar) {
+      const borrower = findLiveBorrowerOfVariable(rhsVar, env);
+      if (borrower) {
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Cannot create a new binding from "${rhs.token.value}" while 'ref(${borrower.refName}) := …' borrows from it — the new handle could mutate the borrowed storage without the borrow constraints applying to it.
+
+End the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
+        });
+      }
+    }
+  }
+
   // Evaluate the rhs expression
   rhs = evaluateExpression({
     expr: rhs,
@@ -143,6 +176,9 @@ export function evaluateInitializationAssignment({
     context: {
       ...context,
       expectedType: undefined,
+      // Borrow-CREATING projections on an already-borrowed source are
+      // allowed (see EvaluatorContext.isEvaluatingRefBindingRhs).
+      isEvaluatingRefBindingRhs: isRefBinding || undefined,
     },
   });
 
@@ -180,6 +216,24 @@ export function evaluateInitializationAssignment({
         token: rhs.token,
         errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
       });
+    }
+
+    // The RHS of a borrow binding is NOT owned: a property-access RHS
+    // (`ref(r) := h.s`) materializes a temp variable that the generic
+    // machinery registers as RC-owning and drops at scope end — but no
+    // dup happened (it's a borrow), so that drop over-releases the field
+    // the owner still holds
+    // (issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
+    // Mark the temp non-owning so no scope-end drop is generated.
+    if (rhs.$?.variableName && rhs.$.env) {
+      const tempVars = getVariablesFromEnv(env, rhs.$.variableName);
+      const tempVar = tempVars[tempVars.length - 1];
+      if (tempVar?.isOwningTheRcValue) {
+        env = updateExistingVariable(env, tempVar, {
+          ...tempVar,
+          isOwningTheRcValue: false,
+        });
+      }
     }
   }
 
@@ -527,12 +581,20 @@ Use \`::\` for compile-time definitions inside impl.`,
       if (refVariable) {
         for (const source of collectRefBorrowSources(rhs)) {
           if (source === refVariable) continue;
-          source.refBorrowedBy = source.refBorrowedBy ?? [];
-          source.refBorrowedBy.push({
-            refName: varName,
-            refVariable,
-            token: actualLhs.token,
-          });
+          // Mark the source's whole ALIAS GROUP, not just the source:
+          // `xs2 := xs` before the borrow gives a second handle to the
+          // same object, and mutating through it (`xs2.push(...)`)
+          // invalidates the borrow just the same. Aliases created AFTER
+          // the borrow are rejected outright at the binding site above.
+          for (const member of collectAliasGroup(source, env)) {
+            if (member === refVariable) continue;
+            member.refBorrowedBy = member.refBorrowedBy ?? [];
+            member.refBorrowedBy.push({
+              refName: varName,
+              refVariable,
+              token: actualLhs.token,
+            });
+          }
         }
       }
     }

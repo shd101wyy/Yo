@@ -13,6 +13,7 @@ import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   type AtomExpr,
   attachTempVariableToExpr,
+  BuiltinFunctions,
   cloneExpr,
   controlFlowOf,
   type Expr,
@@ -96,6 +97,7 @@ import {
   extractFnTraitFromType,
   extractFutureTraitFromType,
 } from "../trait-checking";
+import { requireNotLiveBorrowSourceForCall } from "../types/flowability";
 import { evaluateFunctionReturnTypeAgain } from "../types/function";
 import { evaluateAnonymousStructValue } from "../values/anonymous-struct";
 import { tryToImplementArrayByArrayType } from "./array-type";
@@ -220,6 +222,46 @@ export function evaluateFunctionCall({
 }): Expr {
   let func = expr.func;
   let args = expr.args;
+
+  // Borrow-invalidation gate for call uses: while a `ref(name) := …`
+  // binding borrows from a variable, the variable may not be used as a
+  // method receiver or call argument — object reference semantics make
+  // mutation signature-invisible (`push` and `len` both take
+  // `self : Self`), so any call could free/move the borrowed backing
+  // (issues/flowability-growth-invalidation-method-calls.md).
+  // Auto-generated RC machinery (scope-end `(xs).___drop()` / `___dup`)
+  // legitimately touches the source when the borrow and the source die
+  // together at scope exit — exempt it (and anything else synthesized by
+  // the compiler) from the gate.
+  const isCompilerSynthesizedUse =
+    expr.token.modulePath.startsWith("auto-generated://") ||
+    context.isEvaluatingRefBindingRhs === true;
+  if (
+    !isCompilerSynthesizedUse &&
+    exprIsFunctionCall(func) &&
+    exprIsFunctionCallOf(func, ".", 2) &&
+    exprIsAtom(func.args[0]!)
+  ) {
+    const methodNameExpr = func.args[1];
+    const isRcInternal =
+      methodNameExpr !== undefined &&
+      exprIsAtom(methodNameExpr) &&
+      (methodNameExpr.token.value === BuiltinFunctions.___drop[0] ||
+        methodNameExpr.token.value === BuiltinFunctions.___dup[0] ||
+        methodNameExpr.token.value === BuiltinFunctions.___dispose[0]);
+    if (!isRcInternal) {
+      requireNotLiveBorrowSourceForCall(
+        func.args[0]!,
+        env,
+        "a method receiver"
+      );
+    }
+  }
+  if (!isCompilerSynthesizedUse) {
+    for (const argExpr of args) {
+      requireNotLiveBorrowSourceForCall(argExpr, env, "a call argument");
+    }
+  }
 
   // For module method call
   let methodExpr: Expr | undefined = undefined;

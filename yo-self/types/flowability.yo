@@ -38,7 +38,9 @@ open(import("std/string"));
 } :: import("../expr.yo");
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type }
 :: import("../expr_info.yo");
-{ Variable, get_variables_from_env } :: import("../env.yo");
+{ Variable, Environment, RefBorrowMark, get_variables_from_env } :: import("../env.yo");
+{ format_error_message } :: import("../error.yo");
+{ Exception } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
@@ -703,6 +705,142 @@ collect_ref_borrow_sources :: (
     pi = (pi + usize(1));
   });
 });
+
+/// Mirrors `findLiveBorrowerOfVariable` (src/evaluator/types/flowability.ts):
+/// if `variable` is a borrow SOURCE constrained by a still-live
+/// `ref(name) := …` binding, return that mark (liveness id-checked against
+/// the current env so stale marks from exited blocks don't constrain).
+find_live_borrower_of_variable :: (
+  fn(variable : Variable, env : Environment) -> Option(RefBorrowMark)
+)({
+  (found : Option(RefBorrowMark)) = Option(RefBorrowMark).None;
+  (rbi : usize) = usize(0);
+  while(rbi < variable.ref_borrowed_by.len(), {
+    match(
+      variable.ref_borrowed_by.get(rbi),
+      .Some(mark) => {
+        live_refs := get_variables_from_env(env, mark.ref_name);
+        (lri : usize) = usize(0);
+        while(lri < live_refs.len(), {
+          match(
+            live_refs.get(lri),
+            .Some(lr) => {
+              if(lr.id == mark.ref_variable_id, {
+                found = Option(RefBorrowMark).Some(mark);
+              });
+            },
+            .None => ()
+          );
+          lri = (lri + usize(1));
+        });
+      },
+      .None => ()
+    );
+    rbi = (rbi + usize(1));
+  });
+  found
+});
+/// Mirrors `aliasGroupRoot` (flowability.ts): follow
+/// `is_owning_the_same_rc_value_as` links to the primary owner's id
+/// (step-capped in place of TS's identity-set cycle guard).
+alias_group_root :: (fn(variable : Variable) -> String)({
+  (cur : Variable) = variable;
+  (root_id : String) = variable.id.clone();
+  (steps : usize) = usize(0);
+  (done : bool) = false;
+  while(!(done) && (steps < usize(64)), {
+    match(
+      cur.is_owning_the_same_rc_value_as,
+      .Some(next_box) => {
+        cur = next_box.*;
+        root_id = cur.id.clone();
+      },
+      .None => {
+        done = true;
+      }
+    );
+    steps = (steps + usize(1));
+  });
+  root_id
+});
+/// Mirrors `collectAliasGroup` (flowability.ts): all live variables in
+/// `env` that alias the same RC object as `variable` (same alias-group
+/// root), including `variable` itself. Used by the borrow gate so
+/// PRE-EXISTING aliases (`xs2 := xs` before the borrow) are constrained.
+collect_alias_group :: (
+  fn(variable : Variable, env : Environment) -> ArrayList(Variable)
+)({
+  root_id := alias_group_root(variable);
+  group := ArrayList(Variable).new();
+  group.push(variable);
+  (fi : usize) = usize(0);
+  while(fi < env.frames.len(), {
+    match(
+      env.frames.get(fi),
+      .Some(frame) => {
+        (vi : usize) = usize(0);
+        while(vi < frame.variables.len(), {
+          match(
+            frame.variables.get(vi),
+            .Some(v) => {
+              if(!(v.id == variable.id), {
+                if(alias_group_root(v) == root_id, {
+                  group.push(v);
+                });
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  group
+});
+/// Mirrors `requireNotLiveBorrowSourceForCall` (flowability.ts): while a
+/// `ref(name) := …` binding borrows from a variable, the variable may not
+/// be used as a method receiver or call argument — object reference
+/// semantics make mutation signature-invisible, so any call could free or
+/// move the borrowed backing
+/// (issues/flowability-growth-invalidation-method-calls.md).
+require_not_live_borrow_source_for_call :: (
+  fn(expr : AstExpr, env : Environment, use_desc : str, exn : Exception) -> unit
+)({
+  if(!(ast_expr_is_atom(expr)), {
+    return(());
+  });
+  atom_tok := ast_expr_token(expr);
+  vars := get_variables_from_env(env, atom_tok.value);
+  if(vars.len() == usize(0), {
+    return(());
+  });
+  variable := match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => v,
+    .None => {
+      return(());
+    }
+  );
+  match(
+    find_live_borrower_of_variable(variable, env),
+    .Some(mark) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            atom_tok,
+            `Cannot use "${atom_tok.value}" as ${use_desc} while 'ref(${mark.ref_name}) := …' borrows from it. A call could mutate it (e.g. grow/free the storage the reference points into) — method signatures on object types cannot prove otherwise.\n\nEnd the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
+            false,
+            .None
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+});
 export(
   FlowOptions,
   flow_options_default,
@@ -712,6 +850,10 @@ export(
   clear_flow_violation,
   flow_violation_pending,
   flow_violation_message,
+  find_live_borrower_of_variable,
+  alias_group_root,
+  collect_alias_group,
+  require_not_live_borrow_source_for_call,
   set_propagate_def_time_errors,
   propagate_def_time_errors
 );

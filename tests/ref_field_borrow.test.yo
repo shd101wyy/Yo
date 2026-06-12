@@ -1,0 +1,40 @@
+//! Regression tests: `ref(r) := obj.field` borrows the FIELD LVALUE in
+//! place. Before the fix this shape (a) emitted the initializer without `&`
+//! (C compile error) and (b) write-through reassignment flipped the borrow
+//! to "owning", generating a spurious scope-end drop of `(*r)` that
+//! double-freed the field the owner still holds.
+//! issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md
+open(import("std/fmt"));
+open(import("std/string"));
+
+Holder :: object(s : String, n : i32);
+
+test("read through an object-field borrow", {
+  h := Holder(s : String.from("hello"), n : i32(1));
+  ref(r) := h.s;
+  assert(r == "hello", "field read through the borrow");
+});
+
+test("write through an object-field borrow mutates in place", {
+  h := Holder(s : String.from("hello"), n : i32(1));
+  ref(r) := h.s;
+  r = String.from("rewritten");
+  assert(h.s == "rewritten", "owner sees the write");
+});
+
+test("scalar field borrow read and write", {
+  h := Holder(s : String.from("x"), n : i32(7));
+  ref(rn) := h.n;
+  assert(rn == i32(7), "scalar read");
+  rn = i32(42);
+  assert(h.n == i32(42), "scalar write lands in the owner");
+});
+
+PointS :: struct(x : i32, y : i32);
+
+test("value-struct field borrow", {
+  p := PointS(x : i32(1), y : i32(2));
+  ref(rx) := p.x;
+  rx = i32(10);
+  assert(p.x == i32(10), "stack-struct field write through the borrow");
+});

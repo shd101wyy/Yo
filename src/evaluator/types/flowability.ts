@@ -43,7 +43,8 @@ import {
   type Expr,
   type FnCallExpr,
 } from "../../expr";
-import { TokenType } from "../../token";
+import { formatErrorMessage } from "../../error";
+import { type Token, TokenType } from "../../token";
 import type { FunctionType } from "../../types/definitions";
 import { isFunctionType } from "../../types/guards";
 import {
@@ -51,7 +52,11 @@ import {
   typeRepresentationContainsRawPtr,
 } from "../../types/utils";
 import { isFunctionValue, isTypeValue } from "../../value";
-import { getVariablesFromEnv, type Variable } from "../../env";
+import {
+  type Environment,
+  getVariablesFromEnv,
+  type Variable,
+} from "../../env";
 
 /**
  * Strip outer `begin(...)` wrappers from an expression so we can
@@ -563,4 +568,104 @@ export function collectRefBorrowSources(expr: Expr): Variable[] {
   };
   visit(expr);
   return out;
+}
+
+/**
+ * If `variable` is a borrow SOURCE constrained by a still-live
+ * `ref(name) := …` binding, return that borrower; otherwise undefined.
+ *
+ * A recorded borrower constrains the source only while its ref variable is
+ * still in scope — verified by object identity against the current env so
+ * stale marks from exited blocks don't constrain. Shared by every
+ * borrow-invalidation enforcement site (reassign, move, call-use, alias).
+ */
+export function findLiveBorrowerOfVariable(
+  variable: Variable,
+  env: Environment
+): { refName: string; refVariable: Variable; token: Token } | undefined {
+  if (!variable.refBorrowedBy?.length) return undefined;
+  for (const borrower of variable.refBorrowedBy) {
+    const liveRefVars = getVariablesFromEnv(env, borrower.refName);
+    if (liveRefVars.some((v) => v === borrower.refVariable)) {
+      return borrower;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Borrow-invalidation gate for CALL USES: while a `ref(name) := …` binding
+ * borrows from a variable, that variable may not be used as a method
+ * receiver or call argument.
+ *
+ * This is deliberately conservative: Yo `object` types have reference
+ * semantics, so a method's signature carries NO information about whether
+ * it mutates — `push` (which may realloc the borrowed backing) and `len`
+ * (read-only) both take `self : Self`. Without per-method effect
+ * annotations, any call that receives the source could free or move the
+ * storage the borrow points into
+ * (issues/flowability-growth-invalidation-method-calls.md).
+ *
+ * `expr` is the use site (an identifier atom). Throws when constrained.
+ */
+export function requireNotLiveBorrowSourceForCall(
+  expr: Expr,
+  env: Environment,
+  useDescription: string
+): void {
+  if (!exprIsAtom(expr) || expr.token.type !== TokenType.Identifier) return;
+  const variables = getVariablesFromEnv(env, expr.token.value);
+  if (variables.length === 0) return;
+  const variable = variables[variables.length - 1]!;
+  const borrower = findLiveBorrowerOfVariable(variable, env);
+  if (borrower) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Cannot use "${expr.token.value}" as ${useDescription} while 'ref(${borrower.refName}) := …' borrows from it. A call could mutate it (e.g. grow/free the storage the reference points into) — method signatures on object types cannot prove otherwise.
+
+End the borrowing block first, or copy the element out (e.g. ".get(i)") instead of borrowing it.`,
+    });
+  }
+}
+
+/**
+ * Resolve the alias-group ROOT of a variable: follow
+ * `isOwningTheSameRcValueAs` links to the primary owner (with a cycle
+ * guard). Two variables alias the same RC object iff their roots are the
+ * same variable.
+ */
+export function aliasGroupRoot(variable: Variable): Variable {
+  let cur = variable;
+  const seen = new Set<Variable>();
+  while (cur.isOwningTheSameRcValueAs && !seen.has(cur)) {
+    seen.add(cur);
+    cur = cur.isOwningTheSameRcValueAs;
+  }
+  return cur;
+}
+
+/**
+ * All live variables in `env` that alias the same RC object as `variable`
+ * (including `variable` itself): same alias-group root by identity.
+ *
+ * Used by the borrow-invalidation gate to constrain PRE-EXISTING aliases:
+ * `xs2 := xs; ref(r) := xs.project(0); xs2.push(...)` must be rejected —
+ * mutation through any handle of the object invalidates the borrow
+ * (issues/flowability-growth-invalidation-method-calls.md).
+ */
+export function collectAliasGroup(
+  variable: Variable,
+  env: Environment
+): Variable[] {
+  const root = aliasGroupRoot(variable);
+  const group: Variable[] = [];
+  for (const frame of env.frames) {
+    for (const v of frame.variables) {
+      if (v === variable || aliasGroupRoot(v) === root) {
+        if (!group.includes(v)) group.push(v);
+      }
+    }
+  }
+  if (!group.includes(variable)) group.push(variable);
+  return group;
 }

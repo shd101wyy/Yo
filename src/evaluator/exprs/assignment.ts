@@ -644,7 +644,14 @@ comptime(${variableName}) : ${typeToString(variable.type)}
         initializedAtToken: lhs.token,
         value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
-        isOwningTheRcValue: typeContainsRcType(variableType),
+        // A `ref` binding/parameter NEVER owns: writing through the borrow
+        // stores into the OWNER's storage (the owner's dispose frees the
+        // new value). Flipping it to owning here generated a spurious
+        // scope-end drop of `(*r)` → double free
+        // (issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
+        isOwningTheRcValue: variable.isRef
+          ? false
+          : typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
     } else {
@@ -752,7 +759,10 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
-        isOwningTheRcValue: typeContainsRcType(variableType),
+        // See the isRef note above — a borrow never owns.
+        isOwningTheRcValue: variable.isRef
+          ? false
+          : typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
       isMutatingDefinedVariable = true;

@@ -23,6 +23,7 @@ open(import("std/string"));
   clone_expr_fresh_ids,
   alloc_global_expr_id,
   ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
   BF_DOT
 } :: import("../../expr.yo");
 { is_auto_generated_expansion } :: import("../memory_safety.yo");
@@ -42,6 +43,7 @@ open(import("std/string"));
   get_type_trait_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ require_not_live_borrow_source_for_call } :: import("../../types/flowability.yo");
 { get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
@@ -632,6 +634,56 @@ evaluate_function_call :: (
     .FnCall(_, _, a, _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
+  // Borrow-invalidation gate for call uses (1:1 with TS function.ts):
+  // while a `ref(name) := …` binding borrows from a variable, the
+  // variable may not be used as a method receiver or call argument —
+  // object reference semantics make mutation signature-invisible, so any
+  // call could free/move the borrowed backing
+  // (issues/flowability-growth-invalidation-method-calls.md).
+  // Compiler-synthesized uses (auto-generated `(xs).___drop()` at scope
+  // exit) and the RHS subtree of a `ref(...) :=` binding (borrow-CREATING
+  // projections) are exempt.
+  is_compiler_synthesized_use :=
+    (tok.module_path.starts_with(String.from("auto-generated://")) || ctx.is_evaluating_ref_binding_rhs);
+  if(!(is_compiler_synthesized_use), {
+    if(ast_expr_is_fn_call_of(func_expr, ".",.Some(usize(2))), {
+      recv_and_name := match(
+        func_expr,
+        .FnCall(_, _, fargs, _, _) => fargs,
+        .Atom(_, _) => ArrayList(AstExpr).new()
+      );
+      recv_opt := recv_and_name.get(usize(0));
+      mname := match(
+        recv_and_name.get(usize(1)),
+        .Some(m) => match(m,.Atom(_, mt) => mt.value, _ => String.new()),
+        .None => String.new()
+      );
+      is_rc_internal :=
+        ((mname == "___drop") || (mname == "___dup")) || (mname == "___dispose");
+      if(!(is_rc_internal), {
+        match(
+          recv_opt,
+          .Some(recv) => {
+            if(ast_expr_is_atom(recv), {
+              require_not_live_borrow_source_for_call(recv, env, "a method receiver", exn);
+            });
+          },
+          .None => ()
+        );
+      });
+    });
+    (gate_ai : usize) = usize(0);
+    while(gate_ai < args.len(), {
+      match(
+        args.get(gate_ai),
+        .Some(garg) => {
+          require_not_live_borrow_source_for_call(garg, env, "a call argument", exn);
+        },
+        .None => ()
+      );
+      gate_ai = (gate_ai + usize(1));
+    });
+  });
   // Pre-fold `-(IntLit)` to a comptime negative integer literal.
   // yo-self does not yet implement full ModuleT/Call overload dispatch
   // for the prelude's `(-) :: impl({ Call :: (neg, comptime_neg); })`,
