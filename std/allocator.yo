@@ -63,7 +63,9 @@ extern(
   __yo_free :
     fn(ptr : ?*(void)) -> unit,
   __yo_aligned_alloc :
-    fn(alignment : usize, size : usize) -> ?*(void)
+    fn(alignment : usize, size : usize) -> ?*(void),
+  __yo_borrow_assert_unborrowed :
+    fn(forall(T : Type), obj : T) -> unit
 );
 /// The process-wide global allocator (mimalloc by default, falls back to libc).
 GlobalAllocator :: impl({
@@ -87,5 +89,6 @@ export(
   Layout,
   layout_of,
   AllocError,
-  GlobalAllocator
+  GlobalAllocator,
+  __yo_borrow_assert_unborrowed
 );

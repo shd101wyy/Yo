@@ -1874,10 +1874,10 @@ static inline void __yo_borrow_release(void* ptr) {
   if (ptr == NULL) return;
   ((__yo_ref_header_t*)ptr)->borrow_count--;
 }
-static inline void __yo_borrow_assert_unborrowed(void* ptr, const char* op) {
+static inline void __yo_borrow_assert_unborrowed(void* ptr) {
   if (ptr == NULL) return;
   if (((__yo_ref_header_t*)ptr)->borrow_count != 0) {
-    fprintf(stderr, "panic: %s while an interior reference (a 'ref' into an element/field) borrows from it\\n", op);
+    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
     abort();
   }
 }`);

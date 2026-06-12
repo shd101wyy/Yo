@@ -1,6 +1,6 @@
 //! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, __yo_borrow_assert_unborrowed } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 /// Error variants for ArrayList operations.
@@ -133,7 +133,8 @@ impl(
   /**
   * Add an element to the end of the ArrayList
   */
-  push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
+  push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))({
+    __yo_borrow_assert_unborrowed(self);
     // Check if we need to grow
     cond(
       (self._length >= self._capacity) => {
@@ -179,7 +180,7 @@ impl(
           .None => panic("ArrayList has capacity but no ptr")
         )
     )
-  ),
+  }),
   /**
   * Remove and return the last element
   */
@@ -221,7 +222,8 @@ impl(
   * Shrink the capacity to match the current length
   * This reduces memory usage but may cause reallocation on next push
   */
-  shrink_to_fit : (fn(self : Self) -> Result(unit, ArrayListError))(
+  shrink_to_fit : (fn(self : Self) -> Result(unit, ArrayListError))({
+    __yo_borrow_assert_unborrowed(self);
     // If length equals capacity or both are zero, nothing to do
     cond(
       ((self._length == self._capacity) || (self._capacity == usize(0))) =>.Ok(()),
@@ -263,7 +265,7 @@ impl(
             )
         )
     )
-  ),
+  }),
   _free_elements : (fn(self : Self) -> unit)(
     cond(
       Type.contains_rc_type(T) => {
@@ -426,6 +428,7 @@ impl(
   * without further reallocation.
   */
   ensure_total_capacity : (fn(self : Self, min_cap : usize) -> unit)({
+    __yo_borrow_assert_unborrowed(self);
     cond(
       (min_cap <= self._capacity) => (),
       true => {

@@ -15,14 +15,11 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   type AtomExpr,
+  type Expr,
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
-import type {
-  FunctionType,
-  SomeType,
-  Type,
-} from "../../types/definitions";
+import type { FunctionType, SomeType, Type } from "../../types/definitions";
 import {
   isArrayType,
   isDynType,
@@ -275,6 +272,87 @@ function splitTopLevelArgsList(s: string): string[] {
   }
   if (cur.trim().length > 0) out.push(cur.trim());
   return out;
+}
+
+/**
+ * For a `ref` argument that is an interior borrow (Index-trait expression),
+ * extract the C code string for the container pointer that needs acquire/release.
+ * Returns undefined when the argument is not an interior borrow.
+ */
+function getInteriorRefContainerCode(
+  argExpr: Expr,
+  param: { isRef?: boolean } | undefined,
+  indent: string,
+  context: CodeGenContext
+): string | undefined {
+  if (!param?.isRef) return undefined;
+  if (!argExpr.$?.indexTraitPtrType) return undefined;
+  if (!exprIsFunctionCall(argExpr)) return undefined;
+
+  const containerExpr = (argExpr as FnCallExpr).func;
+
+  // Simple atom (e.g., xs in xs(i)): generateExpr returns the C variable name
+  if (exprIsAtom(containerExpr)) {
+    return generateExpr(containerExpr, indent, context);
+  }
+
+  // Property chain (e.g., self->_inner in self->_inner(i)):
+  // generateExpr returns C field-access expression (arrow notation for objects)
+  if (exprIsFunctionCallOf(containerExpr, ".", 2)) {
+    return generateExpr(containerExpr, indent, context);
+  }
+
+  // Complex expression (function call result, etc.): skip borrow tracking.
+  // The static rule covers the obvious violations; the runtime backstop
+  // conservatively skips cases where we can't statically identify the container.
+  return undefined;
+}
+
+/**
+ * Emit borrow acquire/release bracketing for interior-ref arguments at a call site.
+ * Returns the list of container C codes that were acquired (caller must emit releases).
+ */
+function emitBorrowAcquires(
+  runtimeArgExprs: Expr[],
+  runtimeParams: { isRef?: boolean }[],
+  indent: string,
+  context: CodeGenContext
+): string[] {
+  const containers: string[] = [];
+  for (
+    let ai = 0;
+    ai < runtimeArgExprs.length && ai < runtimeParams.length;
+    ai++
+  ) {
+    const containerCode = getInteriorRefContainerCode(
+      runtimeArgExprs[ai]!,
+      runtimeParams[ai],
+      indent,
+      context
+    );
+    if (containerCode) {
+      containers.push(containerCode);
+      context.emitter.emitLine(
+        `${indent}__yo_borrow_acquire((void*)(${containerCode}));`
+      );
+    }
+  }
+  return containers;
+}
+
+/**
+ * Emit borrow releases (LIFO order) for containers acquired by emitBorrowAcquires.
+ */
+function emitBorrowReleases(
+  containers: string[],
+  indent: string,
+  context: CodeGenContext
+): void {
+  for (let ai = containers.length - 1; ai >= 0; ai--) {
+    context.emitter.emitLine(
+      `${indent}__yo_borrow_release((void*)(${containers[ai]!}));`
+    );
+  }
 }
 
 /**
@@ -1193,9 +1271,25 @@ export function generateOtherFunctionCall(
 
           // Generate function call
           if (isUnitType(functionValueType.return.type)) {
+            // Acquire borrow flags for interior-ref arguments before the call
+            const borrowContainers = emitBorrowAcquires(
+              runtimeArgExprs,
+              _runtimeParamsForRefCheck as { isRef?: boolean }[],
+              indent,
+              context as FunctionGenerationContext
+            );
+
             // If the function returns unit, just call it without assignment
             context.emitter.emitLine(
               `${indent}${cFuncName}(${namedCastedArgsList});`
+            );
+
+            // Release borrow flags after the call (before deferred drops and unwind check,
+            // so the release runs even if the callee set __yo_effect_escaped)
+            emitBorrowReleases(
+              borrowContainers,
+              indent,
+              context as FunctionGenerationContext
             );
 
             // Handle deferred drop expressions if they exist
@@ -1296,6 +1390,14 @@ export function generateOtherFunctionCall(
                 cTypeString = `${cTypeString}*`;
               }
 
+              // Acquire borrow flags for interior-ref arguments before the call
+              const borrowContainers = emitBorrowAcquires(
+                runtimeArgExprs,
+                _runtimeParamsForRefCheck as { isRef?: boolean }[],
+                indent,
+                context as FunctionGenerationContext
+              );
+
               // Guard against duplicate temp variable declarations.
               // This can happen when the same sub-expression is traversed
               // multiple times (e.g., begin block dup handling).
@@ -1309,6 +1411,13 @@ export function generateOtherFunctionCall(
                 );
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
+
+              // Release borrow flags after the call
+              emitBorrowReleases(
+                borrowContainers,
+                indent,
+                context as FunctionGenerationContext
+              );
 
               // Handle deferred drop expressions if they exist
               if (expr.$?.deferredDropExpressions) {
@@ -1967,9 +2076,20 @@ export function generateOtherFunctionCall(
         // (or from the specialized function-pointer parameter when applicable)
         const returnType = functionPointerReturnType ?? callSig.return.type;
 
+        // Compute borrow containers for interior-ref args in the closure call
+        const borrowContainersClosure = emitBorrowAcquires(
+          runtimeArgExprs,
+          callSigRuntimeParams as { isRef?: boolean }[],
+          indent,
+          functionContext
+        );
+
         if (isUnitType(returnType)) {
           // If the closure returns unit, just call it without assignment
           context.emitter.emitLine(`${indent}${closureCall};`);
+
+          // Release borrow flags after the call
+          emitBorrowReleases(borrowContainersClosure, indent, functionContext);
 
           // Handle deferred drop expressions if they exist
           if (expr.$?.deferredDropExpressions) {
@@ -1985,6 +2105,13 @@ export function generateOtherFunctionCall(
               `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
             );
             storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
+
+            // Release borrow flags after the call
+            emitBorrowReleases(
+              borrowContainersClosure,
+              indent,
+              functionContext
+            );
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {

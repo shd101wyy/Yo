@@ -66,6 +66,7 @@ export const BuiltinYoInlineFunctions = [
   // Others
   ...BuiltinFunctions.__yo_noop, // __yo_noop
   ...BuiltinFunctions.__yo_return_self, // __yo_return_self
+  ...BuiltinFunctions.__yo_borrow_assert_unborrowed, // __yo_borrow_assert_unborrowed
   ...BuiltinFunctions.__yo_ms_sleep, // __yo_ms_sleep
 ];
 

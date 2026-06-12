@@ -104,6 +104,15 @@ export function generateYoInlineFunctionCall(
     // This is a special case where we just return the first argument
     return `(*${args[0]!})`;
   }
+  // __yo_borrow_assert_unborrowed
+  else if (
+    BuiltinFunctions.__yo_borrow_assert_unborrowed.includes(functionName)
+  ) {
+    context.emitter.emitLine(
+      `${indent}__yo_borrow_assert_unborrowed((void*)(${args[0]!}));`
+    );
+    return "";
+  }
   // __yo_ms_sleep
   else if (BuiltinFunctions.__yo_ms_sleep.includes(functionName)) {
     // Cross-platform sleep - takes milliseconds
