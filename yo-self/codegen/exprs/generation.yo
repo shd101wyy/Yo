@@ -20,6 +20,22 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   ast_expr_token,
   ast_expr_to_string,
+  BF_YO_OP_ADD,
+  BF_YO_OP_SUB,
+  BF_YO_OP_MUL,
+  BF_YO_OP_DIV,
+  BF_YO_OP_MOD,
+  BF_YO_OP_EQ,
+  BF_YO_OP_NEQ,
+  BF_YO_OP_LT,
+  BF_YO_OP_LTE,
+  BF_YO_OP_GT,
+  BF_YO_OP_GTE,
+  BF_YO_OP_BIT_AND,
+  BF_YO_OP_BIT_OR,
+  BF_YO_OP_BIT_XOR,
+  BF_YO_OP_BIT_LEFT_SHIFT,
+  BF_YO_OP_BIT_RIGHT_SHIFT,
   BF_YO_DECR_RC,
   BF_YO_INCR_RC,
   BF_YO_RC_OWN,
@@ -80,7 +96,7 @@ open(import("std/string"));
 } :: import("../../expr.yo");
 { has_any_control_flow } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val } :: import("../../value.yo");
-{ is_unit_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
@@ -119,6 +135,51 @@ open(import("std/string"));
 _func_name :: (fn(expr : AstExpr) -> String)(
   match(expr,.FnCall(_, func, _, _, _) => ast_expr_token(func.*).value,.Atom(_, _) => String.from(""))
 );
+/// Map an infix operator SYMBOL (`+`, `==`, …) to the builtin-inline function
+/// name (`__yo_op_add`, `__yo_op_eq`, …) that generate_yo_inline_function_call
+/// lowers to a C operator. `.None` for non-operators. Used to route a primitive
+/// infix-operator call to the inline path WITHOUT resolving the (generic) operator
+/// trait method in codegen — the std numeric/bool/bitwise impls all lower to these.
+_operator_inline_name :: (fn(op : String) -> Option(String))(
+  cond(
+    (op == String.from("+")) => Option(String).Some(String.from(BF_YO_OP_ADD)),
+    (op == String.from("-")) => Option(String).Some(String.from(BF_YO_OP_SUB)),
+    (op == String.from("*")) => Option(String).Some(String.from(BF_YO_OP_MUL)),
+    (op == String.from("/")) => Option(String).Some(String.from(BF_YO_OP_DIV)),
+    (op == String.from("%")) => Option(String).Some(String.from(BF_YO_OP_MOD)),
+    (op == String.from("==")) => Option(String).Some(String.from(BF_YO_OP_EQ)),
+    (op == String.from("!=")) => Option(String).Some(String.from(BF_YO_OP_NEQ)),
+    (op == String.from("<")) => Option(String).Some(String.from(BF_YO_OP_LT)),
+    (op == String.from("<=")) => Option(String).Some(String.from(BF_YO_OP_LTE)),
+    (op == String.from(">")) => Option(String).Some(String.from(BF_YO_OP_GT)),
+    (op == String.from(">=")) => Option(String).Some(String.from(BF_YO_OP_GTE)),
+    (op == String.from("&")) => Option(String).Some(String.from(BF_YO_OP_BIT_AND)),
+    (op == String.from("|")) => Option(String).Some(String.from(BF_YO_OP_BIT_OR)),
+    (op == String.from("^")) => Option(String).Some(String.from(BF_YO_OP_BIT_XOR)),
+    (op == String.from("<<")) => Option(String).Some(String.from(BF_YO_OP_BIT_LEFT_SHIFT)),
+    (op == String.from(">>")) => Option(String).Some(String.from(BF_YO_OP_BIT_RIGHT_SHIFT)),
+    true => Option(String).None
+  )
+);
+/// True when `expr` is a primitive infix-operator call (`x op y` on primitive
+/// operands) that should lower via the builtin-inline path. Gated to primitive
+/// operands so custom operator overloads on non-primitive types still route to
+/// the trait-method path.
+_is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, op_args, is_infix, _) => if(
+      (is_infix && (op_args.len() == usize(2))) && _operator_inline_name(_func_name(expr)).is_some(),
+      match(
+        op_args.get(usize(0)),
+        .Some(lhs) => match(context.base.get_expr_info(lhs),.Some(lei) => is_primitive_type(lei.ty),.None => false),
+        .None => false
+      ),
+      false
+    ),
+    .Atom(_, _) => false
+  )
+);
 /// Generate the C for a builtin-inline-function call: each arg's code, with
 /// deferred-dup rewrite, fed to generate_yo_inline_function_call.
 _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -150,7 +211,10 @@ _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : Function
     );
     i = (i + usize(1));
   });
-  generate_yo_inline_function_call(_func_name(expr), args, expr, context, indent)
+  // Resolve an operator SYMBOL callee (`+`) to its inline name (`__yo_op_add`);
+  // non-operator inline calls (`__yo_op_add(...)`) pass through unchanged.
+  inline_name := match(_operator_inline_name(_func_name(expr)),.Some(opn) => opn,.None => _func_name(expr));
+  generate_yo_inline_function_call(inline_name, args, expr, context, indent)
 });
 /// Lower a transparent wrapper (`unsafe`/`old`/`ghost_fn`/`runtime`) to its
 /// inner expression's code.
@@ -260,6 +324,12 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_GHOST, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BK_OPEN, Option(usize).None), return(generate_open(expr, indent.clone(), context)));
   // (Index-trait dispatch — Phase 3, generateIndexTraitCall not ported.)
+  // Primitive infix operator (`x + y`, `a == b`, …): lower directly to the
+  // builtin-inline (`__yo_op_add` → `(a + b)`) via the inline path. This avoids
+  // resolving the (generic, SomeType-bearing) operator trait method in codegen,
+  // which get_type_string cannot lower (Gap 6). Gated to primitive operands so
+  // custom non-primitive operator overloads still use the trait-method path.
+  if(_is_primitive_infix_operator(expr, context), return(_generate_inline_call(expr, indent.clone(), context)));
   // Fallback: ordinary function call (the call/method/trait dispatcher).
   match(
     generate_other_function_call(expr, indent.clone(), context),

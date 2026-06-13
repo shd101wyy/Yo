@@ -127,7 +127,7 @@ generate_function_prototype :: (
 )(
   match(
     function_type,
-    .Func({ param_types, param_is_ref, result, result_is_ref }) => {
+    .Func({ param_labels, param_types, param_is_ref, result, result_is_ref }) => {
       return_type_str := match(
         override_return_type,
         .Some(s) => s,
@@ -147,8 +147,23 @@ generate_function_prototype :: (
           params.push_str(", ");
         });
         pt := match(param_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-        pname := String.from("param");
-        pname.push_string(i.to_string());
+        // Use the source parameter label (sanitized) so the C signature matches
+        // the body's references to that parameter (the atom emitter emits the
+        // source name). Mirrors TS `param.label || param${index}`. Falls back to
+        // `paramN` for an unlabeled parameter.
+        pname := match(
+          param_labels.get(i),
+          .Some(lbl) => if(lbl.len() > usize(0), sanitize_for_c_identifier(lbl.clone(), false), {
+            p := String.from("param");
+            p.push_string(i.to_string());
+            p
+          }),
+          .None => {
+            p := String.from("param");
+            p.push_string(i.to_string());
+            p
+          }
+        );
         cond(
           is_function_type(pt) => {
             // Function-pointer parameter: <ret> (*paramN)(<paramTypes>).
