@@ -74,6 +74,16 @@ is_effect_record_member :: (fn(func_id : String) -> bool)(
 ///   `originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()`
 (g_definition_site_return_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
+/// Global map from `func_id` → the function's own resolved `Func` TypeValue
+/// (the full signature: forall/param/implicit/where types + result + flags).
+/// Codegen needs this to emit a function's C prototype, but the registered
+/// `FuncVal` carries only param-NAME strings (not structured types) and
+/// `type_of_eval_value(FuncVal)` returns unit — so the type is recorded here at
+/// function-definition time, where it is known. Resolves Gap 10
+/// (issues/codegen-port-type-model-gaps.md): the function-emission driver
+/// (functions/generation.ts) reads `get_func_type(func_id)` to build the prototype.
+(g_func_type_registry : HashMap(String, TypeValue)) =
+  HashMap(String, TypeValue).new();
 /// Register the enclosing function's return type at a function's definition site.
 ///
 /// Called when creating a FuncVal (in `evaluator/values/anonymous_function.yo`)
@@ -93,6 +103,19 @@ register_definition_site_return :: (fn(func_id : String, return_ty : TypeValue) 
 get_definition_site_return :: (fn(func_id : String) -> TypeValue)(
   match(
     g_definition_site_return_registry.get(func_id.clone()),
+    .Some(ty) => ty,
+    .None => t_unit()
+  )
+);
+/// Record a function's own resolved `Func` type by func_id (called when the
+/// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
+register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
+  ___ := g_func_type_registry.set(func_id.clone(), func_ty);
+});
+/// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
+get_func_type :: (fn(func_id : String) -> TypeValue)(
+  match(
+    g_func_type_registry.get(func_id.clone()),
     .Some(ty) => ty,
     .None => t_unit()
   )
@@ -134,6 +157,8 @@ export(
   is_effect_record_member,
   register_definition_site_return,
   get_definition_site_return,
+  register_func_type,
+  get_func_type,
   register_func_parameters_frame,
   get_func_parameters_frame
 );

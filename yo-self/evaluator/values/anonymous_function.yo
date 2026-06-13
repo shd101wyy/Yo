@@ -62,7 +62,7 @@ open(import("std/string"));
 { random_id } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ register_definition_site_return } :: import("../../function_value.yo");
+{ register_definition_site_return, register_func_type } :: import("../../function_value.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { create_function_body_evaluation_context } :: import("../calls/function_type.yo");
@@ -761,6 +761,9 @@ evaluate_anonymous_function_implementation :: (
     cap_vals,
     func_id.clone()
   );
+  // Record this function's own resolved Func type by func_id so codegen can
+  // emit its C prototype (Gap 10 — FuncVal carries only param-name strings).
+  register_func_type(func_id.clone(), function_type.clone());
   // Register definitionSiteEnclosingFunctionType return type.
   // Mirrors: definitionSiteEnclosingFunctionType = context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
   //   ? context.isEvaluatingFunctionBodyOrAsyncBlock.type : undefined
