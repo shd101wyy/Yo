@@ -1,0 +1,367 @@
+//! Match-expression emitter — mirrors `src/codegen/exprs/match.ts`.
+//!
+//! PORT STATUS (incremental): the bounded sub-units are ported here —
+//! the control-flow-code predicate, or-pattern flatten, C-literal extraction,
+//! generate_case_body (one match-arm body), and generate_primitive_match_expression
+//! (int/bool → C switch). The 865-line `generate_match_expression` entry (enum
+//! tag dispatch: nullable-pointer-opt / simple-enum / tagged-union switch with
+//! `.data.<Variant>.<field>` destructuring + guards + GADT refinement) is the
+//! next focused effort; until it lands the dispatcher routes match → TODO stub.
+//!
+//! DEFERRED (documented, not hit by the no-RC corpus): the deferred-dup rewrite
+//! of a begin-block final expression (Phase 4) inside generate_case_body.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ has_any_control_flow } :: import("../../expr_info.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+/// True for an ASCII word byte ([A-Za-z0-9_]).
+_is_word_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+);
+/// Whether `s` contains "return" as a whole word (the TS `\breturn\b` regex).
+_contains_word_return :: (fn(s : String) -> bool)({
+  word := String.from("return");
+  wlen := usize(6);
+  slen := s.len();
+  (from : usize) = usize(0);
+  while(true, {
+    match(
+      s.index_of(word.clone(), from),
+      .Some(idx) => {
+        before_ok := if(idx == usize(0), true, !(_is_word_byte(s.byte_at(idx - usize(1)))));
+        after_idx := (idx + wlen);
+        after_ok := if(after_idx >= slen, true, !(_is_word_byte(s.byte_at(after_idx))));
+        if(before_ok && after_ok, {
+          return(true);
+        }, {
+          from = (idx + usize(1));
+        });
+      },
+      .None => {
+        return(false);
+      }
+    );
+  });
+  false
+});
+/// Whether generated code is control flow that must NOT be assigned to a temp.
+/// Mirrors `isControlFlowCode`.
+_is_control_flow_code :: (fn(code : String) -> bool)(
+  (code.len() == usize(0)) || ((code == String.from("break")) || ((code == String.from("continue")) || (code.starts_with("goto") || _contains_word_return(code))))
+);
+/// Args of a FnCall (empty for an Atom).
+_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// True if `expr` is an or-pattern `a | b`. Mirrors `isOrPattern`.
+_is_or_pattern :: (fn(expr : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(expr, "|", Option(usize).Some(usize(2)))
+);
+/// Flatten an or-pattern into its individual patterns. Mirrors `flattenOrPattern`.
+_flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
+  if(!(_is_or_pattern(expr)), {
+    out := ArrayList(AstExpr).new();
+    _p := out.push(expr);
+    out
+  }, {
+    args := _args(expr);
+    out := ArrayList(AstExpr).new();
+    match(
+      args.get(usize(0)),
+      .Some(left) => {
+        l := recur(left);
+        nl := l.len();
+        (i : usize) = usize(0);
+        while(i < nl, {
+          match(
+            l.get(i),
+            .Some(e) => {
+              _p := out.push(e);
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    );
+    match(
+      args.get(usize(1)),
+      .Some(right) => {
+        r := recur(right);
+        nr := r.len();
+        (j : usize) = usize(0);
+        while(j < nr, {
+          match(
+            r.get(j),
+            .Some(e) => {
+              _p := out.push(e);
+            },
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+      },
+      .None => ()
+    );
+    out
+  })
+);
+/// A C literal for a compile-time value (number / bool). Mirrors `getCLiteralFromValue`.
+_c_literal_from_value :: (fn(value : EvalValue) -> Option(String))(
+  match(value,.IntLit(r) => Option(String).Some(r),.FloatLit(r) => Option(String).Some(r),.BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
+);
+/// Concatenate `current` then `prev` (both optional) into a fresh drop list.
+_concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  match(
+    current,
+    .Some(cd) => {
+      n := cd.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          cd.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  match(
+    prev,
+    .Some(pp) => {
+      n := pp.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          pp.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Generate a match/cond case body (begin blocks inline their statements and
+/// yield the final expression). Mirrors `generateCaseBody`. (The begin-final
+/// deferred-dup rewrite is Phase 4 — empty for the no-RC corpus.)
+generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
+    em := context.base.emitter;
+    begin_args := _args(body_expr);
+    vei_opt := context.base.get_expr_info(body_expr);
+    cur_drops := match(vei_opt,.Some(vei) => vei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+    cur_consumed := match(vei_opt,.Some(vei) => vei.consumed_variable_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+    prev_pending := context.pending_deferred_drops;
+    prev_consumed := context.consumed_var_pending_drops;
+    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
+    context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_consumed, prev_consumed));
+    n := begin_args.len();
+    // All statements except the last.
+    if(n > usize(0), {
+      (j : usize) = usize(0);
+      (stop : bool) = false;
+      while((j < (n - usize(1))) && !(stop), {
+        match(
+          begin_args.get(j),
+          .Some(arg) => {
+            arg_code := _call_generate_expr(arg, indent.clone(), context);
+            if(arg_code.len() > usize(0), {
+              line := indent.clone();
+              line.push_string(arg_code);
+              line.push_str(";");
+              em.emit_string_line(line);
+            });
+            match(
+              context.base.get_expr_info(arg),
+              .Some(aei) => if(has_any_control_flow(aei.control_flow), {
+                stop = true;
+              }),
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+        j = (j + usize(1));
+      });
+    });
+    // Final expression.
+    final_code := if(n > usize(0), match(begin_args.get(n - usize(1)),.Some(final_expr) => _call_generate_expr(final_expr, indent.clone(), context),.None => String.from("")), String.from(""));
+    generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+    context.pending_deferred_drops = prev_pending;
+    context.consumed_var_pending_drops = prev_consumed;
+    final_code
+  }, {
+    // Non-begin: emit deferred dups, then the expression.
+    generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+    _call_generate_expr(body_expr, indent.clone(), context)
+  })
+);
+/// Emit one case body + temp assignment / break. Shared by the primitive
+/// (default + value) arms.
+_emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_indent : String, temp_var_opt : Option(String), is_unit : bool, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  body_code := generate_case_body(case_body, body_indent.clone(), context);
+  assigned := match(
+    temp_var_opt,
+    .Some(tv) => if((!(is_unit) && (body_code.len() > usize(0))) && !(_is_control_flow_code(body_code)), {
+      line := body_indent.clone();
+      line.push_string(tv.clone());
+      line.push_str(" = ");
+      line.push_string(body_code.clone());
+      line.push_str(";");
+      em.emit_string_line(line);
+      true
+    }, false),
+    .None => false
+  );
+  if(!(assigned) && (body_code.len() > usize(0)), {
+    line := body_indent.clone();
+    line.push_string(body_code);
+    line.push_str(";");
+    em.emit_string_line(line);
+  });
+  brk := body_indent.clone();
+  brk.push_str("break;");
+  em.emit_string_line(brk);
+});
+/// Generate a primitive (int/bool) match as a C switch. Mirrors
+/// `generatePrimitiveMatchExpression`.
+generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, match_value_type : TypeValue, temp_var_opt : Option(String), is_unit : bool) -> String)({
+  saved_inside_match := context.base.inside_match;
+  context.base.inside_match = true;
+  em := context.base.emitter;
+  body_indent := indent.clone();
+  body_indent.push_str("  ");
+  hdr := indent.clone();
+  hdr.push_str("switch (");
+  hdr.push_string(matched_value_code);
+  hdr.push_str(") {");
+  em.emit_string_line(hdr);
+  args := _args(expr);
+  n := args.len();
+  (i : usize) = usize(1);
+  while(i < n, {
+    match(
+      args.get(i),
+      .Some(case_expr) => if(ast_expr_is_fn_call_of(case_expr, "=>", Option(usize).Some(usize(2))), {
+        cargs := _args(case_expr);
+        case_value := match(cargs.get(usize(0)),.Some(cv) => cv,.None => case_expr);
+        case_body := match(cargs.get(usize(1)),.Some(cb) => cb,.None => case_expr);
+        executed := match(context.base.get_expr_info(case_value),.Some(cei) => match(cei.case_executed,.Some(b) => b,.None => false),.None => false);
+        if(executed, {
+          is_wildcard := (ast_expr_is_atom(case_value) && (ast_expr_token(case_value).value == String.from("_")));
+          if(is_wildcard, {
+            d := indent.clone();
+            d.push_str("default: {");
+            em.emit_string_line(d);
+            _emit_case_body_and_break(case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+            cl := indent.clone();
+            cl.push_str("}");
+            em.emit_string_line(cl);
+          }, {
+            // Emit `case <literal>:` for each pattern value.
+            emitted_any := match(
+              context.base.get_expr_info(case_value),
+              .Some(cei) => match(
+                cei.primitive_pattern_values,
+                .Some(pvs) => if(pvs.len() > usize(0), {
+                  np := pvs.len();
+                  (pi : usize) = usize(0);
+                  while(pi < np, {
+                    match(
+                      pvs.get(pi),
+                      .Some(vopt) => match(
+                        vopt,
+                        .Some(v) => match(
+                          _c_literal_from_value(v),
+                          .Some(lit) => {
+                            cl := indent.clone();
+                            cl.push_str("case ");
+                            cl.push_string(lit);
+                            cl.push_str(":");
+                            em.emit_string_line(cl);
+                          },
+                          .None => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                    pi = (pi + usize(1));
+                  });
+                  true
+                }, false),
+                .None => false
+              ),
+              .None => false
+            );
+            if(!(emitted_any), {
+              // Fallback: literals from the flattened pattern expressions.
+              flat := _flatten_or_pattern(case_value);
+              nf := flat.len();
+              (fi : usize) = usize(0);
+              while(fi < nf, {
+                match(
+                  flat.get(fi),
+                  .Some(pe) => match(
+                    context.base.get_expr_info(pe),
+                    .Some(pei) => match(
+                      pei.value,
+                      .Some(v) => match(
+                        _c_literal_from_value(v),
+                        .Some(lit) => {
+                          cl := indent.clone();
+                          cl.push_str("case ");
+                          cl.push_string(lit);
+                          cl.push_str(":");
+                          em.emit_string_line(cl);
+                        },
+                        .None => ()
+                      ),
+                      .None => ()
+                    ),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            });
+            ob := indent.clone();
+            ob.push_str("{");
+            em.emit_string_line(ob);
+            _emit_case_body_and_break(case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+            cb := indent.clone();
+            cb.push_str("}");
+            em.emit_string_line(cb);
+          });
+        });
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  context.base.inside_match = saved_inside_match;
+  close := indent.clone();
+  close.push_str("}");
+  em.emit_string_line(close);
+  generate_deferred_drop_expressions(expr, indent.clone(), context);
+  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+});
+export(generate_case_body, generate_primitive_match_expression);
