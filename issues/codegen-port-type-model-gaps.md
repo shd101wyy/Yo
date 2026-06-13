@@ -20,29 +20,31 @@ This is the BIG one — the concrete shape of the plan's "make the evaluator
 produce them" thesis, surfaced porting `types/collection.ts` +
 `functions/collection.ts`.
 
-- **`collectTypesFromExpr` / `findFunctionCallsInExpr` read `expr.$`:**
-  `type`, `value` (✓ yo-self ExprInfo has these) but ALSO
-  `deferredDropExpressions`, `macroExpansion`, `runtimeDestructurings`,
-  `captureType` — runtime-oriented ExprInfo fields yo-self's ExprInfo does
-  NOT carry / does not yet produce. (And every `expr.$` access becomes an
-  `ExprInfoTable` lookup — a pervasive signature change: these functions must
-  take the table.)
-- **They read `FunctionValue` codegen metadata:** `specializedType`,
-  `calledComptimeFunctionCaches`, `isControlFunction`, `resolvedConcreteType`
-  (on param types). yo-self's `FuncVal` (value.yo) stores none of these — it
-  is the flattened raw-components form (cf. Gap 2). These are
-  evaluator-produced annotations consumed only by codegen.
-- **Consequence:** the collection cluster — and, by extension, most Phase-2/3
-  emitters — cannot be faithfully ported until yo-self's evaluator PRODUCES
-  these annotations (extend ExprInfo with the runtime fields; attach the
-  codegen metadata to FuncVal or func_id side-tables; populate at the right
-  evaluation points). This is a substantial, high-blast-radius evaluator
-  sub-project (touches FuncVal + ExprInfo + their construction sites), to be
-  done deliberately and gate-validated — NOT a mechanical transcription.
-- **This is the true critical path** for the codegen port: evaluator metadata
-  production first, emitters second. The Phase-1 foundation (constants, utils,
-  context, type lowering, C includes, evidence slice) is done and unblocked;
-  everything downstream waits on this.
+- **CORRECTION (re-examined 2026-06-13): much smaller than first stated.**
+  yo-self's `ExprInfo` (expr_info.yo) ALREADY carries the runtime-oriented
+  fields the expr-walker reads: `value`, `runtime_arg_exprs_in_order`,
+  `runtime_destructurings`, `control_flow`, `dyn_call_trait_values`,
+  `deferred_dup_expressions`, `deferred_drop_expressions`,
+  `consumed_variable_drop_expressions`, `capture_type`, `await_analysis`,
+  `effect_analysis`, `closure_function_value`, `macro_expansion`, … So
+  `collectTypesFromExpr` / `findFunctionCallsInExpr` are portable — they read
+  fields that EXIST (possibly `.None` if the evaluator hasn't populated them
+  for a given program, which is correct behaviour for simple programs).
+- **The two real mechanical/Phase-coupled bits:**
+  1. **ExprInfoTable threading** — every TS `expr.$` becomes an
+     `ExprInfoTable` lookup, so the walkers take the table. Mechanical.
+  2. **FunctionValue codegen metadata** read in a few branches:
+     `isControlFunction` IS available (the `is_control_fn(func_id)` side-table
+     in function_value.yo); `specializedType` and
+     `calledComptimeFunctionCaches` are NOT on yo-self's `FuncVal` and have no
+     side-table yet (used only for specialized generics / comptime-fn-cache
+     types — Phase 3, not the tiny corpus); `resolvedConcreteType` on param
+     types is Gap 6 (async/dyn, Phase 3/5).
+- **Consequence:** the collection cluster CAN be ported now with
+  ExprInfoTable threading + `is_control_fn`, deferring the
+  specializedType/caches/resolvedConcreteType branches (Phase 3/5, not
+  reached by simple programs). NOT blocked on a big evaluator sub-project as
+  first feared.
 
 ## Gap 1 — `TypeValue.Struct` has no per-field `isCompileTimeOnly`
 

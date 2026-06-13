@@ -66,12 +66,16 @@ open(import("std/string"));
 // ===========================================================================
 CodegenTypeEntry :: object(ty : TypeValue, c_name : String, c_include : Option(String));
 CodegenExternFnEntry :: object(ty : TypeValue, c_name : String, c_include : Option(String));
+/// A reachable function to be generated. `value` is the FuncVal EvalValue.
+CodegenFunctionEntry :: object(value : EvalValue, c_name : String);
 ArrayStructInfo :: object(child_type : String, length : i64);
 IsoTypeInfo :: object(child_type_c_name : String, iso_type : TypeValue);
 /// The base C code generation context. See header above.
 CodeGenContext :: object(
   /// Collected types that need to be generated (keyed by TypeId string).
   types : HashMap(String, CodegenTypeEntry),
+  /// Collected functions that need to be generated (keyed by func_id).
+  functions : HashMap(String, CodegenFunctionEntry),
   /// Extern functions (keyed by TypeId string).
   extern_functions : HashMap(String, CodegenExternFnEntry),
   /// Array struct types that need to be generated (keyed by C name).
@@ -115,6 +119,7 @@ impl(
   )(
     Self(
       types : HashMap(String, CodegenTypeEntry).new(),
+      functions : HashMap(String, CodegenFunctionEntry).new(),
       extern_functions : HashMap(String, CodegenExternFnEntry).new(),
       array_struct_types : HashMap(String, ArrayStructInfo).new(),
       iso_types : HashMap(String, IsoTypeInfo).new(),
@@ -145,6 +150,19 @@ impl(
   /// Look up a registered type's C name by id.
   get_type_c_name : (fn(self : Self, id : String) -> Option(String))(
     match(self.types.get(id),.Some(entry) =>.Some(entry.c_name),.None =>.None)
+  ),
+  /// Register a reachable function to be generated (idempotent on func_id).
+  register_function : (fn(self : Self, func_id : String, value : EvalValue, c_name : String) -> unit)({
+    _r := self.functions.set(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
+    ()
+  }),
+  /// True if a function with this func_id is already registered.
+  has_function : (fn(self : Self, func_id : String) -> bool)(
+    self.functions.contains_key(func_id)
+  ),
+  /// Look up a registered function entry by func_id.
+  get_function_entry : (fn(self : Self, func_id : String) -> Option(CodegenFunctionEntry))(
+    self.functions.get(func_id)
   ),
   /// Register an extern function.
   register_extern_function : (
@@ -797,6 +815,7 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
 export(
   CodeGenContext,
   CodegenTypeEntry,
+  CodegenFunctionEntry,
   CodegenExternFnEntry,
   ArrayStructInfo,
   IsoTypeInfo,
