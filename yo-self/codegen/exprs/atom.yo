@@ -1,0 +1,243 @@
+//! Atom expression emission — mirrors `src/codegen/exprs/atom.ts` (`generateAtom`).
+//!
+//! PORT STATUS (incremental). The corpus path is ported: control-flow keywords
+//! (continue/break/return) with loop-body drop emission, unit, comptime-only
+//! constant inlining, closure-captured access, and variable-name resolution.
+//!
+//! DEFERRED / gated branches (documented divergences):
+//!   * Async/effect state-machine variable resolution (the `sm->var_<id>` /
+//!     `sm->__capture` block, and the async-completion `return`) — Phase 5;
+//!     gated by `in_async_state_machine` (false for the corpus) and replaced
+//!     with a phase-marker panic.
+//!   * `inout(name) : T` deref to `(*name)` — yo-self `Variable` has no `is_ref`
+//!     flag (model gap), so the deref branch is omitted (no inout in the corpus).
+//!   * The `value.type.isClosure` fallback closure-detection (Gap 2: FuncVal
+//!     carries no TypeValue) is omitted.
+open(import("std/string"));
+{ AstExpr, ast_expr_token } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ generate_comptime_value } :: import("./comptime_value.yo");
+{ check_variable_is_closure_captured } :: import("./closures.yo");
+{
+  get_variable_name_for_codegen,
+  get_deferred_drop_target_atom_name
+} :: import("../utils/index.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ is_unknown_val } :: import("../../value.yo");
+/// Emit `___drop` lines for the loop-body locals declared since entering the
+/// current loop body, before a break/continue exit, filtered by liveness at
+/// the exit point. Mirrors `emitLoopBodyDropsBeforeExit`.
+_emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, indent : String, exit_expr : AstExpr) -> unit)(
+  match(
+    context.pending_deferred_drops,
+    .Some(drops) => match(
+      context.loop_body_drops_baseline_count,
+      .Some(baseline) => {
+        total := drops.len();
+        emit_count := if(total > baseline, total - baseline, usize(0));
+        exit_env_opt := match(context.base.get_expr_info(exit_expr),.Some(ei) => Option(Environment).Some(ei.env),.None => Option(Environment).None);
+        (i : usize) = usize(0);
+        while(i < emit_count, {
+          match(
+            drops.get(i),
+            .Some(drop_expr) => {
+              // Liveness: skip drops for variables not yet in scope/initialized
+              // at the exit point (when the exit env is available).
+              skip := match(
+                exit_env_opt,
+                .Some(exit_env) => match(
+                  get_deferred_drop_target_atom_name(drop_expr),
+                  .Some(var_name) => {
+                    vars := get_variables_from_env(exit_env, var_name);
+                    nv := vars.len();
+                    cond(
+                      (nv == usize(0)) => true,
+                      // not in scope
+                      true => match(vars.get(nv - usize(1)),.Some(lv) => lv.initialized_at_token.is_none(),.None => true)
+                    )
+                  },
+                  .None => false
+                ),
+                .None => false
+              );
+              if(!(skip), {
+                drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                if(drop_code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(drop_code);
+                  line.push_str(";");
+                  em := context.base.emitter;
+                  em.emit_string_line(line);
+                });
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
+/// Generate C for an atom expression (literal / identifier / control-flow
+/// keyword). Mirrors `generateAtom`.
+generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent : String) -> String)({
+  tok := ast_expr_token(expr);
+  tv := tok.value;
+  // --- control flow keywords ---
+  if(tv == "continue", {
+    match(
+      context.base.current_continue_label,
+      .Some(label) => {
+        _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        out := String.from("goto ");
+        out.push_string(label);
+        return(out);
+      },
+      .None => ()
+    );
+    match(
+      context.base.current_loop_label,
+      .Some(_) => {
+        _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        return(String.from("continue"));
+      },
+      .None => ()
+    );
+    if(context.in_async_state_machine.is_some(), {
+      panic("generate_atom: async state-machine continue is Phase 5");
+    });
+    return(String.from("continue"));
+  });
+  if(tv == "break", {
+    match(
+      context.base.current_loop_label,
+      .Some(loop_label) => {
+        _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        if(context.base.inside_match, {
+          out := String.from("goto ");
+          out.push_string(loop_label);
+          return(out);
+        });
+        return(String.from("break"));
+      },
+      .None => ()
+    );
+    if(context.in_async_state_machine.is_some(), {
+      panic("generate_atom: async state-machine break is Phase 5");
+    });
+    return(String.from("break"));
+  });
+  if(tv == "return", {
+    if(context.in_async_state_machine.is_some(), {
+      panic("generate_atom: async state-machine return (completion) is Phase 5");
+    });
+    return(String.from("return"));
+  });
+  // --- unit-typed expression → empty ---
+  ei_opt := context.base.get_expr_info(expr);
+  match(
+    ei_opt,
+    .Some(ei) => if(is_unit_type(ei.ty), {
+      return(String.from(""));
+    }),
+    .None => ()
+  );
+  // --- async/effect SM variable resolution: Phase 5 (gated) ---
+  if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
+    panic("generate_atom: state-machine variable resolution is Phase 5");
+  });
+  // --- variable / comptime-constant / closure-capture ---
+  match(
+    ei_opt,
+    .Some(ei) => {
+      env_opt := Option(Environment).Some(ei.env);
+      // variableName path: comptime-only constant inline, else the name.
+      match(
+        ei.variable_name,
+        .Some(var_name) => {
+          // Compile-time-only variable with a known value → inline the value.
+          is_comptime_const := match(
+            env_opt,
+            .Some(e) => match(
+              ei.value,
+              .Some(v) => if(!(is_unknown_val(v)), {
+                vars := get_variables_from_env(e, var_name.clone());
+                nv := vars.len();
+                cond(
+                  (nv == usize(0)) => false,
+                  true => match(vars.get(nv - usize(1)),.Some(lv) => lv.is_compile_time_only,.None => false)
+                )
+              }, false),
+              .None => false
+            ),
+            .None => false
+          );
+          if(is_comptime_const, {
+            return(match(ei.value,.Some(v) => generate_comptime_value(v, ei.ty, context.base),.None => String.from("")));
+          });
+          // Closure-captured variable → access through closure_context.
+          captured := match(
+            env_opt,
+            .Some(e) => match(
+              context.current_closure_captures,
+              .Some(caps) => match(
+                context.current_closure_capture_frame_level,
+                .Some(level) => (caps.contains(var_name.clone()) && check_variable_is_closure_captured(var_name.clone(), e, level)),
+                .None => false
+              ),
+              .None => false
+            ),
+            .None => false
+          );
+          if(!(captured), {
+            return(get_variable_name_for_codegen(var_name.clone(), env_opt));
+          });
+        },
+        .None => ()
+      );
+      // Closure-captured access (the general path); otherwise a literal with a
+      // comptime value is inlined, else the bare variable name.
+      cap_name := tv.clone();
+      is_captured := match(
+        context.current_closure_captures,
+        .Some(caps) => match(
+          context.current_closure_capture_frame_level,
+          .Some(level) => (caps.contains(cap_name.clone()) && match(env_opt,.Some(e) => check_variable_is_closure_captured(cap_name.clone(), e, level),.None => true)),
+          .None => false
+        ),
+        .None => false
+      );
+      cond(
+        is_captured => match(
+          context.current_closure_capture_type_c_name,
+          .Some(cap_ty) => {
+            out := String.from("((");
+            out.push_string(cap_ty);
+            out.push_str("*)closure_context)->");
+            out.push_string(get_variable_name_for_codegen(cap_name.clone(), env_opt));
+            out
+          },
+          .None => {
+            out := String.from("closure_context->");
+            out.push_string(get_variable_name_for_codegen(cap_name.clone(), env_opt));
+            out
+          }
+        ),
+        // Non-variable atom with a comptime value → inline it.
+        (match(ei.value,.Some(v) => !(is_unknown_val(v)),.None => false)) => match(
+          ei.value,
+          .Some(v) => generate_comptime_value(v, ei.ty, context.base),
+          .None => get_variable_name_for_codegen(tv.clone(), env_opt)
+        ),
+        true => get_variable_name_for_codegen(tv.clone(), env_opt)
+      )
+    },
+    .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
+  )
+});
+export(generate_atom);
