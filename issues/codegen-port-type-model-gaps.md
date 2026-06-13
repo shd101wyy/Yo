@@ -191,3 +191,38 @@ The context-dependent functions (`getTypeString`, `getVariableTypeString`,
 `getEnumVariantCName`, and `utils/fixup.ts`'s `fixupDynImplKeys`) are
 deferred to the `CodeGenContext` struct unit (ported alongside
 functions/context.ts).
+
+## Gap 9 — property-access trait/method resolution + UnknownValue.variableName (from exprs/property-access.ts)
+
+Surfaced porting `generateFieldAccess`. Two model gaps + one Phase-5 gating:
+
+1. **No `.trait` field on Struct/EnumT.** TS `generateFieldAccess` resolves
+   method/Rc-method field accesses via `objectType.trait.fields[].assignedValue`
+   (late-dispatch trait-walk lines 154-222; Rc-method ___drop/___dup/___dispose
+   lookup lines 227-265). yo-self's `Struct`/`EnumT` TypeValue variants carry NO
+   `.trait` field — type methods live in a *separate type-method registry*
+   (cf. `_try_resolve_associated_type`, the assoc-type-on-enum-receiver work).
+   - **Blocked:** the late-dispatch + Rc-method branches. Porting them must route
+     through that registry, not a `.trait` field. The *primary* method path —
+     the expr's own value being a `FuncVal` → emit its registered C name — IS
+     ported and covers all RESOLVED methods (the common case). The deferred
+     branches are fallbacks for generic-impl-specialized-after-typecheck and
+     RC (Phase 4) methods.
+
+2. **`UnknownVal(ty)` carries no variableName.** TS module-namespace access
+   reads `fieldValue.variableName` (a runtime `using`/`given` member) to emit
+   the param name. yo-self `UnknownVal` holds only the type, so the
+   `isUnknownValue → variableName` sub-branch falls through to the plain
+   `get_variable_name_for_codegen(fieldName, env)` identifier lookup. Adequate
+   for resolved comptime members; revisit if runtime module members need it.
+
+3. **Evidence-param + state-machine `sm->__capture`/`sm->var_N` routing**
+   (Phase 5): FGC has no `currentEvidenceParams`, and `in_effect_state_machine`
+   is absent (only `in_async_state_machine`). These branches are gated dead for
+   the no-async corpus and ported with the async/effects phase.
+
+**Ported subset (corpus path):** struct/object(`->`)/enum(`.data.V.f`)/pointer
+(deref + arrow, ref-semantics extra level, newtype-through-ptr)/tuple
+(label→index)/dyn(`vtable->`)/newtype(zero-cost)/module-namespace(comptime
+field value) + resolved-method (FuncVal → cName). See header of
+`yo-self/codegen/exprs/property_access.yo`.
