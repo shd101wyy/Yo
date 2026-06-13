@@ -1,0 +1,297 @@
+//! While-loop emitter — mirrors `src/codegen/exprs/while.ts`.
+//!
+//! Supports `while(cond, body)` (→ C `while(true){ if(!cond)break; body; }`)
+//! and `while(cond, step, body)` (→ + continue-label + step), plus
+//! comptime-unrolled loops (bodies emitted sequentially, no C loop). The file
+//! is named while_loop.yo (`while` is a keyword).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ Emitter } :: import("../../emitter.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ random_id } :: import("../../utils.yo");
+/// Emit `<indent><text>` + newline.
+_emit_line :: (fn(em : Emitter, indent : String, text : String) -> unit)({
+  line := indent.clone();
+  line.push_string(text);
+  em.emit_string_line(line);
+});
+/// Args of a FnCall (empty for an Atom).
+_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// Strip a `comptime(x)` wrapper (evaluator-only) down to `x`.
+_strip_comptime :: (fn(e : AstExpr) -> AstExpr)(
+  if(ast_expr_is_fn_call_of(e, BK_COMPTIME,.Some(usize(1))), match(_args(e).get(usize(0)),.Some(inner) => inner,.None => e), e)
+);
+/// Generate the step expression of a 3-arg while: `lhs = rhs` (single), comma-
+/// joined assignments (begin block), or a plain expression. Mirrors
+/// `generateStepExpression`.
+generate_step_expression :: (fn(step_expr : AstExpr, context : FunctionGenerationContext) -> String)(
+  cond(
+    ast_expr_is_fn_call_of(step_expr, BK_BEGIN,.None) => {
+      out := String.from("");
+      args := _args(step_expr);
+      n := args.len();
+      (i : usize) = usize(0);
+      (any : bool) = false;
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_ASSIGN,.Some(usize(2))), {
+            aargs := _args(arg);
+            lhs := match(aargs.get(usize(0)),.Some(l) => l,.None => arg);
+            rhs := match(aargs.get(usize(1)),.Some(r) => r,.None => arg);
+            if(any, {
+              out.push_str(", ");
+            });
+            any = true;
+            out.push_string(_call_generate_expr(lhs, String.from(""), context));
+            out.push_str(" = ");
+            out.push_string(_call_generate_expr(rhs, String.from(""), context));
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      out
+    },
+    ast_expr_is_fn_call_of(step_expr, BK_ASSIGN,.Some(usize(2))) => {
+      aargs := _args(step_expr);
+      lhs := match(aargs.get(usize(0)),.Some(l) => l,.None => step_expr);
+      rhs := match(aargs.get(usize(1)),.Some(r) => r,.None => step_expr);
+      out := _call_generate_expr(lhs, String.from(""), context);
+      out.push_str(" = ");
+      out.push_string(_call_generate_expr(rhs, String.from(""), context));
+      out
+    },
+    true => _call_generate_expr(step_expr, String.from(""), context)
+  )
+);
+/// Concatenate `current` then `prev` (cloned) into a fresh drop list.
+_concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  match(
+    current,
+    .Some(cd) => {
+      n := cd.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          cd.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  match(
+    prev,
+    .Some(pp) => {
+      n := pp.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          pp.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Emit a loop body. begin blocks emit their statements directly (with
+/// pending-drop bookkeeping for early-exit drops); other expressions emit
+/// normally. Mirrors `generateLoopBody`.
+generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
+  cond(
+    ast_expr_is_fn_call_of(body_expr, BK_BEGIN,.None) => {
+      ei_opt := context.base.get_expr_info(body_expr);
+      current_drops := match(ei_opt,.Some(ei) => ei.deferred_drop_expressions,.None =>.None);
+      current_consumed := match(ei_opt,.Some(ei) => ei.consumed_variable_drop_expressions,.None =>.None);
+      prev_pending := context.pending_deferred_drops;
+      prev_consumed := context.consumed_var_pending_drops;
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_drops, prev_pending));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_consumed, prev_consumed));
+      em := context.base.emitter;
+      args := _args(body_expr);
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(arg) => {
+            code := _call_generate_expr(arg, indent.clone(), context);
+            if(code.len() > usize(0), {
+              line := indent.clone();
+              line.push_string(code);
+              line.push_str(";");
+              em.emit_string_line(line);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(
+        current_drops,
+        .Some(drops) => {
+          nd := drops.len();
+          (di : usize) = usize(0);
+          while(di < nd, {
+            match(
+              drops.get(di),
+              .Some(de) => {
+                code := _call_generate_expr(de, indent.clone(), context);
+                if(code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                });
+              },
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      context.pending_deferred_drops = prev_pending;
+      context.consumed_var_pending_drops = prev_consumed;
+    },
+    true => {
+      code := _call_generate_expr(body_expr, indent.clone(), context);
+      if(code.len() > usize(0), {
+        em := context.base.emitter;
+        line := indent.clone();
+        line.push_string(code);
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+    }
+  )
+);
+/// Generate C for a while-loop expression. Mirrors `generateWhileLoop`.
+generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei_opt := context.base.get_expr_info(expr);
+  // Comptime-unrolled loop: emit bodies sequentially, no C loop.
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      ei.comptime_unrolled_bodies,
+      .Some(bodies) => {
+        n := bodies.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(bodies.get(i),.Some(b) => generate_loop_body(b, indent.clone(), context),.None => ());
+          i = (i + usize(1));
+        });
+        return(String.from(""));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  args := _args(expr);
+  inner := String.from("  ");
+  body_indent := indent.clone();
+  body_indent.push_string(inner.clone());
+  cond(
+    (args.len() == usize(2)) => {
+      cond_expr := _strip_comptime(match(args.get(usize(0)),.Some(c) => c,.None => expr));
+      body_expr := match(args.get(usize(1)),.Some(b) => b,.None => expr);
+      saved_loop := context.base.current_loop_label;
+      loop_label := String.from("loop_");
+      loop_label.push_string(random_id(String.from("")));
+      context.base.current_loop_label = Option(String).Some(loop_label.clone());
+      saved_baseline := context.loop_body_drops_baseline_count;
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops,.Some(p) => p.len(),.None => usize(0)));
+      em := context.base.emitter;
+      _emit_line(em, indent.clone(), String.from("while (true) {"));
+      cond_code := _call_generate_expr(cond_expr, body_indent.clone(), context);
+      _emit_line(em, body_indent.clone(), {
+        s := String.from("if (!(");
+        s.push_string(cond_code);
+        s.push_str(")) {");
+        s
+      });
+      _emit_line(em, body_indent.clone(), String.from("  break;"));
+      _emit_line(em, body_indent.clone(), String.from("}"));
+      generate_loop_body(body_expr, body_indent.clone(), context);
+      _emit_line(em, indent.clone(), String.from("}"));
+      _emit_line(em, indent.clone(), {
+        s := loop_label.clone();
+        s.push_str(":;");
+        s
+      });
+      context.loop_body_drops_baseline_count = saved_baseline;
+      context.base.current_loop_label = saved_loop;
+      String.from("")
+    },
+    (args.len() == usize(3)) => {
+      cond_expr := _strip_comptime(match(args.get(usize(0)),.Some(c) => c,.None => expr));
+      step_expr := match(args.get(usize(1)),.Some(s) => s,.None => expr);
+      body_expr := match(args.get(usize(2)),.Some(b) => b,.None => expr);
+      saved_loop := context.base.current_loop_label;
+      saved_continue := context.base.current_continue_label;
+      loop_label := String.from("loop_");
+      loop_label.push_string(random_id(String.from("")));
+      continue_label := String.from("continue_");
+      continue_label.push_string(random_id(String.from("")));
+      context.base.current_loop_label = Option(String).Some(loop_label.clone());
+      context.base.current_continue_label = Option(String).Some(continue_label.clone());
+      saved_baseline := context.loop_body_drops_baseline_count;
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops,.Some(p) => p.len(),.None => usize(0)));
+      em := context.base.emitter;
+      _emit_line(em, indent.clone(), String.from("while (true) {"));
+      cond_code := _call_generate_expr(cond_expr, body_indent.clone(), context);
+      _emit_line(em, body_indent.clone(), {
+        s := String.from("if (!(");
+        s.push_string(cond_code);
+        s.push_str(")) {");
+        s
+      });
+      _emit_line(em, body_indent.clone(), String.from("  break;"));
+      _emit_line(em, body_indent.clone(), String.from("}"));
+      generate_loop_body(body_expr, body_indent.clone(), context);
+      _emit_line(em, indent.clone(), {
+        s := continue_label.clone();
+        s.push_str(":;");
+        s
+      });
+      step_code := generate_step_expression(step_expr, context);
+      _emit_line(em, body_indent.clone(), {
+        s := step_code;
+        s.push_str(";");
+        s
+      });
+      _emit_line(em, indent.clone(), String.from("}"));
+      _emit_line(em, indent.clone(), {
+        s := loop_label.clone();
+        s.push_str(":;");
+        s
+      });
+      context.loop_body_drops_baseline_count = saved_baseline;
+      context.base.current_loop_label = saved_loop;
+      context.base.current_continue_label = saved_continue;
+      String.from("")
+    },
+    true => {
+      em := context.base.emitter;
+      _emit_line(em, indent.clone(), String.from("/* Error: while loop expects 2 or 3 arguments */"));
+      String.from("")
+    }
+  )
+});
+export(generate_step_expression, generate_loop_body, generate_while_loop);
