@@ -1,0 +1,108 @@
+//! Function declaration emission — mirrors `src/codegen/functions/declarations.ts`.
+//!
+//! PORT STATUS (incremental, plans/BOOTSTRAPPING_CODEGEN.md Phase 1): this
+//! file currently carries only the EvidenceParameter slice that
+//! functions/collection.ts imports. The generate* declaration emitters
+//! (generateFunctionDeclarations / generateFunctionPrototype /
+//! generateFunctionDeclaration / object+closure constructor declarations /
+//! specialized declarations) are Phase 3 and will be added here.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_function_type, is_struct_type, is_module_type } :: import("../../types/guards.yo");
+{ sanitize_for_c_identifier } :: import("../utils/index.yo");
+/// One evidence parameter threaded into a function that uses effect-record
+/// evidence passing. Mirrors the `EvidenceParameter` interface.
+EvidenceParameter :: object(
+  /// The label of the implicit parameter (e.g. "raise_mod").
+  implicit_label : String,
+  /// The field label within the module (e.g. "raise", or "errors__raise" for nested).
+  field_label : String,
+  /// Path of field labels for navigating nested evidence records.
+  field_path : ArrayList(String),
+  /// The function type (`Func` TypeValue) of the evidence field.
+  field_function_type : TypeValue,
+  /// The C parameter name: sanitized "{implicit_label}__{field_label}".
+  c_param_name : String
+);
+/// Join a path of field labels with "__". Mirrors TS `fieldPath.join("__")`.
+_join_double_underscore :: (fn(parts : ArrayList(String)) -> String)({
+  out := String.from("");
+  n := parts.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(i > usize(0), {
+      out.push_str("__");
+    });
+    match(parts.get(i),.Some(p) => out.push_string(p),.None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+/// Recursively collect evidence parameters from an effect-record type.
+/// For function-typed fields, appends an EvidenceParameter; for record-typed
+/// fields, recurses into the nested record. Mirrors `collectEvidenceFromRecord`.
+/// (Defined before get_evidence_parameters — Yo has no forward references.)
+collect_evidence_from_record :: (
+  fn(
+    implicit_label : String,
+    effect_record_type : TypeValue,
+    path_prefix : ArrayList(String),
+    result : ArrayList(EvidenceParameter)
+  ) -> unit
+)(
+  match(
+    effect_record_type,
+    .Struct({ field_labels, field_types }) => {
+      n := field_labels.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        field_label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
+        field_ty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        cond(
+          is_function_type(field_ty) => {
+            // Forall function fields are passed as void* and cast at each call site.
+            field_path := path_prefix.clone();
+            field_path.push(field_label.clone());
+            joined := _join_double_underscore(field_path.clone());
+            c_param := String.from("");
+            c_param.push_string(implicit_label.clone());
+            c_param.push_str("__");
+            c_param.push_string(joined.clone());
+            result.push(
+              EvidenceParameter(
+                implicit_label : implicit_label.clone(),
+                field_label : joined,
+                field_path : field_path,
+                field_function_type : field_ty,
+                c_param_name : sanitize_for_c_identifier(c_param, false)
+              )
+            );
+          },
+          (is_module_type(field_ty) || is_struct_type(field_ty)) => {
+            nested_prefix := path_prefix.clone();
+            nested_prefix.push(field_label.clone());
+            recur(implicit_label.clone(), field_ty, nested_prefix, result);
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  )
+);
+/// Extract evidence parameters from a function type's implicit parameters.
+/// Mirrors `getEvidenceParameters`.
+///
+/// DIVERGENCE: TS hardcodes `expandImplicitParameters([])` (the implicit-param
+/// expansion is currently a no-op — effects evidence is handled elsewhere), so
+/// this yields no evidence parameters. `function_type` is unused (mirrors the
+/// TS `_functionType`). `collect_evidence_from_record` above is the real logic
+/// for when implicit expansion is implemented. yo-self flattened TS's
+/// `FunctionParameter` to parallel arrays, so `expandImplicitParameters`
+/// (an identity over `FunctionParameter[]`) is folded into this no-op.
+get_evidence_parameters :: (fn(_function_type : TypeValue) -> ArrayList(EvidenceParameter))(
+  ArrayList(EvidenceParameter).new()
+);
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters);
