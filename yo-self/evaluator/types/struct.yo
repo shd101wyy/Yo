@@ -30,7 +30,7 @@ open(import("std/fmt"));
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, register_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -98,6 +98,10 @@ evaluate_struct_type :: (
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   runtime_field_types := ArrayList(TypeValue).new();
+  // Per-field is-compile-time-only flags, parallel to field_types. Recorded
+  // in the struct-field-comptime side-table so codegen's
+  // get_runtime_struct_fields can filter comptime-only fields (Gap 1).
+  field_comptime_flags := ArrayList(bool).new();
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
@@ -134,6 +138,7 @@ evaluate_struct_type :: (
     });
     field_labels.push(field.label.clone());
     field_types.push(field.ty);
+    field_comptime_flags.push(field.is_comptime);
     if(!(field.is_comptime), {
       runtime_field_types.push(field.ty);
     });
@@ -209,6 +214,9 @@ evaluate_struct_type :: (
     // type_arguments — set later at the comptime-fn call site
     false // is_source_namespace
   );
+  // Record the per-field comptime-only flags so codegen's
+  // get_runtime_struct_fields can filter comptime-only fields (Gap 1).
+  register_struct_field_comptime_flags(struct_id.clone(), field_comptime_flags);
   // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in TypeScript.
   auto_derive_traits_for_struct_type(

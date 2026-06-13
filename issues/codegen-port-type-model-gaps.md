@@ -23,13 +23,25 @@ dependent codegen function can be ported.
   `field_types : ArrayList(Self)` with **no** per-field comptime-only flag.
 - **Blocks:** `isComptimeOnlyStructField`, `getRuntimeStructFields`
   (consumed by types/collection.ts and functions/generation.ts).
-- **Open question first:** does the evaluator already STRIP comptime-only
-  fields when building the runtime `Struct` (struct.yo:137 `if(!field.is_comptime)`,
-  calls/type.yo:268)? If so, `getRuntimeStructFields ≡ all fields` and
-  `isComptimeOnlyStructField ≡ false`, and the "gap" is just a
-  documented-divergence no-op. If NOT, add a
-  `field_is_compile_time_only : ArrayList(bool)` parallel array and populate
-  it at every Struct construction site. VERIFY before choosing.
+- **RESOLVED (investigation 2026-06-13):** the gap is REAL, not a no-op.
+  `evaluator/types/struct.yo` computes BOTH `field_types` (all fields) and
+  `runtime_field_types` (non-comptime only, line 137-139), but the `Struct`
+  TypeValue stores only `field_types` (line 202) — `runtime_field_types` is
+  passed to trait auto-derivation and then discarded. So the runtime/comptime
+  split IS computed but NOT retained on the type.
+- **Fix direction (low blast radius — DO THIS):** a SIDE-TABLE keyed by
+  struct id, `HashMap(String, ArrayList(bool))` (or runtime-field index list),
+  registered in struct.yo at construction (the data is already in hand) and
+  read by `getRuntimeStructFields`. This is yo-self's established pattern for
+  type-attached data that doesn't fit the variant (cf. the func_id
+  side-tables). AVOID adding a field to the `Struct` variant: that touches
+  ~62 sites (39 positional `.Struct(...)` matches + 23 constructions across
+  ~20 evaluator files) and risks the green gates. Structs reconstructed from
+  runtime values (id == "") have no entry → fall back to all fields.
+- **Interim:** until the side-table lands, `getRuntimeStructFields` may be
+  ported as "all fields" (correct for structs with no comptime-only fields —
+  the common case + the Phase-1 tiny corpus; over-emits for structs that DO
+  have comptime-only fields). Document the limitation at the port site.
 
 ## Gap 2 — `FuncVal` does not store the function's `TypeValue`
 

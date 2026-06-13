@@ -24,7 +24,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 {
   is_object_type,
   is_pointer_type,
@@ -180,6 +180,47 @@ impl(
     _r := self.c_includes.add(include);
     ()
   })
+);
+// ===========================================================================
+// Runtime struct fields (getRuntimeStructFields / isComptimeOnlyStructField).
+// TS carries `isCompileTimeOnly` on each `TypeField`; yo-self's `Struct`
+// variant has no per-field flag, so the flags live in a side-table keyed by
+// struct id (registered at construction in evaluator/types/struct.yo). A
+// struct with no side-table entry is treated as all-runtime. See
+// issues/codegen-port-type-model-gaps.md Gap 1.
+// ===========================================================================
+/// A runtime (non-comptime-only) struct field: its label and type, in
+/// declaration order. The faithful stand-in for the subset of TS `TypeField`
+/// that codegen consumes (`.label` / `.type`).
+RuntimeStructField :: object(label : String, ty : TypeValue);
+/// The runtime (non-comptime-only) fields of a struct type, in declaration
+/// order. Mirrors `getRuntimeStructFields`. Non-struct types yield an empty
+/// list. A struct with no registered comptime-flags is treated as all-runtime.
+get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeStructField))(
+  match(
+    struct_type,
+    .Struct({ id, field_labels, field_types }) => {
+      result := ArrayList(RuntimeStructField).new();
+      flags_opt := get_struct_field_comptime_flags(id.clone());
+      n := field_types.len();
+      (fi : usize) = usize(0);
+      while(fi < n, {
+        is_comptime := match(
+          flags_opt,
+          .Some(flags) => match(flags.get(fi),.Some(f) => f,.None => false),
+          .None => false
+        );
+        if(!(is_comptime), {
+          label := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+          ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          result.push(RuntimeStructField(label : label, ty : ty));
+        });
+        fi = (fi + usize(1));
+      });
+      result
+    },
+    _ => ArrayList(RuntimeStructField).new()
+  )
 );
 /// C keywords and common macros that must be avoided as identifiers.
 /// Mirrors the `cReservedWords` set in `sanitizeForCIdentifier`.
@@ -759,6 +800,8 @@ export(
   CodegenExternFnEntry,
   ArrayStructInfo,
   IsoTypeInfo,
+  RuntimeStructField,
+  get_runtime_struct_fields,
   type_key,
   get_type_string,
   get_variable_type_string,
