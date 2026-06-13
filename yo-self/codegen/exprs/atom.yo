@@ -178,7 +178,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value,.Some(v) => generate_comptime_value(v, ei.ty, context.base),.None => String.from("")));
+            return(match(ei.value,.Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty), context.base),.None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           captured := match(
@@ -228,10 +228,12 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             out
           }
         ),
-        // Non-variable atom with a comptime value → inline it.
+        // Non-variable atom with a comptime value → inline it. Use the
+        // coerced runtime type when present (e.g. a comptime_str arg coerced
+        // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
         (match(ei.value,.Some(v) => !(is_unknown_val(v)),.None => false)) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(v, ei.ty, context.base),
+          .Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty), context.base),
           .None => get_variable_name_for_codegen(tv.clone(), env_opt)
         ),
         true => get_variable_name_for_codegen(tv.clone(), env_opt)

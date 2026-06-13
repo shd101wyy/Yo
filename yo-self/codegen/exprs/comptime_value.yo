@@ -49,6 +49,29 @@ _is_f32 :: (fn(ty : TypeValue) -> bool)(
 _is_comptime_string :: (fn(ty : TypeValue) -> bool)(
   match(ty,.ComptimeString => true, _ => false)
 );
+/// Strip the surrounding `"` delimiters that yo-self's `StrLit` convention
+/// keeps (see evaluator/values/string.yo:5 — `StrLit.raw` stores the raw token
+/// text *including* the quotes, unlike TS which strips them via `JSON.parse`).
+/// Codegen renders the string CONTENT, so the delimiters must come off here
+/// before re-escaping / length computation. Defensive: only strips when both
+/// ends are `"` and the string is at least 2 bytes (synthetic StrLits built
+/// without delimiters pass through unchanged).
+_strip_str_delims :: (fn(raw : String) -> String)({
+  n := raw.len();
+  if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
+    // Byte-exact strip of the first/last byte (the ASCII `"` delimiters).
+    // `len()`/`byte_at` are byte-indexed but `substring` is rune-indexed, so
+    // rebuild from the inner byte range to stay correct for multibyte UTF-8.
+    bytes := raw.as_bytes();
+    inner := ArrayList(u8).new();
+    (i : usize) = usize(1);
+    while(i < (n - usize(1)), {
+      _p := inner.push(match(bytes.get(i),.Some(b) => b,.None => u8(0)));
+      i = (i + usize(1));
+    });
+    String.from_bytes(inner)
+  }, raw.clone())
+});
 /// Produce a C string literal `"..."` from raw bytes, escaping C-special
 /// characters. The faithful stand-in for TS `JSON.stringify(value)`.
 _c_string_literal :: (fn(raw : String) -> String)({
@@ -133,17 +156,22 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       base
     },
     .BoolVal(b) => if(b, String.from("true"), String.from("false")),
-    .StrLit(raw) => cond(
-      (is_str_type(ty) || _is_comptime_string(ty)) => {
-        lit := String.from("(__yo_str){ .ptr = (const uint8_t*)");
-        lit.push_string(_c_string_literal(raw.clone()));
-        lit.push_str(", .len = ");
-        lit.push_string(raw.len().to_string());
-        lit.push_str(" }");
-        lit
-      },
-      true => _c_string_literal(raw)
-    ),
+    .StrLit(raw_with_delims) => {
+      // yo-self's StrLit keeps the surrounding `"` delimiters; codegen emits
+      // the CONTENT, so strip them before re-escaping / length computation.
+      raw := _strip_str_delims(raw_with_delims);
+      cond(
+        (is_str_type(ty) || _is_comptime_string(ty)) => {
+          lit := String.from("(__yo_str){ .ptr = (const uint8_t*)");
+          lit.push_string(_c_string_literal(raw.clone()));
+          lit.push_str(", .len = ");
+          lit.push_string(raw.len().to_string());
+          lit.push_str(" }");
+          lit
+        },
+        true => _c_string_literal(raw)
+      )
+    },
     // --- enum (nullable-pointer / simple / tagged-union) ---
     .EnumVal(variant, fields) => {
       ptr_opt := can_optimize_as_nullable_pointer(ty);

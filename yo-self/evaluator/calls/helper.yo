@@ -472,11 +472,24 @@ check_if_function_parameter_matches_argument :: (
     || is_comptime_string_type(resolved_pt)
   );
   if((!(is_some_type(resolved_pt))) && (!(pt_is_comptime)), {
+    arg_was_comptime := (
+      (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty))
+      || is_comptime_string_type(arg_info.ty)
+    );
     arg_type = convert_comptime_type_to_runtime_type_with_expected(
       arg_type,
       Option(TypeValue).Some(resolved_pt),
       caller_env_r
     );
+    // Record the runtime type the comptime arg coerced to, so codegen renders
+    // the right C form (e.g. comptime_str → `*(char)` emits a bare string
+    // literal, not a `__yo_str` struct). Mirrors TS convertComptimeTypeToRuntime
+    // Type writing `expr.$.convertedRuntimeType`. ExprInfo is an object (ref),
+    // and for a literal arg `evaled_arg` IS the original node codegen reads.
+    // Only the codegen reads this field — no evaluator logic branches on it.
+    if(arg_was_comptime, {
+      arg_info.converted_runtime_type = Option(TypeValue).Some(arg_type);
+    });
   });
   arg_value := arg_info.value;
   // Step 4: Append to runtime arg list if not comptime-only.
