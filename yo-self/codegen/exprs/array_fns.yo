@@ -1,0 +1,130 @@
+//! Anonymous-array + `__yo_array_fill` emitters — mirrors
+//! `src/codegen/exprs/array-fns.ts`.
+//!
+//! DEFERRED (documented, not hit by the no-RC corpus): per-element deferred-dup
+//! emission for moved RC elements (Phase 4). The TS `Date.now()` fallback temp
+//! name is replaced by `random_id` (both only need uniqueness).
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_array_type } :: import("../../types/guards.yo");
+{ random_id } :: import("../../utils.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ get_type_string, get_variable_type_string } :: import("../utils/index.yo");
+/// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
+/// when the array has a result variable name. Returns `.None` when the node is
+/// not a typed array call (fall-through). Mirrors `generateAnonymousArray`.
+generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
+  array_type := ei.ty;
+  match(
+    ei.runtime_arg_exprs_in_order,
+    .Some(arg_exprs) => if(!(is_array_type(array_type)), return(Option(String).None), {
+      args_list := String.from("");
+      n := arg_exprs.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          arg_exprs.get(i),
+          .Some(arg) => {
+            if(i > usize(0), {
+              args_list.push_str(", ");
+            });
+            args_list.push_string(_call_generate_expr(arg, indent.clone(), context));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      array_type_name := get_type_string(array_type, context.base);
+      array_value := String.from("(");
+      array_value.push_string(array_type_name);
+      array_value.push_str("){ .data = { ");
+      array_value.push_string(args_list);
+      array_value.push_str(" } }");
+      match(
+        ei.variable_name,
+        .Some(temp_var) => {
+          decl := indent.clone();
+          decl.push_string(get_variable_type_string(array_type, temp_var.clone(), context.base));
+          decl.push_str(" = ");
+          decl.push_string(array_value);
+          decl.push_str(";");
+          em := context.base.emitter;
+          em.emit_string_line(decl);
+          Option(String).Some(temp_var)
+        },
+        .None => Option(String).Some(array_value)
+      )
+    }),
+    .None => Option(String).None
+  )
+});
+/// `__yo_array_fill(ArrayType, value)` builtin — declares an array and fills it
+/// with `value` via a C `for` loop. Mirrors `generateYoArrayFill`.
+generate_yo_array_fill :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* ERROR: __yo_array_fill has no evaluation info */")));
+  array_type_arg := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(x) => x,.None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))),.Atom(_, _) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
+  fill_value_arg := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(1)),.Some(x) => x,.None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))),.Atom(_, _) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
+  // The ArrayType comes from the first argument's compile-time value.
+  array_type := match(
+    context.base.get_expr_info(array_type_arg),
+    .Some(aei) => match(aei.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),.None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
+    .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))
+  );
+  if(!(is_array_type(array_type)), {
+    return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"));
+  });
+  length := match(array_type,.Array(_, len, len_var) => if(len_var.len() > usize(0), return(String.from("/* ERROR: __yo_array_fill requires compile-time known array length */")), len), _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */")));
+  array_type_name := get_type_string(array_type, context.base);
+  fill_value_code := _call_generate_expr(fill_value_arg, indent.clone(), context);
+  temp_var_name := match(
+    ei.variable_name,
+    .Some(v) => v,
+    .None => {
+      out := String.from("temp_array_");
+      out.push_string(random_id(String.from("")));
+      out
+    }
+  );
+  index_var_name := String.from("i_");
+  index_var_name.push_string(random_id(String.from("")));
+  em := context.base.emitter;
+  // Array declaration.
+  decl := indent.clone();
+  decl.push_string(array_type_name);
+  decl.push_str(" ");
+  decl.push_string(temp_var_name.clone());
+  decl.push_str(";");
+  em.emit_string_line(decl);
+  // Fill loop header.
+  hdr := indent.clone();
+  hdr.push_str("for (int ");
+  hdr.push_string(index_var_name.clone());
+  hdr.push_str(" = 0; ");
+  hdr.push_string(index_var_name.clone());
+  hdr.push_str(" < ");
+  hdr.push_string(length.to_string());
+  hdr.push_str("; ");
+  hdr.push_string(index_var_name.clone());
+  hdr.push_str("++) {");
+  em.emit_string_line(hdr);
+  // Fill assignment.
+  body := indent.clone();
+  body.push_str("  ");
+  body.push_string(temp_var_name.clone());
+  body.push_str(".data[");
+  body.push_string(index_var_name.clone());
+  body.push_str("] = ");
+  body.push_string(fill_value_code);
+  body.push_str(";");
+  em.emit_string_line(body);
+  // Loop close.
+  close := indent.clone();
+  close.push_str("}");
+  em.emit_string_line(close);
+  temp_var_name
+});
+export(generate_anonymous_array, generate_yo_array_fill);
