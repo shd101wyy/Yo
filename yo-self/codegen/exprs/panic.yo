@@ -1,0 +1,79 @@
+//! `panic(...)` emitter — mirrors `src/codegen/exprs/panic.ts`.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ _c_string_literal } :: import("./comptime_value.yo");
+{ get_type_string } :: import("../utils/index.yo");
+{ is_str_type } :: import("../../types/guards.yo");
+/// `panic(...)`: emit a stderr message (if any) + abort(), then return an
+/// unreachable type-correct dummy value (`*(T*)NULL`) so the C compiles
+/// (panic never returns). Mirrors `generatePanic`.
+generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei_opt := context.base.get_expr_info(expr);
+  return_type := match(ei_opt,.Some(ei) => ei.ty,.None => return(String.from("// Error: panic() missing type information")));
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  na := args.len();
+  cond(
+    (na == usize(0)) => {
+      em := context.base.emitter;
+      l := indent.clone();
+      l.push_str("abort();");
+      em.emit_string_line(l);
+    },
+    (na == usize(1)) => {
+      msg_arg := match(args.get(usize(0)),.Some(a) => a,.None => return(String.from("// Error: panic missing argument")));
+      msg_ei := context.base.get_expr_info(msg_arg);
+      // Compile-time string message → fprintf the escaped literal.
+      comptime_msg := match(msg_ei,.Some(mei) => match(mei.value,.Some(v) => match(v,.StrLit(raw) => Option(String).Some(raw), _ => Option(String).None),.None =>.None),.None =>.None);
+      match(
+        comptime_msg,
+        .Some(raw) => {
+          em := context.base.emitter;
+          l := indent.clone();
+          l.push_str("fprintf(stderr, \"%s\\n\", ");
+          l.push_string(_c_string_literal(raw));
+          l.push_str(");");
+          em.emit_string_line(l);
+          em.emit_string_line({
+            l2 := indent.clone();
+            l2.push_str("abort();");
+            l2
+          });
+        },
+        .None => {
+          // Runtime message — evaluate it; str uses the fat-pointer fields.
+          msg_code := _call_generate_expr(msg_arg, indent.clone(), context);
+          msg_is_str := match(msg_ei,.Some(mei) => is_str_type(mei.ty),.None => false);
+          em := context.base.emitter;
+          line := indent.clone();
+          if(msg_is_str, {
+            line.push_str("fprintf(stderr, \"%.*s\\n\", (int)");
+            line.push_string(msg_code.clone());
+            line.push_str(".len, (const char*)");
+            line.push_string(msg_code.clone());
+            line.push_str(".ptr);");
+          }, {
+            line.push_str("fprintf(stderr, \"%s\\n\", ");
+            line.push_string(msg_code.clone());
+            line.push_str(");");
+          });
+          em.emit_string_line(line);
+          l2 := indent.clone();
+          l2.push_str("abort();");
+          em.emit_string_line(l2);
+        }
+      );
+    },
+    true => {
+      return(String.from("// Error: panic accepts 0 or 1 arguments"));
+    }
+  );
+  // Unreachable, type-correct dummy value.
+  out := String.from("(*((");
+  out.push_string(get_type_string(return_type, context.base));
+  out.push_str("*)NULL))");
+  out
+});
+export(generate_panic);
