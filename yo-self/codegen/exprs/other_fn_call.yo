@@ -1,0 +1,276 @@
+//! Call/method/trait-dispatch emitter — mirrors `src/codegen/exprs/other-fn-call.ts`.
+//!
+//! PORT STATUS (incremental): the bounded self-contained HELPERS are ported here
+//! (the C-string addressability scanner, top-level arg splitter, interior-ref
+//! container extraction + borrow acquire/release bracketing, object-method
+//! detection, and the auto-borrow-assert). The ~2326-line
+//! generate_other_function_call ENTRY (regular calls, method/trait dispatch,
+//! specialization, extern, arg materialization with ref/closure/dyn handling)
+//! and the Phase-5 evidence/effect call-site machinery are the focused next
+//! effort; until they land the dispatcher routes other-fn-call → TODO stub.
+//!
+//! DEFERRED (documented): state-machine var→field resolution + temp-var storage
+//! (Phase 5 — getStateMachineFieldName / CapturedVariable not ported); these
+//! helpers are no-ops outside a state machine (the no-async corpus).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_DOT } :: import("../../expr.yo");
+{ is_object_type } :: import("../../types/guards.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+/// ASCII word byte ([A-Za-z0-9_]).
+_is_word_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+);
+/// ASCII identifier start byte ([A-Za-z_]).
+_is_ident_start :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (b == u8(95)))
+);
+/// Length of the C identifier at `start` in `s` (0 if none).
+_scan_ident :: (fn(s : String, start : usize) -> usize)({
+  n := s.len();
+  if((start >= n) || !(_is_ident_start(s.byte_at(start))), usize(0), {
+    (i : usize) = (start + usize(1));
+    while((i < n) && _is_word_byte(s.byte_at(i)), {
+      i = (i + usize(1));
+    });
+    i - start
+  })
+});
+/// Index of the matching close-bracket for the open at `open_idx` (`open_b` /
+/// `close_b` bytes), or `s.len()` if unbalanced.
+_match_bracket :: (fn(s : String, open_idx : usize, open_b : u8, close_b : u8) -> usize)({
+  n := s.len();
+  (depth : usize) = usize(0);
+  (k : usize) = open_idx;
+  while(k < n, {
+    b := s.byte_at(k);
+    if(b == open_b, {
+      depth = (depth + usize(1));
+    });
+    if(b == close_b, {
+      depth = (depth - usize(1));
+      if(depth == usize(0), {
+        return(k);
+      });
+    });
+    k = (k + usize(1));
+  });
+  n
+});
+/// Whether `code` is an lvalue C expression whose address can be taken (a
+/// deref, or an identifier head + `.`/`->`/`[]` chain). Mirrors `isAddressableCExpr`.
+_is_addressable_c_expr :: (fn(code : String) -> bool)({
+  (s : String) = code.trim();
+  // Strip balanced fully-enclosing parens.
+  (cont : bool) = true;
+  while(cont, {
+    if(!(s.starts_with("(") && s.ends_with(")")), {
+      cont = false;
+    }, {
+      close := _match_bracket(s, usize(0), u8(40), u8(41));
+      if(close < (s.len() - usize(1)), {
+        cont = false;
+      }, {
+        s = s.substring(usize(1), s.len() - usize(1)).trim();
+      });
+    });
+  });
+  if(s.len() == usize(0), {
+    return(false);
+  });
+  // A deref of anything is an lvalue.
+  if(s.byte_at(usize(0)) == u8(42), {
+    return(true);
+  });
+  n := s.len();
+  (i : usize) = usize(0);
+  if(s.byte_at(usize(0)) == u8(40), {
+    close := _match_bracket(s, usize(0), u8(40), u8(41));
+    if(close >= n, {
+      return(false);
+    });
+    inner := s.substring(usize(1), close).trim();
+    if((inner.len() == usize(0)) || !(inner.byte_at(usize(0)) == u8(42)), {
+      return(false);
+    });
+    i = (close + usize(1));
+  }, {
+    idlen := _scan_ident(s, usize(0));
+    if(idlen == usize(0), {
+      return(false);
+    });
+    i = idlen;
+  });
+  // Member / index tails.
+  while(i < n, {
+    b := s.byte_at(i);
+    if(b == u8(32), {
+      i = (i + usize(1));
+    }, if(b == u8(46), {
+      i = (i + usize(1));
+      idlen := _scan_ident(s, i);
+      if(idlen == usize(0), {
+        return(false);
+      });
+      i = (i + idlen);
+    }, if((b == u8(45)) && (((i + usize(1)) < n) && (s.byte_at(i + usize(1)) == u8(62))), {
+      i = (i + usize(2));
+      idlen := _scan_ident(s, i);
+      if(idlen == usize(0), {
+        return(false);
+      });
+      i = (i + idlen);
+    }, if(b == u8(91), {
+      close := _match_bracket(s, i, u8(91), u8(93));
+      if(close >= n, {
+        return(false);
+      });
+      i = (close + usize(1));
+    }, {
+      return(false);
+    }))));
+  });
+  true
+});
+/// Split a C arg list at top-level commas, respecting ()/[]/{} nesting.
+/// Mirrors `splitTopLevelArgsList`.
+_split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (depth : usize) = usize(0);
+  cur := String.from("");
+  n := s.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := s.byte_at(i);
+    if((b == u8(40)) || ((b == u8(91)) || (b == u8(123))), {
+      depth = (depth + usize(1));
+    });
+    if((b == u8(41)) || ((b == u8(93)) || (b == u8(125))), {
+      depth = (depth - usize(1));
+    });
+    if((b == u8(44)) && (depth == usize(0)), {
+      _p := out.push(cur.trim());
+      cur = String.from("");
+    }, {
+      cur.push_byte(b);
+    });
+    i = (i + usize(1));
+  });
+  if(cur.trim().len() > usize(0), {
+    _p := out.push(cur.trim());
+  });
+  out
+});
+/// SM var→field resolution (Phase 5) — returns the name unchanged outside a
+/// state machine (the no-async corpus). Mirrors `resolveVarNameInContext`.
+_resolve_var_name_in_context :: (fn(var_name : String, context : FunctionGenerationContext) -> String)(
+  var_name
+);
+/// SM temp-var store (Phase 5) — no-op outside a state machine. Mirrors
+/// `storeTempVarToStateMachineIfNeeded`.
+_store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : String, context : FunctionGenerationContext) -> unit)(
+  ()
+);
+/// The container-pointer C code for an interior `ref` argument (an Index-trait
+/// expression), or `.None`. Mirrors `getInteriorRefContainerCode`.
+_get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool, indent : String, context : FunctionGenerationContext) -> Option(String))(
+  if(
+    !(param_is_ref),
+    Option(String).None,
+    match(
+      context.base.get_expr_info(arg_expr),
+      .Some(ei) => match(
+        ei.index_trait_ptr_type,
+        .Some(_) => if(
+          !(ast_expr_is_fn_call(arg_expr)),
+          Option(String).None,
+          match(
+            arg_expr,
+            .FnCall(_, func, _, _, _) => {
+              container := func.*;
+              if(ast_expr_is_atom(container) || ast_expr_is_fn_call_of(container, BF_DOT, Option(usize).Some(usize(2))), Option(String).Some(_call_generate_expr(container, indent.clone(), context)), Option(String).None)
+            },
+            .Atom(_, _) => Option(String).None
+          )
+        ),
+        .None => Option(String).None
+      ),
+      .None => Option(String).None
+    )
+  )
+);
+/// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
+/// acquired container codes (caller emits releases). Mirrors `emitBorrowAcquires`.
+_emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_param_is_ref : ArrayList(bool), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
+  containers := ArrayList(String).new();
+  em := context.base.emitter;
+  na := runtime_arg_exprs.len();
+  np := runtime_param_is_ref.len();
+  limit := if(na < np, na, np);
+  (ai : usize) = usize(0);
+  while(ai < limit, {
+    is_ref := match(runtime_param_is_ref.get(ai),.Some(r) => r,.None => false);
+    match(
+      runtime_arg_exprs.get(ai),
+      .Some(arg) => match(
+        _get_interior_ref_container_code(arg, is_ref, indent.clone(), context),
+        .Some(cc) => {
+          _p := containers.push(cc.clone());
+          line := indent.clone();
+          line.push_str("__yo_borrow_acquire((void*)(");
+          line.push_string(cc);
+          line.push_str("));");
+          em.emit_string_line(line);
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  containers
+});
+/// Emit `__yo_borrow_release` (LIFO) for acquired containers. Mirrors `emitBorrowReleases`.
+_emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  n := containers.len();
+  if(n > usize(0), {
+    (ai : usize) = (n - usize(1));
+    (go : bool) = true;
+    while(go, {
+      match(
+        containers.get(ai),
+        .Some(cc) => {
+          line := indent.clone();
+          line.push_str("__yo_borrow_release((void*)(");
+          line.push_string(cc);
+          line.push_str("));");
+          em.emit_string_line(line);
+        },
+        .None => ()
+      );
+      if(ai == usize(0), {
+        go = false;
+      }, {
+        ai = (ai - usize(1));
+      });
+    });
+  });
+});
+/// Whether the current function is a method of an RC-managed object type
+/// (`self` parameter of object type). Mirrors `isInsideObjectMethod`.
+_is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
+  match(context.current_function_type,.Some(ft) => match(ft,.Func({ param_labels : pls, param_types : pts }) => if(pls.len() == usize(0), false, match(pls.get(usize(0)),.Some(l) => if(l == String.from("self"), match(pts.get(usize(0)),.Some(t) => is_object_type(t),.None => false), false),.None => false)), _ => false),.None => false)
+);
+/// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
+/// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
+_maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
+  if(((extern_func_name == String.from("__yo_realloc")) || (extern_func_name == String.from("__yo_free"))) && _is_inside_object_method(context), {
+    em := context.base.emitter;
+    line := indent.clone();
+    line.push_str("__yo_borrow_assert_unborrowed((void*)self);");
+    em.emit_string_line(line);
+  })
+);
+export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert);
