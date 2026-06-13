@@ -14,9 +14,18 @@
 //! helpers are no-ops outside a state machine (the no-async corpus).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_DOT } :: import("../../expr.yo");
-{ is_object_type } :: import("../../types/guards.yo");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
+{ EvalValue, is_func_val, is_unknown_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_object_type, is_function_type, is_unit_type } :: import("../../types/guards.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+{ generate_comptime_value } :: import("./comptime_value.yo");
+{ generate_deferred_drop_expressions } :: import("./drop_dup.yo");
+{ generate_yo_inline_function_call } :: import("./inline_fns.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 /// ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
@@ -273,4 +282,358 @@ _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String
     em.emit_string_line(line);
   })
 );
-export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert);
+/// The C function name registered for a func id, if any.
+_c_func_name :: (fn(func_id : String, context : FunctionGenerationContext) -> Option(String))(
+  match(context.base.get_function_entry(func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None)
+);
+/// The last binding for `name` whose value is a registered FuncVal → its C name.
+_arg_fn_value_c_name :: (fn(env : Environment, name : String, context : FunctionGenerationContext) -> Option(String))({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)),.Some(v) => match(v.value,.Some(val) => if(is_func_val(val), match(val,.FuncVal(_, _, _, _, _, _, _, _, fid) => _c_func_name(fid, context), _ => Option(String).None), Option(String).None),.None => Option(String).None),.None => Option(String).None))
+});
+/// Whether the last binding for `name` is compile-time-only.
+_last_is_comptime_only :: (fn(env : Environment, name : String) -> bool)({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
+});
+/// Whether `c` is a bare C literal (int/float/true/false) — `&literal` is invalid.
+_is_bare_literal :: (fn(c : String) -> bool)({
+  n := c.len();
+  if(
+    n == usize(0),
+    false,
+    if((c == String.from("true")) || (c == String.from("false")), true, {
+      (i : usize) = usize(0);
+      if(c.byte_at(usize(0)) == u8(45), {
+        i = usize(1);
+      });
+      if(i >= n, false, {
+        (ok : bool) = true;
+        (seen_digit : bool) = false;
+        while(i < n, {
+          b := c.byte_at(i);
+          if((b >= u8(48)) && (b <= u8(57)), {
+            seen_digit = true;
+          }, if((b == u8(46)) || ((b == u8(102)) || ((b == u8(70)) || ((b == u8(108)) || ((b == u8(76)) || ((b == u8(117)) || (b == u8(85))))))), (), {
+            ok = false;
+          }));
+          i = (i + usize(1));
+        });
+        ok && seen_digit
+      })
+    })
+  )
+});
+/// Materialize one runtime argument into its C code (temp-var decl for named
+/// non-ref values; closure-capture / SM / dyn-method handling is gated for the
+/// corpus). Mirrors the arg-map in `generateOtherFunctionCall`.
+_materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(arg),
+    .Some(arg_ei) => match(
+      arg_ei.variable_name,
+      .Some(vname) => {
+        (arg_code : String) = _call_generate_expr(arg, indent.clone(), context);
+        // Function-typed atom argument → use the registered C function name.
+        if(ast_expr_is_atom(arg), {
+          match(
+            _arg_fn_value_c_name(arg_ei.env, vname.clone(), context),
+            .Some(cn) => {
+              arg_code = cn;
+            },
+            .None => ()
+          );
+        });
+        is_comptime_only := _last_is_comptime_only(arg_ei.env, vname.clone());
+        is_sm := arg_code.starts_with("sm->");
+        (emitted : bool) = false;
+        if(((!(arg_code == vname) && !(is_comptime_only)) && !(is_sm)) && !(param_is_ref), {
+          sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
+          if(!(arg_code == sanitized), {
+            line := indent.clone();
+            line.push_string(get_variable_type_string(arg_ei.ty, vname.clone(), context.base));
+            line.push_str(" = ");
+            line.push_string(arg_code.clone());
+            line.push_str(";");
+            em := context.base.emitter;
+            em.emit_string_line(line);
+            emitted = true;
+          });
+        });
+        final_name := if(emitted, vname, arg_code.clone());
+        if((is_comptime_only || is_sm) || param_is_ref, arg_code, sanitize_for_c_identifier(final_name, false))
+      },
+      .None => _call_generate_expr(arg, indent.clone(), context)
+    ),
+    .None => _call_generate_expr(arg, indent.clone(), context)
+  )
+);
+/// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
+/// bare literals in a compound literal, address-of addressable exprs, else
+/// spill to a temp). Mirrors the inout/ref `&` section.
+_apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), runtime_args : ArrayList(AstExpr), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
+  em := context.base.emitter;
+  out := ArrayList(String).new();
+  na := args.len();
+  (i : usize) = usize(0);
+  while(i < na, {
+    pref := match(param_is_ref.get(i),.Some(r) => r,.None => false);
+    c := match(args.get(i),.Some(x) => x,.None => String.from(""));
+    transformed := if(
+      !(pref),
+      c,
+      if(
+        (c.starts_with("(*")) && (c.ends_with(")")),
+        c.substring(usize(2), c.len() - usize(1)),
+        if(_is_bare_literal(c), {
+          cty := match(runtime_args.get(i),.Some(ra) => match(context.base.get_expr_info(ra),.Some(rei) => get_type_string(rei.ty, context.base),.None => String.from("size_t")),.None => String.from("size_t"));
+          w := String.from("(&((");
+          w.push_string(cty);
+          w.push_str("){");
+          w.push_string(c);
+          w.push_str("}))");
+          w
+        }, if(_is_addressable_c_expr(c.clone()), {
+          w := String.from("(&(");
+          w.push_string(c);
+          w.push_str("))");
+          w
+        }, {
+          cty := match(runtime_args.get(i),.Some(ra) => match(context.base.get_expr_info(ra),.Some(rei) => get_type_string(rei.ty, context.base),.None => String.from("size_t")),.None => String.from("size_t"));
+          spill := String.from("__yo_ref_spill_");
+          spill.push_string(i.to_string());
+          decl := indent.clone();
+          decl.push_string(cty);
+          decl.push_str(" ");
+          decl.push_string(spill.clone());
+          decl.push_str(" = ");
+          decl.push_string(c);
+          decl.push_str(";");
+          em.emit_string_line(decl);
+          w := String.from("(&(");
+          w.push_string(spill);
+          w.push_str("))");
+          w
+        }))
+      )
+    );
+    _p := out.push(transformed);
+    i = (i + usize(1));
+  });
+  out
+});
+/// Per-argument cast to the callee's declared parameter C types (a no-op when
+/// types match; needed for specialized generic callees). Mirrors the
+/// namedCastedArgsList logic.
+_per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), context : FunctionGenerationContext) -> String)(
+  if(args_list.len() == usize(0), args_list, {
+    parts := _split_top_level_args_list(args_list);
+    np := param_types.len();
+    if(!(parts.len() == np), args_list, {
+      out := String.from("");
+      (i : usize) = usize(0);
+      while(i < np, {
+        if(i > usize(0), {
+          out.push_str(", ");
+        });
+        base_str := match(param_types.get(i),.Some(t) => get_type_string(t, context.base),.None => String.from("void*"));
+        pref := match(param_is_ref.get(i),.Some(r) => r,.None => false);
+        out.push_str("(");
+        out.push_string(base_str);
+        if(pref, {
+          out.push_str("*");
+        });
+        out.push_str(")(");
+        out.push_string(match(parts.get(i),.Some(p) => p,.None => String.from("")));
+        out.push_str(")");
+        i = (i + usize(1));
+      });
+      out
+    })
+  })
+);
+/// Join arg codes with ", ".
+_join_args :: (fn(args : ArrayList(String)) -> String)({
+  out := String.from("");
+  n := args.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    out.push_string(match(args.get(i),.Some(a) => a,.None => String.from("")));
+    i = (i + usize(1));
+  });
+  out
+});
+/// The call/method/trait-dispatch emitter. Mirrors `generateOtherFunctionCall`
+/// (corpus path). Returns `.None` to fall through (unhandled shape).
+///
+/// DEFERRED (documented, gated dead for the no-RC/no-async/no-effect corpus):
+/// dyn-method `.data` receiver transform (Gap 9 .trait); closure-captured-arg
+/// inline access (no closures in corpus); state-machine arg routing (Phase 5);
+/// deferred-dup arg rewrite (Phase 4); evidence-param call-through +
+/// effect-unwind propagation (Phase 5); the function-pointer (callback) call
+/// path with evidence; specialization uses the call-site Func type directly
+/// (FuncVal has no specializedType — Gap 2); `ref`-arg atom temp skip
+/// (Variable has no is_ref). The cFuncName direct-call path is the live corpus path.
+generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
+  // Compile-time value → generate it directly.
+  match(
+    ei.value,
+    .Some(v) => if(!(is_unknown_val(v)), {
+      generate_deferred_drop_expressions(expr, indent.clone(), context);
+      if(is_unit_type(ei.ty), return(Option(String).Some(String.from(""))), return(Option(String).Some(generate_comptime_value(v, ei.ty, context.base))));
+    }),
+    .None => ()
+  );
+  func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*,.Atom(_, _) => return(Option(String).None));
+  func_ei := match(context.base.get_expr_info(func_expr),.Some(e) => e,.None => return(Option(String).None));
+  function_type := func_ei.ty;
+  if(!(is_function_type(function_type)), {
+    return(Option(String).None);
+  });
+  runtime_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => return(Option(String).None));
+  param_types := match(function_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  param_is_ref := match(function_type,.Func({ param_is_ref : pr }) => pr, _ => ArrayList(bool).new());
+  // Materialize args, then auto-`&` ref params.
+  args := ArrayList(String).new();
+  na := runtime_args.len();
+  (ai : usize) = usize(0);
+  while(ai < na, {
+    pref := match(param_is_ref.get(ai),.Some(r) => r,.None => false);
+    match(
+      runtime_args.get(ai),
+      .Some(arg) => {
+        _p := args.push(_materialize_arg(arg, pref, expr, indent.clone(), context));
+      },
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  args2 := _apply_ref_amp(args, param_is_ref, runtime_args, indent.clone(), context);
+  args_list := _join_args(args2);
+  em := context.base.emitter;
+  // extern "yo".
+  ext := match(
+    function_type,
+    .Func({ is_extern : ie, extern_name : en, result : r }) => {
+      is_yo := match(ie,.Some(lang) => (lang == String.from("yo")),.None => false);
+      match(
+        en,
+        .Some(name) => if(is_yo, {
+          _maybe_emit_auto_borrow_assert(name.clone(), indent.clone(), context);
+          if(is_builtin_yo_inline_function(name.clone()), {
+            return(Option(String).Some(generate_yo_inline_function_call(name, args2, expr, context, indent.clone())));
+          });
+          if(is_unit_type(r.*), {
+            line := indent.clone();
+            line.push_string(name);
+            line.push_str("(");
+            line.push_string(args_list.clone());
+            line.push_str(");");
+            em.emit_string_line(line);
+            generate_deferred_drop_expressions(expr, indent.clone(), context);
+            return(Option(String).Some(String.from("")));
+          });
+          out := name;
+          out.push_str("(");
+          out.push_string(args_list.clone());
+          out.push_str(")");
+          return(Option(String).Some(out));
+        }),
+        .None => ()
+      );
+    },
+    _ => ()
+  );
+  result_type := match(function_type,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
+  // Registered (named) function call.
+  match(
+    func_ei.value,
+    .Some(fv) => if(is_func_val(fv), {
+      // Inline if the function body is a single builtin operator.
+      match(is_function_value_with_only_builtin_yo_inline_function_call(fv),.Some(op) => return(Option(String).Some(generate_yo_inline_function_call(op, args2, expr, context, indent.clone()))),.None => ());
+      fid := match(fv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+      match(
+        _c_func_name(fid, context),
+        .Some(c_func_name) => {
+          casted := _per_arg_cast(args_list.clone(), param_types, param_is_ref, context);
+          if(is_unit_type(result_type), {
+            line := indent.clone();
+            line.push_string(c_func_name);
+            line.push_str("(");
+            line.push_string(casted);
+            line.push_str(");");
+            em.emit_string_line(line);
+            generate_deferred_drop_expressions(expr, indent.clone(), context);
+            return(Option(String).Some(String.from("")));
+          });
+          match(
+            ei.variable_name,
+            .Some(tv) => {
+              c_type := get_type_string(result_type, context.base);
+              already := match(context.declared_temp_vars,.Some(s) => s.contains(tv.clone()),.None => false);
+              if(!(already), {
+                match(
+                  context.declared_temp_vars,
+                  .Some(s) => {
+                    _a := s.add(tv.clone());
+                  },
+                  .None => {
+                    ns := HashSet(String).new();
+                    _a := ns.add(tv.clone());
+                    context.declared_temp_vars = Option(HashSet(String)).Some(ns);
+                  }
+                );
+                line := indent.clone();
+                line.push_string(c_type);
+                line.push_str(" ");
+                line.push_string(tv.clone());
+                line.push_str(" = ");
+                line.push_string(c_func_name);
+                line.push_str("(");
+                line.push_string(casted);
+                line.push_str(");");
+                em.emit_string_line(line);
+              });
+              generate_deferred_drop_expressions(expr, indent.clone(), context);
+              return(Option(String).Some(tv));
+            },
+            .None => return(Option(String).Some(String.from("// Error: function call returns non-unit but no temp variable assigned")))
+          );
+        },
+        .None => ()
+      );
+    }),
+    .None => ()
+  );
+  // Function-pointer (callback) call: cast func code to the fn-ptr type.
+  // (Evidence-param fn-ptr calls are Phase 5 — gated.)
+  func_code := _call_generate_expr(func_expr, indent.clone(), context);
+  ret_str := get_type_string(result_type, context.base);
+  cast := String.from("(");
+  cast.push_string(ret_str);
+  cast.push_str(" (*)(");
+  npt := param_types.len();
+  (pi : usize) = usize(0);
+  while(pi < npt, {
+    if(pi > usize(0), {
+      cast.push_str(", ");
+    });
+    cast.push_string(match(param_types.get(pi),.Some(t) => get_type_string(t, context.base),.None => String.from("void*")));
+    pi = (pi + usize(1));
+  });
+  cast.push_str("))");
+  out := String.from("((");
+  out.push_string(cast);
+  out.push_string(func_code);
+  out.push_str(")(");
+  out.push_string(args_list);
+  out.push_str("))");
+  Option(String).Some(out)
+});
+export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call);
