@@ -1,0 +1,36 @@
+//! Expression-emitter dispatch indirection — supports `src/codegen/exprs/
+//! generation.ts` `generateExpr` / `_generateExpr`.
+//!
+//! TS emitters import `generateExpr` directly; yo-self's per-node emitters and
+//! the dispatch are mutually recursive ACROSS FILES (generateExpr →
+//! generateFuncCall → … → generateExpr), which the circular-import loader
+//! cannot resolve via destructuring imports. So — exactly as the evaluator
+//! does with `set_evaluate_expression_fn` (yo-self/evaluator/...) — the
+//! dispatch is reached through a module-global function pointer: per-node
+//! emitter files import `_call_generate_expr` from here (no cycle), and the
+//! dispatch module registers the real `_generate_expr` via `set_generate_expr_fn`
+//! at init.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+/// The expression-emitter dispatch signature: emit C for `expr` at `indent`,
+/// returning the C expression/statement text. Mirrors `generateExpr(expr,
+/// indent, context)`.
+GenerateExprFn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String);
+/// Module-global dispatch pointer — set once at codegen init.
+(g_generate_expr : Option(GenerateExprFn)) = Option(GenerateExprFn).None;
+/// Register the expression-emitter dispatch. Call once during codegen init.
+set_generate_expr_fn :: (fn(f : GenerateExprFn) -> unit)({
+  g_generate_expr = Option(GenerateExprFn).Some(f);
+  ()
+});
+/// Dispatch an expression through the registered emitter (panics if
+/// unregistered). Per-node emitters call this for sub-expression recursion.
+_call_generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    g_generate_expr,
+    .Some(f) => f(expr, indent, context),
+    .None => panic("generate_expr called before set_generate_expr_fn")
+  )
+);
+export(GenerateExprFn, set_generate_expr_fn, _call_generate_expr);
