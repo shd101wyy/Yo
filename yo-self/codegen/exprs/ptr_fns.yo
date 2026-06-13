@@ -1,0 +1,191 @@
+//! Pointer builtins — `&` (address-of) — mirrors `src/codegen/exprs/ptr-fns.ts`.
+//!
+//! `&x` → `(&x)`. Compile-time number/bool literals can't be addressed in C, so
+//! they go through a compound literal `(&(T){v})`. An `&(value(i))` whose inner
+//! `value(i)` resolves through the Index trait (which already returns a pointer)
+//! is emitted without an extra deref. Rvalue function-call operands are spilled
+//! into a named temp first (C can't take the address of an rvalue).
+//!
+//! DEFERRED (documented): the `is_return_slot` ref-forward (when `&(arg)` is the
+//! return value of a `*(T)`-returning fn and `arg` calls a `ref(T)` fn, forward
+//! the pointer instead of taking a stack address) — yo-self ExprInfo has no
+//! `is_return_slot` field and Variable has no `is_ref` flag. A flowability/
+//! ref-return concern, revisited with that work.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_to_string, BF_DOT, BF_YO_ARRAY_INDEX } :: import("../../expr.yo");
+{ EvalValue, is_func_val, is_number_val, is_bool_val, is_comptime_string_value } :: import("../../value.yo");
+{ Environment } :: import("../../env.yo");
+{ random_id } :: import("../../utils.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ get_type_string, get_variable_name_for_codegen, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+/// The C function name for a func id (registered cName, else None).
+_c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
+  match(context.base.get_function_entry(func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None)
+);
+/// The `&` (address-of) operator generation. Mirrors `generateAddressOf`.
+generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(
+    context.base.get_expr_info(expr),
+    .Some(e) => e,
+    .None => {
+      s := String.from("// Error: No type information for pointer/reference expression ");
+      s.push_string(ast_expr_to_string(expr));
+      s.push_str("\n");
+      return(s);
+    }
+  );
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  arg := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("// Error: address-of requires an argument\n")));
+  arg_ei_opt := context.base.get_expr_info(arg);
+  // Compile-time literals need a compound literal to be addressable.
+  match(
+    arg_ei_opt,
+    .Some(arg_ei) => match(
+      arg_ei.value,
+      .Some(av) => {
+        if(is_number_val(av) || is_bool_val(av), {
+          arg_code := _call_generate_expr(arg, indent.clone(), context);
+          type_name := get_type_string(arg_ei.ty, context.base);
+          out := String.from("(&(");
+          out.push_string(type_name);
+          out.push_str("){");
+          out.push_string(arg_code);
+          out.push_str("})");
+          return(out);
+        });
+        if(
+          is_comptime_string_value(av),
+          match(
+            arg_ei.converted_runtime_type,
+            .Some(_) => {
+              arg_code := _call_generate_expr(arg, indent.clone(), context);
+              out := String.from("(&");
+              out.push_string(arg_code);
+              out.push_str(")");
+              return(out);
+            },
+            .None => ()
+          )
+        );
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  // Index-trait address-of: Index.index() already returns a pointer.
+  is_idx := match(ei.is_index_trait_address_of,.Some(b) => b,.None => false);
+  if(is_idx && ast_expr_is_fn_call(arg), {
+    match(
+      arg_ei_opt,
+      .Some(arg_ei) => match(
+        arg_ei.index_method_value,
+        .Some(mv) => if(is_func_val(mv), {
+          callee_expr := match(arg,.FnCall(_, func, _, _, _) => func.*,.Atom(_, _) => arg);
+          (callee_code : String) = _call_generate_expr(callee_expr, indent.clone(), context);
+          // Spill an rvalue callee into a temp (can't address an rvalue).
+          if(ast_expr_is_fn_call(callee_expr) && (!(ast_expr_is_atom(callee_expr)) && !(ast_expr_is_fn_call_of(callee_expr, BF_DOT, Option(usize).None))), {
+            match(
+              context.base.get_expr_info(callee_expr),
+              .Some(cei) => {
+                is_already_var := match(cei.variable_name,.Some(vn) => (callee_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(cei.env))),.None => false);
+                if(!(is_already_var), {
+                  callee_type := get_type_string(cei.ty, context.base);
+                  temp_name := String.from("__yo_ptr_idx_tmp_");
+                  temp_name.push_string(random_id(String.from("")));
+                  line := indent.clone();
+                  line.push_string(callee_type);
+                  line.push_str(" ");
+                  line.push_string(temp_name.clone());
+                  line.push_str(" = ");
+                  line.push_string(callee_code.clone());
+                  line.push_str(";");
+                  em := context.base.emitter;
+                  em.emit_string_line(line);
+                  callee_code = temp_name;
+                });
+              },
+              .None => ()
+            );
+          });
+          index_arg_opt := match(arg,.FnCall(_, _, a2, _, _) => a2.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+          index_code := match(index_arg_opt,.Some(ia) => _call_generate_expr(ia, indent.clone(), context),.None => String.from("0"));
+          // Inline the array-index builtin body when possible.
+          inline_op := is_function_value_with_only_builtin_yo_inline_function_call(mv);
+          match(
+            inline_op,
+            .Some(op) => if(op == String.from(BF_YO_ARRAY_INDEX), {
+              out := String.from("(&((&");
+              out.push_string(callee_code.clone());
+              out.push_str(")->data[");
+              out.push_string(index_code.clone());
+              out.push_str("]))");
+              return(out);
+            }),
+            .None => ()
+          );
+          // Fallback to a direct call of the index method.
+          fid := match(mv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+          match(
+            _c_function_name_opt(context, fid),
+            .Some(c_func_name) => {
+              out := c_func_name;
+              out.push_str("(&");
+              out.push_string(callee_code.clone());
+              out.push_str(", ");
+              out.push_string(index_code.clone());
+              out.push_str(")");
+              return(out);
+            },
+            .None => ()
+          );
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  arg_code := _call_generate_expr(arg, indent.clone(), context);
+  // Rvalue function-call operand → spill into a named temp first.
+  if(ast_expr_is_fn_call(arg) && (!(ast_expr_is_atom(arg)) && !(ast_expr_is_fn_call_of(arg, BF_DOT, Option(usize).None))), {
+    match(
+      arg_ei_opt,
+      .Some(arg_ei) => {
+        is_already_var := match(arg_ei.variable_name,.Some(vn) => (arg_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(arg_ei.env))),.None => false);
+        if(!(is_already_var), {
+          arg_type_str := get_type_string(arg_ei.ty, context.base);
+          temp_name := match(
+            arg_ei.variable_name,
+            .Some(vn) => vn,
+            .None => {
+              t := String.from("__yo_addrof_tmp_");
+              t.push_string(random_id(String.from("")));
+              t
+            }
+          );
+          line := indent.clone();
+          line.push_string(arg_type_str);
+          line.push_str(" ");
+          line.push_string(temp_name.clone());
+          line.push_str(" = ");
+          line.push_string(arg_code.clone());
+          line.push_str(";");
+          em := context.base.emitter;
+          em.emit_string_line(line);
+          out := String.from("(&");
+          out.push_string(temp_name);
+          out.push_str(")");
+          return(out);
+        });
+      },
+      .None => ()
+    );
+  });
+  // Plain address-of.
+  out := String.from("(&");
+  out.push_string(arg_code);
+  out.push_str(")");
+  out
+});
+export(generate_address_of);
