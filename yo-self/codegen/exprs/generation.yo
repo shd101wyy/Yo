@@ -110,6 +110,7 @@ open(import("std/string"));
 { generate_consume } :: import("./consume.yo");
 { generate_open } :: import("./open.yo");
 { generate_op_and, generate_op_or } :: import("./and_or.yo");
+{ generate_match_expression } :: import("./match.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
@@ -215,7 +216,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), return(generate_field_access(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(generate_begin(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(generate_cond_expression(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(String.from("/* TODO[codegen-port]: match not yet ported */")));
+  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(generate_match_expression(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context),.Some(r) => return(r),.None => ()));

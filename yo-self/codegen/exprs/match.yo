@@ -12,13 +12,16 @@
 //! of a begin-block final expression (Phase 4) inside generate_case_body.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { has_any_control_flow } :: import("../../expr_info.yo");
+{ is_unit_type, is_pointer_type, is_object_type, is_enum_type } :: import("../../types/guards.yo");
+{ Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -364,4 +367,297 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
   generate_deferred_drop_expressions(expr, indent.clone(), context);
   if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
 });
-export(generate_case_body, generate_primitive_match_expression);
+/// Whether a match arm's pattern was executed (comptime branch elimination).
+_case_executed :: (fn(case_value : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(context.base.get_expr_info(case_value),.Some(cei) => match(cei.case_executed,.Some(b) => b,.None => false),.None => false)
+);
+/// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
+_variant_name :: (fn(case_value : AstExpr) -> String)(
+  match(case_value,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(v) => ast_expr_token(v).value,.None => String.from("")),.Atom(_, _) => String.from(""))
+);
+/// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
+/// Mirrors the `nullablePointerType` branch of `generateMatchExpression`.
+_gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, nullable_inner : TypeValue, is_ptr : bool, temp_var_opt : Option(String), is_unit : bool) -> String)({
+  em := context.base.emitter;
+  body_indent := indent.clone();
+  body_indent.push_str("  ");
+  args := _args(expr);
+  n := args.len();
+  // Classify arms into null-case body and pointer-case (body + pattern).
+  (null_body : Option(AstExpr)) = Option(AstExpr).None;
+  (ptr_body : Option(AstExpr)) = Option(AstExpr).None;
+  (ptr_pattern : Option(AstExpr)) = Option(AstExpr).None;
+  (i : usize) = usize(1);
+  while(i < n, {
+    match(
+      args.get(i),
+      .Some(ce) => if(ast_expr_is_fn_call_of(ce, "=>", Option(usize).Some(usize(2))), {
+        cargs := _args(ce);
+        match(
+          cargs.get(usize(0)),
+          .Some(cv) => match(
+            cargs.get(usize(1)),
+            .Some(cb) => if(_case_executed(cv, context), {
+              // `.None` (caseValue itself is a `.` call) → null case; `.Some(v)` → pointer case.
+              if(ast_expr_is_fn_call_of(cv, BF_DOT, Option(usize).None), {
+                null_body = Option(AstExpr).Some(cb);
+              }, {
+                ptr_body = Option(AstExpr).Some(cb);
+                ptr_pattern = Option(AstExpr).Some(cv);
+              });
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // if (<*?>matched != NULL) { <bind payload> <body> } else { <null body> }
+  star := if(is_ptr, String.from("*"), String.from(""));
+  hdr := indent.clone();
+  hdr.push_str("if (");
+  hdr.push_string(star);
+  hdr.push_string(matched_value_code.clone());
+  hdr.push_str(" != NULL) {");
+  em.emit_string_line(hdr);
+  match(
+    ptr_pattern,
+    .Some(pat) => {
+      // Bind the destructured payload to the pointer value.
+      match(
+        pat,
+        .FnCall(_, _, pargs, _, _) => match(
+          pargs.get(usize(0)),
+          .Some(dvar) => if(ast_expr_is_atom(dvar), {
+            dvn := sanitize_for_c_identifier(ast_expr_token(dvar).value, false);
+            decl := body_indent.clone();
+            decl.push_string(get_type_string(nullable_inner, context.base));
+            decl.push_str(" ");
+            decl.push_string(dvn);
+            decl.push_str(" = ");
+            decl.push_string(matched_value_code.clone());
+            decl.push_str(";");
+            em.emit_string_line(decl);
+          }),
+          .None => ()
+        ),
+        .Atom(_, _) => ()
+      );
+    },
+    .None => ()
+  );
+  match(
+    ptr_body,
+    .Some(pb) => {
+      body_code := generate_case_body(pb, body_indent.clone(), context);
+      if(
+        (!(is_unit)) && !(_is_control_flow_code(body_code)),
+        match(
+          temp_var_opt,
+          .Some(tv) => {
+            result := if(body_code.len() > usize(0), body_code.clone(), matched_value_code.clone());
+            line := body_indent.clone();
+            line.push_string(tv.clone());
+            line.push_str(" = ");
+            line.push_string(result);
+            line.push_str(";");
+            em.emit_string_line(line);
+          },
+          .None => if(body_code.len() > usize(0), {
+            line := body_indent.clone();
+            line.push_string(body_code.clone());
+            line.push_str(";");
+            em.emit_string_line(line);
+          })
+        ),
+        if(body_code.len() > usize(0), {
+          line := body_indent.clone();
+          line.push_string(body_code);
+          line.push_str(";");
+          em.emit_string_line(line);
+        })
+      );
+    },
+    .None => ()
+  );
+  mid := indent.clone();
+  mid.push_str("} else {");
+  em.emit_string_line(mid);
+  match(
+    null_body,
+    .Some(nb) => {
+      body_code := generate_case_body(nb, body_indent.clone(), context);
+      if(
+        (!(is_unit)) && !(_is_control_flow_code(body_code)),
+        match(
+          temp_var_opt,
+          .Some(tv) => {
+            line := body_indent.clone();
+            line.push_string(tv.clone());
+            line.push_str(" = ");
+            line.push_string(body_code.clone());
+            line.push_str(";");
+            em.emit_string_line(line);
+          },
+          .None => if(body_code.len() > usize(0), {
+            line := body_indent.clone();
+            line.push_string(body_code.clone());
+            line.push_str(";");
+            em.emit_string_line(line);
+          })
+        ),
+        if(body_code.len() > usize(0), {
+          line := body_indent.clone();
+          line.push_string(body_code);
+          line.push_str(";");
+          em.emit_string_line(line);
+        })
+      );
+    },
+    .None => ()
+  );
+  close := indent.clone();
+  close.push_str("}");
+  em.emit_string_line(close);
+  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+});
+/// Simple (fieldless) enum match → C switch on the tag. Mirrors the
+/// `simpleEnumOptimizable` branch of `generateMatchExpression`.
+_gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, enum_type : TypeValue, deref_star : String, temp_var_opt : Option(String), is_unit : bool) -> String)({
+  em := context.base.emitter;
+  saved := context.base.inside_match;
+  context.base.inside_match = true;
+  body_indent := indent.clone();
+  body_indent.push_str("  ");
+  hdr := indent.clone();
+  hdr.push_str("switch (");
+  hdr.push_string(deref_star);
+  hdr.push_string(matched_value_code);
+  hdr.push_str(") {");
+  em.emit_string_line(hdr);
+  args := _args(expr);
+  n := args.len();
+  (i : usize) = usize(1);
+  while(i < n, {
+    match(
+      args.get(i),
+      .Some(ce) => if(ast_expr_is_fn_call_of(ce, "=>", Option(usize).Some(usize(2))), {
+        cargs := _args(ce);
+        match(
+          cargs.get(usize(0)),
+          .Some(cv) => match(
+            cargs.get(usize(1)),
+            .Some(cb) => if(_case_executed(cv, context), {
+              if(ast_expr_is_atom(cv) && (ast_expr_token(cv).value == String.from("_")), {
+                d := indent.clone();
+                d.push_str("default: {");
+                em.emit_string_line(d);
+                _emit_case_body_and_break(cb, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                cl := indent.clone();
+                cl.push_str("}");
+                em.emit_string_line(cl);
+              }, if(ast_expr_is_fn_call_of(cv, BF_DOT, Option(usize).Some(usize(1))), {
+                variant_tag := get_enum_variant_c_name(enum_type, _variant_name(cv), context.base);
+                h := indent.clone();
+                h.push_str("case ");
+                h.push_string(variant_tag);
+                h.push_str(": {");
+                em.emit_string_line(h);
+                _emit_case_body_and_break(cb, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                cl := indent.clone();
+                cl.push_str("}");
+                em.emit_string_line(cl);
+              }));
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  context.base.inside_match = saved;
+  close := indent.clone();
+  close.push_str("}");
+  em.emit_string_line(close);
+  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+});
+/// Generate a match expression. Mirrors `generateMatchExpression`. The
+/// tagged-union destructuring path is the documented next piece (TODO stub);
+/// primitive, nullable-pointer, and simple-enum matches are handled.
+generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* \"match\" expression is not evaluated */")));
+  temp_var_opt := ei.variable_name;
+  value_type := ei.ty;
+  is_unit := is_unit_type(value_type);
+  em := context.base.emitter;
+  if(
+    !(is_unit),
+    match(
+      temp_var_opt,
+      .Some(tv) => {
+        d := indent.clone();
+        d.push_string(get_type_string(value_type, context.base));
+        d.push_str(" ");
+        d.push_string(tv.clone());
+        d.push_str(";");
+        em.emit_string_line(d);
+      },
+      .None => ()
+    )
+  );
+  args := _args(expr);
+  subject := match(args.get(usize(0)),.Some(s) => s,.None => return(String.from("// Error: \"match\" expression requires a subject")));
+  subject_ei := match(context.base.get_expr_info(subject),.Some(e) => e,.None => return(String.from("// Error: \"match\" expression requires a valid type")));
+  match_value_type := subject_ei.ty;
+  (matched_value_code : String) = _call_generate_expr(subject, indent.clone(), context);
+  // Materialize the subject into its temp var when the evaluator assigned one.
+  match(
+    subject_ei.variable_name,
+    .Some(svn) => {
+      subject_var_name := get_variable_name_for_codegen(svn, Option(Environment).Some(subject_ei.env));
+      if(!(matched_value_code == subject_var_name), {
+        decl := indent.clone();
+        decl.push_string(get_type_string(match_value_type, context.base));
+        decl.push_str(" ");
+        decl.push_string(subject_var_name.clone());
+        decl.push_str(" = ");
+        decl.push_string(matched_value_code.clone());
+        decl.push_str(";");
+        em.emit_string_line(decl);
+        matched_value_code = subject_var_name;
+      });
+    },
+    .None => ()
+  );
+  // Primitive (int/bool) match.
+  if(match(ei.is_primitive_match,.Some(b) => b,.None => false), {
+    return(generate_primitive_match_expression(expr, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
+  });
+  // Dereference pointer / ref-semantics one level to the enum type.
+  is_ptr := is_pointer_type(match_value_type);
+  is_ref_sem := (!(is_ptr) && is_object_type(match_value_type));
+  enum_type := if(is_ptr, match(match_value_type,.Pointer(p) => p.*, _ => match_value_type), match_value_type);
+  if(!(is_enum_type(enum_type)), {
+    return(String.from("// Error: \"match\" expression requires an enum type"));
+  });
+  match(context.base.get_type_c_name(type_key(enum_type)),.None => return(String.from("// Error: \"match\" expression enum type has no C name")),.Some(_) => ());
+  deref_star := if(is_ptr, String.from("*"), String.from(""));
+  // Nullable-pointer optimization.
+  match(can_optimize_as_nullable_pointer(enum_type),.Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, matched_value_code, nullable_inner, is_ptr, temp_var_opt, is_unit)),.None => ());
+  // Simple (fieldless) enum.
+  if(can_optimize_as_simple_enum(enum_type), {
+    return(_gen_simple_enum_match(expr, indent.clone(), context, matched_value_code, enum_type, deref_star, temp_var_opt, is_unit));
+  });
+  // Tagged-union destructuring: documented next piece.
+  todo := indent.clone();
+  todo.push_str("/* TODO[codegen-port]: match tagged-union destructuring not yet ported (see EnumT parallel-array adaptation note) */");
+  em.emit_string_line(todo);
+  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+});
+export(generate_case_body, generate_primitive_match_expression, generate_match_expression);
