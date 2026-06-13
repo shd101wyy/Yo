@@ -10,15 +10,18 @@
 //!     re-architecting to yo-self's env+substitute SomeType resolution
 //!     (yo-self omits `SomeT.resolvedConcreteType`; `DynT`/`IsoT` carry no
 //!     id). Phase 3/5.
-//!   * `isComptimeOnlyStructField` / `getRuntimeStructFields` — yo-self
-//!     `TypeValue.Struct` carries no per-field `isCompileTimeOnly` flag.
 //!   * `isComptimeFunction` — yo-self `FuncVal` does not store the function's
 //!     `TypeValue`; the return-comptime flag is reached via a func_id
-//!     side-table.
-//!   * `getVariableNameForCodegen` — needs the general `Type.isExtern`
-//!     accessor (yo-self models `is_extern` only on the `Func` variant).
+//!     side-table (Gap 2).
 //!   * `getDeferredDropTargetVariable` — needs the `ExprInfoTable` to resolve
 //!     the target atom's binding env (TS reads `atom.$.env`).
+//!
+//! Ported here so far: CodeGenContext (base) + FunctionGenerationContext via
+//! composition; sanitize/shouldAvoidConst/canOptimize*; type_key +
+//! get_type_string family; get_runtime_struct_fields (side-table);
+//! get_variable_name_for_codegen; the deferred dup/drop atom-name extractors;
+//! isDeferredDropForClosureCapture; findReturnedAsyncBlock;
+//! isFunctionValueWithOnlyBuiltinYoInlineFunctionCall.
 open(import("std/string"));
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -32,6 +35,7 @@ open(import("std/string"));
   is_enum_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
 { ExprInfoTable, ExprInfo, expr_info_table_get } :: import("../../expr_info.yo");
@@ -738,6 +742,37 @@ get_enum_variant_c_name :: (
     }
   )
 );
+/// The variable name to use in generated C code: the actual binding name
+/// (sanitized), not a parameter alias. If the env lookup returns a generated
+/// `fn_*` C name (a module-level function shadowing a local), prefer the
+/// original name. Mirrors `getVariableNameForCodegen`.
+///
+/// DIVERGENCE (Gap 3): TS checks `variable.type.isExtern === "c"` for the
+/// extern-C sanitize flag; yo-self models is_extern only on the Func variant,
+/// so it is read from there (false for non-Func types — the common case).
+get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Environment)) -> String)(
+  match(
+    env,
+    .None => sanitize_for_c_identifier(variable_name.clone(), false),
+    .Some(e) => {
+      variables := get_variables_from_env(e, variable_name.clone());
+      n := variables.len();
+      cond(
+        (n > usize(0)) => {
+          variable := match(variables.get(n - usize(1)),.Some(v) => v,.None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
+          is_extern_c := match(variable.ty,.Func({ is_extern }) => match(is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
+          var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
+          // A generated fn_* name shadowing a local → prefer the original name.
+          if((var_name != variable_name) && var_name.starts_with(String.from("fn_")), {
+            return(sanitize_for_c_identifier(variable_name.clone(), false));
+          });
+          var_name
+        },
+        true => sanitize_for_c_identifier(variable_name.clone(), false)
+      )
+    }
+  )
+);
 /// Extract the target atom name from a deferred dup expression.
 ///   Form 1: `___dup(varName)` — pre-evaluation form (first arg atom).
 ///   Form 2: `(varName.___dup)()` — post-evaluation method-style form.
@@ -903,6 +938,7 @@ export(
   is_function_value_with_only_builtin_yo_inline_function_call,
   can_optimize_as_nullable_pointer,
   can_optimize_as_simple_enum,
+  get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
   is_deferred_drop_for_closure_capture,
