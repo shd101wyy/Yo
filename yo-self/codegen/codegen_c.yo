@@ -18,9 +18,21 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../types/definitions.yo");
+{ EvalValue } :: import("../value.yo");
+{ TargetInfo } :: import("../target.yo");
+{ ExprInfoTable } :: import("../expr_info.yo");
+{ Emitter } :: import("../emitter.yo");
 { is_object_type, is_atomic_object_type } :: import("../types/guards.yo");
 { type_contains_some_type, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { CodeGenContext } :: import("./utils/index.yo");
+{ FunctionGenerationContext } :: import("./functions/context.yo");
+{ collect_required_functions, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
+{ collect_required_types, register_collect_type } :: import("./types/collection.yo");
+{ collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
+{ generate_type_declarations } :: import("./types/generation.yo");
+{ generate_function_declarations } :: import("./functions/declarations.yo");
+{ generate_all_functions, generate_main_wrapper } :: import("./functions/generation.yo");
+{ register_generate_expr } :: import("./exprs/generation.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
 /// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
 _struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
@@ -139,4 +151,70 @@ static void __yo_dispose_dispatch(void* ptr) {
     em.emit_string_line(String.from("static void __yo_dispose_dispatch(void* ptr) { (void)ptr; }"));
   });
 });
-export(compute_needs_cycle_gc, emit_dispose_dispatch);
+/// Compile a module value to a C11 source string. Mirrors
+/// `CodeGeneratorC.compileModule` + `print()` (src/codegen/codegen-c.ts).
+///
+/// Pipeline: register the collection/dispatch indirections → build the context →
+/// collect required functions + types → emit C includes → the Future-state enum →
+/// the needs_cycle_gc pre-scan → type declarations → the argv shim → function
+/// declarations → (register the expr dispatcher) function bodies → the main
+/// wrapper (executable mode) → the dispose-dispatch switch.
+///
+/// DEFERRED (documented, gated dead for the corpus): module-level mutable-var
+/// init collection + emission (no field), collectDisposeMethodsFromGenericImpls
+/// (Phase 3), fixupDynImplKeys / generateDynBox* / generateDyn* (Phase 3 dyn),
+/// preRegisterAsyncBlockTypes / preRegisterEffectfulFunctions /
+/// generateDeferredAsyncBlocks (Phase 5), generateClosureDisposeFunctions
+/// (Phase 5), generateSpecialized* (Gap 2), generateLibraryInitFunction.
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool) -> String)({
+  // Wire the mutual-recursion indirections before any collection / body walk.
+  register_collect_type();
+  register_find_function_calls_in_expr();
+  register_generate_expr();
+  emitter := Emitter.new();
+  base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
+  ctx := FunctionGenerationContext.new(base);
+  base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
+  // First pass: collect functions and types reachable from the module exports.
+  collect_required_functions(module_value, base, info, true);
+  collect_required_types(module_value, base, info);
+  collect_c_includes(base);
+  emit_c_includes(base);
+  // Future state enum (needed before type declarations reference it).
+  base.emitter.emit_declaration_string_line(
+    `
+// Future state enum - shared by all Future types
+typedef enum {
+  __YO_FUTURE_RUNNING = 0,
+  __YO_FUTURE_COMPLETED = 1,
+  __YO_FUTURE_ERROR = 2
+} __yo_future_state_t;
+`
+  );
+  // Pre-scan: select the __yo_ref_header_t layout (must precede type decls).
+  compute_needs_cycle_gc(base);
+  // Second pass: type declarations (runtime preamble + topo-sorted types).
+  generate_type_declarations(base);
+  // Command-line arguments runtime shim.
+  base.emitter.emit_declaration_string_line(
+    `
+// Command-line arguments (initialized in main)
+typedef struct { uint8_t** data; size_t length; } Slice_uint8_t_u42_;
+static int32_t __yo_argc;
+static uint8_t** __yo_argv;
+static Slice_uint8_t_u42_ __yo_args;
+`
+  );
+  // Third pass: function declarations (prototypes).
+  generate_function_declarations(base);
+  // Fourth pass: function bodies (the dispatcher was registered above).
+  generate_all_functions(ctx);
+  // Main wrapper (executable mode only).
+  if(!(is_library), {
+    generate_main_wrapper(ctx);
+  });
+  // Type-tag dispose dispatch switch.
+  emit_dispose_dispatch(base);
+  base.emitter.print()
+});
+export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);
