@@ -8,9 +8,13 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_function_type, is_struct_type, is_module_type, is_object_type } :: import("../../types/guards.yo");
+{ is_function_type, is_struct_type, is_module_type, is_object_type, is_some_type, is_function_type_hard_generic } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
-{ CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField } :: import("../utils/index.yo");
+{ type_contains_some_type_for_codegen_param, type_implements_future } :: import("../../evaluator/trait_checking.yo");
+{ AstExpr } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ get_func_type, is_effect_record_member } :: import("../../function_value.yo");
+{ CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
 EvidenceParameter :: object(
@@ -265,6 +269,121 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
     );
   });
 });
+/// The result (return) type of a Func TypeValue, or Unit for non-functions.
+_func_result_type :: (fn(ft : TypeValue) -> TypeValue)(
+  match(ft,.Func({ result }) => result.*, _ => TypeValue.Unit)
+);
+/// True when the Func's declared return is `comptime(...)` (compile-time-only
+/// function). Mirrors the `isComptimeFunction(value)` gate.
+_func_result_is_comptime_only :: (fn(ft : TypeValue) -> bool)(
+  match(ft,.Func({ result_is_comptime_only : c }) => c, _ => false)
+);
+/// True if any runtime parameter of the Func contains a SomeType at the codegen
+/// ABI level, or the Func has forall type parameters. Mirrors the
+/// `functionType.parameters.some(...) || functionType.forallParameters.length > 0`
+/// generic-parameter test.
+_func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
+  match(
+    ft,
+    .Func({ forall_types, param_types }) => if(forall_types.len() > usize(0), true, {
+      n := param_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !(found), {
+        match(
+          param_types.get(i),
+          .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    }),
+    _ => false
+  )
+);
+/// True when the return type is a plain `Impl(...)` existential (SomeType at top
+/// level with at least one required trait). Mirrors `returnsPlainImpl`.
+_returns_plain_impl :: (fn(ret : TypeValue) -> bool)(
+  if(!(is_some_type(ret)), false, match(ret,.SomeT({ required_trait_types : rts }) => (rts.len() > usize(0)), _ => false))
+);
+/// The body expression of a FuncVal, if any.
+_func_value_body :: (fn(value : EvalValue) -> Option(AstExpr))(
+  match(value,.FuncVal(_, _, _, _, body_box, _, _, _, _) => Option(AstExpr).Some(body_box.*), _ => Option(AstExpr).None)
+);
+/// True when the function body's effect analysis reports effects. Mirrors
+/// `value.body?.$?.effectAnalysis?.hasEffects`.
+_body_is_effectful :: (fn(body : Option(AstExpr), context : CodeGenContext) -> bool)(
+  match(
+    body,
+    .Some(b) => match(
+      context.get_expr_info(b),
+      .Some(ei) => match(ei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),
+      .None => false
+    ),
+    .None => false
+  )
+);
+/// Emit a single function's forward declaration with the right linkage. Mirrors
+/// `generateFunctionDeclaration`. `is_exported` is precomputed by the caller via
+/// the SAME predicate the body emitter (generate_function) uses, so the
+/// declaration's linkage matches the definition's.
+///
+/// DEFERRED (documented): the override-return-type computation for
+/// Impl(Future(T)) returns (findReturnedAsyncBlock → async state-machine struct
+/// name) — async, Phase 5. The non-Future SomeType body-type override is ported.
+generate_function_declaration :: (fn(function_type : TypeValue, c_function_name : String, is_extern : bool, is_exported : bool, body : Option(AstExpr), context : CodeGenContext) -> unit)({
+  ret := _func_result_type(function_type);
+  // Override return type from the body's concrete type (non-Future SomeType paths).
+  (override : Option(String)) = Option(String).None;
+  if(!(type_implements_future(ret)), {
+    match(
+      body,
+      .Some(b) => if(is_some_type(ret), {
+        match(
+          context.get_expr_info(b),
+          .Some(ei) => {
+            override = Option(String).Some(get_type_string(ei.ty, context));
+          },
+          .None => ()
+        );
+      }, if(type_contains_some_type(ret), {
+        // Specialized body more specific than a SomeType-containing signature.
+        match(
+          context.get_expr_info(b),
+          .Some(ei) => {
+            sig_s := get_type_string(ret, context);
+            body_s := get_type_string(ei.ty, context);
+            if(!(sig_s == body_s), {
+              override = Option(String).Some(body_s);
+            });
+          },
+          .None => ()
+        );
+      })),
+      .None => ()
+    );
+  });
+  prototype := generate_function_prototype(function_type, c_function_name.clone(), context, override);
+  is_rc := (!(is_extern) && (!(is_exported) && (c_function_name.contains("___drop") || (c_function_name.contains("___dup") || c_function_name.contains("___dispose")))));
+  linkage := if(is_extern, String.from("extern "), if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline "))));
+  line := linkage;
+  line.push_string(prototype);
+  line.push_str(";");
+  context.emitter.emit_declaration_string_line(line);
+});
+/// Functions that are C preprocessor macros or static runtime-preamble
+/// functions: never emit `extern` declarations for these. Mirrors
+/// `THREADING_MACRO_FUNCTIONS`.
+_is_threading_macro_function :: (fn(name : String) -> bool)(
+  (name == String.from("__yo_mutex_init")) || ((name == String.from("__yo_mutex_destroy")) || ((name == String.from("__yo_mutex_lock")) || ((name == String.from("__yo_mutex_unlock")) || ((name == String.from("__yo_cond_init")) || ((name == String.from("__yo_cond_destroy")) || ((name == String.from("__yo_cond_wait")) || ((name == String.from("__yo_cond_signal")) || ((name == String.from("__yo_cond_broadcast")) || ((name == String.from("__yo_thread_join")) || (name == String.from("__yo_thread_self")))))))))))
+);
+/// `is_extern` tag of a Func type: `.Some("c")` / `.Some("yo")` / `.None`.
+_func_extern_tag :: (fn(ft : TypeValue) -> Option(String))(
+  match(ft,.Func({ is_extern : e }) => e, _ => Option(String).None)
+);
 /// Generate constructor declarations for closures. No-op: Impl(Fn(...)) closures
 /// use concrete capture structs + direct calls; Dyn(Fn(...)) uses dyn
 /// constructors generated elsewhere. Faithful port of the TS no-op.
@@ -283,4 +402,98 @@ generate_capture_dispose_function_declarations :: (fn(context : CodeGenContext) 
 generate_closure_vtable_declarations :: (fn(context : CodeGenContext) -> unit)(
   ()
 );
-export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations);
+/// Generate all function declarations (prototypes). Mirrors
+/// `generateFunctionDeclarations`.
+///
+/// DEFERRED (documented, Gap 2 — yo-self FuncVal/Func model lacks these fields):
+/// the specialization skips (specializedFunctionCaches / specializedType /
+/// isConcreteSpecialization), the closure carve-outs (Func has no is_closure),
+/// and isIoAsyncStateMachineClosure all evaluate to false here. The async
+/// runtime forward declaration is gated on uses_async (false for the corpus).
+generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  em.emit_declaration_line("// Function declarations");
+  em.emit_declaration_line("/// Extern functions");
+  ext_vals := context.extern_functions.values();
+  (go_ext : bool) = true;
+  while(go_ext, {
+    match(
+      ext_vals.next(),
+      .Some(entry) => {
+        cn := entry.c_name.clone();
+        tag := _func_extern_tag(entry.ty);
+        cond(
+          (match(tag,.Some(s) => (s == String.from("yo")),.None => false)) => if(!(_is_threading_macro_function(cn.clone())), {
+            generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, context);
+          }),
+          (match(tag,.Some(s) => (s == String.from("c")),.None => false) && entry.c_include.is_some()) => (),
+          (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
+          true => {
+            generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, context);
+          }
+        );
+      },
+      .None => {
+        go_ext = false;
+      }
+    );
+  });
+  em.emit_declaration_line("");
+  // Async runtime forward declarations are gated on uses_async (deferred — corpus
+  // is synchronous; the flag lives on FunctionGenerationContext, not the base).
+  em.emit_declaration_line("/// Object constructors");
+  generate_object_constructor_declarations(context);
+  em.emit_declaration_line("");
+  em.emit_declaration_line("/// Closure constructors");
+  generate_closure_constructor_declarations(context);
+  em.emit_declaration_line("");
+  em.emit_declaration_line("/// Capture dispose functions");
+  generate_capture_dispose_function_declarations(context);
+  em.emit_declaration_line("");
+  em.emit_declaration_line("/// Dyn type constructors");
+  em.emit_declaration_line("");
+  em.emit_declaration_line("/// Regular functions");
+  // Iterate functions by id so the exported-linkage predicate (keyed by func_id)
+  // matches generate_function exactly.
+  keys := context.functions.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      keys.next(),
+      .Some(func_id) => match(
+        context.get_function_entry(func_id.clone()),
+        .Some(entry) => {
+          c_name := entry.c_name.clone();
+          value := entry.value;
+          function_type := get_func_type(func_id.clone());
+          is_user_main := (c_name == String.from("__yo_user_main"));
+          body := _func_value_body(value);
+          is_effectful := _body_is_effectful(body, context);
+          is_erm := is_effect_record_member(func_id.clone());
+          has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
+          ret := _func_result_type(function_type);
+          // Hard-generic / comptime / inline-only skip.
+          skip1 := ((!(is_user_main) && (!(is_effectful) && (!(has_evidence) && !(is_erm)))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
+          // Generic params / return skip.
+          has_generic_params := ((!(is_user_main) && (!(is_effectful) && !(is_erm))) && _func_has_generic_params(function_type));
+          has_generic_return := type_contains_some_type_for_codegen_param(ret, ArrayList(String).new());
+          returns_plain_impl := _returns_plain_impl(ret);
+          skip2 := (has_generic_params || ((has_generic_return && !(returns_plain_impl)) && !(is_erm)));
+          if(!(skip1 || skip2), {
+            is_exported := (is_user_main || context.exported_function_labels.contains_key(func_id.clone()));
+            body_for_decl := if(is_erm, Option(AstExpr).None, body);
+            generate_function_declaration(function_type, c_name.clone(), false, is_exported, body_for_decl, context);
+          });
+        },
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  em.emit_declaration_line("/// Closure vtable instances");
+  generate_closure_vtable_declarations(context);
+  em.emit_declaration_line("");
+});
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations);
