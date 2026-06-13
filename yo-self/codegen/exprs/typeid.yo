@@ -1,0 +1,35 @@
+//! `typeid(...)` emitter — mirrors `src/codegen/exprs/typeid.ts`.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
+/// `typeid(T)` → a stable `(uintptr_t)&<static>` runtime type id. Registers a
+/// `static const char <var> = 0;` whose ADDRESS is the id (unique per type,
+/// matching vtable typeid naming). Mirrors `generateTypeId`.
+generate_typeid :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  arg_opt := match(expr,.FnCall(_, _, args, _, _) => args.get(usize(0)),.Atom(_, _) =>.None);
+  arg := match(arg_opt,.Some(a) => a,.None => return(String.from("// Error: typeid requires 1 argument")));
+  ty := match(
+    context.base.get_expr_info(arg),
+    .Some(ei) => match(ei.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => return(String.from("// Error: typeid expected a TypeValue argument"))),.None => return(String.from("// Error: typeid expected a TypeValue argument"))),
+    .None => return(String.from("// Error: typeid argument has no evaluation info"))
+  );
+  type_id := type_key(ty);
+  type_c_name := match(context.base.get_type_c_name(type_id.clone()),.Some(cn) => cn,.None => get_type_string(ty, context.base));
+  static_var_name := String.from("__yo_typeid_");
+  static_var_name.push_string(sanitize_for_c_identifier(type_c_name, false));
+  if(!(context.base.type_id_statics.contains_key(type_id.clone())), {
+    _r := context.base.type_id_statics.set(type_id.clone(), static_var_name.clone());
+    decl := String.from("static const char ");
+    decl.push_string(static_var_name.clone());
+    decl.push_str(" = 0;");
+    em := context.base.emitter;
+    em.emit_declaration_string_line(decl);
+  });
+  context.base.add_c_include(String.from("<stdint.h>"));
+  out := String.from("(uintptr_t)&");
+  out.push_string(static_var_name);
+  out
+});
+export(generate_typeid);

@@ -130,6 +130,9 @@ CodeGenContext :: object(
   /// True while emitting inside a match (a C switch) — break needs goto, not
   /// plain break. Mirrors CodeGenContext.insideMatch.
   inside_match : bool,
+  /// typeid static declarations: type id → the C static variable name whose
+  /// address is the type's runtime id. Mirrors CodeGenContext.typeIdStatics.
+  type_id_statics : HashMap(String, String),
   /// dyn() usages → box types / vtables / wrappers (keyed by a
   /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
   dyn_impls : HashMap(String, DynImplEntry),
@@ -176,6 +179,7 @@ impl(
       current_loop_label : Option(String).None,
       current_continue_label : Option(String).None,
       inside_match : false,
+      type_id_statics : HashMap(String, String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       current_module_id : Option(String).None,
       exported_function_labels : HashMap(String, String).new()
