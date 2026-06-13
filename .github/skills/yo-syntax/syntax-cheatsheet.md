@@ -299,7 +299,21 @@ match(s,
 
 **Preferred form**: `.Variant({label, label: alias})`. Names only the fields the arm binds, so adding a field to the variant later doesn't silently break every arm. `tests/match_curly.test.yo` is the spec.
 
-Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
+Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` is rejected.
+
+**Bind-nothing forms** (match a variant, ignore ALL its fields):
+
+```rust
+match(s,
+  .Circle           => 0,   // bare `.Variant` — allowed even when it has fields
+  .Rectangle({})    => 1    // empty curly — the zero case of partial curly
+)
+```
+
+Both `.Variant` and `.Variant({})` mean "match this variant, bind none of its
+fields" — use them instead of `.Variant(_, _, …)` when no field is needed.
+They are NOT errors for multi-field variants (this is intentionally more
+permissive than Rust). `tests/match_bind_nothing.test.yo` is the spec.
 
 > **Critical**: Within a single match arm, you must use **either all positional or all named** field patterns. Mixing positional and named fields in the same arm (e.g., `.Foo(x, y: z, w)`) causes C codegen to emit undeclared identifiers for the named fields. This is a parser/codegen limitation — do not mix.
 

@@ -815,7 +815,11 @@ Curly destructuring rules:
 - `{a: x}` binds field `a` to a variable named `x` (rename).
 - `{a: _}` asserts field `a` exists but ignores its value.
 - Partial matches are allowed: `{width}` on `Rectangle(width, height)` skips `height`.
-- Empty `{}` is rejected — use `.Variant` (no parens) for fieldless variants.
+- Empty `{}` is allowed: `.Variant({})` matches the variant and binds NO fields
+  (the zero case of partial curly). Bare `.Variant` (no parens) does the same —
+  both work even for variants WITH fields ("ignore all fields"), so you don't
+  need `.Variant(_, _, …)`. (Intentionally more permissive than Rust.)
+  `tests/match_bind_nothing.test.yo` is the spec.
 - Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
 - Nested curly `.Foo({a: {b}})` is rejected — destructure in the body instead.
 
