@@ -39,6 +39,7 @@ referenced instruction files.
 | 〃 | `… check ./tests` | all pass except the 2 baseline fixtures `tests/circular_deps/circular_error_{a,b}.yo`, which error identically under TS (count drifts as tests are added; 143/145 as of 2026-06-12) |
 | 〃 | `… check ./yo-self` | all pass (235/235 as of 2026-06-12; count drifts with the file inventory) |
 | yo-self component tests | per-file `node ./out/cjs/yo-cli.cjs test yo-self/tests/<f> --parallel 1\|2` | green; see `yo-self/README.md` "Test suite layout" for tiers, runtimes, and the known-heavy trio (eval_basics/eval_tail_1/eval_tail_2 exceed the runner's 1800 s isolated-process limit; they `check` clean) |
+| Differential harness | `scripts/diff-test.sh tests --parallel N` (env `YO_SELF_BIN`, default `/tmp/yo-self-bin`) | no `DIFF`/`TS-FAIL` verdicts; `SELF-FAIL` count shrinks to 0 as the port lands (baseline 2026-06-13: all `SELF-FAIL`, `compile`/`test` throw by design) |
 
 ## Handoff onboarding (read first)
 
@@ -231,21 +232,27 @@ expected to unlock.
 
 ## Phases
 
-### Phase 0 — Baseline + differential harness + the UAF
+### Phase 0 — Baseline + differential harness + the UAF — ✅ DONE (2026-06-13)
 
-1. **Fix the ExprInfo-table use-after-free** (landmine 1). Do not start
-   emitter work on a foundation that corrupts intermittently.
-2. Rebuild `yo-self-bin`; `compile` currently THROWS by design — baseline
-   scorecard is all-COMPILE-FAIL.
-3. Build the **differential harness** (suggested: `scripts/diff-test.sh` or
-   a `yo-cli` subcommand): input = a `.yo` file or directory; compile with
-   BOTH compilers; run both binaries; diff stdout + exit code; report
-   PASS / FAIL / COMPILE-FAIL(stage) per file; `--parallel N`; summary
-   counts. This is the `check`-equivalent for the whole codegen phase —
-   it runs after every batch.
-4. Close stale codegen issues whose subject (the untyped walker) is gone.
+1. ✅ **ExprInfo-table use-after-free fixed** (landmine 1; resolved
+   2026-06-11, see references). Emitter work now rests on a clean RC layer.
+2. ✅ `yo-self-bin` rebuilds clean; `compile`/`test` THROW by design — the
+   baseline scorecard is all-`SELF-FAIL`.
+3. ✅ **Differential harness** built: `scripts/diff-test.sh` — input = a
+   `.yo` file or directory; compiles/runs with BOTH compilers and compares
+   BEHAVIOR (stdout + exit code for runnable programs; test-runner
+   pass/total summary + exit code for `*.test.yo`). Per-file verdicts
+   `PASS` / `DIFF` / `SELF-FAIL` / `TS-FAIL` / `BOTH-FAIL`; `--parallel N`,
+   `--filter`, `--cc`, `--release`, `-v`; summary counts; exits non-zero on
+   `DIFF`/`TS-FAIL` (the verdicts the port must drive to zero). This is the
+   `check`-equivalent for the whole codegen phase — run it after every batch.
+   Baseline scorecard: `plans/codegen-baseline-scorecard.md`.
+4. ✅ Stale-issue sweep: no open issue referenced the deleted untyped
+   walker (`driver.yo`/`exprs.yo`); the surviving codegen issue
+   (`codegen-dead-code-after-exn-throw.md`) is an evaluator comptime-fold
+   defect that the executing-mode port will exercise — kept.
 
-**Gate:** UAF fixed (gmalloc-clean sweeps); harness exists; baseline
+**Gate:** ✅ UAF fixed (gmalloc-clean sweeps); harness exists; baseline
 scorecard committed.
 
 ### Phase 1 — The typed pipeline (port order, top to bottom)
@@ -424,7 +431,8 @@ Definition of Done; update `BOOTSTRAPPING.md`.
       EARLY** (2026-06-11, commit ca1f776a): suite revived and green under
       the TS compiler; see `yo-self/README.md`. Re-check under
       `yo-self-bin test` in Phase 6.
-- [ ] Phase 0 — UAF fix + baseline + differential harness
+- [x] Phase 0 — UAF fix + baseline + differential harness (2026-06-13:
+      `scripts/diff-test.sh` + `plans/codegen-baseline-scorecard.md`)
 - [ ] Phase 1 — typed pipeline
 - [ ] Phase 2 — expression-emitter sweep
 - [ ] Phase 3 — functions/types/dyn/specialization
@@ -434,6 +442,9 @@ Definition of Done; update `BOOTSTRAPPING.md`.
 
 ## References
 
+- `scripts/diff-test.sh` — the differential harness (Phase 0); the
+  `check`-equivalent run after every porting batch.
+- `plans/codegen-baseline-scorecard.md` — the committed Phase-0 baseline.
 - `BOOTSTRAPPING.md` — umbrella status; update its codegen rows as phases
   land.
 - `BOOTSTRAPPING_EVALUATOR.md` + `EVALUATOR_PORT_REVIEW.md` — the evaluator
