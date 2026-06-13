@@ -1,0 +1,54 @@
+//! Reference-counting builtin emitters — mirrors `src/codegen/exprs/rc-fns.ts`.
+//!
+//! PORT STATUS (incremental): the simple 1-arg RC builtins are ported. The
+//! element-wise array/tuple drop/dup emitters (generateYoDrop/DupArrayElement,
+//! generateYoDrop/DupTupleElement) and the atomic variants need element-type
+//! drop/dup-function lookup and are pending.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+/// First argument of a FnCall expression (or `.None`).
+_first_arg :: (fn(expr : AstExpr) -> Option(AstExpr))(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => args.get(usize(0)),
+    .Atom(_, _) =>.None
+  )
+);
+/// `__yo_decr_rc(<self>)` — reference-count decrement. Mirrors `generateYoDecrRc`.
+generate_yo_decr_rc :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _first_arg(expr),
+    .Some(self_arg) => {
+      out := String.from("__yo_decr_rc(");
+      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_str(")");
+      out
+    },
+    .None => String.from("// Error: __yo_decr_rc requires exactly 1 argument")
+  )
+);
+/// `__yo_incr_rc(<self>)` — reference-count increment. Mirrors `generateYoIncrRc`.
+generate_yo_incr_rc :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _first_arg(expr),
+    .Some(self_arg) => {
+      out := String.from("__yo_incr_rc(");
+      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_str(")");
+      out
+    },
+    .None => String.from("// Error: __yo_incr_rc requires exactly 1 argument")
+  )
+);
+/// `__yo_rc_own(<self>)` — ownership transfer; emits the argument as-is.
+/// Mirrors `generateYoRcOwn`.
+generate_yo_rc_own :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _first_arg(expr),
+    .Some(self_arg) => _call_generate_expr(self_arg, indent, context),
+    .None => String.from("// Error: __yo_rc_own requires exactly 1 argument")
+  )
+);
+export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own);
