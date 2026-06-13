@@ -11,6 +11,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ is_target_windows, is_target_macos } :: import("../../target.yo");
 {
   CodeGenContext,
   RuntimeStructField,
@@ -279,11 +280,372 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
     _ => ()
   )
 );
+/// Emit the runtime preamble that opens `generateTypeDeclarations`: the GC debug
+/// macros + mark/flags, the target-specific thread-synchronization types/macros,
+/// the atomic wrappers, mutex/cond constructors, the `__yo_ref_header_t` (chosen
+/// by needs_cycle_gc), and the generic Future / I/O Future struct types. Mirrors
+/// the fixed-template head of `generateTypeDeclarations` (src lines 104-469).
+/// The type-walk (forward decls + topological emission) is the next increment.
+_emit_type_runtime_preamble :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  debug_gc_define := if(context.debug_gc, String.from("#define __YO_DEBUG_GC 1"), String.from("// #define __YO_DEBUG_GC 1"));
+  debug_par_define := if(context.debug_parallelism, String.from("#define __YO_DEBUG_PARALLELISM 1"), String.from("// #define __YO_DEBUG_PARALLELISM 1"));
+  debug_async_define := if(context.debug_async_await, String.from("#define __YO_DEBUG_ASYNC_AWAIT 1"), String.from("// #define __YO_DEBUG_ASYNC_AWAIT 1"));
+  em.emit_declaration_string_line(
+    `// Non-atomic Reference Counting with Thread-Local Cycle Collection
+// Based on QuickJS trial deletion algorithm
+// See CYCLE_COLLECTION.md for design details
+
+// Debug flag for GC operations - use --debug-gc flag to enable
+${debug_gc_define}
+
+#ifdef __YO_DEBUG_GC
+  #define GC_DEBUG(...) fprintf(stderr, "GC: " __VA_ARGS__)
+#else
+  #define GC_DEBUG(...)
+#endif
+
+// Debug flag for parallelism operations - use --debug-parallelism flag to enable
+${debug_par_define}
+
+#ifdef __YO_DEBUG_PARALLELISM
+  #define PARALLELISM_DEBUG(...) fprintf(stderr, __VA_ARGS__)
+#else
+  #define PARALLELISM_DEBUG(...)
+#endif
+
+// Debug flag for async/await operations - use --debug-async-await flag to enable
+${debug_async_define}
+
+#ifdef __YO_DEBUG_ASYNC_AWAIT
+  #define ASYNC_DEBUG(...) fprintf(stderr, "ASYNC: " __VA_ARGS__)
+#else
+  #define ASYNC_DEBUG(...)
+#endif
+
+// GC mark states for QuickJS-style trial deletion cycle collection
+typedef enum {
+  __YO_GC_UNMARKED = 0,
+  __YO_GC_CANDIDATE = 1,
+  __YO_GC_TRIAL_DELETED = 2,
+  __YO_GC_LIVE = 3,
+  __YO_GC_GARBAGE = 4
+} __yo_gc_mark_t;
+
+// GC flags
+#define __YO_GC_TRACKED              0x01
+`
+  );
+  // Thread synchronization — target-specific types + macros.
+  if(is_target_windows(context.target_info), {
+    em.emit_declaration_string_line(
+      `// Thread synchronization for stop-the-world GC (Windows)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
+#include <windows.h>
+#include <process.h>
+typedef CRITICAL_SECTION __YO_THREAD_SYNC_TYPE;
+typedef CONDITION_VARIABLE __YO_COND_TYPE;
+typedef HANDLE __YO_THREAD_TYPE;
+#define __YO_THREAD_SYNC_INIT {0}
+#define __YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
+#define __YO_COND_INIT CONDITION_VARIABLE_INIT
+#define __yo_mutex_init(m) InitializeCriticalSection(m)
+#define __yo_mutex_destroy(m) DeleteCriticalSection(m)
+#define __yo_mutex_lock(m) EnterCriticalSection(m)
+#define __yo_mutex_unlock(m) LeaveCriticalSection(m)
+#define __yo_cond_init(c) InitializeConditionVariable(c)
+#define __yo_cond_destroy(c) ((void)0)
+#define __yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
+#define __yo_cond_signal(c) WakeConditionVariable(c)
+#define __yo_cond_broadcast(c) WakeAllConditionVariable(c)
+#define __yo_raw_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+#define __yo_raw_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
+#define __yo_thread_self() ((uintptr_t)GetCurrentThreadId())`
+    );
+  }, {
+    macos_includes := if(is_target_macos(context.target_info), String.from("#include <sys/types.h>\n#include <sys/sysctl.h>"), String.from(""));
+    em.emit_declaration_string_line(
+      `// Thread synchronization for stop-the-world GC (POSIX)
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+${macos_includes}
+typedef pthread_mutex_t __YO_THREAD_SYNC_TYPE;
+typedef pthread_cond_t __YO_COND_TYPE;
+typedef pthread_t __YO_THREAD_TYPE;
+#define __YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
+#define __YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
+#define __YO_COND_INIT PTHREAD_COND_INITIALIZER
+#define __yo_mutex_init(m) pthread_mutex_init(m, NULL)
+#define __yo_mutex_destroy(m) pthread_mutex_destroy(m)
+#define __yo_mutex_lock(m) pthread_mutex_lock(m)
+#define __yo_mutex_unlock(m) pthread_mutex_unlock(m)
+#define __yo_cond_init(c) pthread_cond_init(c, NULL)
+#define __yo_cond_destroy(c) pthread_cond_destroy(c)
+#define __yo_cond_wait(c, m) pthread_cond_wait(c, m)
+#define __yo_cond_signal(c) pthread_cond_signal(c)
+#define __yo_cond_broadcast(c) pthread_cond_broadcast(c)
+#define __yo_raw_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
+#define __yo_raw_thread_join(t) pthread_join(t, NULL)
+#define __yo_thread_self() ((uintptr_t)pthread_self())`
+    );
+  });
+  // Thread handle type, atomic wrappers, mutex/cond constructors, GC-state fwd decl.
+  em.emit_declaration_string_line(
+    `
+// Thread handle type for parallelism - value type, stack allocated
+typedef struct __yo_thread_t {
+  __YO_THREAD_TYPE handle;
+} __yo_thread_t;
+
+// Thread callback type for spawn
+typedef void (*__yo_thread_fn)(void* closure);
+
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void);
+static __YO_COND_TYPE __yo_cond_create(void);
+
+#include <stdatomic.h>
+static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_int(_Atomic int* obj, int desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int __yo_atomic_exchange_int(_Atomic int* obj, int desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_int(
+  _Atomic int* obj, int* expected, int desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+static inline size_t __yo_atomic_load_size_t(_Atomic size_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline size_t __yo_atomic_exchange_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_size_t(
+  _Atomic size_t* obj, size_t* expected, size_t desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+static inline long long __yo_atomic_load_llong(_Atomic long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline long long __yo_atomic_exchange_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_llong(
+  _Atomic long long* obj, long long* expected, long long desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+static inline int8_t __yo_atomic_load_schar(_Atomic signed char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int8_t __yo_atomic_exchange_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_schar(
+  _Atomic signed char* obj, int8_t* expected, int8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline int16_t __yo_atomic_load_short(_Atomic short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int16_t __yo_atomic_exchange_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_short(
+  _Atomic short* obj, int16_t* expected, int16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint8_t __yo_atomic_load_uchar(_Atomic unsigned char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint8_t __yo_atomic_exchange_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uchar(
+  _Atomic unsigned char* obj, uint8_t* expected, uint8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint16_t __yo_atomic_load_ushort(_Atomic unsigned short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint16_t __yo_atomic_exchange_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ushort(
+  _Atomic unsigned short* obj, uint16_t* expected, uint16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint32_t __yo_atomic_load_uint(_Atomic unsigned int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint32_t __yo_atomic_exchange_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uint(
+  _Atomic unsigned int* obj, uint32_t* expected, uint32_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint64_t __yo_atomic_load_ullong(_Atomic unsigned long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint64_t __yo_atomic_exchange_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ullong(
+  _Atomic unsigned long long* obj, uint64_t* expected, uint64_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline ptrdiff_t __yo_atomic_load_ptrdiff(_Atomic ptrdiff_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline ptrdiff_t __yo_atomic_exchange_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ptrdiff(
+  _Atomic ptrdiff_t* obj, ptrdiff_t* expected, ptrdiff_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void) {
+  __YO_THREAD_SYNC_TYPE mutex;
+  __yo_mutex_init(&mutex);
+  return mutex;
+}
+
+static __YO_COND_TYPE __yo_cond_create(void) {
+  __YO_COND_TYPE cond;
+  __yo_cond_init(&cond);
+  return cond;
+}
+
+// Forward declare __yo_thread_gc_state_t for use in __yo_ref_header_t
+typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
+`
+  );
+  // Reference-counting header — layout chosen by needs_cycle_gc.
+  if(context.needs_cycle_gc, {
+    em.emit_declaration_string_line(
+      `
+// Reference counting header - non-atomic RC with cycle collection support
+typedef struct __yo_ref_header_t {
+  size_t ref_count;
+  uint8_t gc_flags;
+  uint16_t borrow_count;
+  __yo_gc_mark_t gc_mark;
+  struct __yo_ref_header_t* gc_next;
+  struct __yo_ref_header_t* gc_prev;
+  void (*dispose_fn)(void*);
+  void (*traverse_fn)(void*, void (*visit)(void*));
+} __yo_ref_header_t;
+
+// Per-thread GC state
+struct __yo_thread_gc_state {
+  __yo_ref_header_t* tracked_objects;
+  size_t tracked_count;
+  size_t thread_id;
+  size_t alloc_count;
+  __yo_thread_gc_state_t* next;
+  __yo_thread_gc_state_t* prev;
+};`
+    );
+  }, {
+    em.emit_declaration_string_line(
+      `
+// Lightweight reference counting header — no cycle detection fields
+// Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
+typedef struct __yo_ref_header_t {
+  size_t ref_count;
+  uint16_t type_id;
+  uint16_t borrow_count;
+} __yo_ref_header_t;`
+    );
+  });
+  // Generic Future + I/O Future struct types.
+  em.emit_declaration_string_line(
+    `
+// Generic Future type - used by async runtime for type-agnostic operations
+typedef struct {
+  __yo_ref_header_t header;
+  __yo_future_state_t state;
+  void* state_machine;
+  void (*state_machine_dispose_fn)(void*);
+  void (*resume_fn)(void*);
+  void* continuation_fn;
+  void* continuation_sm;
+  bool detached;
+} __yo_future_generic_t;
+
+// Generic I/O Future type for extern "Yo" functions returning Impl Future(T)
+typedef struct __yo_io_future_t {
+  __yo_ref_header_t header;
+  _Atomic int state;
+  int32_t result;
+  _Atomic(void (*)(void*)) continuation_fn;
+  _Atomic(void*) continuation_sm;
+} __yo_io_future_t;
+
+// Forward declarations will be added here if needed
+`
+  );
+});
 export(
   generate_array_struct_declarations,
   generate_str_type_declaration,
   generate_struct_declaration,
   generate_tuple_declaration,
   generate_union_declaration,
-  generate_enum_declaration
+  generate_enum_declaration,
+  _emit_type_runtime_preamble
 );
