@@ -19,11 +19,18 @@
 //!   * `getDeferredDropTargetVariable` — needs the `ExprInfoTable` to resolve
 //!     the target atom's binding env (TS reads `atom.$.env`).
 open(import("std/string"));
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_object_type, is_pointer_type } :: import("../../types/guards.yo");
+{
+  is_object_type,
+  is_pointer_type,
+  is_struct_type,
+  is_enum_type
+} :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
 {
@@ -346,7 +353,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
   match(
     t,
-    .EnumT(_, _, _, variant_fields, _, _, _) => {
+    .EnumT({ variant_fields }) => {
       if(variant_fields.len() != usize(2), {
         return(.None);
       });
@@ -404,7 +411,7 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
 can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .EnumT(_, _, _, variant_fields, _, _, _) => {
+    .EnumT({ variant_fields }) => {
       (all_empty : bool) = true;
       n := variant_fields.len();
       (vi : usize) = usize(0);
@@ -423,6 +430,180 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
       all_empty && (n > usize(0))
     },
     _ => false
+  )
+);
+// ===========================================================================
+// Type lowering (getTypeString family). ORDERING DIVERGENCE from
+// src/codegen/utils/index.ts: TS places getTypeString before
+// canOptimizeAs* and getEnumVariantCName, but Yo has no forward references,
+// so the optimizer helpers (above) precede get_type_string here.
+// ===========================================================================
+/// The key under which a type is registered in `context.types`. TS keys by a
+/// universal `type.id`; yo-self gives ids only to Struct/EnumT/SomeT/TraitT,
+/// so structural types (Tuple/Union/Array/Pointer/Iso/Dyn) and id-less named
+/// types fall back to their structural string. Used everywhere TS uses
+/// `type.id` as a registry key. See issues/codegen-port-type-model-gaps.md
+/// Gap 5. MUST be the single source of truth for keys (registration + lookup).
+type_key :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    .EnumT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    _ => type_to_string(t)
+  )
+);
+/// Look up the registered C type name for a named/structural type, panicking
+/// with a diagnostic if it was not collected. Mirrors the `context.types[...]`
+/// lookup + throw inside getTypeString's Tuple/Struct/Union/Enum arm.
+/// (Defined before get_type_string — Yo has no forward references.)
+_lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
+  match(
+    context.get_type_c_name(type_key(t)),
+    .Some(c_name) => c_name,
+    .None => {
+      // panic requires a `str`; the dynamic type name goes to stderr.
+      eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering)`);
+      panic("get_type_string: type not registered in context.types (see stderr)")
+    }
+  )
+);
+/// Convert a Yo type to its C type string. Mirrors `getTypeString`.
+///
+/// PORT STATUS: the Phase-1/2 cases (primitives, C-compat scalars, str,
+/// pointer, array, tuple/struct/union/enum) are ported. The
+/// SomeType/Future/Fn/Dyn/Iso cases are Phase-3/5 (dyn / async) and need
+/// yo-self's env+substitute SomeType resolution (Gap 6); they panic loudly
+/// with a phase marker rather than emit a wrong type — they are not reached
+/// by the Phase-1 corpus (generics monomorphize before codegen).
+///
+/// DIVERGENCE: TS's `type.isExtern && type.externName` early return is
+/// omitted (Gap 3 — yo-self models is_extern only on Func; extern-C struct
+/// types are a later-phase concern).
+get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
+  match(
+    t,
+    .Unit => String.from("void"),
+    .Void => String.from("void"),
+    .BoolT => String.from("bool"),
+    .Usize => String.from("size_t"),
+    .Isize => String.from("intptr_t"),
+    .Int(bits, signed) => cond(
+      (bits == u8(8)) => if(signed, String.from("int8_t"), String.from("uint8_t")),
+      (bits == u8(16)) => if(signed, String.from("int16_t"), String.from("uint16_t")),
+      (bits == u8(32)) => if(signed, String.from("int32_t"), String.from("uint32_t")),
+      (bits == u8(64)) => if(signed, String.from("int64_t"), String.from("uint64_t")),
+      true => String.from("int32_t")
+    ),
+    .Float(bits) => if(bits == u8(32), String.from("float"), String.from("double")),
+    .ComptimeInt => String.from("int32_t"),
+    .ComptimeFloat => String.from("double"),
+    // At runtime, comptime_str values materialize as the builtin str.
+    .ComptimeString => String.from("__yo_str"),
+    .CChar => String.from("char"),
+    .CShort => String.from("short"),
+    .CUShort => String.from("unsigned short"),
+    .CInt => String.from("int"),
+    .CUInt => String.from("unsigned int"),
+    .CLong => String.from("long"),
+    .CULong => String.from("unsigned long"),
+    .CLongLong => String.from("long long"),
+    .CULongLong => String.from("unsigned long long"),
+    .CLongDouble => String.from("long double"),
+    // Builtin static string view — canonical fat-pointer typedef.
+    .Str => String.from("__yo_str"),
+    .Tuple(_, _) => _lookup_named_c_type(t, context),
+    .Union(_, _, _) => _lookup_named_c_type(t, context),
+    .Struct({ is_reference_semantics : is_ref }) => {
+      base := _lookup_named_c_type(t, context);
+      // Reference-semantics structs (object/atomic object) are pointers in C.
+      if(is_ref, {
+        ptr := base.clone();
+        ptr.push_str("*");
+        return(ptr);
+      });
+      base
+    },
+    // Nullable-pointer optimization: a 2-variant enum (one empty, one
+    // single-pointer) lowers to the bare pointer type.
+    .EnumT({}) => match(
+      can_optimize_as_nullable_pointer(t),
+      .Some(ptr_type) => recur(ptr_type, context),
+      .None => _lookup_named_c_type(t, context)
+    ),
+    // Function pointers use void* (resolved by the prototype generator).
+    .Func({}) => String.from("void*"),
+    .Pointer(pointee) => {
+      // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
+      // in C; for value types a borrow is a pointer to the value. Either way
+      // the C type is `<base>*`.
+      base := recur(pointee.*, context);
+      base.push_str("*");
+      base
+    },
+    // Concrete-length arrays lower to a generated struct wrapper so they are
+    // returnable by value. (`length_var` non-empty = unresolved generic
+    // length — falls through to the unknown fallback, as in TS.)
+    .Array(element, length, length_var) => cond(
+      (length_var.len() == usize(0)) => {
+        element_type_string := recur(element.*, context);
+        array_type_name := String.from("Array_");
+        array_type_name.push_string(sanitize_for_c_identifier(element_type_string.clone(), false));
+        array_type_name.push_str("_");
+        array_type_name.push_string(length.to_string());
+        if(!(context.has_array_struct_type(array_type_name.clone())), {
+          context.register_array_struct_type(array_type_name.clone(), element_type_string, i64(length));
+        });
+        array_type_name
+      },
+      true => {
+        fallback := String.from("// Unknown type: ");
+        fallback.push_string(type_to_string(t));
+        fallback
+      }
+    ),
+    // --- Phase-3/5 (dyn / async): need env+substitute SomeType resolution ---
+    .SomeT({}) => panic("get_type_string: SomeType lowering is Phase 3/5 (Gap 6) — not yet ported"),
+    .IsoT({}) => panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
+    .DynT({}) => panic("get_type_string: Dyn lowering is Phase 3 — not yet ported"),
+    .FnTraitT({}) => panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
+    .FutureTraitT({}) => panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
+    // Comptime-only / type-level types should not reach codegen.
+    _ => {
+      fallback := String.from("// Unknown type: ");
+      fallback.push_string(type_to_string(t));
+      fallback
+    }
+  )
+);
+/// C type string for a variable declaration (`<type> <name>`), sanitizing the
+/// variable name to avoid C reserved words/macros. Mirrors `getVariableTypeString`.
+get_variable_type_string :: (
+  fn(t : TypeValue, var_name : String, context : CodeGenContext) -> String
+)({
+  result := get_type_string(t, context);
+  result.push_str(" ");
+  result.push_string(sanitize_for_c_identifier(var_name, false));
+  result
+});
+/// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
+/// upper-cased). Mirrors `getEnumVariantCName`.
+get_enum_variant_c_name :: (
+  fn(enum_type : TypeValue, variant_name : String, context : CodeGenContext) -> String
+)(
+  match(
+    context.get_type_c_name(type_key(enum_type)),
+    .Some(enum_c_name) => {
+      result := enum_c_name.to_uppercase();
+      result.push_str("_");
+      result.push_string(variant_name.to_uppercase());
+      result
+    },
+    .None => {
+      eprintln(`get_enum_variant_c_name: no C type name found for enum ${type_to_string(enum_type)}`);
+      panic("get_enum_variant_c_name: enum type not registered (see stderr)")
+    }
   )
 );
 /// Extract the target atom name from a deferred dup expression.
@@ -577,6 +758,10 @@ export(
   CodegenExternFnEntry,
   ArrayStructInfo,
   IsoTypeInfo,
+  type_key,
+  get_type_string,
+  get_variable_type_string,
+  get_enum_variant_c_name,
   sanitize_for_c_identifier,
   should_avoid_const,
   is_function_value_with_only_builtin_yo_inline_function_call,
