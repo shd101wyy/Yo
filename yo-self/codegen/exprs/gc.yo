@@ -1,0 +1,14 @@
+//! `__yo_gc_collect()` emitter — mirrors `src/codegen/exprs/gc.ts`.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+/// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args). Mirrors
+/// `generateYoGcCollect`.
+generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : FunctionGenerationContext) -> String)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => if(args.len() == usize(0), String.from("__yo_gc_collect()"), String.from("// Error: __yo_gc_collect requires exactly 0 arguments")),
+    .Atom(_, _) => String.from("// Error: __yo_gc_collect requires a call expression")
+  )
+);
+export(generate_yo_gc_collect);
