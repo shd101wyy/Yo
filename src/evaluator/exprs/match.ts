@@ -399,13 +399,10 @@ export function evaluateMatch({
         });
       }
 
-      // Enforce Rust-like constraint: if variant has fields, it must be destructured
-      if (variant && variant.fields && variant.fields.length > 0) {
-        throw formatErrorMessage({
-          token: matchArmExpr.token,
-          errorMessage: `Enum variant "${variantName}" has ${variant.fields.length} field(s) and must be destructured. Use .${variantName}(...) instead of .${variantName}`,
-        });
-      }
+      // Bare `.Variant` is allowed even for variants WITH fields: it matches
+      // the variant and binds none of its fields (the "ignore all fields"
+      // form, equivalent to `.Variant({})`). Use `.Variant(a, b)` or
+      // `.Variant({label, ...})` when you need the field values.
 
       checkedVariantNames.add(variantName);
 
@@ -727,12 +724,9 @@ export function evaluateMatch({
         exprIsFunctionCallOf(matchArmExpr.args[0]!, "_")
       ) {
         const curly = matchArmExpr.args[0] as FnCallExpr;
-        if (curly.args.length === 0) {
-          throw formatErrorMessage({
-            token: curly.token,
-            errorMessage: `Empty curly destructuring "{}" is not allowed in match patterns. Use ".${variantName}" without arguments for variants with no fields.`,
-          });
-        }
+        // Empty curly `.Variant({})` is the explicit "match this variant,
+        // bind none of its fields" form — the zero case of curly partial
+        // destructuring. It is permitted for any variant (fields or not).
         // Reject nested curly: any inner arg that is itself `_(...)`.
         for (const inner of curly.args) {
           if (exprIsFunctionCall(inner) && exprIsFunctionCallOf(inner, "_")) {

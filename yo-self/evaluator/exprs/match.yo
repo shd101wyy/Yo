@@ -1275,24 +1275,10 @@ evaluate_match :: (
         );
         return(expr);
       });
-      // Check variant has no fields (fieldless form must have empty fields)
-      if(variant_idx_fl_opt.is_some(), {
-        vf_idx := match(variant_idx_fl_opt,.Some(idx) => idx,.None => usize(0));
-        vf_fields := match(en_vfields.get(vf_idx),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
-        if(vf_fields.len() > usize(0), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(match_arm_expr),
-                `Enum variant "${variant_name_fl}" has ${vf_fields.len()} field(s) and must be destructured. Use .${variant_name_fl}(...) instead of .${variant_name_fl}`,
-                false,
-                .None
-              )
-            )
-          );
-          return(expr);
-        });
-      });
+      // Bare `.Variant` is allowed even for variants WITH fields: it matches
+      // the variant and binds none of its fields (the "ignore all fields"
+      // form, equivalent to `.Variant({})`). Use `.Variant(a, b)` or
+      // `.Variant({label, ...})` when you need the field values.
       // Record checked variant (BEFORE skip check)
       checked_variant_names.push(variant_name_fl.clone());
       // Skip if concrete CT scrutinee doesn't match this variant (and it's not wildcard)
@@ -1581,19 +1567,9 @@ evaluate_match :: (
               .FnCall(_, _, cargs, _, _) => cargs,
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
-            if(curly_inner.len() == usize(0), {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(curly_arg),
-                    `Empty curly destructuring "{}" is not allowed in match patterns. Use ".${variant_name_wf}" without arguments for variants with no fields.`,
-                    false,
-                    .None
-                  )
-                )
-              );
-              return(expr);
-            });
+            // Empty curly `.Variant({})` is the explicit "match this variant,
+            // bind none of its fields" form — the zero case of curly partial
+            // destructuring. Permitted for any variant (fields or not).
             // Validate: no nested curly, no bare "_"
             (cvi : usize) = usize(0);
             while(cvi < curly_inner.len(), {

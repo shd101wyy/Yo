@@ -1203,17 +1203,18 @@ test("Test 'match'", {
         (w * h)
     )
   );
-  // This should now fail - trying to use .Circle without destructuring
-  comptime_expect_error(
-    invalid_area :: (fn(shape : Shape) -> i32)(
-      match(
-        shape,
-        .Circle => 0,
-        // ERROR: Circle has fields and must be destructured
-        .Rectangle => 0 // ERROR: Rectangle has fields and must be destructured
-      )
+  // Bare `.Variant` (and `.Variant({})`) is allowed even for variants WITH
+  // fields: it matches the variant and binds none of its fields.
+  shape_kind :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
+      .Circle => 0,
+      // bind nothing
+      .Rectangle({}) => 1 // empty-curly: bind nothing
     )
   );
+  assert(shape_kind(Shape.Circle(3)) == 0);
+  assert(shape_kind(Shape.Rectangle(4, 5)) == 1);
   c1 := Color.Red;
   c2 := Color.Green;
   c3 := Color.Blue;
