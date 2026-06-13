@@ -300,6 +300,31 @@ subset first; `./yo-cli test` stays the reference for expected behavior.
 
 **Gate:** ≥50% of non-async `tests/*.test.yo` pass differentially.
 
+**Progress log (per-emitter port; all check-clean, corpus path with Phase-4/5
+branches documented-as-deferred in each file's header):**
+
+- ✅ Phase 1 scaffolding: `constants`, `utils/index`, `functions/context`,
+  `c/collection`, `types/collection`, `functions/collection`,
+  `functions/declarations`, `types/generation`, `exprs/_expr` (dispatch
+  indirection), `emitter` helpers.
+- ✅ Small builtins: `sizeof`, `consume`, `gc`, `open`, `panic`, `typeid`,
+  `binding`, `comptime_value`, `rc_fns` (incr/decr/own), `closures`
+  (capture predicate), `atom`.
+- ✅ Control flow + value constructors (2026-06-13): `while_loop`, `recur`,
+  `tuple_fn`, `array_fns` (+ `__yo_array_fill`), `and_or` (short-circuit
+  if-chains), `begin` (expr + statement forms), `assignment`/initialization,
+  `cond` (if/else chain, begin-arm inlining, `&(...)` ref-return wrap).
+- ⏭ Next: `property-access`, `return`, `match`, `generation` (expr dispatch
+  body), `other-fn-call` (3.5k — the dispatcher), then Phase-4 drop/dup wiring.
+
+Note: codegen `check` does NOT evaluate fn bodies, so per-file check-clean
+proves signatures/types only — move/borrow correctness inside bodies is
+validated when the differential harness exercises them (after the dispatcher
++ driver are wired). Each emitter follows the established conventions:
+`random_id` for fresh C identifiers (no module-level mutable counters — the
+Phase-6 fixpoint can't reassign those from inside a fn), ExprInfo via
+`ctx.base.get_expr_info`, type threaded from `ei.ty` (Gap 8).
+
 ### Phase 3 — Functions, types, dyn, specialization
 
 1. `types/generation.ts` (1.5k — type lowering incl. iso/dyn/SomeT
