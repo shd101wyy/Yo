@@ -1,0 +1,25 @@
+//! Closure construction + capture emission — mirrors `src/codegen/exprs/closures.ts`.
+//!
+//! PORT STATUS (incremental): only `check_variable_is_closure_captured` (used
+//! by atom emission to decide closure-context vs local access) is ported so
+//! far. The closure-construction emitter (generateClosureConstruction) and the
+//! capture-struct machinery are Phase 3.
+open(import("std/string"));
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+/// True if `variable_name` resolves (in `env`) to a binding at or below the
+/// closure's capture frame level — i.e. it is captured by the closure rather
+/// than a local of the closure body. Mirrors `checkVariableIsClosureCaptured`.
+check_variable_is_closure_captured :: (
+  fn(variable_name : String, env : Environment, closure_capture_frame_level : usize) -> bool
+)({
+  variables := get_variables_from_env(env, variable_name.clone());
+  n := variables.len();
+  cond(
+    (n == usize(0)) => false,
+    true => {
+      latest := match(variables.get(n - usize(1)),.Some(v) => v,.None => return(false));
+      latest.frame_level <= closure_capture_frame_level
+    }
+  )
+});
+export(check_variable_is_closure_captured);
