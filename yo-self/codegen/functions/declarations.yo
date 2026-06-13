@@ -8,8 +8,9 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_function_type, is_struct_type, is_module_type } :: import("../../types/guards.yo");
-{ CodeGenContext, get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ is_function_type, is_struct_type, is_module_type, is_object_type } :: import("../../types/guards.yo");
+{ type_contains_some_type } :: import("../../types/utils.yo");
+{ CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
 EvidenceParameter :: object(
@@ -182,4 +183,104 @@ generate_function_prototype :: (
     }
   )
 );
-export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype);
+/// True if any runtime field of the struct contains a SomeType (generic).
+/// Same predicate the constructor BODY emitter (constructors.yo) uses, so the
+/// forward declaration and the definition agree on which objects get a ctor.
+_object_decl_has_generic_fields :: (fn(fields : ArrayList(RuntimeStructField)) -> bool)({
+  n := fields.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      fields.get(i),
+      .Some(field) => if(type_contains_some_type(field.ty), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Generate constructor + RC/GC forward declarations for objects. Mirrors
+/// `generateObjectConstructorDeclarations`.
+///
+/// DIVERGENCE (decl/def consistency): the per-object parameter list uses
+/// `get_runtime_struct_fields` (the same source the constructor BODY in
+/// constructors.yo uses), not the raw `type.fields` TS reads here — for objects
+/// these coincide, and sharing the source guarantees the forward declaration's
+/// parameter list matches the definition's exactly.
+generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  // Builtin reference counting functions (static — single C file).
+  em.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
+  em.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
+  // GC function declarations.
+  em.emit_declaration_line("static void __yo_gc_register(void* ptr); // Register object for cycle detection");
+  em.emit_declaration_line("static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection");
+  em.emit_declaration_line("static void __yo_gc_collect(); // Trigger garbage collection");
+  em.emit_declaration_line("static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)");
+  em.emit_declaration_line("static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state");
+  em.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
+  // Per-object constructor declarations.
+  vals := context.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => if(is_object_type(entry.ty), {
+        runtime_fields := get_runtime_struct_fields(entry.ty);
+        if(!(_object_decl_has_generic_fields(runtime_fields)), {
+          params := String.from("");
+          nf := runtime_fields.len();
+          (pi : usize) = usize(0);
+          while(pi < nf, {
+            match(
+              runtime_fields.get(pi),
+              .Some(field) => {
+                if(pi > usize(0), {
+                  params.push_str(", ");
+                });
+                params.push_string(get_type_string(field.ty, context));
+                params.push_str(" ");
+                params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
+              },
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+          line := String.from("static ");
+          line.push_string(entry.c_name.clone());
+          line.push_str("* __yo_new_");
+          line.push_string(entry.c_name.clone());
+          line.push_str("(");
+          line.push_string(params);
+          line.push_str("); // Constructor");
+          em.emit_declaration_string_line(line);
+        });
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+/// Generate constructor declarations for closures. No-op: Impl(Fn(...)) closures
+/// use concrete capture structs + direct calls; Dyn(Fn(...)) uses dyn
+/// constructors generated elsewhere. Faithful port of the TS no-op.
+generate_closure_constructor_declarations :: (fn(context : CodeGenContext) -> unit)(
+  ()
+);
+/// Generate forward declarations for closure capture-dispose functions. Mirrors
+/// `generateCaptureDisposeFunctionDeclarations`. DEFERRED: driven by
+/// closureCaptureMap, which yo-self's context does not model yet (Phase 5
+/// closure support) — the map is empty for the corpus, so this emits nothing.
+generate_capture_dispose_function_declarations :: (fn(context : CodeGenContext) -> unit)(
+  ()
+);
+/// Generate vtable instance declarations for closures. No-op: closures create
+/// vtables dynamically (no static vtable instances). Faithful port of the TS no-op.
+generate_closure_vtable_declarations :: (fn(context : CodeGenContext) -> unit)(
+  ()
+);
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations);
