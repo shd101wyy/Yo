@@ -1,0 +1,431 @@
+//! Conditional (`cond`) expression emitter — mirrors `src/codegen/exprs/cond.ts`.
+//!
+//! Lowers a `cond(c1 => v1, c2 => v2, ...)` to a C if/else chain that assigns
+//! the taken arm's value to the cond's result temp. Compile-time `false` arms
+//! are dropped; a leading compile-time `true` arm collapses to direct value
+//! generation (no branch). Arms that are `begin` blocks are inlined so the
+//! block's final expression assigns to the cond temp. Control-flow arm values
+//! (continue/break/goto/return) are emitted as statements instead of assigned.
+//! For `-> ref(T)` enclosing functions whose cond temp is a `T*`, non-pointer
+//! arm values are address-of wrapped (`&(...)`) — sound because flowability
+//! already verified the arm roots back to a ref-bound parameter.
+//!
+//! DEFERRED (documented, not hit by the no-RC corpus): deferred-dup rewrite of
+//! arm / begin-final values and the begin block's own deferred-drop emission
+//! (Phase 4). The corpus has none, so arm values are assigned directly.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
+{ has_any_control_flow } :: import("../../expr_info.yo");
+{ EvalValue } :: import("../../value.yo");
+{ is_unit_type, is_pointer_type } :: import("../../types/guards.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ get_type_string } :: import("../utils/index.yo");
+/// True for an ASCII word byte ([A-Za-z0-9_]).
+_is_word_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+);
+/// Whether `s` contains "return" as a whole word (mirrors the TS `\breturn\b`
+/// regex — avoids matching identifiers like `return_flag`).
+_contains_word_return :: (fn(s : String) -> bool)({
+  word := String.from("return");
+  wlen := usize(6);
+  slen := s.len();
+  (from : usize) = usize(0);
+  while(true, {
+    match(
+      s.index_of(word.clone(), from),
+      .Some(idx) => {
+        before_ok := if(idx == usize(0), true, !(_is_word_byte(s.byte_at(idx - usize(1)))));
+        after_idx := (idx + wlen);
+        after_ok := if(after_idx >= slen, true, !(_is_word_byte(s.byte_at(after_idx))));
+        if(before_ok && after_ok, {
+          return(true);
+        }, {
+          from = (idx + usize(1));
+        });
+      },
+      .None => {
+        return(false);
+      }
+    );
+  });
+  false
+});
+/// Args of a FnCall (empty for an Atom).
+_arg_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// The compile-time boolean value of `e`, if it has one.
+_cond_bool :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(bool))(
+  match(
+    context.base.get_expr_info(e),
+    .Some(ei) => match(ei.value,.Some(v) => match(v,.BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),.None => Option(bool).None),
+    .None => Option(bool).None
+  )
+);
+/// Wrap `code` in `&(...)` when the enclosing function returns `-> ref(T)` and
+/// this arm value is not already a pointer. Mirrors the `maybeAddressOf` helper.
+_maybe_address_of :: (fn(value_expr : AstExpr, code : String, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> String)(
+  if(!(cond_outer_is_ptr), code, {
+    arm_is_ptr := match(context.base.get_expr_info(value_expr),.Some(ei) => is_pointer_type(ei.ty),.None => true);
+    if(arm_is_ptr, code, {
+      out := String.from("&(");
+      out.push_string(code);
+      out.push_str(")");
+      out
+    })
+  })
+);
+/// Whether the generated arm code is a control-flow statement (continue/break/
+/// goto/return) and should be emitted directly rather than assigned.
+_is_cf_code :: (fn(value_expr : AstExpr, code : String, context : FunctionGenerationContext) -> bool)(
+  (code == String.from("continue")) || ((code == String.from("break")) || (code.starts_with("goto") || (ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code))))
+);
+/// Concatenate `current` then `prev` (both optional) into a fresh drop list.
+_concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  match(
+    current,
+    .Some(cd) => {
+      n := cd.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          cd.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  match(
+    prev,
+    .Some(pp) => {
+      n := pp.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          pp.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Emit a non-begin arm value: control-flow statements emit directly, unit
+/// values emit nothing, otherwise assign to the cond temp.
+_emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  value_code := _call_generate_expr(value, value_indent.clone(), context);
+  if(_is_cf_code(value, value_code.clone(), context), {
+    line := value_indent.clone();
+    line.push_string(value_code.clone());
+    line.push_str(";");
+    em.emit_string_line(line);
+  }, if(
+    value_code.len() == usize(0),
+    (),
+    match(
+      temp_var_opt,
+      .Some(tv) => if(!(is_unit), {
+        line := value_indent.clone();
+        line.push_string(tv.clone());
+        line.push_str(" = ");
+        line.push_string(_maybe_address_of(value, value_code.clone(), cond_outer_is_ptr, context));
+        line.push_str(";");
+        em.emit_string_line(line);
+      }),
+      .None => ()
+    )
+  ));
+});
+/// Inline a `begin` block arm: emit each statement (stopping at control flow),
+/// then assign the final expression to the cond temp (or emit it if it is a
+/// control-flow statement). Concatenates the block's deferred drops onto the
+/// pending set (for early-return handling) and restores on exit.
+_emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  begin_args := _arg_args(value);
+  vei_opt := context.base.get_expr_info(value);
+  cur_drops := match(vei_opt,.Some(vei) => vei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+  cur_consumed := match(vei_opt,.Some(vei) => vei.consumed_variable_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+  prev_pending := context.pending_deferred_drops;
+  prev_consumed := context.consumed_var_pending_drops;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
+  context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_consumed, prev_consumed));
+  n := begin_args.len();
+  if(n > usize(0), {
+    // All statements except the last.
+    (j : usize) = usize(0);
+    (stop : bool) = false;
+    while((j < (n - usize(1))) && !(stop), {
+      match(
+        begin_args.get(j),
+        .Some(barg) => match(
+          context.base.get_expr_info(barg),
+          .Some(bei) => {
+            arg_code := _call_generate_expr(barg, value_indent.clone(), context);
+            if((arg_code.len() > usize(0)) && !(is_temp_variable_name(bei.env.module_path.clone(), arg_code.clone())), {
+              line := value_indent.clone();
+              line.push_string(arg_code);
+              line.push_str(";");
+              em.emit_string_line(line);
+            });
+            if(has_any_control_flow(bei.control_flow), {
+              stop = true;
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    // Final expression → cond temp (or emit directly if control flow).
+    match(
+      begin_args.get(n - usize(1)),
+      .Some(final_expr) => match(
+        context.base.get_expr_info(final_expr),
+        .Some(_) => {
+          final_code := _call_generate_expr(final_expr, value_indent.clone(), context);
+          if(
+            final_code.len() > usize(0),
+            if(_is_cf_code(final_expr, final_code.clone(), context), {
+              line := value_indent.clone();
+              line.push_string(final_code.clone());
+              line.push_str(";");
+              em.emit_string_line(line);
+            }, match(
+              temp_var_opt,
+              .Some(tv) => if(!(is_unit), {
+                line := value_indent.clone();
+                line.push_string(tv.clone());
+                line.push_str(" = ");
+                line.push_string(_maybe_address_of(final_expr, final_code.clone(), cond_outer_is_ptr, context));
+                line.push_str(";");
+                em.emit_string_line(line);
+              }),
+              .None => ()
+            ))
+          );
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  context.pending_deferred_drops = prev_pending;
+  context.consumed_var_pending_drops = prev_consumed;
+});
+/// Generate a conditional (`cond`) expression. Mirrors `generateCondExpression`.
+generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* \"cond\" expression is not evaluated */")));
+  value_type := ei.ty;
+  is_unit := is_unit_type(value_type);
+  temp_var_opt := ei.variable_name;
+  ret_is_ref := match(context.current_function_type,.Some(t) => match(t,.Func({ result_is_ref : r }) => r, _ => false),.None => false);
+  cond_outer_is_ptr := (ret_is_ref && is_pointer_type(value_type));
+  em := context.base.emitter;
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  nargs := args.len();
+  // First pass: index of the first non-(compile-time-false) arm.
+  (first_nf : usize) = nargs;
+  (found_nf : bool) = false;
+  (i : usize) = usize(0);
+  while((i < nargs) && !(found_nf), {
+    match(
+      args.get(i),
+      .Some(arg) => if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).Some(usize(2))), {
+        cargs := _arg_args(arg);
+        match(
+          cargs.get(usize(0)),
+          .Some(condition) => {
+            is_false := match(_cond_bool(condition, context),.Some(b) => !(b),.None => false);
+            if(!(is_false), {
+              first_nf = i;
+              found_nf = true;
+            });
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // Can we collapse to direct value generation (first non-false arm is a
+  // compile-time true)?
+  (can_opt : bool) = false;
+  if(found_nf, {
+    match(
+      args.get(first_nf),
+      .Some(first_arg) => if(ast_expr_is_fn_call_of(first_arg, "=>", Option(usize).Some(usize(2))), {
+        fcargs := _arg_args(first_arg);
+        match(
+          fcargs.get(usize(0)),
+          .Some(fc) => match(
+            _cond_bool(fc, context),
+            .Some(b) => if(b, {
+              can_opt = true;
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  // Declare the result temp (unless unit, or we are collapsing to direct).
+  if(
+    !(is_unit) && !(can_opt),
+    match(
+      temp_var_opt,
+      .Some(tv) => {
+        d := indent.clone();
+        d.push_string(get_type_string(value_type, context.base));
+        d.push_str(" ");
+        d.push_string(tv.clone());
+        d.push_str(";");
+        em.emit_string_line(d);
+      },
+      .None => ()
+    )
+  );
+  // Direct value generation.
+  if(can_opt && found_nf, {
+    match(
+      args.get(first_nf),
+      .Some(arg) => if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).Some(usize(2))), {
+        vargs := _arg_args(arg);
+        match(
+          vargs.get(usize(1)),
+          .Some(value) => {
+            value_code := _call_generate_expr(value, indent.clone(), context);
+            match(
+              temp_var_opt,
+              .Some(tv) => if(!(is_unit), {
+                is_cf := _is_cf_code(value, value_code.clone(), context);
+                if((value_code.len() > usize(0)) && !(is_cf), {
+                  line := indent.clone();
+                  line.push_string(tv.clone());
+                  line.push_str(" = ");
+                  line.push_string(value_code.clone());
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                }, if((value_code.len() > usize(0)) && is_cf, {
+                  line := indent.clone();
+                  line.push_string(value_code.clone());
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                }));
+              }),
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    return(if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from(""))));
+  });
+  // Full if/else chain.
+  (current_indent : String) = indent.clone();
+  (else_depth : usize) = usize(0);
+  (has_emitted : bool) = false;
+  (i2 : usize) = usize(0);
+  while(i2 < nargs, {
+    match(
+      args.get(i2),
+      .Some(arg) => if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).Some(usize(2))), {
+        pargs := _arg_args(arg);
+        match(
+          pargs.get(usize(0)),
+          .Some(condition) => match(
+            pargs.get(usize(1)),
+            .Some(value) => {
+              cbool := _cond_bool(condition, context);
+              is_false := match(cbool,.Some(b) => !(b),.None => false);
+              if(!(is_false), {
+                is_ct_true := match(cbool,.Some(b) => b,.None => false);
+                if(!(has_emitted), {
+                  if(is_ct_true, {
+                    h := current_indent.clone();
+                    h.push_str("{");
+                    em.emit_string_line(h);
+                  }, {
+                    cc := _call_generate_expr(condition, current_indent.clone(), context);
+                    h := current_indent.clone();
+                    h.push_str("if (");
+                    h.push_string(cc);
+                    h.push_str(") {");
+                    em.emit_string_line(h);
+                  });
+                  has_emitted = true;
+                }, {
+                  eh := current_indent.clone();
+                  eh.push_str("else {");
+                  em.emit_string_line(eh);
+                  else_depth = (else_depth + usize(1));
+                  current_indent.push_str("  ");
+                  if(!(is_ct_true), {
+                    cc := _call_generate_expr(condition, current_indent.clone(), context);
+                    h := current_indent.clone();
+                    h.push_str("if (");
+                    h.push_string(cc);
+                    h.push_str(") {");
+                    em.emit_string_line(h);
+                  });
+                });
+                value_indent := if(has_emitted && is_ct_true, current_indent.clone(), {
+                  vi := current_indent.clone();
+                  vi.push_str("  ");
+                  vi
+                });
+                if(ast_expr_is_fn_call_of(value, BK_BEGIN, Option(usize).None), {
+                  _emit_begin_arm(value, value_indent.clone(), temp_var_opt, is_unit, cond_outer_is_ptr, context);
+                }, {
+                  _emit_value_arm(value, value_indent.clone(), temp_var_opt, is_unit, cond_outer_is_ptr, context);
+                });
+                if(!(has_emitted && is_ct_true), {
+                  cl := current_indent.clone();
+                  cl.push_str("}");
+                  em.emit_string_line(cl);
+                });
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i2 = (i2 + usize(1));
+  });
+  // Close the else blocks.
+  (c : usize) = usize(0);
+  while(c < else_depth, {
+    current_indent = current_indent.substring(usize(0), current_indent.len() - usize(2));
+    cl := current_indent.clone();
+    cl.push_str("}");
+    em.emit_string_line(cl);
+    c = (c + usize(1));
+  });
+  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+});
+export(generate_cond_expression);
