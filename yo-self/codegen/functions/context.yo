@@ -18,6 +18,20 @@ open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { CodeGenContext } :: import("../utils/index.yo");
+/// State-machine while-loop break info: the after-loop goto label and the
+/// optional while-loop active-flag index. Mirrors the `smWhileBreakInfo` shape.
+SmWhileBreakInfo :: object(label : String, active_index : Option(usize));
+/// State-machine while-loop continue info: the loop goto label, whether to
+/// emit body drops before the goto, and the optional 3-arg step expression.
+/// Mirrors the `smWhileContinueInfo` shape.
+SmWhileContinueInfo :: object(
+  label : String,
+  emit_drops_before_goto : bool,
+  step_expr : Option(AstExpr)
+);
+/// Marks that code is being generated inside an async state machine; carries
+/// the future type (a SomeType or DynType). Mirrors `inAsyncStateMachine`.
+InAsyncStateMachine :: object(future_type : TypeValue);
 /// The per-function generation context. See header for the composition note.
 FunctionGenerationContext :: object(
   /// The base codegen context (TS `extends CodeGenContext`).
@@ -63,7 +77,16 @@ FunctionGenerationContext :: object(
   /// Set when any io.async/await/spawn is encountered (emit async runtime).
   uses_async : bool,
   /// Set when any thread/worker spawn is found (emit parallelism runtime).
-  uses_parallelism : bool
+  uses_parallelism : bool,
+  /// Set when generating code inside an async state machine.
+  in_async_state_machine : Option(InAsyncStateMachine),
+  /// Break/continue goto info for a while loop inside a state machine (plain
+  /// break/continue don't work inside a switch/goto loop).
+  sm_while_break_info : Option(SmWhileBreakInfo),
+  sm_while_continue_info : Option(SmWhileContinueInfo),
+  /// Deferred drops for the SM while-loop body (emitted before break/continue/
+  /// normal exit).
+  sm_while_body_drops : Option(ArrayList(AstExpr))
 );
 impl(
   FunctionGenerationContext,
@@ -89,8 +112,12 @@ impl(
       override_return_type_str : Option(String).None,
       unwind_value_c_types : Option(HashSet(String)).None,
       uses_async : false,
-      uses_parallelism : false
+      uses_parallelism : false,
+      in_async_state_machine : Option(InAsyncStateMachine).None,
+      sm_while_break_info : Option(SmWhileBreakInfo).None,
+      sm_while_continue_info : Option(SmWhileContinueInfo).None,
+      sm_while_body_drops : Option(ArrayList(AstExpr)).None
     )
   )
 );
-export(FunctionGenerationContext);
+export(FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, InAsyncStateMachine);
