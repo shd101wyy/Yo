@@ -435,20 +435,26 @@ Definition of Done; update `BOOTSTRAPPING.md`.
       `scripts/diff-test.sh` + `plans/codegen-baseline-scorecard.md`)
 - [~] Phase 1 — typed pipeline (IN PROGRESS, 2026-06-13). Ported &
       check-clean: `constants.yo`; `utils/index.yo` (CodeGenContext base
-      struct + the context-/type-model-independent helpers); `c/collection.yo`
-      (collect/emit C includes); emitter String-header methods.
-      **Blocked on a registry-key design decision** (issues/codegen-port-
-      type-model-gaps.md Gap 5): TS keys `context.types` by a universal
-      `type.id`, but yo-self gives ids only to Struct/EnumT/SomeT/TraitT —
-      Tuple/Union/Array/Pointer/Dyn/Iso are structural. `getTypeString` and
-      every collection pass (types/collection, functions/collection,
-      codegen-c) are gated on choosing a uniform `type_key(t)`. The
-      getTypeString SomeType/Future/Dyn/Iso branches additionally need
-      yo-self's env+substitute resolution (Gap 6, Phase-3/5-coupled).
-      Note: end-to-end differential validation isn't possible until the
-      whole pipeline AND a Phase-2 expression-emitter skeleton exist (the
-      orchestrator emits function bodies); until then each file is only
-      `check`-validated (shallow) or unit-tested directly.
+      struct + the context-/type-model-independent helpers + `type_key` +
+      `get_type_string` family [Phase-1/2 cases; SomeType/Dyn/Iso panic
+      pending Gap 6] + `get_runtime_struct_fields`); `c/collection.yo`;
+      emitter String-header methods. Gap 5 (registry key) RESOLVED via
+      `type_key`; Gap 1 (struct runtime fields) RESOLVED via a struct-field
+      comptime side-table (definitions.yo + struct.yo). Gates green: std
+      152/152, yo-self 243/243, tests baseline-only.
+      **KEY FINDING — phase boundaries don't hold at the import level.** The
+      remaining pipeline files form one interdependent core that can't be
+      completed in isolation: `types/collection` ↔ `functions/collection`
+      (mutual import); `functions/collection` → `functions/declarations`
+      (`getEvidenceParameters`, "Phase 3"); `codegen-c` orchestrates into
+      `types/generation` + `functions/generation` ("Phase 3"); and emitted
+      function BODIES need the Phase-2 expression emitters. So the FIRST
+      runnable program (the Phase-1 "tiny corpus" gate) requires a large
+      critical mass spanning Phases 1–4 — there is no partial working
+      compiler, and the differential harness shows no PASS until that mass
+      exists. Port order should follow imports, not the nominal phase
+      numbers; each file stays `check`-clean (shallow) or unit-tested until
+      the core is whole.
 - [ ] Phase 2 — expression-emitter sweep
 - [ ] Phase 3 — functions/types/dyn/specialization
 - [ ] Phase 4 — memory management, guard-page/ASan-clean
