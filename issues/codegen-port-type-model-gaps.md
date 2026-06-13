@@ -242,3 +242,36 @@ entry → registered cName. Used by `drop_dup.yo`'s get_drop/dup_function_for_ty
 Remaining truly-blocked: only Gap 6 (SomeType.resolvedConcreteType) — needed
 for unresolved-SomeT params in Phase-3 generics; a no-op for the monomorphized
 corpus.
+
+## Gap 10 — function emission needs a retrievable per-function Func type (driver blocker)
+
+Surfaced scoping the function-emission driver (functions/generation.ts
+generateFunction). TS `generateFunction(functionValue, ...)` reads
+`functionValue.type` / `.specializedType` (a FunctionType) to emit the C
+prototype via generateFunctionPrototype. In yo-self:
+- `FuncVal(forall_names, params, param_type_names, evidence_params, body,
+  cap_names, cap_tys, cap_vals, func_id)` carries param-type NAMES (strings) and
+  the body/func_id, but NO structured `Func` TypeValue (param TypeValues + result).
+- `CodegenFunctionEntry :: object(value : EvalValue, c_name : String)` stores
+  only the FuncVal + cName — no type.
+- `type_of_eval_value(FuncVal)` → `t_unit()` (the `_ => t_unit()` fallback);
+  it does NOT reconstruct a Func type (see value.yo:898 + evaluator/context.yo:40).
+- The only func-keyed type table is `definition_site_return` (function_value.yo)
+  — RETURN type only, not the parameter types.
+
+**Consequence:** generate_function / generate_function_prototype cannot obtain
+the per-function Func type → the function-emission driver (and thus codegen-c.ts
++ the first differential PASS) is BLOCKED until this is resolved.
+
+**Resolution options (a type-model/evaluator change, the critical-path work the
+plan flags — NOT mechanical codegen porting):**
+1. Add a `func_id → Func TypeValue` side-table (mirror `definition_site_return`,
+   but store the whole signature), populated at function definition/registration
+   time in the evaluator; codegen looks it up by funcId.
+2. Add a `ty : TypeValue` field to `CodegenFunctionEntry` and have
+   functions/collection.yo store the Func type at registration (requires the
+   collection site to have the type — it currently registers from the FuncVal).
+3. Store the Func type on FuncVal itself (closes Gap 2 broadly; larger change).
+
+Option 1 is the lowest-blast-radius. This must land before functions/generation.yo
+(generate_function/Body/AllFunctions), the codegen-c orchestrator, and index.ts.
