@@ -141,7 +141,13 @@ CodeGenContext :: object(
   current_module_id : Option(String),
   /// Exported label names → func_id, for stable non-mangled C names in
   /// library/executable mode.
-  exported_function_labels : HashMap(String, String)
+  exported_function_labels : HashMap(String, String),
+  /// Type-tag dispose dispatch: dispose-function C name → its unique type id
+  /// (1-based). The constructor stamps `header.type_id = id`; the dispose
+  /// dispatch switch (deferred) reads the same map. Mirrors
+  /// CodeGenContext.disposeTypeIds / nextDisposeTypeId.
+  dispose_type_ids : HashMap(String, usize),
+  next_dispose_type_id : usize
 );
 impl(
   CodeGenContext,
@@ -182,7 +188,23 @@ impl(
       type_id_statics : HashMap(String, String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       current_module_id : Option(String).None,
-      exported_function_labels : HashMap(String, String).new()
+      exported_function_labels : HashMap(String, String).new(),
+      dispose_type_ids : HashMap(String, usize).new(),
+      next_dispose_type_id : usize(1)
+    )
+  ),
+  /// Allocate (or reuse) the type-tag id for a dispose function's C name.
+  /// Mirrors the disposeTypeIds get-or-assign in generateRefStructConstructorFunctions.
+  dispose_type_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
+    match(
+      self.dispose_type_ids.get(dispose_c_name.clone()),
+      .Some(id) => id,
+      .None => {
+        id := self.next_dispose_type_id;
+        self.next_dispose_type_id = (id + usize(1));
+        _r := self.dispose_type_ids.set(dispose_c_name.clone(), id);
+        id
+      }
     )
   ),
   /// Register a type to be generated.

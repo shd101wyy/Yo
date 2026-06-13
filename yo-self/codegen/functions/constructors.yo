@@ -1,0 +1,170 @@
+//! Object (reference-semantics struct) constructor emission — mirrors
+//! `generateRefStructConstructorFunctions` in
+//! `src/codegen/functions/generation.ts`.
+//!
+//! For each concrete `object(...)` type, emit `__yo_new_<cName>(...)`: malloc
+//! the struct, initialize the RC header (ref_count = 1, borrow_count = 0), stamp
+//! the dispose type-tag (via the dispose_type_ids side-table), and assign each
+//! runtime field. Generic objects (any runtime field containing a SomeType) are
+//! skipped — only concrete instantiations get constructors.
+//!
+//! DEFERRED (documented): the cyclic-GC sub-branches (gc_flags/gc_mark/gc_next/
+//! gc_prev header init, the dispose_fn function-pointer form, the
+//! `__yo_traverse_<cName>` pointer, and `__yo_gc_register(obj)`) are emitted
+//! only when needs_cycle_gc is true. generateRefStructTraversalFunctions (the
+//! traversal-function bodies they reference) is a separate ~100-line emitter,
+//! deferred with the rest of the cyclic-GC path; the corpus is non-cyclic so the
+//! lightweight (type_id) path is exercised first.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_object_type, is_atomic_object_type } :: import("../../types/guards.yo");
+{ type_contains_some_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
+{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, RuntimeStructField } :: import("../utils/index.yo");
+{ FunctionGenerationContext } :: import("./context.yo");
+{ get_dispose_function_for_type } :: import("../exprs/drop_dup.yo");
+/// True if any runtime field of `struct_type` contains a SomeType (generic).
+_has_generic_fields :: (fn(fields : ArrayList(RuntimeStructField)) -> bool)({
+  n := fields.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      fields.get(i),
+      .Some(field) => if(type_contains_some_type(field.ty), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Emit the constructor function for a single concrete object type.
+_generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  runtime_fields := get_runtime_struct_fields(type);
+  if(_has_generic_fields(runtime_fields), {
+    return();
+  });
+  constructor_name := String.from("__yo_new_");
+  constructor_name.push_string(c_name.clone());
+  // Parameter list: "<fieldType> <fieldName>, ..."
+  params := String.from("");
+  nf := runtime_fields.len();
+  (pi : usize) = usize(0);
+  while(pi < nf, {
+    match(
+      runtime_fields.get(pi),
+      .Some(field) => {
+        if(pi > usize(0), {
+          params.push_str(", ");
+        });
+        params.push_string(get_type_string(field.ty, context.base));
+        params.push_str(" ");
+        params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  // Signature + malloc.
+  sig := String.from("static ");
+  sig.push_string(c_name.clone());
+  sig.push_str("* ");
+  sig.push_string(constructor_name.clone());
+  sig.push_str("(");
+  sig.push_string(params);
+  sig.push_str(") {");
+  em.emit_string_line(sig);
+  alloc := String.from("  ");
+  alloc.push_string(c_name.clone());
+  alloc.push_str("* obj = (");
+  alloc.push_string(c_name.clone());
+  alloc.push_str("*)__yo_malloc(sizeof(");
+  alloc.push_string(c_name.clone());
+  alloc.push_str("));");
+  em.emit_string_line(alloc);
+  // RC header.
+  em.emit_string_line(String.from("  obj->header.ref_count = 1;  // Start with one reference"));
+  em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
+  is_atomic := is_atomic_object_type(type);
+  if(context.base.needs_cycle_gc && !(is_atomic), {
+    em.emit_string_line(String.from("  obj->header.gc_flags = 0;"));
+    em.emit_string_line(String.from("  obj->header.gc_mark = __YO_GC_UNMARKED;"));
+    em.emit_string_line(String.from("  obj->header.gc_next = NULL;"));
+    em.emit_string_line(String.from("  obj->header.gc_prev = NULL;"));
+  });
+  // Dispose function pointer / type-tag.
+  match(
+    get_dispose_function_for_type(type, context),
+    .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
+      line := String.from("  obj->header.dispose_fn = (void(*)(void*))");
+      line.push_string(dispose_c_name.clone());
+      line.push_str(";");
+      em.emit_string_line(line);
+    }, {
+      dispose_id := context.base.dispose_type_id_for(dispose_c_name.clone());
+      line := String.from("  obj->header.type_id = ");
+      line.push_string(dispose_id.to_string());
+      line.push_str(";");
+      em.emit_string_line(line);
+    }),
+    .None => if(context.base.needs_cycle_gc, {
+      em.emit_string_line(String.from("  obj->header.dispose_fn = NULL;"));
+    }, {
+      em.emit_string_line(String.from("  obj->header.type_id = 0;"));
+    })
+  );
+  // Traversal function pointer (cyclic GC only; atomic never participates).
+  if(context.base.needs_cycle_gc && !(is_atomic), {
+    line := String.from("  obj->header.traverse_fn = __yo_traverse_");
+    line.push_string(c_name.clone());
+    line.push_str(";");
+    em.emit_string_line(line);
+  });
+  // Initialize fields.
+  (fi : usize) = usize(0);
+  while(fi < nf, {
+    match(
+      runtime_fields.get(fi),
+      .Some(field) => {
+        fname := sanitize_for_c_identifier(field.label.clone(), false);
+        line := String.from("  obj->");
+        line.push_string(fname.clone());
+        line.push_str(" = ");
+        line.push_string(fname.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  // Register with GC if this type might participate in cycles.
+  if((context.base.needs_cycle_gc && !(is_atomic)) && can_type_form_rc_cycle(type), {
+    em.emit_string_line(String.from("  __yo_gc_register(obj);"));
+  });
+  em.emit_string_line(String.from("  return obj;"));
+  em.emit_string_line(String.from("}"));
+  em.emit_string_line(String.from(""));
+});
+/// Generate constructor implementations for every concrete object type. Mirrors
+/// `generateRefStructConstructorFunctions` (the traversal-function emission for
+/// the cyclic-GC path is deferred — see file header).
+generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  vals := context.base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => if(is_object_type(entry.ty), {
+        _generate_one_constructor(entry.ty, entry.c_name.clone(), context);
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+export(generate_ref_struct_constructor_functions);

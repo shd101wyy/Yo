@@ -47,6 +47,11 @@ get_drop_function_for_type :: (fn(type : TypeValue, context : FunctionGeneration
 get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
   _method_c_name(type, BF_DUP, context)
 );
+/// The C name of `type`'s `___dispose` function, if any. Used by the
+/// object-constructor emitter to stamp the dispose type tag onto the RC header.
+get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
+  _method_c_name(type, "___dispose", context)
+);
 /// If `value_arg` is a forall-typed (SomeType) parameter atom, recover its
 /// concrete parameter type from the enclosing function signature. Mirrors
 /// `resolveSomeTypeParamType` (the SomeType.resolvedConcreteType branches are
@@ -409,4 +414,4 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
     .None => ()
   )
 );
-export(get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_deferred_dup_expressions);
+export(get_drop_function_for_type, get_dup_function_for_type, get_dispose_function_for_type, resolve_some_type_param_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_deferred_dup_expressions);

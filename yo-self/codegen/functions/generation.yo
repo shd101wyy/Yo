@@ -35,6 +35,7 @@ open(import("std/string"));
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions } :: import("../exprs/drop_dup.yo");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
+{ generate_ref_struct_constructor_functions } :: import("./constructors.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
@@ -162,6 +163,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   // generateClosureConstructorFunctions (object/closure constructors).
   collect_unwind_value_ctypes(context);
   generate_atomic_gc_runtime_functions(context);
+  generate_ref_struct_constructor_functions(context);
   it := context.base.functions.keys();
   (go : bool) = true;
   while(go, {
