@@ -1,0 +1,289 @@
+//! C type-declaration emission — mirrors `src/codegen/types/generation.ts`.
+//!
+//! PORT STATUS (incremental, plans/BOOTSTRAPPING_CODEGEN.md Phase 3): this
+//! file currently carries the self-contained per-type DECLARATION emitters
+//! (str / array-wrapper / struct / tuple / union / enum). The big
+//! `generateTypeDeclarations` driver (runtime preamble: GC headers, atomics,
+//! thread-sync macros, __yo_ref_header_t, future types — then the type-walk),
+//! the Iso/closure/future declarations, and the dyn re-exports are pending.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{
+  CodeGenContext,
+  RuntimeStructField,
+  get_type_string,
+  get_runtime_struct_fields,
+  get_enum_variant_c_name,
+  sanitize_for_c_identifier,
+  can_optimize_as_nullable_pointer,
+  can_optimize_as_simple_enum
+} :: import("../utils/index.yo");
+/// Generate the array-wrapper struct typedefs collected during type lowering.
+/// Mirrors `generateArrayStructDeclarations`.
+generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
+  keys := ArrayList(String).new();
+  kit := context.array_struct_types.keys();
+  (kdone : bool) = false;
+  while(!(kdone), {
+    match(
+      kit.next(),
+      .Some(k) => {
+        _kp := keys.push(k);
+      },
+      .None => {
+        kdone = true;
+      }
+    );
+  });
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    name := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.array_struct_types.get(name.clone()),
+      .Some(info) => {
+        context.emitter.emit_declaration_line("typedef struct { // Array wrapper struct");
+        context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
+        context.emitter.emit_declaration_string_line(`} ${name};`);
+        context.emitter.emit_declaration_line("");
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate the builtin `str` type declaration. Mirrors `generateStrTypeDeclaration`.
+generate_str_type_declaration :: (fn(context : CodeGenContext) -> unit)({
+  context.emitter.emit_declaration_line("typedef struct { // str: builtin static string view");
+  context.emitter.emit_declaration_line("  const uint8_t* ptr;");
+  context.emitter.emit_declaration_line("  size_t len;");
+  context.emitter.emit_declaration_line("} __yo_str;");
+  context.emitter.emit_declaration_line("");
+});
+/// Emit `  <type> <name>;` for each runtime struct field.
+/// (Defined before generate_struct_declaration — Yo has no forward references.)
+_emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> unit)({
+  n := fields.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      fields.get(i),
+      .Some(field) => {
+        fts := get_type_string(field.ty, context);
+        fname := sanitize_for_c_identifier(field.label.clone(), false);
+        context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate a struct/object declaration. Newtypes lower to a typedef;
+/// reference-semantics structs carry the RC header. Mirrors `generateStructDeclaration`.
+generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    struct_type,
+    .Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype }) => {
+      // Newtype: zero-cost typedef over the single underlying type.
+      if(is_newtype && (field_types.len() == usize(1)), {
+        underlying := match(field_types.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+        uts := get_type_string(underlying, context);
+        context.emitter.emit_declaration_string_line(`typedef ${uts} ${c_name}; // ${name} : ${type_to_string(struct_type)} (newtype - zero-cost abstraction)`);
+        context.emitter.emit_declaration_line("");
+        return(());
+      });
+      runtime_fields := get_runtime_struct_fields(struct_type);
+      cond(
+        is_reference_semantics => {
+          atomic_word := if(is_atomic_rc, "atomic ", "");
+          header_word := if(is_atomic_rc, "Atomic r", "R");
+          context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)} (${atomic_word}reference counted)`);
+          context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
+          _emit_runtime_fields(runtime_fields, context);
+          context.emitter.emit_declaration_line("};");
+        },
+        true => {
+          context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)}`);
+          _emit_runtime_fields(runtime_fields, context);
+          context.emitter.emit_declaration_line("};");
+        }
+      );
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+/// Generate a tuple declaration (numeric `_0`, `_1`, … fields; unit tuple gets
+/// a dummy byte). Mirrors `generateTupleDeclaration`.
+generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    tuple_type,
+    .Tuple({ field_types }) => {
+      context.emitter.emit_declaration_string_line(`typedef struct { // ${type_to_string(tuple_type)}`);
+      cond(
+        (field_types.len() == usize(0)) => {
+          context.emitter.emit_declaration_line("  uint8_t _dummy; // zero-sized type marker");
+        },
+        true => {
+          n := field_types.len();
+          (i : usize) = usize(0);
+          while(i < n, {
+            match(
+              field_types.get(i),
+              .Some(ft) => {
+                fts := get_type_string(ft, context);
+                context.emitter.emit_declaration_string_line(`  ${fts} _${i.to_string()};`);
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+        }
+      );
+      context.emitter.emit_declaration_string_line(`} ${c_name};`);
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+/// Generate a (C, untagged) union declaration. Mirrors `generateUnionDeclaration`.
+generate_union_declaration :: (fn(union_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    union_type,
+    .Union({ name, field_labels, field_types }) => {
+      context.emitter.emit_declaration_string_line(`typedef union { // ${name} : ${type_to_string(union_type)}`);
+      n := field_types.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
+        match(
+          field_types.get(i),
+          .Some(ft) => {
+            fts := get_type_string(ft, context);
+            fname := sanitize_for_c_identifier(label, false);
+            context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      context.emitter.emit_declaration_string_line(`} ${c_name};`);
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+/// Emit one `  <tag> = <discriminant><comma>` line per variant.
+_emit_enum_tags :: (fn(enum_type : TypeValue, variant_names : ArrayList(String), variant_discriminants : ArrayList(i64), context : CodeGenContext) -> unit)({
+  n := variant_names.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    vname := match(variant_names.get(i),.Some(v) => v,.None => String.from(""));
+    tag := get_enum_variant_c_name(enum_type, vname, context);
+    comma := if(i < (n - usize(1)), ",", "");
+    disc := match(variant_discriminants.get(i),.Some(d) => d,.None => i64(i));
+    context.emitter.emit_declaration_string_line(`  ${tag} = ${disc.to_string()}${comma}`);
+    i = (i + usize(1));
+  });
+});
+/// Generate an enum declaration: a nullable-pointer typedef, a simple C enum,
+/// or a tag-enum + data-union + tagged-union struct. Mirrors `generateEnumDeclaration`.
+generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    enum_type,
+    .EnumT({ name, variant_names, variant_fields, variant_field_labels, variant_discriminants }) => {
+      // Nullable-pointer optimization.
+      match(
+        can_optimize_as_nullable_pointer(enum_type),
+        .Some(ptr_type) => {
+          pts := get_type_string(ptr_type, context);
+          context.emitter.emit_declaration_string_line(`typedef ${pts} ${c_name}; // ${name} : ${type_to_string(enum_type)} (optimized as nullable pointer)`);
+          context.emitter.emit_declaration_line("");
+          return(());
+        },
+        .None => ()
+      );
+      // Simple C enum (all variants fieldless).
+      if(can_optimize_as_simple_enum(enum_type), {
+        context.emitter.emit_declaration_string_line(`typedef enum { // ${name} : ${type_to_string(enum_type)} (optimized as simple enum)`);
+        _emit_enum_tags(enum_type, variant_names, variant_discriminants, context);
+        context.emitter.emit_declaration_string_line(`} ${c_name};`);
+        context.emitter.emit_declaration_line("");
+        return(());
+      });
+      // Tag enum.
+      tag_enum_name := String.from("");
+      tag_enum_name.push_string(c_name.clone());
+      tag_enum_name.push_str("_tag");
+      context.emitter.emit_declaration_line("typedef enum {");
+      _emit_enum_tags(enum_type, variant_names, variant_discriminants, context);
+      context.emitter.emit_declaration_string_line(`} ${tag_enum_name};`);
+      context.emitter.emit_declaration_line("");
+      // Data union (struct per variant with non-unit fields).
+      variant_union_name := String.from("");
+      variant_union_name.push_string(c_name.clone());
+      variant_union_name.push_str("_data");
+      context.emitter.emit_declaration_line("typedef union {");
+      nv := variant_names.len();
+      (vi : usize) = usize(0);
+      while(vi < nv, {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        // Count non-unit fields.
+        (non_unit : usize) = usize(0);
+        nf := fields.len();
+        (cfi : usize) = usize(0);
+        while(cfi < nf, {
+          match(
+            fields.get(cfi),
+            .Some(ft) => if(!(is_unit_type(ft)), {
+              non_unit = (non_unit + usize(1));
+            }),
+            .None => ()
+          );
+          cfi = (cfi + usize(1));
+        });
+        if(non_unit > usize(0), {
+          vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+          context.emitter.emit_declaration_line("  struct {");
+          (fi : usize) = usize(0);
+          while(fi < nf, {
+            match(
+              fields.get(fi),
+              .Some(ft) => if(!(is_unit_type(ft)), {
+                label := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+                fts := get_type_string(ft, context);
+                fname := sanitize_for_c_identifier(label, false);
+                context.emitter.emit_declaration_string_line(`    ${fts} ${fname};`);
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          context.emitter.emit_declaration_string_line(`  } ${vname};`);
+        });
+        vi = (vi + usize(1));
+      });
+      context.emitter.emit_declaration_string_line(`} ${variant_union_name};`);
+      context.emitter.emit_declaration_line("");
+      // Tagged-union struct.
+      context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)}`);
+      context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
+      context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+      context.emitter.emit_declaration_line("};");
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+export(
+  generate_array_struct_declarations,
+  generate_str_type_declaration,
+  generate_struct_declaration,
+  generate_tuple_declaration,
+  generate_union_declaration,
+  generate_enum_declaration
+);
