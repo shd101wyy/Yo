@@ -546,8 +546,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   args2 := _apply_ref_amp(args, param_is_ref, runtime_args, indent.clone(), context);
   args_list := _join_args(args2);
   em := context.base.emitter;
-  // extern "yo".
-  ext := match(
+  // extern "yo". (Run as a statement, not a binding: the match yields unit and
+  // exists only for its side-effects + early `return`s. Binding a unit-valued
+  // match to a `:=` temp made codegen emit an illegal `void temp = ;`.)
+  match(
     function_type,
     .Func({ is_extern : ie, extern_name : en, result : r }) => {
       is_yo := match(ie,.Some(lang) => (lang == String.from("yo")),.None => false);

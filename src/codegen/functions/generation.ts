@@ -904,17 +904,31 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
     // those targets are not used for the bootstrap workload).
     const useWorkerStack = isTargetPosix(context.targetInfo);
     if (useWorkerStack) {
+      // Module-level variable initialization is emitted into a dedicated `void`
+      // helper rather than inline in the worker entry. An effectful initializer
+      // whose call escapes emits the effect-unwind check `if (__yo_effect_escaped)
+      // return;` — a bare `return;` is valid in this `void` helper but NOT in the
+      // `void*` worker entry (clang 21+ -Wreturn-mismatch is a hard error). The
+      // worker entry calls the helper, then bails on a startup escape.
+      if (moduleLevelVars.length > 0) {
+        emitter.emitLine(`
+// Module-level mutable variable initialization (runs first on the worker thread).
+static void __yo_main_module_init(void) {`);
+        for (const { cVarName, rhs } of moduleLevelVars) {
+          const rhsCode = generateExpr(rhs, "  ", context);
+          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+        }
+        emitter.emitLine(`}`);
+      }
       // Worker-thread entry: runs scheduler init + module init + user main.
       emitter.emitLine(`
 // Program body runs on a large-stack worker thread (see generateMainWrapper).
 static void* __yo_main_thread_entry(void* __yo_unused_arg) {
   (void)__yo_unused_arg;${asyncInit}`);
       if (moduleLevelVars.length > 0) {
-        emitter.emitLine(`  // Initialize module-level mutable variables`);
-        for (const { cVarName, rhs } of moduleLevelVars) {
-          const rhsCode = generateExpr(rhs, "  ", context);
-          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
-        }
+        emitter.emitLine(`  // Initialize module-level mutable variables
+  __yo_main_module_init();
+  if (__yo_effect_escaped) return NULL;`);
       }
       emitter.emitLine(`  // Call sync main
   __yo_user_main${mainCallArgs};

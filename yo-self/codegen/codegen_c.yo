@@ -173,6 +173,19 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   register_generate_expr();
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
+  // Seed the always-needed standard C headers (mirrors the cIncludes set the TS
+  // CodeGeneratorC.compileModule constructs). <unistd.h>/<sys/stat.h> are
+  // platform-specific and added by emit_c_includes.
+  base.add_c_include(String.from("<stdbool.h>"));
+  base.add_c_include(String.from("<stdint.h>"));
+  base.add_c_include(String.from("<stddef.h>"));
+  base.add_c_include(String.from("<stdarg.h>"));
+  base.add_c_include(String.from("<stdatomic.h>"));
+  base.add_c_include(String.from("<stdlib.h>"));
+  base.add_c_include(String.from("<stdio.h>"));
+  base.add_c_include(String.from("<string.h>"));
+  base.add_c_include(String.from("<errno.h>"));
+  base.add_c_include(String.from("<fcntl.h>"));
   ctx := FunctionGenerationContext.new(base);
   base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
   // First pass: collect functions and types reachable from the module exports.

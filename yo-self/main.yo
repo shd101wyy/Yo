@@ -47,6 +47,8 @@ open(import("std/fmt"));
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
+{ host_target } :: import("./target.yo");
+{ compile_module } :: import("./codegen/codegen_c.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
 extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
@@ -851,9 +853,95 @@ run_compile :: (
     exn : Exception
   ) -> unit
 )({
-  // The self-hosted C codegen (yo-self/codegen/) was removed pending the
-  // typed-pipeline codegen port — see plans/BOOTSTRAPPING_CODEGEN.md.
-  exn.throw(dyn(`compile: the self-hosted codegen was removed pending the codegen port (plans/BOOTSTRAPPING_CODEGEN.md). Use the TypeScript yo-cli for compilation.`));
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o out] [--c-compiler cc]`));
+  });
+  // Parse args: positional input path, -o <output>, --c-compiler <cc>.
+  (input_path : String) = String.from("");
+  (output : String) = String.from("a.out");
+  (cc : String) = String.from("clang");
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    cond(
+      (a == "-o") => {
+        if((ai + usize(1)) < argv.len(), {
+          output = argv(ai + usize(1));
+        });
+        ai = (ai + usize(2));
+      },
+      (a == "--c-compiler") => {
+        if((ai + usize(1)) < argv.len(), {
+          cc = argv(ai + usize(1));
+        });
+        ai = (ai + usize(2));
+      },
+      (a == "--release") => {
+        ai = (ai + usize(1));
+      },
+      a.starts_with("-") => {
+        ai = (ai + usize(1));
+      },
+      true => {
+        input_path = a;
+        ai = (ai + usize(1));
+      }
+    );
+  });
+  std_path := resolve_std_path();
+  // Ensure the prelude env is cached (provides std types to the evaluator).
+  if(g_cached_prelude_env.is_none(), {
+    _pre := check_single_file(`${std_path}/prelude.yo`, std_path.clone(), io, exn);
+  });
+  // Read + parse the input module.
+  src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+  src := String.from_bytes(src_bytes);
+  exprs := parse(src, input_path.clone(), exn);
+  // Demand-driven module loading (mirrors check_single_file's loader setup).
+  g_loader_io = Option(Io).Some(io);
+  g_loader_std_path = Option(String).Some(std_path.clone());
+  g_loader_exn = Option(Exception).Some(exn);
+  entry_abs := match(
+    resolve_module_path(input_path.clone(), String.from("."), std_path.clone()),
+    .Found(p) => p,
+    .NotFound(_) => input_path.clone(),
+    .Ambiguous(_) => input_path.clone()
+  );
+  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
+  env.module_path = entry_abs.clone();
+  ctx := eval_context_new(std_path.clone(), entry_abs.clone());
+  ctx.is_executing = true;
+  ctx.load_module = g_demand_loader;
+  register_evaluate_expression();
+  register_loading(entry_abs.clone(), env);
+  out_vals := ArrayList(EvalValue).new();
+  out_tys := ArrayList(TypeValue).new();
+  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals, out_tys);
+  unregister_loading(entry_abs.clone());
+  module_value := match(
+    out_vals.get(usize(0)),
+    .Some(mv) => mv,
+    .None => {
+      exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
+      return(())
+    }
+  );
+  // Generate C11 from the evaluated module.
+  c_src := compile_module(module_value, ctx.expr_info_table, host_target(), String.from("libc"), false, false, false, false);
+  c_path := `${output}.c`;
+  io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+  // Invoke the C compiler to produce the output binary.
+  cmd := Command.new(cc.clone());
+  cmd.arg(String.from("-std=c11"));
+  cmd.arg(String.from("-pthread"));
+  cmd.arg(c_path.clone());
+  cmd.arg(String.from("-o"));
+  cmd.arg(output.clone());
+  cmd.arg(String.from("-lm"));
+  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  if(st.raw != i32(0), {
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
+  });
 });
 run_test :: (
   fn(

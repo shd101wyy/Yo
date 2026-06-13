@@ -10,9 +10,12 @@ open(import("std/string"));
 /// Collect C include headers from the collected types and extern functions.
 /// Mirrors `collectCIncludes`.
 collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
-  // Collect cIncludes from all collected types.
+  // Collect cIncludes from all collected types. (Loop via a flag, NOT
+  // `return(())` — a bare return would exit the whole function and skip the
+  // extern-function pass below.)
   type_vals := context.types.values();
-  while(true, {
+  (go_types : bool) = true;
+  while(go_types, {
     match(
       type_vals.next(),
       .Some(type_entry) => {
@@ -22,12 +25,15 @@ collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
           .None => ()
         );
       },
-      .None => return(())
+      .None => {
+        go_types = false;
+      }
     );
   });
   // Collect cIncludes from all extern functions.
   fn_vals := context.extern_functions.values();
-  while(true, {
+  (go_fns : bool) = true;
+  while(go_fns, {
     match(
       fn_vals.next(),
       .Some(fn_entry) => {
@@ -37,7 +43,9 @@ collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
           .None => ()
         );
       },
-      .None => return(())
+      .None => {
+        go_fns = false;
+      }
     );
   });
 });
@@ -65,7 +73,10 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
   // platform-guarded in std, and the guarded block below re-adds the right
   // ones for the actual target.
   include_iter := context.c_includes.into_iter();
-  while(true, {
+  // Loop via a flag, NOT `return(())`: a bare return would exit the whole
+  // function and skip the platform includes + allocator defines below.
+  (go_inc : bool) = true;
+  while(go_inc, {
     match(
       include_iter.next(),
       .Some(include) => {
@@ -77,7 +88,9 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
           context.emitter.emit_header_string_line(line);
         });
       },
-      .None => return(())
+      .None => {
+        go_inc = false;
+      }
     );
   });
   // Platform-specific includes for file operations.
