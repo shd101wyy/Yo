@@ -260,8 +260,29 @@ function splitTopLevelArgsList(s: string): string[] {
   const out: string[] = [];
   let depth = 0;
   let cur = "";
+  // Track whether we're inside a C string/char literal so that bracket and
+  // comma characters within a literal (e.g. the `)` in the str initializer
+  // `(__yo_str){ .ptr=(const uint8_t*)")", .len=1 }`) don't corrupt the depth
+  // count and cause a split inside the literal.
+  let inStr: string | null = null;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i]!;
+    if (inStr !== null) {
+      cur += ch;
+      if (ch === "\\") {
+        // Escape sequence: consume the next char verbatim.
+        i++;
+        if (i < s.length) cur += s[i];
+        continue;
+      }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inStr = ch;
+      cur += ch;
+      continue;
+    }
     if (ch === "(" || ch === "[" || ch === "{") depth++;
     else if (ch === ")" || ch === "]" || ch === "}") depth--;
     if (ch === "," && depth === 0) {

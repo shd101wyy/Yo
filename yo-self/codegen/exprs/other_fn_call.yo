@@ -150,20 +150,49 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   cur := String.from("");
   n := s.len();
   (i : usize) = usize(0);
+  // Track whether we're inside a C string/char literal (0 = not; else the quote
+  // byte). A `)`/`}`/`,` inside a literal (e.g. the `)` in the str initializer
+  // `(__yo_str){ .ptr=(const uint8_t*)")", .len=1 }`) must not corrupt the depth
+  // count or trigger a split. Mirrors splitTopLevelArgsList (other-fn-call.ts).
+  (in_str : u8) = u8(0);
   while(i < n, {
     b := s.byte_at(i);
-    if((b == u8(40)) || ((b == u8(91)) || (b == u8(123))), {
-      depth = (depth + usize(1));
-    });
-    if((b == u8(41)) || ((b == u8(93)) || (b == u8(125))), {
-      depth = (depth - usize(1));
-    });
-    if((b == u8(44)) && (depth == usize(0)), {
-      _p := out.push(cur.trim());
-      cur = String.from("");
-    }, {
-      cur.push_byte(b);
-    });
+    cond(
+      (in_str != u8(0)) => {
+        cur.push_byte(b);
+        cond(
+          (b == u8(92)) => {
+            // Escape sequence: consume the next byte verbatim.
+            i = (i + usize(1));
+            if(i < n, {
+              cur.push_byte(s.byte_at(i));
+            });
+          },
+          (b == in_str) => {
+            in_str = u8(0);
+          },
+          true => ()
+        );
+      },
+      ((b == u8(34)) || (b == u8(39))) => {
+        in_str = b;
+        cur.push_byte(b);
+      },
+      true => {
+        if((b == u8(40)) || ((b == u8(91)) || (b == u8(123))), {
+          depth = (depth + usize(1));
+        });
+        if((b == u8(41)) || ((b == u8(93)) || (b == u8(125))), {
+          depth = (depth - usize(1));
+        });
+        if((b == u8(44)) && (depth == usize(0)), {
+          _p := out.push(cur.trim());
+          cur = String.from("");
+        }, {
+          cur.push_byte(b);
+        });
+      }
+    );
     i = (i + usize(1));
   });
   if(cur.trim().len() > usize(0), {
