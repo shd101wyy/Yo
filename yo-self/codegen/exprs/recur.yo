@@ -1,0 +1,81 @@
+//! `recur(...)` self-call emitter — mirrors `src/codegen/exprs/recur.ts`.
+//!
+//! DEFERRED (documented divergences, none reached by the no-RC/no-effect
+//! corpus): the `(*name)`→`name` ref-argument strip (yo-self Variable has no
+//! is_ref flag); deferred dup/drop emission for moved RC arguments (Phase 4);
+//! evidence-parameter forwarding for `using()`/effects (Phase 3/5).
+open(import("std/string"));
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ get_variable_name_for_codegen, get_type_string } :: import("../utils/index.yo");
+{ Environment } :: import("../../env.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+/// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
+/// has a result variable name, emit it into a named temp first (so enclosing
+/// scope drops don't run before the call). Mirrors `generateRecur`.
+generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: No arguments for recur call")));
+  match(
+    ei.runtime_arg_exprs_in_order,
+    .Some(arg_exprs) => {
+      args_list := String.from("");
+      n := arg_exprs.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          arg_exprs.get(i),
+          .Some(arg) => {
+            if(i > usize(0), {
+              args_list.push_str(", ");
+            });
+            args_list.push_string(_call_generate_expr(arg, indent.clone(), context));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      call_code := context.base.current_function_name.clone();
+      call_code.push_str("(");
+      call_code.push_string(args_list);
+      call_code.push_str(")");
+      // Result-temp: emit `<cType> <temp> = <call>;` then return the temp.
+      match(
+        ei.variable_name,
+        .Some(temp_var) => if(!(is_unit_type(ei.ty)), {
+          c_type := get_type_string(ei.ty, context.base);
+          temp_var_name := get_variable_name_for_codegen(temp_var.clone(), Option(Environment).Some(ei.env));
+          already := match(context.declared_temp_vars,.Some(s) => s.contains(temp_var_name.clone()),.None => false);
+          if(!(already), {
+            match(
+              context.declared_temp_vars,
+              .Some(s) => {
+                _a := s.add(temp_var_name.clone());
+              },
+              .None => {
+                ns := HashSet(String).new();
+                _a := ns.add(temp_var_name.clone());
+                context.declared_temp_vars = Option(HashSet(String)).Some(ns);
+              }
+            );
+            line := indent.clone();
+            line.push_string(c_type);
+            line.push_str(" ");
+            line.push_string(temp_var_name.clone());
+            line.push_str(" = ");
+            line.push_string(call_code.clone());
+            line.push_str(";");
+            em := context.base.emitter;
+            em.emit_string_line(line);
+          });
+          return(temp_var_name);
+        }),
+        .None => ()
+      );
+      call_code
+    },
+    .None => String.from("// Error: No arguments for recur call")
+  )
+});
+export(generate_recur);
