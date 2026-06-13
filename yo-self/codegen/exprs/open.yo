@@ -1,0 +1,65 @@
+//! `open(...)` runtime-destructuring emitter — mirrors `src/codegen/exprs/open.ts`.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ is_struct_type } :: import("../../types/guards.yo");
+/// Emit local field-extraction declarations for a runtime `{ x, y } := point`
+/// destructuring (recorded in ExprInfo.runtime_destructurings). Returns "" —
+/// open is a statement, not a value. Mirrors `generateOpen`.
+generate_open :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei_opt := context.base.get_expr_info(expr);
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      ei.runtime_destructurings,
+      .Some(rds) => if(rds.len() > usize(0), {
+        arg_opt := match(expr,.FnCall(_, _, args, _, _) => args.get(usize(0)),.Atom(_, _) =>.None);
+        match(
+          arg_opt,
+          .Some(arg_expr) => match(
+            context.base.get_expr_info(arg_expr),
+            .Some(arg_ei) => {
+              // Only runtime struct values (no compile-time value) destructure here.
+              if(is_struct_type(arg_ei.ty) && arg_ei.value.is_none(), {
+                struct_code := _call_generate_expr(arg_expr, indent.clone(), context);
+                n := rds.len();
+                (i : usize) = usize(0);
+                while(i < n, {
+                  match(
+                    rds.get(i),
+                    .Some(d) => {
+                      field_type := get_type_string(d.ty, context.base);
+                      var_name := sanitize_for_c_identifier(d.variable_name.clone(), false);
+                      field_label := sanitize_for_c_identifier(d.label.clone(), false);
+                      line := indent.clone();
+                      line.push_string(field_type);
+                      line.push_str(" ");
+                      line.push_string(var_name);
+                      line.push_str(" = ");
+                      line.push_string(struct_code.clone());
+                      line.push_str(".");
+                      line.push_string(field_label);
+                      line.push_str(";");
+                      em := context.base.emitter;
+                      em.emit_string_line(line);
+                    },
+                    .None => ()
+                  );
+                  i = (i + usize(1));
+                });
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  String.from("")
+});
+export(generate_open);
