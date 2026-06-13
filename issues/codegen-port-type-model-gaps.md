@@ -226,3 +226,19 @@ Surfaced porting `generateFieldAccess`. Two model gaps + one Phase-5 gating:
 (label→index)/dyn(`vtable->`)/newtype(zero-cost)/module-namespace(comptime
 field value) + resolved-method (FuncVal → cName). See header of
 `yo-self/codegen/exprs/property_access.yo`.
+
+## Gap 9 UPDATE — RESOLVED via the type-method registry (2026-06-13)
+
+The "no `.trait` field on Struct/EnumT" blocker is RESOLVED for the RC layer.
+yo-self stores type methods in `evaluator/values/type_trait_methods.yo` (a
+`type id → [MethodEntry]` registry: `register_type_trait_method`,
+`get_type_trait_methods_by_name`, `type_id_or_empty`). The faithful equivalent
+of TS `type.trait.fields.find(f => f.label === "___drop").assignedValue` is
+`get_type_trait_methods_by_name(type_id_or_empty(t), "___drop")` → first FuncVal
+entry → registered cName. Used by `drop_dup.yo`'s get_drop/dup_function_for_type
+(committed). The SAME pattern can now retire the property-access late-dispatch
++ Rc-method deferrals (issue Gap 9 item 1) when those branches are revisited.
+
+Remaining truly-blocked: only Gap 6 (SomeType.resolvedConcreteType) — needed
+for unresolved-SomeT params in Phase-3 generics; a no-op for the monomorphized
+corpus.
