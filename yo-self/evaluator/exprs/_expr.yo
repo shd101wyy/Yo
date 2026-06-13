@@ -15,6 +15,7 @@ open(import("std/fmt"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_token,
+  ast_expr_id,
   make_err_expr,
   ast_expr_to_string,
   BK_FN,
@@ -197,6 +198,7 @@ open(import("std/fmt"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { EvalValue } :: import("../../value.yo");
+{ expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
 { evaluate_initialization_assignment } :: import("./initialization_assignment.yo");
@@ -864,6 +866,35 @@ _evaluate_expression :: (
 /// in `yo-self/main.yo` and the new `run_check` subcommand both
 /// go through that path so they can surface or swallow errors as
 /// appropriate.)
+/// Codegen-metadata bridge: yo-self's evaluator records ExprInfo PIECEMEAL (each
+/// sub-evaluator sets it for the node IT handles, often the evaluated/result node,
+/// not the original sub-expression). Codegen, however, walks the ORIGINAL function
+/// body AST (stored on the FuncVal) and looks up ExprInfo by the original node's
+/// id — so a call/operator child of a recorded binding (`_y := double(1)`) had no
+/// entry → "Failed to transpile". This central bridge fills a MISSING original-id
+/// entry from the (correct) result-node entry produced by evaluating it. It is
+/// the yo-self analogue of TS attaching `expr.$` to every node.
+///
+/// GUARDED for safety (prior unguarded ExprInfo changes regressed std/tests):
+/// only acts when the ids DIFFER, only FILLS a missing original entry, and NEVER
+/// overwrites an existing one — so worst case it is a no-op.
+_bridge_expr_info :: (fn(orig : AstExpr, result : AstExpr, ctx : EvalContext) -> unit)({
+  oid := ast_expr_id(orig);
+  rid := ast_expr_id(result);
+  if(!(oid == rid), {
+    match(
+      expr_info_table_get(ctx.expr_info_table, oid),
+      .Some(_) => (),
+      .None => match(
+        expr_info_table_get(ctx.expr_info_table, rid),
+        .Some(rinfo) => {
+          expr_info_table_set(ctx.expr_info_table, oid, rinfo);
+        },
+        .None => ()
+      )
+    );
+  });
+});
 _evaluate_expression_wrapper :: (
   fn(
     expr : AstExpr,
@@ -882,7 +913,9 @@ _evaluate_expression_wrapper :: (
       }
     )
   );
-  _evaluate_expression(expr, env, ctx, exn)
+  result := _evaluate_expression(expr, env, ctx, exn);
+  _bridge_expr_info(expr, result, ctx);
+  result
 });
 /// Concrete-signature wrapper for set_evaluate_expression_raw_fn.
 ///
@@ -905,9 +938,11 @@ _evaluate_expression_raw_wrapper :: (
     ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
-)(
-  _evaluate_expression(expr, env, ctx, exn)
-);
+)({
+  result := _evaluate_expression(expr, env, ctx, exn);
+  _bridge_expr_info(expr, result, ctx);
+  result
+});
 /// Register the expression evaluator. Call once during evaluator initialization.
 register_evaluate_expression :: (fn() -> unit)({
   set_evaluate_expression_fn(_evaluate_expression_wrapper);
