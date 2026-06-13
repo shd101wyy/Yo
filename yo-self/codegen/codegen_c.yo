@@ -1,0 +1,142 @@
+//! Top-level C code-generation orchestrator — mirrors `src/codegen/codegen-c.ts`
+//! (`CodeGeneratorC.compileModule`).
+//!
+//! PORT STATUS (incremental, plans/BOOTSTRAPPING_CODEGEN.md): this file currently
+//! carries the two self-contained orchestration steps that pair with the
+//! already-ported type/constructor layers:
+//!   * compute_needs_cycle_gc  — the pre-scan that sets context.needs_cycle_gc
+//!     before type declarations (it affects __yo_ref_header_t layout)
+//!   * emit_dispose_dispatch    — the type-tag __yo_dispose_dispatch switch over
+//!     the dispose_type_ids the object constructors populate
+//!
+//! The full compile_module pipeline (build context → collect → emit includes →
+//! Future-state enum → this pre-scan → generate_type_declarations → argv shim →
+//! generate_function_declarations → register_generate_expr + generate_all_functions
+//! → generate_main_wrapper → this dispatch switch) is the next increment; the
+//! dyn-box / async / specialized / effectful subsystems it also calls are
+//! Phase-3/5 and stubbed there.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../types/definitions.yo");
+{ is_object_type, is_atomic_object_type } :: import("../types/guards.yo");
+{ type_contains_some_type, can_type_form_rc_cycle } :: import("../types/utils.yo");
+{ CodeGenContext } :: import("./utils/index.yo");
+/// True if any field of the struct contains a SomeType (generic). Mirrors the
+/// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
+_struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Struct({ field_types }) => {
+      n := field_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !(found), {
+        match(
+          field_types.get(i),
+          .Some(ft) => if(type_contains_some_type(ft), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+/// Pre-scan to determine whether any object type can form an RC cycle. Must run
+/// before generate_type_declarations because it selects the __yo_ref_header_t
+/// layout (with or without GC fields). Mirrors the needs-cycle-GC loop in
+/// `CodeGeneratorC.compileModule` (src/codegen/codegen-c.ts 162-176).
+///
+/// NOTE: yo-self's can_type_form_rc_cycle is currently a conservative stub
+/// (returns false — the cyclic-GC subsystem is deferred), so this faithfully
+/// resolves to false; the lightweight RC header + GC stubs are emitted.
+compute_needs_cycle_gc :: (fn(context : CodeGenContext) -> unit)({
+  context.needs_cycle_gc = false;
+  vals := context.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => {
+        ty := entry.ty;
+        if((is_object_type(ty) && (!(is_atomic_object_type(ty)) && !(_struct_has_generic_field(ty)))) && can_type_form_rc_cycle(ty), {
+          context.needs_cycle_gc = true;
+          go = false;
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+/// Emit the type-tag dispose dispatch function (lightweight RC only). Reads the
+/// dispose_type_ids side-table the object constructors populate and emits a
+/// switch; when empty, emits the no-op stub the RC runtime forward-declares.
+/// Mirrors the inline `__yo_dispose_dispatch` emission in
+/// `CodeGeneratorC.compileModule` (src/codegen/codegen-c.ts 258-283).
+///
+/// The needs_cycle_gc branch (function-pointer dispatch) is part of the deferred
+/// cyclic-GC subsystem; under lightweight RC this is the dispatch path.
+emit_dispose_dispatch :: (fn(context : CodeGenContext) -> unit)({
+  if(context.needs_cycle_gc, {
+    return();
+  });
+  em := context.emitter;
+  // Collect the dispose-fn C names (keys) so we can emit one case per id.
+  names := ArrayList(String).new();
+  kit := context.dispose_type_ids.keys();
+  (gk : bool) = true;
+  while(gk, {
+    match(
+      kit.next(),
+      .Some(k) => {
+        _p := names.push(k);
+      },
+      .None => {
+        gk = false;
+      }
+    );
+  });
+  if(names.len() > usize(0), {
+    em.emit_string_line(
+      `// Type-tag dispatch for dispose — replaces function pointers
+// WASM: br_table (~2 cycles) vs call_indirect (~20+ cycles)
+static void __yo_dispose_dispatch(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  switch (header->type_id) {`
+    );
+    n := names.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      match(
+        names.get(i),
+        .Some(name) => match(
+          context.dispose_type_ids.get(name.clone()),
+          .Some(id) => {
+            line := String.from("    case ");
+            line.push_string(id.to_string());
+            line.push_str(": ");
+            line.push_string(name.clone());
+            line.push_str("(ptr); return;");
+            em.emit_string_line(line);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    em.emit_string_line(
+      `    default: return;
+  }
+}`
+    );
+  }, {
+    em.emit_string_line(String.from("static void __yo_dispose_dispatch(void* ptr) { (void)ptr; }"));
+  });
+});
+export(compute_needs_cycle_gc, emit_dispose_dispatch);
