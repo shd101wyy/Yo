@@ -1,15 +1,17 @@
-//! Match-expression emitter — mirrors `src/codegen/exprs/match.ts`.
+//! Match-expression emitter — mirrors `src/codegen/exprs/match.ts`. COMPLETE.
 //!
-//! PORT STATUS (incremental): the bounded sub-units are ported here —
-//! the control-flow-code predicate, or-pattern flatten, C-literal extraction,
-//! generate_case_body (one match-arm body), and generate_primitive_match_expression
-//! (int/bool → C switch). The 865-line `generate_match_expression` entry (enum
-//! tag dispatch: nullable-pointer-opt / simple-enum / tagged-union switch with
-//! `.data.<Variant>.<field>` destructuring + guards + GADT refinement) is the
-//! next focused effort; until it lands the dispatcher routes match → TODO stub.
+//! generate_match_expression dispatches all enum paths after the header
+//! (result-temp decl, subject materialization, isPrimitiveMatch delegation,
+//! ptr/ref-semantics deref): primitive (int/bool → C switch), nullable-pointer
+//! (if/else), simple-enum (tag switch), and tagged-union (tag switch with
+//! `.data.<Variant>.<field>` destructuring — labeled + positional, via the EnumT
+//! parallel arrays variant_names/variant_field_labels/variant_fields, since
+//! yo-self EnumT has no `.variants[].fields[]` objects). Per-arm bodies via
+//! generate_case_body; comptime-eliminated arms (case_executed) are skipped.
 //!
-//! DEFERRED (documented, not hit by the no-RC corpus): the deferred-dup rewrite
-//! of a begin-block final expression (Phase 4) inside generate_case_body.
+//! DEFERRED (documented, not hit by the no-RC/no-async corpus): the deferred-dup
+//! rewrite of a begin-block final expression in generate_case_body (Phase 4);
+//! state-machine storage of destructured variables (Phase 5, gated on in_async).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
