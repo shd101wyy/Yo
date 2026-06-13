@@ -1,16 +1,15 @@
 //! Function declaration emission — mirrors `src/codegen/functions/declarations.ts`.
 //!
-//! PORT STATUS (incremental, plans/BOOTSTRAPPING_CODEGEN.md Phase 1): this
-//! file currently carries only the EvidenceParameter slice that
-//! functions/collection.ts imports. The generate* declaration emitters
-//! (generateFunctionDeclarations / generateFunctionPrototype /
-//! generateFunctionDeclaration / object+closure constructor declarations /
-//! specialized declarations) are Phase 3 and will be added here.
+//! PORT STATUS (incremental, plans/BOOTSTRAPPING_CODEGEN.md): this file
+//! carries the EvidenceParameter slice (used by functions/collection.ts) and
+//! generate_function_prototype. The remaining declaration emitters
+//! (generateFunctionDeclarations / generateFunctionDeclaration / object+closure
+//! constructor declarations / specialized declarations) are pending.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_struct_type, is_module_type } :: import("../../types/guards.yo");
-{ sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ CodeGenContext, get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
 EvidenceParameter :: object(
@@ -105,4 +104,82 @@ collect_evidence_from_record :: (
 get_evidence_parameters :: (fn(_function_type : TypeValue) -> ArrayList(EvidenceParameter))(
   ArrayList(EvidenceParameter).new()
 );
-export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters);
+/// Generate a C function prototype string `<ret> <cName>(<params>)`.
+/// Mirrors `generateFunctionPrototype`.
+///
+/// `override_return_type` (`.Some(s)` overrides the computed return type) and
+/// the recursion for function-pointer parameters use the callee-name slot
+/// directly (`(*name)`) instead of TS's `(*)`+string-replace.
+///
+/// DIVERGENCES (yo-self Func model): the `param.isCompileTimeOnly` filter is a
+/// no-op (yo-self Func.param_types are the runtime params); the `isClosure`
+/// closure-context param is omitted (Func has no is_closure — closures are
+/// Phase 3); the SomeType-Future resolvedConcreteType param branch is omitted
+/// (Gap 6); evidence params come from get_evidence_parameters (currently
+/// empty — see above).
+generate_function_prototype :: (
+  fn(function_type : TypeValue, c_function_name : String, context : CodeGenContext, override_return_type : Option(String)) -> String
+)(
+  match(
+    function_type,
+    .Func({ param_types, param_is_ref, result, result_is_ref }) => {
+      return_type_str := match(
+        override_return_type,
+        .Some(s) => s,
+        .None => {
+          base := get_type_string(result.*, context);
+          if(result_is_ref, {
+            base.push_str("*");
+          });
+          base
+        }
+      );
+      params := String.from("");
+      n := param_types.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        if(i > usize(0), {
+          params.push_str(", ");
+        });
+        pt := match(param_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        pname := String.from("param");
+        pname.push_string(i.to_string());
+        cond(
+          is_function_type(pt) => {
+            // Function-pointer parameter: <ret> (*paramN)(<paramTypes>).
+            callee := String.from("(*");
+            callee.push_string(pname.clone());
+            callee.push_str(")");
+            params.push_string(recur(pt, callee, context, Option(String).None));
+          },
+          true => {
+            pts := get_type_string(pt, context);
+            is_ref := match(param_is_ref.get(i),.Some(b) => b,.None => false);
+            if(is_ref, {
+              pts.push_str("*");
+            });
+            params.push_string(pts);
+            params.push_str(" ");
+            params.push_string(pname.clone());
+          }
+        );
+        i = (i + usize(1));
+      });
+      out := return_type_str.clone();
+      out.push_str(" ");
+      out.push_string(c_function_name.clone());
+      out.push_str("(");
+      out.push_string(params);
+      out.push_str(")");
+      out
+    },
+    _ => {
+      // Not a function type — emit a void() prototype as a safe fallback.
+      r := String.from("void ");
+      r.push_string(c_function_name.clone());
+      r.push_str("(void)");
+      r
+    }
+  )
+);
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype);
