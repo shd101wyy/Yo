@@ -49,6 +49,7 @@ open(import("std/string"));
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, type_of_eval_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
+{ attach_temp_variable_to_expr } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -2291,6 +2292,10 @@ Fix: wrap the call:
           // path — the body is NOT executed, so it returns before the 2341 site).
           out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
+          // Assign a temp variable name to the (non-unit) call result so codegen
+          // can materialize it as `<cty> <tmp> = call(...)`. Mirrors TS
+          // function.ts:2263 attachTempVariableToExpr(expr, true, ...).
+          attach_temp_variable_to_expr(expr, true, ctx);
           _ := param_vars;
           return(expr);
         });
@@ -2350,6 +2355,9 @@ Fix: wrap the call:
         out.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
         // control_flow is intentionally NOT propagated (Return is consumed here).
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+        // Temp variable for the (non-unit) call result (mirrors TS
+        // attachTempVariableToExpr on the body-executed call path).
+        attach_temp_variable_to_expr(expr, true, ctx);
         _ := param_vars;
         expr
       },
