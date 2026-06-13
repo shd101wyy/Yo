@@ -1,54 +1,390 @@
 //! Reference-counting builtin emitters — mirrors `src/codegen/exprs/rc-fns.ts`.
 //!
-//! PORT STATUS (incremental): the simple 1-arg RC builtins are ported. The
-//! element-wise array/tuple drop/dup emitters (generateYoDrop/DupArrayElement,
-//! generateYoDrop/DupTupleElement) and the atomic variants need element-type
-//! drop/dup-function lookup and are pending.
+//! The `__yo_*_rc` / `___drop` / `___dup` / element-wise / dyn / sometype / `rc`
+//! builtins. Element drop/dup and `___drop`/`___dup` route through the
+//! drop_dup layer (get_drop/dup_function_for_type + generate_drop/dup_code_for_value).
+//!
+//! DEFERRED (documented): SomeType.resolvedConcreteType (Gap 6) — yo-self SomeT
+//! has no such field, so the element/sometype concrete-type resolution uses the
+//! type as-is. For the monomorphized corpus the element type is already
+//! concrete; `__yo_sometype_drop`/`_dup`'s non-Future resolvedConcreteType
+//! dispatch becomes a no-op (Phase-3 generics need Gap-6 resolution).
 open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_array_type, is_atomic_object_type, is_rc_type, is_some_type, is_tuple_type } :: import("../../types/guards.yo");
+{ type_implements_future } :: import("../../evaluator/trait_checking.yo");
+{ parse_raw_int } :: import("../../evaluator/utils.yo");
+{ random_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-/// First argument of a FnCall expression (or `.None`).
-_first_arg :: (fn(expr : AstExpr) -> Option(AstExpr))(
+{ get_type_string } :: import("../utils/index.yo");
+{ generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
+/// The `i`-th argument of a FnCall (or `.None`).
+_arg :: (fn(expr : AstExpr, i : usize) -> Option(AstExpr))(
+  match(expr,.FnCall(_, _, args, _, _) => args.get(i),.Atom(_, _) => Option(AstExpr).None)
+);
+/// The result type of an expression (Unit when it has no ExprInfo).
+_ty :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> TypeValue)(
+  match(context.base.get_expr_info(expr),.Some(ei) => ei.ty,.None => TypeValue.Unit)
+);
+/// `<wrapper>(<self>)` for a single-arg RC builtin. `err` when the arg is missing.
+_one_arg_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, wrapper : str, err : str) -> String)(
   match(
-    expr,
-    .FnCall(_, _, args, _, _) => args.get(usize(0)),
-    .Atom(_, _) =>.None
+    _arg(expr, usize(0)),
+    .Some(self_arg) => {
+      out := String.from(wrapper);
+      out.push_str("(");
+      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_str(")");
+      out
+    },
+    .None => String.from(err)
   )
 );
-/// `__yo_decr_rc(<self>)` — reference-count decrement. Mirrors `generateYoDecrRc`.
+/// `__yo_decr_rc(<self>)`. Mirrors `generateYoDecrRc`.
 generate_yo_decr_rc :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
-  match(
-    _first_arg(expr),
-    .Some(self_arg) => {
-      out := String.from("__yo_decr_rc(");
-      out.push_string(_call_generate_expr(self_arg, indent, context));
-      out.push_str(")");
-      out
-    },
-    .None => String.from("// Error: __yo_decr_rc requires exactly 1 argument")
-  )
+  _one_arg_call(expr, indent, context, "__yo_decr_rc", "// Error: __yo_decr_rc requires exactly 1 argument")
 );
-/// `__yo_incr_rc(<self>)` — reference-count increment. Mirrors `generateYoIncrRc`.
+/// `__yo_incr_rc(<self>)`. Mirrors `generateYoIncrRc`.
 generate_yo_incr_rc :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
-  match(
-    _first_arg(expr),
-    .Some(self_arg) => {
-      out := String.from("__yo_incr_rc(");
-      out.push_string(_call_generate_expr(self_arg, indent, context));
-      out.push_str(")");
-      out
-    },
-    .None => String.from("// Error: __yo_incr_rc requires exactly 1 argument")
-  )
+  _one_arg_call(expr, indent, context, "__yo_incr_rc", "// Error: __yo_incr_rc requires exactly 1 argument")
+);
+/// `__yo_decr_rc_atomic(<self>)`. Mirrors `generateYoDecrRcAtomic`.
+generate_yo_decr_rc_atomic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  _one_arg_call(expr, indent, context, "__yo_decr_rc_atomic", "// Error: __yo_decr_rc_atomic requires exactly 1 argument")
+);
+/// `__yo_incr_rc_atomic(<self>)`. Mirrors `generateYoIncrRcAtomic`.
+generate_yo_incr_rc_atomic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  _one_arg_call(expr, indent, context, "__yo_incr_rc_atomic", "// Error: __yo_incr_rc_atomic requires exactly 1 argument")
 );
 /// `__yo_rc_own(<self>)` — ownership transfer; emits the argument as-is.
 /// Mirrors `generateYoRcOwn`.
 generate_yo_rc_own :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(_arg(expr, usize(0)),.Some(self_arg) => _call_generate_expr(self_arg, indent, context),.None => String.from("// Error: __yo_rc_own requires exactly 1 argument"))
+);
+/// `__yo_dyn_drop(<self>)` → decr the Dyn's `.data` pointer. Mirrors `generateYoDynDrop`.
+generate_yo_dyn_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   match(
-    _first_arg(expr),
-    .Some(self_arg) => _call_generate_expr(self_arg, indent, context),
-    .None => String.from("// Error: __yo_rc_own requires exactly 1 argument")
+    _arg(expr, usize(0)),
+    .Some(self_arg) => {
+      out := String.from("__yo_decr_rc((void*)(");
+      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_str(").data)");
+      out
+    },
+    .None => String.from("// Error: __yo_dyn_drop requires exactly 1 argument")
   )
 );
-export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own);
+/// `__yo_dyn_dup(<self>)` → incr the Dyn's `.data` pointer. Mirrors `generateYoDynDup`.
+generate_yo_dyn_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _arg(expr, usize(0)),
+    .Some(self_arg) => {
+      out := String.from("__yo_incr_rc((void*)(");
+      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_str(").data)");
+      out
+    },
+    .None => String.from("// Error: __yo_dyn_dup requires exactly 1 argument")
+  )
+);
+/// `___drop(<value>)` generic drop hook. Mirrors `generateDrop`.
+generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _arg(expr, usize(0)),
+    .Some(value_arg) => {
+      value_code := _call_generate_expr(value_arg, indent.clone(), context);
+      value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
+      generate_drop_code_for_value(value_code, value_type, context)
+    },
+    .None => String.from("// Error: ___drop requires exactly 1 argument")
+  )
+);
+/// `___dup(<value>)` generic dup hook. Mirrors `generateDup`.
+generate_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _arg(expr, usize(0)),
+    .Some(value_arg) => {
+      value_code := _call_generate_expr(value_arg, indent.clone(), context);
+      value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
+      generate_dup_code_for_value(value_code, value_type, context)
+    },
+    .None => String.from("// Error: ___dup requires exactly 1 argument")
+  )
+);
+/// `__yo_drop_array_element(<array>, <index>)`. Mirrors `generateYoDropArrayElement`.
+generate_yo_drop_array_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  array_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_array_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_array_element requires exactly 2 arguments")));
+  array_code := _call_generate_expr(array_arg, indent.clone(), context);
+  index_code := _call_generate_expr(index_arg, indent.clone(), context);
+  array_type := _ty(array_arg, context);
+  if(!(is_array_type(array_type)), {
+    return(String.from("// Error: __yo_drop_array_element requires an array type"));
+  });
+  element_type := match(array_type,.Array(el, _, _) => el.*, _ => return(String.from("// Error: __yo_drop_array_element requires an array type")));
+  // Nested array element → recursive inline drop.
+  match(
+    element_type,
+    .Array(child, nlen, nlvar) => {
+      if(nlvar.len() > usize(0), {
+        return(String.from("// Error: array element has non-constant length"));
+      });
+      em := context.base.emitter;
+      loop_var := String.from("i_");
+      loop_var.push_string(random_id(String.from("")));
+      hdr := String.from("for (size_t ");
+      hdr.push_string(loop_var.clone());
+      hdr.push_str(" = 0; ");
+      hdr.push_string(loop_var.clone());
+      hdr.push_str(" < ");
+      hdr.push_string(nlen.to_string());
+      hdr.push_str("; ");
+      hdr.push_string(loop_var.clone());
+      hdr.push_str("++) {");
+      em.emit_string_line(hdr);
+      nested := String.from("(");
+      nested.push_string(array_code.clone());
+      nested.push_str(").data[");
+      nested.push_string(index_code.clone());
+      nested.push_str("].data[");
+      nested.push_string(loop_var.clone());
+      nested.push_str("]");
+      em.emit_string_line(String.from("  { // drop nested array element"));
+      drop_code := generate_drop_code_for_value(nested, child.*, context);
+      if(drop_code.len() > usize(0), {
+        line := String.from("    ");
+        line.push_string(drop_code);
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+      em.emit_string_line(String.from("  }"));
+      em.emit_string_line(String.from("}"));
+      return(String.from(""));
+    },
+    _ => ()
+  );
+  match(
+    get_drop_function_for_type(element_type, context),
+    .Some(fn) => {
+      out := fn;
+      out.push_str("(");
+      out.push_string(array_code);
+      out.push_str(".data[");
+      out.push_string(index_code);
+      out.push_str("])");
+      out
+    },
+    .None => String.from("// No drop function for array element type")
+  )
+});
+/// `__yo_dup_array_element(<array>, <index>)`. Mirrors `generateYoDupArrayElement`.
+generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  array_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_array_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_array_element requires exactly 2 arguments")));
+  array_code := _call_generate_expr(array_arg, indent.clone(), context);
+  index_code := _call_generate_expr(index_arg, indent.clone(), context);
+  array_type := _ty(array_arg, context);
+  if(!(is_array_type(array_type)), {
+    return(String.from("// Error: __yo_dup_array_element requires an array type"));
+  });
+  element_type := match(array_type,.Array(el, _, _) => el.*, _ => return(String.from("// Error: __yo_dup_array_element requires an array type")));
+  match(
+    element_type,
+    .Array(child, nlen, nlvar) => {
+      if(nlvar.len() > usize(0), {
+        return(String.from("// Error: array element has non-constant length"));
+      });
+      em := context.base.emitter;
+      temp_var := String.from("temp_array_");
+      temp_var.push_string(random_id(String.from("")));
+      loop_var := String.from("i_");
+      loop_var.push_string(random_id(String.from("")));
+      element_c_name := get_type_string(element_type, context.base);
+      decl := element_c_name;
+      decl.push_str(" ");
+      decl.push_string(temp_var.clone());
+      decl.push_str(" = (");
+      decl.push_string(array_code.clone());
+      decl.push_str(").data[");
+      decl.push_string(index_code.clone());
+      decl.push_str("];");
+      em.emit_string_line(decl);
+      hdr := String.from("for (size_t ");
+      hdr.push_string(loop_var.clone());
+      hdr.push_str(" = 0; ");
+      hdr.push_string(loop_var.clone());
+      hdr.push_str(" < ");
+      hdr.push_string(nlen.to_string());
+      hdr.push_str("; ");
+      hdr.push_string(loop_var.clone());
+      hdr.push_str("++) {");
+      em.emit_string_line(hdr);
+      elem_ref := temp_var.clone();
+      elem_ref.push_str(".data[");
+      elem_ref.push_string(loop_var.clone());
+      elem_ref.push_str("]");
+      dup_code := generate_dup_code_for_value(elem_ref.clone(), child.*, context);
+      asn := String.from("  ");
+      asn.push_string(elem_ref);
+      asn.push_str(" = ");
+      asn.push_string(dup_code);
+      asn.push_str(";");
+      em.emit_string_line(asn);
+      em.emit_string_line(String.from("}"));
+      return(temp_var);
+    },
+    _ => ()
+  );
+  match(
+    get_dup_function_for_type(element_type, context),
+    .Some(fn) => {
+      out := fn;
+      out.push_str("(");
+      out.push_string(array_code);
+      out.push_str(".data[");
+      out.push_string(index_code);
+      out.push_str("])");
+      out
+    },
+    .None => String.from("// No dup function for array element type")
+  )
+});
+/// `__yo_drop_tuple_element(<tuple>, <index>)`. Mirrors `generateYoDropTupleElement`.
+generate_yo_drop_tuple_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  tuple_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_tuple_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_tuple_element requires exactly 2 arguments")));
+  tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
+  _idx := _call_generate_expr(index_arg, indent.clone(), context);
+  tuple_type := _ty(tuple_arg, context);
+  if(!(is_tuple_type(tuple_type)), {
+    return(String.from("// Error: __yo_drop_tuple_element requires a tuple type"));
+  });
+  raw := match(context.base.get_expr_info(index_arg),.Some(iei) => match(iei.value,.Some(v) => match(v,.IntLit(r) => r, _ => return(String.from("// Error: __yo_drop_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index")));
+  index_i64 := match(parse_raw_int(raw.clone()),.Some(n) => n,.None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index")));
+  field_types := match(tuple_type,.Tuple({ field_types : fts }) => fts, _ => return(String.from("// Error: __yo_drop_tuple_element requires a tuple type")));
+  if(index_i64 < i64(0), {
+    return(String.from("// Error: __yo_drop_tuple_element index out of bounds"));
+  });
+  element_type := match(field_types.get(usize(index_i64)),.Some(et) => et,.None => return(String.from("// Error: __yo_drop_tuple_element index out of bounds")));
+  access := String.from("(");
+  access.push_string(tuple_code);
+  access.push_str(")._");
+  access.push_string(raw);
+  if(
+    is_tuple_type(element_type),
+    generate_drop_code_for_value(access, element_type, context),
+    match(
+      get_drop_function_for_type(element_type, context),
+      .Some(fn) => {
+        out := fn;
+        out.push_str("(");
+        out.push_string(access);
+        out.push_str(")");
+        out
+      },
+      .None => String.from("// No drop function for tuple element type")
+    )
+  )
+});
+/// `__yo_dup_tuple_element(<tuple>, <index>)`. Mirrors `generateYoDupTupleElement`.
+generate_yo_dup_tuple_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  tuple_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_tuple_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_tuple_element requires exactly 2 arguments")));
+  tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
+  _idx := _call_generate_expr(index_arg, indent.clone(), context);
+  tuple_type := _ty(tuple_arg, context);
+  if(!(is_tuple_type(tuple_type)), {
+    return(String.from("// Error: __yo_dup_tuple_element requires a tuple type"));
+  });
+  raw := match(context.base.get_expr_info(index_arg),.Some(iei) => match(iei.value,.Some(v) => match(v,.IntLit(r) => r, _ => return(String.from("// Error: __yo_dup_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index")));
+  index_i64 := match(parse_raw_int(raw.clone()),.Some(n) => n,.None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index")));
+  field_types := match(tuple_type,.Tuple({ field_types : fts }) => fts, _ => return(String.from("// Error: __yo_dup_tuple_element requires a tuple type")));
+  if(index_i64 < i64(0), {
+    return(String.from("// Error: __yo_dup_tuple_element index out of bounds"));
+  });
+  element_type := match(field_types.get(usize(index_i64)),.Some(et) => et,.None => return(String.from("// Error: __yo_dup_tuple_element index out of bounds")));
+  access := String.from("(");
+  access.push_string(tuple_code);
+  access.push_str(")._");
+  access.push_string(raw);
+  if(
+    is_tuple_type(element_type),
+    generate_dup_code_for_value(access, element_type, context),
+    match(
+      get_dup_function_for_type(element_type, context),
+      .Some(fn) => {
+        out := fn;
+        out.push_str("(");
+        out.push_string(access);
+        out.push_str(")");
+        out
+      },
+      .None => String.from("// No dup function for tuple element type")
+    )
+  )
+});
+/// `__yo_sometype_drop(<self>)`. Mirrors `generateYoSomeTypeDrop`. The Future
+/// case decrements the heap-backed state machine; the non-Future concrete
+/// dispatch is Gap-6-deferred (→ no-op).
+generate_yo_sometype_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _arg(expr, usize(0)),
+    .Some(self_arg) => {
+      arg_type := _ty(self_arg, context);
+      if(is_some_type(arg_type) && type_implements_future(arg_type), {
+        self_code := _call_generate_expr(self_arg, indent, context);
+        out := String.from("if (");
+        out.push_string(self_code.clone());
+        out.push_str(" != NULL) { __yo_decr_rc((void*)");
+        out.push_string(self_code);
+        out.push_str("); }");
+        return(out);
+      });
+      String.from("/* __yo_sometype_drop: no-op */")
+    },
+    .None => String.from("// Error: __yo_sometype_drop requires exactly 1 argument")
+  )
+);
+/// `__yo_sometype_dup(<self>)`. Mirrors `generateYoSomeTypeDup`.
+generate_yo_sometype_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    _arg(expr, usize(0)),
+    .Some(self_arg) => {
+      arg_type := _ty(self_arg, context);
+      if(is_some_type(arg_type) && type_implements_future(arg_type), {
+        self_code := _call_generate_expr(self_arg, indent, context);
+        out := String.from("__yo_incr_rc((void*)");
+        out.push_string(self_code);
+        out.push_str(")");
+        return(out);
+      });
+      String.from("/* __yo_sometype_dup: no-op */")
+    },
+    .None => String.from("// Error: __yo_sometype_dup requires exactly 1 argument")
+  )
+);
+/// `rc(<value>)` → the value's reference count (or 1 for value types). Mirrors `generateRcCall`.
+generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  arg_expr := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: rc requires exactly 1 argument")));
+  arg_type := _ty(arg_expr, context);
+  arg_code := _call_generate_expr(arg_expr, indent.clone(), context);
+  if(
+    is_rc_type(arg_type),
+    if(is_atomic_object_type(arg_type), {
+      out := String.from("atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(");
+      out.push_string(arg_code);
+      out.push_str("))->ref_count, memory_order_acquire)");
+      out
+    }, {
+      out := String.from("((__yo_ref_header_t*)(");
+      out.push_string(arg_code);
+      out.push_str("))->ref_count");
+      out
+    }),
+    String.from("1")
+  )
+});
+export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_rc_own, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_rc_call);
