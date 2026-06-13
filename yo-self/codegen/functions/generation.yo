@@ -1,0 +1,174 @@
+//! Function emission — mirrors `src/codegen/functions/generation.ts`
+//! (generateAllFunctions / generateFunction / generateFunctionBody, corpus path).
+//!
+//! generate_all_functions iterates the registered functions and emits each via
+//! generate_function (signature from generate_function_prototype + linkage) →
+//! generate_function_body (begin block: statements then `return <last>`;
+//! non-begin: implicit return / unit statement). The function's Func type is
+//! obtained via get_func_type(func_id) (Gap 10 resolution).
+//!
+//! DEFERRED (documented): the RUNTIME PRELUDE emitted by generateAllFunctions
+//! before the function loop — sys runtime, async/await runtime, parallelism
+//! runtime, GC/RC runtime functions (__yo_incr_rc/__yo_decr_rc/__yo_malloc/…),
+//! object + closure constructor functions — is a separate large subsystem
+//! (Phase 3/4/5: functions/generation.ts generateLightweightRCFunctions /
+//! generateAtomicGCRuntimeFunctions / generateRefStructConstructorFunctions /
+//! generateClosureConstructorFunctions). Without it the emitted C won't link;
+//! it is the next piece after this skeleton. Also gated: async-block return
+//! wrapping, begin-final deferred-dup, `-> ref(T)` return strip (no is_ref),
+//! evidence/effect/closure-capture context setup (Phase 5/3), specialized-base
+//! skip (Gap 2).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ has_any_control_flow } :: import("../../expr_info.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
+{ get_func_type } :: import("../../function_value.yo");
+{ FunctionGenerationContext } :: import("./context.yo");
+{ generate_function_prototype } :: import("./declarations.yo");
+{ _call_generate_expr } :: import("../exprs/_expr.yo");
+{ generate_implicit_return_statement } :: import("../exprs/return.yo");
+{ generate_deferred_drop_expressions } :: import("../exprs/drop_dup.yo");
+/// Args of a FnCall (empty for an Atom).
+_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// Generate a function's body with proper return handling. Mirrors
+/// `generateFunctionBody` (corpus path).
+generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  result_is_unit := match(function_type,.Func({ result : r }) => is_unit_type(r.*), _ => true);
+  if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
+    match(
+      context.base.get_expr_info(body_expr),
+      .Some(ei) => {
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(match(ei.deferred_drop_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new()));
+        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(match(ei.consumed_variable_drop_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new()));
+      },
+      .None => ()
+    );
+    args := _args(body_expr);
+    n := args.len();
+    if(n > usize(0), {
+      (find_return : bool) = false;
+      (i : usize) = usize(0);
+      while((i < (n - usize(1))) && !(find_return), {
+        match(
+          args.get(i),
+          .Some(arg) => {
+            if(ast_expr_is_fn_call_of(arg, BK_RETURN, Option(usize).None), {
+              find_return = true;
+            });
+            arg_code := _call_generate_expr(arg, indent.clone(), context);
+            skip_temp := match(context.base.get_expr_info(arg),.Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), arg_code.clone()),.None => false);
+            if((arg_code.len() > usize(0)) && !(skip_temp), {
+              line := indent.clone();
+              line.push_string(arg_code);
+              line.push_str(";");
+              em.emit_string_line(line);
+            });
+            if(!(find_return), {
+              match(
+                context.base.get_expr_info(arg),
+                .Some(aei) => if(has_any_control_flow(aei.control_flow), {
+                  find_return = true;
+                }),
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(!(find_return), {
+        match(
+          args.get(n - usize(1)),
+          .Some(last_expr) => {
+            expr_code := _call_generate_expr(last_expr, indent.clone(), context);
+            generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+            if(expr_code.len() > usize(0), {
+              line := indent.clone();
+              line.push_str("return ");
+              line.push_string(expr_code);
+              line.push_str(";");
+              em.emit_string_line(line);
+            });
+          },
+          .None => ()
+        );
+      });
+    });
+  }, {
+    generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+    if(result_is_unit, {
+      ec := _call_generate_expr(body_expr, indent.clone(), context);
+      if(ec.len() > usize(0), {
+        line := indent.clone();
+        line.push_string(ec);
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+    }, {
+      generate_implicit_return_statement(body_expr, indent.clone(), context);
+    });
+  });
+});
+/// Generate a single function (signature + linkage + body). Mirrors `generateFunction`.
+generate_function :: (fn(function_value : EvalValue, c_function_name : String, context : FunctionGenerationContext) -> unit)(
+  match(
+    function_value,
+    .FuncVal(_, _, _, _, body_box, _, _, _, func_id) => {
+      em := context.base.emitter;
+      function_type := get_func_type(func_id.clone());
+      prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, Option(String).None);
+      is_exported := ((c_function_name == String.from("__yo_user_main")) || context.base.exported_function_labels.contains_key(func_id.clone()));
+      is_rc := (!(is_exported) && ((c_function_name.contains("___drop")) || ((c_function_name.contains("___dup")) || (c_function_name.contains("___dispose")))));
+      linkage := if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline ")));
+      open := linkage;
+      open.push_string(prototype);
+      open.push_str(" {");
+      em.emit_string_line(open);
+      prev_name := context.base.current_function_name;
+      prev_type := context.current_function_type;
+      context.base.current_function_name = c_function_name;
+      context.current_function_type = Option(TypeValue).Some(function_type);
+      generate_function_body(body_box.*, function_type, String.from("  "), context);
+      context.base.current_function_name = prev_name;
+      context.current_function_type = prev_type;
+      em.emit_string_line(String.from("}"));
+    },
+    _ => ()
+  )
+);
+/// Generate all collected functions. Mirrors `generateAllFunctions` (the
+/// runtime prelude is the deferred next subsystem — see file header).
+generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(String.from("// Function implementations"));
+  // DEFERRED: sys / async / parallelism / GC-RC runtime + object/closure
+  // constructor functions (Phase 3/4/5) — required before this output links.
+  it := context.base.functions.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(fid) => match(
+        context.base.get_function_entry(fid),
+        .Some(entry) => {
+          generate_function(entry.value, entry.c_name, context);
+        },
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+export(generate_function_body, generate_function, generate_all_functions);
