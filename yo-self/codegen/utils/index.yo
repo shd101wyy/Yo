@@ -70,6 +70,16 @@ CodegenExternFnEntry :: object(ty : TypeValue, c_name : String, c_include : Opti
 CodegenFunctionEntry :: object(value : EvalValue, c_name : String);
 ArrayStructInfo :: object(child_type : String, length : i64);
 IsoTypeInfo :: object(child_type_c_name : String, iso_type : TypeValue);
+/// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
+/// is the DynT; `concrete_type` is the user type; `data_type` is what is
+/// stored in Dyn.data (object/Box); `trait_values` are the TraitVal evidence
+/// values in trait order. Mirrors the `dynImpls` map value.
+DynImplEntry :: object(
+  dyn_type : TypeValue,
+  concrete_type : TypeValue,
+  data_type : TypeValue,
+  trait_values : ArrayList(EvalValue)
+);
 /// The base C code generation context. See header above.
 CodeGenContext :: object(
   /// Collected types that need to be generated (keyed by TypeId string).
@@ -101,7 +111,16 @@ CodeGenContext :: object(
   /// True when compiling as a library (no main() wrapper).
   is_library : bool,
   /// True when any asm block uses intel_syntax (`-masm=intel` needed).
-  needs_intel_asm_syntax : bool
+  needs_intel_asm_syntax : bool,
+  /// dyn() usages → box types / vtables / wrappers (keyed by a
+  /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
+  dyn_impls : HashMap(String, DynImplEntry),
+  /// Module id of the module being compiled (e.g. "yo3818ce2d"); `.None`
+  /// until set. Used in library mode to distinguish user exports from std.
+  current_module_id : Option(String),
+  /// Exported label names → func_id, for stable non-mangled C names in
+  /// library/executable mode.
+  exported_function_labels : HashMap(String, String)
 );
 impl(
   CodeGenContext,
@@ -133,7 +152,10 @@ impl(
       debug_async_await : debug_async_await,
       needs_cycle_gc : false,
       is_library : is_library,
-      needs_intel_asm_syntax : false
+      needs_intel_asm_syntax : false,
+      dyn_impls : HashMap(String, DynImplEntry).new(),
+      current_module_id : Option(String).None,
+      exported_function_labels : HashMap(String, String).new()
     )
   ),
   /// Register a type to be generated.
@@ -164,6 +186,32 @@ impl(
   get_function_entry : (fn(self : Self, func_id : String) -> Option(CodegenFunctionEntry))(
     self.functions.get(func_id)
   ),
+  /// True if any registered function already uses this C name (collision check
+  /// for plain-name exports). Mirrors `Object.values(...).some(f => f.cName === …)`.
+  has_function_with_c_name : (fn(self : Self, c_name : String) -> bool)({
+    vals := self.functions.values();
+    (found : bool) = false;
+    while(!(found), {
+      match(
+        vals.next(),
+        .Some(entry) => if(entry.c_name == c_name, {
+          found = true;
+        }),
+        .None => return(found)
+      );
+    });
+    found
+  }),
+  /// Record an exported function's label → func_id mapping (stable C name).
+  set_exported_function_label : (fn(self : Self, func_id : String, label : String) -> unit)({
+    _r := self.exported_function_labels.set(func_id, label);
+    ()
+  }),
+  /// Register a dyn() usage (idempotent on key).
+  register_dyn_impl : (fn(self : Self, key : String, entry : DynImplEntry) -> unit)({
+    _r := self.dyn_impls.set(key, entry);
+    ()
+  }),
   /// Register an extern function.
   register_extern_function : (
     fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
@@ -817,6 +865,7 @@ export(
   CodegenTypeEntry,
   CodegenFunctionEntry,
   CodegenExternFnEntry,
+  DynImplEntry,
   ArrayStructInfo,
   IsoTypeInfo,
   RuntimeStructField,
