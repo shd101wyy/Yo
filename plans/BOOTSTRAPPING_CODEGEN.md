@@ -433,7 +433,22 @@ Definition of Done; update `BOOTSTRAPPING.md`.
       `yo-self-bin test` in Phase 6.
 - [x] Phase 0 — UAF fix + baseline + differential harness (2026-06-13:
       `scripts/diff-test.sh` + `plans/codegen-baseline-scorecard.md`)
-- [ ] Phase 1 — typed pipeline
+- [~] Phase 1 — typed pipeline (IN PROGRESS, 2026-06-13). Ported &
+      check-clean: `constants.yo`; `utils/index.yo` (CodeGenContext base
+      struct + the context-/type-model-independent helpers); `c/collection.yo`
+      (collect/emit C includes); emitter String-header methods.
+      **Blocked on a registry-key design decision** (issues/codegen-port-
+      type-model-gaps.md Gap 5): TS keys `context.types` by a universal
+      `type.id`, but yo-self gives ids only to Struct/EnumT/SomeT/TraitT —
+      Tuple/Union/Array/Pointer/Dyn/Iso are structural. `getTypeString` and
+      every collection pass (types/collection, functions/collection,
+      codegen-c) are gated on choosing a uniform `type_key(t)`. The
+      getTypeString SomeType/Future/Dyn/Iso branches additionally need
+      yo-self's env+substitute resolution (Gap 6, Phase-3/5-coupled).
+      Note: end-to-end differential validation isn't possible until the
+      whole pipeline AND a Phase-2 expression-emitter skeleton exist (the
+      orchestrator emits function bodies); until then each file is only
+      `check`-validated (shallow) or unit-tested directly.
 - [ ] Phase 2 — expression-emitter sweep
 - [ ] Phase 3 — functions/types/dyn/specialization
 - [ ] Phase 4 — memory management, guard-page/ASan-clean

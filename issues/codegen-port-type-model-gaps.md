@@ -60,6 +60,39 @@ dependent codegen function can be ported.
   TypeValue variants, or a helper `type_extern_language(t) -> Option(String)`
   that returns the marker for the variants that can be extern.
 
+## Gap 5 — `context.types` registry key: TS universal `type.id` vs yo-self partial ids
+
+- **TS:** every `Type` has an `id`; `context.types` (and `externFunctions`,
+  the dyn/iso maps) are keyed by `type.id`, and `getTypeString` looks types
+  up by `type.id` for Tuple/Struct/Union/Enum/Dyn/SomeType.
+- **yo-self:** only `Struct`/`EnumT`/`SomeT`/`TraitT` carry an `id`.
+  `Tuple`, `Union`, `Array`, `Pointer`, `IsoT`, `DynT` have **no id** —
+  they are structural. There is no universal key to register/look them up by.
+- **Blocks:** `getTypeString` (the Tuple/Union/Enum/Struct/Dyn cName
+  lookups), `collectType`/`collectRequiredTypes` (types/collection.ts), and
+  every registry interaction downstream.
+- **Decision needed (linchpin):** define a uniform `type_key(t) -> String`
+  for the registry — e.g. `.id` for named types, `type_to_string(t)` (or a
+  sanitized structural string) for structural types — and use it everywhere
+  TS uses `type.id`. This shapes the whole pipeline; pick once.
+
+## Gap 6 — `getTypeString`'s SomeType/Future/Fn branch needs re-architecting
+
+- **TS:** the SomeType branch is entirely driven by
+  `someType.resolvedConcreteType` + `typeImplementsFuture`/`typeImplementsFn`
+  + searching `context.types` for matching async state-machine capture
+  structs.
+- **yo-self:** `SomeT` has **no `resolvedConcreteType`** (deliberately —
+  trait_checking.yo:1086 marks it "Phase 3"); SomeTypes resolve via
+  env lookup + `substitute`. `DynT`/`IsoT` carry no `id`.
+- **Blocks:** the SomeType/Future/Fn/Dyn/Iso cases of `getTypeString`.
+  These are async (Phase 5) / dyn (Phase 3) coupled and not exercised by the
+  Phase-1 tiny corpus (generics monomorphize to concrete types pre-codegen).
+- **Decision needed:** either add `resolved_concrete_type` to `SomeT` (+
+  evaluator population — high blast radius on the green gates) or adapt the
+  branch to yo-self's env+substitute resolution. yo-self deferred this to
+  "Phase 3"; the codegen port should align.
+
 ## Gap 4 — ExprInfo is a side-table, not `expr.$`
 
 - **TS:** `getDeferredDropTargetVariable` reads `atom.$.env` directly.
