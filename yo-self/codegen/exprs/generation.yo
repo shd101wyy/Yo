@@ -227,6 +227,20 @@ _anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
 );
 /// Generate a function-call expression. Mirrors `generateFuncCall`.
 generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  // The unit value `()` is a 0-arg BK_TUPLE call (parser make_unit_call). The
+  // parser-appended begin terminator has NO ExprInfo, so handle it before the
+  // get_expr_info lookup below: a unit value emits no C (empty string), which
+  // generate_function_body / begin then skip.
+  if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).Some(usize(0))), {
+    return(String.from(""));
+  });
+  // Transparent wrappers (unsafe/old/ghost_fn) lower to their inner expression
+  // and do NOT need the wrapper's own ExprInfo — handle them before the
+  // get_expr_info lookup, since a wrapper node (e.g. `unsafe(exit(r))` as a
+  // statement) may itself lack an ExprInfo entry.
+  if(ast_expr_is_fn_call_of(expr, BF_UNSAFE, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_OLD, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_GHOST_FN, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,
@@ -308,10 +322,8 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     });
   });
   if(ast_expr_is_fn_call_of(expr, BF_CONSUME, Option(usize).None), return(generate_consume(expr, indent.clone(), context)));
-  // unsafe / old / ghost_fn — transparent pass-through to the inner expression.
-  if(ast_expr_is_fn_call_of(expr, BF_UNSAFE, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_OLD, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_GHOST_FN, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
+  // (unsafe / old / ghost_fn transparent pass-through handled at the top, before
+  // the ExprInfo lookup.)
   // Compile-time-only markers: no C output.
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));

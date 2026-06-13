@@ -552,7 +552,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   match(
     function_type,
     .Func({ is_extern : ie, extern_name : en, result : r }) => {
-      is_yo := match(ie,.Some(lang) => (lang == String.from("yo")),.None => false);
+      // extern "yo" AND extern "c" both lower to a direct `<extern_name>(<args>)`
+      // C call (no per-arg cast). For extern "c" the symbol is a C library
+      // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the
+      // evaluator, so codegen just emits the call.
+      is_yo := match(ie,.Some(lang) => ((lang == String.from("yo")) || (lang == String.from("c"))),.None => false);
       match(
         en,
         .Some(name) => if(is_yo, {
