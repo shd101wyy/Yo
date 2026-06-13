@@ -39,6 +39,14 @@ open(import("std/fmt"));
 (g_loader_io : Option(Io)) = Option(Io).None;
 (g_loader_std_path : Option(String)) = Option(String).None;
 (g_loader_exn : Option(Exception)) = Option(Exception).None;
+// Shared ExprInfoTable for codegen: when set (during `compile`), every
+// demand-loaded module's eval context writes its per-expression metadata into
+// THIS one table instead of a fresh per-module table. Codegen emits the bodies
+// of functions collected across ALL modules (e.g. std `println`/`to_string`),
+// so their ExprInfo must live in a single table. ExprIds are globally unique
+// (alloc_global_expr_id), so a shared table has no cross-module key collisions.
+// `.None` during `check`/`test` (each file keeps its own table).
+(g_shared_expr_info_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
 { EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
@@ -511,6 +519,15 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   ctx := eval_context_new(std_path.clone(), abs.clone());
   ctx.is_executing = true;
   ctx.load_module = g_demand_loader;
+  // Codegen: route this module's per-expression metadata into the shared table
+  // (see g_shared_expr_info_table). No-op during check/test.
+  match(
+    g_shared_expr_info_table,
+    .Some(t) => {
+      ctx.expr_info_table = t;
+    },
+    .None => ()
+  );
   register_evaluate_expression();
   register_loading(abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
@@ -912,6 +929,10 @@ run_compile :: (
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
   ctx.load_module = g_demand_loader;
+  // Share this entry context's ExprInfoTable with every module the entry eval
+  // demand-loads (std/fmt, std/string, …) so codegen has metadata for the
+  // bodies of ALL collected functions, not just the entry module's.
+  g_shared_expr_info_table = Option(ExprInfoTable).Some(ctx.expr_info_table);
   register_evaluate_expression();
   register_loading(entry_abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
