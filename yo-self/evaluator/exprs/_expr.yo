@@ -874,11 +874,11 @@ _evaluate_expression_wrapper :: (
   exn := Exception(
     throw : (
       (err) -> {
-        eprintln(`evaluate_expression: ${err.to_string()}`);
         // During check, don't abort — let the caller handle the error.
         // Abort only in non-check contexts (the raw evaluator path
-        // provides its own exn handler).
-        unwind(make_err_expr())
+        // provides its own exn handler). The error is swallowed here;
+        // callers that need the diagnostic print it themselves.
+        unwind(make_err_expr());
       }
     )
   );

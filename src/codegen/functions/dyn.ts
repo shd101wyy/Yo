@@ -95,6 +95,7 @@ export function generateDynBoxFunctions(
       `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`
     );
     emitter.emitLine(`  box->header.ref_count = 1;`);
+    emitter.emitLine(`  box->header.borrow_count = 0;`);
     if (context.needsCycleGC) {
       emitter.emitLine(`  box->header.gc_flags = 0;`);
       emitter.emitLine(`  box->header.gc_mark = __YO_GC_UNMARKED;`);

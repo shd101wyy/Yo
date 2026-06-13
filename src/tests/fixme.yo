@@ -1,3 +1,26 @@
-open(import("std/fmt"));
-main :: (fn() -> unit)(println("scratch"));
+open(import("std/collections/array_list"));
+
+g_outer := ArrayList(ArrayList(i32)).new();
+
+grow_global :: (fn() -> unit)({
+  inner := match(g_outer.get(usize(0)), .Some(x) => x, .None => ArrayList(i32).new());
+  i := usize(0);
+  while(i < usize(64), {
+    inner.push(i32(0));
+    i = (i + usize(1));
+  });
+});
+
+bump :: (fn(ref(v) : i32) -> unit)({
+  grow_global();
+  v = i32(99);
+});
+
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(41));
+  g_outer.push(xs);
+  bump(xs(usize(0)));
+});
+
 export(main);

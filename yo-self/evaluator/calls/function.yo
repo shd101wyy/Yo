@@ -110,7 +110,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_unknown_val_with_name(ty, nm)
 });
 { format_error_message } :: import("../../error.yo");
-{ require_valid_ref_argument_places } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
@@ -1647,11 +1647,29 @@ Fix: wrap the call:
         // path). Mirrors TS `helper.ts:581` (`isReassignable: parameter.isRef`).
         // Previously hardcoded `false`, which made `n = ...` inside a
         // `comptime(ref(n))` body throw "Cannot reassign n".
+        fv_param_labels := match(
+          callee_info_opt,
+          .Some(ci) => match(
+            ci.ty,
+            .Func({ param_labels : pl }) => pl,
+            _ => ArrayList(String).new()
+          ),
+          .None => ArrayList(String).new()
+        );
         fv_param_is_ref := match(
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
             .Func({ param_is_ref : pir }) => pir,
+            _ => ArrayList(bool).new()
+          ),
+          .None => ArrayList(bool).new()
+        );
+        fv_param_is_owning := match(
+          callee_info_opt,
+          .Some(ci) => match(
+            ci.ty,
+            .Func({ param_is_owning : pio }) => pio,
             _ => ArrayList(bool).new()
           ),
           .None => ArrayList(bool).new()
@@ -1887,6 +1905,15 @@ Fix: wrap the call:
         // evaluation so the chain types are resolved). Mirrors TS
         // requireValidRefArgumentPlaces; this inline FuncVal arm is
         // yo-self's second call path, so the gate runs here too.
+        require_ref_own_argument_exclusivity(
+          fv_param_labels,
+          fv_param_is_ref,
+          fv_param_is_owning,
+          args,
+          env,
+          ctx,
+          exn
+        );
         require_valid_ref_argument_places(fv_param_is_ref, args, env, ctx, exn);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to

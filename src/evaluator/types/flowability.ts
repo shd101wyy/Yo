@@ -328,8 +328,7 @@ export function isFlowableExpr(
   // every raw-pointer-carrying argument is flowable. Without this, assigning
   // a constructed str-bearing struct (`(id : Identifier) = Identifier(name :
   // "x")`) false-positived at the assignment flow gate.
-  const isTypeCtorCall =
-    !!call.func.$?.value && isTypeValue(call.func.$.value);
+  const isTypeCtorCall = !!call.func.$?.value && isTypeValue(call.func.$.value);
   const isVariantCtor =
     (exprIsFunctionCall(call.func) &&
       exprIsFunctionCallOf(call.func as FnCallExpr, ".", 1)) ||
@@ -486,10 +485,7 @@ export function aliasGroupRoot(variable: Variable): Variable {
  */
 export function findPropertyChainRootAtom(expr: Expr): Expr | undefined {
   let current = expr;
-  while (
-    exprIsFunctionCall(current) &&
-    exprIsFunctionCallOf(current, ".", 2)
-  ) {
+  while (exprIsFunctionCall(current) && exprIsFunctionCallOf(current, ".", 2)) {
     current = (current as FnCallExpr).args[0]!;
   }
   return exprIsAtom(current) ? current : undefined;
@@ -528,7 +524,16 @@ export function requireRefOwnArgumentExclusivity({
     const argExpr = argExprs[i]!;
     if (argExpr.token.modulePath.startsWith("auto-generated://")) continue;
     if (!parameter.isRef && !parameter.isOwningTheRcValue) continue;
-    const rootAtom = findPropertyChainRootAtom(argExpr);
+    // For Index-trait calls (xs(i)), extract the container atom from the
+    // call's func expression. findPropertyChainRootAtom only walks .-chains
+    // and would skip these, causing the ref/own exclusivity check to miss
+    // overlaps like f(xs(0), xs).
+    let rootAtom: Expr | undefined;
+    if (argExpr.$?.indexTraitPtrType && exprIsFunctionCall(argExpr)) {
+      rootAtom = findPropertyChainRootAtom((argExpr as FnCallExpr).func);
+    } else {
+      rootAtom = findPropertyChainRootAtom(argExpr);
+    }
     if (!rootAtom) continue;
     const rootEnv = rootAtom.$?.env ?? env;
     const vars = getVariablesFromEnv(rootEnv, rootAtom.token.value);
@@ -728,11 +733,15 @@ export function requireValidRefArgumentPlaces({
     if (hasObjectHop && exprIsAtom(cur)) {
       rejectIfContainerReachable(cur, argExpr, i, "object-hop");
     }
-    // A field of a MODULE-LEVEL OBJECT root (`g_obj.field`, no
-    // intermediate hop) is also unsafe: any callee can reassign the
-    // global object and free the allocation the reference points into.
-    // (A module-level VALUE struct lives in fixed static storage, so its
-    // field address is stable — those are not rejected here.)
+    // A field of a MODULE-LEVEL root is unsafe when overwriting it
+    // through the ref could free heap storage:
+    //   - OBJECT roots (`g_obj.field`): the callee can reassign the
+    //     global object and free the allocation the reference points into.
+    //   - Non-object roots whose ref'd element type contains an Rc type
+    //     (e.g. a tuple field `GLOBAL_TUPLE.0` holding an ArrayList):
+    //     overwriting the Rc handle through the ref drops the old value.
+    // (A module-level VALUE struct/field of non-Rc type lives in fixed
+    // static storage — those are not rejected here.)
     if (
       !hasObjectHop &&
       exprIsAtom(cur) &&
@@ -745,7 +754,10 @@ export function requireValidRefArgumentPlaces({
       const rootIsObject =
         rootType !== undefined &&
         (isObjectType(rootType) || isAtomicObjectType(rootType));
-      if (rootVar?.isModuleLevel && rootIsObject) {
+      const refArgType = argExprs[i]?.$?.type;
+      const refTypeContainsRc =
+        refArgType !== undefined && typeContainsRcType(refArgType);
+      if (rootVar?.isModuleLevel && (rootIsObject || refTypeContainsRc)) {
         throw formatErrorMessage({
           token: argExpr.token,
           errorMessage: `A 'ref' argument cannot borrow a field of the module-level object "${cur.token.value}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${cur.token.value};\nand pass the field of "h" instead.`,

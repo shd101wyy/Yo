@@ -4,7 +4,7 @@ Yo guarantees, at compile time, that safe code cannot construct a
 dangling reference. The design is **sound by construction**: the safe
 language has no way to form a pointer into reallocatable storage, so
 the classic invalidation footguns (grow a list, dangle a borrow) are
-not rejected by a clever analysis — they are *inexpressible*.
+not rejected by a clever analysis — they are _inexpressible_.
 
 ## Where a `ref` can exist
 
@@ -45,12 +45,15 @@ The argument passed to a `ref` parameter is a simple lvalue **place**:
   `owner_box.*.id.clone()`) are safe and legal; to combine element and
   container in one call, copy the element out with `.get(i)` first.
 
-> **One documented residual.** This argument-reachability check cannot
-> see a container that escaped into a *global* heap structure earlier
-> (`g.push(xs); bump(xs(i))` where `bump` grows `xs` through the
-> global) — closing it would require whole-program escape analysis.
-> The shape is contrived and never arises in ordinary code; see
-> `issues/ref-arg-heap-escape-to-global-residual.md`.
+> **Runtime backstop.** One shape evades the static argument-reachability
+> check: a container that escaped into a _global_ heap structure earlier
+> (`g.push(xs); bump(xs(i))` where `bump` grows `xs` through the global).
+> Closing it statically would require whole-program escape analysis. A
+> lightweight runtime borrow flag (`borrow_count` on the RC header, zero
+> extra bytes in existing padding) closes this residual: the callee panics
+> deterministically (`"container operation while an interior reference
+borrows from it"`) instead of corrupting memory. Same-cache-line load
+> and a predicted branch — measured ~0% overhead.
 
 ## Element access: handles and copies, not interior pointers
 

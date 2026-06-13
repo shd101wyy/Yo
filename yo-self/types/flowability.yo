@@ -553,6 +553,141 @@ _place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
     true => Option(AstExpr).None
   )
 });
+/// Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+/// within ONE call, an argument bound to an `own(...)` parameter must
+/// not be (or alias) the root of another argument bound to a `ref(...)`
+/// parameter. `f(h.s, h)` with `f :: fn(ref(x) : String, own(victim) :
+/// Holder)` moves the caller's count into the callee, which can release
+/// it while `x` still points into the object — a use-after-free no
+/// same-scope gate can see. Non-`own` (by-value) overlap is safe.
+/// Mirrors TS `requireRefOwnArgumentExclusivity`.
+require_ref_own_argument_exclusivity :: (
+  fn(
+    param_labels : ArrayList(String),
+    param_is_ref : ArrayList(bool),
+    param_is_owning : ArrayList(bool),
+    args : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  ref_root_vars := ArrayList(Variable).new();
+  ref_root_idxs := ArrayList(usize).new();
+  ref_root_lbls := ArrayList(String).new();
+  own_root_vars := ArrayList(Variable).new();
+  own_root_idxs := ArrayList(usize).new();
+  own_root_lbls := ArrayList(String).new();
+  (limit : usize) = args.len();
+  (pi : usize) = usize(0);
+  while(pi < limit, {
+    is_ref := cond((pi < param_is_ref.len()) => match(param_is_ref.get(pi),.Some(r) => r,.None => false), true => false);
+    is_owning := cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi),.Some(o) => o,.None => false), true => false);
+    if(!(is_ref) && !(is_owning), {
+      pi = (pi + usize(1));
+    }, {
+      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi),.Some(l) => l,.None => String.from("")), true => String.from(""));
+      match(
+        args.get(pi),
+        .Some(arg) => {
+          root_atom_opt := match(
+            _info(ctx, arg),
+            .Some(inf) => {
+              is_idx := match(inf.index_trait_ptr_type,.Some(_) => true,.None => false);
+              cond(
+                (is_idx && ast_expr_is_fn_call(arg)) => match(
+                  arg,
+                  .FnCall(_, fc, _, _, _) => _place_root_atom(fc.*),
+                  _ => Option(AstExpr).None
+                ),
+                true => _place_root_atom(arg)
+              )
+            },
+            .None => Option(AstExpr).None
+          );
+          match(
+            root_atom_opt,
+            .Some(root_atom) => {
+              root_env := match(_info(ctx, root_atom),.Some(ri) => ri.env,.None => env);
+              vars := get_variables_from_env(root_env, ast_expr_token(root_atom).value);
+              if(vars.len() > usize(0), {
+                match(
+                  vars.get(vars.len() - usize(1)),
+                  .Some(vv) => {
+                    if(is_ref, {
+                      ref_root_vars.push(vv);
+                      ref_root_idxs.push(pi);
+                      ref_root_lbls.push(lbl);
+                    }, {
+                      own_root_vars.push(vv);
+                      own_root_idxs.push(pi);
+                      own_root_lbls.push(lbl);
+                    });
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      pi = (pi + usize(1));
+    });
+  });
+  (oi : usize) = usize(0);
+  while(oi < own_root_vars.len(), {
+    (ri : usize) = usize(0);
+    while(ri < ref_root_vars.len(), {
+      // Check ref and own indices differ, then check aliasing.
+      // Use nested if/match to stay in unit-return position.
+      match(
+        own_root_idxs.get(oi),
+        .Some(own_idx) =>
+          match(
+            ref_root_idxs.get(ri),
+            .Some(ref_idx) =>
+              if(!(ref_idx == own_idx), {
+                match(
+                  own_root_vars.get(oi),
+                  .Some(own_var) =>
+                    match(
+                      ref_root_vars.get(ri),
+                      .Some(ref_var) =>
+                        if(alias_group_root(ref_var) == alias_group_root(own_var), {
+                          own_lbl := match(own_root_lbls.get(oi),.Some(l) => l,.None => String.from(""));
+                          ref_lbl := match(ref_root_lbls.get(ri),.Some(l) => l,.None => String.from(""));
+                          match(
+                            args.get(own_idx),
+                            .Some(own_arg) =>
+                              exn.throw(
+                                dyn(
+                                  format_error_message(
+                                    ast_expr_token(own_arg),
+                                    `Cannot pass "${own_var.name}" to the own parameter "${own_lbl}" in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to the ref parameter "${ref_lbl}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`,
+                                    false,
+                                    .None
+                                  )
+                                )
+                              ),
+                            .None => ()
+                          );
+                        }),
+                      .None => ()
+                    ),
+                  .None => ()
+                );
+              }),
+            .None => ()
+          ),
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+    oi = (oi + usize(1));
+  });
+});
 /// Reject a ref argument whose place lives inside `container_atom`'s heap
 /// allocation when the callee can REACH that container and free/realloc it
 /// during the call: (a) the container is module-level or aliases a
@@ -743,10 +878,11 @@ require_valid_ref_argument_places :: (
               if(has_object_hop && ast_expr_is_atom(cur), {
                 _reject_if_container_reachable(cur, arg, i, "object-hop", args, n, env, ctx, exn);
               });
-              // A field of a MODULE-LEVEL OBJECT root (no intermediate hop)
-              // is unsafe too: a callee can reassign the global object and
-              // free the allocation. (Module-level VALUE structs are static
-              // storage — stable address — and are not rejected here.)
+              // A field of a MODULE-LEVEL root is unsafe when overwriting
+              // it through the ref could free heap storage: OBJECT roots
+              // (the callee can reassign the global), and non-object roots
+              // whose ref'd element type contains Rc (e.g. a tuple field
+              // holding an ArrayList — overwriting the handle frees it).
               if(!(has_object_hop) && ast_expr_is_atom(cur), {
                 root_vars := get_variables_from_env(env, ast_expr_token(cur).value);
                 if(root_vars.len() > usize(0), {
@@ -754,7 +890,12 @@ require_valid_ref_argument_places :: (
                     root_vars.get(root_vars.len() - usize(1)),
                     .Some(rv) => {
                       root_is_object := (is_object_type(rv.ty) || is_atomic_object_type(rv.ty));
-                      if(rv.is_module_level && root_is_object, {
+                      ref_type_contains_rc := match(
+                        _info(ctx, arg),
+                        .Some(inf) => type_contains_rc_type(inf.ty),
+                        .None => false
+                      );
+                      if(rv.is_module_level && (root_is_object || ref_type_contains_rc), {
                         exn.throw(
                           dyn(
                             format_error_message(
@@ -789,6 +930,7 @@ export(
   flow_violation_pending,
   flow_violation_message,
   alias_group_root,
+  require_ref_own_argument_exclusivity,
   require_valid_ref_argument_places,
   set_propagate_def_time_errors,
   propagate_def_time_errors

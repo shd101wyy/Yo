@@ -1256,6 +1256,7 @@ export const BuiltinFunctions = {
   /// Others
   __yo_noop: ["__yo_noop"],
   __yo_return_self: ["__yo_return_self"],
+  __yo_borrow_assert_unborrowed: ["__yo_borrow_assert_unborrowed"],
   __yo_ms_sleep: ["__yo_ms_sleep"],
 
   // Crypto random

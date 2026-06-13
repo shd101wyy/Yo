@@ -1125,7 +1125,8 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     emitter.emitLine(`
 ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
   ${isoTypeName} iso = (${isoTypeName})__yo_malloc(sizeof(${isoTypeName}_struct));
-  iso->header.ref_count = 1;${isoGcInit}
+  iso->header.ref_count = 1;
+  iso->header.borrow_count = 0;${isoGcInit}
 ${isoDisposeAssignment}
   atomic_store(&iso->extracted, false);
   iso->value = value;

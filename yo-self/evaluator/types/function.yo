@@ -3570,6 +3570,7 @@ evaluate_function_type :: (
   param_labels := ArrayList(String).new();
   param_types := ArrayList(TypeValue).new();
   param_is_ref := ArrayList(bool).new();
+  param_is_owning := ArrayList(bool).new();
   implicit_labels := ArrayList(String).new();
   implicit_types := ArrayList(TypeValue).new();
   implicit_spreads := ArrayList(bool).new();
@@ -3603,6 +3604,7 @@ evaluate_function_type :: (
     param_labels.push(pp.label);
     param_types.push(pp.ty);
     param_is_ref.push(pp.is_ref);
+    param_is_owning.push(pp.is_owning_rc_value);
     param_defaults.push(pp.default_value);
     if(pp.is_quote, {
       quoted_param_indices.push(ppi);
@@ -3697,9 +3699,10 @@ evaluate_function_type :: (
     // result_is_comptime_only — mirrors TS `return.isCompileTimeOnly`,
     // set from the `comptime(...)` wrapper on the declared return.
     is_return_comptime_only,
-    // param_is_ref / result_is_ref — mirrors TS `FunctionParameter.isRef` and
-    // `return.isRef`, set from the `ref(...)` markers on params/return slot.
+    // param_is_ref / param_is_owning / result_is_ref — mirrors TS
+    // `FunctionParameter.isRef`, `isOwningTheRcValue`, and `return.isRef`.
     param_is_ref,
+    param_is_owning,
     is_return_type_ref,
     // has_variadic — mirrors TS `FunctionType.variadicParameter` presence,
     // set from the trailing `...` marker (C-style variadic externs).
