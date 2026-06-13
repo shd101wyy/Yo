@@ -34,6 +34,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_UNSAFE,
@@ -42,6 +43,7 @@ open(import("std/string"));
   BF_DOT,
   BK_BEGIN,
   BF_YO_AS,
+  ast_expr_id,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of
@@ -96,6 +98,9 @@ CodeGenContext :: object(
   c_includes : HashSet(String),
   /// Emitter for generating C code.
   emitter : Emitter,
+  /// Per-expression evaluation metadata (TS reads `expr.$`; yo-self looks each
+  /// node up here by ExprId). Read by the emitters for type/value/control-flow.
+  info_table : ExprInfoTable,
   /// Compilation target info (arch, os, abi).
   target_info : TargetInfo,
   /// Memory allocator: "mimalloc" (default) or "libc".
@@ -137,6 +142,7 @@ impl(
   new : (
     fn(
       emitter : Emitter,
+      info_table : ExprInfoTable,
       target_info : TargetInfo,
       allocator : String,
       debug_gc : bool,
@@ -153,6 +159,7 @@ impl(
       iso_types : HashMap(String, IsoTypeInfo).new(),
       c_includes : HashSet(String).new(),
       emitter : emitter,
+      info_table : info_table,
       target_info : target_info,
       allocator : allocator,
       current_function_name : String.from(""),
@@ -184,6 +191,11 @@ impl(
   /// Look up a registered type's C name by id.
   get_type_c_name : (fn(self : Self, id : String) -> Option(String))(
     match(self.types.get(id),.Some(entry) =>.Some(entry.c_name),.None =>.None)
+  ),
+  /// The per-expression evaluation metadata for `expr` (TS `expr.$`), or
+  /// `.None` if the node was never evaluated.
+  get_expr_info : (fn(self : Self, expr : AstExpr) -> Option(ExprInfo))(
+    expr_info_table_get(self.info_table, ast_expr_id(expr))
   ),
   /// Register a reachable function to be generated (idempotent on func_id).
   register_function : (fn(self : Self, func_id : String, value : EvalValue, c_name : String) -> unit)({
