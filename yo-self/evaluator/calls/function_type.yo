@@ -58,6 +58,7 @@ open(import("std/string"));
   ImplConcreteTypeInfo
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
+{ register_func_type } :: import("../../function_value.yo");
 { get_all_some_types, type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -524,6 +525,12 @@ try_to_implement_function_by_function_type :: (
         cap_vals,
         fn_val_id.clone()
       );
+      // Record this function's own resolved Func type by its FuncVal id so
+      // codegen can emit its C prototype (Gap 10). This path (a `fn(...)` type
+      // applied to a body, e.g. `f :: (fn(x:i32)->i32)(x+x)`) uses a bare
+      // random_id func_id and previously skipped registration — leaving
+      // get_func_type → t_unit → a wrong `void f(void)` prototype.
+      register_func_type(fn_val_id.clone(), function_type.clone());
       // Re-key the per-parameter optional-flags side-table (registered by
       // `evaluate_function_type` under the `fn(...)` type-expression id)
       // under this FuncVal's id, which is what the call site sees. The
