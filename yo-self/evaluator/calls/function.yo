@@ -1716,6 +1716,11 @@ Fix: wrap the call:
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
         // Evaluate all arguments.
         evaled_arg_infos := ArrayList(ExprInfo).new();
+        // Runtime arg EXPRESSIONS in order — codegen reads
+        // `ei.runtime_arg_exprs_in_order` to materialize the call's C arguments.
+        // yo-self treats all regular params as runtime (helper.yo:1879), so every
+        // non-quoted evaluated arg is collected here; recorded on `out` below.
+        runtime_arg_exprs := ArrayList(AstExpr).new();
         (ai : usize) = usize(0);
         while(ai < n_a, {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
@@ -1775,6 +1780,7 @@ Fix: wrap the call:
               }
             );
             _push_arg := evaled_arg_infos.push(arg_info);
+            _push_rt := runtime_arg_exprs.push(evaled_arg);
           };
           ai = (ai + usize(1));
         });
@@ -2281,6 +2287,9 @@ Fix: wrap the call:
           resolved_ret = evaluate_function_return_type_again(resolved_ret, fresh_env, ctx);
           out_rt := new_expr_info(env, resolved_ret);
           out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+          // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
+          // path — the body is NOT executed, so it returns before the 2341 site).
+          out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
           _ := param_vars;
           return(expr);
@@ -2337,6 +2346,8 @@ Fix: wrap the call:
         // Build the call's ExprInfo, consuming the Return control flow.
         out := new_expr_info(env, ret_type);
         out.value = body_info.value;
+        // Runtime arg exprs for codegen (the call's C-argument materialization).
+        out.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
         // control_flow is intentionally NOT propagated (Return is consumed here).
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
         _ := param_vars;
