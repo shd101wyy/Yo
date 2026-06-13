@@ -17,6 +17,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { CodeGenContext } :: import("../utils/index.yo");
 /// State-machine while-loop break info: the after-loop goto label and the
 /// optional while-loop active-flag index. Mirrors the `smWhileBreakInfo` shape.
@@ -86,7 +87,13 @@ FunctionGenerationContext :: object(
   sm_while_continue_info : Option(SmWhileContinueInfo),
   /// Deferred drops for the SM while-loop body (emitted before break/continue/
   /// normal exit).
-  sm_while_body_drops : Option(ArrayList(AstExpr))
+  sm_while_body_drops : Option(ArrayList(AstExpr)),
+  /// Variables captured in the async state machine (variable id → captured
+  /// variable). Read by atom emission to access `sm->var_<id>` / `sm->__capture.<name>`.
+  state_machine_variables : Option(HashMap(String, CapturedVariable)),
+  /// Phase-1b aliases: temp future variable id → its await_future_N SM field
+  /// name (atom emission redirects SM lookups to the existing await field).
+  state_machine_field_aliases : Option(HashMap(String, String))
 );
 impl(
   FunctionGenerationContext,
@@ -116,7 +123,9 @@ impl(
       in_async_state_machine : Option(InAsyncStateMachine).None,
       sm_while_break_info : Option(SmWhileBreakInfo).None,
       sm_while_continue_info : Option(SmWhileContinueInfo).None,
-      sm_while_body_drops : Option(ArrayList(AstExpr)).None
+      sm_while_body_drops : Option(ArrayList(AstExpr)).None,
+      state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
+      state_machine_field_aliases : Option(HashMap(String, String)).None
     )
   )
 );
