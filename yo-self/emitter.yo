@@ -41,6 +41,15 @@ impl(
     self.headers.push_str(c);
     self.headers.push_str("\n");
   }),
+  /// Append a raw `String` value to the headers section.
+  emit_header_string : (fn(ref(self) : Self, c : String) -> unit)(
+    self.headers.push_string(c)
+  ),
+  /// Append a raw `String` value + newline to the headers section.
+  emit_header_string_line : (fn(ref(self) : Self, c : String) -> unit)({
+    self.headers.push_string(c);
+    self.headers.push_str("\n");
+  }),
   /// Append text + newline to the declarations section.
   emit_declaration_line : (fn(ref(self) : Self, c : str) -> unit)({
     self.declarations.push_str(c);

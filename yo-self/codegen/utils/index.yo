@@ -1,12 +1,14 @@
 //! C codegen utility helpers — mirrors `src/codegen/utils/index.ts`.
 //!
 //! PORT STATUS (incremental, per plans/BOOTSTRAPPING_CODEGEN.md Phase 1):
-//! This file currently carries the context- and type-model-independent
-//! helpers. The following TS functions are DEFERRED and tracked in
-//! issues/codegen-port-type-model-gaps.md:
-//!   * `CodeGenContext` interface + `getTypeString` / `getVariableTypeString`
-//!     / `getEnumVariantCName` — need the `CodeGenContext` registry struct
-//!     (ported alongside functions/context.ts).
+//! This file carries the `CodeGenContext` base struct (the flat-composition
+//! base for FunctionGenerationContext — Yo has no struct inheritance) and the
+//! context- and type-model-independent helpers. The following TS functions
+//! are DEFERRED and tracked in issues/codegen-port-type-model-gaps.md:
+//!   * `getTypeString` / `getVariableTypeString` / `getEnumVariantCName` —
+//!     `getTypeString`'s SomeType/Future/Dyn/Iso branches need re-architecting
+//!     to yo-self's env+substitute SomeType resolution (yo-self deliberately
+//!     omits `SomeT.resolvedConcreteType`, and `DynT`/`IsoT` carry no id).
 //!   * `isComptimeOnlyStructField` / `getRuntimeStructFields` — yo-self
 //!     `TypeValue.Struct` carries no per-field `isCompileTimeOnly` flag.
 //!   * `isComptimeFunction` — yo-self `FuncVal` does not store the function's
@@ -19,15 +21,158 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_object_type, is_pointer_type } :: import("../../types/guards.yo");
+{ Emitter } :: import("../../emitter.yo");
+{ TargetInfo } :: import("../../target.yo");
 {
-  AstExpr, BF_UNSAFE, BF_DROP, BF_DUP, BF_DOT, BK_BEGIN, BF_YO_AS,
-  ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of
+  AstExpr,
+  BF_UNSAFE,
+  BF_DROP,
+  BF_DUP,
+  BF_DOT,
+  BK_BEGIN,
+  BF_YO_AS,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
+// ===========================================================================
+// CodeGenContext — mirrors the `CodeGenContext` interface in
+// src/codegen/utils/index.ts. This is the BASE generation context; the
+// FunctionGenerationContext (src/codegen/functions/context.ts) extends it.
+// Yo has no struct inheritance, so functions/context.yo composes this via a
+// `base : CodeGenContext` field. Grown incrementally per the plan ("add
+// fields as emitters demand them") — only the registries + flags the current
+// pipeline needs are present so far.
+//
+// Registry value records. TS keys context.types/externFunctions by TypeId
+// (a string) → { type, cName(, cInclude) }. yo-self uses HashMap(String, _)
+// with these record objects. NOTE (issues/codegen-port-type-model-gaps.md):
+// yo-self's TypeValue carries no general `cInclude`, so the entry carries it
+// (supplied at registration) rather than being read off the type.
+// ===========================================================================
+CodegenTypeEntry :: object(ty : TypeValue, c_name : String, c_include : Option(String));
+CodegenExternFnEntry :: object(ty : TypeValue, c_name : String, c_include : Option(String));
+ArrayStructInfo :: object(child_type : String, length : i64);
+IsoTypeInfo :: object(child_type_c_name : String, iso_type : TypeValue);
+/// The base C code generation context. See header above.
+CodeGenContext :: object(
+  /// Collected types that need to be generated (keyed by TypeId string).
+  types : HashMap(String, CodegenTypeEntry),
+  /// Extern functions (keyed by TypeId string).
+  extern_functions : HashMap(String, CodegenExternFnEntry),
+  /// Array struct types that need to be generated (keyed by C name).
+  array_struct_types : HashMap(String, ArrayStructInfo),
+  /// Iso struct types that need to be generated (keyed by Iso C name).
+  iso_types : HashMap(String, IsoTypeInfo),
+  /// C header files that need to be included.
+  c_includes : HashSet(String),
+  /// Emitter for generating C code.
+  emitter : Emitter,
+  /// Compilation target info (arch, os, abi).
+  target_info : TargetInfo,
+  /// Memory allocator: "mimalloc" (default) or "libc".
+  allocator : String,
+  /// The current function being generated (for `recur`).
+  current_function_name : String,
+  /// Debug logging flags.
+  debug_gc : bool,
+  debug_parallelism : bool,
+  debug_async_await : bool,
+  /// True when at least one object type can form RC cycles (GC tracking on).
+  needs_cycle_gc : bool,
+  /// True when compiling as a library (no main() wrapper).
+  is_library : bool,
+  /// True when any asm block uses intel_syntax (`-masm=intel` needed).
+  needs_intel_asm_syntax : bool
+);
+impl(
+  CodeGenContext,
+  /// Create a fresh generation context with empty registries.
+  new : (
+    fn(
+      emitter : Emitter,
+      target_info : TargetInfo,
+      allocator : String,
+      debug_gc : bool,
+      debug_parallelism : bool,
+      debug_async_await : bool,
+      is_library : bool
+    ) -> Self
+  )(
+    Self(
+      types : HashMap(String, CodegenTypeEntry).new(),
+      extern_functions : HashMap(String, CodegenExternFnEntry).new(),
+      array_struct_types : HashMap(String, ArrayStructInfo).new(),
+      iso_types : HashMap(String, IsoTypeInfo).new(),
+      c_includes : HashSet(String).new(),
+      emitter : emitter,
+      target_info : target_info,
+      allocator : allocator,
+      current_function_name : String.from(""),
+      debug_gc : debug_gc,
+      debug_parallelism : debug_parallelism,
+      debug_async_await : debug_async_await,
+      needs_cycle_gc : false,
+      is_library : is_library,
+      needs_intel_asm_syntax : false
+    )
+  ),
+  /// Register a type to be generated.
+  register_type : (
+    fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
+  )({
+    _r := self.types.set(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
+    ()
+  }),
+  /// Look up a registered type entry by id.
+  get_type_entry : (fn(self : Self, id : String) -> Option(CodegenTypeEntry))(
+    self.types.get(id)
+  ),
+  /// Look up a registered type's C name by id.
+  get_type_c_name : (fn(self : Self, id : String) -> Option(String))(
+    match(self.types.get(id),.Some(entry) =>.Some(entry.c_name),.None =>.None)
+  ),
+  /// Register an extern function.
+  register_extern_function : (
+    fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
+  )({
+    _r := self.extern_functions.set(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
+    ()
+  }),
+  /// Register an array struct type (idempotent).
+  register_array_struct_type : (
+    fn(self : Self, c_name : String, child_type : String, length : i64) -> unit
+  )({
+    _r := self.array_struct_types.set(c_name, ArrayStructInfo(child_type : child_type, length : length));
+    ()
+  }),
+  /// True if an array struct type with this C name is registered.
+  has_array_struct_type : (fn(self : Self, c_name : String) -> bool)(
+    self.array_struct_types.contains_key(c_name)
+  ),
+  /// Register an Iso struct type (idempotent).
+  register_iso_type : (
+    fn(self : Self, c_name : String, child_type_c_name : String, iso_type : TypeValue) -> unit
+  )({
+    _r := self.iso_types.set(c_name, IsoTypeInfo(child_type_c_name : child_type_c_name, iso_type : iso_type));
+    ()
+  }),
+  /// True if an Iso struct type with this C name is registered.
+  has_iso_type : (fn(self : Self, c_name : String) -> bool)(
+    self.iso_types.contains_key(c_name)
+  ),
+  /// Add a C include header.
+  add_c_include : (fn(self : Self, include : String) -> unit)({
+    _r := self.c_includes.add(include);
+    ()
+  })
+);
 /// C keywords and common macros that must be avoided as identifiers.
 /// Mirrors the `cReservedWords` set in `sanitizeForCIdentifier`.
 _build_c_reserved_words :: (fn() -> HashSet(String))({
@@ -91,10 +236,14 @@ _build_c_reserved_words :: (fn() -> HashSet(String))({
 _c_reserved_words := _build_c_reserved_words();
 /// True if byte `b` is a valid C-identifier byte: `[a-zA-Z0-9_]`.
 _is_c_identifier_byte :: (fn(b : u8) -> bool)(
-  (((b >= u8(97)) && (b <= u8(122))) // a-z
-    || ((b >= u8(65)) && (b <= u8(90)))) // A-Z
-  || (((b >= u8(48)) && (b <= u8(57))) // 0-9
-    || (b == u8(95))) // _
+  (
+    ((b >= u8(97)) && (b <= u8(122))) // a-z
+    || ((b >= u8(65)) && (b <= u8(90)))
+  ) // A-Z
+  || (
+    ((b >= u8(48)) && (b <= u8(57))) // 0-9
+    || (b == u8(95))
+  ) // _
 );
 /// Sanitize a string to be a valid C identifier. Replaces any byte that is
 /// not `[a-zA-Z0-9_]` with `_u<byte>_` (ASCII byte value — operators in
@@ -134,11 +283,11 @@ should_avoid_const :: (fn(t : TypeValue) -> bool)(
 _fn_call_callee_name :: (fn(e : AstExpr) -> Option(String))(
   match(
     e,
-    .Atom(_, _) => .None,
+    .Atom(_, _) =>.None,
     .FnCall(_, func_box, _, _, _) => match(
       func_box.*,
-      .Atom(_, tok) => .Some(tok.value),
-      .FnCall(_, _, _, _, _) => .None
+      .Atom(_, tok) =>.Some(tok.value),
+      .FnCall(_, _, _, _, _) =>.None
     )
   )
 );
@@ -151,8 +300,8 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
     e,
     .Atom(_, _) => e,
     .FnCall(_, _, args, _, _) => if(
-      ast_expr_is_fn_call_of(e, BF_UNSAFE, .None) && (args.len() == usize(1)),
-      match(args.get(usize(0)), .Some(a) => a, .None => e),
+      ast_expr_is_fn_call_of(e, BF_UNSAFE,.None) && (args.len() == usize(1)),
+      match(args.get(usize(0)),.Some(a) => a,.None => e),
       e
     )
   )
@@ -165,33 +314,29 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : EvalValue) -> Option(String)
 )({
-  body_box := match(fv, .FuncVal(_, _, _, _, b, _, _, _, _) => b, _ => return(.None));
+  body_box := match(fv,.FuncVal(_, _, _, _, b, _, _, _, _) => b, _ => return(.None));
   body := _unwrap_unsafe(body_box.*);
   operator_name := match(
     body,
     .Atom(_, _) => Option(String).None,
-    .FnCall(_, _, body_args, _, _) => if(
-      ast_expr_is_fn_call_of(body, BK_BEGIN, .None) && (body_args.len() == usize(1)),
-      {
-        inner := _unwrap_unsafe(match(body_args.get(usize(0)), .Some(a) => a, .None => body));
-        match(
-          _fn_call_callee_name(inner),
-          .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
-          .None => Option(String).None
-        )
-      },
+    .FnCall(_, _, body_args, _, _) => if(ast_expr_is_fn_call_of(body, BK_BEGIN,.None) && (body_args.len() == usize(1)), {
+      inner := _unwrap_unsafe(match(body_args.get(usize(0)),.Some(a) => a,.None => body));
       match(
-        _fn_call_callee_name(body),
-        .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
+        _fn_call_callee_name(inner),
+        .Some(callee) => if(is_builtin_yo_inline_function(callee),.Some(callee),.None),
         .None => Option(String).None
       )
-    )
+    }, match(
+      _fn_call_callee_name(body),
+      .Some(callee) => if(is_builtin_yo_inline_function(callee),.Some(callee),.None),
+      .None => Option(String).None
+    ))
   );
   // Don't inline __yo_as — it needs proper call handling for complex args.
   match(
     operator_name,
-    .Some(op) => if(op == String.from(BF_YO_AS), Option(String).None, .Some(op)),
-    .None => .None
+    .Some(op) => if(op == String.from(BF_YO_AS), Option(String).None,.Some(op)),
+    .None =>.None
   )
 });
 /// Check if an enum can be optimized as a nullable pointer. Returns the
@@ -206,18 +351,22 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
         return(.None);
       });
       (empty_found : bool) = false;
-      (pointer_type : Option(TypeValue)) = .None;
+      (pointer_type : Option(TypeValue)) =.None;
       (valid : bool) = true;
       (vi : usize) = usize(0);
       while(valid && (vi < usize(2)), {
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
         fc := fields.len();
         cond(
           (fc == usize(0)) => {
-            if(empty_found, { valid = false; }, { empty_found = true; });
+            if(empty_found, {
+              valid = false;
+            }, {
+              empty_found = true;
+            });
           },
           (fc == usize(1)) => {
-            child := match(fields.get(usize(0)), .Some(c) => c, .None => return(.None));
+            child := match(fields.get(usize(0)),.Some(c) => c,.None => return(.None));
             cond(
               is_pointer_type(child) => {
                 match(
@@ -226,7 +375,7 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
                     valid = false;
                   },
                   .None => {
-                    pointer_type = .Some(child);
+                    pointer_type =.Some(child);
                   }
                 );
               },
@@ -283,7 +432,7 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
   match(
     dup_expr,
-    .Atom(_, _) => .None,
+    .Atom(_, _) =>.None,
     .FnCall(_, func_box, args, _, _) => {
       // Form 1: first arg is an atom.
       if(args.len() >= usize(1), {
@@ -291,7 +440,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -302,15 +451,15 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
         match(
           func_box.*,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box.*, BF_DOT, .Some(usize(2))), {
-              first_ok := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false);
+            if(ast_expr_is_fn_call_of(func_box.*, BF_DOT,.Some(usize(2))), {
+              first_ok := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
               second_is_dup := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a, .Atom(_, tok) => (tok.value == String.from(BF_DUP)), .FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a,.Atom(_, tok) => (tok.value == String.from(BF_DUP)),.FnCall(_, _, _, _, _) => false),
                 .None => false
               );
               if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)),.Some(a) => match(a,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),.None => String.from(""))));
               });
             });
           },
@@ -328,22 +477,22 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
 get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String))(
   match(
     drop_expr,
-    .Atom(_, _) => .None,
+    .Atom(_, _) =>.None,
     .FnCall(_, func_box, args, _, _) => {
       // Form A: (varName.___drop)() with zero args.
       if(args.len() == usize(0), {
         match(
           func_box.*,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box.*, BF_DOT, .Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(func_box.*, BF_DOT,.Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a, .Atom(_, tok) => (tok.value == String.from(BF_DROP)), .FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a,.Atom(_, tok) => (tok.value == String.from(BF_DROP)),.FnCall(_, _, _, _, _) => false),
                 .None => false
               );
-              first_is_atom := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false);
+              first_is_atom := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
               if(second_is_drop && first_is_atom, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)),.Some(a) => match(a,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),.None => String.from(""))));
               });
             });
           },
@@ -351,12 +500,12 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String)
         );
       });
       // Form B: ___drop(varName).
-      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, .None) && (args.len() >= usize(1)), {
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP,.None) && (args.len() >= usize(1)), {
         match(
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -389,13 +538,13 @@ is_deferred_drop_for_closure_capture :: (
 find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
   match(
     expr,
-    .None => .None,
+    .None =>.None,
     .Some(e) => cond(
-      is_io_async_call(e) => .Some(e),
+      is_io_async_call(e) =>.Some(e),
       ast_expr_is_fn_call(e) => match(
         e,
         .FnCall(_, _, args, _, _) => {
-          (found : Option(AstExpr)) = .None;
+          (found : Option(AstExpr)) =.None;
           n := args.len();
           (ai : usize) = usize(0);
           while(ai < n, {
@@ -423,6 +572,11 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
   )
 );
 export(
+  CodeGenContext,
+  CodegenTypeEntry,
+  CodegenExternFnEntry,
+  ArrayStructInfo,
+  IsoTypeInfo,
   sanitize_for_c_identifier,
   should_avoid_const,
   is_function_value_with_only_builtin_yo_inline_function_call,
