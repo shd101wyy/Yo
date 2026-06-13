@@ -167,4 +167,11 @@ generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationCon
     );
   });
 });
-export(generate_ref_struct_constructor_functions);
+/// Generate constructor implementations for closures and their Rc functions.
+/// No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls,
+/// and Dyn(Fn(...)) uses dyn constructors generated elsewhere. Faithful port of
+/// `generateClosureConstructorFunctions` (which is likewise a no-op).
+generate_closure_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)(
+  ()
+);
+export(generate_ref_struct_constructor_functions, generate_closure_constructor_functions);
