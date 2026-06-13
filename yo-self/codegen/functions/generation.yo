@@ -26,7 +26,9 @@ open(import("std/string"));
 { has_any_control_flow } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
+{ is_target_posix } :: import("../../target.yo");
 { get_func_type } :: import("../../function_value.yo");
+{ get_type_string } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype } :: import("./declarations.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -171,4 +173,126 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
     );
   });
 });
-export(generate_function_body, generate_function, generate_all_functions);
+/// The C argument list for the `__yo_user_main` call: each runtime parameter
+/// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`). Mirrors the
+/// non-evidence branch of `generateMainWrapper`. (Evidence-param mains are Phase 5.)
+_main_call_args :: (fn(main_func_id : String, context : FunctionGenerationContext) -> String)({
+  pts := match(get_func_type(main_func_id),.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  out := String.from("(");
+  n := pts.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    match(
+      pts.get(i),
+      .Some(pt) => {
+        out.push_str("(");
+        out.push_string(get_type_string(pt, context.base));
+        out.push_str("){0}");
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out.push_str(")");
+  out
+});
+/// Generate the C `main()` wrapper that calls `__yo_user_main`. On POSIX the
+/// program body runs on a large-stack (1 GiB, YO_MAIN_STACK_MB-overridable)
+/// worker thread; Windows/WASM call directly. Mirrors `generateMainWrapper`.
+///
+/// DEFERRED (documented): async runtime init/wait (no async in corpus — emitted
+/// empty), module-level mutable variable initialization (the context carries no
+/// module_level_init_exprs field yet), evidence-param mains (Phase 5).
+generate_main_wrapper :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  // Find __yo_user_main and its func_id.
+  it := context.base.functions.keys();
+  (main_func_id : String) = String.from("");
+  (found : bool) = false;
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(fid) => match(
+        context.base.get_function_entry(fid),
+        .Some(entry) => if(entry.c_name == String.from("__yo_user_main"), {
+          match(
+            entry.value,
+            .FuncVal(_, _, _, _, _, _, _, _, f) => {
+              main_func_id = f;
+              found = true;
+              go = false;
+            },
+            _ => ()
+          );
+        }),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  if(!(found), {
+    return();
+  });
+  main_call_args := _main_call_args(main_func_id, context);
+  if(is_target_posix(context.base.target_info), {
+    block :=
+      `
+// Program body runs on a large-stack worker thread (see generateMainWrapper).
+static void* __yo_main_thread_entry(void* __yo_unused_arg) {
+  (void)__yo_unused_arg;
+  // Call sync main
+  __yo_user_main${main_call_args};
+  return NULL;
+}
+
+// Main wrapper - runs program body on a worker thread (default 1 GiB stack,
+// overridable via the YO_MAIN_STACK_MB env var)
+int main(int argc, char** argv) {
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+  pthread_attr_t __yo_main_attr;
+  pthread_t __yo_main_tid;
+  size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
+  {
+    const char* __yo_stack_mb = getenv("YO_MAIN_STACK_MB");
+    if (__yo_stack_mb != NULL) {
+      long __yo_mb = atol(__yo_stack_mb);
+      if (__yo_mb > 0) __yo_main_stack = (size_t)__yo_mb * 1024 * 1024;
+    }
+  }
+  if (pthread_attr_init(&__yo_main_attr) == 0
+      && pthread_attr_setstacksize(&__yo_main_attr, __yo_main_stack) == 0
+      && pthread_create(&__yo_main_tid, &__yo_main_attr, __yo_main_thread_entry, NULL) == 0) {
+    pthread_attr_destroy(&__yo_main_attr);
+    pthread_join(__yo_main_tid, NULL);
+  } else {
+    __yo_main_thread_entry(NULL);
+  }
+  return 0;
+}
+`;
+    em.emit_string(block);
+  }, {
+    block :=
+      `
+// Main wrapper - calls __yo_user_main directly
+int main(int argc, char** argv) {
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+  // Call sync main
+  __yo_user_main${main_call_args};
+  return 0;
+}
+`;
+    em.emit_string(block);
+  });
+});
+export(generate_function_body, generate_function, generate_all_functions, generate_main_wrapper);
