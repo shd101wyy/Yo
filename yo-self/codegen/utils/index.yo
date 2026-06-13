@@ -112,6 +112,15 @@ CodeGenContext :: object(
   is_library : bool,
   /// True when any asm block uses intel_syntax (`-masm=intel` needed).
   needs_intel_asm_syntax : bool,
+  /// Current loop label for break/continue in nested match (goto target);
+  /// `.None` outside a loop. Mirrors CodeGenContext.currentLoopLabel.
+  current_loop_label : Option(String),
+  /// Current continue label for 3-arg while loops (jump before the step);
+  /// `.None` outside such a loop. Mirrors CodeGenContext.currentContinueLabel.
+  current_continue_label : Option(String),
+  /// True while emitting inside a match (a C switch) — break needs goto, not
+  /// plain break. Mirrors CodeGenContext.insideMatch.
+  inside_match : bool,
   /// dyn() usages → box types / vtables / wrappers (keyed by a
   /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
   dyn_impls : HashMap(String, DynImplEntry),
@@ -153,6 +162,9 @@ impl(
       needs_cycle_gc : false,
       is_library : is_library,
       needs_intel_asm_syntax : false,
+      current_loop_label : Option(String).None,
+      current_continue_label : Option(String).None,
+      inside_match : false,
       dyn_impls : HashMap(String, DynImplEntry).new(),
       current_module_id : Option(String).None,
       exported_function_labels : HashMap(String, String).new()
