@@ -587,9 +587,270 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
   em.emit_string_line(close);
   if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
 });
-/// Generate a match expression. Mirrors `generateMatchExpression`. The
-/// tagged-union destructuring path is the documented next piece (TODO stub);
-/// primitive, nullable-pointer, and simple-enum matches are handled.
+/// Emit the destructuring binds for a tagged-union arm: `<T> <v> =
+/// <matched><access>data.<Variant>.<field>;` per bound field, via the EnumT
+/// parallel arrays (variant_names / variant_field_labels / variant_fields).
+/// Labeled (`.Circle(r : radius)`) and positional (`.Point(x, y)`) forms.
+/// (SM storage of destructured vars is Phase 5 — gated dead here.)
+_emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, params : ArrayList(AstExpr), matched_value_code : String, access : str, body_indent : String, context : FunctionGenerationContext) -> unit)(
+  match(
+    enum_type,
+    .EnumT({ variant_names : vns, variant_fields : vfs, variant_field_labels : vfls }) => {
+      em := context.base.emitter;
+      // Find the variant index.
+      (vi : usize) = vns.len();
+      nv := vns.len();
+      (vk : usize) = usize(0);
+      while(vk < nv, {
+        match(
+          vns.get(vk),
+          .Some(vn) => if(vn == variant_name, {
+            vi = vk;
+          }),
+          .None => ()
+        );
+        vk = (vk + usize(1));
+      });
+      if(vi < nv, {
+        labels := match(vfls.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        types := match(vfs.get(vi),.Some(t) => t,.None => ArrayList(TypeValue).new());
+        // Labeled if any param is a `:`(2) pair.
+        (has_labeled : bool) = false;
+        np := params.len();
+        (pk : usize) = usize(0);
+        while(pk < np, {
+          match(
+            params.get(pk),
+            .Some(p) => if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), {
+              has_labeled = true;
+            }),
+            .None => ()
+          );
+          pk = (pk + usize(1));
+        });
+        if(has_labeled, {
+          (pi : usize) = usize(0);
+          while(pi < np, {
+            match(
+              params.get(pi),
+              .Some(param) => if(ast_expr_is_fn_call_of(param, ":", Option(usize).Some(usize(2))), {
+                pargs := _args(param);
+                label := match(pargs.get(usize(0)),.Some(le) => if(ast_expr_is_atom(le), ast_expr_token(le).value, String.from("")),.None => String.from(""));
+                match(
+                  pargs.get(usize(1)),
+                  .Some(var_expr) => if((ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == String.from("_"))) && (label.len() > usize(0)), {
+                    // Find the field index for this label.
+                    (fi : usize) = labels.len();
+                    nl := labels.len();
+                    (lk : usize) = usize(0);
+                    while(lk < nl, {
+                      match(
+                        labels.get(lk),
+                        .Some(fl) => if(fl == label, {
+                          fi = lk;
+                        }),
+                        .None => ()
+                      );
+                      lk = (lk + usize(1));
+                    });
+                    if(fi < labels.len(), {
+                      ftype := match(types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                      if(!(is_unit_type(ftype)), {
+                        decl := body_indent.clone();
+                        decl.push_string(get_type_string(ftype, context.base));
+                        decl.push_str(" ");
+                        decl.push_string(sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
+                        decl.push_str(" = ");
+                        decl.push_string(matched_value_code.clone());
+                        decl.push_str(access);
+                        decl.push_str("data.");
+                        decl.push_string(variant_name.clone());
+                        decl.push_str(".");
+                        decl.push_string(sanitize_for_c_identifier(label.clone(), false));
+                        decl.push_str(";");
+                        em.emit_string_line(decl);
+                      });
+                    });
+                  }),
+                  .None => ()
+                );
+              }),
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+        }, {
+          // Positional.
+          limit := if(np < labels.len(), np, labels.len());
+          (fi : usize) = usize(0);
+          while(fi < limit, {
+            match(
+              params.get(fi),
+              .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == String.from("_")), {
+                field_label := match(labels.get(fi),.Some(fl) => fl,.None => String.from(""));
+                ftype := match(types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                if(!(is_unit_type(ftype)), {
+                  decl := body_indent.clone();
+                  decl.push_string(get_type_string(ftype, context.base));
+                  decl.push_str(" ");
+                  decl.push_string(sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
+                  decl.push_str(" = ");
+                  decl.push_string(matched_value_code.clone());
+                  decl.push_str(access);
+                  decl.push_str("data.");
+                  decl.push_string(variant_name.clone());
+                  decl.push_str(".");
+                  decl.push_string(sanitize_for_c_identifier(field_label, false));
+                  decl.push_str(";");
+                  em.emit_string_line(decl);
+                });
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+        });
+      });
+    },
+    _ => ()
+  )
+);
+/// The variant name + destructuring params of a tagged-union arm pattern,
+/// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
+/// Returns ("", empty) if the pattern is not a variant.
+_arm_variant_and_params :: (fn(case_value : AstExpr) -> Option(String))(
+  match(case_value,.FnCall(_, func, args, _, _) => match(func.*,.Atom(_, tok) => if((tok.value == String.from(BF_DOT)) && (args.len() >= usize(1)), match(args.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None),.FnCall(_, ffunc, fargs, _, _) => if(match(ffunc.*,.Atom(_, ft) => (ft.value == String.from(BF_DOT)),.FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None)),.Atom(_, _) => Option(String).None)
+);
+/// The destructuring params of a tagged-union arm: `args[1..]` for form 1
+/// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
+_arm_params :: (fn(case_value : AstExpr) -> ArrayList(AstExpr))(
+  match(
+    case_value,
+    .FnCall(_, func, args, _, _) => match(
+      func.*,
+      .Atom(_, _) => {
+        out := ArrayList(AstExpr).new();
+        n := args.len();
+        (i : usize) = usize(1);
+        while(i < n, {
+          match(
+            args.get(i),
+            .Some(a) => {
+              _p := out.push(a);
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        out
+      },
+      .FnCall(_, _, _, _, _) => args
+    ),
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  )
+);
+/// Tagged-union enum match → C switch on the tag with per-arm destructuring.
+/// Mirrors the final (default) branch of `generateMatchExpression`.
+_gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, match_value_type : TypeValue, enum_type : TypeValue, is_ref_or_ptr : bool, temp_var_opt : Option(String), is_unit : bool) -> String)({
+  em := context.base.emitter;
+  saved := context.base.inside_match;
+  context.base.inside_match = true;
+  body_indent := indent.clone();
+  body_indent.push_str("  ");
+  access := if(is_ref_or_ptr, "->", ".");
+  tag_expr := if(is_ref_or_ptr, {
+    t := matched_value_code.clone();
+    t.push_str("->tag");
+    t
+  }, {
+    t := String.from("(");
+    t.push_string(matched_value_code.clone());
+    t.push_str(").tag");
+    t
+  });
+  hdr := indent.clone();
+  hdr.push_str("switch (");
+  hdr.push_string(tag_expr);
+  hdr.push_str(") {");
+  em.emit_string_line(hdr);
+  args := _args(expr);
+  n := args.len();
+  (i : usize) = usize(1);
+  while(i < n, {
+    match(
+      args.get(i),
+      .Some(ce) => if(ast_expr_is_fn_call_of(ce, "=>", Option(usize).Some(usize(2))), {
+        cargs := _args(ce);
+        match(
+          cargs.get(usize(0)),
+          .Some(cv) => match(
+            cargs.get(usize(1)),
+            .Some(cb0) => if(_case_executed(cv, context), {
+              if(ast_expr_is_atom(cv) && (ast_expr_token(cv).value == String.from("_")), {
+                d := indent.clone();
+                d.push_str("default: {");
+                em.emit_string_line(d);
+                _emit_case_body_and_break(cb0, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                cl := indent.clone();
+                cl.push_str("}");
+                em.emit_string_line(cl);
+              }, match(
+                _arm_variant_and_params(cv),
+                .Some(variant_name) => {
+                  variant_tag := get_enum_variant_c_name(enum_type, variant_name.clone(), context.base);
+                  h := indent.clone();
+                  h.push_str("case ");
+                  h.push_string(variant_tag);
+                  h.push_str(": {");
+                  em.emit_string_line(h);
+                  params := _arm_params(cv);
+                  if(params.len() > usize(0), {
+                    _emit_destructure_binds(enum_type, variant_name, params, matched_value_code.clone(), access, body_indent.clone(), context);
+                  });
+                  // `=> rename` caseBody form: bind the whole matched value to a name.
+                  cb := if(ast_expr_is_fn_call_of(cb0, "=>", Option(usize).Some(usize(2))), {
+                    rargs := _args(cb0);
+                    match(
+                      rargs.get(usize(0)),
+                      .Some(rename_expr) => {
+                        rdecl := body_indent.clone();
+                        rdecl.push_string(get_type_string(match_value_type, context.base));
+                        rdecl.push_str(" ");
+                        rdecl.push_string(sanitize_for_c_identifier(ast_expr_token(rename_expr).value, false));
+                        rdecl.push_str(" = ");
+                        rdecl.push_string(matched_value_code.clone());
+                        rdecl.push_str(";");
+                        em.emit_string_line(rdecl);
+                      },
+                      .None => ()
+                    );
+                    match(rargs.get(usize(1)),.Some(v) => v,.None => cb0)
+                  }, cb0);
+                  _emit_case_body_and_break(cb, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                  cl := indent.clone();
+                  cl.push_str("}");
+                  em.emit_string_line(cl);
+                },
+                .None => ()
+              ));
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  context.base.inside_match = saved;
+  close := indent.clone();
+  close.push_str("}");
+  em.emit_string_line(close);
+  generate_deferred_drop_expressions(expr, indent.clone(), context);
+  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+});
+/// Generate a match expression. Mirrors `generateMatchExpression`.
 generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* \"match\" expression is not evaluated */")));
   temp_var_opt := ei.variable_name;
@@ -654,10 +915,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   if(can_optimize_as_simple_enum(enum_type), {
     return(_gen_simple_enum_match(expr, indent.clone(), context, matched_value_code, enum_type, deref_star, temp_var_opt, is_unit));
   });
-  // Tagged-union destructuring: documented next piece.
-  todo := indent.clone();
-  todo.push_str("/* TODO[codegen-port]: match tagged-union destructuring not yet ported (see EnumT parallel-array adaptation note) */");
-  em.emit_string_line(todo);
-  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+  // Tagged-union destructuring.
+  _gen_tagged_union_match(expr, indent.clone(), context, matched_value_code, match_value_type, enum_type, is_ptr || is_ref_sem, temp_var_opt, is_unit)
 });
 export(generate_case_body, generate_primitive_match_expression, generate_match_expression);
