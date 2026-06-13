@@ -46,6 +46,39 @@ produce them" thesis, surfaced porting `types/collection.ts` +
   reached by simple programs). NOT blocked on a big evaluator sub-project as
   first feared.
 
+## Gap 8 — the expression emitters depend on TS `value.type`; yo-self values are type-less
+
+Surfaced assessing `exprs/comptime-value.ts` (`generateComptimeValue`) and
+`exprs/atom.ts` (`generateAtom`) — the entry leaves of value emission.
+
+- **TS:** every `Value` carries its `Type` (`value.type`). `generateComptimeValue`
+  reads `value.tag` (ValueTag: I32/U64/F32/… → C literal suffixes),
+  `enumValue.type` (for `canOptimizeAsNullablePointer`/`canOptimizeAsSimpleEnum`
+  + `context.types[type.id].cName`), `structValue.type` (`.id`, `.isNewtype`,
+  `.isReferenceSemantics`, `getRuntimeStructFields`), `value.type.ioBuiltin`,
+  etc.
+- **yo-self:** `EvalValue` is **type-less by design** — `IntLit`/`FloatLit`
+  carry no width/ValueTag; `EnumVal`/`StructVal` carry a `ty_name` string, not
+  a full `TypeValue` with `id`/variant data; there is no `ioBuiltin`. The type
+  must come from the surrounding `ExprInfo` (`ei.ty` /
+  `ei.converted_runtime_type`), not the value.
+- **Consequence:** `generateComptimeValue`, `generateAtom`, and the
+  value-construction paths throughout the expression emitters must be
+  RE-ARCHITECTED to thread the expected/converted type from `ExprInfo` (and to
+  derive numeric width/signedness from the type, not a value tag). This is a
+  pervasive adaptation across the expression-emitter layer — the single
+  largest design difference between the two codegens — done as a coordinated
+  effort, not a per-function transcription.
+- **Additionally** `generateAtom`'s variable-resolution body is pervasively
+  async-state-machine-coupled (`stateMachineVariables` /
+  `stateMachineFieldAliases`, Phase 5), and all expression emitters are
+  mutually recursive through `generateExpr` (needs the registration-indirection
+  pattern). So the expression-emitter core is one large coordinated block:
+  `generateExpr` dispatch + `generateAtom` + `generateFuncCall` +
+  `generateOtherFunctionCall` + `generateComptimeValue`, with the type-from-
+  ExprInfo threading woven through — the next sustained unit toward the first
+  differential-harness PASS.
+
 ## Gap 1 — `TypeValue.Struct` has no per-field `isCompileTimeOnly`
 
 - **TS:** `StructType.fields: TypeField[]`, each `TypeField` has
