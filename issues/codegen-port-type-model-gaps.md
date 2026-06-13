@@ -14,6 +14,36 @@ every construction site), validated against the green gates
 (`check ./std`, `check ./tests`, `check ./yo-self`, the TS suite) before the
 dependent codegen function can be ported.
 
+## Gap 7 — the collection passes (and most emitters) need evaluator-produced ExprInfo/FunctionValue metadata that yo-self does not yet populate
+
+This is the BIG one — the concrete shape of the plan's "make the evaluator
+produce them" thesis, surfaced porting `types/collection.ts` +
+`functions/collection.ts`.
+
+- **`collectTypesFromExpr` / `findFunctionCallsInExpr` read `expr.$`:**
+  `type`, `value` (✓ yo-self ExprInfo has these) but ALSO
+  `deferredDropExpressions`, `macroExpansion`, `runtimeDestructurings`,
+  `captureType` — runtime-oriented ExprInfo fields yo-self's ExprInfo does
+  NOT carry / does not yet produce. (And every `expr.$` access becomes an
+  `ExprInfoTable` lookup — a pervasive signature change: these functions must
+  take the table.)
+- **They read `FunctionValue` codegen metadata:** `specializedType`,
+  `calledComptimeFunctionCaches`, `isControlFunction`, `resolvedConcreteType`
+  (on param types). yo-self's `FuncVal` (value.yo) stores none of these — it
+  is the flattened raw-components form (cf. Gap 2). These are
+  evaluator-produced annotations consumed only by codegen.
+- **Consequence:** the collection cluster — and, by extension, most Phase-2/3
+  emitters — cannot be faithfully ported until yo-self's evaluator PRODUCES
+  these annotations (extend ExprInfo with the runtime fields; attach the
+  codegen metadata to FuncVal or func_id side-tables; populate at the right
+  evaluation points). This is a substantial, high-blast-radius evaluator
+  sub-project (touches FuncVal + ExprInfo + their construction sites), to be
+  done deliberately and gate-validated — NOT a mechanical transcription.
+- **This is the true critical path** for the codegen port: evaluator metadata
+  production first, emitters second. The Phase-1 foundation (constants, utils,
+  context, type lowering, C includes, evidence slice) is done and unblocked;
+  everything downstream waits on this.
+
 ## Gap 1 — `TypeValue.Struct` has no per-field `isCompileTimeOnly`
 
 - **TS:** `StructType.fields: TypeField[]`, each `TypeField` has
