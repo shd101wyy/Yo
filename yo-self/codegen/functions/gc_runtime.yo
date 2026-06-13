@@ -1,0 +1,316 @@
+//! GC / reference-counting runtime prelude — mirrors the runtime-function
+//! generators in `src/codegen/functions/generation.ts`:
+//!   * generateBorrowRuntimePrimitives  (Law-of-Exclusivity backstop)
+//!   * collectUnwindValueCTypes         (sizes the unwind-value buffer)
+//!   * emitUnwindValueBuffer            (thread-local unwind-value storage)
+//!   * generateLightweightRCFunctions   (non-cyclic RC path)
+//!   * generateAtomicGCRuntimeFunctions (dispatcher)
+//!
+//! This is the corpus-essential subset of the prelude that `generateAllFunctions`
+//! emits before the function loop — without it the emitted translation unit does
+//! not link (`__yo_incr_rc` / `__yo_decr_rc` / borrow primitives are referenced
+//! by every RC-managed value). The cyclic-GC path
+//! (`generateFullGCRuntimeFunctions`, ~487 lines, only reached when
+//! `needs_cycle_gc` is true) is the next prelude increment; the corpus is
+//! non-cyclic so the lightweight path is exercised first.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_UNWIND } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ get_type_string } :: import("../utils/index.yo");
+{ FunctionGenerationContext } :: import("./context.yo");
+// ---------------------------------------------------------------------------
+// collectUnwindValueCTypes
+// ---------------------------------------------------------------------------
+/// Recursively collect the C type strings of every non-unit `unwind(value)`
+/// argument reachable from `expr`. Mirrors `collectUnwindValueCTypesFromExpr`.
+/// Returns a flat list (deduped by the caller into a HashSet).
+_collect_unwind_value_ctypes_from_expr :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+    match(
+      expr,
+      .FnCall(_, _, args, _, _) => match(
+        args.get(usize(0)),
+        .Some(arg0) => match(
+          context.base.get_expr_info(arg0),
+          .Some(ei) => if(!(is_unit_type(ei.ty)), {
+            _a := out.push(get_type_string(ei.ty, context.base));
+          }),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    );
+  });
+  if(ast_expr_is_fn_call(expr), {
+    match(
+      expr,
+      .FnCall(_, func, args, _, _) => {
+        n := args.len();
+        (ai : usize) = usize(0);
+        while(ai < n, {
+          match(
+            args.get(ai),
+            .Some(arg) => {
+              sub := recur(arg, context);
+              sn := sub.len();
+              (sj : usize) = usize(0);
+              while(sj < sn, {
+                match(
+                  sub.get(sj),
+                  .Some(s) => {
+                    _b := out.push(s.clone());
+                  },
+                  .None => ()
+                );
+                sj = (sj + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+        fsub := recur(func.*, context);
+        fn := fsub.len();
+        (fk : usize) = usize(0);
+        while(fk < fn, {
+          match(
+            fsub.get(fk),
+            .Some(s) => {
+              _c := out.push(s.clone());
+            },
+            .None => ()
+          );
+          fk = (fk + usize(1));
+        });
+      },
+      .Atom(_, _) => ()
+    );
+  });
+  out
+});
+/// Populate `context.unwind_value_c_types` from every function body in the
+/// program. MUST run before the unwind-value buffer is declared. Mirrors
+/// `collectUnwindValueCTypes`.
+collect_unwind_value_ctypes :: (fn(context : FunctionGenerationContext) -> unit)({
+  into := HashSet(String).new();
+  vals := context.base.functions.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => match(
+        entry.value,
+        .FuncVal(_, _, _, _, body_box, _, _, _, _) => {
+          found := _collect_unwind_value_ctypes_from_expr(body_box.*, context);
+          fnlen := found.len();
+          (fj : usize) = usize(0);
+          while(fj < fnlen, {
+            match(
+              found.get(fj),
+              .Some(s) => {
+                _r := into.add(s.clone());
+              },
+              .None => ()
+            );
+            fj = (fj + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  context.unwind_value_c_types = Option(HashSet(String)).Some(into);
+});
+// ---------------------------------------------------------------------------
+// emitUnwindValueBuffer
+// ---------------------------------------------------------------------------
+/// Emit the thread-local `__yo_unwind_value` buffer declaration. With one or
+/// more non-unit unwound values it is a union sized to the largest (plus a
+/// 64-byte floor); with none it is a plain 64-byte buffer. Mirrors
+/// `emitUnwindValueBuffer`.
+emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  empty := match(
+    context.unwind_value_c_types,
+    .Some(types) => types.is_empty(),
+    .None => true
+  );
+  if(empty, {
+    em.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+    return();
+  });
+  decl := String.from("// Thread-local buffer for unwind value storage, sized (via a union) to the\n");
+  decl.push_str("// largest unwound value in the program so 'unwind(v)' never overflows it.\n");
+  decl.push_str("static _Thread_local _Alignas(16) union {\n");
+  decl.push_str("    char __pad[64];\n");
+  match(
+    context.unwind_value_c_types,
+    .Some(types) => {
+      it := types.into_iter();
+      (idx : usize) = usize(0);
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .Some(t) => {
+            decl.push_str("    ");
+            decl.push_string(t.clone());
+            decl.push_str(" __m");
+            decl.push_string(idx.to_string());
+            decl.push_str(";\n");
+            idx = (idx + usize(1));
+          },
+          .None => {
+            go = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  decl.push_str("} __yo_unwind_value_storage;\n");
+  decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
+  em.emit_declaration_string_line(decl);
+});
+// ---------------------------------------------------------------------------
+// generateBorrowRuntimePrimitives
+// ---------------------------------------------------------------------------
+/// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally
+/// regardless of GC path. Mirrors `generateBorrowRuntimePrimitives`.
+generate_borrow_runtime_primitives :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(
+    `
+// Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
+// into a container's storage (e.g. xs(i)) increments the container's
+// borrow_count for the borrow's lifetime; a container operation that
+// could reallocate/free that storage asserts borrow_count == 0. This
+// turns the one statically-unprovable interior-ref residual (a container
+// reached through a global and grown while borrowed) into a deterministic
+// panic instead of a use-after-free. Cost: a same-cache-line load + a
+// predicted-not-taken branch (measured ~0% even on a tight push loop).
+static inline void __yo_borrow_acquire(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count++;
+}
+static inline void __yo_borrow_release(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count--;
+}
+static inline void __yo_borrow_assert_unborrowed(void* ptr) {
+  if (ptr == NULL) return;
+  if (((__yo_ref_header_t*)ptr)->borrow_count != 0) {
+    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    abort();
+  }
+}`
+  );
+});
+// ---------------------------------------------------------------------------
+// generateLightweightRCFunctions
+// ---------------------------------------------------------------------------
+/// Emit lightweight RC functions when no type can form reference cycles.
+/// `__yo_decr_rc` has no GC checks and the GC functions are no-ops. Mirrors
+/// `generateLightweightRCFunctions`.
+generate_lightweight_rc_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  // Forward-declare the dispose dispatch function (defined after all dispose functions).
+  em.emit_declaration_line("static void __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch");
+  em.emit_string_line(
+    `// Lightweight reference counting — no cycle detection needed
+// Uses type_id dispatch instead of function pointer for dispose
+// (WASM: br_table ~2 cycles vs call_indirect ~20+ cycles)
+static inline void __yo_decr_rc(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  if (header->ref_count == 1) {
+    if (header->type_id) {
+      __yo_dispose_dispatch(ptr);
+    }
+    __yo_free(ptr);
+  } else {
+    header->ref_count--;
+  }
+}
+
+static inline void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  header->ref_count++;
+  return ptr;
+}`
+  );
+  em.emit_string_line(
+    `
+// Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
+static void* __yo_incr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
+  return ptr;
+}
+
+static void __yo_decr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
+  if (old_count == 1) {
+    if (header->type_id) {
+      __yo_dispose_dispatch(ptr);
+    }
+    __yo_free(ptr);
+  }
+}`
+  );
+  // Effect unwind flag and value buffer (always needed).
+  em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  emit_unwind_value_buffer(context);
+  // No-op GC functions so references elsewhere compile.
+  em.emit_string_line(
+    `// No-op GC stubs — no types form reference cycles
+static void __yo_gc_register(void* ptr) { (void)ptr; }
+static void __yo_gc_unregister(void* ptr) { (void)ptr; }
+static void __yo_gc_collect() {}
+static size_t __yo_gc_tracked_count() { return 0; }
+static void __yo_gc_init_thread() {}
+static void __yo_cleanup_thread_gc() {}
+static void __yo_init_process_cleanup(void) {}`
+  );
+});
+// ---------------------------------------------------------------------------
+// generateAtomicGCRuntimeFunctions (dispatcher)
+// ---------------------------------------------------------------------------
+/// Emit the borrow primitives + the RC runtime. Dispatches to the lightweight
+/// path; the cyclic-GC path (`generateFullGCRuntimeFunctions`) is the next
+/// prelude increment. Mirrors `generateAtomicGCRuntimeFunctions`.
+generate_atomic_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  generate_borrow_runtime_primitives(context);
+  if(context.base.needs_cycle_gc, {
+    // DEFERRED (next prelude increment): generateFullGCRuntimeFunctions — the
+    // QuickJS-style trial-deletion cycle collector (~487 lines). The corpus is
+    // non-cyclic (needs_cycle_gc is false), so the lightweight path is the one
+    // exercised by the first differential PASS.
+    generate_lightweight_rc_functions(context);
+  }, {
+    generate_lightweight_rc_functions(context);
+  });
+});
+export(
+  collect_unwind_value_ctypes,
+  emit_unwind_value_buffer,
+  generate_borrow_runtime_primitives,
+  generate_lightweight_rc_functions,
+  generate_atomic_gc_runtime_functions
+);

@@ -34,6 +34,7 @@ open(import("std/string"));
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions } :: import("../exprs/drop_dup.yo");
+{ collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
@@ -153,8 +154,14 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
 generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(String.from("// Function implementations"));
-  // DEFERRED: sys / async / parallelism / GC-RC runtime + object/closure
-  // constructor functions (Phase 3/4/5) — required before this output links.
+  // Runtime prelude (emitted before the function loop). Ported so far: the
+  // borrow primitives + lightweight RC/GC runtime (gc_runtime.yo). DEFERRED
+  // (next prelude increments): generateSysRuntime (sync system helpers),
+  // generateAsyncRuntime / generateParallelismRuntime (Phase 5, gated on
+  // uses_async / uses_parallelism), generateRefStructConstructorFunctions and
+  // generateClosureConstructorFunctions (object/closure constructors).
+  collect_unwind_value_ctypes(context);
+  generate_atomic_gc_runtime_functions(context);
   it := context.base.functions.keys();
   (go : bool) = true;
   while(go, {
