@@ -21,6 +21,10 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
+{ ExprInfoTable, expr_info_table_get } :: import("../../expr_info.yo");
+{ EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
+{ is_control_fn } :: import("../../function_value.yo");
 {
   is_struct_type,
   is_enum_type,
@@ -41,6 +45,11 @@ open(import("std/string"));
   get_runtime_struct_fields,
   sanitize_for_c_identifier
 } :: import("../utils/index.yo");
+// Cross-file cycle: functions/collection imports collect_type from here; we
+// import its find-fn through the indirection call-through (which reads a
+// runtime-set global, so it does not reference find_function_calls_in_expr at
+// import time). The circular-import loader resolves the top-level exports.
+{ _call_find_function_calls_in_expr, set_collect_type_fn } :: import("../functions/collection.yo");
 /// A struct whose only SomeType content lives inside function-typed fields is
 /// still registerable as a concrete C type — the fn-ptr fields get type-erased
 /// at the C ABI. Mirrors `structSomeTypeIsOnlyInFunctionFields`.
@@ -270,4 +279,180 @@ collect_types_from_function_type :: (fn(function_type : TypeValue, context : Cod
     _ => ()
   )
 );
-export(collect_type, collect_types_from_function_type);
+/// func_id of a FuncVal EvalValue, or "".
+_fv_id :: (fn(v : EvalValue) -> String)(
+  match(v,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from(""))
+);
+/// body AstExpr of a FuncVal EvalValue, or an error placeholder.
+_fv_body :: (fn(v : EvalValue) -> AstExpr)(
+  match(v,.FuncVal(_, _, _, _, b, _, _, _, _) => b.*, _ => make_err_expr())
+);
+/// Collect types referenced by an expression (its evaluated type, any function
+/// value it resolves to, deferred drops, macro expansion, runtime
+/// destructurings, capture struct, and recursively its sub-expressions).
+/// Mirrors `collectTypesFromExpr`.
+///
+/// DIVERGENCES: the per-function SIGNATURE-type collection
+/// (collectTypesFromFunctionType(functionValue.type)) is omitted — yo-self's
+/// FuncVal carries no Func type (Gap 2); signature types are picked up by
+/// walking the body. The SomeType-Future-resolvedConcrete skip (Gap 6) and the
+/// captureType.trait function-collection are also omitted (corpus-safe).
+collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : ExprInfoTable) -> unit)({
+  ei_opt := expr_info_table_get(info, ast_expr_id(expr));
+  match(
+    ei_opt,
+    .Some(ei) => {
+      // The expression's own type.
+      collect_type(ei.ty, context);
+      // A function value it resolves to (e.g. method lookups like temp.___drop).
+      match(
+        ei.value,
+        .Some(v) => if(is_func_val(v), {
+          fid := _fv_id(v);
+          cond(
+            is_control_fn(fid.clone()) => {
+              _call_find_function_calls_in_expr(_fv_body(v), context, info);
+            },
+            (!(context.has_function(fid.clone()))) => {
+              context.register_function(fid.clone(), v, sanitize_for_c_identifier(fid.clone(), false));
+              _call_find_function_calls_in_expr(_fv_body(v), context, info);
+            },
+            true => ()
+          );
+        }),
+        .None => ()
+      );
+      // Deferred drop expressions.
+      match(
+        ei.deferred_drop_expressions,
+        .Some(drops) => {
+          nd := drops.len();
+          (di : usize) = usize(0);
+          while(di < nd, {
+            match(drops.get(di),.Some(de) => recur(de, context, info),.None => ());
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      // Macro expansion.
+      match(ei.macro_expansion,.Some(me) => recur(me, context, info),.None => ());
+      // Runtime destructurings (comptime→runtime conversions).
+      match(
+        ei.runtime_destructurings,
+        .Some(rds) => {
+          nr := rds.len();
+          (ri : usize) = usize(0);
+          while(ri < nr, {
+            match(rds.get(ri),.Some(rd) => collect_type(rd.ty, context),.None => ());
+            ri = (ri + usize(1));
+          });
+        },
+        .None => ()
+      );
+      // Capture struct type for closures / async blocks (registers + recurses
+      // into field types via collect_type).
+      match(ei.capture_type,.Some(ct) => collect_type(ct, context),.None => ());
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .FnCall(_, func_box, args, _, _) => {
+      // Skip test blocks — they should not generate code.
+      if(ast_expr_is_fn_call_of(expr, BK_TEST,.None), {
+        return(());
+      });
+      recur(func_box.*, context, info);
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(args.get(i),.Some(a) => recur(a, context, info),.None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => match(
+      ei_opt,
+      .Some(ei) => if(is_type_value(ei.value), {
+        match(ei.value,.Some(v) => match(v,.TypeVal(t) => collect_type(t.*, context), _ => ()),.None => ());
+      }),
+      .None => ()
+    )
+  );
+});
+/// Collect all user-defined types reachable from a module value: from each
+/// exported function's body, from module-level non-function fields, and then
+/// (fixpoint) from every function discovered along the way. Mirrors
+/// `collectRequiredTypes`. (Signature-type collection omitted — Gap 2; the
+/// moduleLevelInitExprs pass is deferred until the context carries them.)
+collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)({
+  match(
+    module_value,
+    .StructVal(_, _, field_values) => {
+      n := field_values.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          field_values.get(i),
+          .Some(value) => cond(
+            is_func_val(value) => {
+              collect_types_from_expr(_fv_body(value), context, info);
+            },
+            true => {
+              vt := type_of_eval_value(value);
+              if(!(is_function_type(vt)), {
+                collect_type(vt, context);
+              });
+            }
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  // Fixpoint: keep collecting from newly-discovered functions until none are
+  // new. Snapshot the keys each pass (the registry grows during collection).
+  processed := HashSet(String).new();
+  (found_new : bool) = true;
+  while(found_new, {
+    found_new = false;
+    keys := ArrayList(String).new();
+    kit := context.functions.keys();
+    (kdone : bool) = false;
+    while(!(kdone), {
+      match(
+        kit.next(),
+        .Some(k) => {
+          _kp := keys.push(k);
+        },
+        .None => {
+          kdone = true;
+        }
+      );
+    });
+    nk := keys.len();
+    (ki : usize) = usize(0);
+    while(ki < nk, {
+      key := match(keys.get(ki),.Some(k) => k,.None => String.from(""));
+      if(!(processed.contains(key.clone())), {
+        _p := processed.add(key.clone());
+        found_new = true;
+        match(
+          context.get_function_entry(key.clone()),
+          .Some(entry) => collect_types_from_expr(_fv_body(entry.value), context, info),
+          .None => ()
+        );
+      });
+      ki = (ki + usize(1));
+    });
+  });
+});
+/// Register collect_type into functions/collection's indirection global so its
+/// find_function_calls_in_expr can collect comptime-returned types. Call once
+/// at init (alongside register_find_function_calls_in_expr).
+register_collect_type :: (fn() -> unit)(
+  set_collect_type_fn(collect_type)
+);
+export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, register_collect_type);
