@@ -8,8 +8,11 @@
 //! the Iso/closure/future declarations, and the dyn re-exports are pending.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_unit_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_object_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type } :: import("../../types/guards.yo");
+{ type_contains_some_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 {
@@ -640,6 +643,539 @@ typedef struct __yo_io_future_t {
 `
   );
 });
+// ---------------------------------------------------------------------------
+// generateTypeDeclarations type-walk (src/codegen/types/generation.ts 471-968)
+// ---------------------------------------------------------------------------
+/// True if a struct's SomeType content is only inside function-typed fields.
+/// Replicated from types/collection.yo (`_struct_some_type_is_only_in_function_fields`)
+/// to avoid a collection↔generation import cycle.
+_walk_struct_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+  match(
+    type,
+    .Struct({ id, field_types }) => {
+      if(visited.contains(id.clone()), {
+        return(true);
+      });
+      _a := visited.add(id.clone());
+      (ok : bool) = true;
+      n := field_types.len();
+      (i : usize) = usize(0);
+      while((i < n) && ok, {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        cond(
+          is_function_type(ft) => (),
+          (is_struct_type(ft) && recur(ft, visited)) => (),
+          type_contains_some_type(ft) => {
+            ok = false;
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+/// True if an enum's SomeType content is only inside function-typed variant
+/// fields. Replicated from types/collection.yo (cycle avoidance).
+_walk_enum_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+  match(
+    type,
+    .EnumT({ id, variant_fields }) => {
+      if(visited.contains(id.clone()), {
+        return(true);
+      });
+      _a := visited.add(id.clone());
+      (ok : bool) = true;
+      nv := variant_fields.len();
+      (vi : usize) = usize(0);
+      while((vi < nv) && ok, {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        nf := fields.len();
+        (fi : usize) = usize(0);
+        while((fi < nf) && ok, {
+          ft := match(fields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          cond(
+            is_function_type(ft) => (),
+            (is_struct_type(ft) && _walk_struct_some_only(ft, visited)) => (),
+            type_contains_some_type(ft) => {
+              ok = false;
+            },
+            true => ()
+          );
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+/// True when a type must be SKIPPED in the type-walk: it contains a SomeType,
+/// unless it is a struct/enum whose only SomeType source is function-typed fields.
+_walk_skip_some :: (fn(type : TypeValue) -> bool)(
+  if(!(type_contains_some_type(type)), false, {
+    keep := ((is_struct_type(type) && _walk_struct_some_only(type, HashSet(String).new())) || (is_enum_type(type) && _walk_enum_some_only(type, HashSet(String).new())));
+    !(keep)
+  })
+);
+/// The newtype-struct pointee of a field type, if the field is a pointer to a
+/// newtype (direct `*(NT)`) or an enum optimized as a nullable pointer to one.
+/// Mirrors `extractPointeeNewtypeFromFieldType`.
+_walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
+  match(
+    ft,
+    .Pointer(pointee) => {
+      p := pointee.*;
+      if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
+    },
+    _ => if(
+      is_enum_type(ft),
+      match(
+        can_optimize_as_nullable_pointer(ft),
+        .Some(ptrty) => match(
+          ptrty,
+          .Pointer(pe) => {
+            p := pe.*;
+            if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
+          },
+          _ => Option(TypeValue).None
+        ),
+        .None => Option(TypeValue).None
+      ),
+      Option(TypeValue).None
+    )
+  )
+);
+/// Add a dependency edge (self_type_id depends on dep_ty's type) if dep_ty is a
+/// collected type other than self. `cname_to_typeid` maps a C name to its typeId.
+_walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_id : String, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)({
+  dep_cname := get_type_string(dep_ty, context);
+  match(
+    cname_to_typeid.get(dep_cname),
+    .Some(dep_tid) => if(!(dep_tid == self_type_id), {
+      _a := deps_set.add(dep_tid.clone());
+    }),
+    .None => ()
+  );
+});
+/// Add by-value dependencies for a single field type. `guard_nullable` is true
+/// for struct fields (an enum field optimized as a nullable pointer is NOT a
+/// by-value dep there); enum/tuple fields pass false. Mirrors the shared
+/// enum/newtype/value-struct/tuple by-value dependency chain.
+_walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
+  cond(
+    is_enum_type(ft) => if(guard_nullable && can_optimize_as_nullable_pointer(ft).is_some(), (), {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    }),
+    is_newtype_type(ft) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    (is_struct_type(ft) && (!(is_object_type(ft)) && !(is_newtype_type(ft)))) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    is_tuple_type(ft) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    true => ()
+  )
+);
+/// A type collected for topological ordering: (typeId, type, cName, kind).
+_TypeWalkEntry :: object(type_id : String, ty : TypeValue, c_name : String, kind : String);
+/// Generate Dyn-type forward declarations. DEFERRED (Phase-3 dyn type-decls,
+/// types/dyn.ts:generateDynForwardDeclarations) — no dyn types in the
+/// struct/enum/tuple corpus; emits nothing.
+generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)(
+  ()
+);
+/// Generate a Dyn-type declaration. DEFERRED (Phase-3, types/dyn.ts:
+/// generateDynDeclaration) — not exercised by the corpus.
+generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  ()
+);
+/// Generate a Future-trait declaration. DEFERRED (Phase-5 async,
+/// generateFutureTraitDeclaration) — not exercised by the corpus.
+generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  ()
+);
+/// Generate Iso struct types + constructor declarations. DEFERRED (Phase-3 iso,
+/// generateIsoTypeDeclarations) — no iso types in the corpus.
+generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)(
+  ()
+);
+/// Emit all C type declarations: runtime preamble, forward declarations, then the
+/// types in dependency (topological) order, then nullable-pointer enums and the
+/// dyn/union/future pass. Mirrors `generateTypeDeclarations` (src 90-968).
+///
+/// DEFERRED (documented): Gap-6 SomeType.resolvedConcreteType field-type
+/// resolution in the dependency analysis is skipped (the corpus is monomorphized
+/// — fields are already concrete); the dyn/iso/future sub-emitters are Phase-3/5
+/// no-ops (see above).
+generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  _emit_type_runtime_preamble(context);
+  // Forward declarations for structs / enums / future traits.
+  fkeys := context.types.keys();
+  (gf : bool) = true;
+  while(gf, {
+    match(
+      fkeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          cn := entry.c_name.clone();
+          skip := (_walk_skip_some(ty) || entry.c_include.is_some());
+          if(
+            !(skip),
+            cond(
+              is_future_trait_type(ty) => {
+                l := String.from("typedef struct ");
+                l.push_string(cn.clone());
+                l.push_str("_struct ");
+                l.push_string(cn.clone());
+                l.push_str("; // Forward declaration");
+                em.emit_declaration_string_line(l);
+              },
+              is_struct_type(ty) => {
+                // Newtypes are plain typedefs — no forward struct declaration.
+                is_nt_single := (
+                  is_newtype_type(ty) && match(ty,.Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
+                );
+                if(!(is_nt_single), {
+                  l := String.from("typedef struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("_struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("; // Forward declaration");
+                  em.emit_declaration_string_line(l);
+                });
+              },
+              is_enum_type(ty) => {
+                optimized := (can_optimize_as_nullable_pointer(ty).is_some() || can_optimize_as_simple_enum(ty));
+                if(!(optimized), {
+                  l := String.from("typedef struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("_struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("; // Forward declaration");
+                  em.emit_declaration_string_line(l);
+                });
+              },
+              true => ()
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => {
+        gf = false;
+      }
+    );
+  });
+  em.emit_declaration_line("");
+  generate_array_struct_declarations(context);
+  generate_str_type_declaration(context);
+  generate_iso_type_declarations(context);
+  // First pass: simple-enum declarations (leaf types).
+  skeys := context.types.keys();
+  (gs : bool) = true;
+  while(gs, {
+    match(
+      skeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (type_contains_some_type(ty) || entry.c_include.is_some());
+          if(!(skip) && (is_enum_type(ty) && can_optimize_as_simple_enum(ty)), {
+            generate_enum_declaration(ty, entry.c_name.clone(), context);
+          });
+        },
+        .None => ()
+      ),
+      .None => {
+        gs = false;
+      }
+    );
+  });
+  // Second pass: collect structs, complex enums, tuples for topological sorting.
+  entries := ArrayList(_TypeWalkEntry).new();
+  cname_to_typeid := HashMap(String, String).new();
+  ckeys := context.types.keys();
+  (gc : bool) = true;
+  while(gc, {
+    match(
+      ckeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (_walk_skip_some(ty) || entry.c_include.is_some());
+          if(
+            !(skip),
+            cond(
+              is_struct_type(ty) => {
+                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
+                _m := cname_to_typeid.set(entry.c_name.clone(), tid.clone());
+              },
+              (is_enum_type(ty) && (!(can_optimize_as_simple_enum(ty)) && !(can_optimize_as_nullable_pointer(ty).is_some()))) => {
+                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
+                _m := cname_to_typeid.set(entry.c_name.clone(), tid.clone());
+              },
+              is_tuple_type(ty) => {
+                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
+                _m := cname_to_typeid.set(entry.c_name.clone(), tid.clone());
+              },
+              true => ()
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => {
+        gc = false;
+      }
+    );
+  });
+  // Build the dependency graph (edge A→B means B must be defined before A).
+  deps := HashMap(String, HashSet(String)).new();
+  ne := entries.len();
+  (ei : usize) = usize(0);
+  while(ei < ne, {
+    match(
+      entries.get(ei),
+      .Some(e) => {
+        dset := HashSet(String).new();
+        cond(
+          (e.kind == String.from("struct")) => {
+            rfs := get_runtime_struct_fields(e.ty);
+            nf := rfs.len();
+            (fi : usize) = usize(0);
+            while(fi < nf, {
+              match(
+                rfs.get(fi),
+                .Some(field) => {
+                  ft := field.ty;
+                  match(_walk_pointee_newtype(ft),.Some(p) => _walk_add_dep(dset, p, e.type_id.clone(), cname_to_typeid, context),.None => ());
+                  _walk_by_value_dep(dset, ft, e.type_id.clone(), true, cname_to_typeid, context);
+                },
+                .None => ()
+              );
+              fi = (fi + usize(1));
+            });
+          },
+          (e.kind == String.from("enum")) => match(
+            e.ty,
+            .EnumT({ variant_fields }) => {
+              nv := variant_fields.len();
+              (vi : usize) = usize(0);
+              while(vi < nv, {
+                vfs := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+                nvf := vfs.len();
+                (vfi : usize) = usize(0);
+                while(vfi < nvf, {
+                  match(vfs.get(vfi),.Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context),.None => ());
+                  vfi = (vfi + usize(1));
+                });
+                vi = (vi + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          (e.kind == String.from("tuple")) => match(
+            e.ty,
+            .Tuple(_, field_types) => {
+              nft := field_types.len();
+              (ti : usize) = usize(0);
+              while(ti < nft, {
+                match(field_types.get(ti),.Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context),.None => ());
+                ti = (ti + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          true => ()
+        );
+        _d := deps.set(e.type_id.clone(), dset);
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  // Kahn's topological sort.
+  in_degree := HashMap(String, usize).new();
+  (di : usize) = usize(0);
+  while(di < ne, {
+    match(
+      entries.get(di),
+      .Some(e) => match(
+        deps.get(e.type_id.clone()),
+        .Some(s) => {
+          _x := in_degree.set(e.type_id.clone(), s.len());
+        },
+        .None => {
+          _x := in_degree.set(e.type_id.clone(), usize(0));
+        }
+      ),
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  queue := ArrayList(String).new();
+  (qi : usize) = usize(0);
+  while(qi < ne, {
+    match(
+      entries.get(qi),
+      .Some(e) => match(
+        in_degree.get(e.type_id.clone()),
+        .Some(d) => if(d == usize(0), {
+          _q := queue.push(e.type_id.clone());
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    qi = (qi + usize(1));
+  });
+  sorted_ids := ArrayList(String).new();
+  (head : usize) = usize(0);
+  while(head < queue.len(), {
+    tid := match(queue.get(head),.Some(t) => t,.None => String.from(""));
+    head = (head + usize(1));
+    _s := sorted_ids.push(tid.clone());
+    // Decrement in-degree of every node that depends on tid.
+    (oi : usize) = usize(0);
+    while(oi < ne, {
+      match(
+        entries.get(oi),
+        .Some(other) => match(
+          deps.get(other.type_id.clone()),
+          .Some(odeps) => if(odeps.contains(tid.clone()), {
+            cur := match(in_degree.get(other.type_id.clone()),.Some(d) => d,.None => usize(1));
+            nd := if(cur > usize(0), cur - usize(1), usize(0));
+            _u := in_degree.set(other.type_id.clone(), nd);
+            if(nd == usize(0), {
+              _qq := queue.push(other.type_id.clone());
+            });
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  });
+  // Cycle fallback: append any not-yet-sorted entries in original order.
+  if(sorted_ids.len() < ne, {
+    (ci : usize) = usize(0);
+    while(ci < ne, {
+      match(
+        entries.get(ci),
+        .Some(e) => {
+          (seen : bool) = false;
+          (si : usize) = usize(0);
+          ns := sorted_ids.len();
+          while((si < ns) && !(seen), {
+            match(
+              sorted_ids.get(si),
+              .Some(s) => if(s == e.type_id, {
+                seen = true;
+              }),
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+          if(!(seen), {
+            _f := sorted_ids.push(e.type_id.clone());
+          });
+        },
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+  });
+  // Dyn forward declarations before the sorted struct/enum types.
+  generate_dyn_forward_declarations(context);
+  // Emit in sorted order. Look each id back up to its entry.
+  (xi : usize) = usize(0);
+  nx := sorted_ids.len();
+  while(xi < nx, {
+    sid := match(sorted_ids.get(xi),.Some(s) => s,.None => String.from(""));
+    // Find the matching entry (small N).
+    (yi : usize) = usize(0);
+    (found : bool) = false;
+    while((yi < ne) && !(found), {
+      match(
+        entries.get(yi),
+        .Some(e) => if(e.type_id == sid, {
+          found = true;
+          cond(
+            (e.kind == String.from("struct")) => generate_struct_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == String.from("enum")) => generate_enum_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == String.from("tuple")) => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
+            true => ()
+          );
+        }),
+        .None => ()
+      );
+      yi = (yi + usize(1));
+    });
+    xi = (xi + usize(1));
+  });
+  // Fourth pass: nullable-pointer-optimized enums.
+  nkeys := context.types.keys();
+  (gn : bool) = true;
+  while(gn, {
+    match(
+      nkeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (_walk_skip_some(ty) || entry.c_include.is_some());
+          if(!(skip) && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
+            generate_enum_declaration(ty, entry.c_name.clone(), context);
+          });
+        },
+        .None => ()
+      ),
+      .None => {
+        gn = false;
+      }
+    );
+  });
+  // Fifth pass: dyn / union / future-trait declarations.
+  okeys := context.types.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      okeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (type_contains_some_type(ty) || entry.c_include.is_some());
+          if(
+            !(skip),
+            cond(
+              is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
+              is_union_type(ty) => generate_union_declaration(ty, entry.c_name.clone(), context),
+              is_future_trait_type(ty) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
+              true => ()
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
 export(
   generate_array_struct_declarations,
   generate_str_type_declaration,
@@ -647,5 +1183,6 @@ export(
   generate_tuple_declaration,
   generate_union_declaration,
   generate_enum_declaration,
-  _emit_type_runtime_preamble
+  _emit_type_runtime_preamble,
+  generate_type_declarations
 );
