@@ -158,7 +158,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
 _is_unemittable_func_id :: (fn(func_id : String) -> bool)(
   match(
     get_func_type(func_id),
-    .Func({ forall_types, param_types }) => if(forall_types.len() > usize(0), true, {
+    .Func({ forall_types, param_types, result_is_comptime_only }) => if((forall_types.len() > usize(0)) || result_is_comptime_only, true, {
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
