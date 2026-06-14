@@ -14,7 +14,8 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_TEST, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
+{ get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -425,6 +426,40 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
       // "?=" default-value assignment — skip.
       if(_callee_token_value(expr) == "?=", {
         return(());
+      });
+      // Method call `recv.method(args)`: the callee dot-access has no ExprInfo,
+      // so the callee-collection below can't find the method FuncVal. Resolve it
+      // via the type_trait_methods registry (receiver type + method name) and
+      // collect it (+ recurse its body), so codegen's concrete-method dispatch
+      // gets a C name. Mirrors how the dyn path collects trait-value methods.
+      if(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+        cdot_args := match(callee,.FnCall(_, _, da, _, _) => da,.Atom(_, _) => ArrayList(AstExpr).new());
+        recv_ty := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => ri.ty,.None => TypeValue.Unit),.None => TypeValue.Unit);
+        cmname := match(cdot_args.get(usize(1)),.Some(m) => if(ast_expr_is_atom(m), ast_expr_token(m).value, String.from("")),.None => String.from(""));
+        ctid := type_id_or_empty(recv_ty);
+        if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
+          ments := get_type_trait_methods_by_name(ctid, cmname);
+          nme := ments.len();
+          (mmi : usize) = usize(0);
+          while(mmi < nme, {
+            match(
+              ments.get(mmi),
+              .Some(me) => match(
+                me.value,
+                .Some(mv) => if(is_func_val(mv), {
+                  mfid := _func_val_id(mv);
+                  if(!(context.has_function(mfid.clone())), {
+                    context.register_function(mfid.clone(), mv, sanitize_for_c_identifier(mfid.clone(), false));
+                    recur(_func_val_body(mv), context, info);
+                  });
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            mmi = (mmi + usize(1));
+          });
+        });
       });
       match(
         expr_info_table_get(info, ast_expr_id(callee)),
