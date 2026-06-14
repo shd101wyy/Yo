@@ -8,7 +8,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_function_type, is_struct_type, is_module_type, is_object_type, is_some_type, is_function_type_hard_generic } :: import("../../types/guards.yo");
+{ is_function_type, is_struct_type, is_module_type, is_object_type, is_some_type, is_expr_type, is_function_type_hard_generic } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { type_contains_some_type_for_codegen_param, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { AstExpr } :: import("../../expr.yo");
@@ -297,6 +297,31 @@ _func_result_is_comptime_only :: (fn(ft : TypeValue) -> bool)(
 /// ABI level, or the Func has forall type parameters. Mirrors the
 /// `functionType.parameters.some(...) || functionType.forallParameters.length > 0`
 /// generic-parameter test.
+/// True if the function has an `Expr`-typed parameter — i.e. it is a MACRO
+/// (`fn(quote(x) : Expr, …) -> unquote(Expr)`). Macros are expanded at the call
+/// site and never emitted as C functions (Expr has no C representation).
+_func_has_expr_param :: (fn(ft : TypeValue) -> bool)(
+  match(
+    ft,
+    .Func({ param_types }) => {
+      n := param_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !(found), {
+        match(
+          param_types.get(i),
+          .Some(pt) => if(is_expr_type(pt), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
 _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
   match(
     ft,
@@ -487,6 +512,11 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
           is_erm := is_effect_record_member(func_id.clone());
           has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
           ret := _func_result_type(function_type);
+          // UNEMITTABLE prototype: a hard-generic (forall / SomeT param) or a
+          // MACRO (Expr-typed param, e.g. `if`) — skip regardless of evidence/
+          // effects (macros/where-clause generics carry evidence, which would
+          // otherwise disable skip1). Their params have no C type.
+          skip_unemittable := (!(is_user_main) && (is_function_type_hard_generic(function_type) || _func_has_expr_param(function_type)));
           // Hard-generic / comptime / inline-only skip.
           skip1 := ((!(is_user_main) && (!(is_effectful) && (!(has_evidence) && !(is_erm)))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
           // Generic params / return skip.
@@ -494,7 +524,7 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
           has_generic_return := type_contains_some_type_for_codegen_param(ret, ArrayList(String).new());
           returns_plain_impl := _returns_plain_impl(ret);
           skip2 := (has_generic_params || ((has_generic_return && !(returns_plain_impl)) && !(is_erm)));
-          if(!(skip1 || skip2), {
+          if(!(skip_unemittable || (skip1 || skip2)), {
             is_exported := (is_user_main || context.exported_function_labels.contains_key(func_id.clone()));
             body_for_decl := if(is_erm, Option(AstExpr).None, body);
             generate_function_declaration(function_type, c_name.clone(), false, is_exported, body_for_decl, context);

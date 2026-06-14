@@ -2194,7 +2194,20 @@ Fix: wrap the call:
                   .Some(i) => i,
                   .None => new_expr_info(ct_result.caller_env, ret_type)
                 );
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), exp_info);
+                // Record the expansion on the macro CALL's info so C codegen
+                // (generation.yo reads ei.macro_expansion) and the collection pass
+                // generate/walk the EXPANDED tree (e.g. `if(c, then, else)` → its
+                // `cond(...)`) instead of the raw, un-emittable macro-call FnCall.
+                // Use a FRESH info — exp_info IS the expansion's own info, so a
+                // self-referential macro_expansion would recurse forever; copy the
+                // begin-block-relevant fields (value / control_flow / variable_name)
+                // so statement sequencing + early-return detection still work.
+                call_macro_info := new_expr_info(exp_info.env, exp_info.ty);
+                call_macro_info.value = exp_info.value;
+                call_macro_info.control_flow = exp_info.control_flow;
+                call_macro_info.variable_name = exp_info.variable_name;
+                call_macro_info.macro_expansion = Option(AstExpr).Some(expanded_expr);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), call_macro_info);
                 _ := param_vars;
                 return(expr);
               },
