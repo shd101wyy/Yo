@@ -33,6 +33,7 @@ open(import("std/string"));
 { fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
 { generate_function_declarations } :: import("./functions/declarations.yo");
 { generate_all_functions, generate_main_wrapper } :: import("./functions/generation.yo");
+{ generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
 /// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
@@ -227,6 +228,12 @@ static Slice_uint8_t_u42_ __yo_args;
   generate_function_declarations(base);
   // Fourth pass: function bodies (the dispatcher was registered above).
   generate_all_functions(ctx);
+  // Dyn dispatch scaffolding (box ctor/dispose + RC dup/drop ported; wrappers
+  // and vtables are documented stubs). Mirrors codegen-c.ts 219-228.
+  generate_dyn_box_functions(ctx);
+  generate_dyn_wrapper_functions(ctx);
+  generate_dyn_vtables(ctx);
+  generate_dyn_dup_drop(ctx);
   // Main wrapper (executable mode only).
   if(!(is_library), {
     generate_main_wrapper(ctx);

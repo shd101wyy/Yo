@@ -1,0 +1,151 @@
+//! Dyn function emitters — partial 1-to-1 port of `src/codegen/functions/dyn.ts`.
+//!
+//! PORTED: generate_dyn_dup_drop (RC dup/drop for the fat pointer) and
+//! generate_dyn_box_functions (box ctor + dispose). DEFERRED (documented stubs,
+//! the intricate dispatch machinery): generate_dyn_wrapper_functions
+//! (functions/dyn.ts:163, ~266 LOC — adapts concrete methods to the void*-self
+//! vtable signature) and generate_dyn_vtables (functions/dyn.ts:430, ~118 LOC —
+//! static vtable instances). Until those land, dyn() programs emit the box/
+//! dup/drop scaffolding but cannot dispatch — a focused next-session unit.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ FunctionGenerationContext } :: import("./context.yo");
+{ type_key, get_type_string } :: import("../utils/index.yo");
+{ get_drop_function_for_type } :: import("../exprs/drop_dup.yo");
+/// Drain a HashMap-key iterator into an ArrayList of the keys.
+_dyn_impl_keys :: (fn(context : FunctionGenerationContext) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  it := context.base.dyn_impls.keys();
+  (done : bool) = false;
+  while(!(done), {
+    match(
+      it.next(),
+      .Some(k) => {
+        _p := out.push(k);
+      },
+      .None => {
+        done = true;
+      }
+    );
+  });
+  out
+});
+/// Generate dup/drop functions for dyn types (RC on the boxed data pointer).
+/// Mirrors `generateDynDupDrop` (functions/dyn.ts:18).
+generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  generated := HashSet(String).new();
+  keys := _dyn_impl_keys(context);
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.base.dyn_impls.get(key.clone()),
+      .Some(impl_entry) => {
+        dyn_key := type_key(impl_entry.dyn_type.clone());
+        dyn_c := match(context.base.get_type_c_name(dyn_key.clone()),.Some(cn) => cn,.None => `__yo_dyn_${dyn_key}`);
+        if(!(generated.contains(dyn_c.clone())), {
+          _g := generated.add(dyn_c.clone());
+          em.emit_string_line(`${dyn_c} __yo_dup_${dyn_c}(${dyn_c} dyn) {`);
+          em.emit_line("  if (dyn.data) {");
+          em.emit_line("    __yo_incr_rc(dyn.data);");
+          em.emit_line("  }");
+          em.emit_line("  return dyn;");
+          em.emit_line("}");
+          em.emit_line("");
+          em.emit_string_line(`void __yo_drop_${dyn_c}(${dyn_c} dyn) {`);
+          em.emit_line("  if (dyn.data) {");
+          em.emit_line("    __yo_decr_rc(dyn.data);");
+          em.emit_line("  }");
+          em.emit_line("}");
+          em.emit_line("");
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate box constructor + dispose functions for dyn impls. Mirrors
+/// `generateDynBoxFunctions` (functions/dyn.ts:57). yo-self resolves the
+/// concrete type's drop fn via get_drop_function_for_type (the type-method
+/// registry) rather than TS's `concreteType.trait.fields.find(___drop)`.
+generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  if(context.base.dyn_impls.is_empty(), {
+    return(());
+  });
+  em := context.base.emitter;
+  em.emit_line("");
+  em.emit_line("// === Dyn Box Functions ===");
+  em.emit_line("// Constructor and dispose functions for dyn boxes");
+  em.emit_line("");
+  generated := HashSet(String).new();
+  keys := _dyn_impl_keys(context);
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.base.dyn_impls.get(key.clone()),
+      .Some(impl_entry) => {
+        concrete_key := type_key(impl_entry.concrete_type.clone());
+        concrete_c := match(context.base.get_type_c_name(concrete_key.clone()),.Some(cn) => cn,.None => `unknown_${concrete_key}`);
+        box_name := `__yo_dyn_box_${concrete_c}`;
+        if(!(generated.contains(box_name.clone())), {
+          _g := generated.add(box_name.clone());
+          value_str := get_type_string(impl_entry.concrete_type.clone(), context.base);
+          em.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value) {`);
+          em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_malloc(sizeof(${box_name}));`);
+          em.emit_line("  box->header.ref_count = 1;");
+          em.emit_line("  box->header.borrow_count = 0;");
+          if(context.base.needs_cycle_gc, {
+            em.emit_line("  box->header.gc_flags = 0;");
+            em.emit_line("  box->header.gc_mark = __YO_GC_UNMARKED;");
+            em.emit_line("  box->header.gc_next = NULL;");
+            em.emit_line("  box->header.gc_prev = NULL;");
+          });
+          dispose_name := `__yo_dispose_${box_name}`;
+          if(context.base.needs_cycle_gc, {
+            em.emit_string_line(`  box->header.dispose_fn = ${dispose_name};`);
+          }, {
+            tid := context.base.dispose_type_id_for(dispose_name.clone());
+            em.emit_string_line(`  box->header.type_id = ${tid.to_string()};`);
+          });
+          if(context.base.needs_cycle_gc, {
+            em.emit_line("  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types");
+          });
+          em.emit_line("  box->value = value;");
+          em.emit_line("  return box;");
+          em.emit_line("}");
+          em.emit_line("");
+          em.emit_string_line(`static void __yo_dispose_${box_name}(void* ptr) {`);
+          em.emit_string_line(`  ${box_name}* box = (${box_name}*)ptr;`);
+          match(
+            get_drop_function_for_type(impl_entry.concrete_type.clone(), context),
+            .Some(drop_c) => em.emit_string_line(`  ${drop_c}(box->value);`),
+            .None => ()
+          );
+          em.emit_line("}");
+          em.emit_line("");
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate wrapper functions for dyn method dispatch. DEFERRED — the ~266-LOC
+/// signature-adaptation machinery (functions/dyn.ts:163) is a focused
+/// next-session unit; without it dyn() programs cannot dispatch.
+generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> unit)(
+  ()
+);
+/// Generate static vtable instances. DEFERRED (functions/dyn.ts:430, ~118 LOC)
+/// — pairs with generate_dyn_wrapper_functions.
+generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)(
+  ()
+);
+export(generate_dyn_dup_drop, generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables);
