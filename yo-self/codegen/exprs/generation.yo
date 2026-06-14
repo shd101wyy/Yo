@@ -95,7 +95,7 @@ open(import("std/string"));
   BK_OPEN
 } :: import("../../expr.yo");
 { has_any_control_flow } :: import("../../expr_info.yo");
-{ is_func_val, is_unknown_val } :: import("../../value.yo");
+{ is_func_val, is_unknown_val, is_struct_val } :: import("../../value.yo");
 { is_unit_type, is_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
@@ -291,7 +291,28 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), match(generate_initialization_assignment(expr, indent.clone(), context),.Some(r) => return(r),.None => ()));
   if(ast_expr_is_fn_call_of(expr, "=", Option(usize).Some(usize(2))), return(generate_assignment(expr, indent.clone(), context)));
   // Already-computed comptime value (non-unit, no control flow).
-  match(ei.value,.Some(v) => if((!(is_unknown_val(v)) && !(is_unit_type(ei.ty))) && !(has_any_control_flow(ei.control_flow)), return(generate_comptime_value(v, ei.ty, context.base))),.None => ());
+  //
+  // EXCEPTION: a value-struct/newtype CONSTRUCTOR call with runtime field args
+  // (e.g. `Self(v : n)` in a method body) carries a `StructVal` shell value AND
+  // a non-empty `runtime_arg_exprs_in_order`. TS produces an UnknownValue here
+  // (so its `!isUnknownValue` guard fails and it falls through to the call
+  // path); yo-self's evaluator produces a `StructVal` with runtime holes, which
+  // `generate_comptime_value` cannot fill (its field values are unknown → it
+  // emits `/* skip generating value */`). Detect this and fall through to
+  // `generate_other_function_call`'s value-struct constructor branch, which
+  // emits the compound literal / newtype cast from the runtime arg exprs.
+  ctor_has_runtime_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => (ra.len() > usize(0)),.None => false);
+  match(
+    ei.value,
+    .Some(v) => {
+      is_plain_comptime := ((!(is_unknown_val(v)) && !(is_unit_type(ei.ty))) && !(has_any_control_flow(ei.control_flow)));
+      is_runtime_ctor := (is_struct_val(v) && ctor_has_runtime_args);
+      if(is_plain_comptime && !(is_runtime_ctor), {
+        return(generate_comptime_value(v, ei.ty, context.base));
+      });
+    },
+    .None => ()
+  );
   if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), return(generate_field_access(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(generate_begin(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(generate_cond_expression(expr, indent.clone(), context)));
