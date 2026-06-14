@@ -501,8 +501,21 @@ is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // ---------------------------------------------------------------------------
 // Box / effects-row guards
 // ---------------------------------------------------------------------------
-// Phase 2b: requires `isReferenceSemantics` and single-field struct check.
-is_boxed_type :: (fn(t : TypeValue) -> bool)(false);
+// Mirrors `isBoxedType` (src/types/guards.ts:529): an object (reference-
+// semantics) struct with exactly one field labeled `*` whose typeName starts
+// with "Box(" — i.e. the prelude `Box(T)` wrapper.
+is_boxed_type :: (fn(t : TypeValue) -> bool)(
+  if(
+    !(is_object_type(t)),
+    false,
+    match(
+      t,
+      .Struct({ name, field_labels }) =>
+        (((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)),.Some(l) => (l == "*"),.None => false)) && name.starts_with("Box(")),
+      _ => false
+    )
+  )
+);
 is_effects_row_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EffectsRowT(implicit_labels : _) => true, _ => false)
 );

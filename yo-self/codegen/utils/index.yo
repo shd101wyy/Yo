@@ -728,7 +728,15 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // --- Phase-3/5 (dyn / async): need env+substitute SomeType resolution ---
     .SomeT({}) => panic("get_type_string: SomeType lowering is Phase 3/5 (Gap 6) — not yet ported"),
     .IsoT({}) => panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
-    .DynT({}) => panic("get_type_string: Dyn lowering is Phase 3 — not yet ported"),
+    // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
+    // by value. Mirrors getTypeString's TypeTag.Dyn case (utils/index.ts:547):
+    // return the registered fat-pointer C type name (keyed by type_key here,
+    // not TS's numeric type.id).
+    .DynT({}) => match(
+      context.get_type_c_name(type_key(t)),
+      .Some(cn) => cn,
+      .None => panic("No C type name found for dynamic dispatch type")
+    ),
     .FnTraitT({}) => panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
     .FutureTraitT({}) => panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
     // Comptime-only / type-level types should not reach codegen.
