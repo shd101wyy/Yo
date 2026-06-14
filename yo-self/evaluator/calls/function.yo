@@ -96,7 +96,8 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, validate_where_constraints_for_call } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, validate_where_constraints_for_call, create_specialized_function_inline } :: import("./helper.yo");
+{ get_func_type, register_func_type } :: import("../../function_value.yo");
 { create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
 /// `TypeVal(SomeT)`. TS names every result UnknownValue (variableName is
@@ -2297,6 +2298,102 @@ Fix: wrap the call:
           // function.ts:2263 attachTempVariableToExpr(expr, true, ...).
           attach_temp_variable_to_expr(expr, true, ctx);
           _ := param_vars;
+          // Generic-function SPECIALIZATION for codegen (Gap 6). The runtime-
+          // return path doesn't execute the body, leaving the callee's ExprInfo
+          // as the GENERIC FuncVal (its `forall(T) v:T` type crashes
+          // get_type_string). For a generic callee, produce a monomorphized
+          // FuncVal (specialized func_id + forall-free registered type, see
+          // helper.yo) and record it (value + type) on the callee node so
+          // codegen collects/emits the SPECIALIZED instance. (Method-chain
+          // generics like println still hit the upstream soft-fallback-to-unit
+          // inside create_specialized — that's the deeper Gap-6 evaluator work;
+          // simple generic bodies specialize cleanly.) Mirrors TS recording the
+          // specialized FunctionValue on `call.func.$.value`.
+          if(forall_names.len() > usize(0), {
+            spec_ct := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
+            spec_forall_args := ArrayList(ArgEntry).new();
+            (sfa_i : usize) = usize(0);
+            while(sfa_i < fa_bound_names.len(), {
+              fbt := match(fa_bound_types.get(sfa_i),.Some(t) => t,.None => t_unit());
+              _sfa := spec_forall_args.push(
+                ArgEntry(
+                  value : Option(EvalValue).Some(EvalValue.TypeVal(box(fbt.clone()))),
+                  parameter_type : TypeValue.TypeUni(usize(0)),
+                  arg_type : fbt
+                )
+              );
+              sfa_i = (sfa_i + usize(1));
+            });
+            spec_reg_args := ArrayList(ArgEntry).new();
+            (sra_i : usize) = usize(0);
+            while(sra_i < n_supplied_reg, {
+              ainfo := match(evaled_arg_infos.get(sra_i),.Some(i) => i,.None => new_expr_info(env, t_unit()));
+              _sra := spec_reg_args.push(
+                ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : ainfo.ty)
+              );
+              sra_i = (sra_i + usize(1));
+            });
+            spec_av := ArgValues(
+              forall_args : spec_forall_args,
+              args : spec_reg_args,
+              implicit_args : Option(ArrayList(ArgEntry)).None,
+              variadic_args : ArrayList(VarArgEntry).new()
+            );
+            spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
+            spec_fid := match(spec_fv,.FuncVal(_, _, _, _, _, _, _, _, sid) => sid, _ => String.from(""));
+            // helper.yo's create_specialized registers the specialized type but
+            // resolves its RETURN type via evaluate_function_return_type_again,
+            // which does NOT resolve a forall-result SomeT (frame-level mismatch)
+            // — e.g. `fn(a,b:T)->T` specialized to i32 args registers
+            // `fn(a:i32,b:i32)->T` (result still `T`). This arm already computed
+            // the concrete return (`resolved_ret`, via explicit forall subst), so
+            // re-register the specialized type with the result corrected.
+            base_spec_ty := get_func_type(spec_fid);
+            spec_ty_fixed := match(
+              base_spec_ty,
+              .Func({
+                forall_labels : fx_fl,
+                forall_types : fx_ft,
+                param_labels : fx_pl,
+                param_types : fx_pt,
+                implicit_labels : fx_il,
+                implicit_types : fx_it,
+                implicit_spreads : fx_isp,
+                where_types : fx_wt,
+                result_is_comptime_only : fx_rico,
+                param_is_ref : fx_pir,
+                param_is_owning : fx_pio,
+                result_is_ref : fx_rir,
+                has_variadic : fx_hv,
+                is_extern : fx_ie,
+                extern_name : fx_en,
+                is_control : fx_ic
+              }) => TypeValue.Func(
+                fx_fl,
+                fx_ft,
+                fx_pl,
+                fx_pt,
+                fx_il,
+                fx_it,
+                fx_isp,
+                fx_wt,
+                box(resolved_ret.clone()),
+                fx_rico,
+                fx_pir,
+                fx_pio,
+                fx_rir,
+                fx_hv,
+                fx_ie,
+                fx_en,
+                fx_ic
+              ),
+              _ => base_spec_ty
+            );
+            register_func_type(spec_fid.clone(), spec_ty_fixed);
+            spec_callee_info := new_expr_info(env, spec_ty_fixed);
+            spec_callee_info.value = Option(EvalValue).Some(spec_fv);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);
+          });
           return(expr);
         });
         old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;

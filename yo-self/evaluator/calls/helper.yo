@@ -109,7 +109,8 @@ open(import("std/string"));
 {
   mark_as_control_fn,
   is_control_fn,
-  get_definition_site_return
+  get_definition_site_return,
+  register_func_type
 } :: import("../../function_value.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -1087,6 +1088,62 @@ create_specialized_function_inline :: (
             new_cap_tys,
             new_cap_vals,
             specialized_func_id
+          );
+          // Register the SPECIALIZED Func TYPE under the specialized func_id so
+          // codegen's get_func_type(specialized_func_id) returns concrete
+          // param/return types (forall dropped) instead of the generic
+          // `forall(T) …` whose SomeT crashes get_type_string (Gap 6). Mirrors
+          // TS `specializedType`.
+          match(
+            func_type,
+            .Func({
+              param_labels : sp_pl,
+              implicit_labels : sp_il,
+              implicit_types : sp_it,
+              implicit_spreads : sp_isp,
+              where_types : sp_wt,
+              result : sp_res_b,
+              result_is_comptime_only : sp_rico,
+              param_is_ref : sp_pir,
+              param_is_owning : sp_pio,
+              result_is_ref : sp_rir,
+              has_variadic : sp_hv,
+              is_extern : sp_ie,
+              extern_name : sp_en,
+              is_control : sp_ic
+            }) => {
+              spec_param_types := ArrayList(TypeValue).new();
+              (spi : usize) = usize(0);
+              while(spi < runtime_param_tys.len(), {
+                rpt := match(runtime_param_tys.get(spi),.Some(t) => t,.None => t_unit());
+                spec_param_types.push(
+                  convert_comptime_type_to_runtime_type_with_expected(rpt, Option(TypeValue).None, callee_env)
+                );
+                spi = (spi + usize(1));
+              });
+              spec_result := evaluate_function_return_type_again(sp_res_b.*, callee_env, ctx);
+              spec_type := TypeValue.Func(
+                ArrayList(String).new(),
+                ArrayList(TypeValue).new(),
+                sp_pl,
+                spec_param_types,
+                sp_il,
+                sp_it,
+                sp_isp,
+                sp_wt,
+                box(spec_result),
+                sp_rico,
+                sp_pir,
+                sp_pio,
+                sp_rir,
+                sp_hv,
+                sp_ie,
+                sp_en,
+                sp_ic
+              );
+              register_func_type(specialized_func_id.clone(), spec_type);
+            },
+            _ => ()
           );
           // Detect isControlFunction: set if the original was already a control
           // function OR if the specialized body contains unwind.
