@@ -173,7 +173,13 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       )
     },
     // --- enum (nullable-pointer / simple / tagged-union) ---
-    .EnumVal(variant, fields) => {
+    .EnumVal(variant_raw, fields) => {
+      // An enum VALUE's variant name carries the leading `.` of the `.Variant`
+      // source form (e.g. `.Just`); the EnumT's variant_names are clean. Strip
+      // it so `_enum_variant_index` finds the variant (else None → the payload
+      // `.data` is silently dropped) and so the `.data.<variant>` field name is
+      // valid. Mirrors the same strip in get_enum_variant_c_name.
+      variant := if(variant_raw.starts_with("."), variant_raw.substring(usize(1), variant_raw.len()), variant_raw.clone());
       ptr_opt := can_optimize_as_nullable_pointer(ty);
       cond(
         (ptr_opt.is_some() && (fields.len() == usize(0))) => String.from("NULL"),

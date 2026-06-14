@@ -156,6 +156,15 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     ei_opt,
     .Some(ei) => {
       env_opt := Option(Environment).Some(ei.env);
+      // Locally-shadowed variable (a match-arm destructured field, declared in
+      // the arm's C block under its SOURCE name): resolve to that source name,
+      // not the evaluator's temp `variable_name`. Mirrors TS
+      // `localShadowedVariables` (the destructure bind declares `<T> v = ...`
+      // and the body must reference `v`, not the temp). Keyed by the source
+      // TOKEN; the matching declaration uses the same sanitized source name.
+      if(match(context.local_shadowed_variables,.Some(s) => s.contains(tv.clone()),.None => false), {
+        return(get_variable_name_for_codegen(tv.clone(), Option(Environment).None));
+      });
       // variableName path: comptime-only constant inline, else the name.
       match(
         ei.variable_name,

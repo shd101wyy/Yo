@@ -14,6 +14,7 @@
 //! state-machine storage of destructured variables (Phase 5, gated on in_async).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -589,16 +590,70 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
   em.emit_string_line(close);
   if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
 });
+/// Add a name to the function's local-shadowed-variables set (creating it if
+/// absent). A shadowed name resolves in `generate_atom` to its sanitized
+/// SOURCE name (the arm-block C declaration), not the evaluator's temp.
+_shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  match(
+    context.local_shadowed_variables,
+    .Some(s) => {
+      _a := s.add(name);
+    },
+    .None => {
+      ns := HashSet(String).new();
+      _a := ns.add(name);
+      context.local_shadowed_variables = Option(HashSet(String)).Some(ns);
+    }
+  );
+});
+/// Remove a name from the local-shadowed-variables set (after an arm body, so
+/// the shadow does not leak to sibling arms / outer scope).
+_shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  match(
+    context.local_shadowed_variables,
+    .Some(s) => {
+      _r := s.remove(name);
+    },
+    .None => ()
+  );
+});
+/// Remove the shadows a tagged-union arm's destructuring added, mirroring the
+/// var extraction in `_emit_destructure_binds` (labeled `label : var` → var is
+/// arg[1]; positional → the atom itself). Called after the arm body.
+_remove_arm_shadows :: (fn(params : ArrayList(AstExpr), context : FunctionGenerationContext) -> unit)({
+  np := params.len();
+  (pi : usize) = usize(0);
+  while(pi < np, {
+    match(
+      params.get(pi),
+      .Some(p) => {
+        var_atom := if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), match(_args(p).get(usize(1)),.Some(v) => v,.None => p), p);
+        if(ast_expr_is_atom(var_atom) && !(ast_expr_token(var_atom).value == String.from("_")), {
+          _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(var_atom).value, false));
+        });
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+});
 /// Emit the destructuring binds for a tagged-union arm: `<T> <v> =
 /// <matched><access>data.<Variant>.<field>;` per bound field, via the EnumT
 /// parallel arrays (variant_names / variant_field_labels / variant_fields).
 /// Labeled (`.Circle(r : radius)`) and positional (`.Point(x, y)`) forms.
-/// (SM storage of destructured vars is Phase 5 — gated dead here.)
+/// Each bound var's source name is added to local_shadowed_variables so the
+/// arm body resolves it to the local C declaration (not the evaluator temp);
+/// the caller removes them after the body. (SM storage is Phase 5 — gated.)
 _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, params : ArrayList(AstExpr), matched_value_code : String, access : str, body_indent : String, context : FunctionGenerationContext) -> unit)(
   match(
     enum_type,
     .EnumT({ variant_names : vns, variant_fields : vfs, variant_field_labels : vfls }) => {
       em := context.base.emitter;
+      // A match-arm variant pattern carries the leading `.` of `.Variant`; the
+      // EnumT's variant_names are clean. Strip it so the lookup matches (else no
+      // bind is emitted and the body references an undeclared variable) and so
+      // the `.data.<variant>` field name is valid.
+      cvariant := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
       // Find the variant index.
       (vi : usize) = vns.len();
       nv := vns.len();
@@ -606,7 +661,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
       while(vk < nv, {
         match(
           vns.get(vk),
-          .Some(vn) => if(vn == variant_name, {
+          .Some(vn) => if(vn == cvariant, {
             vi = vk;
           }),
           .None => ()
@@ -666,11 +721,12 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                         decl.push_string(matched_value_code.clone());
                         decl.push_str(access);
                         decl.push_str("data.");
-                        decl.push_string(variant_name.clone());
+                        decl.push_string(cvariant.clone());
                         decl.push_str(".");
                         decl.push_string(sanitize_for_c_identifier(label.clone(), false));
                         decl.push_str(";");
                         em.emit_string_line(decl);
+                        _shadow_add(context, sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
                       });
                     });
                   }),
@@ -700,11 +756,12 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                   decl.push_string(matched_value_code.clone());
                   decl.push_str(access);
                   decl.push_str("data.");
-                  decl.push_string(variant_name.clone());
+                  decl.push_string(cvariant.clone());
                   decl.push_str(".");
                   decl.push_string(sanitize_for_c_identifier(field_label, false));
                   decl.push_str(";");
                   em.emit_string_line(decl);
+                  _shadow_add(context, sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
                 });
               }),
               .None => ()
@@ -829,6 +886,8 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
                     match(rargs.get(usize(1)),.Some(v) => v,.None => cb0)
                   }, cb0);
                   _emit_case_body_and_break(cb, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                  // Remove this arm's destructuring shadows so they don't leak.
+                  _remove_arm_shadows(params, context);
                   cl := indent.clone();
                   cl.push_str("}");
                   em.emit_string_line(cl);
