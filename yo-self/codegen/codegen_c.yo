@@ -29,7 +29,8 @@ open(import("std/string"));
 { collect_required_functions, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
 { collect_required_types, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
-{ generate_type_declarations } :: import("./types/generation.yo");
+{ generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
+{ fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
 { generate_function_declarations } :: import("./functions/declarations.yo");
 { generate_all_functions, generate_main_wrapper } :: import("./functions/generation.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
@@ -208,6 +209,10 @@ typedef enum {
   compute_needs_cycle_gc(base);
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
+  // Re-key dyn impls to C names (now available), then emit dyn box types.
+  // Mirrors codegen-c.ts: fixupDynImplKeys → generateDynBoxTypes.
+  fixup_dyn_impl_keys(base);
+  generate_dyn_box_types(base);
   // Command-line arguments runtime shim.
   base.emitter.emit_declaration_string_line(
     `

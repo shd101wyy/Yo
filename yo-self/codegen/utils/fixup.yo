@@ -1,0 +1,60 @@
+//! Dyn-impl key fixup — 1-to-1 port of `src/codegen/utils/fixup.ts`.
+//!
+//! Re-keys `context.dyn_impls` from type-id-based keys to C-name-based keys,
+//! to be called AFTER type generation (when C names are registered). yo-self's
+//! `DynT` carries no `.id` and no `resolvedConcreteType`, so the key components
+//! use `type_key(...)` directly (the registry key) and the concrete type is
+//! used as-is (no SomeType-resolve step).
+open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ CodeGenContext, DynImplEntry, type_key } :: import("./index.yo");
+{ extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+/// Fix up dyn impl keys to use C names instead of ids. Mirrors `fixupDynImplKeys`.
+fixup_dyn_impl_keys :: (fn(context : CodeGenContext) -> unit)({
+  new_map := HashMap(String, DynImplEntry).new();
+  // Drain the current keys (Yo has no for-over-iterator).
+  keys := ArrayList(String).new();
+  kit := context.dyn_impls.keys();
+  (kdone : bool) = false;
+  while(!(kdone), {
+    match(
+      kit.next(),
+      .Some(k) => {
+        _p := keys.push(k);
+      },
+      .None => {
+        kdone = true;
+      }
+    );
+  });
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.dyn_impls.get(key.clone()),
+      .Some(impl_entry) => {
+        dyn_key := type_key(impl_entry.dyn_type.clone());
+        dyn_c := match(context.get_type_c_name(dyn_key.clone()),.Some(cn) => cn,.None => `__yo_dyn_${dyn_key}`);
+        concrete_key := type_key(impl_entry.concrete_type.clone());
+        concrete_c := match(
+          context.get_type_c_name(concrete_key.clone()),
+          .Some(cn) => cn,
+          .None => match(
+            extract_fn_trait_from_type(impl_entry.concrete_type.clone()),
+            .Some(ft) => match(context.get_type_c_name(type_key(ft)),.Some(c) => c,.None => `unknown_${concrete_key}`),
+            .None => `unknown_${concrete_key}`
+          )
+        );
+        new_key := `${concrete_c}_${dyn_c}`;
+        _s := new_map.set(new_key, impl_entry);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  context.dyn_impls = new_map;
+});
+export(fixup_dyn_impl_keys);
