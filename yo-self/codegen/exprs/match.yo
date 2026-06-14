@@ -621,11 +621,15 @@ _shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> uni
 /// var extraction in `_emit_destructure_binds` (labeled `label : var` → var is
 /// arg[1]; positional → the atom itself). Called after the arm body.
 _remove_arm_shadows :: (fn(params : ArrayList(AstExpr), context : FunctionGenerationContext) -> unit)({
-  np := params.len();
+  // Mirror the curly unwrap in _emit_destructure_binds so curly-bound vars are
+  // also un-shadowed.
+  is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)),.Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None),.None => false)));
+  dparams := if(is_curly, match(params.get(usize(0)),.Some(p0) => _args(p0),.None => params.clone()), params.clone());
+  np := dparams.len();
   (pi : usize) = usize(0);
   while(pi < np, {
     match(
-      params.get(pi),
+      dparams.get(pi),
       .Some(p) => {
         var_atom := if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), match(_args(p).get(usize(1)),.Some(v) => v,.None => p), p);
         if(ast_expr_is_atom(var_atom) && !(ast_expr_token(var_atom).value == String.from("_")), {
@@ -671,13 +675,21 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
       if(vi < nv, {
         labels := match(vfls.get(vi),.Some(l) => l,.None => ArrayList(String).new());
         types := match(vfs.get(vi),.Some(t) => t,.None => ArrayList(TypeValue).new());
+        // Curly destructuring `.Variant({a, b : alias})`: the single param is a
+        // `_`(...) call (the evaluator's curly representation). Lift its inner
+        // args so the labeled/positional logic below binds the fields. (`{a}`
+        // atoms bind positionally to the field at that index — correct when the
+        // curly fields are in declaration order; `{a : alias}` `:` pairs bind by
+        // label.)
+        is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)),.Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None),.None => false)));
+        dparams := if(is_curly, match(params.get(usize(0)),.Some(p0) => _args(p0),.None => params.clone()), params.clone());
         // Labeled if any param is a `:`(2) pair.
         (has_labeled : bool) = false;
-        np := params.len();
+        np := dparams.len();
         (pk : usize) = usize(0);
         while(pk < np, {
           match(
-            params.get(pk),
+            dparams.get(pk),
             .Some(p) => if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), {
               has_labeled = true;
             }),
@@ -689,7 +701,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
           (pi : usize) = usize(0);
           while(pi < np, {
             match(
-              params.get(pi),
+              dparams.get(pi),
               .Some(param) => if(ast_expr_is_fn_call_of(param, ":", Option(usize).Some(usize(2))), {
                 pargs := _args(param);
                 label := match(pargs.get(usize(0)),.Some(le) => if(ast_expr_is_atom(le), ast_expr_token(le).value, String.from("")),.None => String.from(""));
@@ -743,7 +755,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
           (fi : usize) = usize(0);
           while(fi < limit, {
             match(
-              params.get(fi),
+              dparams.get(fi),
               .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == String.from("_")), {
                 field_label := match(labels.get(fi),.Some(fl) => fl,.None => String.from(""));
                 ftype := match(types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
