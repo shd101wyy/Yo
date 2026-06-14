@@ -366,6 +366,35 @@ _body_is_effectful :: (fn(body : Option(AstExpr), context : CodeGenContext) -> b
     .None => false
   )
 );
+/// Whether a collected function should be SKIPPED for C codegen (both its
+/// forward declaration AND its body). TS applies this same skip set in BOTH
+/// `generateFunctionDeclarations` and `generateAllFunctions` (generation.ts
+/// :583-661) — the two loops MUST agree, else a function whose prototype is
+/// skipped but whose body is emitted produces "call to undeclared function" /
+/// "static declaration follows non-static" at any call site that precedes the
+/// definition. This is the single source of truth, called from both loops.
+///
+/// Skip when (and `__yo_user_main` is never skipped):
+///   - skip_unemittable: hard-generic (forall / SomeT param) or MACRO (Expr param)
+///   - skip1: (no effects/evidence/effect-record) and (hard-generic or
+///     comptime-only result or builtin-inline-only body)
+///   - skip2: generic params, or generic return that is not a plain `Impl(...)`
+should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : EvalValue, context : CodeGenContext) -> bool)({
+  function_type := get_func_type(func_id.clone());
+  is_user_main := (c_name == String.from("__yo_user_main"));
+  body := _func_value_body(value);
+  is_effectful := _body_is_effectful(body, context);
+  is_erm := is_effect_record_member(func_id.clone());
+  has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
+  ret := _func_result_type(function_type);
+  skip_unemittable := (!(is_user_main) && (is_function_type_hard_generic(function_type) || _func_has_expr_param(function_type)));
+  skip1 := ((!(is_user_main) && (!(is_effectful) && (!(has_evidence) && !(is_erm)))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
+  has_generic_params := ((!(is_user_main) && (!(is_effectful) && !(is_erm))) && _func_has_generic_params(function_type));
+  has_generic_return := type_contains_some_type_for_codegen_param(ret, ArrayList(String).new());
+  returns_plain_impl := _returns_plain_impl(ret);
+  skip2 := (has_generic_params || ((has_generic_return && !(returns_plain_impl)) && !(is_erm)));
+  skip_unemittable || (skip1 || skip2)
+});
 /// Emit a single function's forward declaration with the right linkage. Mirrors
 /// `generateFunctionDeclaration`. `is_exported` is precomputed by the caller via
 /// the SAME predicate the body emitter (generate_function) uses, so the
@@ -508,23 +537,8 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
           function_type := get_func_type(func_id.clone());
           is_user_main := (c_name == String.from("__yo_user_main"));
           body := _func_value_body(value);
-          is_effectful := _body_is_effectful(body, context);
           is_erm := is_effect_record_member(func_id.clone());
-          has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
-          ret := _func_result_type(function_type);
-          // UNEMITTABLE prototype: a hard-generic (forall / SomeT param) or a
-          // MACRO (Expr-typed param, e.g. `if`) — skip regardless of evidence/
-          // effects (macros/where-clause generics carry evidence, which would
-          // otherwise disable skip1). Their params have no C type.
-          skip_unemittable := (!(is_user_main) && (is_function_type_hard_generic(function_type) || _func_has_expr_param(function_type)));
-          // Hard-generic / comptime / inline-only skip.
-          skip1 := ((!(is_user_main) && (!(is_effectful) && (!(has_evidence) && !(is_erm)))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
-          // Generic params / return skip.
-          has_generic_params := ((!(is_user_main) && (!(is_effectful) && !(is_erm))) && _func_has_generic_params(function_type));
-          has_generic_return := type_contains_some_type_for_codegen_param(ret, ArrayList(String).new());
-          returns_plain_impl := _returns_plain_impl(ret);
-          skip2 := (has_generic_params || ((has_generic_return && !(returns_plain_impl)) && !(is_erm)));
-          if(!(skip_unemittable || (skip1 || skip2)), {
+          if(!(should_skip_function_codegen(func_id.clone(), c_name.clone(), value, context)), {
             is_exported := (is_user_main || context.exported_function_labels.contains_key(func_id.clone()));
             body_for_decl := if(is_erm, Option(AstExpr).None, body);
             generate_function_declaration(function_type, c_name.clone(), false, is_exported, body_for_decl, context);
@@ -541,4 +555,4 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
   generate_closure_vtable_declarations(context);
   em.emit_declaration_line("");
 });
-export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations);
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen);

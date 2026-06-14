@@ -24,13 +24,13 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { has_any_control_flow } :: import("../../expr_info.yo");
-{ is_unit_type, is_some_type, is_expr_type } :: import("../../types/guards.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix } :: import("../../target.yo");
 { get_func_type } :: import("../../function_value.yo");
 { get_type_string } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ generate_function_prototype } :: import("./declarations.yo");
+{ generate_function_prototype, should_skip_function_codegen } :: import("./declarations.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions } :: import("../exprs/drop_dup.yo");
@@ -150,33 +150,6 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
     _ => ()
   )
 );
-/// True when the registered Func type for `func_id` is UNEMITTABLE as a C
-/// function: forall types or an unresolved SomeT param (unspecialized generic),
-/// OR an `Expr`-typed param (a MACRO like `if`/`try`, expanded at its call site
-/// via ei.macro_expansion — never emitted; its Expr params have no C type).
-/// get_type_string panics/`// Unknown type` on these, so skip them.
-_is_unemittable_func_id :: (fn(func_id : String) -> bool)(
-  match(
-    get_func_type(func_id),
-    .Func({ forall_types, param_types, result_is_comptime_only }) => if((forall_types.len() > usize(0)) || result_is_comptime_only, true, {
-      n := param_types.len();
-      (i : usize) = usize(0);
-      (found : bool) = false;
-      while((i < n) && !(found), {
-        match(
-          param_types.get(i),
-          .Some(t) => if(is_some_type(t) || is_expr_type(t), {
-            found = true;
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      found
-    }),
-    _ => false
-  )
-);
 /// Generate all collected functions. Mirrors `generateAllFunctions` (the
 /// runtime prelude is the deferred next subsystem — see file header).
 generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
@@ -200,10 +173,13 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
       .Some(fid) => match(
         context.base.get_function_entry(fid),
         .Some(entry) => {
-          // Skip UNEMITTABLE function bodies (unspecialized generic / macro) —
-          // only monomorphizations + macro expansions are emitted; emitting these
-          // panics / emits invalid C (Expr params, SomeT params).
-          if(!(_is_unemittable_func_id(fid)), {
+          // Skip function bodies using the SAME predicate as the prototype loop
+          // (declarations.yo). The two MUST agree: a function whose prototype is
+          // skipped but whose body is emitted produces "call to undeclared
+          // function" / "static declaration follows non-static" at call sites
+          // preceding the definition. Mirrors TS generateAllFunctions
+          // (generation.ts:583-661), which applies the full skip set here too.
+          if(!(should_skip_function_codegen(fid, entry.c_name.clone(), entry.value, context.base)), {
             generate_function(entry.value, entry.c_name, context);
           });
         },
