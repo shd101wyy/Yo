@@ -726,7 +726,12 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       }
     ),
     // --- Phase-3/5 (dyn / async): need env+substitute SomeType resolution ---
-    .SomeT({}) => panic("get_type_string: SomeType lowering is Phase 3/5 (Gap 6) — not yet ported"),
+    // SomeType (used for `Impl(...)` or `Self` references in modules/traits).
+    // yo-self's `SomeT` does not carry TS's mutable `resolvedConcreteType`
+    // codegen field, so we mirror TS's terminal fallback (utils/index.ts:710):
+    // an unresolved generic `Self`/SomeType reference lowers to `void*`
+    // (the value is passed by opaque pointer; field/method access casts at use).
+    .SomeT({}) => String.from("void*"),
     .IsoT({}) => panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
     // by value. Mirrors getTypeString's TypeTag.Dyn case (utils/index.ts:547):
