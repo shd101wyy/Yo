@@ -1,0 +1,11 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+sgn :: (fn(n : i32) -> i32)(
+  cond((n > i32(3)) => i32(62), (n < i32(3)) => i32(60), true => i32(61))
+);
+main :: (fn() -> unit)({
+  unsafe(_a := putchar(int(sgn(i32(5)))));
+  unsafe(_b := putchar(int(sgn(i32(1)))));
+  unsafe(_c := putchar(int(sgn(i32(3)))));
+});
+export(main);
