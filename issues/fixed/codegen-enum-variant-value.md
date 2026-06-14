@@ -1,6 +1,16 @@
 # Codegen: simple-enum variant VALUE emits malformed `base.GREEN`
 
-## Status: OPEN (yo-self codegen, found 2026-06-14)
+## Status: FIXED 2026-06-14
+
+Root cause: an enum VALUE's `EnumVal.variant` carries the leading `.` of the
+`.Variant` source form (e.g. `.Green`), so `get_enum_variant_c_name` uppercased
+it to `__YO_ENUM_..._.GREEN`. The match path was unaffected (it reads clean
+names from `EnumT.variant_names`). Fix: strip a leading `.` in
+`get_enum_variant_c_name` (yo-self/codegen/utils/index.yo) — universally
+correct, no-op for clean names. Differential: both compilers print `G`.
+Corpus fixture `tests/codegen-bootstrap/enum_match.yo` added.
+
+### Original report
 
 ## Symptom
 
