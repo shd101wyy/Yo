@@ -26,7 +26,71 @@ open(import("std/string"));
 { is_dyn_type, is_some_type, is_object_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
+{ attach_temp_variable_to_expr } :: import("../utils.yo");
+{ get_type_trait_methods_for_type, type_id_or_empty } :: import("./type_trait_methods.yo");
 { Exception } :: import("std/error");
+/// Build the ordered TraitVal evidence for a DynType over a concrete value
+/// type, resolving each trait method to the concrete type's registered impl
+/// FuncVal (yo-self's type_trait_methods registry stands in for TS's
+/// `concreteType.trait.fields` with assignedValue FuncVals). C codegen's vtable
+/// wrappers read these FuncVals to dispatch; a field with no registered method
+/// falls back to None. Shared by both the executing and non-executing paths so
+/// codegen has the evidence regardless of the mode the body was evaluated in.
+_resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue) -> ArrayList(EvalValue))({
+  trait_vals := ArrayList(EvalValue).new();
+  match(
+    dyn_type,
+    .DynT(required_trait_types : rtt) => {
+      n := rtt.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          rtt.get(i),
+          .Some(tt) => match(
+            tt,
+            .TraitT(name : tname, field_labels : fl, id : trait_id) => {
+              entries := get_type_trait_methods_for_type(type_id_or_empty(value_type));
+              n_fields := fl.len();
+              field_names := ArrayList(String).new();
+              field_vals := ArrayList(Option(EvalValue)).new();
+              (j : usize) = usize(0);
+              while(j < n_fields, {
+                fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
+                field_names.push(fname.clone());
+                (resolved : Option(EvalValue)) = Option(EvalValue).None;
+                ne := entries.len();
+                (k : usize) = usize(0);
+                while(k < ne, {
+                  match(
+                    entries.get(k),
+                    .Some(entry) => {
+                      label_match := (entry.label == fname);
+                      trait_match := (entry.source_trait_id == trait_id);
+                      if(label_match && trait_match, {
+                        resolved = entry.value;
+                      });
+                    },
+                    .None => ()
+                  );
+                  k = (k + usize(1));
+                });
+                field_vals.push(resolved);
+                j = (j + usize(1));
+              });
+              trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
+              ()
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  trait_vals
+});
 evaluate_dyn_value :: (
   fn(
     expr : AstExpr,
@@ -116,7 +180,7 @@ evaluate_dyn_value :: (
   if(ctx.is_validating_function_definition || !(ctx.is_executing), {
     saved_et_ne := ctx.expected_type;
     ctx.expected_type = inner_expected;
-    _inner := evaluate_expression(value_arg, env, ctx);
+    inner_ne := evaluate_expression(value_arg, env, ctx);
     ctx.expected_type = saved_et_ne;
     (ret_type : TypeValue) = match(
       ctx.expected_type,
@@ -128,8 +192,18 @@ evaluate_dyn_value :: (
         negative_trait_levels : ArrayList(usize).new()
       )
     );
-    out_info := new_expr_info(env, ret_type);
+    out_info := new_expr_info(env, ret_type.clone());
+    // Even in validating mode, resolve the trait evidence from the registry so
+    // C codegen (which reads body ExprInfo produced in THIS mode — yo-self
+    // evaluates fn bodies in validating mode) has the vtable FuncVals. The
+    // resolution is structural (registry lookup), not execution-dependent.
+    ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),.Some(ii) => ii.ty,.None => t_unit());
+    if(is_dyn_type(ret_type.clone()), {
+      out_info.dyn_call_trait_values =.Some(_resolve_dyn_trait_values(ret_type, ne_value_type));
+    });
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    // Attach the temp variable C codegen reads for the fat-pointer struct.
+    attach_temp_variable_to_expr(expr, true, ctx);
     return(expr);
   });
   // --- Executing path ---
@@ -269,49 +343,18 @@ evaluate_dyn_value :: (
       }
     )
   );
-  // Collect a TraitVal for each required trait in the DynType.
-  // For each TraitT in required_trait_types, create a TraitVal whose
-  // field_values are all None (runtime-only; concrete values resolved later).
-  trait_vals := ArrayList(EvalValue).new();
-  match(
-    dyn_type,
-    .DynT(required_trait_types : rtt) => {
-      n := rtt.len();
-      (i : usize) = usize(0);
-      while(i < n, {
-        tt_opt := rtt.get(i);
-        match(
-          tt_opt,
-          .Some(tt) => match(
-            tt,
-            .TraitT(name : tname, field_labels : fl) => {
-              n_fields := fl.len();
-              field_names := ArrayList(String).new();
-              field_vals := ArrayList(Option(EvalValue)).new();
-              (j : usize) = usize(0);
-              while(j < n_fields, {
-                fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
-                field_names.push(fname);
-                field_vals.push(Option(EvalValue).None);
-                j = (j + usize(1));
-              });
-              trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
-              ()
-            },
-            _ => ()
-          ),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-    },
-    _ => ()
-  );
+  // Collect a TraitVal for each required trait, resolving the concrete type's
+  // registered impl methods (the registry-based stand-in for TS's
+  // `concreteType.trait.fields`). Resolved on the pre-box concrete type.
+  trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), value_type);
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(cur_env, dyn_type);
   out_info.dyn_call_trait_values =.Some(trait_vals);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  // Attach the temp variable C codegen reads for the fat-pointer struct
+  // (mirrors TS attachTempVariableToExpr(expr, true), dyn.ts:594).
+  attach_temp_variable_to_expr(expr, true, ctx);
   expr
 });
 export(evaluate_dyn_value);
