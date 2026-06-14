@@ -15,10 +15,10 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, make_err_expr, BF_DOT } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_object_type, is_function_type, is_unit_type, is_array_type } :: import("../../types/guards.yo");
+{ is_object_type, is_function_type, is_unit_type, is_array_type, is_dyn_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -520,6 +520,62 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     .None => ()
   );
   func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*,.Atom(_, _) => return(Option(String).None));
+  // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The callee
+  // dot-access (`s.speak`) has NO ExprInfo of its own (the evaluator resolves the
+  // method directly), so this MUST run before the func_ei early-return below.
+  // The evaluator's method-call path records the runtime args as
+  // [receiver, ...explicit]; we lower to `(recv).vtable->method((recv).data,
+  // explicit...)`. Mirrors other-fn-call.ts:478+.
+  if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+    dmethod_args := match(func_expr,.FnCall(_, _, da, _, _) => da,.Atom(_, _) => ArrayList(AstExpr).new());
+    dm_runtime := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+    recv_is_dyn := ((dm_runtime.len() > usize(0)) && match(dm_runtime.get(usize(0)),.Some(rv) => match(context.base.get_expr_info(rv),.Some(rvi) => is_dyn_type(rvi.ty),.None => false),.None => false));
+    method_atom_ok := match(dmethod_args.get(usize(1)),.Some(ma) => ast_expr_is_atom(ma),.None => false);
+    if(recv_is_dyn && method_atom_ok, {
+      recv_expr := match(dm_runtime.get(usize(0)),.Some(rv) => rv,.None => make_err_expr());
+      recv_code := _call_generate_expr(recv_expr, indent.clone(), context);
+      method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)),.Some(ma) => ma,.None => make_err_expr())).value, false);
+      dm_call := String.from("(");
+      dm_call.push_string(recv_code.clone());
+      dm_call.push_str(").vtable->");
+      dm_call.push_string(method_name);
+      dm_call.push_str("((");
+      dm_call.push_string(recv_code);
+      dm_call.push_str(").data");
+      ndm := dm_runtime.len();
+      (dmi : usize) = usize(1);
+      while(dmi < ndm, {
+        dm_call.push_str(", ");
+        match(dm_runtime.get(dmi),.Some(da) => dm_call.push_string(_call_generate_expr(da, indent.clone(), context)),.None => ());
+        dmi = (dmi + usize(1));
+      });
+      dm_call.push_str(")");
+      if(is_unit_type(ei.ty), {
+        dml := indent.clone();
+        dml.push_string(dm_call);
+        dml.push_str(";");
+        dm_em := context.base.emitter;
+        dm_em.emit_string_line(dml);
+        generate_deferred_drop_expressions(expr, indent.clone(), context);
+        return(Option(String).Some(String.from("")));
+      });
+      match(
+        ei.variable_name,
+        .Some(tv) => {
+          dmd := indent.clone();
+          dmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+          dmd.push_str(" = ");
+          dmd.push_string(dm_call);
+          dmd.push_str(";");
+          dm_em2 := context.base.emitter;
+          dm_em2.emit_string_line(dmd);
+          generate_deferred_drop_expressions(expr, indent.clone(), context);
+          return(Option(String).Some(tv));
+        },
+        .None => return(Option(String).Some(dm_call))
+      );
+    });
+  });
   func_ei := match(context.base.get_expr_info(func_expr),.Some(e) => e,.None => return(Option(String).None));
   function_type := func_ei.ty;
   // Object (reference-semantics) constructor call: the callee is a TypeVal whose
@@ -571,75 +627,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     ),
     .None => ()
   );
-  // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The
-  // callee is a `.`(obj, method) dot-access whose receiver is a dyn value;
-  // lower to `(obj).vtable->method((obj).data, rest_args...)`. property_access
-  // already emits `<obj>.vtable->method` as the func code; the receiver (runtime
-  // arg index 0 = self) is rewritten to `(obj).data` (the box / object pointer
-  // stored in the fat pointer). Mirrors other-fn-call.ts:478+. Must precede the
-  // is_function_type guard: the dyn method's type isn't a resolved Func.
-  if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
-    // Detect dyn dispatch by the generated func code: property_access emits
-    // `<obj>.vtable->method` for a dyn receiver. This is more robust than
-    // inspecting the inner object atom's ExprInfo (which may be absent).
-    fcode := _call_generate_expr(func_expr, indent.clone(), context);
-    obj_is_dyn := fcode.contains(String.from(".vtable->"));
-    if(obj_is_dyn, {
-      drargs := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
-      dyn_args := String.from("");
-      nda := drargs.len();
-      (di : usize) = usize(0);
-      while(di < nda, {
-        if(di > usize(0), {
-          dyn_args.push_str(", ");
-        });
-        match(
-          drargs.get(di),
-          .Some(da) => {
-            dc := _call_generate_expr(da, indent.clone(), context);
-            if(di == usize(0), {
-              dyn_args.push_str("(");
-              dyn_args.push_string(dc);
-              dyn_args.push_str(").data");
-            }, {
-              dyn_args.push_string(dc);
-            });
-          },
-          .None => ()
-        );
-        di = (di + usize(1));
-      });
-      dcall := String.from("");
-      dcall.push_string(fcode);
-      dcall.push_str("(");
-      dcall.push_string(dyn_args);
-      dcall.push_str(")");
-      if(is_unit_type(ei.ty), {
-        dline := indent.clone();
-        dline.push_string(dcall);
-        dline.push_str(";");
-        dyn_em := context.base.emitter;
-        dyn_em.emit_string_line(dline);
-        generate_deferred_drop_expressions(expr, indent.clone(), context);
-        return(Option(String).Some(String.from("")));
-      });
-      match(
-        ei.variable_name,
-        .Some(tv) => {
-          ddecl := indent.clone();
-          ddecl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
-          ddecl.push_str(" = ");
-          ddecl.push_string(dcall);
-          ddecl.push_str(";");
-          dyn_em2 := context.base.emitter;
-          dyn_em2.emit_string_line(ddecl);
-          generate_deferred_drop_expressions(expr, indent.clone(), context);
-          return(Option(String).Some(tv));
-        },
-        .None => return(Option(String).Some(dcall))
-      );
-    });
-  });
   // Array indexing `arr(i)`: a value-call whose callee is a concrete Array type
   // lowers to a direct `<arr>.data[<i>]` (the array struct wrapper), NOT the
   // generic Index trait. Mirrors TS generateOtherFunctionCall's isArrayType
