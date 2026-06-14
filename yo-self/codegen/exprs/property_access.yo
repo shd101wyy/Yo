@@ -274,6 +274,18 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
   obj_ei_opt := context.base.get_expr_info(object_expr);
   object_type := match(obj_ei_opt,.Some(oei) => oei.ty,.None => TypeValue.Unit);
   object_value := match(obj_ei_opt,.Some(oei) => oei.value,.None => Option(EvalValue).None);
+  // Dyn method access takes PRIORITY over static method resolution: even when
+  // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
+  // receiver must dispatch through the vtable (`obj.vtable->method`), not call
+  // the impl statically. The call site (other_fn_call) supplies `(obj).data` as
+  // self. Without this guard the funcval branch below emits a static method
+  // name that isn't collected for a dyn call → the call fails to transpile.
+  if(is_dyn_type(object_type), {
+    out := object_code.clone();
+    out.push_str(".vtable->");
+    out.push_string(sanitize_for_c_identifier(field_name, false));
+    return(out);
+  });
   // Method access: the field resolved to a function → emit its C name.
   match(
     ei.value,

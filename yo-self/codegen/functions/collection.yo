@@ -18,9 +18,9 @@ open(import("std/string"));
 { ExprInfoTable, expr_info_table_get } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_function_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_function_type, is_unit_type, is_dyn_type, is_object_type, is_boxed_type } :: import("../../types/guards.yo");
 { is_control_fn, mark_as_effect_record_member, get_func_type } :: import("../../function_value.yo");
-{ CodeGenContext, type_key, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier } :: import("../utils/index.yo");
 // NOTE: collect_type (types/collection) is reached through an indirection
 // global rather than a direct import, so the dependency between this file and
 // types/collection is ONE-WAY (types/collection imports from here). A direct
@@ -536,6 +536,36 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
           while(ti < nt, {
             match(tvs.get(ti),.Some(tv) => collect_required_functions(tv, context, info, false),.None => ());
             ti = (ti + usize(1));
+          });
+          // Register the dyn impl during collection (mirrors collection.ts
+          // 328-364) so __yo_dyn_box_<concrete> TYPES are generated BEFORE
+          // function bodies. Keyed by ids; fixup_dyn_impl_keys rewrites to C
+          // names. NOTE: type_key on a cyclic dyn (Dyn(Error)) could loop — the
+          // corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe
+          // key is future work for compiling std's self-referential traits.
+          if((tvs.len() > usize(0)) && is_dyn_type(ei.ty), {
+            match(
+              expr,
+              .FnCall(_, _, cargs, _, _) => match(
+                cargs.get(usize(0)),
+                .Some(varg) => match(
+                  expr_info_table_get(info, ast_expr_id(varg)),
+                  .Some(vei) => {
+                    vty := vei.ty;
+                    if(is_object_type(vty) || is_boxed_type(vty), {
+                      concrete := if(is_boxed_type(vty), match(vty,.Struct({ field_types }) => match(field_types.get(usize(0)),.Some(ft) => ft,.None => vty), _ => vty), vty);
+                      impl_key := type_key(concrete.clone());
+                      impl_key.push_str("_");
+                      impl_key.push_string(type_key(ei.ty));
+                      context.register_dyn_impl(impl_key, DynImplEntry(dyn_type : ei.ty, concrete_type : concrete, data_type : vty, trait_values : tvs));
+                    });
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              ),
+              _ => ()
+            );
           });
         },
         .None => ()

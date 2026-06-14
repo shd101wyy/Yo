@@ -571,6 +571,75 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     ),
     .None => ()
   );
+  // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The
+  // callee is a `.`(obj, method) dot-access whose receiver is a dyn value;
+  // lower to `(obj).vtable->method((obj).data, rest_args...)`. property_access
+  // already emits `<obj>.vtable->method` as the func code; the receiver (runtime
+  // arg index 0 = self) is rewritten to `(obj).data` (the box / object pointer
+  // stored in the fat pointer). Mirrors other-fn-call.ts:478+. Must precede the
+  // is_function_type guard: the dyn method's type isn't a resolved Func.
+  if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+    // Detect dyn dispatch by the generated func code: property_access emits
+    // `<obj>.vtable->method` for a dyn receiver. This is more robust than
+    // inspecting the inner object atom's ExprInfo (which may be absent).
+    fcode := _call_generate_expr(func_expr, indent.clone(), context);
+    obj_is_dyn := fcode.contains(String.from(".vtable->"));
+    if(obj_is_dyn, {
+      drargs := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+      dyn_args := String.from("");
+      nda := drargs.len();
+      (di : usize) = usize(0);
+      while(di < nda, {
+        if(di > usize(0), {
+          dyn_args.push_str(", ");
+        });
+        match(
+          drargs.get(di),
+          .Some(da) => {
+            dc := _call_generate_expr(da, indent.clone(), context);
+            if(di == usize(0), {
+              dyn_args.push_str("(");
+              dyn_args.push_string(dc);
+              dyn_args.push_str(").data");
+            }, {
+              dyn_args.push_string(dc);
+            });
+          },
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      dcall := String.from("");
+      dcall.push_string(fcode);
+      dcall.push_str("(");
+      dcall.push_string(dyn_args);
+      dcall.push_str(")");
+      if(is_unit_type(ei.ty), {
+        dline := indent.clone();
+        dline.push_string(dcall);
+        dline.push_str(";");
+        dyn_em := context.base.emitter;
+        dyn_em.emit_string_line(dline);
+        generate_deferred_drop_expressions(expr, indent.clone(), context);
+        return(Option(String).Some(String.from("")));
+      });
+      match(
+        ei.variable_name,
+        .Some(tv) => {
+          ddecl := indent.clone();
+          ddecl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+          ddecl.push_str(" = ");
+          ddecl.push_string(dcall);
+          ddecl.push_str(";");
+          dyn_em2 := context.base.emitter;
+          dyn_em2.emit_string_line(ddecl);
+          generate_deferred_drop_expressions(expr, indent.clone(), context);
+          return(Option(String).Some(tv));
+        },
+        .None => return(Option(String).Some(dcall))
+      );
+    });
+  });
   // Array indexing `arr(i)`: a value-call whose callee is a concrete Array type
   // lowers to a direct `<arr>.data[<i>]` (the array struct wrapper), NOT the
   // generic Index trait. Mirrors TS generateOtherFunctionCall's isArrayType

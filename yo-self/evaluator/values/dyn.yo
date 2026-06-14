@@ -57,24 +57,35 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue) -
               while(j < n_fields, {
                 fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
                 field_names.push(fname.clone());
-                (resolved : Option(EvalValue)) = Option(EvalValue).None;
+                // Prefer an entry matching BOTH label and trait id; fall back to
+                // a label-only match (the Dyn(Trait) annotation's trait id can
+                // differ from the impl's source_trait_id across trait-type
+                // instantiations). Read entry.value at most ONCE per entry —
+                // Option(EvalValue) reads MOVE (EvalValue holds reference-
+                // semantics members), so a double read is use-after-move (SIGBUS).
+                (exact : Option(EvalValue)) = Option(EvalValue).None;
+                (by_label : Option(EvalValue)) = Option(EvalValue).None;
+                (have_exact : bool) = false;
                 ne := entries.len();
                 (k : usize) = usize(0);
-                while(k < ne, {
+                while((k < ne) && !(have_exact), {
                   match(
                     entries.get(k),
-                    .Some(entry) => {
-                      label_match := (entry.label == fname);
-                      trait_match := (entry.source_trait_id == trait_id);
-                      if(label_match && trait_match, {
-                        resolved = entry.value;
+                    .Some(entry) => if(entry.label == fname, {
+                      is_exact := (entry.source_trait_id == trait_id);
+                      ev := entry.value;
+                      if(is_exact, {
+                        exact = ev;
+                        have_exact = true;
+                      }, {
+                        by_label = ev;
                       });
-                    },
+                    }),
                     .None => ()
                   );
                   k = (k + usize(1));
                 });
-                field_vals.push(resolved);
+                field_vals.push(match(exact,.Some(v) => Option(EvalValue).Some(v),.None => by_label));
                 j = (j + usize(1));
               });
               trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
