@@ -18,7 +18,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_object_type, is_function_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_object_type, is_function_type, is_unit_type, is_array_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -522,6 +522,25 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*,.Atom(_, _) => return(Option(String).None));
   func_ei := match(context.base.get_expr_info(func_expr),.Some(e) => e,.None => return(Option(String).None));
   function_type := func_ei.ty;
+  // Array indexing `arr(i)`: a value-call whose callee is a concrete Array type
+  // lowers to a direct `<arr>.data[<i>]` (the array struct wrapper), NOT the
+  // generic Index trait. Mirrors TS generateOtherFunctionCall's isArrayType
+  // branch (other-fn-call.ts:2731).
+  if(is_array_type(function_type), {
+    arr_code := _call_generate_expr(func_expr, indent.clone(), context);
+    idx_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+    match(
+      idx_args.get(usize(0)),
+      .Some(idx_expr) => {
+        out := arr_code;
+        out.push_str(".data[");
+        out.push_string(_call_generate_expr(idx_expr, indent.clone(), context));
+        out.push_str("]");
+        return(Option(String).Some(out));
+      },
+      .None => return(Option(String).None)
+    );
+  });
   if(!(is_function_type(function_type)), {
     return(Option(String).None);
   });

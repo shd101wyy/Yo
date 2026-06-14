@@ -35,7 +35,8 @@ open(import("std/string"));
   is_module_type,
   is_trait_type,
   is_some_type,
-  is_function_type
+  is_function_type,
+  is_array_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 {
@@ -146,6 +147,17 @@ collect_type :: (fn(type : TypeValue, context : CodeGenContext) -> unit)({
     if(!(keep), {
       return(());
     });
+  });
+  // Concrete-length arrays lower to a generated `struct { T data[N]; }` wrapper.
+  // get_type_string registers it (array_struct_types) but only LAZILY when a
+  // value/body references the type — which is AFTER generate_array_struct_
+  // declarations runs in the type-decl phase. Register it here, during
+  // collection, so the typedef is emitted before any reference; also collect
+  // the element type. (Mirrors the Iso side-effect registration below.)
+  if(is_array_type(type), {
+    match(type,.Array({ element }) => recur(element.*, context), _ => ());
+    _gs := get_type_string(type, context);
+    return(());
   });
   is_registerable := (
     (

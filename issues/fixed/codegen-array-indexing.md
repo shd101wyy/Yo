@@ -1,6 +1,8 @@
 # Codegen: array literal type-decl + indexing (Index trait, Phase 3)
 
-## Status: OPEN — Phase-3 boundary (yo-self codegen, found 2026-06-14)
+## Status: FIXED 2026-06-14
+
+Both gaps fixed: (1) collect_type now registers concrete-length array types up-front (get_type_string side-effect) so generate_array_struct_declarations emits the typedef before bodies reference it; (2) generate_other_function_call gained the isArrayType branch -> `<arr>.data[<i>]` (direct, NOT the generic Index trait, mirroring TS other-fn-call.ts:2731). Array literal + indexing + loop prints "HI!" under both compilers. Fixture array_index.yo.
 
 ## Symptom
 
