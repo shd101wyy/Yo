@@ -1,6 +1,8 @@
 # Codegen: tagged-enum (payload) value construction + match destructuring broken
 
-## Status: OPEN (yo-self codegen, found 2026-06-14)
+## Status: FIXED 2026-06-14
+
+Both bugs fixed: (1) value construction (strip leading dot in generate_comptime_value EnumVal arm so _enum_variant_index matches), (2) match destructuring (strip dot in _emit_destructure_binds + wire local_shadowed_variables + unwrap curly `_(...)` wrapper). Positional + curly forms both compile+run to "J". Corpus fixture tagged_enum.yo (curly form). Commits 4ab81e5a7 + 93f310812.
 
 ## Symptom
 
