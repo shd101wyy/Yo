@@ -574,7 +574,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             generate_deferred_drop_expressions(expr, indent.clone(), context);
             return(Option(String).Some(String.from("")));
           });
-          out := name;
+          // Clone the extern name before mutating: `name` aliases the
+          // extern_name String stored in the (shared) extern Func TypeValue —
+          // the SAME Func instance is reused for every call to this symbol via
+          // the extern registry. `out := name; out.push_str(...)` would mutate
+          // that shared String in place, so the first `f(a)` call corrupts the
+          // stored name to `f(a)` and the next call to `f` emits `f(a)(b)`.
+          out := name.clone();
           out.push_str("(");
           out.push_string(args_list.clone());
           out.push_str(")");
