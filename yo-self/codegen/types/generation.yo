@@ -11,7 +11,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_object_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_object_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
@@ -23,8 +23,10 @@ open(import("std/string"));
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
   can_optimize_as_nullable_pointer,
-  can_optimize_as_simple_enum
+  can_optimize_as_simple_enum,
+  type_key
 } :: import("../utils/index.yo");
+{ BF_DUP, BF_DROP } :: import("../../expr.yo");
 /// Generate the array-wrapper struct typedefs collected during type lowering.
 /// Mirrors `generateArrayStructDeclarations`.
 generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
@@ -784,17 +786,225 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
 );
 /// A type collected for topological ordering: (typeId, type, cName, kind).
 _TypeWalkEntry :: object(type_id : String, ty : TypeValue, c_name : String, kind : String);
-/// Generate Dyn-type forward declarations. DEFERRED (Phase-3 dyn type-decls,
-/// types/dyn.ts:generateDynForwardDeclarations) — no dyn types in the
-/// struct/enum/tuple corpus; emits nothing.
-generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)(
-  ()
+/// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
+/// dispose are generated separately). Mirrors `reservedDynMethodLabels`.
+_is_reserved_dyn_method :: (fn(label : String) -> bool)(
+  ((label == BF_DUP) || (label == BF_DROP)) || ((label == String.from("___dispose")) || (label == String.from("dispose")))
 );
-/// Generate a Dyn-type declaration. DEFERRED (Phase-3, types/dyn.ts:
-/// generateDynDeclaration) — not exercised by the corpus.
-generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
-  ()
-);
+/// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
+/// fat-pointer struct). Must precede enum/struct decls since enums may contain
+/// Dyn by value. Mirrors `generateDynForwardDeclarations` (types/dyn.ts:17).
+generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  keys := ArrayList(String).new();
+  fkit := context.types.keys();
+  (fkdone : bool) = false;
+  while(!(fkdone), {
+    match(
+      fkit.next(),
+      .Some(k) => {
+        _kp := keys.push(k);
+      },
+      .None => {
+        fkdone = true;
+      }
+    );
+  });
+  (has_any : bool) = false;
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.types.get(key.clone()),
+      .Some(entry) => if(is_dyn_type(entry.ty), {
+        if(!(has_any), {
+          em.emit_declaration_line("");
+          em.emit_declaration_line("// === Dyn Type Forward Declarations ===");
+          has_any = true;
+        });
+        vtable_name := `${entry.c_name}_vtable`;
+        em.emit_declaration_string_line(`typedef struct ${vtable_name}_s ${vtable_name};`);
+        em.emit_declaration_string_line(`typedef struct { // ${type_to_string(entry.ty)} (value type - fat pointer)`);
+        em.emit_declaration_line("  void* data; // Pointer to boxed data (with __yo_ref_header_t)");
+        em.emit_declaration_string_line(`  const ${vtable_name}* vtable; // Pointer to static vtable (no allocation needed)`);
+        em.emit_declaration_string_line(`} ${entry.c_name};`);
+        em.emit_declaration_line("");
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Emit one vtable method-pointer for a trait field (skips Self / reserved /
+/// already-processed / non-`self`-first methods). Mirrors the per-field body of
+/// generateDynDeclaration (types/dyn.ts:111-174).
+_emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed : HashSet(String), context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  if((label == String.from("Self")) || _is_reserved_dyn_method(label), {
+    return(());
+  });
+  if(processed.contains(label.clone()), {
+    return(());
+  });
+  method_name := sanitize_for_c_identifier(label.clone(), false);
+  if(is_function_type(field_ty), {
+    _p := processed.add(label.clone());
+    match(
+      field_ty,
+      .Func({ param_labels, param_types, result }) => {
+        // Only methods whose first param is `self` go in the vtable.
+        if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)),.Some(l) => (l == String.from("self")),.None => false), {
+          ret_str := get_type_string(result.*, context);
+          plist := String.new();
+          np := param_labels.len();
+          (pi : usize) = usize(0);
+          while(pi < np, {
+            if(pi > usize(0), {
+              plist.push_str(", ");
+            });
+            if(pi == usize(0), {
+              plist.push_str("void* self");
+            }, {
+              pty := match(param_types.get(pi),.Some(t) => get_type_string(t, context),.None => String.from("void*"));
+              pn := match(param_labels.get(pi),.Some(l) => sanitize_for_c_identifier(l, false),.None => String.from("arg"));
+              plist.push_string(pty);
+              plist.push_str(" ");
+              plist.push_string(pn);
+            });
+            pi = (pi + usize(1));
+          });
+          em.emit_declaration_string_line(`  ${ret_str} (*${method_name})(${plist}); // Method pointer for ${label}`);
+        });
+      },
+      _ => ()
+    );
+  }, {
+    em.emit_declaration_string_line(`  ${get_type_string(field_ty, context)} ${method_name}; // Non-function member ${label}`);
+  });
+});
+/// Generate a Dyn vtable declaration (the Dyn struct is forward-declared). The
+/// vtable has __yo_type_id + a function pointer per trait method (FnTrait → a
+/// `call` pointer). Mirrors `generateDynDeclaration` (types/dyn.ts:56).
+generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  vtable_name := `${c_name}_vtable`;
+  em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
+  em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
+  processed := HashSet(String).new();
+  match(
+    type,
+    .DynT({ required_trait_types }) => {
+      nt := required_trait_types.len();
+      (ti : usize) = usize(0);
+      while(ti < nt, {
+        tt := match(required_trait_types.get(ti),.Some(x) => x,.None => TypeValue.Unit);
+        cond(
+          is_fn_trait_type(tt) => match(
+            tt,
+            .FnTraitT({ call_param_labels, call_param_types, call_result }) => {
+              ret_str := get_type_string(call_result.*, context);
+              plist := String.new();
+              np := call_param_labels.len();
+              (pi : usize) = usize(0);
+              while(pi < np, {
+                if(pi > usize(0), {
+                  plist.push_str(", ");
+                });
+                pty := match(call_param_types.get(pi),.Some(t) => get_type_string(t, context),.None => String.from("void*"));
+                pn := match(call_param_labels.get(pi),.Some(l) => sanitize_for_c_identifier(l, false),.None => String.from("arg"));
+                plist.push_string(pty);
+                plist.push_str(" ");
+                plist.push_string(pn);
+                pi = (pi + usize(1));
+              });
+              sep := if(plist.len() > usize(0), String.from(", "), String.from(""));
+              em.emit_declaration_string_line(`  ${ret_str} (*call)(void* self${sep}${plist}); // Call function pointer`);
+              _p := processed.add(String.from("call"));
+            },
+            _ => ()
+          ),
+          true => match(
+            tt,
+            .TraitT({ field_labels, field_types }) => {
+              nf := field_labels.len();
+              (fi : usize) = usize(0);
+              while(fi < nf, {
+                flabel := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+                fty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                _emit_dyn_vtable_method(flabel, fty, processed, context);
+                fi = (fi + usize(1));
+              });
+            },
+            _ => ()
+          )
+        );
+        ti = (ti + usize(1));
+      });
+    },
+    _ => ()
+  );
+  em.emit_declaration_string_line(`} ${vtable_name};`);
+  em.emit_declaration_line("");
+});
+/// Generate box types (RC-header-wrapped value structs) + their ctor/dispose
+/// declarations for every dyn() implementation. Mirrors `generateDynBoxTypes`
+/// (types/dyn.ts:185).
+generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
+  if(context.dyn_impls.is_empty(), {
+    return(());
+  });
+  em := context.emitter;
+  em.emit_declaration_line("");
+  em.emit_declaration_line("// === Dyn Box Types ===");
+  em.emit_declaration_line("// These structs wrap concrete types for dynamic dispatch");
+  em.emit_declaration_line("");
+  generated := HashSet(String).new();
+  keys := ArrayList(String).new();
+  bkit := context.dyn_impls.keys();
+  (bkdone : bool) = false;
+  while(!(bkdone), {
+    match(
+      bkit.next(),
+      .Some(k) => {
+        _kp := keys.push(k);
+      },
+      .None => {
+        bkdone = true;
+      }
+    );
+  });
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.dyn_impls.get(key.clone()),
+      .Some(impl_entry) => {
+        // resolvedConcreteType: a SomeT with a resolved concrete falls through
+        // to that concrete (codegen-side yo-self has no resolvedConcreteType,
+        // so the concrete_type is used directly).
+        concrete := impl_entry.concrete_type;
+        concrete_c_name := match(context.get_type_c_name(type_key(concrete)),.Some(cn) => cn,.None => `unknown_${type_key(concrete)}`);
+        box_name := `__yo_dyn_box_${concrete_c_name}`;
+        if(!(generated.contains(box_name.clone())), {
+          _g := generated.add(box_name.clone());
+          value_str := get_type_string(concrete, context);
+          em.emit_declaration_line("typedef struct {");
+          em.emit_declaration_line("  __yo_ref_header_t header;");
+          em.emit_declaration_string_line(`  ${value_str} value;`);
+          em.emit_declaration_string_line(`} ${box_name};`);
+          em.emit_declaration_line("");
+          em.emit_declaration_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value);`);
+          em.emit_declaration_string_line(`static void __yo_dispose_${box_name}(void* ptr);`);
+          em.emit_declaration_line("");
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 /// Generate a Future-trait declaration. DEFERRED (Phase-5 async,
 /// generateFutureTraitDeclaration) — not exercised by the corpus.
 generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
@@ -1184,5 +1394,6 @@ export(
   generate_union_declaration,
   generate_enum_declaration,
   _emit_type_runtime_preamble,
-  generate_type_declarations
+  generate_type_declarations,
+  generate_dyn_box_types
 );
