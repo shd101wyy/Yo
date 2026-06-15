@@ -255,7 +255,45 @@ The FuncVal itself reuses the original `forall_names` (line 1082) but codegen re
 the registered TYPE, so that's fine. So IF spec ran, the recorded specialized func
 would be emittable and gc2 would likely work.
 
-### Session 4 START HERE — the remaining gap is "spec does not run for b.get()":
+## Session 4 (2026-06-15) — DEFINITIVE ROOT: impl registration drops method forall
+
+Probed `try_to_call`'s step12b directly for `b.get()`. Result:
+`fl=0 fv_forall=0 gen=false ret=i32`. Decisive facts:
+- The method_ty reaching the call is ALREADY concretized: `ret=i32` (T→i32),
+  `self : MyBox(i32)` — resolution substituted the concrete types.
+- BOTH the call-site func_type (`fl=0`) AND the method's own FuncVal
+  (`fv_forall=0`) have NO forall. **No method call anywhere in the compile
+  reaches step12b with forall>0.**
+- Therefore the impl's `forall(T)` is dropped at **IMPL REGISTRATION**: when
+  `impl(forall(T), MyBox(T), get : (fn(self:Self)->T))` is registered, get's
+  FuncVal is created with `forall_names=[]` (the forall lives only on the impl
+  ENTRY's `forall_names`, never copied onto each method FuncVal/type). TS keeps
+  `forallParameters=[T]` on each impl method's functionType.
+- Consequence: nothing ever recognizes get as generic → specialization never
+  runs → no concrete per-instantiation func is created → codegen has only the
+  single abstract get FuncVal (registered type bears SomeT Self/T) →
+  `should_skip_function_codegen` skips it → undeclared.
+
+REVERTED commit 6c48e17d0 (forall-attach in find_methods_from_generic_impls):
+shown INERT — it patched find_methods output, but the method arrives at the call
+already concretized (forall stripped) via a different/re-concretizing path, and
+corpus/std were byte-identical with and without it. (Revert: 24c4cea3a.)
+
+### REAL FIX (Session 5) — attach impl forall to method FuncVals AT REGISTRATION:
+In `evaluator/values/impl.yo` (the impl-registration path, mirror
+`src/evaluator/values/impl.ts`), when building each method's FuncVal/type for a
+`impl(forall(T), …)`, stamp the impl's `forall(T)` (names + SomeT binders) onto
+the method's Func type AND FuncVal `forall_names`, exactly as TS does. Then
+`is_function_type_generic`/`fv_forall` is true at the call, step12b specializes
+(create_specialized already registers an emittable empty-forall concrete type
++ distinct func_id), and codegen emits the concrete method. THEN re-apply the
+(corpus-safe, session-3) method-callee VALUE side-table prototype so codegen
+dispatches+collects the specialized func. VALIDATE: gc2 prints `A` rc=0 + corpus
+32/32 + std/tests green (registration change is broad — full validation needed).
+CAUTION: attaching forall to ALL impl methods is a wide change; the return-SomeT
+genericity hack regressed std, so validate the full suite, not just corpus.
+
+### (Superseded) Session 4 START HERE — the remaining gap is "spec does not run for b.get()":
 Even with forall on the method type reaching `hits`, `spec_func_val` came back
 `None`. Probe WHY in the method path: does `method_info.method_ty` (passed to
 `try_to_call_function_with_arguments` at function.yo:2603) actually carry
