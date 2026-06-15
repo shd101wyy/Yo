@@ -80,9 +80,14 @@ arrives at codegen WITHOUT a folded value, in the runtime-match-arm context.
   type-conversion call** (`i32(x)`). `int(x)` casts do emit, so check why the
   `i32` callee doesn't resolve to the primitive-cast branch here.
 
-(A) is the more likely + more faithful fix (TS keeps the arm-body data distinct
-from the match-result data; yo-self's shared-object mutation is the suspect).
-Validate via `--release`; apply to all 4 arm kinds if it's (A)'s nulling.
+REFINEMENT (reasoning, unverified): for `some2` the scrutinee `o := mk(true)` is
+a runtime call, so it evaluates to `Some(UnknownVal)` (type known, value unknown),
+NOT `None`. So `scrutinee_val_opt.is_none()` is likely FALSE and the match.yo:1357
+nulling probably does NOT fire — pushing toward (A)'s "non-executing arm context
+doesn't fold `i32(0)`" sub-case (`ctx.is_executing` is set to `is_arm_executing_fl`
+= false at match.yo:1336 before the arm-body eval) or toward (B). The next probe
+should print `body_info_fl.value` state AND whether `scrutinee_val_opt.is_none()`
+fires, to settle (A-null) vs (A-nofold) vs (B). Validate any fix via `--release`.
 
 ## (obsolete) earlier fix direction
 
