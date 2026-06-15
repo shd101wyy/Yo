@@ -80,7 +80,28 @@ arrives at codegen WITHOUT a folded value, in the runtime-match-arm context.
   type-conversion call** (`i32(x)`). `int(x)` casts do emit, so check why the
   `i32` callee doesn't resolve to the primitive-cast branch here.
 
-REFINEMENT (reasoning, unverified): for `some2` the scrutinee `o := mk(true)` is
+CONFIRMED (A-nofold), no rebuild — via the existing probe binary on `some1.yo`
+(a COMPTIME-known scrutinee `(o : Option(i32)) = .Some(i32(5))`): the **untaken**
+`.None => i32(0)` arm ALSO fails (`PROBE_CG ... has_info=YES`, "Failed to
+transpile i32(0)"), while the taken `.Some(x) => x` arm works. So the trigger is
+**untaken / non-executed arm bodies**, NOT runtime scrutinees and NOT the
+match.yo:1357 nulling. The arm sets `ctx.is_executing = is_arm_executing_fl`
+(false for any non-matching arm; false for ALL arms under a runtime scrutinee) at
+match.yo:1336 before evaluating the body, so the pure-comptime conversion
+`i32(0)` is never reduced to the value `0`. Codegen then has neither a comptime
+value (→ skip comptime path) nor a runtime path for `i32(<literal>)` (`i32` is not
+an inline builtin; there is no runtime primitive-conversion-call emitter — the
+language relies on comptime folding for `i32(comptime)`), so it bails at :371.
+
+FIX (eval-side, next session): a primitive type-conversion of a comptime-constant
+arg (`i32(0)`, `usize(0)`, …) should fold to its constant value even when the arm
+body is type-evaluated in non-executing mode — i.e. the conversion is pure and its
+value is knowable independent of `is_executing`. TS produces the value here (it
+prints `7`/`5`). Either (a) evaluate such pure conversions for their value
+regardless of `is_arm_executing_fl`, or (b) add a runtime `i32(x)` conversion
+emitter to `generate_other_function_call`. (a) matches TS and is narrower.
+
+OBSOLETE REFINEMENT (reasoning, kept for history): for `some2` the scrutinee `o := mk(true)` is
 a runtime call, so it evaluates to `Some(UnknownVal)` (type known, value unknown),
 NOT `None`. So `scrutinee_val_opt.is_none()` is likely FALSE and the match.yo:1357
 nulling probably does NOT fire — pushing toward (A)'s "non-executing arm context
