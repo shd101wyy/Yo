@@ -1,0 +1,18 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+MyBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  object(value : T)
+);
+impl(
+  forall(T : Type),
+  MyBox(T),
+  get : (fn(self : Self) -> T)(self.value)
+);
+make_box :: (fn(n : i32) -> MyBox(i32))(
+  MyBox(i32)(value : n)
+);
+main :: (fn() -> unit)({
+  b := make_box(i32(65));
+  unsafe(_a := putchar(int(b.get())));
+});
+export(main);

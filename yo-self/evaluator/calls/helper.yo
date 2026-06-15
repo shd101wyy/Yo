@@ -2238,7 +2238,20 @@ try_to_call_function_with_arguments :: (
       // Step 12b: Create specialized function value if needed.
       // Simplified port of the specialization guard in helper.ts.
       // ----------------------------------------------------------------
-      is_func_generic := ((fl.len() > usize(0)) || (il.len() > usize(0)));
+      // A generic-impl method resolved for a concrete receiver arrives with its
+      // Func TYPE already concretized (forall stripped, `fl=0`), but its FuncVAL
+      // carries the impl's forall (stamped at impl-eval by
+      // `_stamp_impl_forall_on_method`). That surviving `forall_names` is the
+      // signal that the method needs specialization — without it the method is
+      // never specialized and codegen only has the abstract body (skipped). Mirror
+      // TS, which recognizes generic-impl methods via `forallParameters` on the
+      // function value's type.
+      fv_has_forall := match(
+        func_val,
+        .Some(fvp) => match(fvp,.FuncVal(ffl, _, _, _, _, _, _, _, _) => (ffl.len() > usize(0)), _ => false),
+        .None => false
+      );
+      is_func_generic := (((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall);
       (spec_func_val : Option(EvalValue)) = Option(EvalValue).None;
       if(!(skip_specialization) && is_func_generic, {
         is_recursive_spec := match(

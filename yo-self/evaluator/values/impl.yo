@@ -71,6 +71,32 @@ open(import("std/string"));
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
 { Exception } :: import("std/error");
+/// Stamp a generic impl's `forall(T)` names onto a method's FuncVal so the call
+/// site recognizes the method as generic and SPECIALIZES it. A method defined in
+/// `impl(forall(T), C(T), m : (fn(self : Self) -> T))` is evaluated to a FuncVal
+/// with `forall_names = []` — the impl forall lives only on the impl entry, never
+/// on the method value. TS keeps `forallParameters = [T]` on each impl method's
+/// functionType; without it `is_function_type_generic`/the spec guard never fires
+/// and codegen only ever has the abstract method (skipped → undeclared). We stamp
+/// the names onto the FuncVal (the VALUE, which survives method resolution's
+/// type-concretization — the resolved Func TYPE has its forall stripped, so the
+/// value's `forall_names` is the surviving signal the spec guard consults). Only
+/// stamps a FuncVal whose own forall is empty, and only when `names` is non-empty.
+_stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) -> EvalValue)(
+  if(
+    names.len() == usize(0),
+    v,
+    match(
+      v,
+      .FuncVal(existing_fn, params, ptns, evp, body, cn, ct, cv, fid) => if(
+        existing_fn.len() > usize(0),
+        v,
+        EvalValue.FuncVal(names.clone(), params, ptns, evp, body, cn, ct, cv, fid)
+      ),
+      _ => v
+    )
+  )
+);
 // ---------------------------------------------------------------------------
 // Generic-impl registry (folded from former
 // `evaluator/values/generic_impl_registry.yo`).
@@ -1343,7 +1369,7 @@ evaluate_module_value :: (
             mval := match(mfi.value,.Some(v) => v,.None => EvalValue.UnitVal);
             method_names.push(mname.clone());
             method_types.push(mfi.ty);
-            method_values.push(mval);
+            method_values.push(_stamp_impl_forall_on_method(mval, forall_names));
             // Bind the bare label so later sibling fields can reference
             // it by name — alias fields like ComptimeList's
             // `first : car` (std/prelude.yo) evaluated `car` as an
@@ -1452,7 +1478,7 @@ evaluate_module_value :: (
                   },
                   _ => ()
                 );
-                g_method_values.push(g_mval);
+                g_method_values.push(_stamp_impl_forall_on_method(g_mval, forall_names));
               }
             );
           });

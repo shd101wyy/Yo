@@ -32,7 +32,8 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  record_method_callee_type
+  record_method_callee_type,
+  record_method_callee_value
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -2612,6 +2613,20 @@ Fix: wrap the call:
             false,
             false,
             exn
+          );
+          // Record the resolved/specialized method FuncVal in the non-destructive
+          // method-callee VALUE side-table (keyed by this call's expr id) so
+          // codegen's method-call dispatch can recover it — the callee dot-access
+          // has no ExprInfo. Prefer the specialized FuncVal (concrete monomorphized
+          // body); fall back to the resolved generic method value.
+          match(
+            call_result_m.specialized_function_value,
+            .Some(sfv) => record_method_callee_value(ast_expr_id(expr), sfv),
+            .None => match(
+              method_info.method_val_opt,
+              .Some(mv) => record_method_callee_value(ast_expr_id(expr), mv),
+              .None => ()
+            )
           );
           // CTFE-execute comptime-returning methods. `try_to_call...`
           // resolves the return TYPE but never runs the body

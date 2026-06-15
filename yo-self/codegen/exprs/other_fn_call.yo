@@ -15,7 +15,8 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, make_err_expr, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
+{ lookup_method_callee_value } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -617,6 +618,21 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             .None => ()
           );
           mei = (mei + usize(1));
+        });
+        // Generic-impl fallback: the type_trait_methods registry is keyed by the
+        // CONCRETE type id and misses generic-impl methods (registered under the
+        // generic `C(T)` id). The evaluator resolved + specialized the method and
+        // stashed the specialized FuncVal in the method-callee VALUE side-table
+        // keyed by this call's expr id; use it to recover the C name.
+        if(mc_name.is_none(), {
+          match(
+            lookup_method_callee_value(ast_expr_id(expr)),
+            .Some(mcv) => if(is_func_val(mcv), {
+              mfid2 := match(mcv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+              mc_name = _c_func_name(mfid2, context);
+            }),
+            .None => ()
+          );
         });
         match(
           mc_name,

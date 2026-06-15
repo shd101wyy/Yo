@@ -484,6 +484,22 @@ record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
 lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
   g_method_callee_types.get(call_id)
 );
+// Method-callee VALUE side-table (parallel to g_method_callee_types). Codegen's
+// generate_other_function_call dispatches via the callee's ExprInfo value, but a
+// method call's callee dot-access has no ExprInfo (recording one is destructive
+// — regressed std). This non-destructive table carries the resolved/specialized
+// method FuncVal, keyed by the CALL expr id, so codegen can emit
+// `<specialized_c_name>(args)`.
+(g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
+/// Record the resolved/specialized method FuncVal for a method-call expr id.
+record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
+  g_method_callee_values.set(call_id, v);
+  ()
+});
+/// Look up the resolved/specialized method FuncVal for a method-call expr id.
+lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
+  g_method_callee_values.get(call_id)
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
@@ -495,3 +511,4 @@ export(RuntimeDestructuring);
 export(ExprInfo, new_expr_info);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
 export(record_method_callee_type, lookup_method_callee_type);
+export(record_method_callee_value, lookup_method_callee_value);

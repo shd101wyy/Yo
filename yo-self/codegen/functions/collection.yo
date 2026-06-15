@@ -16,7 +16,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
-{ ExprInfoTable, expr_info_table_get } :: import("../../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_object_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
@@ -460,6 +460,22 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
             mmi = (mmi + usize(1));
           });
         });
+        // Generic-impl fallback: the registry misses generic-impl methods. The
+        // evaluator stashed the resolved/specialized method FuncVal in the
+        // method-callee VALUE side-table keyed by this call's expr id — collect it
+        // (+ recurse its body) so its prototype/body are emitted and codegen's
+        // dispatch (which reads the same side-table) resolves to a real C function.
+        match(
+          lookup_method_callee_value(ast_expr_id(expr)),
+          .Some(scv) => if(is_func_val(scv), {
+            sfid := _func_val_id(scv);
+            if(!(context.has_function(sfid.clone())), {
+              context.register_function(sfid.clone(), scv, sanitize_for_c_identifier(sfid.clone(), false));
+              recur(_func_val_body(scv), context, info);
+            });
+          }),
+          .None => ()
+        );
       });
       match(
         expr_info_table_get(info, ast_expr_id(callee)),
