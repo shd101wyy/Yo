@@ -104,3 +104,49 @@ struct/FuncVal, not name-based identity.
    diverges from TS identity model.
 3. Validate with this repro (TS-differential: prints `A`, rc=0) + corpus stays
    green, THEN re-test the full `String.from("AB").len()` (m1) path.
+
+## Deep trace (2026-06-15 session — layers ruled out, all reverted)
+
+Probed the failure chain end-to-end. Findings (each verified with eprintln, then
+the speculative edits reverted because `b.get()` never reaches the paths I
+modified):
+
+- **The CALL `b.get()` has NO ExprInfo at codegen time.** `generate_func_call`
+  (codegen/exprs/generation.yo:246) looks up `get_expr_info(expr)` for the whole
+  call and finds nothing → emits `// Failed to transpile (b.get)()` (the
+  generation.yo:250 site, NOT the :371 fallback). So the evaluator records
+  nothing for the call expr. (`make_box()` and `b` DO get ExprInfo and transpile
+  fine — only the method call is missing.)
+- **`try_to_call_function_with_arguments` step-12b specialization never runs for
+  the method.** A probe on `(is_method_call && is_func_generic)` right before the
+  FuncCallResult never fired for `b.get()`. So the method call doesn't reach the
+  specialization/FuncCallResult builder.
+- **`_try_find_receiver_method` (function.yo:153) is NEVER called with
+  method_name=="get"** during the entire compile (probe empty). So method
+  resolution for `b.get()` doesn't happen via the receiver-method path at all at
+  codegen-eval time. The `.Some(method_info)` branch (function.yo:~2580) that
+  builds + sets the call's ExprInfo (2683-2686) is therefore never taken; the
+  `.None` branch (2691) is, and it does not produce a usable call ExprInfo.
+- The generic-impl callback IS registered (impl.yo:2029
+  `set_find_methods_from_generic_impls_fn`), and `check` passes (but check does
+  NOT eval fn bodies, so it never exercises `b.get()`).
+
+OPEN QUESTION for next session: WHY isn't `_try_find_receiver_method` reached for
+`b.get()` during the codegen body-eval? Either (a) the codegen-time evaluation of
+`main`'s body resolves the callee `.`(b,get) via a different property-access path
+that throws/returns before the method-call dispatch at function.yo:2549, or (b)
+the callee property-access eval silently fails (no printed error). START HERE:
+probe at the TOP of `evaluate_function_call` and at the `.`(b,get) property-access
+eval to see what the callee resolves to and whether it throws. The fix is upstream
+of specialization — method RESOLUTION for a generic-impl method on a concrete
+instantiation must succeed first (produce `method_info`), THEN specialization +
+ExprInfo recording (the genericity check needs `is_function_type_generic(ft) ||
+return-is-SomeT`, since the resolved method arrives with `self` concretized but
+return `T` still a bare SomeT and forall dropped — verified via probe:
+ret_some=true, p0_some=false, forall=0 for 231 method calls).
+
+NOTE: the faithful infra changes attempted this session (record spec FuncVal on
+the callee's ORIGINAL ExprInfo node id mirroring TS helper.ts:2272; broaden the
+specialization genericity guard to include return-SomeT) are CORRECT but were
+reverted because `b.get()` fails upstream (resolution) before reaching them —
+re-apply them only AFTER resolution produces `method_info`.
