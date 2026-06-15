@@ -1,6 +1,44 @@
 # Codegen: generic static-method dispatch (e.g. `ArrayList(u8).new()`)
 
-## Status: OPEN — next Phase-3 target after the instance-method keystone
+## Status: SPECIALIZATION ✅ RESOLVED (commit 6ca1f10ef); one downstream layer remains
+
+The static-method SPECIALIZATION is fixed (instrumented + 3-part fix below).
+`ArrayList(u8).new()` now specializes to a concrete `ArrayList(u8)`-returning
+function — `main` transpiles (was "undeclared" before), corpus 35/35, instance
+keystone unaffected. The ONE remaining blocker for full `ArrayList`-in-user-code
+is downstream and SEPARATE: the specialized body's value-struct CONSTRUCTOR emits
+0 args (the `rewrap` edge case) — see
+issues/codegen-specialized-body-constructs-generic-type.md.
+
+### The fix that worked (commit 6ca1f10ef), found by instrumentation
+
+Probe of `ArrayList(u8).new()` showed: it reaches the **FuncVal-call arm** with
+`forall=0` (unstamped) + 240 captures including `T=u8` at the tail. Three pieces:
+1. **impl.yo**: stamp the impl forall on ALL generic-impl methods (not just
+   instance) so static methods carry forall and reach the spec gate.
+2. **function.yo FuncVal-arm forall loop**: capture fallback — bind a forall param
+   from the FuncVal's own captures (where `_inject_forall_captures` put `T=u8`)
+   when args / receiver-type_arguments don't.
+3. **function.yo runtime-return spec**: set `ctx.self_type` to the static
+   dot-receiver around `create_specialized` so the body re-evaluates with `Self`
+   concrete (the CTFE-route self_type window didn't cover the runtime-return spec).
+
+### Remaining layer: object-ctor `runtime_arg_exprs` not recorded in the spec body
+
+`ArrayList.new`'s body is `Self(_ptr:.None, _length:usize(0), _capacity:usize(0))`.
+The specialized `.new` emits `__yo_new_<cName>()` with **0 args** (needs 3). The
+object-ctor codegen branch reads `ei.runtime_arg_exprs_in_order`, which is EMPTY
+for this ctor in the specialized body. Verified spec-body-specific: the same
+comptime-arg object construction OUTSIDE a spec body works (`/tmp/objc.yo`,
+`Box2(a:i32(1),b:i32(2))` → prints "B"). So `create_specialized`'s body re-eval
+does not record `runtime_arg_exprs_in_order` for nested object constructors
+(normal eval does, even for comptime-valued field args). Fix options:
+(a) make the spec body re-eval record `runtime_arg_exprs` for object ctors, or
+(b) codegen fallback: when `runtime_arg_exprs` is empty, emit the ctor's runtime
+    field values from the FnCall's raw args / the comptime struct value (must map
+    labels → runtime-field order). Same fix unblocks the `rewrap` edge case.
+
+## (Historical) Status: OPEN — next Phase-3 target after the instance-method keystone
 
 The generic-impl **instance**-method specialization keystone (commit 0acb43c23,
 narrowed cc9ae1f73) handles `recv.method(args)` where the type params come from
