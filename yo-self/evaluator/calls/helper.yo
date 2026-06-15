@@ -43,6 +43,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Token } :: import("../../token.yo");
+{ HashMap } :: import("std/collections/hash_map");
 { t_unit, t_type } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
@@ -73,6 +74,8 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry,
   ExpectedTypeCtx,
+  LoopBodyCtx,
+  CapturedVarInfo,
   SpecializingFunctionInfo,
   SpecializedFunctionCache,
   SpecializedFunctionCacheEntry
@@ -997,18 +1000,100 @@ create_specialized_function_inline :: (
           );
           // Register recursive self-reference in context so recursive calls
           // inside the body can find the specialized func_id.
+          spec_ret_ty := evaluate_function_return_type_again(
+            match(func_type,.Func({ result : r }) => r.*, _ => t_unit()),
+            callee_env,
+            ctx
+          );
           prev_spec := ctx.currently_specializing_function;
           ctx.currently_specializing_function = Option(SpecializingFunctionInfo).Some(
             SpecializingFunctionInfo(
               original_func_id : func_id,
               specialized_func_id : specialized_func_id,
-              specialized_return_type : evaluate_function_return_type_again(
-                match(func_type,.Func({ result : r }) => r.*, _ => t_unit()),
-                callee_env,
-                ctx
-              ),
+              specialized_return_type : spec_ret_ty.clone(),
               original_func_value : original_func_val
             )
+          );
+          // Build a function-body evaluation context so explicit `return(...)`
+          // statements inside the specialized body are legal — begin.yo gates
+          // `return` on `is_evaluating_function_body_or_async_block` and throws
+          // "return can only be used inside a function body" otherwise (which
+          // would propagate out and leave the call site without ExprInfo). The
+          // func_type carries the SPECIALIZED return type so a generic `-> T` /
+          // `-> Self` return argument is checked against the concrete type, not
+          // the original SomeType-bearing one. Mirrors TS helper.ts:2434-2454.
+          fb_func_type := match(
+            func_type,
+            .Func({
+              forall_labels : ft_fl,
+              forall_types : ft_ft,
+              param_labels : ft_pl,
+              param_types : ft_pt,
+              implicit_labels : ft_il,
+              implicit_types : ft_it,
+              implicit_spreads : ft_isp,
+              where_types : ft_wt,
+              result_is_comptime_only : ft_rico,
+              param_is_ref : ft_pir,
+              param_is_owning : ft_pio,
+              result_is_ref : ft_rir,
+              has_variadic : ft_hv,
+              is_extern : ft_ie,
+              extern_name : ft_en,
+              is_control : ft_ic
+            }) => TypeValue.Func(
+              ft_fl,
+              ft_ft,
+              ft_pl,
+              ft_pt,
+              ft_il,
+              ft_it,
+              ft_isp,
+              ft_wt,
+              box(spec_ret_ty.clone()),
+              ft_rico,
+              ft_pir,
+              ft_pio,
+              ft_rir,
+              ft_hv,
+              ft_ie,
+              ft_en,
+              ft_ic
+            ),
+            _ => func_type
+          );
+          // Override the evaluation context for the body exactly as TS does
+          // (`{ ...context, <overrides> }` in helper.ts:2437-2462). The
+          // specialized body is a FRESH function scope, so we must:
+          //   * mark it a function body (legalizes explicit `return(...)`),
+          //   * CLEAR captured_variables (TS `capturedVariables: undefined`) —
+          //     otherwise a nested regular `->` function in the body inherits
+          //     the caller's capture map and wrongly reports "a regular
+          //     function cannot capture outer runtime variables" (e.g. std/path),
+          //   * CLEAR is_evaluating_loop_body,
+          //   * set expected_type to the specialized return type,
+          //   * give it a fresh function_return_impl_concrete_type array.
+          // All saved and restored around the body eval.
+          prev_fb := ctx.is_evaluating_function_body_or_async_block;
+          prev_caps := ctx.captured_variables;
+          prev_loop := ctx.is_evaluating_loop_body;
+          prev_expected := ctx.expected_type;
+          prev_fri := ctx.function_return_impl_concrete_type;
+          ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
+            FuncOrAsyncBlockCtx(
+              kind : FuncOrAsyncBlockKind.FunctionBody,
+              func_type : Option(TypeValue).Some(fb_func_type),
+              func_value : Option(EvalValue).Some(original_func_val),
+              eval_env : callee_env
+            )
+          );
+          ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).None;
+          ctx.is_evaluating_loop_body = Option(LoopBodyCtx).None;
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(
+            ExpectedTypeCtx(ty : spec_ret_ty.clone(), env : callee_env)
+          );
+          ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
+            ArrayList(ImplConcreteTypeInfo).new()
           );
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
@@ -1022,6 +1107,11 @@ create_specialized_function_inline :: (
             exn
           );
           // Restore context
+          ctx.function_return_impl_concrete_type = prev_fri;
+          ctx.expected_type = prev_expected;
+          ctx.is_evaluating_loop_body = prev_loop;
+          ctx.captured_variables = prev_caps;
+          ctx.is_evaluating_function_body_or_async_block = prev_fb;
           ctx.currently_specializing_function = prev_spec;
           // Build updated captures from the specialized callee_env.
           // This ensures the specialized function "closes over" the bound
