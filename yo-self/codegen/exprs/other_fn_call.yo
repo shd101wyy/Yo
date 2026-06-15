@@ -455,6 +455,48 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
   });
   out
 });
+/// Build an object/struct constructor's runtime-field VALUE exprs by matching
+/// the struct's runtime fields (in declaration order) to the FnCall's labeled
+/// args `label : value`. Used as a fallback when `runtime_arg_exprs_in_order` is
+/// empty for a constructor call — which happens for a ctor inside a SPECIALIZED
+/// method body (e.g. `ArrayList(u8).new`'s `Self(_ptr:.None, _length:0, ...)`),
+/// where the spec body re-eval does not record `runtime_arg_exprs`. Returns the
+/// value exprs in runtime-field order (so positional `__yo_new_(...)` matches).
+_ctor_args_from_labeled :: (fn(wrapped : TypeValue, fncall_args : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  rfs := get_runtime_struct_fields(wrapped);
+  n := rfs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    flabel := match(rfs.get(i),.Some(f) => f.label,.None => String.from(""));
+    (found : Option(AstExpr)) = Option(AstExpr).None;
+    (ai : usize) = usize(0);
+    na := fncall_args.len();
+    while((ai < na) && found.is_none(), {
+      match(
+        fncall_args.get(ai),
+        .Some(arg) => if(ast_expr_is_fn_call_of(arg, ":", Option(usize).Some(usize(2))), {
+          ca := match(arg,.FnCall(_, _, ca2, _, _) => ca2,.Atom(_, _) => ArrayList(AstExpr).new());
+          lbl := match(ca.get(usize(0)),.Some(l) => if(ast_expr_is_atom(l), ast_expr_token(l).value, String.from("")),.None => String.from(""));
+          if(lbl == flabel, {
+            found = match(ca.get(usize(1)),.Some(v) => Option(AstExpr).Some(v),.None => Option(AstExpr).None);
+          });
+        }),
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    match(
+      found,
+      .Some(v) => {
+        _p := out.push(v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 /// Per-argument cast to the callee's declared parameter C types (a no-op when
 /// types match; needed for specialized generic callees). Mirrors the
 /// namedCastedArgsList logic.
@@ -696,7 +738,15 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         wrapped := wrapped_box.*;
         if(is_object_type(wrapped), {
           cname := match(context.base.get_type_c_name(type_key(wrapped.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_obj"));
-          ctor_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+          obj_fncall_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+          // Prefer the recorded runtime arg exprs; fall back to reconstructing
+          // them from the FnCall's labeled args when empty (ctor inside a
+          // specialized body — see _ctor_args_from_labeled).
+          ctor_args := match(
+            ei.runtime_arg_exprs_in_order,
+            .Some(ra) => if(ra.len() > usize(0), ra, _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)),
+            .None => _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)
+          );
           ctor_list := String.from("");
           nca := ctor_args.len();
           (ci : usize) = usize(0);
