@@ -1,6 +1,42 @@
 # Codegen: generic-impl method calls need specialization (Gap 6 / monomorphization)
 
-## Status: OPEN — the largest remaining Phase-3 codegen-port piece
+## Status: ✅ RESOLVED 2026-06-15 (commit 0acb43c23)
+
+The generic-impl method-call specialization keystone is FIXED. The 16-line repro
+(MyBox(T).get on MyBox(i32)) compiles + runs matching TS ("A", rc=0); corpus
+differential 33/33 with the new `generic_impl_method` fixture. The fix (A–D) is
+in commit 0acb43c23 — see "Session 5: THE FIX (A–D)" below. The body of this
+file is retained as the multi-session diagnostic trail (it documents why several
+narrow attempts failed and how the root was finally isolated).
+
+### Session 5: THE FIX (A–D), committed 0acb43c23
+
+- **A** (`evaluator/values/impl.yo` `_stamp_impl_forall_on_method`): stamp the
+  impl's forall onto each method's FuncVal at impl-eval (inherent + trait paths).
+  KEY INSIGHT: the FuncVal's `forall_names` SURVIVES method resolution's
+  type-concretization, whereas the resolved Func TYPE has its forall stripped
+  (`fl=0` at the call) — so the value, not the type, is the durable signal.
+- **B** (`evaluator/calls/helper.yo` step12b): the specialization guard fires when
+  the callee FuncVal carries forall (`fv_has_forall`), not only when `func_type`
+  does. Spec then re-evaluates the body with the concrete `self` (MyBox(i32)) →
+  concrete return + distinct func_id + emittable empty-forall registered type.
+- **C**: free — `self` is already concrete at the call, so the body concretizes.
+- **D** (non-destructive method-callee VALUE side-table, `expr_info.yo`
+  `g_method_callee_values`): evaluator records the specialized FuncVal
+  (`function.yo` method path); codegen dispatch (`other_fn_call.yo`) + collection
+  (`collection.yo`) read it. (Recording on the callee dot-access ExprInfo is
+  destructive — regressed std; the side-table is the faithful equivalent.)
+
+### Remaining (SEPARATE issues, not this keystone): the full m1 String path
+
+`String.from("AB").len()` still fails — it needs cascade pieces unrelated to
+generic-impl method specialization: (1) `str` primitive methods (str.len etc.),
+(2) ArrayList(u8) field-SomeT monomorphization, (3) enum-ctor `.Some(x)` in a
+struct-field position. Track those separately.
+
+---
+
+## (Historical) Status: OPEN — the largest remaining Phase-3 codegen-port piece
 
 This is the true blocker for `String.from("AB").len()` (the m1 target) and any
 program that calls a method from a generic impl (`impl(forall(T), C(T), ...)`)
