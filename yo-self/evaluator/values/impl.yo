@@ -82,6 +82,14 @@ open(import("std/string"));
 /// type-concretization — the resolved Func TYPE has its forall stripped, so the
 /// value's `forall_names` is the surviving signal the spec guard consults). Only
 /// stamps a FuncVal whose own forall is empty, and only when `names` is non-empty.
+///
+/// NARROWED to INSTANCE methods (first param `self`): the call-site
+/// specialization derives the type params from the concrete `self` ARGUMENT, so
+/// a method without `self` (a STATIC method like `ArrayList(u8).new : (fn() ->
+/// Self)`) has nothing to bind `T` from and its specialization throws. Stamping
+/// only `self`-methods keeps the validated instance-method path and leaves
+/// static-method dispatch at its prior behavior (static generic-method
+/// specialization is a separate, still-open piece — see issues/).
 _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) -> EvalValue)(
   if(
     names.len() == usize(0),
@@ -89,7 +97,7 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
     match(
       v,
       .FuncVal(existing_fn, params, ptns, evp, body, cn, ct, cv, fid) => if(
-        existing_fn.len() > usize(0),
+        (existing_fn.len() > usize(0)) || !(match(params.get(usize(0)),.Some(p0) => (p0 == String.from("self")),.None => false)),
         v,
         EvalValue.FuncVal(names.clone(), params, ptns, evp, body, cn, ct, cv, fid)
       ),
