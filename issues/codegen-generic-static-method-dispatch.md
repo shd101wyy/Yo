@@ -95,13 +95,68 @@ capture-seeding I added lives in the `.None` arm, which static `.new` never
 reaches).
 
 So the REAL location for the fix is the **FuncVal-call arm's specialization**
-(the `callee_value = Some(.TypeVal(Func))` → `try_to_implement_function...` /
-the path that calls `create_specialized_function_inline` for a directly-resolved
-FuncVal), where the capture-injected `T` must be seeded before spec. The
-narrowed keystone state (cc9ae1f73) — which does NOT stamp static methods — is
-correct and safe; static dispatch needs the capture-seeding wired into the
-FuncVal-arm spec, plus stamping re-enabled. Two attempts (self_type; step-6
+(function.yo ~line 1616, the `callee_value = Some(FuncVal)` arm; spec at ~2326,
+gated on `forall_names.len() > 0`). Two attempts (self_type; step-6
 capture-seeding in the `.None` arm) were on the wrong path and reverted.
+
+## Attempt 3 (2026-06-15, reverted) — re-stamp static methods only
+
+The FuncVal arm ALREADY has the right machinery: it binds forall params from
+ARG types (function.yo:1862) and, as a FALLBACK, from the receiver's
+**type_arguments** (`recv_type_args`, function.yo:1887-1899 —
+`_static_dot_receiver_self_type(...).Struct({ type_arguments })`). So in
+principle, re-stamping `.new` (giving it `forall_names=[T]`) should let this arm
+bind `T` from the receiver's type args and specialize.
+
+RESULT: re-stamping static methods alone STILL gives `loc4` "main body Failed to
+transpile" (the FuncVal-arm spec throws). So `recv_type_args` is NOT binding `T`
+— almost certainly because **`ArrayList(u8)`'s Struct does not carry
+`type_arguments = [u8]`** (the comptime instantiation didn't populate that
+field), so the receiver fallback finds an empty list and `T` stays unbound →
+`create_specialized_function_inline` throws.
+
+## The actual fix (next): populate / recover the receiver's type arguments
+
+Either (a) ensure generic struct instantiation records `type_arguments` on the
+Struct (so `ArrayList(u8)` carries `[u8]`), or (b) in the FuncVal-arm fallback,
+recover `T` by matching the impl receiver pattern `ArrayList(T)` against the
+concrete receiver `ArrayList(u8)` via `synthesize_types` (the binding
+`_inject_forall_captures` already computed — route it here instead of relying on
+`type_arguments`). Then re-enable static stamping. VERIFY FIRST with a probe:
+print `recv_type_args.len()` for `ArrayList(u8).new` to confirm it's empty.
+Validate: `loc4` prints `A` + corpus 35/35 + std/tests/yo-self.
+
+## Attempt 4 (2026-06-15, reverted) — capture fallback IN the FuncVal arm
+
+Added a third fallback to the FuncVal-arm forall-binding loop (function.yo ~1910):
+when `T` isn't bound from args or `recv_type_args`, bind it from this FuncVal's
+own CAPTURES (`cap_names`/`cap_vals`, where `_inject_forall_captures` put `T=u8`)
++ re-enabled static stamping. RESULT: `loc4` STILL "main body Failed to transpile"
+— identical to attempts 2 & 3.
+
+So one of these is true and UNVERIFIED: (a) `ArrayList(u8).new()` does NOT reach
+this FuncVal arm at all (yet another dispatch path); (b) the resolved `.new`
+FuncVal's captures do NOT contain `T` (the static lookup path may not run
+`_inject_forall_captures`); or (c) `create_specialized_function_inline` throws
+for `.new` for a reason unrelated to `T` (e.g. the body's `Self(...)` / 0-param
+shape).
+
+## STOP guessing — instrument first (next session)
+
+Four blind fix attempts (self_type; `.None`-arm capture-seed; bare re-stamp;
+FuncVal-arm capture fallback) all produce the identical "main body Failed to
+transpile". Before any 5th attempt, add eprintln probes to answer, for
+`ArrayList(u8).new()` specifically:
+  1. Which call arm does it reach? (probe the `.Some(cv)` FuncVal arm entry vs
+     the `.None` method arm vs the property-access path.)
+  2. Does the resolved `.new` FuncVal carry `T` in its captures? (print
+     `cap_names`.)
+  3. Does `create_specialized_function_inline` throw, and at what point? (wrap /
+     print before+after.)
+Only then fix the confirmed layer. The safe narrowed state (cc9ae1f73,
+instance-only stamping) is retained throughout. Static dispatch is a genuine
+multi-layer sub-problem; the instance-method keystone (0acb43c23) is the solid,
+shipped win and is unaffected.
 
 This is a prerequisite for `String`/`ArrayList` usage in user code (their
 constructors `.new()` / `.with_capacity()` are generic static methods) and hence
