@@ -83,13 +83,14 @@ open(import("std/string"));
 /// value's `forall_names` is the surviving signal the spec guard consults). Only
 /// stamps a FuncVal whose own forall is empty, and only when `names` is non-empty.
 ///
-/// NARROWED to INSTANCE methods (first param `self`): the call-site
-/// specialization derives the type params from the concrete `self` ARGUMENT, so
-/// a method without `self` (a STATIC method like `ArrayList(u8).new : (fn() ->
-/// Self)`) has nothing to bind `T` from and its specialization throws. Stamping
-/// only `self`-methods keeps the validated instance-method path and leaves
-/// static-method dispatch at its prior behavior (static generic-method
-/// specialization is a separate, still-open piece — see issues/).
+/// Stamps every generic-impl method (instance AND static). Instance methods bind
+/// their type params from the concrete `self` ARGUMENT; static methods (no
+/// `self`, e.g. `ArrayList(u8).new : (fn() -> Self)`) bind `T` from the impl
+/// forall binding that `_inject_forall_captures` puts in the method's captures
+/// (the FuncVal-call arm reads it back via its forall-binding capture fallback),
+/// and bind `Self` from the static dot-receiver set into `ctx.self_type` around
+/// the specialization. Only stamps a FuncVal whose own forall is empty, and only
+/// when `names` is non-empty.
 _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) -> EvalValue)(
   if(
     names.len() == usize(0),
@@ -97,7 +98,7 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
     match(
       v,
       .FuncVal(existing_fn, params, ptns, evp, body, cn, ct, cv, fid) => if(
-        (existing_fn.len() > usize(0)) || !(match(params.get(usize(0)),.Some(p0) => (p0 == String.from("self")),.None => false)),
+        existing_fn.len() > usize(0),
         v,
         EvalValue.FuncVal(names.clone(), params, ptns, evp, body, cn, ct, cv, fid)
       ),

@@ -1908,6 +1908,45 @@ Fix: wrap the call:
               .None => ()
             );
           });
+          // Capture fallback (STATIC generic-impl methods, e.g.
+          // `ArrayList(u8).new`): no arg binds `T` and the receiver Struct may
+          // not carry `type_arguments`, but the generic-impl resolver injected
+          // the impl's forall binding (`T = u8`) into this FuncVal's CAPTURES
+          // (`_inject_forall_captures`, appended at the tail). Bind `T` from that
+          // capture so the body / specialization concretize.
+          if(!(fa_bound), {
+            (fcap_i : usize) = usize(0);
+            while((fcap_i < cap_names.len()) && !(fa_bound), {
+              if(match(cap_names.get(fcap_i),.Some(cn) => (cn == fa_name),.None => false), {
+                match(
+                  cap_vals.get(fcap_i),
+                  .Some(cvv) => match(
+                    cvv,
+                    .TypeVal(ctb) => {
+                      cap_ty := ctb.*;
+                      fa_bound_names.push(fa_name.clone());
+                      fa_bound_types.push(cap_ty.clone());
+                      _add_forall_cap := add_variable_to_env(
+                        fresh_env,
+                        fa_name,
+                        TypeValue.TypeUni(usize(0)),
+                        Option(EvalValue).Some(EvalValue.TypeVal(box(cap_ty))),
+                        true,
+                        false,
+                        false,
+                        false,
+                        synthetic_token(fa_name, env.module_path)
+                      );
+                      fa_bound = true;
+                    },
+                    _ => ()
+                  ),
+                  .None => ()
+                );
+              });
+              fcap_i = (fcap_i + usize(1));
+            });
+          });
           fa_i = (fa_i + usize(1));
         });
         // v4.1: validate the PLACES bound to ref parameters (after argument
@@ -2324,6 +2363,21 @@ Fix: wrap the call:
           // simple generic bodies specialize cleanly.) Mirrors TS recording the
           // specialized FunctionValue on `call.func.$.value`.
           if(forall_names.len() > usize(0), {
+            // Bind `Self` to the concrete static dot-receiver around the
+            // specialization so a STATIC generic-impl method's body (e.g.
+            // `ArrayList(u8).new`'s `Self(...)` construction) re-evaluates with
+            // `Self` concrete. The forall type params (`T`) are bound into
+            // `fresh_env` by the capture fallback in the forall-binding loop
+            // above; `Self` is the remaining piece for static methods (instance
+            // methods get it from the concrete `self` arg). Restored after spec.
+            spec_self_saved := ctx.self_type;
+            match(
+              _static_dot_receiver_self_type(func_expr, ctx),
+              .Some(spec_st) => {
+                ctx.self_type = Option(TypeValue).Some(spec_st);
+              },
+              .None => ()
+            );
             spec_ct := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
             spec_forall_args := ArrayList(ArgEntry).new();
             (sfa_i : usize) = usize(0);
@@ -2407,6 +2461,7 @@ Fix: wrap the call:
             spec_callee_info := new_expr_info(env, spec_ty_fixed);
             spec_callee_info.value = Option(EvalValue).Some(spec_fv);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);
+            ctx.self_type = spec_self_saved;
           });
           return(expr);
         });
