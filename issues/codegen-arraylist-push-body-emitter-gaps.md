@@ -63,9 +63,12 @@ would correctly emit `(uint8_t*)`), not generic substitution.
   a comptime value bundling fns — resolve to the bundled fn + emit a normal call).
 - `*(T)(ptr)` raw-pointer cast (deref-cast); note `.Some(*(void)(old_ptr))` shows
   `*(void)` too — the void-ptr deref-cast form.
-- `&+` pointer arithmetic — should lower to `__yo_ptr_add` (an inline builtin,
-  BF_YO_PTR_ADD), so the gap is the `&+` operator not being recognized/lowered to
-  it; check the eval/codegen path for `&+`.
+- `&+` pointer arithmetic — NOT a direct `__yo_ptr_add` inline (corrected): in TS
+  (`_expr.ts:1222`) `&+` is only unsafe-gated then dispatched as a NORMAL call;
+  `&+` is a pointer OPERATOR-METHOD whose body calls `__yo_ptr_add`. So codegen
+  must dispatch the `&+` operator method (then the inner `__yo_ptr_add` lowers via
+  the inline path). Same operator/method-dispatch complexity class as the others —
+  NOT a one-liner.
 - `.Some(ptr)` runtime enum-ctor into a `?*(T)` field — but this line cascades
   from `typed_ptr` (the `*(T)` cast) failing first, so it may resolve once `*(T)`
   works; verify independently (runtime `.Some(x)` value-position DOES work, per
