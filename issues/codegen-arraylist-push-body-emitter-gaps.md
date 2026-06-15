@@ -48,15 +48,15 @@ self->_ptr = // Failed to transpile .Some(typed_ptr);
 uint8_t* target_ptr = // Failed to transpile typed_ptr &+ (self._length);
 ```
 
-### KEY NEW FINDING: T is NOT substituted in the specialized push body
-`sizeof(T)` and `*(T)` show a bare `T`, not `u8` — so inside the specialized
-`push` body the type param is still abstract. This is a generic-substitution gap
-DISTINCT from the emitter gaps (ArrayList(u8).new()/len() worked because their
-bodies don't use `sizeof(T)`/`*(T)`/raw-mem). Likely the keystone specialization
-binds T for signature/return resolution but the body's `sizeof(T)`/`*(T)`
-sub-exprs aren't re-evaluated with T=u8. If T were substituted, `sizeof(u8)` and
-`*(u8)(ptr)` would lower cleanly and may unblock several of the lines above.
-**Investigate this FIRST** — it may be the root, with the emitters secondary.
+### CORRECTION 2026-06-16: there is NO T-substitution gap
+An earlier note here claimed `T` was unsubstituted in the specialized push body
+(from `sizeof(T)`/`*(T)` in the "Failed to transpile" lines). That was a MISREAD:
+those strings are the **source-text echo** (`ast_expr_to_string` of the
+un-transpiled expr in the `// Failed to transpile <src>` comment), NOT the lowered
+type. The TRANSPILED lines prove T is correctly substituted to `u8`:
+`uint8_t* old_ptr`, `uint8_t* typed_ptr`, `uint8_t* target_ptr`, and `self->_ptr`
+typed `uint8_t*`. So the blockers are PURELY the emitters below (a `*(T)` cast
+would correctly emit `(uint8_t*)`), not generic substitution.
 
 ### Emitter gaps (after T-subst is fixed, isolate each)
 - comptime-namespace method dispatch: `GlobalAllocator.realloc/malloc` (callee is
