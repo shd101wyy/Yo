@@ -58,7 +58,7 @@ open(import("std/string"));
 } :: import("./type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { random_id } :: import("../../utils.yo");
@@ -91,6 +91,35 @@ open(import("std/string"));
 /// and bind `Self` from the static dot-receiver set into `ctx.self_type` around
 /// the specialization. Only stamps a FuncVal whose own forall is empty, and only
 /// when `names` is non-empty.
+/// True if a generic-impl method must NOT be forall-stamped — i.e. it is a
+/// MACRO / quoted-expr / comptime method, not a runtime monomorphizable function.
+/// Stamping such a method makes it specialization-eligible, and specializing it
+/// re-evaluates a body that quotes (`__yo_expr_to_string`) with a no-value Expr
+/// arg and throws (observed specializing the `!`/Not operator's comptime variant
+/// during a sibling method's resolution). These are caught by EITHER an
+/// `Expr`-typed parameter (a quote-taking macro) OR a comptime-only result (an
+/// operator's `comptime_*` variant) — neither is monomorphized for codegen.
+_method_ty_skip_stamp :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Func({ param_types : pts, result_is_comptime_only : rico }) => if(rico, true, {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < pts.len()) && !(found), {
+        match(
+          pts.get(i),
+          .Some(pt) => if(is_expr_type(pt), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    }),
+    _ => false
+  )
+);
 _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) -> EvalValue)(
   if(
     names.len() == usize(0),
@@ -1377,8 +1406,15 @@ evaluate_module_value :: (
             forall_env = mfi.env;
             mval := match(mfi.value,.Some(v) => v,.None => EvalValue.UnitVal);
             method_names.push(mname.clone());
+            m_is_macro := _method_ty_skip_stamp(mfi.ty);
             method_types.push(mfi.ty);
-            method_values.push(_stamp_impl_forall_on_method(mval, forall_names));
+            (m_to_push : EvalValue) = EvalValue.UnitVal;
+            if(m_is_macro, {
+              m_to_push = mval;
+            }, {
+              m_to_push = _stamp_impl_forall_on_method(mval, forall_names);
+            });
+            method_values.push(m_to_push);
             // Bind the bare label so later sibling fields can reference
             // it by name — alias fields like ComptimeList's
             // `first : car` (std/prelude.yo) evaluated `car` as an
@@ -1487,7 +1523,14 @@ evaluate_module_value :: (
                   },
                   _ => ()
                 );
-                g_method_values.push(_stamp_impl_forall_on_method(g_mval, forall_names));
+                g_is_macro := _method_ty_skip_stamp(gfi.ty);
+                (g_to_push : EvalValue) = EvalValue.UnitVal;
+                if(g_is_macro, {
+                  g_to_push = g_mval;
+                }, {
+                  g_to_push = _stamp_impl_forall_on_method(g_mval, forall_names);
+                });
+                g_method_values.push(g_to_push);
               }
             );
           });
