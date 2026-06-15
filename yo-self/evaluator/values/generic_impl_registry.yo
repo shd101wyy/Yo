@@ -344,14 +344,81 @@ MethodCandidate :: struct(
   method_type : TypeValue,
   method_value : Option(EvalValue)
 );
+/// Attach the impl's forall type-vars onto a resolved method's `Func` type.
+///
+/// A generic impl `impl(forall(T), C(T), m : (fn(...) -> ...))` stores each
+/// method's `Func` type WITHOUT the impl-level `forall(T)` (the forall lives on
+/// the impl entry, not the method type). TS attaches `forallParameters` to each
+/// impl method's `functionType`, so `isFunctionTypeGeneric` recognizes the
+/// method as generic and the call site SPECIALIZES it (re-evaluating the body
+/// with `T` bound concretely). Without this, yo-self's resolved method type has
+/// `forall_labels = []`, `is_function_type_generic` returns false, no
+/// specialization runs, and codegen sees an unspecialized body (`self.value` on
+/// a `void*` self → uncompilable C). Mirror TS by stamping the impl forall onto
+/// the method type here. Only stamps when the method type has no forall of its
+/// own (don't clobber a method's own forall) and the impl actually has forall
+/// names. Non-Func types pass through unchanged.
+_attach_forall_to_func :: (
+  fn(ft : TypeValue, names : ArrayList(String), types : ArrayList(TypeValue)) -> TypeValue
+)(
+  if(
+    names.len() == usize(0),
+    ft,
+    match(
+      ft,
+      .Func({
+        forall_labels : existing_fl,
+        param_labels : pl,
+        param_types : pt,
+        implicit_labels : il,
+        implicit_types : it,
+        implicit_spreads : isp,
+        where_types : wt,
+        result : r,
+        result_is_comptime_only : ric,
+        param_is_ref : pir,
+        param_is_owning : pio,
+        result_is_ref : rir,
+        has_variadic : hv,
+        is_extern : ie,
+        extern_name : en,
+        is_control : ic
+      }) => if(
+        existing_fl.len() > usize(0),
+        ft,
+        TypeValue.Func(
+          names.clone(),
+          types.clone(),
+          pl,
+          pt,
+          il,
+          it,
+          isp,
+          wt,
+          r,
+          ric,
+          pir,
+          pio,
+          rir,
+          hv,
+          ie,
+          en,
+          ic
+        )
+      ),
+      _ => ft
+    )
+  )
+);
 // ---------------------------------------------------------------------------
 // find_methods_from_generic_impls
 // ---------------------------------------------------------------------------
 /// Search ALL registered generic impls for matching entries that have a field
-/// with `method_name`. Returns candidates (unspecialized).
+/// with `method_name`. Returns candidates, with the impl's forall stamped onto
+/// each method `Func` type (via `_attach_forall_to_func`) so the call site can
+/// recognize the method as generic and specialize it.
 ///
-/// Simplified port of `findMethodsFromGenericImpls` — no specialization,
-/// just returns the original type/value for the field.
+/// Simplified port of `findMethodsFromGenericImpls`.
 find_methods_from_generic_impls :: (
   fn(
     concrete_type : TypeValue,
@@ -416,7 +483,7 @@ find_methods_from_generic_impls :: (
           fvalue := entry.field_values.get(fi);
           results.push(
             MethodCandidate(
-              method_type : ftype,
+              method_type : _attach_forall_to_func(ftype, entry.forall_names, entry.forall_some_types),
               method_value : fvalue
             )
           );
