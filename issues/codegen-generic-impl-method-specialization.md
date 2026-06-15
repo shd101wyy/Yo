@@ -222,3 +222,50 @@ ExprInfo (method path, function.yo:~2683) so `generate_other_function_call`'s
 3. Verify `is_function_type_generic` → true → spec runs (probe step12b) → gc2
    compiles+runs (prints `A`, rc=0) + corpus 32/32 + std/tests green.
 4. Record resolved/specialized FuncVal on the callee dot-access (method path).
+
+## Session 3 progress (2026-06-15) — forall-attach LANDED; dispatch chain mapped
+
+LANDED (commit 6c48e17d0, corpus 32/32 + std `check` clean): step 1+2 above.
+`_attach_forall_to_func` in `find_methods_from_generic_impls` stamps the impl's
+`forall_names`/`forall_some_types` onto each resolved method `Func` type (only
+when the method has no forall of its own). The adapter
+`_find_methods_from_generic_impls_as_method_entries` (impl.yo:1992) already passes
+`ty : c.method_type` through to the `MethodEntry`, so the forall reaches
+`get_receiver_methods_by_name_from_env` → `_try_find_receiver_method`'s `hits`.
+
+PROTOTYPED then REVERTED (corpus-safe but gc2 not green, so not committed — turns
+a clear stub into a confusing "undeclared" error): a method-callee VALUE
+side-table (`g_method_callee_values` in expr_info.yo, parallel to
+`g_method_callee_types`) recorded in the method path (function.yo:~2616, value =
+`call_result_m.specialized_function_value ?? method_info.method_val_opt`), read by
+codegen's concrete-method dispatch (other_fn_call.yo, as the fallback when the
+type_trait_methods registry misses) AND by collection.yo (to collect+emit the
+method). RESULT: this **eliminated "Failed to transpile (b.get)()"** — codegen now
+dispatches `b.get()` to a C call — but the call was to `yo_id_3694` (the GENERIC
+`get`), which is UNDECLARED because `should_skip_function_codegen` skips it (it
+has forall). i.e. the recorded value was the generic method, NOT a specialized one
+→ `call_result_m.specialized_function_value` was `None` → specialization did NOT
+run for `b.get()` even with forall-attach.
+
+KEY STRUCTURAL FACT verified: `create_specialized_function_inline` (helper.yo:900)
+ALREADY registers the specialized func's TYPE with EMPTY forall + concrete
+param/return (helper.yo:1125-1144 `register_func_type(specialized_func_id,
+spec_type)`), so a specialized func IS emittable (`should_skip` won't skip it).
+The FuncVal itself reuses the original `forall_names` (line 1082) but codegen reads
+the registered TYPE, so that's fine. So IF spec ran, the recorded specialized func
+would be emittable and gc2 would likely work.
+
+### Session 4 START HERE — the remaining gap is "spec does not run for b.get()":
+Even with forall on the method type reaching `hits`, `spec_func_val` came back
+`None`. Probe WHY in the method path: does `method_info.method_ty` (passed to
+`try_to_call_function_with_arguments` at function.yo:2603) actually carry
+`forall_labels=[T]`? If NO → the forall is dropped between the adapter and
+`method_info` (check how `_try_find_receiver_method` builds `ReceiverMethodResult`
+from `hits` — does it preserve `hit.ty`?). If YES → `try_to_call`'s step12b
+`is_func_generic` should be true; check why `create_specialized_function_inline`
+returns without producing a distinct specialized func (likely `T` is never bound
+into `callee_env` because `self : Self`'s param type isn't unified against the
+`MyBox(i32)` self ARG to extract `T=i32` — the binding of forall vars from
+runtime-arg types is the real missing step; TS binds them during
+param-unification). Once `spec_func_val` is `Some`, re-apply the (corpus-safe)
+side-table dispatch+collection prototype above and gc2 should compile+run.
