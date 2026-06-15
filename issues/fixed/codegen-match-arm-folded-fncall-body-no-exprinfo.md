@@ -1,6 +1,17 @@
 # Match arm body that is a comptime-foldable FnCall → "Failed to transpile"
 
-**Status:** OPEN, root cause CONFIRMED (no rebuild needed to diagnose).
+**Status:** ✅ FIXED. Root = (A-null): the per-arm `body_info_X.value = None`
+mutations (match.yo, 4 arm kinds) nulled the SHARED arm-body ExprInfo object
+(ExprInfo is an `object`/reference), corrupting the arm body's own folded value
+(value-state probe confirmed `val=SOME:0` BEFORE the nulling fired with
+`scrut_none=Y`). The nullings were also redundant — the post-loop already sets
+the match RESULT value to None for an unknown scrutinee (`out_val_em`,
+match.yo:2188). FIX: removed all 4 per-arm nullings (wc/lit/fl/wf); each arm now
+keeps its own value, which is exactly what codegen emits per switch case.
+Validated: corpus 40/40 (+`match_arm_folded_fncall`, some1→`5`/some2→`7` = TS),
+std per-file sweep 94/58 (identical to baseline, zero regression).
+
+Below: the full diagnostic trail (two falsified hypotheses + the probe data).
 
 ## Repro
 

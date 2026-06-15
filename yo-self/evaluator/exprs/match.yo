@@ -276,9 +276,9 @@ evaluate_primitive_match :: (
       });
       body_info_wc := match(body_info_wc_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
       consume_case_body_temp_var(evaluated_body_wc, body_info_wc.env, ctx);
-      if(scrutinee_val_opt.is_none(), {
-        body_info_wc.value = Option(EvalValue).None;
-      });
+      // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
+      // corrupts the arm body's stored value (see the fieldless-arm note); the
+      // match RESULT value is nulled by the post-loop instead.
       if(has_any_control_flow(body_info_wc.control_flow), {
         cf_wc := match(
           body_info_wc.control_flow,
@@ -546,9 +546,9 @@ evaluate_primitive_match :: (
       });
       body_info_lit := match(body_info_lit_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
       consume_case_body_temp_var(evaluated_body_lit, body_info_lit.env, ctx);
-      if(scrutinee_val_opt.is_none(), {
-        body_info_lit.value = Option(EvalValue).None;
-      });
+      // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
+      // corrupts the arm body's stored value (see the fieldless-arm note); the
+      // match RESULT value is nulled by the post-loop instead.
       if(has_any_control_flow(body_info_lit.control_flow), {
         cf_lit := match(
           body_info_lit.control_flow,
@@ -1353,9 +1353,16 @@ evaluate_match :: (
         });
         body_info_fl := match(body_info_fl_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
         consume_case_body_temp_var(evaluated_body_fl, body_info_fl.env, ctx);
-        if(scrutinee_val_opt.is_none(), {
-          body_info_fl.value = Option(EvalValue).None;
-        });
+        // NOTE: do NOT null body_info_fl.value here for a runtime/unknown
+        // scrutinee. `body_info_fl` IS the shared ExprInfo object stored in the
+        // table for this arm-body node (ExprInfo is an object → reference);
+        // nulling it corrupts the arm body's own stored value, so codegen reads
+        // value=None and emits "Failed to transpile" for a foldable arm body
+        // like `i32(0)` (whose value DID fold to 0). The match RESULT value is
+        // already set to None for an unknown scrutinee by the post-loop
+        // (`out_val_em`, scrutinee_val_opt.is_none() branch), so the per-arm
+        // nulling was redundant as well as harmful. Each arm's body keeps its
+        // own value, which is exactly what codegen emits per switch case.
         if(has_any_control_flow(body_info_fl.control_flow), {
           cf_fl := match(
             body_info_fl.control_flow,
@@ -1896,9 +1903,9 @@ evaluate_match :: (
           });
           body_info_wf := match(body_info_wf_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
           consume_case_body_temp_var(evaluated_body_wf, body_info_wf.env, ctx);
-          if(scrutinee_val_opt.is_none(), {
-            body_info_wf.value = Option(EvalValue).None;
-          });
+          // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
+          // corrupts the arm body's stored value (see the fieldless-arm note); the
+          // match RESULT value is nulled by the post-loop instead.
           if(has_any_control_flow(body_info_wf.control_flow), {
             cf_wf := match(
               body_info_wf.control_flow,
