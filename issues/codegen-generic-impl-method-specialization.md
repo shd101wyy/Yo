@@ -150,3 +150,75 @@ the callee's ORIGINAL ExprInfo node id mirroring TS helper.ts:2272; broaden the
 specialization genericity guard to include return-SomeT) are CORRECT but were
 reverted because `b.get()` fails upstream (resolution) before reaching them —
 re-apply them only AFTER resolution produces `method_info`.
+
+## CORRECTED diagnosis (2026-06-15 session 2 — the above "resolution fails" was WRONG)
+
+Re-probed with exact string filters. The prior conclusion that method RESOLUTION
+fails is FALSE. Verified chain for `b.get()` (MyBox(i32)):
+
+1. `b.get` reaches the callee-value dispatch (function.yo:~1027) with
+   `callee_value = NONE` → routes to the `.None` arm (method path, line 2548).
+2. `_try_find_receiver_method` (function.yo:153) IS reached; `recv_has_info=true`
+   (b's ExprInfo present); **`hits=1`** (recv_ty=`<struct MyBox(i32)>`,
+   is_static=false). RESOLUTION SUCCEEDS.
+3. The method path (function.yo:~2556 `.Some(method_info)`) runs; the resolved
+   **return type is concrete `i32`** (`call_result_m.return_type=i32` — the
+   evaluator already concretizes the generic return!); it sets the CALL expr's
+   ExprInfo at line ~2698 (verified: probe `methodset b.get: call_id=… ret_ty=i32`
+   fires).
+4. Codegen FINDS the call's ExprInfo — the generation.yo:246 `.None` (no-info)
+   bail does NOT fire for `(b.get)()`.
+5. Codegen fails at the OTHER site, generation.yo:**371** (the
+   `generate_other_function_call → None` fallback): `// Failed to transpile
+   (b.get)()`. Root: `generate_other_function_call` needs the CALLEE dot-access
+   `.`(b,get) to have ExprInfo (`func_ei`, other_fn_call.yo:668) — but the method
+   path set ExprInfo only on the CALL, not on the callee dot-access → `func_ei`
+   returns None → whole call returns None.
+
+So the gap is NARROW and precise: **record the resolved method on the CALLEE
+dot-access's ExprInfo** so codegen's `func_ei` can dispatch. NOT a resolution
+bug, NOT (only) a specialization bug.
+
+### Fix attempts this session that FAILED (don't repeat):
+- **Broaden genericity guard** `is_func_generic := is_function_type_generic(ft)
+  || (return is bare SomeT)` → **REGRESSES std eval**: "Expected a type for
+  function return type", "Argument count mismatch: expected 1, got 0" in
+  stdio.yo. Over-triggers specialization on functions that must not specialize.
+  DO NOT extend genericity to return-SomeT globally.
+- **Record resolved func on callee dot-access** (narrowed to dot-callee with no
+  existing ExprInfo, value = spec_func_val ?? func_val) → gc2 STILL failed.
+  OPEN: either the callee dot-access already carries a value-less ExprInfo (so
+  the `!has_info` guard skips it, yet codegen's func_ei finds info-without-value
+  and still can't dispatch), OR codegen's func_ei path needs more than value+ty.
+
+### PRECISE ROOT (likely the real faithful fix):
+A probe of `get`'s resolved method Func type showed **`forall=0`** (plus
+ret_some=true, p0_some=false: `self` concretized, return `T` still bare SomeT).
+TS's `isFunctionTypeGeneric` returns true for `get` because the method's
+`functionType.forallParameters` still contains `[T]` (the impl's forall is
+attached to each method). **yo-self DROPS the impl's `forall(T)` when resolving a
+generic-impl method**, so the method type looks non-generic → specialization
+never runs → the body stays generic (`self.value` on a `void*` self → uncompilable
+C). This is ALSO why the return-SomeT genericity hack over-triggers (it's the
+wrong lever) and why `ArrayList`'s methods (registered differently) behave
+differently from a fresh user `MyBox` impl.
+
+THE FIX: make generic-impl method resolution PRESERVE the impl's `forall(T)` on
+the resolved method's Func type (in `find_methods_from_generic_impls` /
+`get_receiver_methods_by_name_from_env` / the method-resolution path —
+`forall=0` is the smoking gun). Then `is_function_type_generic(func_type)` (which
+checks `forall_labels`) returns true with NO broadening, specialization runs and
+re-evaluates the body with `T=i32` (concrete return + concrete `self.value`), and
+the specialized FuncVal flows to codegen. THEN record it on the callee dot-access
+ExprInfo (method path, function.yo:~2683) so `generate_other_function_call`'s
+`func_ei` can dispatch.
+
+### Next session START HERE:
+1. Find where the resolved generic-impl method's Func type is built (does
+   `find_methods_from_generic_impls` return `entry.field_types[i]` verbatim? that
+   field type is the method type WITHOUT the impl forall). Compare with how TS
+   attaches `forallParameters` to impl method types.
+2. Preserve `forall(T)` (+ the impl's SomeT binders) on the resolved method type.
+3. Verify `is_function_type_generic` → true → spec runs (probe step12b) → gc2
+   compiles+runs (prints `A`, rc=0) + corpus 32/32 + std/tests green.
+4. Record resolved/specialized FuncVal on the callee dot-access (method path).
