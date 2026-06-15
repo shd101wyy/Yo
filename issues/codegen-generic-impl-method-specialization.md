@@ -279,7 +279,47 @@ shown INERT — it patched find_methods output, but the method arrives at the ca
 already concretized (forall stripped) via a different/re-concretizing path, and
 corpus/std were byte-identical with and without it. (Revert: 24c4cea3a.)
 
-### REAL FIX (Session 5) — attach impl forall to method FuncVals AT REGISTRATION:
+## Session 4b — the core TANGLE (why this is hard) + full fix surface
+
+Traced the binding machinery. `try_to_call_function_with_arguments` step 6
+(helper.yo ~1765) iterates `func_type`'s forall (`fl`) to seed forall vars as
+UnknownVal placeholders, and `synthesize_types` during param unification rebinds
+them concretely from the ARG types (so `T` WOULD bind to `i32` from the `self :
+MyBox(i32)` arg — part C comes "for free" IF the forall is present). BUT method
+RESOLUTION concretizes the method type before the call (probe: `ret=i32 fl=0`),
+**stripping the forall** — so step 6 has nothing to seed, `synthesize` doesn't
+bind `T` into `callee_env`, and `create_specialized`'s body-eval sees abstract
+types. This is the core tangle: resolution must concretize the SIGNATURE (for the
+call) yet PRESERVE the forall (for the spec trigger + T-binding). The method
+FuncVal (`fv_forall`) is also empty, so neither lever is available at the call.
+
+Full fix surface (coordinated, all needed; each regression-prone → full-suite
+validation, NOT just corpus):
+  A. impl.yo (~1346 inherent / ~1455 trait): when building each method's FuncVal
+     + Func type for an `impl(forall(T), …)`, stamp the impl forall onto BOTH
+     (FuncVal.forall_names AND the Func type's forall_labels/types).
+  B. Ensure the forall SURVIVES method resolution to `try_to_call` — i.e.
+     resolution must not strip forall while concretizing (the hard part: it
+     currently produces `ret=i32 fl=0`). Either keep forall on the resolved type,
+     or have step12b/`is_func_generic` consult the FuncVal's `forall_names`
+     (`fv_forall`) AND ensure step-6 seeding + `synthesize` run off that.
+  C. (Likely free once A+B hold) `synthesize_types` binds `T=i32` from the self
+     arg → `create_specialized` body-eval concretizes → distinct func_id +
+     emittable empty-forall concrete registered type (already implemented,
+     helper.yo:1125).
+  D. Codegen dispatch+collection via the method-callee VALUE side-table
+     (session-3 prototype, corpus-safe) so codegen emits the specialized func.
+
+ASSESSMENT: this single keystone has consumed 5 sessions / ~30 rebuilds. It is
+the hardest remaining Phase-3 piece — a multi-file, regression-prone change in
+the generic-impl resolution/specialization machinery where the yo-self port
+diverges from TS across impl.yo, helper.yo, function.yo, generic_impl_registry.yo.
+Two narrow attempts (forall-attach in find_methods; return-SomeT genericity)
+were inert / regressed std respectively. The right next move is a DEDICATED
+implementation of A–D together with a full std+tests+yo-self validation gate —
+not another tail-of-session narrow patch.
+
+### (Superseded) REAL FIX (Session 5) — attach impl forall to method FuncVals AT REGISTRATION:
 In `evaluator/values/impl.yo` (the impl-registration path, mirror
 `src/evaluator/values/impl.ts`), when building each method's FuncVal/type for a
 `impl(forall(T), …)`, stamp the impl's `forall(T)` (names + SomeT binders) onto
