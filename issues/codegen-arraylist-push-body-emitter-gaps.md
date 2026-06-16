@@ -106,7 +106,32 @@ the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe buil
 g_method_callee_values for these methods? does the spec body eval throw?), not
 one-fixture-at-a-time guessing.
 
-### DISPATCH PATH TRACED (2026-06-16, read-only) — strongest lead yet
+### THREE PROBE BUILDS (2026-06-16) — narrowed to codegen, but a model contradiction remains
+- PROBE 1 (eval function.yo:2677 record site, gated szof/grow): ZERO hits — szof/grow
+  do NOT reach the `.None` receiver-method arm that records the codegen side-table.
+- PROBE 2 (codegen other_fn_call.yo:874 func_ei, gated szof/grow/.get): ZERO hits —
+  these calls do NOT reach the func_ei computation.
+- PROBE 3 (codegen generate_func_call entry, gated szof/grow): `(b.szof)()`,
+  `(b.grow)(usize(4))` → **HAS_INFO**. So the CALL has ExprInfo; the failure is
+  generation.yo:**371** (`generate_other_function_call` returns None) — a CODEGEN
+  bail, NOT missing ExprInfo (:248) and NOT the eval side.
+CONTRADICTION (model incomplete): the concrete-method dispatch branch
+(other_fn_call.yo:788, gated `method_atom_ok && !recv_is_dyn`, inside
+`func_expr is BF_DOT/2`) — for szof the registry (793) misses generic-impl methods
+and the side-table (819) is empty, so `mc_name` is None → it SHOULD fall through to
+874. But PROBE 2 says szof never reaches 874. So either (a) `func_expr` for
+`(b.szof)()` is NOT recognized as `BF_DOT/2` (parenthesized/FuncVal-resolved callee
+→ the whole dyn+concrete-method block is skipped), or (b) szof returns None from an
+earlier branch (comptime-value short-circuit? — szof's `sizeof` result may be a
+comptime value), or (c) szof IS handled and the "Failed" is from a different
+sub-expr. NEXT: a CO-TRACE in one build — instrument the ENTRY of every
+generate_other_function_call branch (comptime short-circuit, runtime-enum,
+BF_DOT-block gate, concrete-method gate, func_ei) with a one-line tag, gated on
+szof/grow, to see exactly which branch szof enters and where it returns None.
+Reconcile the contradiction FIRST; only then fix. This is a dedicated co-trace
+session — point-probes keep relocating the target.
+
+### (earlier) DISPATCH PATH TRACED (2026-06-16, read-only) — superseded by probe 2/3 above
 `record_method_callee_value` (the codegen side-table read at other_fn_call.yo:819)
 is called ONLY at function.yo:2679/2682 (the `.None` receiver-method arm), which
 the probe proved is NOT reached for `b.szof()`/`b.grow()`/`b.get()`. So these
