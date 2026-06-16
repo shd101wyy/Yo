@@ -19,6 +19,7 @@ open(import("std/string"));
 { lookup_method_callee_value } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
+{ get_func_type } :: import("../../function_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_object_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
@@ -854,19 +855,32 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         match(
           mc_name,
           .Some(cn) => {
-            cm_args := String.from("");
+            // Materialize args, then auto-`&` ref params (e.g. a `ref(self)`
+            // receiver on a VALUE type — `String`/newtype — needs `&recv`; an
+            // object receiver is NOT a ref param so it's left as the pointer it
+            // already is). Mirrors the FuncVal-call path's _apply_ref_amp; without
+            // it, `w.bump()` emitted `bump(w)` for `bump(self*)` ("take the address
+            // with &"). param_is_ref comes from the resolved method's Func type.
+            cm_param_is_ref := match(
+              method_fv,
+              .Some(mfv2) => match(
+                get_func_type(match(mfv2,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""))),
+                .Func({ param_is_ref : pir }) => pir,
+                _ => ArrayList(bool).new()
+              ),
+              .None => ArrayList(bool).new()
+            );
+            cm_arg_list := ArrayList(String).new();
             cnma := dm_runtime.len();
             (cmi : usize) = usize(0);
             while(cmi < cnma, {
-              if(cmi > usize(0), {
-                cm_args.push_str(", ");
-              });
-              match(dm_runtime.get(cmi),.Some(a) => cm_args.push_string(_call_generate_expr(a, indent.clone(), context)),.None => ());
+              match(dm_runtime.get(cmi),.Some(a) => { _cmp := cm_arg_list.push(_call_generate_expr(a, indent.clone(), context)); },.None => ());
               cmi = (cmi + usize(1));
             });
+            cm_arg_list = _apply_ref_amp(cm_arg_list, cm_param_is_ref, dm_runtime, indent.clone(), context);
             cm_call := cn.clone();
             cm_call.push_str("(");
-            cm_call.push_string(cm_args);
+            cm_call.push_string(_join_args(cm_arg_list));
             cm_call.push_str(")");
             if(is_unit_type(ei.ty), {
               cml := indent.clone();

@@ -51,3 +51,39 @@ Self-hosted compiles to C with three distinct errors:
 
 These are codegen-emitter bugs (TS accepts the program); each needs its own minimal
 repro split out from r1.
+
+## Progress 2026-06-16
+
+### ✅ Bug #1 (missing auto-`&` on a `ref(self)` receiver) — FIXED
+The concrete-method dispatch (other_fn_call.yo) materialized args WITHOUT applying
+ref-`&`, so `w.bump()` for `bump(self*)` emitted `bump(w)` ("take the address with
+&"). FIX: mirror the FuncVal-call path — get the resolved method's `param_is_ref`
+from its Func type and run `_apply_ref_amp` over the materialized args (a `ref(self)`
+on a VALUE type → `&w`; an object receiver is not a ref param so it's untouched).
+Minimal repro `/tmp/refself.yo` now emits `yo_id_3692((&(w)))`. Corpus 50/50, std
+sweep 94/58 — regression-free. (NOTE: refself still prints `@` not `A` because of
+the SEPARATE keystone below — the `&` itself is now correct.)
+
+### KEYSTONE (blocks ALL mutating methods + demonstrating bug #1): a field WRITE
+### in a method body emits empty
+`p.a = (p.a + 1)` in `main` works, but `self.a = (self.a + 1)` inside a method body
+(object OR newtype, unit- OR value-returning) emits NOTHING — the whole assignment
+statement is dropped (`bump`'s body is `{}`; `bumpv`'s body is just `return
+self->a;`). Field READS (`self.value`, the corpus `get`/`speak`) work — only WRITES
+fail, which is why no corpus fixture caught it.
+
+ROOT (precisely pinned): `generate_assignment` (assignment.yo:70-85) skips the
+emission when the LHS field-write's BASE VARIABLE is compile-time-only
+(`_last_is_compile_time_only(lhs_ei.env, "self")`). The method body's `self`
+parameter is recorded as **compile-time-only** in the ExprInfo env codegen reads —
+a stale flag from the DEF-TIME (validating-mode) body eval, where params bind as
+comptime placeholders. `main`'s `p` is a runtime local, so its write emits.
+
+This is the method-body-eval-mode keystone (same family as Gap-6 / create_specialized
+over-CTFE): non-generic methods (no forall, no runtime-return spec) take their body
+ExprInfo straight from def-time validating eval, where `self` is comptime-only. FIX
+DIRECTION: ensure a method body's `self`/params are RUNTIME (not compile-time-only)
+in the ExprInfo codegen consumes — either re-evaluate method bodies in executing
+mode with runtime params, or bind `self` as runtime at the impl-method def-eval.
+NOT a codegen-local hack (don't special-case `self` in assignment.yo — that would
+mis-emit genuinely-comptime writes).
