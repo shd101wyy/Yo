@@ -90,6 +90,22 @@ returning empty (sizeof's type-arg T unresolved in the spec body), or is the cal
 dispatch itself bailing? Tie this to the generic unit-method-call-dispatch gap
 gsz2 surfaced.
 
+### Isolation note (2026-06-16): entangled, multiple facets — needs a fresh probe session
+Attempts to isolate the push `sizeof(T)*cap` gap each surfaced a DIFFERENT facet:
+- `/tmp/gsz2.yo` (generic `grow(self,cap)->unit` with `malloc(sizeof(T)*cap)`):
+  the CALL `b.grow(..)` isn't dispatched (no-op) — generic UNIT-returning method
+  with a runtime-op body.
+- `/tmp/szof.yo` (generic `szof(self)->usize` returning bare `sizeof(T)`):
+  `sizeof(u8)` is COMPTIME-folded (u8 concrete) → `n := b.szof()` then
+  `putchar(48+n)` "Failed to transpile" — a comptime-method-result-usage path,
+  NOT push's runtime `sizeof(T)*cap`.
+So the push remainder is entangled with (a) generic-method dispatch for
+unit/comptime-result methods, (b) comptime-folded-method-result usage, and (c)
+the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe builds
+(instrument the method-call spec path: does the spec FuncVal get recorded in
+g_method_callee_values for these methods? does the spec body eval throw?), not
+one-fixture-at-a-time guessing.
+
 ### (historical) Remaining emitter gaps (isolate each)
 - comptime-namespace method dispatch: `GlobalAllocator.realloc/malloc` (callee is
   a comptime value bundling fns — resolve to the bundled fn + emit a normal call).
