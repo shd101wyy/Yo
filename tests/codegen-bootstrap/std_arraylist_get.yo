@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ putchar } :: import("std/libc/stdio");
+main :: (fn() -> unit)({
+  al := ArrayList(u8).new();
+  consume(al.push(u8(65)));
+  consume(al.push(u8(66)));
+  consume(al.push(u8(67)));
+  i := usize(0);
+  while(i < al.len(), i = (i + usize(1)), {
+    c := match(al.get(i),.Some(x) => x,.None => u8(63));
+    unsafe(putchar(int(i32(c))));
+  });
+});
+export(main);

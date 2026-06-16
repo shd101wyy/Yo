@@ -220,7 +220,16 @@ impl(
   ),
   /// Look up a registered type's C name by id.
   get_type_c_name : (fn(self : Self, id : String) -> Option(String))(
-    match(self.types.get(id),.Some(entry) =>.Some(entry.c_name),.None =>.None)
+    // Return a CLONE, not the stored String. yo-self `String` is reference-
+    // semantics, so handing out the registry's own `c_name` lets a caller that
+    // builds e.g. a temp declaration `<type> <var>` (via `decl := get_type_string(..);
+    // decl.push_str(" "); decl.push_string(var)`) MUTATE the registry entry in
+    // place — corrupting the type's canonical C name for every later reader (it
+    // surfaced as a sibling match arm's enum cast becoming
+    // `(__yo_enum_yo_id_N _file____tmp__temp_M)`). TS strings are immutable, so
+    // this aliasing hazard does not exist there; cloning here restores that
+    // contract. See issues/fixed/codegen-runtime-enum-sibling-cname-pollution.md.
+    match(self.types.get(id),.Some(entry) =>.Some(entry.c_name.clone()),.None =>.None)
   ),
   /// The per-expression evaluation metadata for `expr` (TS `expr.$`), or
   /// `.None` if the node was never evaluated.

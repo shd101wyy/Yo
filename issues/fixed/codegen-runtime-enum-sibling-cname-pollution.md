@@ -1,6 +1,22 @@
 # Runtime enum construction in one match arm corrupts a sibling comptime arm's enum C-name
 
-**Status:** OPEN. Surfaced 2026-06-16 by `ArrayList(u8).get()` iteration after the
+**Status:** ✅ FIXED 2026-06-16. ROOT: `CodeGenContext.get_type_c_name` returned
+the registry entry's `c_name` String DIRECTLY. yo-self `String` is
+reference-semantics, so a caller building a temp declaration `<type> <var>`
+(`decl := get_type_string(..); decl.push_str(" "); decl.push_string(var)`, where
+`decl` aliases the returned String) MUTATED the registry entry in place. The
+`.Some` arm's result-temp declaration thus rewrote enum 3755's canonical c-name to
+`__yo_enum_yo_id_3755 _file____tmp__temp_1768`; the sibling `.None` arm then read
+the corrupted name. Probe proof: `PROBE_GETCNAME` fired (registry polluted) but
+`PROBE_REGTYPE` did NOT (nothing ever *stored* a polluted name) → in-place
+mutation, not bad registration. FIX: `get_type_c_name` returns
+`entry.c_name.clone()` (TS strings are immutable — cloning restores that contract).
+`ArrayList(u8).get()` iteration now compiles + prints `ABC` matching TS (corpus
+fixture `std_arraylist_get`); corpus 49, std sweep held 94/58.
+
+(Original diagnosis below, kept for the trace.)
+
+Surfaced 2026-06-16 by `ArrayList(u8).get()` iteration after the
 single-expr-begin `runtime_arg_exprs` fix (commits 45583eea0 + 1fe76ab9f) made
 runtime-payload enum construction (`​.Some((p &+ i).*)`) reachable.
 
