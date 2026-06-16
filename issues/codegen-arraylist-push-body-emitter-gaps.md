@@ -106,6 +106,31 @@ the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe buil
 g_method_callee_values for these methods? does the spec body eval throw?), not
 one-fixture-at-a-time guessing.
 
+### ROOT CONFIRMED 2026-06-16 (multi-layer trace, -O0 probes) — find_methods_from_generic_impls misses Buf(u8).szof
+Definitive path for `b.szof()`/`b.grow()` (2-point eval probe, gated on szof/grow):
+`PROBE_NONE METHOD_NONE` — the call takes evaluate_function_call's `.None` arm
+(callee_value=None) and `_try_find_receiver_method` returns **None** because
+`get_receiver_methods_by_name_from_env(env, "szof", Buf(u8))` finds **0 hits**.
+Inside that lookup (env.yo:2369): the direct/deref registry lookups miss (szof is
+registered under the generic `Buf(T)` id, not the concrete `Buf(u8)`), and the
+generic-impl fallback (`_g_find_methods_from_generic_impls_fn`) was only invoked in
+the comptime-receiver branch. FIX ATTEMPT (reverted, INERT): added the generic-impl
+fallback for the MAIN (non-comptime) receiver — `b.grow()` STILL "Failed to
+transpile". The callback IS registered (impl.yo:2107), so the inertness means
+**`find_methods_from_generic_impls(env, "szof", Buf(u8))` itself returns empty**.
+Contrast: `MyBox(i32).get` (gc2, WORKS) is found by the DIRECT registry lookup
+(concretely registered) — so gc2 never needs the generic-impl path. So the real
+next layer is `find_methods_from_generic_impls` (generic_impl_registry.yo): why it
+finds nothing for `Buf(u8).szof` (is Buf's impl registered in the generic-impl
+registry? does the Buf(u8)~Buf(T) match fire?), OR why `Buf(u8)`'s impl methods
+aren't concretely registered the way `MyBox(i32)`'s `get` is. NEXT PROBE (one -O0
+build): instrument `find_methods_from_generic_impls` entry+result for szof/Buf(u8)
+— does it see the Buf impl, and does the type match succeed? (Separately: szof's
+`sizeof` result is comptime → even once dispatched, `putchar(n)` needs the
+comptime-result-usage gap fixed; grow/push need the malloc-body lines.)
+BUILD POLICY (confirmed): iterate probes on `-O0` (~6 min); only the std-sweep
+validation needs `--release` (~25-30 min).
+
 ### DISPATCH STRUCTURE LOCATED (2026-06-16, read-only) — exact trace points for next session
 `evaluate_function_call` (function.yo:617): evaluates the callee →
 `callee_value := match(callee_value_raw, .Some(cv) => match(cv, .FuncVal(...) =>
