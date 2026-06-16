@@ -792,6 +792,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       if(tid.len() > usize(0), {
         entries := get_type_trait_methods_by_name(tid, mname.clone());
         (mc_name : Option(String)) = Option(String).None;
+        (method_fv : Option(EvalValue)) = Option(EvalValue).None;
         nme := entries.len();
         (mei : usize) = usize(0);
         while((mei < nme) && mc_name.is_none(), {
@@ -802,6 +803,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               .Some(mv) => if(is_func_val(mv), {
                 mfid := match(mv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
                 mc_name = _c_func_name(mfid, context);
+                method_fv = Option(EvalValue).Some(mv);
               }),
               .None => ()
             ),
@@ -820,10 +822,35 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             .Some(mcv) => if(is_func_val(mcv), {
               mfid2 := match(mcv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
               mc_name = _c_func_name(mfid2, context);
+              method_fv = Option(EvalValue).Some(mcv);
             }),
             .None => ()
           );
         });
+        // Inline a method whose body is a single builtin yo-inline call (e.g.
+        // `str.len`'s `__yo_str_len(self)`): such functions are deliberately
+        // SKIPPED at emission (declarations.yo should_skip_function_codegen), so
+        // a `<c_name>(recv, args)` call would reference an undeclared function.
+        // Emit the inline form directly — mirrors the registered-call path
+        // (the FuncVal-call arm does the same via generate_yo_inline_function_call).
+        match(
+          method_fv,
+          .Some(mfv) => match(
+            is_function_value_with_only_builtin_yo_inline_function_call(mfv),
+            .Some(op) => {
+              inline_args := ArrayList(String).new();
+              ia_n := dm_runtime.len();
+              (ia_i : usize) = usize(0);
+              while(ia_i < ia_n, {
+                match(dm_runtime.get(ia_i),.Some(a) => { _iap := inline_args.push(_call_generate_expr(a, indent.clone(), context)); },.None => ());
+                ia_i = (ia_i + usize(1));
+              });
+              return(Option(String).Some(generate_yo_inline_function_call(op, inline_args, expr, context, indent.clone())));
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
         match(
           mc_name,
           .Some(cn) => {
