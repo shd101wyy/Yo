@@ -106,7 +106,25 @@ the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe buil
 g_method_callee_values for these methods? does the spec body eval throw?), not
 one-fixture-at-a-time guessing.
 
-### REFINED COMMON-ROOT HYPOTHESIS (2026-06-16, strongest)
+### PROBE RESULT (2026-06-16): the method-record site is NOT reached
+Instrumented function.yo:2677 (the `.None` receiver-method-dispatch arm where
+`record_method_callee_value` + the spec live), gated on the call source containing
+"szof"/"grow". A `--release` build + run on `szof.yo`/`gsz2.yo`/`gc2.yo` printed
+**ZERO** PROBE_METH lines — even for the WORKING `gc2` (MyBox.get). So generic
+instance-method calls (`b.szof()`, `b.grow()`, and even the working `b.get()`) do
+NOT dispatch through that arm; they take a DIFFERENT method-eval path (consistent
+with the old memory note that `s.len()`/`v.to_string()` bypass function.yo:2535).
+=> The "spec produces NOSPEC" hypothesis below is UNCONFIRMED at that site; the
+real fix requires first TRACING which eval arm actually resolves+dispatches
+`b.<method>()` for a generic instantiation (candidates: inline-FuncVal arm at
+function.yo:1616, property-access-resolves-to-FuncVal, or the runtime-return spec
+at ~2355). Probe the TOP of evaluate_function_call to see which branch `b.szof()`
+enters, THEN locate where (if anywhere) its spec runs / its callee value is
+recorded for codegen. This is a deep, multi-facet generic-method-dispatch trace
+(every probe so far has relocated the target) — a dedicated systematic-trace
+session, not one-fixture probing.
+
+### REFINED COMMON-ROOT HYPOTHESIS (2026-06-16, UNCONFIRMED — see probe result above)
 Both `szof` (value-return, `sizeof(T)` body) and `grow` (unit-return, `malloc`
 body) fail to DISPATCH (`b.szof()`/`b.grow()` → "Failed to transpile"), while
 `gc2`/MyBox.get (`self.value` body) dispatches fine. The differentiator is the
