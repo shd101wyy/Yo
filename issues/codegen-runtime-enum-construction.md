@@ -1,6 +1,6 @@
 # Runtime enum construction `.Some(runtimeVal)` doesn't fill the field value
 
-**Status:** ✅ MOSTLY FIXED (commit ddca18581). Tagged-union + simple-enum runtime
+**Status:** ✅ FIXED (ddca18581 tagged-union/simple + 93f1cc91c nullable-pointer). Tagged-union + simple-enum runtime
 construction work (rtenum `.Some(v)` → "A"; corpus 42/42; std 94/58 unchanged).
 REMAINING sub-case: the nullable-pointer `.Some(ptr)` (e.g. `(o : ?*(u8)) = .Some(p)`,
 clean repro `/tmp/someptr.yo`, TS→"A"; and push's `self->_ptr = .Some(typed_ptr)`).
