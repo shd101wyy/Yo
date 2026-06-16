@@ -36,6 +36,15 @@ open(import("std/string"));
   BF_YO_OP_BIT_XOR,
   BF_YO_OP_BIT_LEFT_SHIFT,
   BF_YO_OP_BIT_RIGHT_SHIFT,
+  BF_YO_PTR_ADD,
+  BF_YO_PTR_SUB,
+  BF_YO_PTR_DIFF,
+  BF_YO_PTR_EQ,
+  BF_YO_PTR_NEQ,
+  BF_YO_PTR_LT,
+  BF_YO_PTR_LTE,
+  BF_YO_PTR_GT,
+  BF_YO_PTR_GTE,
   BF_YO_DECR_RC,
   BF_YO_INCR_RC,
   BF_YO_RC_OWN,
@@ -96,7 +105,7 @@ open(import("std/string"));
 } :: import("../../expr.yo");
 { has_any_control_flow } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
-{ is_unit_type, is_primitive_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_primitive_type, is_pointer_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
@@ -158,6 +167,20 @@ _operator_inline_name :: (fn(op : String) -> Option(String))(
     (op == String.from("^")) => Option(String).Some(String.from(BF_YO_OP_BIT_XOR)),
     (op == String.from("<<")) => Option(String).Some(String.from(BF_YO_OP_BIT_LEFT_SHIFT)),
     (op == String.from(">>")) => Option(String).Some(String.from(BF_YO_OP_BIT_RIGHT_SHIFT)),
+    // Pointer operators (`&`-prefixed): the prelude impls lower to these
+    // ptr-builtins (e.g. `(&+)`'s body is `__yo_ptr_add(self, offset)`), so lower
+    // the operator directly to the builtin-inline path — same rationale as the
+    // primitive operators above (avoid resolving the generic operator method).
+    // Gated to pointer LHS in `_is_primitive_infix_operator`.
+    (op == String.from("&+")) => Option(String).Some(String.from(BF_YO_PTR_ADD)),
+    (op == String.from("&-")) => Option(String).Some(String.from(BF_YO_PTR_SUB)),
+    (op == String.from("&/")) => Option(String).Some(String.from(BF_YO_PTR_DIFF)),
+    (op == String.from("&==")) => Option(String).Some(String.from(BF_YO_PTR_EQ)),
+    (op == String.from("&!=")) => Option(String).Some(String.from(BF_YO_PTR_NEQ)),
+    (op == String.from("&<")) => Option(String).Some(String.from(BF_YO_PTR_LT)),
+    (op == String.from("&<=")) => Option(String).Some(String.from(BF_YO_PTR_LTE)),
+    (op == String.from("&>")) => Option(String).Some(String.from(BF_YO_PTR_GT)),
+    (op == String.from("&>=")) => Option(String).Some(String.from(BF_YO_PTR_GTE)),
     true => Option(String).None
   )
 );
@@ -172,7 +195,17 @@ _is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGeneration
       (is_infix && (op_args.len() == usize(2))) && _operator_inline_name(_func_name(expr)).is_some(),
       match(
         op_args.get(usize(0)),
-        .Some(lhs) => match(context.base.get_expr_info(lhs),.Some(lei) => is_primitive_type(lei.ty),.None => false),
+        // Pointer operators (`&`-prefixed: `&+`/`&-`/`&==`/…) take a pointer LHS;
+        // all other operators stay gated to primitive operands so custom overloads
+        // on non-primitive types still route to the trait-method path.
+        .Some(lhs) => match(
+          context.base.get_expr_info(lhs),
+          .Some(lei) => {
+            is_ptr_op := ((is_pointer_type(lei.ty)) && (_func_name(expr).starts_with("&")));
+            (is_primitive_type(lei.ty)) || is_ptr_op
+          },
+          .None => false
+        ),
         .None => false
       ),
       false
