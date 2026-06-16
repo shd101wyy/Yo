@@ -58,7 +58,14 @@ type. The TRANSPILED lines prove T is correctly substituted to `u8`:
 typed `uint8_t*`. So the blockers are PURELY the emitters below (a `*(T)` cast
 would correctly emit `(uint8_t*)`), not generic substitution.
 
-### Emitter gaps (after T-subst is fixed, isolate each)
+### ✅ `*(T)(ptr)` pointer cast — FIXED 2026-06-16 (commit d8a23ab2a)
+Resolved together with runtime numeric casts: both `*(T)(ptr)` and `i32(runtime)`
+were rewritten to `__yo_as` by the eval but the rewrite never reached codegen
+(returned new node, codegen walks the original). Fixed via the original node's
+`macro_expansion` → fresh-id `__yo_as` node. The `*(T)(new_ptr)` line is gone from
+push1's failures.
+
+### Remaining emitter gaps (isolate each)
 - comptime-namespace method dispatch: `GlobalAllocator.realloc/malloc` (callee is
   a comptime value bundling fns — resolve to the bundled fn + emit a normal call).
 - `*(T)(ptr)` raw-pointer cast (deref-cast); note `.Some(*(void)(old_ptr))` shows
