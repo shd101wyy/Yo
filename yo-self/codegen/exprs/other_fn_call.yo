@@ -17,14 +17,14 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
 { lookup_method_callee_value } :: import("../../expr_info.yo");
-{ EvalValue, is_func_val, is_unknown_val, is_struct_val } :: import("../../value.yo");
+{ EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_object_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type } :: import("../../types/guards.yo");
+{ is_object_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
@@ -541,6 +541,103 @@ _join_args :: (fn(args : ArrayList(String)) -> String)({
   });
   out
 });
+/// Index of `name` in an EnumT's `variant_names` (local copy — comptime_value's
+/// is not exported). `name` must be the clean variant (no leading `.`).
+_enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))(
+  match(
+    enum_ty,
+    .EnumT({ variant_names }) => {
+      n := variant_names.len();
+      (i : usize) = usize(0);
+      (found : Option(usize)) = Option(usize).None;
+      while((i < n) && found.is_none(), {
+        match(
+          variant_names.get(i),
+          .Some(vn) => if(vn == name, {
+            found = Option(usize).Some(i);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => Option(usize).None
+  )
+);
+/// Emit a RUNTIME enum construction `.Variant(args...)` whose field values are
+/// runtime (so the evaluator left an EnumVal shell with holes that
+/// generate_comptime_value can't fill — `/* skip generating value */`). Mirrors
+/// other-fn-call.ts:2500-2680 (nullable-pointer / simple-enum / tagged-union),
+/// and the comptime enum emission shape in comptime_value.yo, but generates each
+/// field VALUE from the recorded runtime arg exprs. The runtime args are aligned
+/// by index with the variant's declared fields (unit fields are skipped).
+_generate_runtime_enum_construct :: (
+  fn(enum_ty : TypeValue, variant_raw : String, rt_args : ArrayList(AstExpr), indent : String, context : FunctionGenerationContext) -> String
+)({
+  // The EnumVal variant carries the leading `.` of the `.Variant` source form;
+  // strip it (variant_names are clean, and `.data.<variant>` must be valid C).
+  variant := if(variant_raw.starts_with("."), variant_raw.substring(usize(1), variant_raw.len()), variant_raw.clone());
+  ptr_opt := can_optimize_as_nullable_pointer(enum_ty);
+  cond(
+    (ptr_opt.is_some() && (rt_args.len() == usize(0))) => String.from("NULL"),
+    (ptr_opt.is_some() && (rt_args.len() == usize(1))) => match(
+      rt_args.get(usize(0)),
+      .Some(a) => _call_generate_expr(a, indent.clone(), context),
+      .None => String.from("NULL")
+    ),
+    can_optimize_as_simple_enum(enum_ty) => get_enum_variant_c_name(enum_ty, variant.clone(), context.base),
+    true => {
+      c_name := match(context.base.get_type_c_name(type_key(enum_ty.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_enum"));
+      variant_tag := get_enum_variant_c_name(enum_ty, variant.clone(), context.base);
+      vidx := _enum_variant_index(enum_ty, variant.clone());
+      inits := String.from("");
+      (any_field : bool) = false;
+      match(
+        enum_ty,
+        .EnumT({ variant_fields, variant_field_labels }) => match(
+          vidx,
+          .Some(vi) => {
+            vftys := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+            vflabels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+            n := rt_args.len();
+            (i : usize) = usize(0);
+            while(i < n, {
+              fty := match(vftys.get(i),.Some(t) => t,.None => TypeValue.Unit);
+              if(!(is_unit_type(fty)), {
+                if(any_field, {
+                  inits.push_str(", ");
+                });
+                any_field = true;
+                flabel := match(vflabels.get(i),.Some(l) => l,.None => String.from(""));
+                inits.push_str(".");
+                inits.push_string(sanitize_for_c_identifier(flabel, false));
+                inits.push_str(" = ");
+                match(rt_args.get(i),.Some(a) => inits.push_string(_call_generate_expr(a, indent.clone(), context)),.None => ());
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        _ => ()
+      );
+      out := String.from("(");
+      out.push_string(c_name);
+      out.push_str("){ .tag = ");
+      out.push_string(variant_tag);
+      if(any_field, {
+        out.push_str(", .data = { .");
+        out.push_string(variant.clone());
+        out.push_str(" = { ");
+        out.push_string(inits);
+        out.push_str(" } }");
+      });
+      out.push_str(" }");
+      out
+    }
+  )
+});
 /// The call/method/trait-dispatch emitter. Mirrors `generateOtherFunctionCall`
 /// (corpus path). Returns `.None` to fall through (unhandled shape).
 ///
@@ -567,7 +664,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   match(
     ei.value,
     .Some(v) => {
-      oc_is_runtime_ctor := (is_struct_val(v) && oc_has_runtime_args);
+      oc_is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && oc_has_runtime_args);
       if(!(is_unknown_val(v)) && !(oc_is_runtime_ctor), {
         generate_deferred_drop_expressions(expr, indent.clone(), context);
         if(is_unit_type(ei.ty), return(Option(String).Some(String.from(""))), return(Option(String).Some(generate_comptime_value(v, ei.ty, context.base))));
@@ -575,6 +672,39 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     },
     .None => ()
   );
+  // Runtime enum construction `.Variant(args...)` with runtime field values: the
+  // evaluator left an EnumVal shell with holes (the comptime short-cut above is
+  // skipped for it via oc_is_runtime_ctor). Emit the construction from the runtime
+  // arg exprs. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
+  if(is_enum_type(ei.ty) && oc_has_runtime_args, {
+    match(
+      ei.value,
+      .Some(ev) => match(
+        ev,
+        .EnumVal(vraw, _) => {
+          rt_e := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+          enum_code := _generate_runtime_enum_construct(ei.ty, vraw, rt_e, indent.clone(), context);
+          match(
+            ei.variable_name,
+            .Some(tv) => {
+              edecl := indent.clone();
+              edecl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+              edecl.push_str(" = ");
+              edecl.push_string(enum_code);
+              edecl.push_str(";");
+              e_em := context.base.emitter;
+              e_em.emit_string_line(edecl);
+              generate_deferred_drop_expressions(expr, indent.clone(), context);
+              return(Option(String).Some(tv));
+            },
+            .None => return(Option(String).Some(enum_code))
+          );
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
   func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*,.Atom(_, _) => return(Option(String).None));
   // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The callee
   // dot-access (`s.speak`) has NO ExprInfo of its own (the evaluator resolves the

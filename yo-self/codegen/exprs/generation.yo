@@ -95,7 +95,7 @@ open(import("std/string"));
   BK_OPEN
 } :: import("../../expr.yo");
 { has_any_control_flow } :: import("../../expr_info.yo");
-{ is_func_val, is_unknown_val, is_struct_val } :: import("../../value.yo");
+{ is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { is_unit_type, is_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
@@ -301,12 +301,18 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // emits `/* skip generating value */`). Detect this and fall through to
   // `generate_other_function_call`'s value-struct constructor branch, which
   // emits the compound literal / newtype cast from the runtime arg exprs.
+  //
+  // The SAME exception applies to a runtime ENUM constructor (`.Some(v)` with `v`
+  // runtime): the evaluator carries an `EnumVal` shell with runtime holes, which
+  // generate_comptime_value can't fill (emits `/* skip generating value */`).
+  // Fall through to generate_other_function_call's runtime enum-construction
+  // branch. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
   ctor_has_runtime_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => (ra.len() > usize(0)),.None => false);
   match(
     ei.value,
     .Some(v) => {
       is_plain_comptime := ((!(is_unknown_val(v)) && !(is_unit_type(ei.ty))) && !(has_any_control_flow(ei.control_flow)));
-      is_runtime_ctor := (is_struct_val(v) && ctor_has_runtime_args);
+      is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && ctor_has_runtime_args);
       if(is_plain_comptime && !(is_runtime_ctor), {
         return(generate_comptime_value(v, ei.ty, context.base));
       });
