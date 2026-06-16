@@ -106,6 +106,24 @@ the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe buil
 g_method_callee_values for these methods? does the spec body eval throw?), not
 one-fixture-at-a-time guessing.
 
+### FIX ATTEMPT FALSIFIED (2026-06-16) — FuncVal-arm-spec record is NOT the dispatch path
+After the co-trace (below) pinned `MCNAME=NONE` in codegen's concrete-method branch,
+I hypothesized the eval FuncVal-call arm (function.yo:2410 runtime-return spec) should
+`record_method_callee_value(call_id, spec_fv)` for method calls (mirroring the `.None`
+arm). Implemented + `--release` built: corpus 44/44, std 94/58 UNCHANGED, gc2 still "A"
+— i.e. INERT (no regression, no improvement). `b.bump()` (generic method, runtime body
+`x + i32(1)`) STILL doesn't dispatch (no `bump` fn emitted); `b.szof()` still fails
+(comptime-`sizeof` result → `putchar(n)` can't use the folded value). So `bump`/`szof`
+do NOT reach the FuncVal-arm runtime-return spec at 2410 either. REVERTED (unvalidated
+dead code). CONCLUSION: these generic-method calls take an eval dispatch arm I have NOT
+located — NOT the `.None` receiver arm (probe 1), NOT the FuncVal-arm runtime-return
+spec (this attempt). NEXT (dedicated session): instrument the TOP-LEVEL dispatch of
+evaluate_function_call (every arm entry: the inline-FuncVal arm 1616, the
+property-access path, the `.None` arm 2557, comptime-fn path, etc.) gated on
+bump/szof, to find which arm each enters and where its spec/side-table recording
+should go. This is a systematic eval-dispatch trace — point-fixes at guessed sites
+keep coming back inert.
+
 ### THREE PROBE BUILDS (2026-06-16) — narrowed to codegen, but a model contradiction remains
 - PROBE 1 (eval function.yo:2677 record site, gated szof/grow): ZERO hits — szof/grow
   do NOT reach the `.None` receiver-method arm that records the codegen side-table.
