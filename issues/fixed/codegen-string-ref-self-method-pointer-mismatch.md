@@ -1,7 +1,22 @@
 # String `ref(self)` methods + Option payload — by-value/by-pointer C mismatches
 
-**Status:** OPEN. Surfaced 2026-06-16 after str.len inlining (54c3f7e37) — the next
-cluster blocking growable-`String` use in user code.
+**Status:** ✅ RESOLVED 2026-06-17. All three original bugs fixed; growable-`String`
+build + byte-iteration compiles and prints `ABC` matching TS (fixture
+string_build_iterate). Fixes:
+- #1 missing auto-`&` on a `ref(self)` receiver → 4b1c3a158 (apply _apply_ref_amp in
+  the concrete-method dispatch using the method's param_is_ref).
+- KEYSTONE field-write-in-method emits empty → 21df350d6 (gate the comptime-only
+  flag on the base var being compile-time-only; UnknownVal is Some-but-runtime).
+- #3 Option-of-object payload / newtype field via ref(self) → dda6be84d (deref a
+  newtype field access through a by-ref receiver, mirroring TS's Ptr-type pointer
+  branch).
+- #2 cond/match arm bare-identifier emitted an undeclared temp → f07cedf18
+  (generate_atom resolves a plain identifier by its source TOKEN, not a stamped
+  temp `variable_name` — mirrors TS atom.ts:262).
+Corpus 50→52 (+method_field_mutation, +newtype_ref_self_mutation, +string_build_iterate;
+str_len_method landed earlier). std -O0 sweep held 94/58 throughout.
+
+(Original OPEN diagnosis kept below for the trace.)
 
 ## Repro
 
