@@ -106,7 +106,25 @@ the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe buil
 g_method_callee_values for these methods? does the spec body eval throw?), not
 one-fixture-at-a-time guessing.
 
-### PROBE RESULT (2026-06-16): the method-record site is NOT reached
+### DISPATCH PATH TRACED (2026-06-16, read-only) — strongest lead yet
+`record_method_callee_value` (the codegen side-table read at other_fn_call.yo:819)
+is called ONLY at function.yo:2679/2682 (the `.None` receiver-method arm), which
+the probe proved is NOT reached for `b.szof()`/`b.grow()`/`b.get()`. So these
+generic instance-method calls dispatch via the **callee's func_ei.value** (the
+property-access `b.<m>` resolves to the method FuncVal; codegen reads it at
+other_fn_call.yo:726). The working `b.get()` (gc2) must therefore carry the
+**SPECIALIZED** FuncVal on its `b.get` callee ExprInfo, while `b.szof()` carries
+the **UNSPECIALIZED generic** (forall present → should_skip_function_codegen skips
+it → "Failed to transpile"). So the fix target is: ensure the FuncVal-call-arm
+specialization (function.yo:1616 + the runtime-return spec ~2355) PROPAGATES the
+specialized FuncVal onto the callee (`b.szof`) ExprInfo — OR that szof's spec runs
+at all (gc2's simple `self.value` body specs fine; szof's `sizeof(T)` / grow's
+`malloc` body may not). NEXT PROBE (single build): at codegen other_fn_call.yo:726,
+print `func_ei.value`'s FuncVal forall-len for `b.szof` vs `b.get` — if szof's has
+forall>0 (generic) and get's is 0 (specialized), the spec isn't reaching szof's
+callee ExprInfo; fix in the FuncVal arm.
+
+### (earlier) PROBE RESULT (2026-06-16): the method-record site is NOT reached
 Instrumented function.yo:2677 (the `.None` receiver-method-dispatch arm where
 `record_method_callee_value` + the spec live), gated on the call source containing
 "szof"/"grow". A `--release` build + run on `szof.yo`/`gsz2.yo`/`gc2.yo` printed
