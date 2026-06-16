@@ -65,7 +65,32 @@ were rewritten to `__yo_as` by the eval but the rewrite never reached codegen
 `macro_expansion` → fresh-id `__yo_as` node. The `*(T)(new_ptr)` line is gone from
 push1's failures.
 
-### Remaining emitter gaps (isolate each)
+### Progress 2026-06-16 — 3 of 4 push-body gaps FIXED
+- ✅ `*(T)(new_ptr)` pointer cast — fixed (d8a23ab2a, runtime casts).
+- ✅ `.Some(typed_ptr)` nullable-pointer enum ctor — fixed (93f1cc91c).
+- ✅ `typed_ptr &+ (self._length)` pointer arithmetic — fixed (59f147cf3,
+  `&`-prefixed ptr operators lower to ptr-builtin inlines).
+- ✅ `GlobalAllocator.malloc/realloc` DISPATCH itself — CONFIRMED WORKING in
+  isolation (`/tmp/galloc.yo`, `/tmp/grealloc.yo`: `__yo_malloc(8ULL)` /
+  `__yo_realloc(m, 16ULL)` emit + run correctly, even with a parenthesized callee).
+
+REMAINING (1 gap, deep): push's `(GlobalAllocator.malloc)(sizeof(T) * new_capacity)`
+and the realloc line still emit "Failed to transpile" — NOT the allocator dispatch
+(works isolated) but the `sizeof(T) * new_capacity` ARG in the SPECIALIZED push
+body. `sizeof(<concrete struct>)` emits fine elsewhere in the same C; only
+`sizeof(T)` (the type-param) in the spec-method-body arg position fails the outer
+call. Isolation is tricky: a `forall(T)` free fn can't be called with an explicit
+`u8` (malformed for TS too); a generic-struct method `grow` calling
+`malloc(sizeof(T)*cap)` (`/tmp/gsz2.yo`) surfaced a DISTINCT sub-issue — the
+generic unit-returning method CALL `b.grow(...)` itself isn't dispatched (becomes
+a no-op), so it doesn't cleanly reproduce push (whose `push` body IS emitted, with
+only the malloc/realloc arg lines failing). Next: probe generate_other_function_call
+for the push malloc call — is the `sizeof(T) * new_capacity` arg generation
+returning empty (sizeof's type-arg T unresolved in the spec body), or is the call
+dispatch itself bailing? Tie this to the generic unit-method-call-dispatch gap
+gsz2 surfaced.
+
+### (historical) Remaining emitter gaps (isolate each)
 - comptime-namespace method dispatch: `GlobalAllocator.realloc/malloc` (callee is
   a comptime value bundling fns — resolve to the bundled fn + emit a normal call).
 - `*(T)(ptr)` raw-pointer cast (deref-cast); note `.Some(*(void)(old_ptr))` shows
