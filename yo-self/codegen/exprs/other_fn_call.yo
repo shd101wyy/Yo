@@ -676,34 +676,52 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // evaluator left an EnumVal shell with holes (the comptime short-cut above is
   // skipped for it via oc_is_runtime_ctor). Emit the construction from the runtime
   // arg exprs. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
-  if(is_enum_type(ei.ty) && oc_has_runtime_args, {
-    match(
-      ei.value,
-      .Some(ev) => match(
-        ev,
-        .EnumVal(vraw, _) => {
-          rt_e := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
-          enum_code := _generate_runtime_enum_construct(ei.ty, vraw, rt_e, indent.clone(), context);
-          match(
-            ei.variable_name,
-            .Some(tv) => {
-              edecl := indent.clone();
-              edecl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
-              edecl.push_str(" = ");
-              edecl.push_string(enum_code);
-              edecl.push_str(";");
-              e_em := context.base.emitter;
-              e_em.emit_string_line(edecl);
-              generate_deferred_drop_expressions(expr, indent.clone(), context);
-              return(Option(String).Some(tv));
-            },
-            .None => return(Option(String).Some(enum_code))
-          );
+  // Enum CONSTRUCTION (`.Some(args)`) — NOT a plain call returning an enum
+  // (`mk(x)`). The discriminator is the CALLEE's value: an enum constructor's
+  // callee resolves to a `TypeVal` wrapping an enum type (`.Some` → Option),
+  // whereas `mk(x)` has a `FuncVal` callee. Mirrors TS dispatch on
+  // `isEnumType(functionValue.value)`. Without this gate the branch wrongly fires
+  // for any enum-returning function call (e.g. `mk(i32(65))` → variant "mk").
+  callee_is_enum_ctor := match(
+    expr,
+    .FnCall(_, ecf, _, _, _) => match(
+      context.base.get_expr_info(ecf.*),
+      .Some(ecfei) => match(ecfei.value,.Some(ecfv) => match(ecfv,.TypeVal(ewb) => is_enum_type(ewb.*), _ => false),.None => false),
+      .None => false
+    ),
+    .Atom(_, _) => false
+  );
+  if((is_enum_type(ei.ty) && oc_has_runtime_args) && callee_is_enum_ctor, {
+    // The variant name. Sources in order: the `EnumVal` shell on `ei.value`
+    // (regular enums, e.g. `Option(i32)`); the result type's
+    // `selected_variant_name` (nullable-pointer-optimized `Option`, where the
+    // evaluator leaves `ei.value` as `None` — confirmed by probe — yet `ei.ty` IS
+    // the narrowed EnumT, mirroring TS `functionValue.value.selectedVariantName`);
+    // the callee source text (`.Some`) as a final fallback. All may carry a
+    // leading `.`, which _generate_runtime_enum_construct strips.
+    from_val := match(ei.value,.Some(ev) => match(ev,.EnumVal(vr, _) => vr, _ => String.new()),.None => String.new());
+    from_ty := match(ei.ty,.EnumT({ selected_variant_name }) => match(selected_variant_name,.Some(v) => v,.None => String.new()), _ => String.new());
+    from_callee := match(expr,.FnCall(_, f, _, _, _) => ast_expr_to_string(f.*),.Atom(_, _) => String.new());
+    variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
+    if(variant_raw.len() > usize(0), {
+      rt_e := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+      enum_code := _generate_runtime_enum_construct(ei.ty, variant_raw, rt_e, indent.clone(), context);
+      match(
+        ei.variable_name,
+        .Some(tv) => {
+          edecl := indent.clone();
+          edecl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+          edecl.push_str(" = ");
+          edecl.push_string(enum_code);
+          edecl.push_str(";");
+          e_em := context.base.emitter;
+          e_em.emit_string_line(edecl);
+          generate_deferred_drop_expressions(expr, indent.clone(), context);
+          return(Option(String).Some(tv));
         },
-        _ => ()
-      ),
-      .None => ()
-    );
+        .None => return(Option(String).Some(enum_code))
+      );
+    });
   });
   func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*,.Atom(_, _) => return(Option(String).None));
   // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The callee
