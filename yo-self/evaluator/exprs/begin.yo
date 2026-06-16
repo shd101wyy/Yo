@@ -158,6 +158,39 @@ _check_keyword_position :: (
 ///                               True when this begin block IS the function
 ///                               body.  Affects the dup/drop optimization pass
 ///                               (Phase 3); unused in Phase 2aa.
+/// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
+/// hole). Used to decide whether a single-expression begin block must carry the
+/// inner expression's `runtime_arg_exprs_in_order`: a bare runtime call yields
+/// `UnknownVal`, and a RUNTIME enum/struct construction (`.Some((p &+ i).*)`,
+/// `Wrap(v : runtimeVal)`) yields an `EnumVal`/`StructVal` SHELL with an
+/// `UnknownVal` payload — both need the runtime construction codegen. A fully
+/// comptime-folded construct (`.Some(i32(7))`) has only concrete leaves and must
+/// keep the comptime-value path (see the gate in `evaluate_begin_expression`).
+_value_contains_unknown :: (fn(v : EvalValue) -> bool)(
+  match(
+    v,
+    .UnknownVal(_) => true,
+    .EnumVal(_, fields) => {
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < fields.len()) && !(found), {
+        match(fields.get(i),.Some(f) => if(recur(f), { found = true; }),.None => ());
+        i = (i + usize(1));
+      });
+      found
+    },
+    .StructVal(_, _, field_values) => {
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < field_values.len()) && !(found), {
+        match(field_values.get(i),.Some(f) => if(recur(f), { found = true; }),.None => ());
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
 evaluate_begin_expression :: (
   fn(
     expr : AstExpr,
@@ -735,17 +768,19 @@ evaluate_begin_expression :: (
   // materialization list codegen needs) is dropped — so a bare runtime CALL as a
   // match/cond arm body or a single-expression function body emitted
   // "Failed to transpile". Carry that one field across — but ONLY for a runtime
-  // RESULT (UnknownVal / UnitVal / no value). A comptime-FOLDED construct
-  // (`.None`, `.Some(i32(7))`, `i32(0)`) keeps an EnumVal/StructVal/literal value
-  // and emits via the comptime-value path; carrying its arg list would wrongly
-  // trip the runtime enum/struct-construction codegen (`ctor_has_runtime_args`),
-  // corrupting the literal's type name — that regressed match_arm_folded_fncall +
-  // runtime_enum_construct. (Do NOT alias the whole `last_info` either: its
-  // `variable_name` temp would pollute downstream type names.)
+  // RESULT: a bare runtime call (UnknownVal), a unit-returning call (UnitVal), no
+  // value, OR a RUNTIME enum/struct construction whose shell carries an UnknownVal
+  // payload (`.Some((p &+ i).*)` in ArrayList.get → runtime construction codegen).
+  // A fully comptime-FOLDED construct (`.None`, `.Some(i32(7))`, `i32(0)`) has only
+  // concrete leaves and emits via the comptime-value path; carrying its arg list
+  // would wrongly trip the runtime enum/struct-construction codegen
+  // (`ctor_has_runtime_args`), corrupting the literal's type name — that regressed
+  // match_arm_folded_fncall + runtime_enum_construct. (Do NOT alias the whole
+  // `last_info` either: its `variable_name` temp would pollute downstream type names.)
   carry_runtime_args := match(
     last_info.value,
     .None => true,
-    .Some(v) => match(v,.UnknownVal(_) => true,.UnitVal => true, _ => false)
+    .Some(v) => match(v,.UnitVal => true, _ => _value_contains_unknown(v))
   );
   if((ast_expr_id(expr) == ast_expr_id(last_expr)) && carry_runtime_args, {
     out_info.runtime_arg_exprs_in_order = last_info.runtime_arg_exprs_in_order;

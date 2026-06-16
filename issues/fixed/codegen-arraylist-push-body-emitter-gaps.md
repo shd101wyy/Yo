@@ -1,9 +1,18 @@
 # ArrayList(u8).push() body — emitter gaps (post return-body-spec fix)
 
-**Status:** OPEN. Surfaced after the return-body specialization fix (f2cf25e79)
-made `ArrayList(u8).push()` *specialize* correctly (T→u8). The call site and
-specialization are now correct; the remaining failures are all inside the
-specialized push **body**.
+**Status:** RESOLVED (2026-06-16). `std_arraylist_push.yo` now passes the
+differential harness (TS and yo-self-bin both print `2`), and all 48
+codegen-bootstrap tests pass (0 DIFF / 0 SELF-FAIL). The last piece was the
+`begin.yo` single-expression-block fix below (carry `runtime_arg_exprs_in_order`
+onto the begin's result node for a runtime call result); the
+`GlobalAllocator.{malloc,realloc}` namespace-dispatch gap was closed by the
+generic-method-dispatch work that landed alongside it. Kept for the trace
+history.
+
+**Original status:** OPEN. Surfaced after the return-body specialization fix
+(f2cf25e79) made `ArrayList(u8).push()` *specialize* correctly (T→u8). The call
+site and specialization are now correct; the remaining failures are all inside
+the specialized push **body**.
 
 ## Repro
 
