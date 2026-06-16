@@ -106,6 +106,23 @@ the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe buil
 g_method_callee_values for these methods? does the spec body eval throw?), not
 one-fixture-at-a-time guessing.
 
+### REFINED COMMON-ROOT HYPOTHESIS (2026-06-16, strongest)
+Both `szof` (value-return, `sizeof(T)` body) and `grow` (unit-return, `malloc`
+body) fail to DISPATCH (`b.szof()`/`b.grow()` → "Failed to transpile"), while
+`gc2`/MyBox.get (`self.value` body) dispatches fine. The differentiator is the
+method BODY content: methods whose body uses `sizeof(T)` / runtime allocator ops
+don't get dispatched. Likely mechanism: the generic-impl method's spec-body eval
+(create_specialized_function_inline) fails/throws on the `sizeof(T)`/malloc body,
+so `spec_func_val` is None and `record_method_callee_value` never stores a usable
+FuncVal → codegen's concrete/generic method dispatch can't resolve the call →
+bails. This ALSO explains why push (ArrayList.push) shows its body emitted with
+only the malloc/realloc arg lines failing — push gets dispatched via a different
+path (heavily used, collected) but its spec body's `sizeof(T)*cap` arg still fails.
+NEXT PROBE (single build): instrument function.yo's method path —
+`record_method_callee_value` site + the create_specialized_function_inline call —
+to print, for `szof`/`grow`, whether spec_func_val is Some and whether the spec
+body eval threw. Then fix the spec-body-eval failure for sizeof(T) bodies.
+
 ### (historical) Remaining emitter gaps (isolate each)
 - comptime-namespace method dispatch: `GlobalAllocator.realloc/malloc` (callee is
   a comptime value bundling fns — resolve to the bundled fn + emit a normal call).
