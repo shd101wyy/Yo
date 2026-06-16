@@ -204,7 +204,15 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             .None => false
           );
           if(!(captured), {
-            return(get_variable_name_for_codegen(var_name.clone(), env_opt));
+            // Resolve a plain identifier by its SOURCE TOKEN, not the recorded
+            // `variable_name`. Mirrors TS generateAtom (atom.ts:262 uses
+            // `expr.token.value`). yo-self's attach_temp_variable_to_expr can
+            // stamp a SPURIOUS temp `variable_name` onto a bare reference used as
+            // a cond/match arm value (e.g. `(cap == 0) => min_cap`); emitting that
+            // temp yields an undeclared identifier. The token resolves via env
+            // lookup to the current binding's C name, so SSA/shadowing still work
+            // (for a normal reference token == variable_name, so this is a no-op).
+            return(get_variable_name_for_codegen(tv.clone(), env_opt));
           });
         },
         .None => ()
