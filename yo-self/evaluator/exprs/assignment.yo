@@ -686,10 +686,26 @@ evaluate_assignment :: (
         );
       }
     );
-    // Step 7 — Fallback: both LHS and RHS have compile-time values and LHS is
-    // not an Index-trait lvalue (runtime-only dispatch).
-    // Mirrors lines ~1009-1019 in assignment.ts.
-    if((!(is_comptime_only_prop) && lhs_info.value.is_some()) && prop_rhs_info.value.is_some(), {
+    // Step 7 — Fallback: a compile-time-only field/index write (both LHS and RHS
+    // have values, LHS is not an Index-trait lvalue). Mirrors assignment.ts
+    // 1013-1019, which ONLY sets this inside `if (variable.isCompileTimeOnly ...)`
+    // — i.e. the flag requires the BASE VARIABLE to be compile-time-only. Without
+    // that guard, a RUNTIME field write whose value is an UnknownVal (which is
+    // still `.is_some()`) — e.g. `self.field = ...` inside a method body — was
+    // wrongly marked comptime-only, so codegen (assignment.yo:40) emitted NOTHING
+    // and every mutating method silently no-op'd.
+    base_var_is_comptime := {
+      bvn := match(
+        lhs_info.path_collection.get(usize(0)),
+        .Some(p) => match(p.get(usize(0)),.Some(s) => s,.None => String.from("")),
+        .None => String.from("")
+      );
+      if(bvn.len() == usize(0), false, {
+        bvars := get_variables_from_env(env, bvn);
+        if(bvars.len() == usize(0), false, match(bvars.get(bvars.len() - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
+      })
+    };
+    if(((!(is_comptime_only_prop) && lhs_info.value.is_some()) && prop_rhs_info.value.is_some()) && base_var_is_comptime, {
       if(lhs_info.index_trait_ptr_type.is_none(), {
         is_comptime_only_prop = true;
       });
