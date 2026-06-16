@@ -106,6 +106,27 @@ the runtime `sizeof(T)*cap` arg in a spec body. Tackle with dedicated probe buil
 g_method_callee_values for these methods? does the spec body eval throw?), not
 one-fixture-at-a-time guessing.
 
+### DISPATCH STRUCTURE LOCATED (2026-06-16, read-only) — exact trace points for next session
+`evaluate_function_call` (function.yo:617): evaluates the callee →
+`callee_value := match(callee_value_raw, .Some(cv) => match(cv, .FuncVal(...) =>
+[FuncVal arm, ~1616], .TypeVal(...) => [conversion], ...), .None => [.None
+receiver-method arm, ~2557])`. Established:
+- probe 1: szof bypasses the `.None` arm (2557) → so `b.szof` RESOLVES to a value
+  → it takes the `.Some(cv)` branch → almost certainly the **FuncVal arm (1616)**.
+- but the FuncVal-arm runtime-return spec (2365, gated `if forall_names.len()>0`)
+  was NOT reached (my record fix at 2410 was inert) → so szof's resolved FuncVal
+  likely has **EMPTY forall_names** (the generic-impl forall wasn't stamped onto
+  the FuncVal that `b.szof` resolves to), so the spec sub-branch is skipped and
+  the method is emitted/dispatched as a plain (unspecialized, SomeT-bearing) fn.
+EXACT NEXT TRACE (one build): instrument the FuncVal arm entry (1616) gated on
+szof/bump — print `forall_names.len()` and `func_id`. If forall=0, the bug is
+UPSTREAM: `b.szof` (property-access resolution of a generic-impl method) returns a
+FuncVal WITHOUT the impl forall stamped (so no spec runs). Fix there = stamp the
+impl forall when property-access resolves a generic-impl method to its FuncVal
+(mirror _stamp_impl_forall_on_method / the keystone), so the FuncVal arm's
+forall>0 spec runs and records the specialized method. Compare with gc2/b.get
+(works) — which takes the `.None` arm (stamped + recorded there).
+
 ### FIX ATTEMPT FALSIFIED (2026-06-16) — FuncVal-arm-spec record is NOT the dispatch path
 After the co-trace (below) pinned `MCNAME=NONE` in codegen's concrete-method branch,
 I hypothesized the eval FuncVal-call arm (function.yo:2410 runtime-return spec) should
