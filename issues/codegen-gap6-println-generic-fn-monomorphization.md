@@ -106,3 +106,45 @@ exn> })` and print the message. That error decides the fix:
   body-eval leaves a concrete signature but an empty/broken body).
 Error-printing needs the dyn(Error) formatting (see how the def-eval-wall trial-eval
 "SWALLOW: ..." prints, or format_error_message / the Error trait's message).
+
+## ⭐ EXACT ERROR CAPTURED 2026-06-17 — REFRAMES Gap-6
+
+Wrapped the create_specialized call (function.yo, gated on `func_expr=="println"`)
+with `Exception(throw : ((e) -> { eprintln(`...${e.to_string()}`); unwind(make_err_expr()) }))`
+(NOTE: a `->` handler can't capture outer runtime vars `exn`/`expr`; unwind must
+return the enclosing fn's type = AstExpr, hence `make_err_expr()`; AnyError =
+Dyn(Error), Error <: ToString so `e.to_string()` works). Output:
+
+```
+PROBE_PLN create_spec threw: Error: Cannot unify incompatible types: "i32" and "str"
+```
+
+**This is a TYPE-UNIFICATION error, not an over-CTFE / runtime-execution failure.**
+The months-old memory diagnosis ("create_specialized over-CTFEs `v.to_string()`'s
+ArrayList/malloc body → unit") is WRONG for the current code. Specializing println
+for `T=str` throws because some sub-expression of its body unifies `i32` with `str`.
+So Gap-6 (at least for println) is likely a SPECIFIC, tractable type bug — not the
+deep evaluator-architecture change previously assumed.
+
+println body (std/fmt/index.yo:8-20):
+```rust
+s := v.to_string();                  // v:str → str's ToString
+str_bytes := s.as_bytes();
+str_bytes_len := str_bytes.len();
+cond((str_bytes_len > 0) => { str_bytes_ptr := str_bytes.ptr().unwrap();
+       unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout)); },
+     true => ());
+unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stdout));   // <- suspect
+```
+SUSPECTS for the `i32`/`str` unify: `*(u8)("\n")` (line 19 — casting a `str`
+literal as a `*(u8)`; `*(u8)(...)` is a deref-cast and `"\n"` is a str fat-pointer),
+or `v.to_string()` (line 9 — the ToString dispatch for `str`). `i32` is the default
+for an unconstrained int/`u8`, so a u8/char vs str clash is plausible at `*(u8)("\n")`.
+
+### NEXT STEP (tractable)
+Bisect println's body to the offending sub-expression: temporarily reduce the body
+to just `s := v.to_string();` then add lines back, OR instrument synthesize/unify to
+print the token when it throws "i32"/"str". Most likely a single mis-typed cast
+(`*(u8)("\n")`) — once found, the fix may be a one-liner in std/fmt OR a codegen/eval
+cast handling fix, NOT the deep architecture change. (User has OK'd editing std/ if
+needed.) Re-validate: pln.yo → `hello` matching TS, corpus + std sweep.
