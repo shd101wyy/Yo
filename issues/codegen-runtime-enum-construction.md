@@ -1,7 +1,12 @@
 # Runtime enum construction `.Some(runtimeVal)` doesn't fill the field value
 
-**Status:** OPEN. High value — blocks ALL runtime `Option`/`Result`/enum construction
-(not just `ArrayList.push`). Cleanly isolated (no raw pointers).
+**Status:** ✅ MOSTLY FIXED (commit ddca18581). Tagged-union + simple-enum runtime
+construction work (rtenum `.Some(v)` → "A"; corpus 42/42; std 94/58 unchanged).
+REMAINING sub-case: the nullable-pointer `.Some(ptr)` in `ArrayList.push()`
+(assignment RHS `self->_ptr = .Some(typed_ptr)` into a `?*(T)` field) does NOT yet
+fire through the new `generate_other_function_call` enum branch — likely the
+assignment-RHS path or the eval not setting `runtime_arg_exprs`/`EnumVal` for the
+nullable-pointer `.Some`. Investigate next.
 
 ## Repro (`/tmp/rtenum.yo`)
 ```rust
