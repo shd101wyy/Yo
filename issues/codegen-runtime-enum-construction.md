@@ -2,11 +2,28 @@
 
 **Status:** ✅ MOSTLY FIXED (commit ddca18581). Tagged-union + simple-enum runtime
 construction work (rtenum `.Some(v)` → "A"; corpus 42/42; std 94/58 unchanged).
-REMAINING sub-case: the nullable-pointer `.Some(ptr)` in `ArrayList.push()`
-(assignment RHS `self->_ptr = .Some(typed_ptr)` into a `?*(T)` field) does NOT yet
-fire through the new `generate_other_function_call` enum branch — likely the
-assignment-RHS path or the eval not setting `runtime_arg_exprs`/`EnumVal` for the
-nullable-pointer `.Some`. Investigate next.
+REMAINING sub-case: the nullable-pointer `.Some(ptr)` (e.g. `(o : ?*(u8)) = .Some(p)`,
+clean repro `/tmp/someptr.yo`, TS→"A"; and push's `self->_ptr = .Some(typed_ptr)`).
+THREE fix attempts FALSIFIED + reverted (all blind, none fired):
+  (1) gate `is_enum_type(ei.ty)` — ei.ty is the BARE POINTER (`*(u8)`), not an
+      enum (nullable-pointer optimization), so this misses.
+  (2) callee-`TypeVal(EnumT)` fallback — the `.Some` callee has no
+      `TypeVal(EnumT)` ExprInfo in yo-self, so `ctor_enum_ty` is None.
+  (3) `is_pointer_type(ei.ty)` branch — STILL inert, which proves the real
+      blocker: the enum dispatch is gated on `ei.value` being an `EnumVal`, but
+      for a nullable-pointer `.Some(p)` the evaluator does NOT produce an EnumVal
+      shell — `ei.value` is (almost certainly) an `UnknownVal` (the optimized
+      pointer is runtime-unknown). So no value-based gate catches it.
+FIX DIRECTION (probe-first, do NOT guess again): the nullable-pointer `.Some`/`.None`
+construction must be detected STRUCTURALLY — the call expr's callee is an
+enum-variant constructor (`.Some`/`.None`) AND `ei.ty` is a pointer type — then
+emit `.None`→`NULL`, `.Some(p)`→ the runtime arg. NEXT PROBE: in
+generate_other_function_call (or generate_func_call), for someptr's `.Some(p)`,
+print `is_pointer_type(ei.ty)`, the `ei.value` variant (confirm UnknownVal vs
+EnumVal), `oc_has_runtime_args`, and the callee expr shape (`.`(Some)/1 vs atom).
+Then add a structural nullable-pointer-variant branch. (Also note push needs
+GlobalAllocator comptime-namespace dispatch + `&+` operator-method dispatch, so
+this sub-case alone does not make push() compile.)
 
 ## Repro (`/tmp/rtenum.yo`)
 ```rust
