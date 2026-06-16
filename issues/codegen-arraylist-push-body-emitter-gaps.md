@@ -76,9 +76,14 @@ push1's failures.
   must dispatch the `&+` operator method (then the inner `__yo_ptr_add` lowers via
   the inline path). Same operator/method-dispatch complexity class as the others —
   NOT a one-liner.
-- `.Some(ptr)` runtime enum-ctor into a `?*(T)` field — but this line cascades
-  from `typed_ptr` (the `*(T)` cast) failing first, so it may resolve once `*(T)`
-  works; verify independently (runtime `.Some(x)` value-position DOES work, per
-  the `some2` fixture).
+- `.Some(ptr)` runtime enum-ctor into a `?*(T)` field — NOT a cascade (still fails
+  after the `*(T)` fix). Finding: the nullable-pointer `Option(*(u8))` lowers to a
+  bare `uint8_t*` (nullable-pointer optimization, `can_optimize_as_nullable_pointer`),
+  so `.Some(ptr)` for that representation should emit just `ptr` (and `.None` →
+  `NULL`). The enum-construction codegen is missing the nullable-pointer-optimized
+  `.Some`/`.None` case. Port the TS branch that emits the bare pointer. (Isolating a
+  standalone repro needs care — `&(x)` address-of type vs `?*(u8)` annotation
+  mismatched in a quick attempt; use a fixture that mirrors the std `_ptr` field
+  shape, or test via push1 once GlobalAllocator dispatch lands.)
 
 Build isolated corpus fixtures per gap. Each needs `unsafe`/raw-ptr scaffolding.
