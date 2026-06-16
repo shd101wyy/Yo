@@ -258,6 +258,39 @@ _tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_
 );
 /// Generate field access for structs, objects, enums, pointers, tuples, dyn,
 /// newtypes, and module namespaces. Mirrors `generateFieldAccess`.
+/// True when `object_expr` is a bare identifier naming a by-`ref` parameter of
+/// the function currently being generated. yo-self represents `ref(self)` as a
+/// VALUE-typed param plus a `param_is_ref` flag (TS instead gives it a `Ptr`
+/// type, so TS's pointer branch derefs). For a newtype receiver this flag is the
+/// only signal that the receiver is a pointer in C and a field access must deref.
+_receiver_is_by_ref_param :: (fn(object_expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  if(!(ast_expr_is_atom(object_expr)), false, {
+    rname := ast_expr_token(object_expr).value;
+    match(
+      context.current_function_type,
+      .Some(ft) => match(
+        ft,
+        .Func({ param_labels : pls, param_is_ref : pir }) => {
+          (i : usize) = usize(0);
+          (n : usize) = pls.len();
+          (found : bool) = false;
+          while((i < n) && !(found), {
+            pl := match(pls.get(i),.Some(s) => s,.None => String.from(""));
+            if(pl == rname, {
+              found = match(pir.get(i),.Some(r) => r,.None => false);
+              i = n;
+            }, {
+              i = (i + usize(1));
+            });
+          });
+          found
+        },
+        _ => false
+      ),
+      .None => false
+    )
+  })
+);
 generate_field_access :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
@@ -310,6 +343,12 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
     return(get_variable_name_for_codegen(field_name.clone(), Option(Environment).Some(ei.env)));
   });
   // Newtype: accessing the single field returns the value itself (zero-cost).
+  // EXCEPT when the receiver is a by-`ref` parameter: it is a POINTER to the
+  // (transparent) newtype in C, so the field access must dereference it
+  // (`(*self)`) — without this, `self.field` inside a `ref(self)` method emitted
+  // the raw pointer where the value was expected. Mirrors TS's pointer-branch
+  // newtype deref (property-access.ts:386-393), which fires because TS types a
+  // `ref` param as a `Ptr`; yo-self carries a value type + `param_is_ref` flag.
   if(is_newtype_type(object_type), {
     match(
       object_type,
@@ -317,7 +356,14 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
         match(
           fls.get(usize(0)),
           .Some(lbl) => if(lbl == field_name, {
-            return(object_code.clone());
+            if(_receiver_is_by_ref_param(object_expr, context), {
+              out := String.from("(*");
+              out.push_string(object_code.clone());
+              out.push_str(")");
+              return(out);
+            }, {
+              return(object_code.clone());
+            });
           }),
           .None => ()
         );
