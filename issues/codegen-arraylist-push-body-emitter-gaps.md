@@ -270,3 +270,44 @@ body eval threw. Then fix the spec-body-eval failure for sizeof(T) bodies.
   shape, or test via push1 once GlobalAllocator dispatch lands.)
 
 Build isolated corpus fixtures per gap. Each needs `unsafe`/raw-ptr scaffolding.
+
+---
+
+## ✅ DISPATCH ROOT RESOLVED 2026-06-16 — `try_match_generic_impl` phantom-type-arg fallback
+
+The "find_methods_from_generic_impls misses Buf(u8).szof" root (above) is FIXED.
+`find_methods_from_generic_impls` returned empty because `try_match_generic_impl`
+(impl.yo) could not bind the impl's `forall(T)` param: the receiver pattern
+`Buf(T)` evaluates to `object(_n : usize)`, in which **T never appears
+structurally**, so synthesizing `Buf(T)` against `Buf(u8)` binds nothing →
+`all_bound=false` → NOMATCH. (Confirmed by `-O0` probe: `PROBE_GIMPL NOMATCH`,
+registry populated `n_keys=15`, entry present.)
+
+TS handles this with the env-fallback at `impl.ts:2290-2331`: when field
+synthesis leaves a `forall` param abstract, it reads the binding from
+`concreteType.env` (the instantiation env). yo-self's faithful stand-in for
+`StructType.env` is `Struct.type_arguments`. **Fix:** new helper
+`_bind_forall_from_type_args(pattern, concrete, fa_some)` — locate the param's
+`SomeT` by name+frame-level inside the PATTERN's `type_arguments`, read the same
+position from the CONCRETE's `type_arguments`. Wired into `try_match_generic_impl`'s
+binding loop as the `.None` fallback.
+
+**Validated:** `szof.yo` → `1` (was blank; `b.szof()` now resolves to
+`sizeof(u8)=1`), `gsz2.yo` → `Y` (grow body compiles+runs). Both added to the
+corpus as `generic_impl_phantom_typearg_{sizeof,alloc}.yo`. Corpus 46/46, 0
+regressions. `push1.yo` advanced past method resolution into emitting std
+`ArrayList.grow`'s body.
+
+## REMAINING (1 gap): `GlobalAllocator.{malloc,realloc}` namespace-dispatch in a SPECIALIZED body
+After the dispatch fix, `push1.c` has exactly TWO `// Failed to transpile` lines —
+both `(GlobalAllocator.realloc)(.Some(*(void)(old_ptr)), sizeof(T) * new_capacity)`
+and `(GlobalAllocator.malloc)(sizeof(T) * new_capacity)`. NOTE: the prior theory
+("`sizeof(T)` arg unresolved") is likely WRONG — `gsz2.yo`'s `grow` body calls the
+SAME `GlobalAllocator.malloc(sizeof(T) * cap)` and transpiles fine because it is a
+TOP-LEVEL impl body (normal eval records the property-access callee). push1's
+`grow` comes from **std ArrayList, specialized via the new dispatch path** — the
+property-access call's callee value isn't recorded into the method-callee
+side-table for codegen during specialization. Next: instrument the specialized-body
+eval (`create_specialized_function_inline`) — does the `GlobalAllocator.realloc`
+property-access FnCall get an ExprInfo.value / g_method_callee_values entry in the
+spec body? Compare against the same call in gsz2's top-level body.

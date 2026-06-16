@@ -451,6 +451,45 @@ _root_shapes_could_match :: (fn(pattern : TypeValue, concrete : TypeValue) -> bo
   });
   true
 });
+/// Fallback binding for a generic-impl `forall` param that structural field
+/// synthesis could not resolve. When the receiver pattern erases the param
+/// from its fields (e.g. `Buf(T)` evaluates to `object(_n : usize)` — `T`
+/// never appears structurally, so synthesizing `Buf(T)` against `Buf(u8)`
+/// binds nothing), recover the binding from the concrete instantiation's
+/// `type_arguments` — yo-self's faithful stand-in for TS `StructType.env`.
+/// Mirrors the env fallback in `impl.ts:2290-2331`, which reads
+/// `concreteType.env`. Locate the param's `SomeT` inside the PATTERN's
+/// `type_arguments` (by name + frame level) and read the same position from
+/// the CONCRETE's `type_arguments`.
+_bind_forall_from_type_args :: (
+  fn(pattern : TypeValue, concrete : TypeValue, fa_some : TypeValue) -> Option(TypeValue)
+)({
+  fa_name := match(fa_some,.SomeT({ name }) => name, _ => return(Option(TypeValue).None));
+  fa_lvl := match(fa_some,.SomeT({ frame_level }) => frame_level, _ => return(Option(TypeValue).None));
+  pat_ta := match(pattern,.Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
+  con_ta := match(concrete,.Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
+  (j : usize) = usize(0);
+  (n : usize) = pat_ta.len();
+  while(j < n, {
+    pj := match(pat_ta.get(j),.Some(t) => t,.None => t_unit());
+    is_match := match(
+      pj,
+      .SomeT({ name : pn, frame_level : pl }) => ((pn == fa_name) && (pl == fa_lvl)),
+      _ => false
+    );
+    if(is_match, {
+      match(
+        con_ta.get(j),
+        .Some(ct) => if(!(is_some_type(ct)), {
+          return(Option(TypeValue).Some(ct));
+        }),
+        .None => ()
+      );
+    });
+    j = (j + usize(1));
+  });
+  Option(TypeValue).None
+});
 try_match_generic_impl :: (
   fn(
     concrete_type : TypeValue,
@@ -549,7 +588,21 @@ try_match_generic_impl :: (
         _b := bindings.push(t);
       },
       .None => {
-        all_bound = false;
+        // Structural field synthesis left this param abstract: the receiver
+        // pattern erases it from its fields (e.g. `Buf(T)` = `object(_n :
+        // usize)` — T never appears structurally). Recover the binding from
+        // the concrete instantiation's `type_arguments` (yo-self's faithful
+        // stand-in for TS `StructType.env`; mirrors the env fallback in
+        // impl.ts:2290-2331, which reads `concreteType.env`).
+        match(
+          _bind_forall_from_type_args(entry.receiver_type_pattern, resolved_concrete, fa_some2),
+          .Some(t2) => {
+            _b2 := bindings.push(t2);
+          },
+          .None => {
+            all_bound = false;
+          }
+        );
       }
     );
     vi = (vi + usize(1));

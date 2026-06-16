@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe);
+{ putchar } :: import("std/libc/stdio");
+Buf :: (fn(comptime(T) : Type) -> comptime(Type))(object(_n : usize));
+impl(
+  forall(T : Type),
+  Buf(T),
+  szof : (fn(self : Self) -> usize)(sizeof(T)),
+  mk : (fn() -> Self)(Self(_n : usize(0)))
+);
+main :: (fn() -> unit)({
+  b := Buf(u8).mk();
+  n := b.szof();
+  unsafe(putchar(int(i32(usize(48) + n))));
+});
+export(main);
