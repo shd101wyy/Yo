@@ -52,6 +52,23 @@ Self-hosted compiles to C with three distinct errors:
 These are codegen-emitter bugs (TS accepts the program); each needs its own minimal
 repro split out from r1.
 
+## Progress 2026-06-17 (update)
+
+The KEYSTONE below (field write in a method body) is FIXED (commit 21df350d6):
+OBJECT field mutation in methods now works (`method_field_mutation` fixture → `A`).
+Two narrower gaps remain from the original r1 repro:
+
+- **Newtype receiver field access via `ref(self)` pointer** (refself.yo repro): for a
+  `newtype Wrap(v:i32)` with `bump : (fn(ref(self) : Self) -> unit)`, `self.v` emits
+  `self` (the `int*`) instead of `(*self)` — property_access.yo:313-327 returns the
+  newtype field as `object_code` (zero-cost, value-semantics assumption), but a
+  `ref(self)` receiver is a POINTER. Fix: deref when the newtype receiver is
+  by-pointer. NARROW — `String` (also a newtype) mutates via its `Option(ArrayList)`
+  field (push_byte → ArrayList methods), NOT direct newtype-field assignment, so it
+  does NOT hit this.
+- String bugs #2 (temp-scope leak) + #3 (Option-of-object payload ptr/value) below
+  still open.
+
 ## Progress 2026-06-16
 
 ### ✅ Bug #1 (missing auto-`&` on a `ref(self)` receiver) — FIXED
@@ -72,12 +89,15 @@ statement is dropped (`bump`'s body is `{}`; `bumpv`'s body is just `return
 self->a;`). Field READS (`self.value`, the corpus `get`/`speak`) work — only WRITES
 fail, which is why no corpus fixture caught it.
 
-ROOT (precisely pinned): `generate_assignment` (assignment.yo:70-85) skips the
-emission when the LHS field-write's BASE VARIABLE is compile-time-only
-(`_last_is_compile_time_only(lhs_ei.env, "self")`). The method body's `self`
-parameter is recorded as **compile-time-only** in the ExprInfo env codegen reads —
-a stale flag from the DEF-TIME (validating-mode) body eval, where params bind as
-comptime placeholders. `main`'s `p` is a runtime local, so its write emits.
+ROOT: `generate_assignment` (assignment.yo) returns empty (no C) for this write via
+one of its comptime short-circuits — either line 40 (`ei.is_compile_time_only_assignment`)
+or lines 70-85 (LHS base var `self` is compile-time-only,
+`_last_is_compile_time_only(lhs_ei.env, "self")`). BOTH are rooted in the DEF-TIME
+(validating-mode) method-body eval, where `self`/the write are treated as comptime;
+`main`'s `p` is a runtime local so its identical write emits. NEXT PROBE to
+disambiguate the exact field (one `-O0` build): in generate_assignment gate on the
+LHS being `self.<field>` and print `ei.is_compile_time_only_assignment` +
+`_last_is_compile_time_only(lhs_ei.env, "self")`.
 
 This is the method-body-eval-mode keystone (same family as Gap-6 / create_specialized
 over-CTFE): non-generic methods (no forall, no runtime-return spec) take their body
