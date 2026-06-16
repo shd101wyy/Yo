@@ -298,7 +298,35 @@ corpus as `generic_impl_phantom_typearg_{sizeof,alloc}.yo`. Corpus 46/46, 0
 regressions. `push1.yo` advanced past method resolution into emitting std
 `ArrayList.grow`'s body.
 
-## REMAINING (1 gap): `GlobalAllocator.{malloc,realloc}` namespace-dispatch in a SPECIALIZED body
+## ✅ FULLY RESOLVED 2026-06-16 — `ArrayList(u8).push()` compiles + runs (output `2`)
+
+The remaining gap was NOT `GlobalAllocator` dispatch (that works) and NOT a runtime
+`sizeof(T)` arg. ROOT: **a runtime function call as a match-arm value (or any
+single-expression begin body) lost its `runtime_arg_exprs_in_order`**, so codegen
+bailed at `other_fn_call.yo:1021` → "Failed to transpile". push's allocate/realloc
+are match-arm values (`new_some_ptr := match(self._ptr, .None => malloc(...),
+.Some => realloc(...))`), so they hit this.
+
+Isolation chain (gsz2→gsz13, all on `-O0`): each hand-written near-clone of push
+WORKED until gsz13 — `match(k, 0 => side(i32(10)), _ => side(i32(20)))` in plain
+`main` (no generics, no unsafe, no modules) — reproduced "Failed to transpile
+side(...)". 5-point probe (codegen `generate_func_call` + `generate_other_function_call`
++ eval `match.yo` + `function.yo` branch) showed: the call has ExprInfo, reaches
+the runtime branch (function.yo:2343, sets `runtime_arg_exprs`), but at codegen
+`has_runtime_args=false`. The clobber site: `evaluate_begin_expression`
+(begin.yo:723) builds a fresh `out_info` and sets it on `ast_expr_id(expr)` — and
+for a single-expression begin, `expr` IS the inner call node (yo-self wraps in a
+1-element list rather than clone+mutate-into-begin like TS begin.ts:1016-1045), so
+the fresh `out_info` (lacking `runtime_arg_exprs_in_order`) overwrote the call's
+own ExprInfo. FIX: carry `runtime_arg_exprs_in_order` from the inner expr when
+`expr.id == last_expr.id`, gated to RUNTIME results (UnknownVal/UnitVal/None) so a
+comptime-folded `.None`/`.Some(7)`/`i32(0)` (EnumVal/literal value, emitted via the
+comptime path) does NOT trip the runtime enum/struct-construction codegen — that
+gate was required (unguarded carry regressed match_arm_folded_fncall +
+runtime_enum_construct). Corpus 46→48 (+std_arraylist_push output `2`,
++match_arm_runtime_call). std sweep held 94/58.
+
+## (HISTORICAL) earlier theory: `GlobalAllocator.{malloc,realloc}` namespace-dispatch in a SPECIALIZED body
 After the dispatch fix, `push1.c` has exactly TWO `// Failed to transpile` lines —
 both `(GlobalAllocator.realloc)(.Some(*(void)(old_ptr)), sizeof(T) * new_capacity)`
 and `(GlobalAllocator.malloc)(sizeof(T) * new_capacity)`. NOTE: the prior theory

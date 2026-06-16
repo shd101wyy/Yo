@@ -725,6 +725,31 @@ evaluate_begin_expression :: (
   out_info.control_flow = last_info.control_flow;
   out_info.comptime_ref = last_info.comptime_ref;
   out_info.popped_env_frame = current_frame_opt;
+  // A SINGLE-expression begin block (`expr` was not a real `begin(...)` call, so
+  // it was wrapped in a 1-element list at the top) has its result node EQUAL to
+  // the inner expression node — yo-self reuses `expr`'s id rather than
+  // clone+mutate-into-begin like TS (begin.ts:1016-1045, which clones the inner
+  // expr so its `$` lives on a separate node). The fresh `out_info` therefore
+  // CLOBBERS the inner expression's own ExprInfo on that shared id. Most fields
+  // are re-derived above, but `runtime_arg_exprs_in_order` (the call-argument
+  // materialization list codegen needs) is dropped — so a bare runtime CALL as a
+  // match/cond arm body or a single-expression function body emitted
+  // "Failed to transpile". Carry that one field across — but ONLY for a runtime
+  // RESULT (UnknownVal / UnitVal / no value). A comptime-FOLDED construct
+  // (`.None`, `.Some(i32(7))`, `i32(0)`) keeps an EnumVal/StructVal/literal value
+  // and emits via the comptime-value path; carrying its arg list would wrongly
+  // trip the runtime enum/struct-construction codegen (`ctor_has_runtime_args`),
+  // corrupting the literal's type name — that regressed match_arm_folded_fncall +
+  // runtime_enum_construct. (Do NOT alias the whole `last_info` either: its
+  // `variable_name` temp would pollute downstream type names.)
+  carry_runtime_args := match(
+    last_info.value,
+    .None => true,
+    .Some(v) => match(v,.UnknownVal(_) => true,.UnitVal => true, _ => false)
+  );
+  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && carry_runtime_args, {
+    out_info.runtime_arg_exprs_in_order = last_info.runtime_arg_exprs_in_order;
+  });
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).
   attach_temp_variable_to_expr(expr, true, ctx);
