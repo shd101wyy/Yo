@@ -64,3 +64,45 @@ TS does at definition time). Do NOT attempt codegen-side band-aids.
 The new finding above (println bypasses 2410 entirely) means step 1 — locating
 println's ACTUAL dispatch path — must come first; the create_specialized work may
 be moot for println if it never reaches it.
+
+## PRECISE LOCALIZATION 2026-06-17 (gated `println`-atom probes, 4 -O0 builds)
+
+Traced `println("hello")` step by step (probes gated on `ast_expr_is_atom_of(
+func_expr, "println")`, robust to id churn):
+1. ENTERS evaluate_function_call. ✓
+2. Reaches the comptime-vs-runtime branch (function.yo:2149) with
+   `thier=false crc=false aat=false mac=false forall=1 ret=unit` → takes the
+   RUNTIME (else) path. ✓ (Earlier "bypasses 2410" was a tail-5 artifact — it DOES
+   reach the spec arm.)
+3. Reaches the runtime-path out_rt + the `if(forall_names.len()>0)` spec block
+   (forall=1). ✓
+4. Reaches `before-create-spec` (n_forall_args=1, n_reg_args=1) — i.e. the line
+   immediately before `create_specialized_function_inline` (function.yo:~2424). ✓
+5. The probe IMMEDIATELY AFTER create_specialized does **NOT** fire.
+
+⇒ **`create_specialized_function_inline` THROWS for println** — it does not return.
+The exception unwinds past the call site (skipping the ExprInfo-recording that
+would route codegen to a specialized `println_str`), so the GENERIC println is left
+recorded → codegen emits a call to the unspecialized (void*-param) func → undeclared.
+
+The throw originates at **helper.yo:1101** — create_specialized evaluates the body
+with `evaluate_begin_expression(body, callee_env, ctx, true, exn)`, passing the
+OUTER `exn`. println's body (`s := v.to_string(); …`) executes runtime ops over the
+bound type var; that eval throws, and because the OUTER exn is used (not a swallowing
+trial-eval wrapper like the def-eval-wall sites), it propagates out instead of being
+contained.
+
+### DECISIVE NEXT STEP (do this first next session)
+CAPTURE THE EXACT ERROR thrown at helper.yo:1101 for println. Wrap that body-eval
+(or the create_specialized call in function.yo, where `func_expr=="println"` is
+gatable) in a local `Exception(throw: (err) -> { <print err>; <re-throw via outer
+exn> })` and print the message. That error decides the fix:
+- If it's a METHOD-RESOLUTION / type error (e.g. `v.to_string()` can't resolve for
+  `v:str`, or a SomeT leak) → likely a targeted, faithful fix.
+- If it's a genuine runtime-op CTFE failure (executing `to_string`'s
+  ArrayList/malloc body over an UnknownVal) → the deep architecture change
+  (type-derive the body without executing) the memory describes; do NOT band-aid by
+  swallowing (the 3rd falsified attempt made println a SILENT NO-OP — a swallowed
+  body-eval leaves a concrete signature but an empty/broken body).
+Error-printing needs the dyn(Error) formatting (see how the def-eval-wall trial-eval
+"SWALLOW: ..." prints, or format_error_message / the Error trait's message).
