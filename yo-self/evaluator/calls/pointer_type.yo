@@ -13,6 +13,7 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_to_string,
   make_err_expr,
+  alloc_global_expr_id,
   BF_YO_AS,
   ExprId
 } :: import("../../expr.yo");
@@ -128,8 +129,18 @@ try_to_convert_to_pointer_type :: (
     .FnCall(_, func_box, _, _, _) => func_box.*,
     .Atom(_, _) => make_err_expr()
   );
+  // Lower the runtime pointer→pointer cast to a `__yo_as` node, attached to the
+  // ORIGINAL expr's ExprInfo as a `macro_expansion`. Codegen walks the original
+  // parsed node (which keeps its `*(T)(...)` structure — codegen does NOT see
+  // returned rewrites), so the lowering must travel via the original node's
+  // ExprInfo. Mirrors TS `replaceExprWithFuncCallExpr` (in-place mutation), which
+  // yo-self can't do on the enum node, so it uses the existing macro_expansion
+  // mechanism (codegen checks it before structural dispatch). The `__yo_as` node
+  // gets a FRESH id so codegen's re-dispatch onto it does not re-trigger the same
+  // macro_expansion (infinite loop).
+  fresh_id := alloc_global_expr_id();
   func_atom := AstExpr.Atom(
-    orig_id,
+    alloc_global_expr_id(),
     Token(
       kind : TokenKind.Identifier,
       value : String.from(BF_YO_AS),
@@ -143,14 +154,18 @@ try_to_convert_to_pointer_type :: (
   call_args := ArrayList(AstExpr).new();
   call_args.push(evaluated);
   call_args.push(type_expr);
-  yo_as_node := AstExpr.FnCall(orig_id, box(func_atom), call_args, false, orig_tok);
-  out_info := new_expr_info(env, target_type);
-  out_info.value =.None;
+  yo_as_node := AstExpr.FnCall(fresh_id, box(func_atom), call_args, false, orig_tok);
+  yo_as_info := new_expr_info(env, target_type);
+  yo_as_info.value =.None;
   // runtimeArgExprsInOrder: only the value arg (not the type) — mirrors TS
   rt_args := ArrayList(AstExpr).new();
   rt_args.push(evaluated);
-  out_info.runtime_arg_exprs_in_order =.Some(rt_args);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), out_info);
-  .Some(yo_as_node)
+  yo_as_info.runtime_arg_exprs_in_order =.Some(rt_args);
+  expr_info_table_set(ctx.expr_info_table, fresh_id, yo_as_info);
+  out_info := new_expr_info(env, target_type);
+  out_info.value =.None;
+  out_info.macro_expansion = Option(AstExpr).Some(yo_as_node);
+  expr_info_table_set(ctx.expr_info_table, orig_id, out_info);
+  .Some(expr)
 });
 export(try_to_convert_to_pointer_type);

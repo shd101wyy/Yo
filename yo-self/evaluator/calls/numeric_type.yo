@@ -16,6 +16,7 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_to_string,
   make_err_expr,
+  alloc_global_expr_id,
   BF_YO_AS
 } :: import("../../expr.yo");
 {
@@ -416,11 +417,28 @@ try_to_convert_to_numeric_type :: (
       .FnCall(_, func_box, _, _, _) => func_box.*,
       .Atom(_, _) => make_err_expr()
     );
-    yo_as_node := _make_yo_as_node(ast_expr_id(expr), ast_expr_token(expr), evaluated, type_expr);
+    // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL
+    // expr's ExprInfo as a `macro_expansion`. Codegen walks the original parsed
+    // node (which keeps its `i32(...)` structure — codegen does NOT see returned
+    // rewrites), so the lowering must travel via the ExprInfo the original node's
+    // id maps to. Mirrors TS `replaceExprWithFuncCallExpr` (which mutates the node
+    // in place); yo-self can't mutate the enum node, so it uses the existing
+    // macro_expansion mechanism (codegen generation.yo checks it before the
+    // structural dispatch). The `__yo_as` node gets a FRESH id so codegen's
+    // re-dispatch onto it does not re-trigger the same macro_expansion (infinite
+    // loop); its `runtime_arg_exprs_in_order` is the value arg only (not the type).
+    yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), evaluated, type_expr);
+    yo_as_info := new_expr_info(env, target_type);
+    yo_as_info.value =.None;
+    yo_as_rt := ArrayList(AstExpr).new();
+    yo_as_rt.push(evaluated);
+    yo_as_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(yo_as_rt);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), yo_as_info);
     out_info := new_expr_info(env, target_type);
     out_info.value =.None;
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), out_info);
-    return(.Some(yo_as_node));
+    out_info.macro_expansion = Option(AstExpr).Some(yo_as_node);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    return(.Some(expr));
   });
   // -----------------------------------------------------------------------
   // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)
