@@ -53,6 +53,36 @@ OuterWhileLoop :: object(
   body_expr : AstExpr,
   body_exprs_after_await : ArrayList(AstExpr)
 );
+/// One branch of a cond/match with await. Mirrors the `branches[]` element in
+/// `asyncCondBranchInfo` (context.ts:112).
+CondBranch :: object(
+  index : usize,
+  value : AstExpr,
+  has_await : bool,
+  /// Expressions after the await in this branch (resume-state code).
+  remaining_exprs : Option(ArrayList(AstExpr)),
+  /// Drop expressions for the branch's begin block.
+  deferred_drop_expressions : Option(ArrayList(AstExpr))
+);
+/// A chained cond/match continuation: an outer cond's remaining code that shares
+/// a key with a nested cond, processed as a separate switch AFTER the nested
+/// cond's switch. Mirrors the `chainedBranches[]` element (context.ts:124).
+ChainedCondBranches :: object(
+  branches : ArrayList(CondBranch),
+  cond_branch_field_index : usize
+);
+/// Per-await-point info about a cond/match containing await in branches. Mirrors
+/// the value type of `asyncCondBranchInfo` (context.ts:109).
+AsyncCondBranchInfo :: object(
+  branches : ArrayList(CondBranch),
+  /// Variable that receives the cond/match result (if any).
+  target_variable_id : Option(String),
+  /// C code for the assignment target (for `= (target, cond/match(...))`).
+  target_assignment_code : Option(String),
+  /// The `cond_branch_X` index to use in the switch (continuation states).
+  cond_branch_field_index : Option(usize),
+  chained_branches : Option(ArrayList(ChainedCondBranches))
+);
 /// Per-await-point info about a while loop containing an await. Mirrors the
 /// value type of `asyncWhileLoopInfo` (context.ts:137).
 WhileLoopInfo :: object(
@@ -135,7 +165,11 @@ FunctionGenerationContext :: object(
   /// Next free while-loop index for nested while-with-await (so outer-while
   /// labels don't collide with await-point indices). Mirrors
   /// `asyncNextWhileLoopIndex`.
-  async_next_while_loop_index : Option(usize)
+  async_next_while_loop_index : Option(usize),
+  /// Cond/match-with-await branch info, keyed by await-point index. Written by
+  /// `generate_cond_with_await` / `generate_match_with_await`, read by the resume
+  /// generator. Mirrors `asyncCondBranchInfo`.
+  async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo))
 );
 impl(
   FunctionGenerationContext,
@@ -169,7 +203,8 @@ impl(
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
       state_machine_field_aliases : Option(HashMap(String, String)).None,
       async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)).None,
-      async_next_while_loop_index : Option(usize).None
+      async_next_while_loop_index : Option(usize).None,
+      async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None
     )
   )
 );
@@ -180,5 +215,8 @@ export(
   InAsyncStateMachine,
   CondBranchPostWhileExprs,
   OuterWhileLoop,
-  WhileLoopInfo
+  WhileLoopInfo,
+  CondBranch,
+  ChainedCondBranches,
+  AsyncCondBranchInfo
 );
