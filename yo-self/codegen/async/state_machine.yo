@@ -8,6 +8,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
@@ -15,7 +16,9 @@ open(import("std/string"));
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { SuspensionSegment, split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_token } :: import("../../expr.yo");
+{ TokenKind } :: import("../../token.yo");
+{ Variable, get_variables_from_env } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
@@ -248,6 +251,396 @@ get_future_field_name :: (
   out.push_string(await_point.base.index.to_string());
   out
 });
+/// The cleanup "segment" pseudo-index. TS uses `-1`; yo-self uses `usize.MAX`
+/// (segment counts are tiny, so this never collides with a real state number)
+/// to keep the segment sets unsigned. A variable referenced only here lives in
+/// the struct because the body-level deferred drops run in the last segment.
+CLEANUP_SEGMENT :: usize.MAX;
+/// Collect the IDs of all runtime variables referenced in `expr` into `refs`,
+/// resolving SSA remapping and RC-ownership aliasing. Skips nested async-block
+/// bodies (their refs belong to the inner state machine) but still walks their
+/// deferred dup expressions. Mirrors `collectVariableRefsInExpr`
+/// (state-machine.ts:76). yo-self threads `context` because the ExprInfo (env +
+/// deferred expressions) lives in the codegen side-table, not on the expr.
+collect_variable_refs_in_expr :: (
+  fn(
+    expr : AstExpr,
+    refs : HashSet(String),
+    variable_id_remapping : HashMap(String, String),
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  ei_opt := context.base.get_expr_info(expr);
+  // Atom case: an identifier that resolves to a non-comptime env variable.
+  if(ast_expr_is_atom(expr), {
+    tok := ast_expr_token(expr);
+    if(tok.kind == TokenKind.Identifier, {
+      match(
+        ei_opt,
+        .Some(ei) => {
+          var_name := tok.value;
+          variables := get_variables_from_env(ei.env, var_name);
+          if(variables.len() > usize(0), {
+            // The last binding wins (innermost scope).
+            variable := match(
+              variables.get(variables.len() - usize(1)),
+              .Some(v) => v,
+              .None => return()
+            );
+            if(!(variable.is_compile_time_only), {
+              // Resolve SSA remapping, then RC owner.
+              canonical_id := match(
+                variable_id_remapping.get(variable.id.clone()),
+                .Some(c) => c,
+                .None => variable.id.clone()
+              );
+              owner_id := match(
+                variable.is_owning_the_same_rc_value_as,
+                .Some(ob) => ob.*.id.clone(),
+                .None => canonical_id
+              );
+              refs.add(owner_id);
+            });
+          });
+        },
+        .None => ()
+      );
+    });
+    return();
+  });
+  // FnCall case.
+  if(ast_expr_is_fn_call(expr), {
+    if(is_io_async_call(expr), {
+      // Nested async block — skip its body, but walk its deferred dups (captures).
+      match(
+        ei_opt,
+        .Some(ei) => match(
+          ei.deferred_dup_expressions,
+          .Some(dups) => {
+            (di : usize) = usize(0);
+            while(di < dups.len(), {
+              match(
+                dups.get(di),
+                .Some(d) => {
+                  recur(d, refs, variable_id_remapping, context);
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      return();
+    });
+    func_expr := match(expr,.FnCall(_, fb, _, _, _) => fb.*, _ => expr);
+    recur(func_expr, refs, variable_id_remapping, context);
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    (ai : usize) = usize(0);
+    while(ai < args.len(), {
+      match(
+        args.get(ai),
+        .Some(a) => {
+          recur(a, refs, variable_id_remapping, context);
+        },
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    // Also walk deferred drop/dup expressions.
+    match(
+      ei_opt,
+      .Some(ei) => {
+        match(
+          ei.deferred_drop_expressions,
+          .Some(drops) => {
+            (dri : usize) = usize(0);
+            while(dri < drops.len(), {
+              match(
+                drops.get(dri),
+                .Some(d) => {
+                  recur(d, refs, variable_id_remapping, context);
+                },
+                .None => ()
+              );
+              dri = (dri + usize(1));
+            });
+          },
+          .None => ()
+        );
+        match(
+          ei.deferred_dup_expressions,
+          .Some(dups2) => {
+            (dui : usize) = usize(0);
+            while(dui < dups2.len(), {
+              match(
+                dups2.get(dui),
+                .Some(d) => {
+                  recur(d, refs, variable_id_remapping, context);
+                },
+                .None => ()
+              );
+              dui = (dui + usize(1));
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+});
+/// Result of cross-boundary variable analysis. Mirrors `CrossBoundaryResult`
+/// (state-machine.ts:152). `variable_segments` maps each variable id to the set
+/// of segment indices it is referenced in (`CLEANUP_SEGMENT` = body-level drops).
+CrossBoundaryResult :: object(
+  /// Variable IDs that must be stored as struct fields (cross await boundaries).
+  cross_boundary_ids : HashSet(String),
+  /// Maps temp variable IDs to their `await_future_N` field name (Phase 1b dedup).
+  await_future_temp_var_aliases : HashMap(String, String),
+  /// Maps each captured variable id to the segment indices where it is referenced.
+  variable_segments : HashMap(String, HashSet(usize))
+);
+/// Add `seg` to the segment set of `var_id` in `variable_segments`
+/// (get-mutate-set-back: always stores the mutated set back so the map reflects
+/// any resize). Helper for `compute_cross_boundary_variables`.
+_add_variable_segment :: (
+  fn(variable_segments : HashMap(String, HashSet(usize)), var_id : String, seg : usize) -> unit
+)({
+  existing := match(
+    variable_segments.get(var_id.clone()),
+    .Some(s) => s,
+    .None => HashSet(usize).new()
+  );
+  existing.add(seg);
+  variable_segments.set(var_id.clone(), existing);
+});
+/// Determine which captured local variables cross await boundaries (referenced in
+/// more than one state segment, or in the cleanup segment, or in a single
+/// branching-await segment). Such variables must be stored as struct fields;
+/// segment-local ones in non-branching segments can be C locals. Mirrors
+/// `computeCrossBoundaryVariables` (state-machine.ts:171).
+compute_cross_boundary_variables :: (
+  fn(body_expr : AstExpr, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> CrossBoundaryResult
+)({
+  await_points := analysis.await_points;
+  captured_variables := analysis.captured_variables;
+  variable_id_remapping := analysis.variable_id_remapping;
+  // No await points → nothing crosses a boundary.
+  if(await_points.len() == usize(0), {
+    return(
+      CrossBoundaryResult(
+        cross_boundary_ids : HashSet(String).new(),
+        await_future_temp_var_aliases : HashMap(String, String).new(),
+        variable_segments : HashMap(String, HashSet(usize)).new()
+      )
+    );
+  });
+  segments := split_into_state_segments(body_expr, await_points);
+  // Segment indices whose await point branches (cond/while): a variable found
+  // ONLY in such a segment must stay in the struct (continuation runs elsewhere).
+  branching_await_segment_indices := HashSet(usize).new();
+  (sgi : usize) = usize(0);
+  while(sgi < segments.len(), {
+    match(
+      segments.get(sgi),
+      .Some(seg) => match(
+        seg.await_point,
+        .Some(ap) => {
+          in_cond := match(ap.base.is_inside_cond,.Some(b) => b,.None => false);
+          in_while := match(ap.base.is_inside_while,.Some(b) => b,.None => false);
+          if(in_cond || in_while, {
+            branching_await_segment_indices.add(seg.state_number);
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    sgi = (sgi + usize(1));
+  });
+  // For each segment, collect referenced variable ids and record the segment.
+  variable_segments := HashMap(String, HashSet(usize)).new();
+  (sgj : usize) = usize(0);
+  while(sgj < segments.len(), {
+    match(
+      segments.get(sgj),
+      .Some(seg) => {
+        refs := HashSet(String).new();
+        (ei : usize) = usize(0);
+        while(ei < seg.expressions.len(), {
+          match(
+            seg.expressions.get(ei),
+            .Some(e) => {
+              collect_variable_refs_in_expr(e, refs, variable_id_remapping, context);
+            },
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+        ref_iter := refs.into_iter();
+        (go : bool) = true;
+        while(go, {
+          match(
+            ref_iter.next(),
+            .Some(var_id) => {
+              _add_variable_segment(variable_segments, var_id, seg.state_number);
+            },
+            .None => {
+              go = false;
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    sgj = (sgj + usize(1));
+  });
+  // Body-level deferred drops run at the end → CLEANUP_SEGMENT.
+  body_ei_opt := context.base.get_expr_info(body_expr);
+  match(
+    body_ei_opt,
+    .Some(body_ei) => match(
+      body_ei.deferred_drop_expressions,
+      .Some(body_drops) => {
+        body_drop_refs := HashSet(String).new();
+        (bi : usize) = usize(0);
+        while(bi < body_drops.len(), {
+          match(
+            body_drops.get(bi),
+            .Some(d) => {
+              collect_variable_refs_in_expr(d, body_drop_refs, variable_id_remapping, context);
+            },
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        bd_iter := body_drop_refs.into_iter();
+        (bgo : bool) = true;
+        while(bgo, {
+          match(
+            bd_iter.next(),
+            .Some(var_id) => {
+              _add_variable_segment(variable_segments, var_id, CLEANUP_SEGMENT);
+            },
+            .None => {
+              bgo = false;
+            }
+          );
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  // A captured local crosses a boundary if used in >1 segment, in cleanup, or in
+  // a single branching-await segment. Outer vars live in __capture (skipped).
+  cross_boundary_ids := HashSet(String).new();
+  (cvi : usize) = usize(0);
+  while(cvi < captured_variables.len(), {
+    match(
+      captured_variables.get(cvi),
+      .Some(v) => {
+        is_outer := match(v.kind,.Outer => true,.Local => false);
+        if(!(is_outer), {
+          vid := v.base.id.clone();
+          match(
+            variable_segments.get(vid.clone()),
+            .None => {
+              // Not found in any segment — keep in struct (conservative).
+              cross_boundary_ids.add(vid.clone());
+            },
+            .Some(segs_used) => {
+              if(segs_used.len() > usize(1), {
+                cross_boundary_ids.add(vid.clone());
+              }, {
+                if(segs_used.contains(CLEANUP_SEGMENT), {
+                  cross_boundary_ids.add(vid.clone());
+                }, {
+                  // Exactly one numbered segment — struct only if it branches.
+                  seg_iter := segs_used.into_iter();
+                  single := match(seg_iter.next(),.Some(s) => s,.None => usize(0));
+                  if(branching_await_segment_indices.contains(single), {
+                    cross_boundary_ids.add(vid.clone());
+                  });
+                });
+              });
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    cvi = (cvi + usize(1));
+  });
+  // Phase 1b: temp vars holding futures already stored in await_future_N — alias
+  // them to that field and drop them from the struct.
+  await_future_temp_var_aliases := HashMap(String, String).new();
+  (api : usize) = usize(0);
+  while(api < await_points.len(), {
+    match(
+      await_points.get(api),
+      .Some(ap) => {
+        // Named future variables are already aliased — skip.
+        has_named := match(ap.future_variable_id,.Some(_) => true,.None => false);
+        if(!(has_named), {
+          await_expr := ap.base.expr;
+          if(ast_expr_is_fn_call(await_expr), {
+            future_arg_opt := match(await_expr,.FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
+            match(
+              future_arg_opt,
+              .Some(future_arg) => {
+                tmp_name_opt := match(context.base.get_expr_info(future_arg),.Some(fei) => fei.variable_name,.None => Option(String).None);
+                match(
+                  tmp_name_opt,
+                  .Some(temp_var_name) => {
+                    // Find the captured local matching this temp var name/id.
+                    (cfi : usize) = usize(0);
+                    (matched : Option(String)) = Option(String).None;
+                    while((cfi < captured_variables.len()) && matched.is_none(), {
+                      match(
+                        captured_variables.get(cfi),
+                        .Some(cv2) => {
+                          is_local := match(cv2.kind,.Local => true,.Outer => false);
+                          if(is_local && ((cv2.base.name == temp_var_name) || (cv2.base.id == temp_var_name)), {
+                            matched = Option(String).Some(cv2.base.id.clone());
+                          });
+                        },
+                        .None => ()
+                      );
+                      cfi = (cfi + usize(1));
+                    });
+                    match(
+                      matched,
+                      .Some(cap_id) => {
+                        field := String.from("await_future_");
+                        field.push_string(ap.base.index.to_string());
+                        await_future_temp_var_aliases.set(cap_id.clone(), field);
+                        cross_boundary_ids.remove(cap_id);
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+          });
+        });
+      },
+      .None => ()
+    );
+    api = (api + usize(1));
+  });
+  CrossBoundaryResult(
+    cross_boundary_ids : cross_boundary_ids,
+    await_future_temp_var_aliases : await_future_temp_var_aliases,
+    variable_segments : variable_segments
+  )
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -256,5 +649,8 @@ export(
   StateSegment,
   split_into_state_segments,
   contains_await_expr,
-  get_future_field_name
+  get_future_field_name,
+  CrossBoundaryResult,
+  collect_variable_refs_in_expr,
+  compute_cross_boundary_variables
 );
