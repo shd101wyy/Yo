@@ -459,6 +459,15 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    emitters currently `panic("Phase 5")` at every state-machine site (atom SM-var
    resolution, return-completion, etc.) — those panics get replaced as the FSM
    core lands and produces `async_state_machine_struct_name` on ExprInfo.
+   **FOUNDATIONAL PREREQUISITE uncovered 2026-06-17:** the FSM core depends on
+   `SomeType.resolvedConcreteType` + `.isExtern` (e.g. `isIoFutureType`,
+   state-machine.ts:496 — distinguishes an extern `__yo_io_future_t` from a
+   state-machine Future via the resolved concrete type). yo-self's `SomeT` has NO
+   `resolved_concrete_type` mutable codegen field (documented gap — codegen lowers
+   unresolved SomeT to `void*`). So before/with the FSM core port, either add
+   `resolved_concrete_type` to yo-self's SomeT (broad model change) or thread the
+   concrete Future type another way. This is the real gate on
+   `await.yo`/`async.yo`/`state_machine.yo`, not mere transcription.
 4. **C runtime templates:** `async/runtime.ts` + `runtime-core` +
    `runtime-io-common` + macOS/Linux (Windows/WASM deferred).
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
