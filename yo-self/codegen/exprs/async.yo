@@ -1432,7 +1432,7 @@ generate_async_block :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // Register the SM struct as the concrete type for this async block's future type.
   // Keyed by type_key(future_type) so get_type_c_name resolves it (yo-self keys the
   // type registry by type_key; TS keyed by the SomeType's unique id).
-  context.base.register_type(type_key(future_type), future_type, struct_name.clone(), Option(String).None);
+  context.base.register_type(type_key(future_type), future_type, `${struct_name.clone()}*`, Option(String).None);
   // Await analysis computed during evaluation.
   analysis := match(ei.await_analysis,.Some(a) => a,.None => panic("Missing await analysis for async block. This should have been computed during evaluation."));
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
@@ -1838,7 +1838,7 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
             );
             struct_name := `${async_block_id}_state_t`;
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
-            context.base.register_type(type_key(ei.ty), ei.ty, struct_name.clone(), Option(String).None);
+            context.base.register_type(type_key(ei.ty), ei.ty, `${struct_name.clone()}*`, Option(String).None);
             em := context.base.emitter;
             em.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for async state machine`);
           },
@@ -1869,7 +1869,7 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
             struct_name := if(has_await_analysis, `${async_block_id}_state_t`, `${async_block_id}_sync_fut_t`);
             kind_label := if(has_await_analysis, String.from("state machine"), String.from("sync future"));
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
-            context.base.register_type(type_key(ei.ty), ei.ty, struct_name.clone(), Option(String).None);
+            context.base.register_type(type_key(ei.ty), ei.ty, `${struct_name.clone()}*`, Option(String).None);
             em := context.base.emitter;
             em.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for io.async ${kind_label}`);
           },
@@ -2022,6 +2022,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     .None => match(orig_closure_ei,.Some(oe) => oe.capture_type,.None => Option(TypeValue).None)
   );
   capture_c_name := match(eff_capture_type,.Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(cap_ty, context)),.None => Option(String).None);
+  capture_field_count := match(eff_capture_type,.Some(cap_ty) => match(cap_ty,.Struct({ field_labels : fl }) => fl.len(), _ => usize(0)),.None => usize(0));
   cfn := match(closure_function_c_name,.Some(n) => n,.None => return(String.from("/* Error: no closure FUNCTION for io.async sync path */")));
   ccn := match(capture_c_name,.Some(n) => n,.None => return(String.from("/* Error: no CAPTURE type for io.async sync path */")));
   // Discover the closure's runtime parameters (non-comptime; the bundle param e).
@@ -2172,12 +2173,20 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.traverse_fn = NULL;`);
   });
   // Copy capture data from the stack struct into the heap future, then dup it.
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${closure_code};`);
-  match(
-    capture_dup_fn,
-    .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),
-    .None => ()
-  );
+  // For a no-capture closure the capture struct is empty, so the closure value
+  // (an anon-fn function reference) is NOT a capture struct — initialize the empty
+  // capture directly. With captures, `closure_code` is the capture-struct value
+  // (full closure-construction emission is pending — see the gate issue).
+  if(capture_field_count == usize(0), {
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = (${ccn.clone()}){0};`);
+  }, {
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${closure_code};`);
+    match(
+      capture_dup_fn,
+      .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),
+      .None => ()
+    );
+  });
   // State 0 = not started (lazy); resume executes the closure.
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->__yo_resume_fn = ${resume_function_name.clone()};`);
