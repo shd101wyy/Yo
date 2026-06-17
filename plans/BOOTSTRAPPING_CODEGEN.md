@@ -562,9 +562,18 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    (`WhileLoopInfo`/`OuterWhileLoop`/`CondBranchPostWhileExprs`/`CondBranch`/
    `ChainedCondBranches`/`AsyncCondBranchInfo` + the `async_while_loop_info`/
    `async_next_while_loop_index`/`async_cond_branch_info`/`async_body_return_expr`
-   context fields). STILL TODO in (a): `generate_cond_with_await` BODY (~460),
+   context fields). ALSO DONE: the full COND cluster — `generate_cond_with_await`
+   (~460, the largest single emitter) + `generate_cond_branch_with_await` + the
+   factored helpers (`_comptime_bool_value`, `_cond_inner_has_remaining_code`,
+   `_emit_branch_value_inline`, `_attach_cond_branch_post_while`,
+   `_make_cond_branch`, `_store_cond_branch_info`). So the while + cond clusters
+   are complete. STILL TODO in (a): the MATCH cluster —
    `generate_match_with_await` (~530) + `generate_primitive_match_with_await`
-   (~140), then `register_fsm_emitters(cond, match, while)`. Wire into codegen_c
+   (~140); the deepest emitter (depends on enum-codegen helpers
+   `canOptimizeAsNullablePointer`, enum C-name lookup via `context.types`,
+   `isPrimitiveMatch` ExprInfo flag — plus the already-ported
+   `get_state_machine_field_name`/`get_type_string`/`sanitize_for_c_identifier`).
+   Then `register_fsm_emitters(cond, match, while)`. Wire into codegen_c
    (replace the `panic("Phase 5")` sites), resolving the Func `io_builtin` field +
    `g_some_is_extern` WITH their first consumers. This is the dedicated
    FSM-core-mass session.
