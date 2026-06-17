@@ -1,6 +1,33 @@
 # Gap-6: generic free-function monomorphization (`println` etc.)
 
-**Status:** OPEN — the deep frontier. `println("hello")` compiles+runs under TS
+**Status:** ✅ SPECIALIZATION RESOLVED 2026-06-17 (commit 271d96e61). The Gap-6
+specialization throw is FIXED: a forall param inferred from a comptime_str string
+literal now binds `T = str` (runtime) — both at forall inference (function.yo ~1870,
+record `str` in fa_bound_names/types) AND at param binding (function.yo ~2019,
+resolve the declared SomeT param type to its concrete binding BY NAME via
+fa_bound_names so the comptime_str→runtime coercion fires for the forall VALUE param).
+Gated to comptime_str string-literal VALUE args (a comptime TYPE arg is a `Type`
+value, not comptime_str). `println`/`myp` now specialize; the i32/str throw is gone.
+Corpus 53/53, std -O0 sweep held 94/58 (this coercion class regressed std 151→17 when
+unguarded — the value-arg gating + name-based resolve keep it safe).
+
+REMAINING for `println` END-TO-END: a SEPARATE pre-existing gap — the extern-C GLOBAL
+`stdout`/`stderr` emit as undeclared `__yo_c_reserved_stdout`. This is "Gap 3"
+(yo-self models `is_extern` only on the Func TypeValue variant): c_include stamps the
+FFI marker only onto Func field types (c_include.yo:202-239); a non-Func global
+(`stdout : *(FILE)`) is left unmarked, so codegen's `is_extern_c` detection
+(utils/index.yo:818, Func-only) is false → `sanitize_for_c_identifier` adds the
+`__yo_c_reserved_` prefix (the C `<stdio.h>` IS included, so the real `stdout` is in
+scope — only the name mapping is wrong). TS checks `variable.type.isExtern === "c"`
+on ANY type. FIX (next): add `is_extern` to the relevant non-Func TypeValue variants
+(at least Pointer) OR add an `is_extern_c` flag to Variable set by c_include for ALL
+fields, and consult it in getVariableNameForCodegen's sanitize call. Schema-touching
+(build-guided). See issues/codegen-extern-c-global-reserved-name.md.
+
+---
+(original OPEN diagnosis below — kept for the trace.)
+
+# Gap-6 (original): `println("hello")` compiles+runs under TS
 (prints `hello`) but the self-hosted compiler emits a call to the UNSPECIALIZED
 generic and skips its body → undeclared function.
 
