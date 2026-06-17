@@ -554,11 +554,22 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    `emit_future_effect_injection_line` (the Future-trait deps
    `extract_future_trait_from_type` / `type_implements_future` are already ported
    in trait_checking.yo, so the resume body is transcription not discovery).
-   STILL TODO: (c) the resume generator — state-machine.ts
-   `generateAsyncBlockResumeFunction` (~1.7k) + `generateRemainingExprFuture` +
-   the EFFECT-INJECTION emitters (`emitEffectInjectionForSM` /
-   `emitEffectRecordInjectionForSM` / `resolveEffectFieldFromSMScope`). NOTE: the
-   effect-injection emitters need a NEW prerequisite — the `currentEvidenceParams`
+   **ALL RESUME-GENERATOR HELPERS NOW DONE (state_machine.yo):**
+   `generate_remaining_expr_future`, `resolve_effect_field_from_sm_scope`,
+   `find_bundle_field_name`, `emit_effect_record_injection_for_sm`,
+   `emit_effect_injection_for_sm` (effect-injection complete — iterates the
+   `FutureTraitT` effect arrays vs TS's single `effect`), and
+   `_build_combined_sm_variables` (the combinedVariables build repeated ~10× in
+   the body). The `current_evidence_params` + `EvidenceParameter` context fields
+   landed. So the ONLY remaining piece of state_machine.yo is the resume BODY
+   `generateAsyncBlockResumeFunction` itself (~1.7k lines) — a MONOLITH that does
+   NOT factor further: its `if (sm->future != NULL)` cond-guard brace spans from
+   result-extraction across the cond-branch-continuation; the per-segment loop
+   threads mutable local state + ~8 context save/restore blocks + nested
+   chainedBranches data manipulation. Port it as one ~1.5k-line function (the
+   helpers above shrink it), check + corpus each iteration. Then (d) async.ts/
+   await.ts + wiring. (Original note retained:) the effect-injection emitters used
+   the `currentEvidenceParams`
    context field (the effect-ctl-param infrastructure, ~600 LOC) + `findBundleField
    Name` (from async.ts) + the Future-trait `.isFuture.effect` structure access.
    BUT for the BASELINE no-effect `42` fixture the awaited future's effect is null,
