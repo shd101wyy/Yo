@@ -83,6 +83,34 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
     .None => ()
   )
 );
+/// Resolve a plain identifier read to its C code: the variable's C name, wrapped
+/// in `(*name)` when the binding is a by-`ref` borrow (`ref(name) : T` param — at
+/// the C level `name` is `T*`, so a read dereferences). Mirrors TS generateAtom
+/// (atom.ts:583). The deref here means a by-ref RECEIVER passed/used as a value
+/// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
+_var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
+  vn := get_variable_name_for_codegen(tv.clone(), env_opt);
+  is_ref := match(
+    env_opt,
+    .Some(e) => {
+      vs := get_variables_from_env(e, tv.clone());
+      cond(
+        (vs.len() == usize(0)) => false,
+        true => match(vs.get(vs.len() - usize(1)),.Some(v) => v.is_ref,.None => false)
+      )
+    },
+    .None => false
+  );
+  cond(
+    is_ref => {
+      o := String.from("(*");
+      o.push_string(vn);
+      o.push_str(")");
+      o
+    },
+    true => vn
+  )
+});
 /// Generate C for an atom expression (literal / identifier / control-flow
 /// keyword). Mirrors `generateAtom`.
 generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent : String) -> String)({
@@ -212,7 +240,8 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             // temp yields an undeclared identifier. The token resolves via env
             // lookup to the current binding's C name, so SSA/shadowing still work
             // (for a normal reference token == variable_name, so this is a no-op).
-            return(get_variable_name_for_codegen(tv.clone(), env_opt));
+            // `_var_read_code` also derefs a by-ref (`ref(...)`) binding to `(*name)`.
+            return(_var_read_code(tv.clone(), env_opt));
           });
         },
         .None => ()
@@ -251,9 +280,9 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         (match(ei.value,.Some(v) => !(is_unknown_val(v)),.None => false)) => match(
           ei.value,
           .Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty), context.base),
-          .None => get_variable_name_for_codegen(tv.clone(), env_opt)
+          .None => _var_read_code(tv.clone(), env_opt)
         ),
-        true => get_variable_name_for_codegen(tv.clone(), env_opt)
+        true => _var_read_code(tv.clone(), env_opt)
       )
     },
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
