@@ -141,6 +141,33 @@ literal as a `*(u8)`; `*(u8)(...)` is a deref-cast and `"\n"` is a str fat-point
 or `v.to_string()` (line 9 — the ToString dispatch for `str`). `i32` is the default
 for an unconstrained int/`u8`, so a u8/char vs str clash is plausible at `*(u8)("\n")`.
 
+### DEEPER ROOT 2026-06-17 (continued): forall `T` inferred as comptime_str
+
+Minimal repro `myp(forall(T), v:T, where(T<:ToString))` with body JUST
+`s := v.to_string();` reproduces the IDENTICAL failure (`yo_id_5545` undeclared,
+str-as-arithmetic) — TS prints fine. So it's `v.to_string()` during spec, NOT the
+fwrite/`*(u8)("\n")` lines.
+
+Traced the forall binding (function.yo:1855-1884): `T` is bound to `arg_info.ty` =
+**comptime_str** (the literal "hello"'s type), NOT `str`. str's to_string is trivial
+(`String.from(self)`, std/fmt/to_string.yo:195) and `String.from(str)` works in
+plain main — so the i32/str unify comes from `v` being typed comptime_str in the
+spec body: `v.to_string()` dispatches against comptime_str (→ comptime_int → i32),
+clashing with str. There IS an existing comptime_str→runtime param coercion at
+function.yo:2019, but its guard `!is_some_type(bind_decl_pt)` EXCLUDES forall params
+(v:T, T a SomeT).
+
+ATTEMPT (reverted — safe but INEFFECTIVE): coerce the forall inference so a
+comptime_str value arg binds `T = TypeValue.Str` (function.yo:1865). Build clean,
+corpus 53/53 (regression-free), BUT println UNCHANGED — emitted C still
+`yo_id_5545((void*)(...))` (generic, void* param), 0 funcs take `__yo_str`. So
+EITHER (a) println's `T` inference does NOT go through that loop (line 1865 — the
+`param_type_names`-matching path; check whether println's T is bound via the
+recv_type_args FALLBACK at 1890, or yet another path / where-clause), OR (b) `T` did
+become str but create_specialized STILL throws (so no spec is recorded → generic
+emitted). GOTCHA hit: `fa_infer_ty` is a local (move-semantics) — needs `.clone()`
+at `box(...)` (the original `arg_info.ty` was a non-consuming field read).
+
 ### NEXT STEP (tractable)
 Bisect println's body to the offending sub-expression: temporarily reduce the body
 to just `s := v.to_string();` then add lines back, OR instrument synthesize/unify to
