@@ -38,7 +38,7 @@ open(import("std/string"));
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
-{ ExprInfoTable, ExprInfo, expr_info_table_get } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_UNSAFE,
@@ -815,7 +815,13 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
       cond(
         (n > usize(0)) => {
           variable := match(variables.get(n - usize(1)),.Some(v) => v,.None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
-          is_extern_c := match(variable.ty,.Func({ is_extern }) => match(is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
+          // Extern-C: a Func with is_extern="c", OR a c_include'd GLOBAL symbol
+          // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
+          // tracked in the g_extern_c_globals registry). Either way, keep the REAL
+          // C name (skip the `__yo_c_reserved_` reserved-word prefix).
+          is_extern_c_fn := match(variable.ty,.Func({ is_extern }) => match(is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
+          is_extern_c_glob := is_extern_c_global(variable.name.clone());
+          is_extern_c := ((is_extern_c_fn) || (is_extern_c_glob));
           var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
           // A generated fn_* name shadowing a local → prefer the original name.
           if((var_name != variable_name) && var_name.starts_with(String.from("fn_")), {

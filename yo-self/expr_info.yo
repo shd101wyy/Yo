@@ -500,6 +500,23 @@ record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
 lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
   g_method_callee_values.get(call_id)
 );
+// Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
+// `stderr`, `stdin`). yo-self models `is_extern` only on the `Func` TypeValue
+// variant, so a NON-Func extern global (`stdout : *(FILE)`) cannot carry the FFI
+// marker on its type. This registry lets the codegen name-resolver keep the REAL
+// C name (skip the `__yo_c_reserved_` reserved-word prefix) for such symbols —
+// the C header is `#include`d, so the real `stdout` is in scope. Populated by
+// c_include's field loop; read by get_variable_name_for_codegen.
+(g_extern_c_globals : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Mark `name` as an extern-C global symbol (called by c_include per field).
+register_extern_c_global :: (fn(name : String) -> unit)({
+  g_extern_c_globals.set(name, true);
+  ()
+});
+/// True if `name` is a c_include'd extern-C global symbol.
+is_extern_c_global :: (fn(name : String) -> bool)(
+  match(g_extern_c_globals.get(name),.Some(b) => b,.None => false)
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
@@ -512,3 +529,4 @@ export(ExprInfo, new_expr_info);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
+export(register_extern_c_global, is_extern_c_global);

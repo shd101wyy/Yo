@@ -19,7 +19,7 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   BK_C_INCLUDE
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get, register_extern_c_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
@@ -270,6 +270,12 @@ User code should normally call stdlib wrappers (e.g. functions in
       // is_implicit
       ast_expr_token(arg)
     );
+    // Mark this c_include symbol as an extern-C global so codegen keeps its REAL
+    // C name (e.g. `stdout`) instead of the `__yo_c_reserved_` prefix. yo-self
+    // models is_extern only on the Func TypeValue, so non-Func globals
+    // (`stdout : *(FILE)`) can't carry the marker on their type — this registry
+    // covers them (see expr_info.yo). Harmless for Func/Type fields.
+    register_extern_c_global(result.label.clone());
     args_idx = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
   });
