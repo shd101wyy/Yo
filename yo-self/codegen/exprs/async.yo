@@ -1,0 +1,210 @@
+//! async — io.async block codegen (Phase 5). 1:1 port of
+//! `src/codegen/exprs/async.ts` (2085 LOC).
+//!
+//! PORT STATUS: bottom-up. The effect-field-mapping cluster + the async-runtime
+//! extern-name predicate land first; the SM struct definition / dispose /
+//! constructor emitters and `generate_async_block` / `generate_io_async_sync_call`
+//! follow (they consume `state_machine.yo`'s `generate_async_block_resume_function`
+//! + the FSM context-state model). Validated against the BASELINE `42` fixture
+//! once wired into `codegen_c`.
+//!
+//! Representation adaptations vs TS: yo-self's `FutureTraitT` carries effect
+//! ARRAYS (`effect_labels`/`effect_types`) rather than TS's single
+//! `isFuture.effect`, so per-effect logic iterates; and the TS `type.id`-equality
+//! used in the 3-way capture-field lookup is replaced by `type_key` (a structural
+//! key — yo-self `Func` types carry no `.id`).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_function_type, is_struct_type } :: import("../../types/guards.yo");
+{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
+{ type_key } :: import("../utils/index.yo");
+/// One injectable effect-field mapping: the effect label (possibly dotted for
+/// nested bundle fields) and the C access path into the future's capture/bundle.
+/// Mirrors the `{ effectLabel, accessPath }` records in `async.ts`.
+EffectFieldMapping :: object(effect_label : String, access_path : String);
+/// True if the extern name is defined in the async runtime (poll / fs_event /
+/// async prefixes). Mirrors `isAsyncRuntimeExternName` (async.ts:1659).
+is_async_runtime_extern_name :: (fn(name : String) -> bool)(
+  (name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_")) || name.starts_with("__yo_async_")
+);
+/// Append `(label, path)` to `mappings` unless an identical entry exists. Mirrors
+/// the inner `addMapping` of `getInjectableFutureEffectFieldMappings`.
+_add_mapping :: (fn(mappings : ArrayList(EffectFieldMapping), label : String, path : String) -> unit)({
+  (exists : bool) = false;
+  (i : usize) = usize(0);
+  while((i < mappings.len()) && !(exists), {
+    match(mappings.get(i),.Some(m) => if((m.effect_label == label) && (m.access_path == path), {
+      exists = true;
+    }),.None => ());
+    i = (i + usize(1));
+  });
+  if(!(exists), {
+    mappings.push(EffectFieldMapping(effect_label : label, access_path : path));
+  });
+});
+/// The capture-struct field label matching an effect/bundle field: exact label,
+/// then case-insensitive label, then structural type match (`type_key`). Mirrors
+/// the 3-way `captureType.fields.find(...)` (the TS `type.id` fallback becomes a
+/// `type_key` compare).
+_find_capture_field :: (fn(capture_type : TypeValue, label : String, field_type : TypeValue) -> Option(String))({
+  clabels := match(capture_type,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  ctypes := match(capture_type,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  (i : usize) = usize(0);
+  while(i < clabels.len(), {
+    match(clabels.get(i),.Some(l) => if(l == label, {
+      return(Option(String).Some(l));
+    }),.None => ());
+    i = (i + usize(1));
+  });
+  ll := label.to_lowercase();
+  (j : usize) = usize(0);
+  while(j < clabels.len(), {
+    match(clabels.get(j),.Some(l) => if(l.to_lowercase() == ll, {
+      return(Option(String).Some(l));
+    }),.None => ());
+    j = (j + usize(1));
+  });
+  fk := type_key(field_type);
+  (k : usize) = usize(0);
+  while(k < clabels.len(), {
+    lbl := match(clabels.get(k),.Some(l) => l,.None => String.from(""));
+    t := match(ctypes.get(k),.Some(t) => t,.None => TypeValue.Unit);
+    if(type_key(t) == fk, {
+      return(Option(String).Some(lbl));
+    });
+    k = (k + usize(1));
+  });
+  Option(String).None
+});
+/// Recursively map a struct/source-namespace effect bundle's function-typed leaf
+/// fields to their access paths (dotted labels + dotted paths into the SM bundle
+/// field). Mirrors the inner `visit` of `getInjectableFutureEffectFieldMappings`.
+_visit_effect_struct_fields :: (
+  fn(struct_type : TypeValue, base_path : String, base_label : String, mappings : ArrayList(EffectFieldMapping)) -> unit
+)({
+  flabels := match(struct_type,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  ftypes := match(struct_type,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  (i : usize) = usize(0);
+  while(i < flabels.len(), {
+    flabel := match(flabels.get(i),.Some(l) => l,.None => String.from(""));
+    ftype := match(ftypes.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_function_type(ftype), {
+      el := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
+      ap := `${base_path}.${flabel}`;
+      _add_mapping(mappings, el, ap);
+    }, {
+      has_fields := match(ftype,.Struct({ field_labels : sfl }) => (sfl.len() > usize(0)), _ => false);
+      if(is_struct_type(ftype) && has_fields, {
+        sub_label := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
+        sub_path := `${base_path}.${flabel}`;
+        recur(ftype, sub_path, sub_label, mappings);
+      });
+    });
+    i = (i + usize(1));
+  });
+});
+/// The SM field holding the effect bundle whose struct type matches `target_key`
+/// (a captured local; honoring field aliases). Helper for the nested-bundle path.
+_find_bundle_var_field :: (
+  fn(state_machine_variables : HashMap(String, CapturedVariable), target_key : String, state_machine_field_aliases : Option(HashMap(String, String))) -> Option(String)
+)({
+  it := state_machine_variables.into_iter();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(b) => {
+        sm_var := b.value;
+        is_outer := match(sm_var.kind,.Outer => true,.Local => false);
+        if(!(is_outer) && (type_key(sm_var.base.ty) == target_key), {
+          match(
+            state_machine_field_aliases,
+            .Some(al) => match(al.get(sm_var.base.id.clone()),.Some(a) => return(Option(String).Some(a)),.None => ()),
+            .None => ()
+          );
+          f := String.from("var_");
+          f.push_string(sm_var.base.id.clone());
+          return(Option(String).Some(f));
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  Option(String).None
+});
+/// Compute the injectable effect-field mappings for a future's effects: for each
+/// effect on the `FutureTraitT`, a function-typed effect maps to a `__capture`
+/// field; a struct/source-namespace effect maps its top-level fn fields to
+/// `__capture` and its nested fn leaves to the SM bundle field. Mirrors
+/// `getInjectableFutureEffectFieldMappings` (async.ts:402); iterates yo-self's
+/// effect arrays (TS's single `effect`).
+get_injectable_future_effect_field_mappings :: (
+  fn(
+    future_trait_type : TypeValue,
+    capture_type : Option(TypeValue),
+    state_machine_variables : Option(HashMap(String, CapturedVariable)),
+    state_machine_field_aliases : Option(HashMap(String, String))
+  ) -> ArrayList(EffectFieldMapping)
+)({
+  mappings := ArrayList(EffectFieldMapping).new();
+  eff_labels := match(future_trait_type,.FutureTraitT({ effect_labels : el }) => el, _ => ArrayList(String).new());
+  eff_types := match(future_trait_type,.FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+  (ei : usize) = usize(0);
+  while(ei < eff_labels.len(), {
+    elabel := match(eff_labels.get(ei),.Some(l) => l,.None => String.from(""));
+    etype := match(eff_types.get(ei),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_function_type(etype), {
+      // Function-typed effect → matching capture field.
+      match(
+        capture_type,
+        .Some(ct) => match(_find_capture_field(ct, elabel, etype),.Some(cf) => _add_mapping(mappings, elabel, `__capture.${cf}`),.None => ()),
+        .None => ()
+      );
+    }, {
+      if(is_struct_type(etype), {
+        // Top-level fn-typed bundle fields → __capture.
+        match(
+          capture_type,
+          .Some(ct) => {
+            ef_labels := match(etype,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+            ef_types := match(etype,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+            (fi : usize) = usize(0);
+            while(fi < ef_labels.len(), {
+              flabel := match(ef_labels.get(fi),.Some(l) => l,.None => String.from(""));
+              ftype := match(ef_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+              if(is_function_type(ftype), {
+                match(_find_capture_field(ct, flabel, ftype),.Some(cf) => _add_mapping(mappings, flabel, `__capture.${cf}`),.None => ());
+              });
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        // Nested fn leaves reached through the SM bundle field.
+        match(
+          state_machine_variables,
+          .Some(svm) => {
+            eid := type_key(etype);
+            match(
+              _find_bundle_var_field(svm, eid, state_machine_field_aliases),
+              .Some(bvf) => _visit_effect_struct_fields(etype, bvf, String.from(""), mappings),
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+      });
+    });
+    ei = (ei + usize(1));
+  });
+  mappings
+});
+export(
+  EffectFieldMapping,
+  is_async_runtime_extern_name,
+  get_injectable_future_effect_field_mappings
+);
