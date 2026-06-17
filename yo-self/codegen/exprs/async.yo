@@ -19,7 +19,10 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_struct_type } :: import("../../types/guards.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
-{ type_key } :: import("../utils/index.yo");
+{ type_key, get_type_string } :: import("../utils/index.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ find_bundle_field_name } :: import("../async/state_machine.yo");
+{ _c_string_literal } :: import("./comptime_value.yo");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
 /// Mirrors the `{ effectLabel, accessPath }` records in `async.ts`.
@@ -35,9 +38,13 @@ _add_mapping :: (fn(mappings : ArrayList(EffectFieldMapping), label : String, pa
   (exists : bool) = false;
   (i : usize) = usize(0);
   while((i < mappings.len()) && !(exists), {
-    match(mappings.get(i),.Some(m) => if((m.effect_label == label) && (m.access_path == path), {
-      exists = true;
-    }),.None => ());
+    match(
+      mappings.get(i),
+      .Some(m) => if((m.effect_label == label) && (m.access_path == path), {
+        exists = true;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   if(!(exists), {
@@ -53,17 +60,25 @@ _find_capture_field :: (fn(capture_type : TypeValue, label : String, field_type 
   ctypes := match(capture_type,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < clabels.len(), {
-    match(clabels.get(i),.Some(l) => if(l == label, {
-      return(Option(String).Some(l));
-    }),.None => ());
+    match(
+      clabels.get(i),
+      .Some(l) => if(l == label, {
+        return(Option(String).Some(l));
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   ll := label.to_lowercase();
   (j : usize) = usize(0);
   while(j < clabels.len(), {
-    match(clabels.get(j),.Some(l) => if(l.to_lowercase() == ll, {
-      return(Option(String).Some(l));
-    }),.None => ());
+    match(
+      clabels.get(j),
+      .Some(l) => if(l.to_lowercase() == ll, {
+        return(Option(String).Some(l));
+      }),
+      .None => ()
+    );
     j = (j + usize(1));
   });
   fk := type_key(field_type);
@@ -203,8 +218,131 @@ get_injectable_future_effect_field_mappings :: (
   });
   mappings
 });
+/// The synthetic closure-param slot for a SYNC future: io.await/io.spawn passes
+/// the effect bundle via `set_effect("__bundle", &value)`, copied into this
+/// dedicated `__yo_param_<i>` field. Mirrors the `syncParamSlot` shape.
+SyncParamSlot :: object(field_name : String, c_type : String);
+/// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
+/// `.None`. Mirrors TS's single `isFuture.effect.type` for the bundle case.
+_first_struct_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeValue))({
+  eff_types := match(future_trait_type,.FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+  (i : usize) = usize(0);
+  while(i < eff_types.len(), {
+    match(
+      eff_types.get(i),
+      .Some(et) => if(is_struct_type(et), {
+        return(Option(TypeValue).Some(et));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(TypeValue).None
+});
+/// The capitalized last dotted segment of `label` (e.g. `errors.raise` → `Raise`).
+_capitalize_last_segment :: (fn(label : String) -> String)({
+  parts := label.split(".");
+  last := if(parts.len() > usize(0), match(parts.get(parts.len() - usize(1)),.Some(p) => p,.None => label.clone()), label.clone());
+  if(last.len() == usize(0), {
+    return(last);
+  });
+  head := last.substring(usize(0), usize(1)).to_uppercase();
+  head.push_string(last.substring(usize(1), last.len()));
+  head
+});
+/// Emit the future's `set_effect` callback: a `strcmp(field, …)` chain that copies
+/// each injected effect handler / bundle into the SM struct (the sync-param slot,
+/// the whole-bundle copy, then each label→access-path mapping with name aliases).
+/// Mirrors `generateFutureEffectSetter` (async.ts:547).
+generate_future_effect_setter :: (
+  fn(
+    struct_name : String,
+    set_effect_function_name : String,
+    future_trait_type : TypeValue,
+    capture_type : Option(TypeValue),
+    context : FunctionGenerationContext,
+    sync_param_slot : Option(SyncParamSlot)
+  ) -> unit
+)({
+  em := context.base.emitter;
+  mappings := get_injectable_future_effect_field_mappings(future_trait_type, capture_type, context.state_machine_variables, context.state_machine_field_aliases);
+  bundle_field := find_bundle_field_name(future_trait_type, context.state_machine_variables, context.state_machine_field_aliases);
+  has_effect := match(future_trait_type,.FutureTraitT({ effect_labels : el }) => (el.len() > usize(0)), _ => false);
+  em.emit_declaration_string_line(`void ${set_effect_function_name}(void* ptr, const char* field, void* value) {`);
+  em.emit_declaration_string_line(`  ${struct_name}* sm = (${struct_name}*)ptr;`);
+  has_sync_param := sync_param_slot.is_some();
+  has_bundle_case := ((!(has_sync_param) && bundle_field.is_some()) && has_effect);
+  has_any := ((has_sync_param || has_bundle_case) || (mappings.len() > usize(0)));
+  if(!(has_any), {
+    em.emit_declaration_string_line(`  (void)sm;`);
+    em.emit_declaration_string_line(`  (void)field;`);
+    em.emit_declaration_string_line(`  (void)value;`);
+  }, {
+    (first_case : bool) = true;
+    match(
+      sync_param_slot,
+      .Some(slot) => {
+        em.emit_declaration_string_line(`  if (strcmp(field, "__bundle") == 0) {`);
+        em.emit_declaration_string_line(`    sm->${slot.field_name} = *((${slot.c_type}*)value);`);
+        em.emit_declaration_string_line(`  }`);
+        first_case = false;
+      },
+      .None => ()
+    );
+    if(has_bundle_case, {
+      match(
+        bundle_field,
+        .Some(bf) => match(
+          _first_struct_effect_type(future_trait_type),
+          .Some(et) => {
+            bundle_c_name := get_type_string(et, context.base);
+            keyword := if(first_case, String.from("if"), String.from("else if"));
+            em.emit_declaration_string_line(`  ${keyword} (strcmp(field, "__bundle") == 0) {`);
+            em.emit_declaration_string_line(`    sm->${bf} = *((${bundle_c_name}*)value);`);
+            em.emit_declaration_string_line(`  }`);
+            first_case = false;
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    (mi : usize) = usize(0);
+    while(mi < mappings.len(), {
+      match(
+        mappings.get(mi),
+        .Some(m) => {
+          keyword := if(first_case, String.from("if"), String.from("else if"));
+          first_case = false;
+          parts := m.effect_label.split(".");
+          last_seg := if(parts.len() > usize(0), match(parts.get(parts.len() - usize(1)),.Some(p) => p,.None => m.effect_label.clone()), m.effect_label.clone());
+          cap_last := _capitalize_last_segment(m.effect_label.clone());
+          // Build the OR'd strcmp condition over the unique aliases.
+          cond := String.from("");
+          cond.push_string(`strcmp(field, ${_c_string_literal(m.effect_label.clone())}) == 0`);
+          if(last_seg != m.effect_label, {
+            cond.push_str(" || ");
+            cond.push_string(`strcmp(field, ${_c_string_literal(last_seg.clone())}) == 0`);
+          });
+          if((cap_last != m.effect_label) && (cap_last != last_seg), {
+            cond.push_str(" || ");
+            cond.push_string(`strcmp(field, ${_c_string_literal(cap_last)}) == 0`);
+          });
+          em.emit_declaration_string_line(`  ${keyword} (${cond}) {`);
+          em.emit_declaration_string_line(`    sm->${m.access_path} = value;`);
+          em.emit_declaration_string_line(`  }`);
+        },
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+  });
+  em.emit_declaration_string_line(`}`);
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
-  get_injectable_future_effect_field_mappings
+  get_injectable_future_effect_field_mappings,
+  SyncParamSlot,
+  generate_future_effect_setter
 );
