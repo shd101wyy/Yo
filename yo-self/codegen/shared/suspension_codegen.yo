@@ -1,0 +1,167 @@
+//! suspension_codegen — shared codegen utilities for state-machine generation.
+//! 1:1 port of `src/codegen/shared/suspension-codegen.ts`.
+//!
+//! Both async/await and algebraic-effect state machines split function bodies at
+//! suspension points and need tree-containment checks. TS is generic over the
+//! suspension-point type (`P extends SuspensionPoint`); yo-self collapses the
+//! generic to the concrete `SuspensionPoint` base (the system-specific
+//! `AwaitPoint` / `EffectCallPoint` embed it). The `should_skip_body` predicate is
+//! REQUIRED here (TS makes it optional) — callers that don't skip pass
+//! `(e : AstExpr) => false`.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_atom_of, ast_expr_is_fn_call_of } :: import("../../expr.yo");
+{ SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
+/// A code segment between suspension points. (TS `SuspensionSegment<P>`.)
+SuspensionSegment :: object(
+  /// The state number this segment represents (0-based).
+  state_number : usize,
+  /// Expressions to execute in this state (before the suspension/return).
+  expressions : ArrayList(AstExpr),
+  /// The suspension point at the end of this segment (`.None` for final segment).
+  suspension_point : Option(SuspensionPoint)
+);
+/// Checks if an expression tree contains a specific target expression (by
+/// reference identity — yo-self compares `ast_expr_id`). `should_skip_body`
+/// skips subtrees (e.g. nested async blocks with their own state-machine
+/// analysis). Mirrors `containsSuspensionExpr`.
+contains_suspension_expr :: (
+  fn(
+    expr : AstExpr,
+    target_expr : AstExpr,
+    should_skip_body : Impl(Fn(e : AstExpr) -> bool)
+  ) -> bool
+)({
+  if(ast_expr_id(expr) == ast_expr_id(target_expr), {
+    return(true);
+  });
+  if(ast_expr_is_fn_call(expr), {
+    if(should_skip_body(expr), {
+      return(false);
+    });
+    func_expr := match(expr,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, _) => expr);
+    if(recur(func_expr, target_expr, should_skip_body), {
+      return(true);
+    });
+    args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      arg := match(args.get(i),.Some(a) => a,.None => expr);
+      if(recur(arg, target_expr, should_skip_body), {
+        return(true);
+      });
+      i = (i + usize(1));
+    });
+  });
+  false
+});
+/// Index of the first suspension point whose expression is contained in `expr`,
+/// or `.None`. Mirrors `findSuspensionInExpr` (TS returns -1; yo-self `.None`).
+find_suspension_in_expr :: (
+  fn(
+    expr : AstExpr,
+    points : ArrayList(SuspensionPoint),
+    should_skip_body : Impl(Fn(e : AstExpr) -> bool)
+  ) -> Option(usize)
+)({
+  (i : usize) = usize(0);
+  while(i < points.len(), {
+    pt_expr := match(points.get(i),.Some(p) => p.expr,.None => expr);
+    if(contains_suspension_expr(expr, pt_expr, should_skip_body), {
+      return(Option(usize).Some(i));
+    });
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// Splits a function body at suspension points into sequential segments. For a
+/// `begin(e1, ..., eN)` block, partitions the expressions into segments; each
+/// segment's expressions run in one state and the suspension at the end triggers
+/// a state transition. Non-begin bodies return a single segment. Mirrors
+/// `splitBodyAtSuspensionPoints` (the `SplitOptions` bundle is passed as explicit
+/// params: `handle_return_statements` async-only; `handle_sequential_suspensions`
+/// async-only).
+split_body_at_suspension_points :: (
+  fn(
+    body : AstExpr,
+    points : ArrayList(SuspensionPoint),
+    should_skip_body : Impl(Fn(e : AstExpr) -> bool),
+    handle_return_statements : bool,
+    handle_sequential_suspensions : bool
+  ) -> ArrayList(SuspensionSegment)
+)({
+  segments := ArrayList(SuspensionSegment).new();
+  // Non-begin body: return as a single segment.
+  if(!(ast_expr_is_fn_call_of(body, "begin",.None)), {
+    single_exprs := ArrayList(AstExpr).new();
+    single_exprs.push(body);
+    sp := cond(
+      (points.len() == usize(0)) => Option(SuspensionPoint).None,
+      true => match(points.get(usize(0)),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None)
+    );
+    segments.push(SuspensionSegment(state_number : usize(0), expressions : single_exprs, suspension_point : sp));
+    return(segments);
+  });
+  // Begin block — split at suspension-point boundaries.
+  expressions := match(body,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  segment_expressions := ArrayList(ArrayList(AstExpr)).new();
+  (current_segment : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (ei : usize) = usize(0);
+  (stop : bool) = false;
+  while((ei < expressions.len()) && !(stop), {
+    expr := match(expressions.get(ei),.Some(e) => e,.None => body);
+    suspension_index := find_suspension_in_expr(expr, points, should_skip_body);
+    is_return := (handle_return_statements && (ast_expr_is_atom_of(expr, "return") || ast_expr_is_fn_call_of(expr, "return",.None)));
+    match(
+      suspension_index,
+      .Some(si) => {
+        // Expression contains a suspension point — end this segment.
+        current_segment.push(expr);
+        segment_expressions.push(current_segment);
+        current_segment = ArrayList(AstExpr).new();
+        // Handle sequential suspensions in the same expression (async-only).
+        if(handle_sequential_suspensions, {
+          (extra : usize) = (si + usize(1));
+          (go : bool) = true;
+          while((extra < points.len()) && go, {
+            ex_expr := match(points.get(extra),.Some(p) => p.expr,.None => expr);
+            if(contains_suspension_expr(expr, ex_expr, should_skip_body), {
+              segment_expressions.push(ArrayList(AstExpr).new()); // empty segment for the extra suspension
+            }, {
+              go = false;
+            });
+            extra = (extra + usize(1));
+          });
+        });
+      },
+      .None => if(is_return, {
+        // Return statement — end segment and stop processing.
+        current_segment.push(expr);
+        segment_expressions.push(current_segment);
+        current_segment = ArrayList(AstExpr).new();
+        stop = true;
+      }, {
+        // Normal expression — accumulate.
+        current_segment.push(expr);
+      })
+    );
+    ei = (ei + usize(1));
+  });
+  // Add the final segment with the remaining expressions.
+  if(current_segment.len() > usize(0), {
+    segment_expressions.push(current_segment);
+  });
+  // Create the typed segments.
+  (si2 : usize) = usize(0);
+  while(si2 < segment_expressions.len(), {
+    exprs := match(segment_expressions.get(si2),.Some(x) => x,.None => ArrayList(AstExpr).new());
+    sp2 := cond(
+      (si2 < points.len()) => match(points.get(si2),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None),
+      true => Option(SuspensionPoint).None
+    );
+    segments.push(SuspensionSegment(state_number : si2, expressions : exprs, suspension_point : sp2));
+    si2 = (si2 + usize(1));
+  });
+  segments
+});
+export(SuspensionSegment, contains_suspension_expr, find_suspension_in_expr, split_body_at_suspension_points);
