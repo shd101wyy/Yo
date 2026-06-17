@@ -16,12 +16,21 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_function_type, is_struct_type } :: import("../../types/guards.yo");
-{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
+{ is_function_type, is_struct_type, is_unit_type, is_some_type } :: import("../../types/guards.yo");
+{
+  CapturedVariable,
+  AwaitPoint,
+  AwaitAnalysisResult
+} :: import("../../evaluator/async/await_analysis_types.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { type_key, get_type_string } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ find_bundle_field_name } :: import("../async/state_machine.yo");
+{ OverlappingSlot, find_bundle_field_name } :: import("../async/state_machine.yo");
+{ get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
@@ -339,10 +348,369 @@ generate_future_effect_setter :: (
   });
   em.emit_declaration_string_line(`}`);
 });
+/// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
+/// via `set_effect("__bundle", &value)`. Mirrors the inline `closureParamSlots`
+/// records of `emitAsyncBlockStructDefinition` (async.ts:649).
+ClosureParamSlot :: object(
+  field_name : String,
+  c_type : String,
+  param_name : String,
+  param_type : TypeValue
+);
+/// The full description of one async-block state machine, passed to the struct /
+/// dispose / constructor emitters. Mirrors the inline `asyncBlockInfo` object
+/// literal of `emitAsyncBlockStructDefinition` (async.ts:637). Optional TS fields
+/// become `Option(...)`; `Set<string>` → `HashSet(String)`, `Map<string,string>`
+/// → `HashMap(String, String)`.
+AsyncBlockStructInfo :: object(
+  async_block_id : String,
+  struct_name : String,
+  result_type : TypeValue,
+  result_type_c_name : String,
+  capture_type : Option(TypeValue),
+  analysis : AwaitAnalysisResult,
+  cross_boundary_ids : Option(HashSet(String)),
+  await_future_temp_var_aliases : Option(HashMap(String, String)),
+  overlapping_slot_aliases : Option(HashMap(String, String)),
+  overlapping_slots : Option(ArrayList(OverlappingSlot)),
+  closure_param_slots : Option(ArrayList(ClosureParamSlot))
+);
+/// True if an await point's result type is effectively unit (real unit, or an
+/// unresolved SomeType whose concrete type couldn't be resolved). Mirrors the
+/// `isEffectivelyUnit` check (async.ts:793).
+_await_result_is_unit :: (fn(result_type : TypeValue) -> bool)({
+  if(is_unit_type(result_type), return(true));
+  if(!(is_some_type(result_type)), return(false));
+  // Unresolved SomeType (no resolved concrete type) ⇒ treat as unit.
+  match(
+    result_type,
+    .SomeT({ id : sid }) => match(lookup_some_resolved_concrete(sid),.Some(_) => false,.None => true),
+    _ => false
+  )
+});
+/// Find the C name of the capture struct for `capture_type`: the registered
+/// type-entry c_name if present, else `async_capture_<id>`. Mirrors the
+/// `Object.values(context.types).find(...)` lookup (async.ts:719).
+_find_capture_type_c_name :: (fn(capture_type : TypeValue, context : FunctionGenerationContext) -> String)({
+  target_key := type_key(capture_type);
+  vals := context.base.types.values();
+  (go : bool) = true;
+  (found : Option(String)) = Option(String).None;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => if(type_key(entry.ty) == target_key, {
+        found = Option(String).Some(entry.c_name.clone());
+        go = false;
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  match(
+    found,
+    .Some(name) => name,
+    .None => {
+      cap_id := match(capture_type,.Struct({ id : sid }) => sid, _ => String.from(""));
+      o := String.from("async_capture_");
+      o.push_string(cap_id);
+      o
+    }
+  )
+});
+/// Join variable names with ", " for slot comments.
+_join_names :: (fn(names : ArrayList(String)) -> String)({
+  out := String.from("");
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    match(names.get(i),.Some(n) => out.push_string(n.clone()),.None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+/// Emit the C `struct <name>_struct { ... }` definition for one async-block state
+/// machine. Faithful port of `emitAsyncBlockStructDefinition` (async.ts:637):
+/// RC header → state → result → continuation/resume/set_effect fn ptrs → capture
+/// struct → closure-param slots → cross-boundary local fields → overlapping slots
+/// → await-result temporaries → await-future fields → cond_branch fields →
+/// while_loop_X_active fields.
+emit_async_block_struct_definition :: (
+  fn(info : AsyncBlockStructInfo, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  em.emit_declaration_string_line(`// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(info.result_type, context.base)})`);
+  em.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
+  em.emit_declaration_line("  __yo_ref_header_t header;  // Reference counting header (must be first)");
+  em.emit_declaration_line("  int state;  // Current state (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)");
+  // Always include a result field to keep continuation_fn/continuation_sm at
+  // consistent offsets. For unit type, use uint8_t as a dummy (cannot use void).
+  if(is_unit_type(info.result_type), {
+    em.emit_declaration_line("  uint8_t result;  // Dummy result for unit type");
+  }, {
+    em.emit_declaration_string_line(`  ${info.result_type_c_name.clone()} result;  // The result value of type ${get_type_string(info.result_type, context.base)}`);
+  });
+  // Continuation tracking fields for await chaining.
+  em.emit_declaration_line("  void (*continuation_fn)(void*);  // Resume function of awaiting task");
+  em.emit_declaration_line("  void* continuation_sm;  // State machine of awaiting task");
+  em.emit_declaration_line("");
+  // Resume function pointer for lazy start at await.
+  em.emit_declaration_line("  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/spawn)");
+  em.emit_declaration_line("  void (*__yo_set_effect_fn)(void*, const char*, void*);");
+  em.emit_declaration_line("");
+  // Capture struct field.
+  match(
+    info.capture_type,
+    .Some(cap_ty) => {
+      capture_struct_name := _find_capture_type_c_name(cap_ty, context);
+      em.emit_declaration_line("  // Captured variables from outer scope");
+      em.emit_declaration_string_line(`  ${capture_struct_name} __capture;`);
+      em.emit_declaration_line("");
+    },
+    .None => ()
+  );
+  // Closure parameter slots — bundle value supplied at io.await/io.spawn time via
+  // set_effect("__bundle", &value). See [[yo-anon-closure-param-name-extraction]].
+  match(
+    info.closure_param_slots,
+    .Some(slots) => if(slots.len() > usize(0), {
+      em.emit_declaration_line("  // Closure parameter slots");
+      (si : usize) = usize(0);
+      while(si < slots.len(), {
+        match(
+          slots.get(si),
+          .Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // ${slot.param_name.clone()}`),
+          .None => ()
+        );
+        si = (si + usize(1));
+      });
+      em.emit_declaration_line("");
+    }),
+    .None => ()
+  );
+  // Local variables — only those that cross await boundaries need struct fields.
+  // Segment-local variables become C locals in their case block. Also exclude temp
+  // vars aliased to await_future_N fields (Phase 1b) and vars sharing overlapping
+  // storage slots (Phase 2).
+  local_variables := ArrayList(CapturedVariable).new();
+  cvs := info.analysis.captured_variables;
+  (ci : usize) = usize(0);
+  while(ci < cvs.len(), {
+    match(
+      cvs.get(ci),
+      .Some(v) => {
+        is_outer := match(v.kind,.Outer => true, _ => false);
+        if(!(is_outer), {
+          keep := match(
+            info.cross_boundary_ids,
+            .Some(cbi) => {
+              in_cb := cbi.contains(v.base.id.clone());
+              aliased_future := match(info.await_future_temp_var_aliases,.Some(m) => m.contains_key(v.base.id.clone()),.None => false);
+              aliased_slot := match(info.overlapping_slot_aliases,.Some(m) => m.contains_key(v.base.id.clone()),.None => false);
+              (in_cb && !(aliased_future)) && !(aliased_slot)
+            },
+            .None => true
+          );
+          if(keep, {
+            local_variables.push(v);
+          });
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  if(local_variables.len() > usize(0), {
+    em.emit_declaration_line("  // Local variables");
+    (li : usize) = usize(0);
+    while(li < local_variables.len(), {
+      match(
+        local_variables.get(li),
+        .Some(variable) => {
+          var_type_c_name := get_type_string(variable.base.ty, context.base);
+          field_name := get_state_machine_field_name(variable.base.id.clone(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+          em.emit_declaration_string_line(`  ${var_type_c_name} ${field_name};  // ${variable.base.name.clone()}`);
+        },
+        .None => ()
+      );
+      li = (li + usize(1));
+    });
+    em.emit_declaration_line("");
+  });
+  // Phase 2: Overlapping storage slots — variables of the same non-RC type with
+  // non-overlapping live ranges share a single struct field.
+  match(
+    info.overlapping_slots,
+    .Some(slots) => if(slots.len() > usize(0), {
+      em.emit_declaration_line("  // Overlapping storage slots (Phase 2)");
+      (oi : usize) = usize(0);
+      while(oi < slots.len(), {
+        match(
+          slots.get(oi),
+          .Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // shared: ${_join_names(slot.variable_names)}`),
+          .None => ()
+        );
+        oi = (oi + usize(1));
+      });
+      em.emit_declaration_line("");
+    }),
+    .None => ()
+  );
+  aps := info.analysis.await_points;
+  // Await result temporaries (Phase 3 optimization: skip for linear non-cond awaits).
+  if(aps.len() > usize(0), {
+    await_result_fields := ArrayList(String).new();
+    (ai : usize) = usize(0);
+    while(ai < aps.len(), {
+      match(
+        aps.get(ai),
+        .Some(ap) => {
+          is_effectively_unit := _await_result_is_unit(ap.result_type);
+          needs_field := (!(is_effectively_unit) && match(ap.base.is_inside_cond,.Some(b) => b,.None => false));
+          if(needs_field, {
+            // For extern futures use the Future's result type; otherwise the await
+            // point's result type (matches the block's result).
+            await_result_type := ap.result_type;
+            match(
+              ap.future_type,
+              .Some(ft) => match(
+                extract_future_trait_from_type(ft),
+                .Some(ftt) => match(
+                  ftt,
+                  .FutureTraitT({ output : o }) => {
+                    await_result_type = o.*.clone();
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            );
+            await_result_type_c_name := get_type_string(await_result_type, context.base);
+            await_result_fields.push(`  ${await_result_type_c_name} await_result_${ap.base.index.to_string()};`);
+          });
+        },
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    if(await_result_fields.len() > usize(0), {
+      em.emit_declaration_line("  // Await result temporaries");
+      (fi : usize) = usize(0);
+      while(fi < await_result_fields.len(), {
+        match(await_result_fields.get(fi),.Some(field) => em.emit_declaration_string_line(field),.None => ());
+        fi = (fi + usize(1));
+      });
+      em.emit_declaration_line("");
+    });
+  });
+  // await_future_X fields (awaiting an expression that isn't a captured Future var).
+  if(aps.len() > usize(0), {
+    emitted_header := false;
+    (ai2 : usize) = usize(0);
+    while(ai2 < aps.len(), {
+      match(
+        aps.get(ai2),
+        .Some(ap) => match(
+          ap.future_variable_id,
+          .Some(_) => (),
+          .None => {
+            await_expr := ap.base.expr;
+            is_fn_call := match(await_expr,.FnCall(_, _, _, _, _) => true, _ => false);
+            if(is_fn_call, {
+              args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+              match(
+                args.get(usize(0)),
+                .Some(future_expr) => {
+                  future_type := match(
+                    context.base.get_expr_info(future_expr),
+                    .Some(ei) => ei.ty,
+                    .None => panic("Internal error: await expression missing type info for future argument")
+                  );
+                  awaited_future_type_c_name := get_type_string(future_type, context.base);
+                  if(!(emitted_header), {
+                    em.emit_declaration_line("  // Future references for awaits");
+                    emitted_header = true;
+                  });
+                  em.emit_declaration_string_line(`  ${awaited_future_type_c_name} await_future_${ap.base.index.to_string()};`);
+                },
+                .None => ()
+              );
+            });
+          }
+        ),
+        .None => ()
+      );
+      ai2 = (ai2 + usize(1));
+    });
+    if(emitted_header, {
+      em.emit_declaration_line("");
+    });
+  });
+  // cond_branch_X fields.
+  cond_emitted := false;
+  (ai3 : usize) = usize(0);
+  while(ai3 < aps.len(), {
+    match(
+      aps.get(ai3),
+      .Some(ap) => if(match(ap.base.needs_own_cond_branch_field,.Some(b) => b,.None => false), {
+        if(!(cond_emitted), {
+          em.emit_declaration_line("  // Branch tracking for cond expressions with await");
+          cond_emitted = true;
+        });
+        em.emit_declaration_string_line(`  int cond_branch_${ap.base.index.to_string()};  // Which branch was taken in cond with await ${ap.base.index.to_string()}`);
+      }),
+      .None => ()
+    );
+    ai3 = (ai3 + usize(1));
+  });
+  if(cond_emitted, {
+    em.emit_declaration_line("");
+  });
+  // while_loop_X_active fields.
+  while_emitted := false;
+  next_extra_while_index := aps.len();
+  (ai4 : usize) = usize(0);
+  while(ai4 < aps.len(), {
+    match(
+      aps.get(ai4),
+      .Some(ap) => if(match(ap.base.is_inside_while,.Some(b) => b,.None => false), {
+        if(!(while_emitted), {
+          em.emit_declaration_line("  // Loop state tracking for while loops with await");
+          while_emitted = true;
+        });
+        // Innermost while uses the awaitPoint.index.
+        em.emit_declaration_string_line(`  _Bool while_loop_${ap.base.index.to_string()}_active;  // Whether while loop ${ap.base.index.to_string()} should continue`);
+        // Outer while loops (nesting depth > 1) need additional active fields.
+        nesting_depth := match(ap.base.while_nesting_depth,.Some(d) => d,.None => usize(1));
+        extra_depth := if(nesting_depth > usize(0), nesting_depth - usize(1), usize(0));
+        (d : usize) = usize(0);
+        while(d < extra_depth, {
+          em.emit_declaration_string_line(`  _Bool while_loop_${next_extra_while_index.to_string()}_active;  // Whether outer while loop ${next_extra_while_index.to_string()} should continue`);
+          next_extra_while_index = (next_extra_while_index + usize(1));
+          d = (d + usize(1));
+        });
+      }),
+      .None => ()
+    );
+    ai4 = (ai4 + usize(1));
+  });
+  if(while_emitted, {
+    em.emit_declaration_line("");
+  });
+  em.emit_declaration_line("};");
+  em.emit_declaration_line("");
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
   get_injectable_future_effect_field_mappings,
   SyncParamSlot,
-  generate_future_effect_setter
+  generate_future_effect_setter,
+  ClosureParamSlot,
+  AsyncBlockStructInfo,
+  emit_async_block_struct_definition
 );
