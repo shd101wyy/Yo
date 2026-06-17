@@ -468,6 +468,14 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    `resolved_concrete_type` to yo-self's SomeT (broad model change) or thread the
    concrete Future type another way. This is the real gate on
    `await.yo`/`async.yo`/`state_machine.yo`, not mere transcription.
+   **BLAST RADIUS quantified 2026-06-17:** adding a field to the `SomeT` variant
+   would break ~77 POSITIONAL `.SomeT(_, …, _)` destructures (10-arg pattern) +
+   construction sites (~100 sites total); only 7 already use the safe curly
+   `.SomeT({…})` form. SAFE PATH: first migrate those 77 positional destructures
+   to curly form (behavior-preserving, each validatable by the corpus+std sweep),
+   THEN add `resolved_concrete_type` (defaulted) without breaking them. That
+   migration is itself a sizable mechanical pass — do it as the dedicated first
+   step of the FSM-core session.
 4. **C runtime templates:** `async/runtime.ts` + `runtime-core` +
    `runtime-io-common` + macOS/Linux (Windows/WASM deferred).
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
