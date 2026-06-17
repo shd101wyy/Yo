@@ -527,17 +527,37 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    deterministic slot assignment; nested mutable collections use get-mutate-set-
    back. DEFERRED: `body_contains_while_with_await` (needs `expr_contains_await` →
    the Func `io_builtin` model gap).
-   **THE REMAINING MASS (no check-validatable leaves left — port together +
-   wire + validate against the `42` fixture):** the C-emitting transformation —
-   state-code-gen.ts `generate_state_segment_code`, `generate_await_expression`,
-   `generate_{cond,match,while}_with_await` (+ the primitive-match / branch-
-   completion helpers); state-machine.ts `generateAsyncBlockResumeFunction`
-   (~1.7k) + `generateRemainingExprFuture` + the effect-injection emitters;
-   `exprs/async.ts` (io.async block) + `exprs/await.ts`. These all call
-   `generate_expr` (main dispatch) and emit C, so they validate only by running
-   the fixture. Wire into codegen_c (replace the `panic("Phase 5")` sites),
-   resolving the Func `io_builtin` field + `g_some_is_extern` WITH their first
-   consumers. This is the dedicated FSM-core-mass session.
+   **EMITTER FOUNDATIONS LANDED 2026-06-17 (all check-clean, corpus 58/58):**
+   `expr_contains_await` (expr_traversal.yo — via dot-access `is_io_await_call`,
+   sidestepping the Func `io_builtin` gap) + `body_contains_while_with_await`;
+   `_fsm.yo` (NEW — the emitter mutual-recursion indirection registry: function
+   pointers + `register_fsm_emitters` + `_call_generate_{cond,match,while}_with_
+   await`, mirroring `_expr.yo`); and the first two C-emitting emitters
+   `generate_await_expression` + `generate_state_segment_code` (state_code_gen.yo,
+   dispatching to the cluster through the registry). The emitter call graph is
+   mapped: `state_segment → await → {cond,match,while}_with_await →
+   {cond_branch,while_body,primitive_match} → back to {cond,match,while}`.
+   **THE REMAINING MASS (deeply interconnected — port together + wire + validate
+   against the `42` fixture):** (a) the `*_with_await` emitter cluster
+   (`generate_{cond,match,while}_with_await` ~460/530/160 + the branch helpers
+   `generate_cond_branch_with_await` / `generate_while_body_with_await` /
+   `generate_primitive_match_with_await`, then `register_fsm_emitters`); (b) the
+   FSM context-state model these read/write — new `FunctionGenerationContext`
+   fields (`async_while_loop_info`, `async_next_while_loop_index`,
+   `async_cond_branch_info`, `deferred_async_blocks`, …; the constructor has ONE
+   site so blast radius is low) + the nested info types (`WhileLoopInfo` with
+   `outer_while_loop` / `cond_branch_post_while_exprs` / chained-await fields,
+   the cond-branch info type) — these are consumed by (c); (c) the resume
+   generator — state-machine.ts `generateAsyncBlockResumeFunction` (~1.7k) +
+   `generateRemainingExprFuture` + the effect-injection emitters (these read the
+   (b) context state to emit the resume-state switch); (d) `exprs/async.ts`
+   (io.async block — emits the SM struct + cold-start) + `exprs/await.ts`. All of
+   (a)/(c)/(d) call `generate_expr` (main dispatch) and emit C, so they validate
+   only by running the fixture. DONE already: `generate_state_segment_code` +
+   `generate_await_expression` (the segment + await entry emitters, dispatching to
+   (a) through `_fsm.yo`). Wire into codegen_c (replace the `panic("Phase 5")`
+   sites), resolving the Func `io_builtin` field + `g_some_is_extern` WITH their
+   first consumers. This is the dedicated FSM-core-mass session.
    Prereq INVENTORY (checked 2026-06-17): ExprInfo
      `deferred_{drop,dup}_expressions` ✅ present (expr_info.yo:346/348);
      `type_contains_rc_type` ✅ present (types/utils.yo); `get_variables_from_env`
