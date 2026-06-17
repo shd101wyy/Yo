@@ -264,3 +264,74 @@ print the token when it throws "i32"/"str". Most likely a single mis-typed cast
 (`*(u8)("\n")`) — once found, the fix may be a one-liner in std/fmt OR a codegen/eval
 cast handling fix, NOT the deep architecture change. (User has OK'd editing std/ if
 needed.) Re-validate: pln.yo → `hello` matching TS, corpus + std sweep.
+
+---
+
+## 2026-06-17 — println end-to-end RE-ROOTED: self-shadowing FIXED + const-generic `U` is the real wall
+
+Two distinct sub-gaps remained. **(A) is FIXED. (B) is now fully root-caused** and is the sole remaining blocker for `str.to_string()` / `println`.
+
+### (A) FIXED — `_materialize_arg` redeclared a by-ref read into a same-named local
+`other_fn_call.yo` `_materialize_arg` emitted `__yo_str self = (*self);` for a
+by-`ref` receiver read passed BY VALUE (`String.from(self)` in `str.to_string`),
+shadowing the `__yo_str* self` param → C "redefinition with different type". Fix:
+detect the bare deref-read form `(*<sanitized>)` (it equals `(*name)` of the same
+var) and emit it INLINE instead of materializing a temp; also return `arg_code`
+raw (not sanitized) for that case. Validated: corpus 54/54, std sweep unchanged.
+
+### (B) BLOCKER — const-generic `U : usize` is never value-substituted in `Array(T, U)`
+Minimal repro: a generic fn whose body calls `v.to_string()` on an integer
+(`/tmp/g2.yo`). C output (`yo_id_5257`, i32's `to_string`):
+```c
+// Unknown type: Array(u8, U) buffer = ...   // length_var "U" NEVER resolved
+uint8_t ... = buffer.data[0];                // → "use of undeclared identifier 'buffer'"
+```
+Source: `std/fmt/to_string.yo` — `buffer := Array(u8, _INT_BUFFER_SIZE).fill(0)`.
+`Array.fill` (prelude.yo:5553) returns `comptime(Self)` = `Array(T, U)`. Called on
+`Array(u8, 24)`, `U` should bind to 24 so the buffer's type is `Array(u8, 24, "")`.
+The `24` IS known (snprintf gets `24ULL`), but the buffer VARIABLE's recorded type
+keeps `length_var="U"` → codegen's Array arm (utils/index.yo:719) correctly falls
+through to the "Unknown type" comment (mirrors TS, which by codegen time always has
+a concrete NumberValue length).
+
+ROOT CAUSE (two coordinated spots):
+1. `impl.yo:355-361` `_resolve_one_forall_binding`: when `U` binds to `IntLit(24)`,
+   it returns `last_nvar.ty` (= the *type* `usize`), NOT the value. Its own comment
+   claims "current std impls (e.g. Array fill) don't [use U in a length position]"
+   — that claim is **FALSE**: `fill`'s `comptime(Self)` return is exactly `Array(T,U)`.
+2. `substitution.yo:98` `substitute` Array arm `=> .Array(box(recur(inner)), len, lvar)`
+   copies `len`/`lvar` verbatim — it cannot express a VALUE substitution, so even a
+   correctly-recorded `U := 24` binding would not rewrite `length_var`.
+
+The synthesizer side is ALREADY correct: `synthesizer.yo:1568-1591` binds the length
+var `U := IntLit(24)` in the expected env during `Array(T,U)` vs `Array(u8,24)`
+matching (mirrors TS synthesizer.ts:902-938).
+
+### PROPOSED FIX (faithful, well-scoped)
+Add a VALUE channel to `Substitution` for const-generic length vars:
+- `Substitution`: add `len_var_names : ArrayList(String)` + `len_var_values : ArrayList(usize)`;
+  `subst_add_len_var(s, name, value)` / `subst_lookup_len_var(s, name) -> Option(usize)`.
+- `substitute` Array arm: if `lvar` non-empty and `subst_lookup_len_var(s, lvar)` is
+  `Some(v)` → return `.Array(box(recur(inner)), v, "")`; else unchanged.
+- At the return-type substitution site (function.yo ~2342 inline arm AND helper.yo
+  mirror): when a forall name resolves to an `IntLit` value (preserve it through
+  `_resolve_one_forall_binding`, returning both the type AND the optional value), call
+  `subst_add_len_var(s_ret, name, value)` alongside the SomeT `subst_add`.
+Validate: `/tmp/g2.yo` → binary OK, then `pln.yo` → `hello` matching TS, corpus +
+per-file std sweep (must hold OK=94/FAIL=58), then `check ./tests`.
+
+### REFINEMENT (2026-06-17, repro `/tmp/af.yo`) — the type is MALFORMED, not merely unresolved
+A bare `Array(u8, 24).fill(u8(0))` (no const, no to_string) reproduces it. The buffer
+var's recorded type is `Array(u8, length=24, length_var="U")` — `length` AND
+`length_var` are BOTH populated (the data initializer correctly has 24 zeros, so
+`length=24` flowed through, yet `lvar="U"` rode along). That is a self-contradictory
+Array type: a concrete length should imply `lvar=""`. `evaluate_array_type`
+(array.yo:237-241) correctly emits `Array(u8,24,"")` for the literal receiver, so the
+`"U"` is grafted on DOWNSTREAM — during `Self`-resolution inside `fill`'s body (the
+impl's stored `Self` pattern carries `lvar="U"`; resolving its element `T→u8` and
+length `→24` leaves the stale `lvar` in place). So the most robust fix may be at the
+type-construction/resolution site: when an Array's `length` is set to a concrete
+(non-placeholder) value, CLEAR `length_var`. Cross-check both: codegen utils Array arm
+could also treat `length_var` as resolved when a concrete length is present, but fixing
+the malformed-type production is preferable. Re-validate with `/tmp/af.yo` (buffer must
+be `Array_uint8_t_24`), then `pln.yo`, corpus, std sweep (94/58), `check ./tests`.

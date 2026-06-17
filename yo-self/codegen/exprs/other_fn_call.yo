@@ -380,9 +380,21 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
         });
         is_comptime_only := _last_is_comptime_only(arg_ei.env, vname.clone());
         is_sm := arg_code.starts_with("sm->");
+        sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
+        // A by-`ref` binding read passed BY VALUE generates `(*name)` (the deref
+        // of the same variable). That is a simple read, NOT a fresh temp — do not
+        // materialize it into `<T> name = (*name);` (which would redeclare and
+        // shadow the `T* name` param: C "redefinition with different type"). Emit
+        // `(*name)` inline. Mirrors TS, which passes the deref expression directly.
+        deref_form := {
+          d := String.from("(*");
+          d.push_string(sanitized.clone());
+          d.push_str(")");
+          d
+        };
+        is_deref_read := (arg_code == deref_form);
         (emitted : bool) = false;
-        if(((!(arg_code == vname) && !(is_comptime_only)) && !(is_sm)) && !(param_is_ref), {
-          sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
+        if((((!(arg_code == vname) && !(is_comptime_only)) && !(is_sm)) && !(param_is_ref)) && !(is_deref_read), {
           if(!(arg_code == sanitized), {
             line := indent.clone();
             line.push_string(get_variable_type_string(arg_ei.ty, vname.clone(), context.base));
@@ -395,7 +407,7 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
           });
         });
         final_name := if(emitted, vname, arg_code.clone());
-        if((is_comptime_only || is_sm) || param_is_ref, arg_code, sanitize_for_c_identifier(final_name, false))
+        if(((is_comptime_only || is_sm) || param_is_ref) || is_deref_read, arg_code, sanitize_for_c_identifier(final_name, false))
       },
       .None => _call_generate_expr(arg, indent.clone(), context)
     ),
@@ -843,7 +855,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               ia_n := dm_runtime.len();
               (ia_i : usize) = usize(0);
               while(ia_i < ia_n, {
-                match(dm_runtime.get(ia_i),.Some(a) => { _iap := inline_args.push(_call_generate_expr(a, indent.clone(), context)); },.None => ());
+                match(
+                  dm_runtime.get(ia_i),
+                  .Some(a) => {
+                    _iap := inline_args.push(_call_generate_expr(a, indent.clone(), context));
+                  },
+                  .None => ()
+                );
                 ia_i = (ia_i + usize(1));
               });
               return(Option(String).Some(generate_yo_inline_function_call(op, inline_args, expr, context, indent.clone())));
@@ -874,7 +892,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             cnma := dm_runtime.len();
             (cmi : usize) = usize(0);
             while(cmi < cnma, {
-              match(dm_runtime.get(cmi),.Some(a) => { _cmp := cm_arg_list.push(_call_generate_expr(a, indent.clone(), context)); },.None => ());
+              match(
+                dm_runtime.get(cmi),
+                .Some(a) => {
+                  _cmp := cm_arg_list.push(_call_generate_expr(a, indent.clone(), context));
+                },
+                .None => ()
+              );
               cmi = (cmi + usize(1));
             });
             cm_arg_list = _apply_ref_amp(cm_arg_list, cm_param_is_ref, dm_runtime, indent.clone(), context);
