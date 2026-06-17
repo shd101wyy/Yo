@@ -490,21 +490,35 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
      kqueue async I/O.
    - ✅ `runtime-io-linux.ts` → `runtime_io_linux.yo` (fc1824c05) — sys helpers +
      io_uring async I/O.
-   - ⬜ `runtime-io-common.ts` (1717 LOC) — the SHARED layer (timer, dir scan,
-     DNS, process, FS events, poll/tick, + `generateSysRuntime`). INTRICATE: 33
-     `emitLine` blocks interleaved with TS conditionals + 10 embedded `${...}`
-     target interpolations — NOT a clean verbatim extraction; needs careful
-     block-by-block split-porting (literal chunk → `cond` → literal chunk). The
-     clean 2-block backends above WERE verbatim-extractable (pure C, no `${}`);
-     this one is not. Dedicated-focus task.
-   - ⬜ `async/runtime.ts` (69 LOC) → `runtime.yo` — the DISPATCHER
+   - ✅ `runtime-io-common.ts` → `runtime_io_common.yo` — the SHARED layer.
+     `generateSysRuntime` (2fb9d33db) + `generateAsyncRuntimeIOCommon` (timer,
+     dir scan, getdents, DNS, process, FS events, poll, tick) ported 2026-06-17.
+     The intricate part was the embedded target interpolations; in the end there
+     is only ONE dispose-init 3-way (`timer_dispose_init`, Linux-only:
+     cycle-GC / type-id callback / none) plus 6 `${frag}` platform conditionals
+     (inotify include, macOS fs-event struct/fields/handle-init, Linux/macOS
+     tick bodies). Ported by computing each `${frag}` as a `cond(...)` String and
+     interpolating via Yo `${}`; all verbatim C extracted by `sed`. Modeled
+     `AsyncRuntimeOptions` as an object with `register_dispose_type_id :
+     Option(Impl(Fn(String) -> i64))` (defined in `runtime_io_common.yo`, not
+     `runtime.yo`, to avoid an import cycle).
+   - ✅ `async/runtime.ts` (69 LOC) → `runtime.yo` — the DISPATCHER
      (`generate_async_runtime`): calls runtime_core + the target backend +
-     runtime-io-common. Port LAST (after common), then wire into `codegen_c`.
-   - Deferred: `runtime-io-windows.ts`, `runtime-io-wasm.ts` (follow-up).
+     runtime-io-common. Ported 2026-06-17. `check` OK. NOT yet wired into
+     `codegen_c` (deferred to the FSM-core wiring step — these emitters are
+     inert until the state machine calls them).
+   - Deferred: `runtime-io-windows.ts`, `runtime-io-wasm.ts` (follow-up; their
+     branches in `runtime.yo`/`generate_sys_runtime` panic for now).
    PORTING TECHNIQUE for verbatim-C files: extract the template-literal body with
    `sed -n 'A,Bp'` to a temp file and wrap it in `emitter.emit_string_line(\`…\`)`
    via heredoc concat — zero hand-transcription risk; only works when the block
-   has no `${}` interpolations and no stray backticks (verify both first).
+   has no `${}` interpolations and no stray backticks (verify both first). For
+   files WITH `${}` interpolations (runtime-io-common), an assembler script
+   (`sed` for verbatim ranges + `fragq` to strip the `? \`…\`` prefix/suffix off
+   conditional fragments + printf for Yo scaffolding) keeps it transcription-free
+   too — derive every block boundary from a single `emitLine(\`` / `\`);` /
+   `? \`` / closing-backtick grep, since nested (indented) `emitLine` blocks make
+   "first content = open+1" the only reliable rule.
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
 co-exists — there is no partial runnable async program. Build #1+#2 first
 (testable via `check`), then the FSM bottom-up against a minimal `io.async` +
