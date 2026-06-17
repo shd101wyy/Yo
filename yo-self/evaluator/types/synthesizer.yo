@@ -1276,6 +1276,13 @@ _synthesize_types_impl :: (
       };
       val := EvalValue.TypeVal(Box(TypeValue)(expected_ty));
       _bind_some_type(ge, giv_name, val, expected_ty, tok, exn);
+      // Phase 5 (symmetric set-site): record the given SomeT's resolved concrete
+      // type (the expected concrete) in the side-table. Mirrors synthesizer.ts:595
+      // (`given.type.resolvedConcreteType = expected.type` under
+      // `setResolvedConcreteType`). Keyed by the given SomeT's id.
+      if(match(opts,.Some(o) => o.set_resolved_concrete_type,.None => false), {
+        register_some_resolved_concrete(giv_id2, expected_ty);
+      });
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
