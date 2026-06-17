@@ -538,16 +538,18 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    mapped: `state_segment → await → {cond,match,while}_with_await →
    {cond_branch,while_body,primitive_match} → back to {cond,match,while}`.
    **THE REMAINING MASS (deeply interconnected — port together + wire + validate
-   against the `42` fixture):** (a) the `*_with_await` emitter cluster
-   (`generate_{cond,match,while}_with_await` ~460/530/160 + the branch helpers
+   against the `42` fixture):** (a) ✅ DONE — the ENTIRE state-code-gen.ts emitter
+   layer is ported (`generate_{cond,match,while}_with_await`, the branch helpers
    `generate_cond_branch_with_await` / `generate_while_body_with_await` /
-   `generate_primitive_match_with_await`, then `register_fsm_emitters`); (b) the
-   FSM context-state model these read/write — new `FunctionGenerationContext`
-   fields (`async_while_loop_info`, `async_next_while_loop_index`,
-   `async_cond_branch_info`, `deferred_async_blocks`, …; the constructor has ONE
-   site so blast radius is low) + the nested info types (`WhileLoopInfo` with
-   `outer_while_loop` / `cond_branch_post_while_exprs` / chained-await fields,
-   the cond-branch info type) — these are consumed by (c); (c) the resume
+   `generate_primitive_match_with_await`, the segment + await entry emitters, ~15
+   factored helpers, + `register_fsm_emitters_impl`); the `_fsm.yo` indirection
+   registry + `state_machine_naming.yo` leaf broke the mutual-recursion/import
+   cycles. (b) ✅ DONE — the FSM context-state model (new
+   `FunctionGenerationContext` fields `async_while_loop_info` /
+   `async_next_while_loop_index` / `async_cond_branch_info` /
+   `async_body_return_expr` + the `WhileLoopInfo`/`OuterWhileLoop`/
+   `CondBranchPostWhileExprs`/`CondBranch`/`ChainedCondBranches`/
+   `AsyncCondBranchInfo` types). STILL TODO: (c) the resume
    generator — state-machine.ts `generateAsyncBlockResumeFunction` (~1.7k) +
    `generateRemainingExprFuture` + the effect-injection emitters (these read the
    (b) context state to emit the resume-state switch); (d) `exprs/async.ts`
