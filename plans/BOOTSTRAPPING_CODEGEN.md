@@ -549,10 +549,24 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    `async_next_while_loop_index` / `async_cond_branch_info` /
    `async_body_return_expr` + the `WhileLoopInfo`/`OuterWhileLoop`/
    `CondBranchPostWhileExprs`/`CondBranch`/`ChainedCondBranches`/
-   `AsyncCondBranchInfo` types). STILL TODO: (c) the resume
-   generator — state-machine.ts `generateAsyncBlockResumeFunction` (~1.7k) +
-   `generateRemainingExprFuture` + the effect-injection emitters (these read the
-   (b) context state to emit the resume-state switch); (d) `exprs/async.ts`
+   `AsyncCondBranchInfo` types). RESUME-GENERATOR LEAF HELPERS ALSO DONE
+   (state_machine.yo): `expr_contains_return`, `uses_generic_future_interface`,
+   `emit_future_effect_injection_line` (the Future-trait deps
+   `extract_future_trait_from_type` / `type_implements_future` are already ported
+   in trait_checking.yo, so the resume body is transcription not discovery).
+   STILL TODO: (c) the resume generator — state-machine.ts
+   `generateAsyncBlockResumeFunction` (~1.7k) + `generateRemainingExprFuture` +
+   the EFFECT-INJECTION emitters (`emitEffectInjectionForSM` /
+   `emitEffectRecordInjectionForSM` / `resolveEffectFieldFromSMScope`). NOTE: the
+   effect-injection emitters need a NEW prerequisite — the `currentEvidenceParams`
+   context field (the effect-ctl-param infrastructure, ~600 LOC) + `findBundleField
+   Name` (from async.ts) + the Future-trait `.isFuture.effect` structure access.
+   BUT for the BASELINE no-effect `42` fixture the awaited future's effect is null,
+   so `emitEffectInjectionForSM` early-returns — the resume body's CORE (state
+   switch, await-result extraction via the resolved-concrete side-table, segment
+   emission) is portable WITHOUT the full effect-injection; port the effect path
+   (struct-bundle + evidence params) as a follow-up once `currentEvidenceParams` +
+   async.ts land. (d) `exprs/async.ts`
    (io.async block — emits the SM struct + cold-start) + `exprs/await.ts`. All of
    (a)/(c)/(d) call `generate_expr` (main dispatch) and emit C, so they validate
    only by running the fixture. DONE already (state_code_gen.yo, all check-clean +
