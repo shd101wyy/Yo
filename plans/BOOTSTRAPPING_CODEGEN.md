@@ -480,10 +480,30 @@ Definition of Done; update `BOOTSTRAPPING.md`.
       exists. Port order should follow imports, not the nominal phase
       numbers; each file stays `check`-clean (shallow) or unit-tested until
       the core is whole.
-- [ ] Phase 2 — expression-emitter sweep
-- [ ] Phase 3 — functions/types/dyn/specialization
+- [~] Phase 2 — expression-emitter sweep (SUBSTANTIALLY DONE, 2026-06-17).
+      The differential corpus (`tests/codegen-bootstrap/`, run via
+      `scripts/diff-test.sh`) has grown 21 → **55 fixtures, all PASS** (0
+      diffs vs the TS reference, serial). Ported & differentially-green:
+      atoms/literals, control flow (`if`/`cond`/`match`/`while`/`begin`),
+      operators, value + runtime struct/enum construction, newtypes, tuples,
+      property access, runtime casts (`__yo_as` via `macro_expansion`),
+      address-of (incl. `&(array(i))` into the buffer), pointer ops, and the
+      extern-call path. Remaining: the long tail of less-common emitters
+      (surfaced as the corpus widens) + the Phase-4-coordinated dup/drop edges.
+- [~] Phase 3 — functions/types/dyn/specialization (SUBSTANTIALLY DONE,
+      2026-06-17). **Dyn subsystem COMPLETE** (construction + method dispatch +
+      box/dup/drop + vtables + wrappers + type decls). **Generic specialization
+      COMPLETE**: instance- and static-method specialization, ctor-in-spec-body,
+      const-generic `Array(T, U)` length-var resolution, and per-specialization
+      fresh-id body cloning. **Gap 6 (generic `println`/`print`) COMPLETE** end
+      to end for `str` + integer over single/multi/mixed-type calls (fixture
+      `std_println_generic`), exercising generic-fn monomorphization +
+      method-dispatch + extern `fwrite`/`snprintf` (variadic args) +
+      `Array.fill` const-generic buffer. Remaining: broader generic-container
+      coverage as the corpus widens.
 - [ ] Phase 4 — memory management, guard-page/ASan-clean
-- [ ] Phase 5 — async/effects/parallelism runtimes (POSIX)
+- [ ] Phase 5 — async/effects/parallelism runtimes (POSIX) — the largest
+      unstarted block (~16k LOC of TS effect/async/parallelism codegen)
 - [ ] Phase 6 — self-host fixpoint → Definition of Done
 
 ## References
