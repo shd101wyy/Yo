@@ -553,11 +553,21 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    (b) context state to emit the resume-state switch); (d) `exprs/async.ts`
    (io.async block — emits the SM struct + cold-start) + `exprs/await.ts`. All of
    (a)/(c)/(d) call `generate_expr` (main dispatch) and emit C, so they validate
-   only by running the fixture. DONE already: `generate_state_segment_code` +
-   `generate_await_expression` (the segment + await entry emitters, dispatching to
-   (a) through `_fsm.yo`). Wire into codegen_c (replace the `panic("Phase 5")`
-   sites), resolving the Func `io_builtin` field + `g_some_is_extern` WITH their
-   first consumers. This is the dedicated FSM-core-mass session.
+   only by running the fixture. DONE already (state_code_gen.yo, all check-clean +
+   corpus 58/58): the segment + await entry emitters (`generate_state_segment_code`,
+   `generate_await_expression`); the WHILE cluster (`generate_while_with_await` +
+   `generate_while_body_with_await`); `generate_cond_branch_with_await`; the
+   async-branch-completion helpers (`_should_emit_async_branch_completion` +
+   `_emit_non_await_branch_async_completion`); AND the full FSM context-state model
+   (`WhileLoopInfo`/`OuterWhileLoop`/`CondBranchPostWhileExprs`/`CondBranch`/
+   `ChainedCondBranches`/`AsyncCondBranchInfo` + the `async_while_loop_info`/
+   `async_next_while_loop_index`/`async_cond_branch_info`/`async_body_return_expr`
+   context fields). STILL TODO in (a): `generate_cond_with_await` BODY (~460),
+   `generate_match_with_await` (~530) + `generate_primitive_match_with_await`
+   (~140), then `register_fsm_emitters(cond, match, while)`. Wire into codegen_c
+   (replace the `panic("Phase 5")` sites), resolving the Func `io_builtin` field +
+   `g_some_is_extern` WITH their first consumers. This is the dedicated
+   FSM-core-mass session.
    Prereq INVENTORY (checked 2026-06-17): ExprInfo
      `deferred_{drop,dup}_expressions` ✅ present (expr_info.yo:346/348);
      `type_contains_rc_type` ✅ present (types/utils.yo); `get_variables_from_env`
