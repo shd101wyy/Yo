@@ -287,6 +287,38 @@ _static_dot_receiver_self_type :: (
     .None => Option(TypeValue).None
   )
 });
+/// Resolve unresolved Array `length_var`s in `ty` by structurally matching it
+/// against the concrete `self_ty` (the receiver of a `comptime(Self)` method).
+/// Wherever `ty` has `Array(_, _, lvar)` with a non-empty `lvar` and `self_ty`
+/// has a concrete `Array(_, len, "")` at the same position, adopt `self_ty`'s
+/// length and clear the var. Recurses through array elements / pointers so a
+/// nested `Array(Array(u8, U), V)` resolves against `Array(Array(u8, 24), 3)`.
+/// Non-matching shapes are left unchanged (safe no-op). yo-self's stand-in for
+/// the value-level array-length substitution TS does during return resolution.
+_resolve_array_length_vars_from_self :: (
+  fn(ty : TypeValue, self_ty : TypeValue) -> TypeValue
+)(
+  match(
+    ty,
+    .Array(elem, len, lvar) => match(
+      self_ty,
+      .Array(s_elem, s_len, s_lvar) => {
+        new_elem := recur(elem.*, s_elem.*);
+        resolve := ((lvar.len() > usize(0)) && (s_lvar.len() == usize(0)));
+        new_len := cond(resolve => s_len, true => len);
+        new_lvar := cond(resolve => String.from(""), true => lvar);
+        TypeValue.Array(box(new_elem), new_len, new_lvar)
+      },
+      _ => ty
+    ),
+    .Pointer(inner) => match(
+      self_ty,
+      .Pointer(s_inner) => TypeValue.Pointer(box(recur(inner.*, s_inner.*))),
+      _ => ty
+    ),
+    _ => ty
+  )
+);
 /// Trial-call one Call-overload candidate with CLONED exprs and a swallowing
 /// exception. On success pushes `true` into `ok_out`; a throw unwinds before
 /// the push, leaving `ok_out` empty (the `_trial_eval_fn_body` pattern).
@@ -2035,7 +2067,7 @@ Fix: wrap the call:
           // str" while specializing println/print (Gap-6).
           resolved_decl_pt := cond(
             is_some_type(bind_decl_pt) => {
-              sname := match(bind_decl_pt,.SomeT({ name : sn }) => sn,_ => String.from(""));
+              sname := match(bind_decl_pt,.SomeT({ name : sn }) => sn, _ => String.from(""));
               (rt : TypeValue) = bind_decl_pt;
               (rk : usize) = usize(0);
               (rn : usize) = fa_bound_names.len();
@@ -2304,7 +2336,24 @@ Fix: wrap the call:
               }
             );
           });
-          out_ct := new_expr_info(ct_result.caller_env, ret_type);
+          // A `comptime(Self)`-returning generic Array impl method (e.g.
+          // `Array.fill : (fn(...) -> comptime(Self))` under `impl(forall(T, U),
+          // Array(T, U), ...)`) yields a declared return type whose Array
+          // `length_var` (`U`) is unresolved — `Self` was expanded to the impl
+          // pattern `Array(T, U)` (with `T` substituted) but the const-generic
+          // length `U` is bound to no SomeT, so it survives as the malformed
+          // `Array(u8, length=0, length_var="U")`. Codegen then rejects it as
+          // "Unknown type". The receiver IS concrete here (`Array(u8, 24)`); since
+          // the return is `comptime(Self)` and `Self` is the receiver, resolve the
+          // return type's Array length-vars structurally against the concrete
+          // receiver. (`ctx.self_type` was reset after the CTFE body eval, so
+          // re-fetch the receiver type directly.)
+          resolved_ret_ct := match(
+            _static_dot_receiver_self_type(func_expr, ctx),
+            .Some(recv_self) => _resolve_array_length_vars_from_self(ret_type, recv_self),
+            .None => ret_type
+          );
+          out_ct := new_expr_info(ct_result.caller_env, resolved_ret_ct);
           out_ct.value = Option(EvalValue).Some(ct_result.value);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
           _ := param_vars;
