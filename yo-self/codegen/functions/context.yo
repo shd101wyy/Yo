@@ -33,6 +33,40 @@ SmWhileContinueInfo :: object(
 /// Marks that code is being generated inside an async state machine; carries
 /// the future type (a SomeType or DynType). Mirrors `inAsyncStateMachine`.
 InAsyncStateMachine :: object(future_type : TypeValue);
+/// Expressions from an enclosing cond branch that come after a while loop — run
+/// only after the loop exits, guarded by the `sm->cond_branch_N` field. Mirrors
+/// the `condBranchPostWhileExprs` shape in `asyncWhileLoopInfo`.
+CondBranchPostWhileExprs :: object(
+  branch_index : usize,
+  cond_branch_field_index : usize,
+  exprs : ArrayList(AstExpr),
+  deferred_drop_expressions : Option(ArrayList(AstExpr)),
+  /// When true, skip the `sm->cond_branch_N` guard (nested conds share the field).
+  skip_cond_branch_check : Option(bool)
+);
+/// Info about an OUTER while loop wrapping a while-with-await. Mirrors the
+/// `outerWhileLoop` shape in `asyncWhileLoopInfo`.
+OuterWhileLoop :: object(
+  while_loop_index : usize,
+  condition_expr : AstExpr,
+  step_expr : Option(AstExpr),
+  body_expr : AstExpr,
+  body_exprs_after_await : ArrayList(AstExpr)
+);
+/// Per-await-point info about a while loop containing an await. Mirrors the
+/// value type of `asyncWhileLoopInfo` (context.ts:137).
+WhileLoopInfo :: object(
+  condition_expr : AstExpr,
+  step_expr : Option(AstExpr),
+  body_expr : AstExpr,
+  body_exprs_after_await : Option(ArrayList(AstExpr)),
+  /// The original while loop's await-point index (chained awaits).
+  while_loop_origin_index : Option(usize),
+  /// True when created by chaining from a previous await in the same loop body.
+  is_chained_await : Option(bool),
+  cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs),
+  outer_while_loop : Option(OuterWhileLoop)
+);
 /// The per-function generation context. See header for the composition note.
 FunctionGenerationContext :: object(
   /// The base codegen context (TS `extends CodeGenContext`).
@@ -93,7 +127,15 @@ FunctionGenerationContext :: object(
   state_machine_variables : Option(HashMap(String, CapturedVariable)),
   /// Phase-1b aliases: temp future variable id → its await_future_N SM field
   /// name (atom emission redirects SM lookups to the existing await field).
-  state_machine_field_aliases : Option(HashMap(String, String))
+  state_machine_field_aliases : Option(HashMap(String, String)),
+  /// While-loop-with-await info, keyed by await-point index. Written by
+  /// `generate_while_with_await`, read by the resume generator. Mirrors
+  /// `asyncWhileLoopInfo`.
+  async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)),
+  /// Next free while-loop index for nested while-with-await (so outer-while
+  /// labels don't collide with await-point indices). Mirrors
+  /// `asyncNextWhileLoopIndex`.
+  async_next_while_loop_index : Option(usize)
 );
 impl(
   FunctionGenerationContext,
@@ -125,8 +167,18 @@ impl(
       sm_while_continue_info : Option(SmWhileContinueInfo).None,
       sm_while_body_drops : Option(ArrayList(AstExpr)).None,
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
-      state_machine_field_aliases : Option(HashMap(String, String)).None
+      state_machine_field_aliases : Option(HashMap(String, String)).None,
+      async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)).None,
+      async_next_while_loop_index : Option(usize).None
     )
   )
 );
-export(FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, InAsyncStateMachine);
+export(
+  FunctionGenerationContext,
+  SmWhileBreakInfo,
+  SmWhileContinueInfo,
+  InAsyncStateMachine,
+  CondBranchPostWhileExprs,
+  OuterWhileLoop,
+  WhileLoopInfo
+);

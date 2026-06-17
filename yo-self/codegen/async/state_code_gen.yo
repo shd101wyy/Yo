@@ -8,6 +8,7 @@
 //! `42` io.async/io.await differential fixture.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -15,7 +16,7 @@ open(import("std/string"));
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { expr_contains_await } :: import("../../expr_traversal.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
@@ -455,6 +456,251 @@ generate_state_segment_code :: (
     i = (i + usize(1));
   });
 });
+/// Push `exprs[start..]` onto `out`. Helper for collecting the while-body
+/// expressions that run after the await (in the resume state).
+_collect_exprs_from :: (
+  fn(out : ArrayList(AstExpr), exprs : ArrayList(AstExpr), start : usize) -> unit
+)({
+  (i : usize) = start;
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => {
+        out.push(e);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Emit a while-loop body up to its first await (in FSM state 0, using labels
+/// rather than a real C loop), then store the awaited Future / delegate to the
+/// nested cond/match/while emitter. Returns the body expressions AFTER the await
+/// (executed in the resume state). Mirrors `generateWhileBodyWithAwait`
+/// (state-code-gen.ts:1961).
+generate_while_body_with_await :: (
+  fn(
+    body_expr : AstExpr,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    while_loop_index : usize
+  ) -> ArrayList(AstExpr)
+)({
+  em := context.base.emitter;
+  remaining_exprs := ArrayList(AstExpr).new();
+  idx_s := await_point.base.index.to_string();
+  wli_s := while_loop_index.to_string();
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    single := ArrayList(AstExpr).new();
+    single.push(body_expr);
+    single
+  });
+  // Find the first await expression.
+  (await_found_index : usize) = usize(0);
+  (await_found : bool) = false;
+  (fi : usize) = usize(0);
+  while((fi < body_exprs.len()) && !(await_found), {
+    match(
+      body_exprs.get(fi),
+      .Some(e) => if(expr_contains_await(e), {
+        await_found_index = fi;
+        await_found = true;
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  if(!(await_found), {
+    em.emit_string_line(`${indent}// Error: Expected await in while loop body but none found`);
+    return(remaining_exprs);
+  });
+  // Configure break/continue for the pre-await body (labels, not a real C loop).
+  prev_break := context.sm_while_break_info;
+  prev_continue := context.sm_while_continue_info;
+  prev_body_drops := context.sm_while_body_drops;
+  context.sm_while_break_info = Option(SmWhileBreakInfo).Some(
+    SmWhileBreakInfo(label : `while_loop_${wli_s}_end`, active_index : Option(usize).Some(while_loop_index))
+  );
+  context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(
+    SmWhileContinueInfo(label : `while_loop_${wli_s}_start`, emit_drops_before_goto : true, step_expr : Option(AstExpr).None)
+  );
+  body_drops := match(
+    context.base.get_expr_info(body_expr),
+    .Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new()),
+    .None => ArrayList(AstExpr).new()
+  );
+  context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(body_drops);
+  // Pre-await expressions.
+  (pi : usize) = usize(0);
+  while(pi < await_found_index, {
+    match(
+      body_exprs.get(pi),
+      .Some(e) => {
+        code := _call_generate_expr(e, indent, context);
+        skip := if(
+          code.len() == usize(0),
+          true,
+          match(context.base.get_expr_info(e),.Some(ei) => is_temp_variable_name(ei.env.module_path, code),.None => true)
+        );
+        if(!(skip), {
+          em.emit_string_line(`${indent}${code};`);
+        });
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  // Restore while control-flow context before await handling.
+  context.sm_while_break_info = prev_break;
+  context.sm_while_continue_info = prev_continue;
+  context.sm_while_body_drops = prev_body_drops;
+  await_expr := match(body_exprs.get(await_found_index),.Some(e) => e,.None => body_expr);
+  // Nested while-with-await.
+  if((ast_expr_is_fn_call(await_expr) && ast_expr_is_fn_call_of(await_expr, BK_WHILE, Option(usize).None)) && expr_contains_await(await_expr), {
+    _call_generate_while_with_await(await_expr, await_point, indent, context);
+    _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
+    return(remaining_exprs);
+  });
+  // Assignment with await: varName := await(futureExpr).
+  if(ast_expr_is_fn_call(await_expr) && ast_expr_is_fn_call_of(await_expr, ":=", Option(usize).None), {
+    a_args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    match(
+      a_args.get(usize(1)),
+      .Some(value_expr) => if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
+        v_args := match(value_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        match(
+          v_args.get(usize(0)),
+          .Some(future_expr) => {
+            future_code := _call_generate_expr(future_expr, indent, context);
+            em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
+            em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  }, {
+    // Standalone await.
+    if(ast_expr_is_fn_call(await_expr) && is_io_await_call(await_expr), {
+      s_args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+      match(
+        s_args.get(usize(0)),
+        .Some(future_expr) => match(
+          await_point.future_variable_id,
+          .None => {
+            future_code := _call_generate_expr(future_expr, indent, context);
+            em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
+            em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+          },
+          .Some(_) => ()
+        ),
+        .None => ()
+      );
+    }, {
+      // cond with await in a branch.
+      if(ast_expr_is_fn_call(await_expr) && ast_expr_is_fn_call_of(await_expr, BK_COND, Option(usize).None), {
+        _call_generate_cond_with_await(await_expr, await_point, indent, context, Option(String).None, Option(String).None);
+        _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
+        return(remaining_exprs);
+      });
+      // match with await in a branch.
+      if(ast_expr_is_fn_call(await_expr) && ast_expr_is_fn_call_of(await_expr, BK_MATCH, Option(usize).None), {
+        _call_generate_match_with_await(await_expr, await_point, indent, context, Option(String).None, Option(String).None);
+        _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
+        return(remaining_exprs);
+      });
+    });
+  });
+  // Default: collect remaining expressions after the await.
+  _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
+  remaining_exprs
+});
+/// Emit a while loop whose body contains an await: an active flag + start/end
+/// labels, the condition guard, the pre-await body, and (for an outer while
+/// wrapping a nested while-with-await) a fresh loop index. Records per-loop info
+/// in `context.async_while_loop_info` for the resume generator. Mirrors
+/// `generateWhileWithAwait` (state-code-gen.ts:1855).
+generate_while_with_await :: (
+  fn(while_expr : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  if(!(ast_expr_is_fn_call(while_expr) && ast_expr_is_fn_call_of(while_expr, BK_WHILE, Option(usize).None)), {
+    em.emit_string_line(`${indent}// Error: Expected while expression`);
+    return();
+  });
+  args := match(while_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  if((args.len() < usize(2)) || (args.len() > usize(3)), {
+    em.emit_string_line(`${indent}// Error: while must have 2 or 3 arguments (condition, [step,] body)`);
+    return();
+  });
+  condition_expr := match(args.get(usize(0)),.Some(e) => e,.None => while_expr);
+  step_expr := if(args.len() == usize(3), match(args.get(usize(1)),.Some(e) => Option(AstExpr).Some(e),.None => Option(AstExpr).None), Option(AstExpr).None);
+  body_expr := if(
+    args.len() == usize(3),
+    match(args.get(usize(2)),.Some(e) => e,.None => while_expr),
+    match(args.get(usize(1)),.Some(e) => e,.None => while_expr)
+  );
+  has_nested := body_contains_while_with_await(body_expr);
+  (while_loop_index : usize) = usize(0);
+  if(has_nested, {
+    wli := match(context.async_next_while_loop_index,.Some(n) => n,.None => (await_point.base.index + usize(1)));
+    while_loop_index = wli;
+    context.async_next_while_loop_index = Option(usize).Some(wli + usize(1));
+  }, {
+    while_loop_index = await_point.base.index;
+  });
+  wli_s := while_loop_index.to_string();
+  em.emit_string_line(`${indent}sm->while_loop_${wli_s}_active = true;`);
+  em.emit_string_line(`${indent}while_loop_${wli_s}_start:`);
+  cond_code := _call_generate_expr(condition_expr, indent, context);
+  em.emit_string_line(`${indent}if (!(${cond_code})) {`);
+  em.emit_string_line(`${indent}  sm->while_loop_${wli_s}_active = false;`);
+  em.emit_string_line(`${indent}  goto while_loop_${wli_s}_end;`);
+  em.emit_string_line(`${indent}}`);
+  body_exprs_after_await := generate_while_body_with_await(body_expr, await_point, indent, context, while_loop_index);
+  em.emit_string_line(`${indent}while_loop_${wli_s}_end:`);
+  // Store loop info for the resume generator.
+  if(context.async_while_loop_info.is_none(), {
+    context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
+  });
+  info_map := match(context.async_while_loop_info,.Some(m) => m,.None => HashMap(usize, WhileLoopInfo).new());
+  if(has_nested, {
+    // Attach this outer while to the inner while's existing entry.
+    match(
+      info_map.get(await_point.base.index),
+      .Some(inner) => {
+        inner.outer_while_loop = Option(OuterWhileLoop).Some(
+          OuterWhileLoop(
+            while_loop_index : while_loop_index,
+            condition_expr : condition_expr,
+            step_expr : step_expr,
+            body_expr : body_expr,
+            body_exprs_after_await : body_exprs_after_await
+          )
+        );
+        info_map.set(await_point.base.index, inner);
+      },
+      .None => ()
+    );
+  }, {
+    info_map.set(
+      await_point.base.index,
+      WhileLoopInfo(
+        condition_expr : condition_expr,
+        step_expr : step_expr,
+        body_expr : body_expr,
+        body_exprs_after_await : Option(ArrayList(AstExpr)).Some(body_exprs_after_await),
+        while_loop_origin_index : Option(usize).None,
+        is_chained_await : Option(bool).None,
+        cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs).None,
+        outer_while_loop : Option(OuterWhileLoop).None
+      )
+    );
+  });
+  context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(info_map);
+});
 export(
   StateSegment,
   split_into_state_segments,
@@ -465,5 +711,7 @@ export(
   flatten_or_pattern_expr,
   body_contains_while_with_await,
   generate_await_expression,
-  generate_state_segment_code
+  generate_state_segment_code,
+  generate_while_body_with_await,
+  generate_while_with_await
 );
