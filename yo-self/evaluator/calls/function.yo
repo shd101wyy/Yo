@@ -1867,11 +1867,22 @@ Fix: wrap the call:
                 .Some(i) => i,
                 .None => new_expr_info(env, t_unit())
               );
+              // A forall type param inferred from a comptime_str VALUE argument (a
+              // string literal `"hi"` to `fn(forall(T), v : T)`) must bind to the
+              // RUNTIME type `str`, not `comptime_str` — else the specialized body
+              // dispatches `v.to_string()` against comptime_str (→ comptime_int →
+              // i32), throwing "Cannot unify i32 and str" when specializing
+              // println/print (Gap-6). A comptime TYPE arg is a `Type` value, not
+              // comptime_str, so this only catches string-literal value args.
+              fa_infer_ty := cond(
+                is_comptime_string_type(arg_info.ty) => TypeValue.Str,
+                true => arg_info.ty
+              );
               _add_forall := add_variable_to_env(
                 fresh_env,
                 fa_name,
                 TypeValue.TypeUni(usize(0)),
-                Option(EvalValue).Some(EvalValue.TypeVal(box(arg_info.ty))),
+                Option(EvalValue).Some(EvalValue.TypeVal(box(fa_infer_ty.clone()))),
                 true,
                 false,
                 false,
@@ -1879,7 +1890,7 @@ Fix: wrap the call:
                 synthetic_token(fa_name, env.module_path)
               );
               fa_bound_names.push(fa_name.clone());
-              fa_bound_types.push(arg_info.ty);
+              fa_bound_types.push(fa_infer_ty);
               fa_bound = true;
             });
             ptn_i = (ptn_i + usize(1));
@@ -2013,12 +2024,40 @@ Fix: wrap the call:
           // `(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`), which must keep
           // their `Type` value so `*(T)` resolves.
           bind_decl_pt := match(fv_param_types.get(pi),.Some(t) => t,.None => t_unit());
+          // Resolve a forall-`SomeT` declared param type to its concrete binding
+          // BY NAME via fa_bound_names/types (built in the inference loop just
+          // above — e.g. `T`→`str`). A frame-keyed env lookup misses here because
+          // the param's SomeT carries the function's DEFINITION frame level, not
+          // the call frame. With the resolved concrete type, the comptime_str→
+          // runtime coercion below fires for a forall VALUE param too, so `v` binds
+          // as `str` (not comptime_str) — without it, in-body `v.to_string()`
+          // dispatches against comptime_str (→ i32) and throws "Cannot unify i32 and
+          // str" while specializing println/print (Gap-6).
+          resolved_decl_pt := cond(
+            is_some_type(bind_decl_pt) => {
+              sname := match(bind_decl_pt,.SomeT({ name : sn }) => sn,_ => String.from(""));
+              (rt : TypeValue) = bind_decl_pt;
+              (rk : usize) = usize(0);
+              (rn : usize) = fa_bound_names.len();
+              while(rk < rn, {
+                bn := match(fa_bound_names.get(rk),.Some(s) => s,.None => String.from(""));
+                if((sname.len() > usize(0)) && (bn == sname), {
+                  rt = match(fa_bound_types.get(rk),.Some(t) => t,.None => bind_decl_pt);
+                  rk = rn;
+                }, {
+                  rk = (rk + usize(1));
+                });
+              });
+              rt
+            },
+            true => bind_decl_pt
+          );
           (bind_ty : TypeValue) = arg_info.ty;
           (bind_val : Option(EvalValue)) = arg_info.value;
           (is_ct : bool) = match(arg_info.value,.Some(_) => true,.None => false);
-          if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(bind_decl_pt)))) && (!(is_comptime_string_type(bind_decl_pt))), {
-            bind_ty = bind_decl_pt;
-            bind_val = Option(EvalValue).Some(create_unknown_val(bind_decl_pt));
+          if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(resolved_decl_pt)))) && (!(is_comptime_string_type(resolved_decl_pt))), {
+            bind_ty = resolved_decl_pt.clone();
+            bind_val = Option(EvalValue).Some(create_unknown_val(resolved_decl_pt));
             is_ct = false;
           });
           p_is_ref := match(fv_param_is_ref.get(pi),.Some(b) => b,.None => false);
