@@ -24,6 +24,37 @@ on ANY type. FIX (next): add `is_extern` to the relevant non-Func TypeValue vari
 fields, and consult it in getVariableNameForCodegen's sanitize call. Schema-touching
 (build-guided). See issues/codegen-extern-c-global-reserved-name.md.
 
+## println PROGRESS 2026-06-17 — 3 of ~4 sub-gaps fixed; one remains
+
+Once the specialization was fixed, `println("hello")` surfaced a CHAIN of distinct
+sub-gaps in its body (it exercises a large surface). Fixed so far:
+1. ✅ Specialization (271d96e61) — forall T = str (above).
+2. ✅ extern-C global `stdout` (e3febf709) — Gap-3 registry
+   (issues/codegen-extern-c-global-reserved-name.md).
+3. ✅ by-ref variable read deref (9e133d832) — `ref(self)` reads emit `(*self)`
+   (generate_atom `_var_read_code`; mirrors TS atom.ts:583; refactored the
+   newtype-only property_access deref into this general path).
+
+REMAINING (1): `str.to_string`'s `return(String.from(self))` (self : ref(self) : str)
+emits a SELF-SHADOWING local + a redundant cast:
+```c
+static inline __yo_struct_yo_id_3961 yo_id_5363(__yo_str* self) {
+  __yo_str self = (*self);                          // redefinition: local `self` vs param `self`
+  ... = yo_id_4043((__yo_str)(self));               // redundant str(self) cast
+  return ...;
+}
+```
+The `self` value-read (now `(*self)` after fix #3) is MATERIALIZED into a temp whose
+NAME is `self` (the read's ExprInfo.variable_name = the param name "self"), so the
+declaration `__yo_str self = (*self)` shadows the `__yo_str* self` param → C
+"redefinition with different type". Also a redundant `(__yo_str)(self)` str→str
+conversion cast (likely an inserted `str(self)` / __yo_as on the arg). NEXT: either
+suppress the temp materialization for a bare ref-var read (use `(*self)` inline), OR
+give that temp a UNIQUE name (not the param name). Probe the arg-materialization path
+in other_fn_call / generate_func_call for where `<type> self = ...` is emitted (the
+temp name comes from the self-read's variable_name). corpus 54/54 + std 94/58 hold
+with fixes 1-3; this is the last println blocker.
+
 ---
 (original OPEN diagnosis below — kept for the trace.)
 
