@@ -24,7 +24,7 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo } :: import("../functions/context.yo");
 { get_type_string } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
@@ -1325,6 +1325,125 @@ generate_remaining_expr_future :: (
   });
   em.emit_string_line(`${indent}// Warning: unhandled await pattern in remaining expressions`);
 });
+/// Emit the await suspension for a segment ending at an await: transition to the
+/// next state, the bounded inline fast-path for an already-complete future, the
+/// cold-start (effect injection + resume-fn call, non-Io futures only), and
+/// continuation registration. Wrapped in while-active / cond-non-NULL guards when
+/// the await is inside a while/cond. Mirrors the await block in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:2018).
+_emit_await_suspension :: (
+  fn(
+    segment : StateSegment,
+    state_number : usize,
+    async_block_id : String,
+    resume_function_name : String,
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    segment.await_point,
+    .Some(ap) => {
+      next_s := (state_number + usize(1)).to_string();
+      ffn := get_future_field_name(ap, analysis);
+      // Io futures (extern __yo_io_future_t) are already submitted — no cold-start.
+      fut_expr_ty := match(
+        ap.base.expr,
+        .FnCall(_, _, a, _, _) => match(
+          a.get(usize(0)),
+          .Some(fe) => match(context.base.get_expr_info(fe),.Some(ei) => Option(TypeValue).Some(ei.ty),.None => Option(TypeValue).None),
+          .None => Option(TypeValue).None
+        ),
+        .Atom(_, _) => Option(TypeValue).None
+      );
+      is_io_future := match(fut_expr_ty,.Some(t) => is_io_future_type(t),.None => false);
+      in_cond := match(ap.base.is_inside_cond,.Some(b) => b,.None => false);
+      if(in_cond, {
+        em.emit_string_line(`      // Only await if the cond branch with await was taken`);
+        em.emit_string_line(`      if (sm->${ffn} != NULL) {`);
+      });
+      in_while := match(ap.base.is_inside_while,.Some(b) => b,.None => false);
+      while_info := if(
+        in_while,
+        match(context.async_while_loop_info,.Some(m) => m.get(ap.base.index),.None => Option(WhileLoopInfo).None),
+        Option(WhileLoopInfo).None
+      );
+      match(
+        while_info,
+        .Some(wi) => {
+          wli := match(wi.while_loop_origin_index,.Some(o) => o,.None => ap.base.index);
+          em.emit_string_line(`      // Only await if while loop is still active (not broken)`);
+          em.emit_string_line(`      if (sm->while_loop_${wli.to_string()}_active) {`);
+        },
+        .None => ()
+      );
+      em.emit_string_line(`      // Transition to next state after await`);
+      em.emit_string_line(`      sm->state = ${next_s};`);
+      em.emit_string_line(``);
+      em.emit_string_line(`      // Check if future is ready`);
+      em.emit_string_line(`      int future_state = sm->${ffn}->state;`);
+      em.emit_string_line(`      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`);
+      em.emit_string_line(`        // Already complete — bounded inline fast-path to avoid scheduler round-trip`);
+      em.emit_string_line(`        if (__yo_inline_budget > 0) {`);
+      em.emit_string_line(`          __yo_inline_budget--;`);
+      em.emit_string_line(`          goto state_${next_s};`);
+      em.emit_string_line(`        }`);
+      em.emit_string_line(`        // Budget exhausted — yield once for fairness (microtask yield)`);
+      em.emit_string_line(`        __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+      em.emit_string_line(`        return;`);
+      em.emit_string_line(`      }`);
+      em.emit_string_line(``);
+      if(!(is_io_future), {
+        em.emit_string_line(`      // Future not complete — take event loop reference and start if cold`);
+        em.emit_string_line(`      __yo_incr_rc((void*)sm->${ffn});  // event loop reference`);
+      }, {
+        em.emit_string_line(`      // Io future: no extra ref needed (completion handler does not decr_rc)`);
+      });
+      if(!(is_io_future), {
+        em.emit_string_line(`      if (future_state == 0) {  // 0 = cold (not started)`);
+        ffn_access := String.from("sm->");
+        ffn_access.push_string(ffn.clone());
+        emit_effect_injection_for_sm(ap.base.expr, ffn_access, `        `, context);
+        em.emit_string_line(`        // Cold future — start it via stored resume function pointer`);
+        em.emit_string_line(`        sm->${ffn}->__yo_resume_fn((void*)sm->${ffn});`);
+        em.emit_string_line(``);
+        em.emit_string_line(`        // Re-check: may have completed synchronously`);
+        em.emit_string_line(`        future_state = sm->${ffn}->state;`);
+        em.emit_string_line(`        if (future_state == -1 || future_state == -2) {`);
+        em.emit_string_line(`          // Completed or aborted synchronously — yield for fairness`);
+        em.emit_string_line(`          __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+        em.emit_string_line(`          return;`);
+        em.emit_string_line(`        }`);
+        em.emit_string_line(`      }`);
+      });
+      em.emit_string_line(``);
+      em.emit_string_line(`      // Still pending — register continuation and suspend`);
+      em.emit_string_line(`      sm->${ffn}->continuation_fn = (void (*)(void*))${resume_function_name};`);
+      em.emit_string_line(`      sm->${ffn}->continuation_sm = (void*)sm;`);
+      em.emit_string_line(`      return;`);
+      match(
+        while_info,
+        .Some(wi) => {
+          wli := match(wi.while_loop_origin_index,.Some(o) => o,.None => ap.base.index);
+          em.emit_string_line(`      } else {`);
+          em.emit_string_line(`        // While loop was broken, jump to code after loop`);
+          em.emit_string_line(`        goto after_while_loop_${wli.to_string()};`);
+          em.emit_string_line(`      }`);
+        },
+        .None => ()
+      );
+      if(in_cond, {
+        em.emit_string_line(`      } else {`);
+        em.emit_string_line(`        // Non-await cond branch was taken, skip directly to next state`);
+        em.emit_string_line(`        sm->state = ${next_s};`);
+        em.emit_string_line(`        goto state_${next_s};`);
+        em.emit_string_line(`      }`);
+      });
+    },
+    .None => ()
+  );
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -1345,5 +1464,6 @@ export(
   find_bundle_field_name,
   emit_effect_record_injection_for_sm,
   emit_effect_injection_for_sm,
-  _build_combined_sm_variables
+  _build_combined_sm_variables,
+  _emit_await_suspension
 );
