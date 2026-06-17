@@ -14,6 +14,7 @@ open(import("std/string"));
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
+{ SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { StateSegment, split_into_state_segments, generate_await_expression } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
@@ -930,6 +931,54 @@ resolve_effect_field_from_sm_scope :: (
   );
   Option(String).None
 });
+/// Build the state-machine variable map (variable id → captured variable) the
+/// resume generator binds while emitting resume-state code: the analysis's
+/// captured variables (keyed by id) plus the closure's `__capture` struct fields
+/// (as `outer` captures, keyed by label). Mirrors the `combinedVariables`
+/// construction repeated throughout `generateAsyncBlockResumeFunction`.
+_build_combined_sm_variables :: (
+  fn(analysis : AwaitAnalysisResult, capture_type : Option(TypeValue)) -> HashMap(String, CapturedVariable)
+)({
+  combined := HashMap(String, CapturedVariable).new();
+  cvs := analysis.captured_variables;
+  (i : usize) = usize(0);
+  while(i < cvs.len(), {
+    match(
+      cvs.get(i),
+      .Some(v) => {
+        combined.set(v.base.id.clone(), v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    capture_type,
+    .Some(ct) => {
+      flabels := match(ct,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+      ftypes := match(ct,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+      (j : usize) = usize(0);
+      while(j < flabels.len(), {
+        lbl := match(flabels.get(j),.Some(l) => l,.None => String.from(""));
+        ty := match(ftypes.get(j),.Some(t) => t,.None => TypeValue.Unit);
+        cv := CapturedVariable(
+          base : SuspensionCapturedVariable(
+            id : lbl.clone(),
+            name : lbl.clone(),
+            ty : ty,
+            is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None
+          ),
+          kind : CapturedVariableKind.Outer,
+          is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
+        );
+        combined.set(lbl.clone(), cv);
+        j = (j + usize(1));
+      });
+    },
+    .None => ()
+  );
+  combined
+});
 /// The SM struct field holding the outer effect-bundle to forward into an inner
 /// future via `set_effect("__bundle", ...)` — the captured local (`var_<id>`, or
 /// its field alias) whose type matches the future's struct effect. Mirrors
@@ -1059,13 +1108,21 @@ emit_effect_record_injection_for_sm :: (
                 match(
                   ulabels.get(ui),
                   .Some(ul) => if(ul == flabel, {
-                    match(uvals.get(ui),.Some(mv) => match(mv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(
-                      context.base.functions.get(fid),
-                      .Some(fe) => {
-                        member_code = Option(String).Some(fe.c_name);
-                      },
+                    match(
+                      uvals.get(ui),
+                      .Some(mv) => match(
+                        mv,
+                        .FuncVal(_, _, _, _, _, _, _, _, fid) => match(
+                          context.base.functions.get(fid),
+                          .Some(fe) => {
+                            member_code = Option(String).Some(fe.c_name);
+                          },
+                          .None => ()
+                        ),
+                        _ => ()
+                      ),
                       .None => ()
-                    ), _ => ()),.None => ());
+                    );
                   }),
                   .None => ()
                 );
@@ -1120,13 +1177,21 @@ emit_effect_record_injection_for_sm :: (
                         match(
                           vlabels.get(vi),
                           .Some(vl) => if(vl == flabel, {
-                            match(vvals.get(vi),.Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(
-                              context.base.functions.get(fid),
-                              .Some(fe) => {
-                                member_code = Option(String).Some(fe.c_name);
-                              },
+                            match(
+                              vvals.get(vi),
+                              .Some(fv) => match(
+                                fv,
+                                .FuncVal(_, _, _, _, _, _, _, _, fid) => match(
+                                  context.base.functions.get(fid),
+                                  .Some(fe) => {
+                                    member_code = Option(String).Some(fe.c_name);
+                                  },
+                                  .None => ()
+                                ),
+                                _ => ()
+                              ),
                               .None => ()
-                            ), _ => ()),.None => ());
+                            );
                           }),
                           .None => ()
                         );
@@ -1279,5 +1344,6 @@ export(
   resolve_effect_field_from_sm_scope,
   find_bundle_field_name,
   emit_effect_record_injection_for_sm,
-  emit_effect_injection_for_sm
+  emit_effect_injection_for_sm,
+  _build_combined_sm_variables
 );
