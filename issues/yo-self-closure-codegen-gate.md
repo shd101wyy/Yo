@@ -63,11 +63,48 @@ every program). The async-with-AWAIT path (`generate_async_block`) has the same
 closure dependency for captured async blocks. This gate is purely the closure
 codegen subsystem.
 
-## Fix plan
+## Fix plan (precise entry points)
 
-Port `exprs/closures.ts` → `yo-self/codegen/exprs/closures.yo` (capture-struct
-machinery + closure-function emission) and the closure-collection half of
-`functions/collection.ts` / the closure-discovery pre-pass, registering each
-reachable closure's C function name and capture struct so
-`generate_io_async_sync_call` (and `generate_async_block`'s capture path) can resolve
-them. Then re-run the BASELINE fixture → expect `42`.
+The closure CALLING CONVENTION is the keystone. TS keys it on
+`functionType.isClosure` (declarations.ts:405): a closure function's C prototype
+prepends `void* closure_context` as the FIRST parameter, and the body casts it to
+the capture struct. yo-self's closure functions are emitted by the ordinary
+`generate_function` / `generate_function_prototype` with ONLY their declared params
+— no capture param — so the sync-future resume's `cfn(&sm->__capture, …)` call
+(capture-pointer first) does not match the callee. This mismatch holds even for
+NO-CAPTURE closures (TS still prepends the param; the capture struct is empty).
+
+Steps:
+
+1. **Closure marker.** Add an `is_closure` signal for a Func — either a field on the
+   `Func` TypeValue variant (large blast radius, ~all Func ctor sites) or a side-table
+   keyed by `func_id` (`g_closure_func_ids`, mirroring `g_struct_field_comptime_flags`).
+   Set it where closures are typed (`evaluator/calls/closure_type.yo`,
+   `try_to_implement_closure_by_fn_module_type`).
+2. **Capture param.** In `functions/declarations.yo` (`generate_function_prototype`)
+   and `functions/generation.yo` (`generate_function`), prepend `void* closure_context`
+   when the function is a closure; in the body, establish the capture-access context
+   (`current_closure_capture_type_c_name` already exists) so captured-var atoms emit
+   `((CaptureT*)closure_context)->field`.
+3. **Capture struct registration.** Ensure every closure's capture struct (empty for
+   no-capture) is collected into `context.types` with a C name, so the sync-future
+   `__capture` field type and `generateClosureConstruction` can resolve it. (A
+   no-capture closure currently has `capture_type = None`, closure.yo:212.)
+4. **Capture-expr-per-field machinery.** `allocateClosureCapture` (and async.yo's
+   `_build_async_capture_struct_literal`) need each capture field's source ATOM expr
+   to emit `.field = <atom access>`. yo-self's capture `TypeField` does not carry the
+   capture expr; this is the recurring gap (see the PHASE3_CAPTURE_PENDING marker in
+   `async.yo`). Either store the capture expr on the registered struct fields or
+   reconstruct the atom from the captured-var token + its ExprInfo.
+5. **Construction emitter + registry.** Port `generateClosureConstruction` +
+   `allocateClosureCapture` + `registerImplClosureCallMappings` into `closures.yo`,
+   adding an impl-closure-call registry to the context (yo-self has no
+   `implClosureCallMap`). Wire the closure-construction dispatch in `generation.yo`
+   (`isClosureConstruction` → `generateClosureConstruction`).
+
+Then re-run the BASELINE fixture → expect `42`, and add closure corpus fixtures
+(non-async first: a captured-variable closure called directly) to lock the
+convention before the async paths.
+
+Leaf helpers already ported in `closures.yo`: `check_variable_is_closure_captured`,
+`resolve_some_type_to_concrete`, `is_closure_construction`.
