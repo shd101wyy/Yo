@@ -9,7 +9,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
@@ -21,6 +21,8 @@ open(import("std/string"));
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
+{ emit_async_future_completion } :: import("../exprs/async_completion.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
 /// A contiguous run of body expressions that execute in one FSM state, ending
 /// at an await (or the final segment). Mirrors `StateSegment`
 /// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
@@ -811,6 +813,131 @@ generate_cond_branch_with_await :: (
     i = (i + usize(1));
   });
   remaining_exprs
+});
+/// True when a non-await cond/match branch should emit Future completion because
+/// the cond/match IS the async block body's implicit return value (no assignment
+/// target, inside an SM, and the branch doesn't already return). Mirrors
+/// `shouldEmitAsyncBranchCompletion` (state-code-gen.ts:877).
+_should_emit_async_branch_completion :: (
+  fn(
+    cond_or_match_expr : AstExpr,
+    branch_value : AstExpr,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> bool
+)({
+  no_target := (target_variable_id.is_none() && target_assignment_code.is_none());
+  in_sm := context.in_async_state_machine.is_some();
+  is_body_return := match(
+    context.async_body_return_expr,
+    .Some(bre) => (ast_expr_id(cond_or_match_expr) == ast_expr_id(bre)),
+    .None => false
+  );
+  ((no_target && is_body_return) && in_sm) && !(expr_contains_return_statement(branch_value))
+});
+/// Emit Future completion for a non-await cond/match branch that IS the async
+/// body's implicit return: compute the value into `sm->result`, drop body-level
+/// locals, complete the Future, and return. Mirrors
+/// `emitNonAwaitBranchAsyncCompletion` (state-code-gen.ts:899).
+_emit_non_await_branch_async_completion :: (
+  fn(value : AstExpr, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  is_unit := match(context.base.get_expr_info(value),.Some(ei) => is_unit_type(ei.ty),.None => false);
+  if(ast_expr_is_fn_call(value) && ast_expr_is_fn_call_of(value, BK_BEGIN, Option(usize).None), {
+    begin_args := match(value,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    nba := begin_args.len();
+    // All but the last statement.
+    (j : usize) = usize(0);
+    while((j + usize(1)) < nba, {
+      match(
+        begin_args.get(j),
+        .Some(arg) => {
+          arg_code := _call_generate_expr(arg, indent, context);
+          skip := if(
+            arg_code.len() == usize(0),
+            true,
+            match(context.base.get_expr_info(arg),.Some(ei) => is_temp_variable_name(ei.env.module_path, arg_code),.None => true)
+          );
+          if(!(skip), {
+            em.emit_string_line(`${indent}${arg_code};`);
+          });
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    // Last expression is the result value.
+    if((nba > usize(0)) && !(is_unit), {
+      match(
+        begin_args.get(nba - usize(1)),
+        .Some(last_arg) => {
+          last_code := _call_generate_expr(last_arg, indent, context);
+          if(last_code.len() > usize(0), {
+            em.emit_string_line(`${indent}sm->result = ${last_code};`);
+          });
+        },
+        .None => ()
+      );
+    });
+    // Deferred drops for the begin block.
+    match(
+      context.base.get_expr_info(value),
+      .Some(ei) => match(
+        ei.deferred_drop_expressions,
+        .Some(drops) => {
+          (di : usize) = usize(0);
+          while(di < drops.len(), {
+            match(
+              drops.get(di),
+              .Some(d) => {
+                dc := _call_generate_expr(d, indent, context);
+                if(dc.len() > usize(0), {
+                  em.emit_string_line(`${indent}${dc};`);
+                });
+              },
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  }, {
+    // Non-begin: the expression directly IS the result value.
+    if(!(is_unit), {
+      code := _call_generate_expr(value, indent, context);
+      if(code.len() > usize(0), {
+        em.emit_string_line(`${indent}sm->result = ${code};`);
+      });
+    });
+  });
+  em.emit_string_line(`${indent}// Drop local variables before early completion`);
+  match(
+    context.pending_deferred_drops,
+    .Some(pdd) => {
+      (pi : usize) = usize(0);
+      while(pi < pdd.len(), {
+        match(
+          pdd.get(pi),
+          .Some(d) => {
+            dc := _call_generate_expr(d, indent, context);
+            if((dc.len() > usize(0)) && dc.contains("sm->"), {
+              em.emit_string_line(`${indent}${dc};`);
+            });
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  emit_async_future_completion(em, indent, Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
+  em.emit_string_line(`${indent}return;`);
 });
 export(
   StateSegment,
