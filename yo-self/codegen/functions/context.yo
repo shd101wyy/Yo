@@ -33,6 +33,17 @@ SmWhileContinueInfo :: object(
 /// Marks that code is being generated inside an async state machine; carries
 /// the future type (a SomeType or DynType). Mirrors `inAsyncStateMachine`.
 InAsyncStateMachine :: object(future_type : TypeValue);
+/// An effect-evidence parameter threaded into a function for explicit-effects
+/// dispatch — the implicit-record label, the field label/path within it, the
+/// field's function type, and the sanitized C parameter name. Mirrors
+/// `EvidenceParameter` (declarations.ts:281).
+EvidenceParameter :: object(
+  implicit_label : String,
+  field_label : String,
+  field_path : ArrayList(String),
+  field_function_type : TypeValue,
+  c_param_name : String
+);
 /// Expressions from an enclosing cond branch that come after a while loop — run
 /// only after the loop exits, guarded by the `sm->cond_branch_N` field. Mirrors
 /// the `condBranchPostWhileExprs` shape in `asyncWhileLoopInfo`.
@@ -173,7 +184,10 @@ FunctionGenerationContext :: object(
   /// When set, the cond/match expression that IS the async block body's implicit
   /// return value — its non-await branches must emit Future completion. Mirrors
   /// `asyncBodyReturnExpr`.
-  async_body_return_expr : Option(AstExpr)
+  async_body_return_expr : Option(AstExpr),
+  /// Effect-evidence parameters in scope (implicit label → evidence param), for
+  /// explicit-effects dispatch / effect injection. Mirrors `currentEvidenceParams`.
+  current_evidence_params : Option(HashMap(String, EvidenceParameter))
 );
 impl(
   FunctionGenerationContext,
@@ -209,7 +223,8 @@ impl(
       async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)).None,
       async_next_while_loop_index : Option(usize).None,
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
-      async_body_return_expr : Option(AstExpr).None
+      async_body_return_expr : Option(AstExpr).None,
+      current_evidence_params : Option(HashMap(String, EvidenceParameter)).None
     )
   )
 );
@@ -223,5 +238,6 @@ export(
   WhileLoopInfo,
   CondBranch,
   ChainedCondBranches,
-  AsyncCondBranchInfo
+  AsyncCondBranchInfo,
+  EvidenceParameter
 );

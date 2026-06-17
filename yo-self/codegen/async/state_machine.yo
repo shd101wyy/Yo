@@ -22,7 +22,7 @@ open(import("std/string"));
 { TokenKind } :: import("../../token.yo");
 { Variable, get_variables_from_env } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter } :: import("../functions/context.yo");
 { get_type_string } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
@@ -875,6 +875,60 @@ emit_future_effect_injection_line :: (
   });
   em.emit_string_line(`${indent}${future_access}->__capture.${field_label} = (void*)${member_code};`);
 });
+/// Resolve the C code for an effect-handler field from the surrounding
+/// state-machine scope: a caller evidence param (`current_evidence_params`) wins,
+/// else an outer captured variable (`sm->__capture.<label>`), else `.None`.
+/// Mirrors `resolveEffectFieldFromSMScope` (state-machine.ts:2583).
+resolve_effect_field_from_sm_scope :: (
+  fn(field_label : String, context : FunctionGenerationContext, _expr : AstExpr) -> Option(String)
+)({
+  _ := _expr;
+  match(
+    context.current_evidence_params,
+    .Some(eps) => {
+      it := eps.into_iter();
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .Some(b) => if(b.value.field_label == field_label, {
+            return(Option(String).Some(b.value.c_param_name));
+          }),
+          .None => {
+            go = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  match(
+    context.state_machine_variables,
+    .Some(svm) => {
+      it2 := svm.into_iter();
+      (go2 : bool) = true;
+      while(go2, {
+        match(
+          it2.next(),
+          .Some(b) => {
+            cv := b.value;
+            is_outer := match(cv.kind,.Outer => true,.Local => false);
+            if((cv.base.name == field_label) && is_outer, {
+              s := String.from("sm->__capture.");
+              s.push_string(field_label.clone());
+              return(Option(String).Some(s));
+            });
+          },
+          .None => {
+            go2 = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  Option(String).None
+});
 /// Store the awaited Future for an EXTRA await in a cond/match branch (chained
 /// awaits): a `:= await` / standalone `io.await` stores into the SM future field;
 /// a nested cond/match/while/begin delegates to `generate_await_expression`.
@@ -942,5 +996,6 @@ export(
   expr_contains_return,
   uses_generic_future_interface,
   emit_future_effect_injection_line,
-  generate_remaining_expr_future
+  generate_remaining_expr_future,
+  resolve_effect_field_from_sm_scope
 );
