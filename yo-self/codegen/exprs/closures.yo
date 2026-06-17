@@ -1,10 +1,21 @@
 //! Closure construction + capture emission — mirrors `src/codegen/exprs/closures.ts`.
 //!
-//! PORT STATUS (incremental): only `check_variable_is_closure_captured` (used
-//! by atom emission to decide closure-context vs local access) is ported so
-//! far. The closure-construction emitter (generateClosureConstruction) and the
-//! capture-struct machinery are Phase 3.
+//! PORT STATUS (incremental): the leaf helpers
+//! (`check_variable_is_closure_captured`, `resolve_some_type_to_concrete`,
+//! `is_closure_construction`) are ported. The closure-construction emitter
+//! (`generateClosureConstruction`), the capture-struct allocation
+//! (`allocateClosureCapture`), and `registerImplClosureCallMappings` remain — they
+//! depend on the capture-param closure calling convention (declarations/generation
+//! capture param) + an impl-closure-call registry, which is the deferred Phase-3
+//! closure-codegen subsystem (issues/yo-self-closure-codegen-gate.md).
 open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_some_type } :: import("../../types/guards.yo");
+{ type_implements_fn } :: import("../../evaluator/trait_checking.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ type_key } :: import("../utils/index.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 /// True if `variable_name` resolves (in `env`) to a binding at or below the
 /// closure's capture frame level — i.e. it is captured by the closure rather
@@ -22,4 +33,37 @@ check_variable_is_closure_captured :: (
     }
   )
 });
-export(check_variable_is_closure_captured);
+/// Walk a SomeType's resolved-concrete chain until a non-SomeType is reached
+/// (or no resolution / a self-cycle). Mirrors `resolveSomeTypeToConcrete`
+/// (closures.ts:21). yo-self reads the resolved concrete via the
+/// `lookup_some_resolved_concrete` side-table (no `.resolvedConcreteType` field).
+resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t;
+  (go : bool) = true;
+  while(go && is_some_type(cur), {
+    sid := match(cur,.SomeT({ id : i }) => i, _ => String.from(""));
+    match(
+      lookup_some_resolved_concrete(sid),
+      .Some(rct) => if(type_key(rct) == type_key(cur), {
+        go = false;
+      }, {
+        cur = rct;
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  cur
+});
+/// True if `expr` is a closure-construction call: its ExprInfo carries a
+/// `closure_function_value` and its type implements `Fn`. Mirrors
+/// `isClosureConstruction` (closures.ts:68).
+is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => (ei.closure_function_value.is_some() && type_implements_fn(ei.ty)),
+    .None => false
+  )
+);
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction);
