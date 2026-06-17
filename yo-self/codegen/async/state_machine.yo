@@ -15,9 +15,9 @@ open(import("std/string"));
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
 { TokenKind } :: import("../../token.yo");
@@ -2367,6 +2367,144 @@ _emit_while_continuation :: (
     .None => ()
   );
 });
+/// Emit the full resume function for an async block: the `switch (sm->state)`
+/// header, then per state segment the previous-await result extraction +
+/// cond/while continuation, the segment's own code (`generate_state_segment_code`),
+/// and either the await suspension or the final-state completion. Returns the
+/// body-local drop-code lines (for the dispose function). Mirrors
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:572).
+generate_async_block_resume_function :: (
+  fn(
+    body_expr : AstExpr,
+    async_block_id : String,
+    struct_name : String,
+    resume_function_name : String,
+    analysis : AwaitAnalysisResult,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    context : FunctionGenerationContext
+  ) -> ArrayList(String)
+)({
+  em := context.base.emitter;
+  is_unit_result := match(
+    extract_future_trait_from_type(future_type),
+    .Some(ft) => match(ft,.FutureTraitT({ output : o }) => is_unit_type(o.*), _ => false),
+    .None => false
+  );
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
+  context.async_next_while_loop_index = Option(usize).Some(analysis.await_points.len());
+  segments := split_into_state_segments(body_expr, analysis.await_points);
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    single := ArrayList(AstExpr).new();
+    single.push(body_expr);
+    single
+  });
+  body_last_expr := if(
+    body_exprs.len() > usize(0),
+    match(body_exprs.get(body_exprs.len() - usize(1)),.Some(e) => Option(AstExpr).Some(e),.None => Option(AstExpr).None),
+    Option(AstExpr).None
+  );
+  em.emit_string_line(`// Resume function for async block ${async_block_id}`);
+  em.emit_string_line(`void ${resume_function_name}(${struct_name}* sm) {`);
+  em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\n", sm->state);`);
+  em.emit_string_line(`  int __yo_inline_budget = 32;  // bounded inline fast-path for sync-completed awaits`);
+  em.emit_string_line(`  switch (sm->state) {`);
+  local_var_drop_codes := ArrayList(String).new();
+  (seg_idx : usize) = usize(0);
+  while(seg_idx < segments.len(), {
+    match(
+      segments.get(seg_idx),
+      .Some(segment) => {
+        sn_s := segment.state_number.to_string();
+        is_last_segment := (seg_idx == (segments.len() - usize(1)));
+        em.emit_string_line(
+          `
+    state_${sn_s}:`
+        );
+        em.emit_string_line(`    case ${sn_s}: { // State ${sn_s}`);
+        em.emit_string_line(`      ASYNC_DEBUG("${async_block_id}: Entering state ${sn_s}\n");`);
+        if(segment.state_number > usize(0), {
+          match(
+            analysis.await_points.get(segment.state_number - usize(1)),
+            .Some(prev_await) => {
+              pffn := get_future_field_name(prev_await, analysis);
+              in_cond := match(prev_await.base.is_inside_cond,.Some(b) => b,.None => false);
+              if(in_cond, {
+                em.emit_string_line(`      if (sm->${pffn} != NULL) {`);
+              });
+              _emit_prev_await_result_extraction(async_block_id, segment.state_number, prev_await, analysis, context);
+              _emit_cond_branch_continuation(async_block_id, prev_await, segment, body_expr, future_type, capture_type, analysis, context);
+              if(in_cond, {
+                em.emit_string_line(`      }`);
+              });
+              _emit_while_continuation(prev_await, segment, body_expr, async_block_id, future_type, capture_type, analysis, context);
+            },
+            .None => ()
+          );
+        });
+        p_in := context.in_async_state_machine;
+        p_smv := context.state_machine_variables;
+        p_vr := context.variable_id_remapping;
+        context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+        context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+        context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+        p_pdd := context.pending_deferred_drops;
+        pdd := ArrayList(AstExpr).new();
+        match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+        is_last_with_result := ((is_last_segment && !(is_unit_result)) && (segment.expressions.len() > usize(0)));
+        seg_last := if(
+          segment.expressions.len() > usize(0),
+          match(segment.expressions.get(segment.expressions.len() - usize(1)),.Some(e) => Option(AstExpr).Some(e),.None => Option(AstExpr).None),
+          Option(AstExpr).None
+        );
+        same_as_body_last := match(
+          seg_last,
+          .Some(sl) => match(body_last_expr,.Some(bl) => (ast_expr_id(sl) == ast_expr_id(bl)),.None => false),
+          .None => false
+        );
+        has_seg_await := match(segment.await_point,.Some(_) => true,.None => false);
+        p_abre := context.async_body_return_expr;
+        if((!(is_unit_result) && same_as_body_last) && has_seg_await, {
+          context.async_body_return_expr = seg_last;
+        }, {
+          context.async_body_return_expr = Option(AstExpr).None;
+        });
+        generate_state_segment_code(segment, `      `, context, is_last_with_result);
+        context.async_body_return_expr = p_abre;
+        context.pending_deferred_drops = p_pdd;
+        em.emit_string_line(String.from(""));
+        match(
+          segment.await_point,
+          .Some(_) => {
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+            _emit_await_suspension(segment, segment.state_number, async_block_id, resume_function_name, analysis, context);
+          },
+          .None => if(is_last_segment, {
+            _emit_last_segment_completion(segment, body_expr, local_var_drop_codes, context);
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+          }, {
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+          })
+        );
+        em.emit_string_line(`    }`);
+      },
+      .None => ()
+    );
+    seg_idx = (seg_idx + usize(1));
+  });
+  em.emit_string_line(`  }`);
+  em.emit_string_line(`}`);
+  em.emit_string_line(String.from(""));
+  local_var_drop_codes
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -2397,5 +2535,6 @@ export(
   _emit_cond_branch_continuation,
   _emit_post_while_cond_branch,
   _emit_outer_while_continuation,
-  _emit_while_continuation
+  _emit_while_continuation,
+  generate_async_block_resume_function
 );
