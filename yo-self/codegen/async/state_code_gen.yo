@@ -11,7 +11,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
-{ AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
+{ AwaitPoint, CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
@@ -22,8 +22,10 @@ open(import("std/string"));
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
-{ is_unit_type } :: import("../../types/guards.yo");
-{ EvalValue } :: import("../../value.yo");
+{ is_unit_type, is_enum_type } :: import("../../types/guards.yo");
+{ EvalValue, type_of_eval_value } :: import("../../value.yo");
+{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_enum_variant_c_name } :: import("../utils/index.yo");
+{ generate_comptime_value } :: import("../exprs/comptime_value.yo");
 /// A contiguous run of body expressions that execute in one FSM state, ending
 /// at an await (or the final segment). Mirrors `StateSegment`
 /// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
@@ -1313,6 +1315,187 @@ generate_cond_with_await :: (
   });
   _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, target_assignment_code);
 });
+/// Index of the variant named `variant_name` in the enum's parallel arrays, or
+/// `.None`. Replaces TS `enumType.variants.find(v => v.name === ...)`.
+_find_variant_index :: (fn(variant_names : ArrayList(String), variant_name : String) -> Option(usize))({
+  (i : usize) = usize(0);
+  (found : Option(usize)) = Option(usize).None;
+  while((i < variant_names.len()) && found.is_none(), {
+    match(
+      variant_names.get(i),
+      .Some(vn) => if(vn == variant_name, {
+        found = Option(usize).Some(i);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Emit the non-await body of a cond/match branch with target-aware assignment:
+/// `sm->var_<target>` / `<target_code>` / bare statement. Mirrors the duplicated
+/// non-await emit in `generateMatchWithAwait`'s cases.
+_emit_match_case_value :: (
+  fn(
+    value : AstExpr,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)({
+  em := context.base.emitter;
+  code := _call_generate_expr(value, indent, context);
+  match(
+    target_variable_id,
+    .Some(tvid) => {
+      fname := sanitize_for_c_identifier(`var_${tvid}`, false);
+      if(code.len() > usize(0), {
+        em.emit_string_line(`${indent}sm->${fname} = ${code};`);
+      });
+    },
+    .None => match(
+      target_assignment_code,
+      .Some(tac) => if(code.len() > usize(0), {
+        em.emit_string_line(`${indent}${tac} = ${code};`);
+      }),
+      .None => {
+        skip := if(
+          code.len() == usize(0),
+          true,
+          match(context.base.get_expr_info(value),.Some(ei) => is_temp_variable_name(ei.env.module_path, code),.None => true)
+        );
+        if(!(skip), {
+          em.emit_string_line(`${indent}${code};`);
+        });
+      }
+    )
+  );
+});
+/// Fallback `case <literal>:` emission for a primitive pattern when the
+/// `primitive_pattern_values` ExprInfo is absent: flatten any or-pattern and read
+/// each pattern expr's comptime value. Mirrors the fallback in
+/// `generatePrimitiveMatchWithAwait` (state-code-gen.ts:1631).
+_emit_primitive_fallback_cases :: (fn(case_value : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  flat := flatten_or_pattern_expr(case_value);
+  (i : usize) = usize(0);
+  while(i < flat.len(), {
+    match(
+      flat.get(i),
+      .Some(pat) => match(
+        context.base.get_expr_info(pat),
+        .Some(ei) => match(
+          ei.value,
+          .Some(v) => {
+            cl := generate_comptime_value(v, type_of_eval_value(v), context.base);
+            em.emit_string_line(`${indent}  case ${cl}:`);
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Emit a primitive (integer/bool) match whose branches contain await: a C switch
+/// over the matched value, recording the taken branch + storing each awaited
+/// Future / delegating to `generate_cond_branch_with_await`. Mirrors
+/// `generatePrimitiveMatchWithAwait` (state-code-gen.ts:1582).
+generate_primitive_match_with_await :: (
+  fn(
+    match_expr : AstExpr,
+    cases : ArrayList(AstExpr),
+    matched_value_code : String,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)({
+  em := context.base.emitter;
+  idx_s := await_point.base.index.to_string();
+  branches_with_await := ArrayList(CondBranch).new();
+  em.emit_string_line(`${indent}switch (${matched_value_code}) {`);
+  (i : usize) = usize(0);
+  while(i < cases.len(), {
+    match(
+      cases.get(i),
+      .Some(case_expr) => if(ast_expr_is_fn_call(case_expr) && ast_expr_is_fn_call_of(case_expr, "=>", Option(usize).Some(usize(2))), {
+        c_args := match(case_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        case_value := match(c_args.get(usize(0)),.Some(c) => c,.None => match_expr);
+        case_body := match(c_args.get(usize(1)),.Some(c) => c,.None => match_expr);
+        // Wildcard → default; else emit a `case <literal>:` per pattern value.
+        if(ast_expr_is_atom_of(case_value, "_"), {
+          em.emit_string_line(`${indent}  default:`);
+        }, {
+          pat_vals := match(context.base.get_expr_info(case_value),.Some(ei) => ei.primitive_pattern_values,.None => Option(ArrayList(Option(EvalValue))).None);
+          match(
+            pat_vals,
+            .Some(pvs) => if(pvs.len() > usize(0), {
+              (pi : usize) = usize(0);
+              while(pi < pvs.len(), {
+                match(
+                  pvs.get(pi),
+                  .Some(vopt) => match(
+                    vopt,
+                    .Some(v) => {
+                      cl := generate_comptime_value(v, type_of_eval_value(v), context.base);
+                      em.emit_string_line(`${indent}  case ${cl}:`);
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                pi = (pi + usize(1));
+              });
+            }, {
+              _emit_primitive_fallback_cases(case_value, indent, context);
+            }),
+            .None => {
+              _emit_primitive_fallback_cases(case_value, indent, context);
+            }
+          );
+        });
+        em.emit_string_line(`${indent}    sm->cond_branch_${idx_s} = ${i.to_string()};`);
+        if(branch_has_await(case_body), {
+          remaining := generate_cond_branch_with_await(case_body, await_point, `${indent}    `, context);
+          branches_with_await.push(_make_cond_branch(i, case_body, true, Option(ArrayList(AstExpr)).Some(remaining), context));
+        }, {
+          if(_should_emit_async_branch_completion(match_expr, case_body, context, target_variable_id, target_assignment_code), {
+            _emit_non_await_branch_async_completion(case_body, `${indent}    `, context);
+          }, {
+            _emit_match_case_value(case_body, `${indent}    `, context, target_variable_id, target_assignment_code);
+          });
+          branches_with_await.push(_make_cond_branch(i, case_body, false, Option(ArrayList(AstExpr)).None, context));
+        });
+        em.emit_string_line(`${indent}    break;`);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  em.emit_string_line(`${indent}}`);
+  // Primitive match always stores branch info (TS sets unconditionally).
+  if(context.async_cond_branch_info.is_none(), {
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  });
+  pmap := match(context.async_cond_branch_info,.Some(m) => m,.None => HashMap(usize, AsyncCondBranchInfo).new());
+  pmap.set(
+    await_point.base.index,
+    AsyncCondBranchInfo(
+      branches : branches_with_await,
+      target_variable_id : target_variable_id,
+      target_assignment_code : target_assignment_code,
+      cond_branch_field_index : Option(usize).None,
+      chained_branches : Option(ArrayList(ChainedCondBranches)).None
+    )
+  );
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(pmap);
+});
 export(
   StateSegment,
   split_into_state_segments,
@@ -1327,5 +1510,6 @@ export(
   generate_while_body_with_await,
   generate_while_with_await,
   generate_cond_branch_with_await,
-  generate_cond_with_await
+  generate_cond_with_await,
+  generate_primitive_match_with_await
 );
