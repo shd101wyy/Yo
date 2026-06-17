@@ -24,7 +24,7 @@ open(import("std/string"));
   ast_expr_is_atom,
   ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, is_func_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
@@ -1994,14 +1994,22 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // Generate the closure argument value (registers the closure fn + emits capture
   // struct declarations as a side effect), then resolve its C function name.
   closure_code := _call_generate_expr(closure_arg, indent.clone(), context);
-  closure_function_c_name := match(
+  // The closure's FuncVal: TS reads closureFunctionValue; yo-self may instead carry
+  // the closure as an ordinary anon-fn `value` (set by anonymous_function.yo), so
+  // fall back to cei.value when closure_function_value is absent.
+  closure_fn_val := match(
     cei.closure_function_value,
+    .Some(fv) => Option(EvalValue).Some(fv),
+    .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+  );
+  closure_function_c_name := match(
+    closure_fn_val,
     .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(context.base.get_function_entry(fid),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   );
   capture_c_name := match(cei.capture_type,.Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(cap_ty, context)),.None => Option(String).None);
-  cfn := match(closure_function_c_name,.Some(n) => n,.None => return(String.from("/* Error: no closure function or capture type for io.async sync path */")));
-  ccn := match(capture_c_name,.Some(n) => n,.None => return(String.from("/* Error: no closure function or capture type for io.async sync path */")));
+  cfn := match(closure_function_c_name,.Some(n) => n,.None => return(String.from("/* Error: no closure FUNCTION for io.async sync path */")));
+  ccn := match(capture_c_name,.Some(n) => n,.None => return(String.from("/* Error: no CAPTURE type for io.async sync path */")));
   // Discover the closure's runtime parameters (non-comptime; the bundle param e).
   // yo-self's Func.param_types already excludes comptime params.
   sync_param_slots := ArrayList(SyncParamSlot).new();
