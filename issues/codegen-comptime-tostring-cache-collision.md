@@ -77,3 +77,21 @@ name-only struct comparison being unsound for cache identity). NEXT: inspect
 `compute_compile_time_signature` (helper.yo:~642) and `_find_cached_specialization`
 (helper.yo:~759) — ensure the signature/key includes the concrete runtime param TYPES
 distinctly (str vs i32). Add a `println("cd"); println(i32(7))` fixture once fixed.
+
+## Update 2 (2026-06-17) — §B partially addressed; nested method dispatch is the residual
+Fixed the `println` FUNCTION-call signature to include concrete runtime param types
+(compute_compile_time_signature: was gated on `type_contains_some_type`, now includes
+every non-unit runtime param type — mirrors TS's `paramType.id || typeContainsSomeType`,
+since yo-self TypeValue has no numeric `.id`). This disambiguates `println<str>` /
+`println<i32>` / `println<usize>` so MULTI-INT and int-vs-usize calls print correctly
+(mix: `7`/`42` now correct, previously all-collided). RESIDUAL: a `str` println FOLLOWED
+by an `i32` println still prints a garbage number for the str (`println("cd");
+println(i32(7))` → `<ptr-as-int>/7`). The garbage = the str's byte pointer fed to
+`snprintf("%d")`, i.e. the str println's nested `v.to_string()` dispatched to
+`to_string<i32>` instead of `to_string<str>`. So the residual is in the METHOD-dispatch
+specialization/caching for `to_string` (the `g_method_callee_values` side-table /
+method specialization key), NOT the function-call signature. NEXT: the to_string method
+dispatch must key by the receiver's concrete type so `to_string<str>` and `to_string<i32>`
+don't collide when both exist. (Note: the same-type value-baking fix's param-rebind
+changed this case from `7`/`7` to `<garbage>`/`7` — both wrong; the cross-type method
+dispatch was never correct.)

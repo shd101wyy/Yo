@@ -50,7 +50,7 @@ open(import("std/string"));
   get_all_some_types,
   type_contains_some_type
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -723,13 +723,22 @@ compute_compile_time_signature :: (
     },
     .None => ()
   );
-  // Runtime parameter types that contain SomeType — disambiguates specializations
-  // with the same compile-time args but different concrete closure capture types.
+  // Runtime parameter types — disambiguates specializations with the same
+  // compile-time args but different concrete runtime param types (e.g.
+  // `println(forall(T), v : T)` over `str` vs `i32`: the forall T part may
+  // resolve to "unknown" for an INFERRED type param, so without the concrete
+  // param type here `println<str>` and `println<i32>` would get the SAME
+  // signature and collide on one specialized func id). Mirrors TS
+  // computeCompileTimeSignature, which includes a runtime param type when
+  // `paramType.id || typeContainsSomeType(paramType)` — concrete types carry a
+  // unique `.id` there, so they ARE included. yo-self's TypeValue has no numeric
+  // `.id`, so include every non-unit runtime param type by its (stable) type
+  // string; SomeType-containing types are a subset and still included.
   n_rt := runtime_param_tys.len();
   (rti : usize) = usize(0);
   while(rti < n_rt, {
     ptype := match(runtime_param_tys.get(rti),.Some(t) => t,.None => t_unit());
-    if(type_contains_some_type(ptype), {
+    if(!(is_unit_type(ptype)), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_to_string(ptype))}`;
       parts.push(seg);
     });
