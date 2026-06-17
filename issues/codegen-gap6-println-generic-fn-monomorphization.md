@@ -335,3 +335,33 @@ type-construction/resolution site: when an Array's `length` is set to a concrete
 could also treat `length_var` as resolved when a concrete length is present, but fixing
 the malformed-type production is preferable. Re-validate with `/tmp/af.yo` (buffer must
 be `Array_uint8_t_24`), then `pln.yo`, corpus, std sweep (94/58), `check ./tests`.
+
+### FINAL ROOT-CAUSE (2026-06-17) — two type sources; the VARIABLE type is the culprit
+Tried clearing `length_var` inside `__yo_array_fill` (rebuild the result type as a
+clean `Array(elem, length)` in both the known- and unknown-fill-value branches).
+RESULT: the array VALUE became concrete (`Array_uint8_t_24` got registered + emitted),
+but `/tmp/af.yo` STILL failed — the emitted line is:
+```c
+// Unknown type: Array(u8, U) buffer = (Array_uint8_t_24){ .data = { 0, …24… } };
+```
+i.e. the buffer VARIABLE's DECLARED type prefix is still `Array(u8, U)` while its
+INITIALIZER value is the concrete `Array_uint8_t_24`. So there are TWO independent
+type computations:
+1. the fill VALUE's type — fixable in `__yo_array_fill` (CTFE execution result), and
+2. the buffer VARIABLE's type — taken from the `.fill(0)` CALL's RESOLVED RETURN TYPE,
+   computed at ANALYSIS time as `substitute(comptime(Self))` = `Array(u8, U)` (lvar="U"
+   survives because `substitute` (substitution.yo:98) copies `length_var` verbatim and
+   the forall `U:usize` value binding is never applied as a value substitution).
+
+So the `__yo_array_fill` change is INSUFFICIENT (reverted — kept the tree at the
+validated commit). The fix MUST land in the method-return-type resolution: apply `U:=24`
+to the Array `length_var` when resolving `comptime(Self)`. Concretely the
+Substitution-value-channel design from the PROPOSED FIX section above:
+`subst_add_len_var`/`subst_lookup_len_var` + a `substitute` Array arm that rewrites
+`(elem, _, lvar)` → `(elem', value, "")` when `lvar` has a value binding; and thread the
+`IntLit` value out of `_resolve_one_forall_binding` (impl.yo:361, which currently
+discards it, returning the bare `usize` type) into that channel at the return-resolution
+sites (function.yo inline FuncVal arm ~2342 AND the helper.yo mirror). Optionally ALSO
+keep the `__yo_array_fill` value-type cleanup so value and variable types agree.
+Validate: `/tmp/af.yo` (`Array_uint8_t_24 buffer`), `/tmp/g2.yo`, `pln.yo` → "hello",
+corpus 54/54, std sweep 94/58, `check ./tests`.
