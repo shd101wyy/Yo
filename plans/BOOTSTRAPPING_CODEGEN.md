@@ -508,7 +508,37 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
      `await.ts` + `async.ts`, ~7.6k LOC) must be ported as a co-existing mass
      validated against the BASELINE `42` fixture — there is no single-leaf
      `check`-validatable increment past the data-model/analysis leaves already
-     landed. Prereq INVENTORY (checked 2026-06-17): ExprInfo
+     landed.
+   **ANALYSIS LAYER COMPLETE 2026-06-17 (all check-validatable; corpus 58/58
+   each):** state-machine.ts's NON-emitting functions are fully ported into
+   `state_machine.yo` — `is_io_future_type`, `StateMachineInfo`,
+   `generate_resume_function_declaration`, `get_state_machine_field_name`,
+   `get_future_field_name`, `collect_variable_refs_in_expr`,
+   `compute_cross_boundary_variables` (+`CrossBoundaryResult`),
+   `compute_overlapping_slots` (+`OverlappingSlot`/`OverlappingStorageResult`,
+   greedy graph coloring). state-code-gen.ts's segment model + pure predicates are
+   in `state_code_gen.yo` (NEW, faithful 1-to-1) — `StateSegment`,
+   `split_into_state_segments`, `contains_await_expr`, `branch_has_await`,
+   `expr_contains_return_statement`, `is_or_pattern_expr`,
+   `flatten_or_pattern_expr`. Adaptations: codegen threads `context` for ExprInfo
+   access (env + deferred drop/dup live in the side-table, not on the expr); the
+   `-1` cleanup segment sentinel → `usize.MAX` to keep segment sets unsigned;
+   non-insertion-ordered HashMap → drive iteration off ordered lists for
+   deterministic slot assignment; nested mutable collections use get-mutate-set-
+   back. DEFERRED: `body_contains_while_with_await` (needs `expr_contains_await` →
+   the Func `io_builtin` model gap).
+   **THE REMAINING MASS (no check-validatable leaves left — port together +
+   wire + validate against the `42` fixture):** the C-emitting transformation —
+   state-code-gen.ts `generate_state_segment_code`, `generate_await_expression`,
+   `generate_{cond,match,while}_with_await` (+ the primitive-match / branch-
+   completion helpers); state-machine.ts `generateAsyncBlockResumeFunction`
+   (~1.7k) + `generateRemainingExprFuture` + the effect-injection emitters;
+   `exprs/async.ts` (io.async block) + `exprs/await.ts`. These all call
+   `generate_expr` (main dispatch) and emit C, so they validate only by running
+   the fixture. Wire into codegen_c (replace the `panic("Phase 5")` sites),
+   resolving the Func `io_builtin` field + `g_some_is_extern` WITH their first
+   consumers. This is the dedicated FSM-core-mass session.
+   Prereq INVENTORY (checked 2026-06-17): ExprInfo
      `deferred_{drop,dup}_expressions` ✅ present (expr_info.yo:346/348);
      `type_contains_rc_type` ✅ present (types/utils.yo); `get_variables_from_env`
      ✅ present. MISSING: `split_into_state_segments` (the state-segment variant of
