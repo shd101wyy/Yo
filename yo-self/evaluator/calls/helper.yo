@@ -62,7 +62,8 @@ open(import("std/string"));
   eval_value_eq,
   value_to_string,
   create_type_value,
-  create_unknown_val
+  create_unknown_val,
+  is_unknown_val
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -1095,6 +1096,57 @@ create_specialized_function_inline :: (
           ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
             ArrayList(ImplConcreteTypeInfo).new()
           );
+          // Re-bind a regular parameter to a RUNTIME placeholder (`UnknownVal`
+          // of its specialized type) ONLY when try_to_call left it bound to a
+          // FOLDED COMPTIME CONSTANT (e.g. `println(i32(7))` binds `v` to the
+          // IntLit `7`). A specialized function is reused across every call of
+          // the same type signature, so a baked-in constant is wrong: the body
+          // emitted `to_string(&(int32_t){7})`, and `println(i32(9))` reused it
+          // and printed `7`. GUARD: only rebind params whose current value is a
+          // KNOWN constant — params already bound to an `UnknownVal` (the normal
+          // runtime case, e.g. a `comptime_str` arg coerced to runtime `str`) are
+          // LEFT UNTOUCHED, since blindly re-binding them perturbs the
+          // specialization identity (a str `println` regressed to an undeclared
+          // specialized callee). Mirrors TS specializeFunction using runtime
+          // placeholders for value params.
+          (rbp_i : usize) = usize(0);
+          n_rbp := params.len();
+          while(rbp_i < n_rbp, {
+            p_label := match(params.get(rbp_i),.Some(l) => l,.None => String.from(""));
+            cur_is_folded_const := {
+              pvars := get_variables_from_env(callee_env, p_label);
+              npv := pvars.len();
+              cond(
+                (npv == usize(0)) => false,
+                true => match(
+                  pvars.get(npv - usize(1)),
+                  .Some(pv) => match(pv.value,.Some(vv) => !(is_unknown_val(vv)),.None => false),
+                  .None => false
+                )
+              )
+            };
+            if(cur_is_folded_const, {
+              match(
+                runtime_param_tys.get(rbp_i),
+                .Some(p_ty) => {
+                  _rb := add_variable_to_env(
+                    callee_env,
+                    p_label,
+                    p_ty,
+                    Option(EvalValue).Some(create_unknown_val(p_ty)),
+                    false,
+                    // is_compile_time_only — runtime parameter
+                    false,
+                    false,
+                    false,
+                    synthetic_token(p_label, callee_env.module_path)
+                  );
+                },
+                .None => ()
+              );
+            });
+            rbp_i = (rbp_i + usize(1));
+          });
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
           // regular params bound from try_to_call_function_with_arguments steps 4–11).

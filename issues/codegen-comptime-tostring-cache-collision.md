@@ -46,3 +46,34 @@ and print `7`.
 3. Add a corpus fixture (`println(i32(7)); println(i32(9))` differential) once fixed.
 
 Validate: `/tmp/c_ii.yo` self output `7`/`9` matching TS, corpus + std sweep + tests.
+
+## Update (2026-06-17) — split into TWO sub-bugs; (A) FIXED, (B) open
+Root-caused by inspecting the emitted C — it is NOT a CTFE *result* memo. Two distinct bugs:
+
+### (A) Same-type, different-value baking — ✅ FIXED (helper.yo)
+`println(i32(7)); println(i32(9))` both printed `7`. The specialized `println<i32>`
+body had the FIRST call's constant baked in: `to_string(&(int32_t){7})` instead of
+referencing its parameter `v`. Cause: `create_specialized_function_inline` evaluates
+the body in `callee_env` where `try_to_call` had bound `v` to the call's ARG VALUE —
+fine for a one-shot call, but a specialized function is reused across calls, and a
+comptime-constant arg (IntLit 7) got folded into the body. (`comptime_str` args coerce
+to a runtime `str` UnknownVal, which is why `str` never baked.) FIX: before the spec
+body eval, re-bind each regular param whose current binding is a FOLDED COMPTIME
+CONSTANT (value Some and NOT UnknownVal) to a runtime `UnknownVal` of its specialized
+type. GUARD is essential: an unconditional rebind perturbed the specialization identity
+of `str` params and regressed a str `println` to an undeclared specialized callee — only
+folded-constant params may be rebound; already-runtime (UnknownVal) params are left
+untouched. Result: `c_ii` → `7/9` ✓, str multi-call stable 5/5.
+
+### (B) Cross-type collision (str + int in one unit) — OPEN
+`println("cd"); println(i32(7))` → self `<garbage>/7` (TS `cd/7`). When BOTH a `str`
+and an `i32` specialization of the same generic `println` exist in one compilation
+unit, the `str` call mis-dispatches (emits the generic `void*` callee, or an int
+specialization, producing garbage). This is a specialization-CACHE-KEY collision
+(`compute_compile_time_signature` / `specialized_fn_caches`): `println<str>` and
+`println<i32>` hash/compare equal, so the second-type call reuses or clobbers the
+first. Mirrors the prior HashMap.new cache-collision (`_ctfe_args_equal` /
+name-only struct comparison being unsound for cache identity). NEXT: inspect
+`compute_compile_time_signature` (helper.yo:~642) and `_find_cached_specialization`
+(helper.yo:~759) — ensure the signature/key includes the concrete runtime param TYPES
+distinctly (str vs i32). Add a `println("cd"); println(i32(7))` fixture once fixed.
