@@ -88,6 +88,38 @@ from eval to the codegen read. The marker + capture-param convention + capture_t
 plumbing are all in place; the remaining work is making them connect on the actual
 codegen-read node.
 
+**SYNC-FUTURE INFRA COMPLETE 2026-06-18 (commit 82233c5a5).** The io.async
+sync-future path now emits its full C (capture struct, __yo_param slot, set_effect,
+resume, dispose, constructor); the future var lowers to the correct `<struct>*`
+pointer (get_type_string SomeT branch consults the registry; future c_name
+registered with `*`); the no-capture `__capture` is `(<cap>){0}`. Validated std
+152/152, corpus 58/58.
+
+**FINAL ROOT CAUSE of the last 2 C errors** (closure fn `closure_yo_id_*`
+undeclared; await result `int32_t = void*`): the closure's SYNTHESIZED Func type
+uses SomeT params + return. At the io.async call, `expected_type` is set to None for
+the `Impl(Fn(e:E)->T)` param (function.yo:1807, because it `is_some_type`), so
+`evaluate_anonymous_function_implementation` falls back to
+`_synthesize_default_func_type`, which makes every param + the return a FRESH SomeT
+(closure.yo `_synthesize_default_func_type`). Consequences:
+- `is_function_type_hard_generic` is true (any SomeT param ⇒ generic), so
+  `should_skip_function_codegen` SKIPS the closure function — it is never emitted,
+  yet the resume calls it. (NB: hard-generic checks only PARAMS, not the return —
+  so fixing the params alone would un-skip it.)
+- the result type `T` is an unresolved SomeT ⇒ `void*`, so the await result
+  extraction emits `int32_t = void*`.
+
+The closure is NOT actually generic — its source is `(io : Io) => { … i32 }`
+(concrete param annotation + i32 body). The fix is evaluator-side concrete typing of
+the closure: either (a) thread the resolved `Impl(Fn(e:E)->T)` expected type to the
+closure arg (needs io.async to resolve E=Io,T=i32 — generic specialization), or
+(b) have `evaluate_anonymous_function_implementation` derive the closure's param
+types from the SOURCE annotations (`io : Io`) and its return type from the
+def-time-evaluated body (i32), instead of synthesizing fresh SomeTs. Option (b) is
+the more localized, lower-risk path: make the closure's own concrete signature
+authoritative when annotations/body are available, so it is neither skipped as
+generic nor lowered to void*. This is the final, narrowly-scoped step to emit `42`.
+
 ## Original root cause
 
 `io.async((io)=>{…})` with no `await` inside routes to the sync-future path
