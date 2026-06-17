@@ -33,7 +33,44 @@ void* task = /* Error: no closure function or capture type for io.async sync pat
 The closure body (`x := i32(42); x`) appears as NO C function in the output, and
 the `io.async` call falls into `generate_io_async_sync_call`'s error branch.
 
-## Root cause
+## Root cause (pinned 2026-06-18)
+
+The io.async closure arg is evaluated as a **plain anon-fn value** (its ExprInfo
+carries `value = FuncVal`, set by `anonymous_function.yo`), NOT as an **Impl(Fn)
+closure construction** (which would set `closure_function_value` AND `capture_type`
+via `closure_type.yo`'s `try_to_implement_closure_by_fn_module_type`). Consequences
+for `generate_io_async_sync_call`:
+
+- closure C function name: RESOLVED — the emitter now falls back to `cei.value`
+  (commit e5ee5e93f), and the closure function IS collected via the anon-fn-value
+  path (collection.yo:541).
+- capture struct: STILL MISSING — `cei.capture_type` is `None` (only the Impl(Fn)
+  closure path sets it), so there is no capture struct C name, and
+  `_call_generate_expr(closure_arg)` returns the function-name reference
+  (`_anon_fn_value`), not a capture struct VALUE like TS's
+  `generateClosureConstruction` would.
+
+So the faithful fix is **evaluator-side**: route io.async closure args through the
+Impl(Fn) closure path so they carry `closure_function_value` + an (empty-for-no-
+capture) `capture_type`, and wire `is_closure_construction → generateClosureConstruction`
+in the codegen dispatch (so the arg emits the capture VALUE). A codegen-only hack
+that synthesizes an empty capture for the anon-fn-value case would be a shortcut that
+breaks for captured closures — avoid it.
+
+**NARROWED 2026-06-18 (commit after e5ee5e93f).** io.async's parameter IS
+`action : Impl(Fn(e : E) -> T)` (std/prelude.yo:8182), so the closure SHOULD route
+through `try_to_implement_closure_by_fn_module_type` (closure_type.yo), which sets
+`closure_function_value` + `capture_type`. But the emitter finds `capture_type` is
+`None` on BOTH the runtime-arg expr AND the original `args[0]` expr (a fallback was
+added to consult args[0] — harmless, kept). So the evaluator is NOT invoking the
+closure-typing path for this arg; it types the anon-fn as a plain function value
+instead. The remaining work is to find WHY the closure-against-`Impl(Fn)`-param path
+is skipped during io.async arg evaluation (the generic-fn-call arg-coercion path not
+triggering closure implementation) and fix it so `capture_type` (empty struct for
+no-capture) + `closure_function_value` are set — then `generate_io_async_sync_call`
+resolves the capture struct and the construction emitter produces its value.
+
+## Original root cause
 
 `io.async((io)=>{…})` with no `await` inside routes to the sync-future path
 (`generate_io_async_sync_call`). That emitter needs two things from the closure

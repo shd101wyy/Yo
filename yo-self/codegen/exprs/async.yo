@@ -1949,6 +1949,11 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     .None => return(String.from("/* Error: Missing closure argument for io.async */"))
   );
   cei := match(context.base.get_expr_info(closure_arg),.Some(c) => c,.None => return(String.from("/* Error: Missing closure argument for io.async */")));
+  // The closure-typing metadata (closure_function_value / capture_type) is set by
+  // closure_type.yo on the ORIGINAL closure expr (the FnCall's args[0]); the
+  // runtime-arg expr may be a distinct node carrying only the plain value. Consult
+  // args[0]'s ExprInfo as a fallback for that metadata.
+  orig_closure_ei := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(oa) => context.base.get_expr_info(oa),.None => Option(ExprInfo).None), _ => Option(ExprInfo).None);
   // Result type (resolve unresolved SomeType via the closure body type).
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
   if(is_some_type(result_type), {
@@ -2000,14 +2005,23 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   closure_fn_val := match(
     cei.closure_function_value,
     .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+    .None => match(
+      orig_closure_ei,
+      .Some(oe) => match(oe.closure_function_value,.Some(fv) => Option(EvalValue).Some(fv),.None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)),
+      .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+    )
   );
   closure_function_c_name := match(
     closure_fn_val,
     .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(context.base.get_function_entry(fid),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   );
-  capture_c_name := match(cei.capture_type,.Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(cap_ty, context)),.None => Option(String).None);
+  eff_capture_type := match(
+    cei.capture_type,
+    .Some(c) => Option(TypeValue).Some(c),
+    .None => match(orig_closure_ei,.Some(oe) => oe.capture_type,.None => Option(TypeValue).None)
+  );
+  capture_c_name := match(eff_capture_type,.Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(cap_ty, context)),.None => Option(String).None);
   cfn := match(closure_function_c_name,.Some(n) => n,.None => return(String.from("/* Error: no closure FUNCTION for io.async sync path */")));
   ccn := match(capture_c_name,.Some(n) => n,.None => return(String.from("/* Error: no CAPTURE type for io.async sync path */")));
   // Discover the closure's runtime parameters (non-comptime; the bundle param e).
@@ -2080,7 +2094,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     closure_evidence_args = `, ${_join_names(shim_args)}`;
   });
   sync_set_effect_function_name := `${struct_name.clone()}_set_effect`;
-  generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), future_trait_type, cei.capture_type, context, match(sync_param_slots.get(usize(0)),.Some(s) => Option(SyncParamSlot).Some(s),.None => Option(SyncParamSlot).None));
+  generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), future_trait_type, eff_capture_type, context, match(sync_param_slots.get(usize(0)),.Some(s) => Option(SyncParamSlot).Some(s),.None => Option(SyncParamSlot).None));
   em.emit_declaration_line("");
   // Resume function — calls the closure with the embedded capture data.
   em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* ptr) {`);
@@ -2109,8 +2123,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_line("}");
   em.emit_declaration_line("");
   // Dispose function.
-  capture_drop_fn := match(cei.capture_type,.Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None),.None => Option(String).None);
-  capture_dup_fn := match(cei.capture_type,.Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_dup_function_for_type(cap_ty, context), Option(String).None),.None => Option(String).None);
+  capture_drop_fn := match(eff_capture_type,.Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None),.None => Option(String).None);
+  capture_dup_fn := match(eff_capture_type,.Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_dup_function_for_type(cap_ty, context), Option(String).None),.None => Option(String).None);
   result_drop_fn := get_drop_function_for_type(result_type, context);
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
   has_drop := (match(capture_drop_fn,.Some(_) => true,.None => false) || match(result_drop_fn,.Some(_) => true,.None => false));
