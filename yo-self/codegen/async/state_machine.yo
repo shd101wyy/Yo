@@ -19,8 +19,9 @@ open(import("std/string"));
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_token } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Variable, get_variables_from_env } :: import("../../env.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, get_type_string } :: import("../utils/index.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
 /// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
 ///
@@ -641,6 +642,266 @@ compute_cross_boundary_variables :: (
     variable_segments : variable_segments
   )
 });
+/// A variable's live range `[min_segment, max_segment]` over numbered segments.
+_SlotRange :: object(min : usize, max : usize);
+/// An overlapping storage slot shared by ≥2 non-RC value vars with disjoint live
+/// ranges. Mirrors `OverlappingSlot` (state-machine.ts:310).
+OverlappingSlot :: object(
+  /// The struct field name, e.g. `slot_0`.
+  field_name : String,
+  /// The C type string for this slot.
+  c_type : String,
+  /// Variable names sharing this slot (for comments).
+  variable_names : ArrayList(String)
+);
+/// Result of overlapping storage analysis. Mirrors `OverlappingStorageResult`
+/// (state-machine.ts:322).
+OverlappingStorageResult :: object(
+  /// Maps variable IDs to their aliased slot field name.
+  slot_aliases : HashMap(String, String),
+  /// Slot field definitions for the struct.
+  slots : ArrayList(OverlappingSlot)
+);
+/// Find the eligible captured variable with the given id. Helper for slot naming.
+_find_captured_by_id :: (
+  fn(eligible : ArrayList(CapturedVariable), id : String) -> Option(CapturedVariable)
+)({
+  (i : usize) = usize(0);
+  (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
+  while((i < eligible.len()) && found.is_none(), {
+    match(
+      eligible.get(i),
+      .Some(v) => if(v.base.id == id, {
+        found = Option(CapturedVariable).Some(v);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Compute overlapping storage slots for cross-boundary variables: same-C-type
+/// non-RC value vars whose live ranges don't overlap can share one struct field
+/// (greedy graph coloring per type group). Mirrors `computeOverlappingSlots`
+/// (state-machine.ts:339). NOTE: yo-self HashMap is not insertion-ordered, so
+/// type/var iteration is driven off the ordered `eligible`/`ordered_c_types`
+/// lists to keep slot assignment deterministic (any valid coloring is correct —
+/// disjoint live ranges never collide — so the exact slot_N numbering may differ
+/// from the TS reference without affecting correctness).
+compute_overlapping_slots :: (
+  fn(
+    cross_boundary_ids : HashSet(String),
+    variable_segments : HashMap(String, HashSet(usize)),
+    captured_variables : ArrayList(CapturedVariable),
+    await_future_temp_var_aliases : HashMap(String, String),
+    context : FunctionGenerationContext
+  ) -> OverlappingStorageResult
+)({
+  empty_result := OverlappingStorageResult(
+    slot_aliases : HashMap(String, String).new(),
+    slots : ArrayList(OverlappingSlot).new()
+  );
+  // Eligible = cross-boundary local vars of non-RC value type, not future-aliased.
+  eligible := ArrayList(CapturedVariable).new();
+  (e0 : usize) = usize(0);
+  while(e0 < captured_variables.len(), {
+    match(
+      captured_variables.get(e0),
+      .Some(v) => {
+        is_local := match(v.kind,.Local => true,.Outer => false);
+        if(((is_local && cross_boundary_ids.contains(v.base.id.clone())) && !(await_future_temp_var_aliases.contains_key(v.base.id.clone()))) && !(type_contains_rc_type(v.base.ty)), {
+          eligible.push(v);
+        });
+      },
+      .None => ()
+    );
+    e0 = (e0 + usize(1));
+  });
+  if(eligible.len() < usize(2), {
+    return(empty_result);
+  });
+  // Live range [min,max] over numbered segments (exclude CLEANUP_SEGMENT).
+  ranges := HashMap(String, _SlotRange).new();
+  (r0 : usize) = usize(0);
+  while(r0 < eligible.len(), {
+    match(
+      eligible.get(r0),
+      .Some(v) => match(
+        variable_segments.get(v.base.id.clone()),
+        .Some(segs) => {
+          (has_any : bool) = false;
+          (mn : usize) = usize(0);
+          (mx : usize) = usize(0);
+          seg_it := segs.into_iter();
+          (sgo : bool) = true;
+          while(sgo, {
+            match(
+              seg_it.next(),
+              .Some(s) => if(s != CLEANUP_SEGMENT, {
+                if(!(has_any), {
+                  mn = s;
+                  mx = s;
+                  has_any = true;
+                }, {
+                  if(s < mn, {
+                    mn = s;
+                  });
+                  if(s > mx, {
+                    mx = s;
+                  });
+                });
+              }),
+              .None => {
+                sgo = false;
+              }
+            );
+          });
+          if(has_any, {
+            ranges.set(v.base.id.clone(), _SlotRange(min : mn, max : mx));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    r0 = (r0 + usize(1));
+  });
+  if(ranges.len() < usize(2), {
+    return(empty_result);
+  });
+  // Group eligible vars (that have a range) by C type — iterate `eligible` order
+  // for determinism; `ordered_c_types` records first-appearance order.
+  by_type := HashMap(String, ArrayList(String)).new();
+  ordered_c_types := ArrayList(String).new();
+  (g0 : usize) = usize(0);
+  while(g0 < eligible.len(), {
+    match(
+      eligible.get(g0),
+      .Some(v) => {
+        vid := v.base.id.clone();
+        if(ranges.contains_key(vid.clone()), {
+          ctype := get_type_string(v.base.ty, context.base);
+          if(!(by_type.contains_key(ctype.clone())), {
+            ordered_c_types.push(ctype.clone());
+          });
+          group := match(by_type.get(ctype.clone()),.Some(grp) => grp,.None => ArrayList(String).new());
+          group.push(vid.clone());
+          by_type.set(ctype.clone(), group);
+        });
+      },
+      .None => ()
+    );
+    g0 = (g0 + usize(1));
+  });
+  slot_aliases := HashMap(String, String).new();
+  slots := ArrayList(OverlappingSlot).new();
+  (next_slot_index : usize) = usize(0);
+  (ot : usize) = usize(0);
+  while(ot < ordered_c_types.len(), {
+    ctype := match(ordered_c_types.get(ot),.Some(c) => c,.None => String.new());
+    var_ids := match(by_type.get(ctype.clone()),.Some(g) => g,.None => ArrayList(String).new());
+    if(var_ids.len() >= usize(2), {
+      // Interference graph: two vars conflict if their ranges overlap.
+      conflicts := HashMap(String, HashSet(String)).new();
+      (ii : usize) = usize(0);
+      while(ii < var_ids.len(), {
+        id_i := match(var_ids.get(ii),.Some(x) => x,.None => String.new());
+        (jj : usize) = (ii + usize(1));
+        while(jj < var_ids.len(), {
+          id_j := match(var_ids.get(jj),.Some(x) => x,.None => String.new());
+          ra := match(ranges.get(id_i.clone()),.Some(r) => r,.None => _SlotRange(min : usize(0), max : usize(0)));
+          rb := match(ranges.get(id_j.clone()),.Some(r) => r,.None => _SlotRange(min : usize(0), max : usize(0)));
+          if((ra.min <= rb.max) && (rb.min <= ra.max), {
+            ci := match(conflicts.get(id_i.clone()),.Some(s) => s,.None => HashSet(String).new());
+            ci.add(id_j.clone());
+            conflicts.set(id_i.clone(), ci);
+            cj := match(conflicts.get(id_j.clone()),.Some(s) => s,.None => HashSet(String).new());
+            cj.add(id_i.clone());
+            conflicts.set(id_j.clone(), cj);
+          });
+          jj = (jj + usize(1));
+        });
+        ii = (ii + usize(1));
+      });
+      // Greedy coloring.
+      colors := HashMap(String, usize).new();
+      (ki : usize) = usize(0);
+      while(ki < var_ids.len(), {
+        var_id := match(var_ids.get(ki),.Some(x) => x,.None => String.new());
+        used_colors := HashSet(usize).new();
+        cset := match(conflicts.get(var_id.clone()),.Some(s) => s,.None => HashSet(String).new());
+        c_it := cset.into_iter();
+        (cgo : bool) = true;
+        while(cgo, {
+          match(
+            c_it.next(),
+            .Some(conflict_id) => match(
+              colors.get(conflict_id),
+              .Some(col) => {
+                used_colors.add(col);
+              },
+              .None => ()
+            ),
+            .None => {
+              cgo = false;
+            }
+          );
+        });
+        (color : usize) = usize(0);
+        while(used_colors.contains(color), {
+          color = (color + usize(1));
+        });
+        colors.set(var_id.clone(), color);
+        ki = (ki + usize(1));
+      });
+      // Group var_ids by color (iterate var_ids order; ordered_colors for output).
+      color_to_vars := HashMap(usize, ArrayList(String)).new();
+      ordered_colors := ArrayList(usize).new();
+      (cti : usize) = usize(0);
+      while(cti < var_ids.len(), {
+        var_id := match(var_ids.get(cti),.Some(x) => x,.None => String.new());
+        col := match(colors.get(var_id.clone()),.Some(c) => c,.None => usize(0));
+        if(!(color_to_vars.contains_key(col)), {
+          ordered_colors.push(col);
+        });
+        cgroup := match(color_to_vars.get(col),.Some(g) => g,.None => ArrayList(String).new());
+        cgroup.push(var_id.clone());
+        color_to_vars.set(col, cgroup);
+        cti = (cti + usize(1));
+      });
+      // Create a slot per color group with ≥2 members (actual sharing).
+      (oci : usize) = usize(0);
+      while(oci < ordered_colors.len(), {
+        col := match(ordered_colors.get(oci),.Some(c) => c,.None => usize(0));
+        group_var_ids := match(color_to_vars.get(col),.Some(g) => g,.None => ArrayList(String).new());
+        if(group_var_ids.len() >= usize(2), {
+          field_name := String.from("slot_");
+          field_name.push_string(next_slot_index.to_string());
+          var_names := ArrayList(String).new();
+          (vni : usize) = usize(0);
+          while(vni < group_var_ids.len(), {
+            gid := match(group_var_ids.get(vni),.Some(x) => x,.None => String.new());
+            nm := match(
+              _find_captured_by_id(eligible, gid.clone()),
+              .Some(fv) => fv.base.name.clone(),
+              .None => gid.clone()
+            );
+            var_names.push(nm);
+            slot_aliases.set(gid.clone(), field_name.clone());
+            vni = (vni + usize(1));
+          });
+          slots.push(
+            OverlappingSlot(field_name : field_name.clone(), c_type : ctype.clone(), variable_names : var_names)
+          );
+          next_slot_index = (next_slot_index + usize(1));
+        });
+        oci = (oci + usize(1));
+      });
+    });
+    ot = (ot + usize(1));
+  });
+  OverlappingStorageResult(slot_aliases : slot_aliases, slots : slots)
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -652,5 +913,8 @@ export(
   get_future_field_name,
   CrossBoundaryResult,
   collect_variable_refs_in_expr,
-  compute_cross_boundary_variables
+  compute_cross_boundary_variables,
+  OverlappingSlot,
+  OverlappingStorageResult,
+  compute_overlapping_slots
 );
