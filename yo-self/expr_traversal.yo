@@ -34,6 +34,7 @@ open(import("std/string"));
   BK_COND,
   BK_MATCH
 } :: import("./expr.yo");
+{ is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
 /// Traverse an evaluated expression tree checking for an `unwind` usage.
 /// Skips new function/closure boundaries; recurses into cond/match branches.
 ///
@@ -267,8 +268,88 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
     }
   )
 );
+/// Walk `expr` looking for an `io.await(...)` call. Skips nested `io.async(...)`
+/// scopes and function/closure boundaries (`=>`), but recurses directly into
+/// `cond`/`match` branch parts (bypassing the `=>` boundary check there).
+///
+/// Mirrors `exprContainsAwait` in `src/expr-traversal.ts`. Faithful adaptations
+/// to the yo-self AST-only convention (like the siblings above): io.await /
+/// io.async are detected via `is_io_await_call` / `is_io_async_call` (dot-access
+/// pattern) instead of the TS `Func.ioBuiltin` marker (not in yo-self's Func
+/// TypeValue); the ExprInfo-only cases (`macroExpansion`, type-value /
+/// `typeImplementsFn` callee skips) are omitted — `ExprInfo` lives in a side
+/// table not reachable from a raw `AstExpr`.
+expr_contains_await :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, fn_box, args, _, _) => {
+      // io.await(future) — the await we are looking for.
+      if(is_io_await_call(expr), {
+        return(true);
+      });
+      // cond/match: recurse into branch parts directly (bypassing => at arg level).
+      (is_cond_or_match : bool) = (
+        ast_expr_is_fn_call_of(expr, BK_COND,.None) ||
+          ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
+      );
+      if(is_cond_or_match, {
+        if(recur(fn_box.*), {
+          return(true);
+        });
+        (n_cm : usize) = args.len();
+        (i_cm : usize) = usize(0);
+        while(i_cm < n_cm, {
+          arg := match(args.get(i_cm),.Some(a) => a,.None => make_err_expr());
+          if(ast_expr_is_fn_call_of(arg, "=>",.None), {
+            match(
+              arg,
+              .Atom(_, _) => (),
+              .FnCall(_, _, branch_args, _, _) => {
+                (n_ba : usize) = branch_args.len();
+                (j : usize) = usize(0);
+                while(j < n_ba, {
+                  ba := match(branch_args.get(j),.Some(a) => a,.None => make_err_expr());
+                  if(recur(ba), {
+                    return(true);
+                  });
+                  j = (j + usize(1));
+                });
+              }
+            );
+          }, {
+            if(recur(arg), {
+              return(true);
+            });
+          });
+          i_cm = (i_cm + usize(1));
+        });
+        return(false);
+      });
+      // Skip nested io.async scopes and function/closure boundaries.
+      if(is_io_async_call(expr) || is_function_boundary_arrow(expr), {
+        return(false);
+      });
+      // General case: recurse into func and all args.
+      if(recur(fn_box.*), {
+        return(true);
+      });
+      (n : usize) = args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        if(recur(arg), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
 export(
   evaluated_body_contains_unwind,
   expr_tree_contains_return,
-  expr_contains_loop_terminator
+  expr_contains_loop_terminator,
+  expr_contains_await
 );

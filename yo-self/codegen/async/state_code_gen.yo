@@ -8,11 +8,12 @@
 //! `42` io.async/io.await differential fixture.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
+{ expr_contains_await } :: import("../../expr_traversal.yo");
 /// A contiguous run of body expressions that execute in one FSM state, ending
 /// at an await (or the final segment). Mirrors `StateSegment`
 /// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
@@ -209,6 +210,26 @@ flatten_or_pattern_expr :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
   });
   out
 });
+/// True when a function body has a top-level `while` loop containing an
+/// `io.await` (such loops need the while-with-await state-machine lowering).
+/// Unwraps a `begin(...)` block to its statements. Mirrors
+/// `bodyContainsWhileWithAwait` (state-code-gen.ts:2120).
+body_contains_while_with_await :: (fn(body_expr : AstExpr) -> bool)({
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    single := ArrayList(AstExpr).new();
+    single.push(body_expr);
+    single
+  });
+  (i : usize) = usize(0);
+  while(i < body_exprs.len(), {
+    e := match(body_exprs.get(i),.Some(x) => x,.None => body_expr);
+    if(ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None) && expr_contains_await(e), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 export(
   StateSegment,
   split_into_state_segments,
@@ -216,5 +237,6 @@ export(
   branch_has_await,
   expr_contains_return_statement,
   is_or_pattern_expr,
-  flatten_or_pattern_expr
+  flatten_or_pattern_expr,
+  body_contains_while_with_await
 );
