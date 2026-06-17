@@ -16,13 +16,14 @@ open(import("std/string"));
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { expr_contains_await } :: import("../../expr_traversal.yo");
-{ FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs } :: import("../functions/context.yo");
+{ FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
 { is_unit_type } :: import("../../types/guards.yo");
+{ EvalValue } :: import("../../value.yo");
 /// A contiguous run of body expressions that execute in one FSM state, ending
 /// at an await (or the final segment). Mirrors `StateSegment`
 /// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
@@ -939,6 +940,379 @@ _emit_non_await_branch_async_completion :: (
   emit_async_future_completion(em, indent, Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
   em.emit_string_line(`${indent}return;`);
 });
+/// The comptime bool value of `expr` (`.Some(b)`), or `.None` if not a comptime
+/// bool. Mirrors `isBooleanValue(expr.$?.value)` + `.value` extraction.
+_comptime_bool_value :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(bool))(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.value,
+      .Some(v) => match(v,.BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
+      .None => Option(bool).None
+    ),
+    .None => Option(bool).None
+  )
+);
+/// True when the cond/match entry already stored at `idx` has a branch with
+/// real remaining (post-await) code — the inner cond's entry should not be
+/// overwritten. Mirrors the `innerHasRemainingCode` checks in
+/// `generateCondWithAwait`.
+_cond_inner_has_remaining_code :: (fn(context : FunctionGenerationContext, idx : usize) -> bool)(
+  match(
+    context.async_cond_branch_info,
+    .Some(m) => match(
+      m.get(idx),
+      .Some(entry) => {
+        (found : bool) = false;
+        (bi : usize) = usize(0);
+        while((bi < entry.branches.len()) && !(found), {
+          match(
+            entry.branches.get(bi),
+            .Some(b) => if(b.has_await && match(b.remaining_exprs,.Some(r) => (r.len() > usize(0)),.None => false), {
+              found = true;
+            }),
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        found
+      },
+      .None => false
+    ),
+    .None => false
+  )
+);
+/// Emit a non-await cond/match branch value inline: begin blocks emit each
+/// statement (break in an async while → active-flag + goto end; control-flow
+/// always; else skip empty/temp) + deferred drops; non-begin emits the single
+/// value with the same break/control-flow handling. Factors the duplicated
+/// inline-emit logic in `generateCondWithAwait`.
+_emit_branch_value_inline :: (
+  fn(value : AstExpr, indent : String, await_point : AwaitPoint, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  idx_s := await_point.base.index.to_string();
+  in_while := match(await_point.base.is_inside_while,.Some(b) => b,.None => false);
+  if(ast_expr_is_fn_call(value) && ast_expr_is_fn_call_of(value, BK_BEGIN, Option(usize).None), {
+    begin_args := match(value,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    (j : usize) = usize(0);
+    while(j < begin_args.len(), {
+      match(
+        begin_args.get(j),
+        .Some(arg) => {
+          arg_code := _call_generate_expr(arg, indent, context);
+          if((arg_code == "break") && in_while, {
+            em.emit_string_line(`${indent}sm->while_loop_${idx_s}_active = false;`);
+            em.emit_string_line(`${indent}goto while_loop_${idx_s}_end;`);
+          }, {
+            is_cf := (((arg_code == "break") || (arg_code == "continue")) || arg_code.contains("return"));
+            emit_it := if(
+              arg_code.len() == usize(0),
+              false,
+              if(
+                is_cf,
+                true,
+                match(context.base.get_expr_info(arg),.Some(ei) => !(is_temp_variable_name(ei.env.module_path, arg_code)),.None => false)
+              )
+            );
+            if(emit_it, {
+              em.emit_string_line(`${indent}${arg_code};`);
+            });
+          });
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    match(
+      context.base.get_expr_info(value),
+      .Some(ei) => match(
+        ei.deferred_drop_expressions,
+        .Some(drops) => {
+          (di : usize) = usize(0);
+          while(di < drops.len(), {
+            match(
+              drops.get(di),
+              .Some(d) => {
+                dc := _call_generate_expr(d, indent, context);
+                if(dc.len() > usize(0), {
+                  em.emit_string_line(`${indent}${dc};`);
+                });
+              },
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  }, {
+    code := _call_generate_expr(value, indent, context);
+    if((code == "break") && in_while, {
+      em.emit_string_line(`${indent}sm->while_loop_${idx_s}_active = false;`);
+      em.emit_string_line(`${indent}goto while_loop_${idx_s}_end;`);
+    }, {
+      is_cf := (((code == "break") || (code == "continue")) || code.contains("return"));
+      emit_it := if(
+        code.len() == usize(0),
+        false,
+        if(
+          is_cf,
+          true,
+          match(context.base.get_expr_info(value),.Some(ei) => !(is_temp_variable_name(ei.env.module_path, code)),.None => false)
+        )
+      );
+      if(emit_it, {
+        em.emit_string_line(`${indent}${code};`);
+      });
+    });
+  });
+});
+/// Record the `cond_branch_post_while_exprs` on the while-loop info entry for
+/// `await_point.base.index` when an in-loop cond branch has post-await code that
+/// must run only after the loop exits. Helper for `generate_cond_with_await`.
+_attach_cond_branch_post_while :: (
+  fn(branch_index : usize, value : AstExpr, remaining : ArrayList(AstExpr), context : FunctionGenerationContext, idx : usize) -> unit
+)({
+  match(
+    context.async_while_loop_info,
+    .Some(wmap) => match(
+      wmap.get(idx),
+      .Some(winfo) => {
+        ddx := match(context.base.get_expr_info(value),.Some(ei) => ei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+        winfo.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
+          CondBranchPostWhileExprs(
+            branch_index : branch_index,
+            cond_branch_field_index : idx,
+            exprs : remaining,
+            deferred_drop_expressions : ddx,
+            skip_cond_branch_check : Option(bool).Some(_cond_inner_has_remaining_code(context, idx))
+          )
+        );
+        wmap.set(idx, winfo);
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+/// Make a `CondBranch` for `index`/`value` recording its await-ness, remaining
+/// (post-await) exprs, and the branch begin-block's deferred drops.
+_make_cond_branch :: (
+  fn(index : usize, value : AstExpr, has_await : bool, remaining : Option(ArrayList(AstExpr)), context : FunctionGenerationContext) -> CondBranch
+)(
+  CondBranch(
+    index : index,
+    value : value,
+    has_await : has_await,
+    remaining_exprs : remaining,
+    deferred_drop_expressions : match(context.base.get_expr_info(value),.Some(ei) => ei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None)
+  )
+);
+/// Store the cond/match branch info at `idx` unless a nested cond already stored
+/// an entry with real remaining code. Helper for `generate_cond_with_await` /
+/// `generate_match_with_await`.
+_store_cond_branch_info :: (
+  fn(
+    context : FunctionGenerationContext,
+    idx : usize,
+    branches : ArrayList(CondBranch),
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)({
+  if(context.async_cond_branch_info.is_none(), {
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  });
+  if(!(_cond_inner_has_remaining_code(context, idx)), {
+    cmap := match(context.async_cond_branch_info,.Some(m) => m,.None => HashMap(usize, AsyncCondBranchInfo).new());
+    cmap.set(
+      idx,
+      AsyncCondBranchInfo(
+        branches : branches,
+        target_variable_id : target_variable_id,
+        target_assignment_code : target_assignment_code,
+        cond_branch_field_index : Option(usize).None,
+        chained_branches : Option(ArrayList(ChainedCondBranches)).None
+      )
+    );
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(cmap);
+  });
+});
+/// Emit a `cond(...)` whose branches contain await: an if-else chain that records
+/// the taken branch in `sm->cond_branch_N`, stores each awaited Future / delegates
+/// the await branch to `generate_cond_branch_with_await`, and records branch info
+/// (+ while-loop post-exprs) for the resume generator. Mirrors
+/// `generateCondWithAwait` (state-code-gen.ts:416).
+generate_cond_with_await :: (
+  fn(
+    cond_expr : AstExpr,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)({
+  em := context.base.emitter;
+  idx_s := await_point.base.index.to_string();
+  if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
+    em.emit_string_line(`${indent}// Error: Expected cond expression`);
+    return();
+  });
+  args := match(cond_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  if(args.len() == usize(0), {
+    em.emit_string_line(`${indent}// Error: cond must have at least one branch`);
+    return();
+  });
+  branches_with_await := ArrayList(CondBranch).new();
+  // First pass: find the first non-false branch + whether it is comptime-true.
+  (first_non_false : Option(usize)) = Option(usize).None;
+  (fpi : usize) = usize(0);
+  while((fpi < args.len()) && first_non_false.is_none(), {
+    match(
+      args.get(fpi),
+      .Some(pair) => if(ast_expr_is_fn_call(pair) && ast_expr_is_fn_call_of(pair, "=>", Option(usize).None), {
+        cond_arg := match(pair,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+        match(
+          cond_arg,
+          .Some(cnd) => {
+            is_false := match(_comptime_bool_value(cnd, context),.Some(b) => !(b),.None => false);
+            if(!(is_false), {
+              first_non_false = Option(usize).Some(fpi);
+            });
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    fpi = (fpi + usize(1));
+  });
+  can_optimize_to_direct := match(
+    first_non_false,
+    .Some(fi) => match(
+      args.get(fi),
+      .Some(fa) => if(ast_expr_is_fn_call(fa) && ast_expr_is_fn_call_of(fa, "=>", Option(usize).None), {
+        fc := match(fa,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+        match(fc,.Some(c) => match(_comptime_bool_value(c, context),.Some(b) => b,.None => false),.None => false)
+      }, false),
+      .None => false
+    ),
+    .None => false
+  );
+  // Compile-time-known: only generate the taken branch.
+  if(can_optimize_to_direct, {
+    match(
+      first_non_false,
+      .Some(fi) => {
+        pair := match(args.get(fi),.Some(p) => p,.None => cond_expr);
+        match(
+          match(pair,.FnCall(_, _, a, _, _) => a.get(usize(1)),.Atom(_, _) => Option(AstExpr).None),
+          .Some(value) => {
+            if(branch_has_await(value), {
+              remaining := generate_cond_branch_with_await(value, await_point, indent, context);
+              has_while := match(context.async_while_loop_info,.Some(m) => match(m.get(await_point.base.index),.Some(_) => true,.None => false),.None => false);
+              if(has_while && (remaining.len() > usize(0)), {
+                _attach_cond_branch_post_while(fi, value, remaining, context, await_point.base.index);
+                branches_with_await.push(_make_cond_branch(fi, value, true, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()), context));
+              }, {
+                branches_with_await.push(_make_cond_branch(fi, value, true, Option(ArrayList(AstExpr)).Some(remaining), context));
+              });
+            }, {
+              if(_should_emit_async_branch_completion(cond_expr, value, context, target_variable_id, target_assignment_code), {
+                _emit_non_await_branch_async_completion(value, indent, context);
+              }, {
+                _emit_branch_value_inline(value, indent, await_point, context);
+              });
+              branches_with_await.push(_make_cond_branch(fi, value, false, Option(ArrayList(AstExpr)).None, context));
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, target_assignment_code);
+    return();
+  });
+  // General if-else chain.
+  (has_emitted_branch : bool) = false;
+  (else_block_depth : usize) = usize(0);
+  (current_indent : String) = indent.clone();
+  (ci : usize) = usize(0);
+  while(ci < args.len(), {
+    match(
+      args.get(ci),
+      .Some(pair) => if(!(ast_expr_is_fn_call(pair) && ast_expr_is_fn_call_of(pair, "=>", Option(usize).None)), {
+        em.emit_string_line(`${current_indent}// Error: Expected => pair in cond`);
+      }, {
+        p_args := match(pair,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        condition := match(p_args.get(usize(0)),.Some(c) => c,.None => cond_expr);
+        value_opt := p_args.get(usize(1));
+        // Skip comptime-false branches.
+        is_false := match(_comptime_bool_value(condition, context),.Some(b) => !(b),.None => false);
+        match(
+          value_opt,
+          .None => {
+            em.emit_string_line(`${current_indent}// Error: Invalid pair in cond`);
+          },
+          .Some(value) => if(is_false, (), {
+            if(has_emitted_branch, {
+              em.emit_string_line(`${current_indent}else {`);
+              else_block_depth = (else_block_depth + usize(1));
+              current_indent.push_str("  ");
+            });
+            is_last := (ci == (args.len() - usize(1)));
+            is_true_atom := (ast_expr_is_atom(condition) && (ast_expr_token(condition).value == "true"));
+            emit_if := !(is_last && is_true_atom);
+            if(emit_if, {
+              cond_code := _call_generate_expr(condition, current_indent, context);
+              em.emit_string_line(`${current_indent}if (${cond_code}) {`);
+            }, {
+              em.emit_string_line(`${current_indent}{`);
+            });
+            has_emitted_branch = true;
+            value_indent := current_indent.clone();
+            value_indent.push_str("  ");
+            if(branch_has_await(value), {
+              em.emit_string_line(`${value_indent}sm->cond_branch_${idx_s} = ${ci.to_string()};`);
+              remaining := generate_cond_branch_with_await(value, await_point, value_indent, context);
+              has_while := match(context.async_while_loop_info,.Some(m) => match(m.get(await_point.base.index),.Some(_) => true,.None => false),.None => false);
+              if(has_while && (remaining.len() > usize(0)), {
+                _attach_cond_branch_post_while(ci, value, remaining, context, await_point.base.index);
+                branches_with_await.push(_make_cond_branch(ci, value, true, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()), context));
+              }, {
+                branches_with_await.push(_make_cond_branch(ci, value, true, Option(ArrayList(AstExpr)).Some(remaining), context));
+              });
+            }, {
+              if(_should_emit_async_branch_completion(cond_expr, value, context, target_variable_id, target_assignment_code), {
+                _emit_non_await_branch_async_completion(value, value_indent, context);
+              }, {
+                _emit_branch_value_inline(value, value_indent, await_point, context);
+              });
+              branches_with_await.push(_make_cond_branch(ci, value, false, Option(ArrayList(AstExpr)).None, context));
+            });
+            em.emit_string_line(`${current_indent}}`);
+          })
+        );
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  // Close all else blocks.
+  (cd : usize) = usize(0);
+  while(cd < else_block_depth, {
+    new_len := (current_indent.len() - usize(2));
+    current_indent = current_indent.substring(usize(0), new_len);
+    em.emit_string_line(`${current_indent}}`);
+    cd = (cd + usize(1));
+  });
+  _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, target_assignment_code);
+});
 export(
   StateSegment,
   split_into_state_segments,
@@ -952,5 +1326,6 @@ export(
   generate_state_segment_code,
   generate_while_body_with_await,
   generate_while_with_await,
-  generate_cond_branch_with_await
+  generate_cond_branch_with_await,
+  generate_cond_with_await
 );
