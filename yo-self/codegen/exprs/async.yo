@@ -40,9 +40,11 @@ open(import("std/string"));
 { type_contains_rc_type } :: import("../../types/utils.yo");
 {
   CapturedVariable,
+  CapturedVariableKind,
   AwaitPoint,
   AwaitAnalysisResult
 } :: import("../../evaluator/async/await_analysis_types.yo");
+{ SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { TypeField, get_struct_fields } :: import("../../evaluator/types/field.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
 { ExprInfo, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
@@ -68,7 +70,8 @@ open(import("std/string"));
   OverlappingSlot,
   find_bundle_field_name,
   compute_cross_boundary_variables,
-  compute_overlapping_slots
+  compute_overlapping_slots,
+  generate_async_block_resume_function
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
@@ -1540,6 +1543,226 @@ generate_async_block :: (fn(expr : AstExpr, indent : String, context : FunctionG
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = ${constructor_call};`);
   result_var
 });
+/// Build a CapturedVariable for a closure-param / capture-field SM slot.
+_make_sm_captured_variable :: (fn(id : String, name : String, ty : TypeValue, kind : CapturedVariableKind) -> CapturedVariable)(
+  CapturedVariable(
+    base : SuspensionCapturedVariable(
+      id : id,
+      name : name,
+      ty : ty,
+      is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None
+    ),
+    kind : kind,
+    is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
+  )
+);
+/// Copy a HashMap(String, String) (shallow) — for building merged field aliases
+/// without mutating the source map.
+_copy_string_map :: (fn(src : HashMap(String, String)) -> HashMap(String, String))({
+  out := HashMap(String, String).new();
+  it := src.into_iter();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(e) => {
+        _r := out.set(e.key.clone(), e.value.clone());
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
+});
+/// Build the filtered captured-variable list + SM-var map + merged field aliases
+/// for one deferred block, registers closure-param slots as SM variables, and emits
+/// the resume + set_effect + dispose + constructor for that block. Mirrors the
+/// per-block body of `generateDeferredAsyncBlocks` (async.ts:1413).
+_emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  saved_sm_vars := context.state_machine_variables;
+  saved_evidence_params := context.current_evidence_params;
+  saved_field_aliases := context.state_machine_field_aliases;
+  // Cross-boundary analysis (segment-locals become C locals).
+  cbr := compute_cross_boundary_variables(block.body_expr, block.analysis, context);
+  cross_boundary_ids := cbr.cross_boundary_ids;
+  await_future_temp_var_aliases := cbr.await_future_temp_var_aliases;
+  osr := compute_overlapping_slots(cross_boundary_ids, cbr.variable_segments, block.analysis.captured_variables, await_future_temp_var_aliases, context);
+  overlapping_slot_aliases := osr.slot_aliases;
+  // Filter capturedVariables to those that need SM fields (or stay for drops).
+  filtered := ArrayList(CapturedVariable).new();
+  src_cvs := block.analysis.captured_variables;
+  (ci : usize) = usize(0);
+  while(ci < src_cvs.len(), {
+    match(
+      src_cvs.get(ci),
+      .Some(v) => {
+        is_outer := match(v.kind,.Outer => true, _ => false);
+        keep := (((is_outer || cross_boundary_ids.contains(v.base.id.clone())) || await_future_temp_var_aliases.contains_key(v.base.id.clone())) || overlapping_slot_aliases.contains_key(v.base.id.clone()));
+        if(keep, {
+          filtered.push(v);
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  // Register closure-param slots as state-machine variables (atom.ts emits
+  // sm->__yo_param_<i>). See [[yo-anon-closure-param-name-extraction]].
+  cps := match(block.closure_param_slots,.Some(s) => s, _ => ArrayList(ClosureParamSlot).new());
+  (cp : usize) = usize(0);
+  while(cp < cps.len(), {
+    match(
+      cps.get(cp),
+      .Some(slot) => {
+        slot_var_id := `__closure_param_${cp.to_string()}`;
+        filtered.push(_make_sm_captured_variable(slot_var_id, slot.param_name.clone(), slot.param_type, CapturedVariableKind.Local));
+      },
+      .None => ()
+    );
+    cp = (cp + usize(1));
+  });
+  filtered_analysis := AwaitAnalysisResult(
+    await_points : block.analysis.await_points,
+    captured_variables : filtered,
+    has_awaits : block.analysis.has_awaits,
+    variable_id_remapping : block.analysis.variable_id_remapping
+  );
+  // SM var map: filtered vars + capture-struct fields (as outer vars).
+  sm_var_map := HashMap(String, CapturedVariable).new();
+  (fi : usize) = usize(0);
+  fcvs := filtered_analysis.captured_variables;
+  while(fi < fcvs.len(), {
+    match(
+      fcvs.get(fi),
+      .Some(v) => {
+        _r := sm_var_map.set(v.base.id.clone(), v);
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  match(
+    block.capture_type,
+    .Some(cap_ty) => {
+      cap_id := match(cap_ty,.Struct({ id : sid }) => sid, _ => String.from(""));
+      cap_fields := match(get_struct_fields(cap_id),.Some(fs) => fs, _ => ArrayList(TypeField).new());
+      (cfi : usize) = usize(0);
+      while(cfi < cap_fields.len(), {
+        match(
+          cap_fields.get(cfi),
+          .Some(field) => {
+            _r := sm_var_map.set(field.label.clone(), _make_sm_captured_variable(field.label.clone(), field.label.clone(), field.ty, CapturedVariableKind.Outer));
+          },
+          .None => ()
+        );
+        cfi = (cfi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(sm_var_map);
+  // Merged field aliases: await_future_N + slot_N + closure-param slot fields.
+  merged_aliases := _copy_string_map(await_future_temp_var_aliases);
+  osa_it := overlapping_slot_aliases.into_iter();
+  (ogo : bool) = true;
+  while(ogo, {
+    match(
+      osa_it.next(),
+      .Some(e) => {
+        _r := merged_aliases.set(e.key.clone(), e.value.clone());
+      },
+      .None => {
+        ogo = false;
+      }
+    );
+  });
+  (cp2 : usize) = usize(0);
+  while(cp2 < cps.len(), {
+    match(
+      cps.get(cp2),
+      .Some(slot) => {
+        _r := merged_aliases.set(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
+      },
+      .None => ()
+    );
+    cp2 = (cp2 + usize(1));
+  });
+  context.state_machine_field_aliases = Option(HashMap(String, String)).Some(merged_aliases);
+  // Resume function (returns local-var drops).
+  local_var_drops := generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context);
+  em.emit_string_line(String.from(""));
+  // set_effect impl (emitted while SM vars are still in context).
+  sync_param_slot := match(
+    cps.get(usize(0)),
+    .Some(slot) => Option(SyncParamSlot).Some(SyncParamSlot(field_name : slot.field_name.clone(), c_type : slot.c_type.clone())),
+    .None => Option(SyncParamSlot).None
+  );
+  generate_future_effect_setter(block.struct_name.clone(), block.set_effect_function_name.clone(), block.future_trait_type, block.capture_type, context, sync_param_slot);
+  // Restore context.
+  context.state_machine_variables = saved_sm_vars;
+  context.current_evidence_params = saved_evidence_params;
+  context.state_machine_field_aliases = saved_field_aliases;
+  em.emit_string_line(String.from(""));
+  // Dispose function.
+  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, context);
+  em.emit_string_line(String.from(""));
+  // Constructor.
+  generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), block.future_type, block.result_type, block.result_type_c_name.clone(), block.capture_type, context);
+  em.emit_string_line(String.from(""));
+});
+/// Generate all deferred async-block implementations (resume / set_effect / dispose
+/// / constructor), after all regular functions. Index-based loop because emitting a
+/// block's resume may discover nested async blocks (pushed during iteration); their
+/// struct definitions are emitted before they are processed. Faithful port of
+/// `generateDeferredAsyncBlocks` (async.ts:1391).
+generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> unit)({
+  blocks := match(context.deferred_async_blocks,.Some(b) => b,.None => return());
+  if(blocks.len() == usize(0), return());
+  em := context.base.emitter;
+  // Struct definitions first (dependency-safe order).
+  emit_deferred_async_block_struct_definitions(context);
+  em.emit_string_line(String.from("// Deferred async block implementations"));
+  (i : usize) = usize(0);
+  while(i < blocks.len(), {
+    prev_length := blocks.len();
+    match(blocks.get(i),.Some(block) => _emit_one_deferred_async_block(block, context),.None => ());
+    // Emit struct definitions for any nested async blocks discovered during resume.
+    new_length := blocks.len();
+    if(new_length > prev_length, {
+      (ni : usize) = prev_length;
+      while(ni < new_length, {
+        match(
+          blocks.get(ni),
+          .Some(nb) => {
+            ncbr := compute_cross_boundary_variables(nb.body_expr, nb.analysis, context);
+            nosr := compute_overlapping_slots(ncbr.cross_boundary_ids, ncbr.variable_segments, nb.analysis.captured_variables, ncbr.await_future_temp_var_aliases, context);
+            emit_async_block_struct_definition(
+              AsyncBlockStructInfo(
+                async_block_id : nb.async_block_id.clone(),
+                struct_name : nb.struct_name.clone(),
+                result_type : nb.result_type,
+                result_type_c_name : nb.result_type_c_name.clone(),
+                capture_type : nb.capture_type,
+                analysis : nb.analysis,
+                cross_boundary_ids : Option(HashSet(String)).Some(ncbr.cross_boundary_ids),
+                await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases),
+                overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases),
+                overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(nosr.slots),
+                closure_param_slots : nb.closure_param_slots
+              ),
+              context
+            );
+          },
+          .None => ()
+        );
+        ni = (ni + usize(1));
+      });
+    });
+    i = (i + usize(1));
+  });
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
@@ -1551,5 +1774,6 @@ export(
   emit_deferred_async_block_struct_definitions,
   generate_async_block_state_dispose_function,
   generate_async_block_constructor,
-  generate_async_block
+  generate_async_block,
+  generate_deferred_async_blocks
 );
