@@ -451,6 +451,26 @@ co-exists — there is no partial runnable async program. Build #1+#2 first
 (testable via `check`), then the FSM bottom-up against a minimal `io.async` +
 `io.await` differential fixture.
 
+**BASELINE CONFIRMED (2026-06-17).** The canonical first async differential
+target (TS compiles+runs → `42`; yo-self `check` OK but `compile` emits MALFORMED
+C — "too few arguments to function call", proving the FSM transformation is
+absent, not merely gated):
+```rust
+{ println } :: import("std/fmt");
+run :: (fn(io : Io) -> i32)({
+  task := io.async((io : Io) => { x := i32(42); x });
+  io.await(task, io)
+});
+main :: (fn(io : Io) -> unit)({ println(run(io)); });
+export(main);
+```
+(`Io` is in the prelude — no import. `io.await` needs BOTH `fut` and the `e : E`
+arg, i.e. `io.await(task, io)`.) Drive the FSM port to make this emit `42`, then
+widen. SURFACED BUG along the way:
+`issues/yo-self-async-await-argcount-overpermissive.md` — yo-self's evaluator
+accepts `io.await(task)` (missing `e`) that TS rejects; fix the field-fn call
+required-arg-count check during this phase.
+
 ### Phase 6 — Self-host fixpoint
 
 1. `yo-self-bin test ./tests` — the self-hosted compiler RUNS the suite
