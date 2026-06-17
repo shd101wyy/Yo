@@ -1138,6 +1138,80 @@ generate_async_block_state_dispose_function :: (
   em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
   em.emit_line("}");
 });
+/// Generate the constructor for an async block: heap-allocates + zero-inits the
+/// state machine, sets up the RC header (cycle-GC fields or type-id dispatch),
+/// installs the capture struct, zeroes the result, and stores the resume +
+/// set_effect fn pointers. Returns a cold (unstarted, RC=1) future. Faithful port
+/// of `generateAsyncBlockConstructor` (async.ts:1269). `async_block_id` and
+/// `future_type` are retained for signature fidelity (unused in the TS body too).
+generate_async_block_constructor :: (
+  fn(async_block_id : String, struct_name : String, resume_function_name : String, constructor_name : String, dispose_function_name : String, set_effect_function_name : String, future_type : TypeValue, result_type : TypeValue, result_type_c_name : String, capture_type : Option(TypeValue), context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  // Constructor signature (returns a pointer for a stable Future/SM address).
+  match(
+    capture_type,
+    .Some(cap_ty) => {
+      capture_struct_name := _find_capture_type_c_name(cap_ty, context);
+      em.emit_string_line(`${struct_name.clone()}* ${constructor_name.clone()}(${capture_struct_name} __capture) {`);
+    },
+    .None => em.emit_string_line(`${struct_name.clone()}* ${constructor_name.clone()}() {`)
+  );
+  // Allocate + zero-init the state machine.
+  em.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)__yo_malloc(sizeof(${struct_name.clone()}));`);
+  em.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
+  em.emit_line("");
+  // Reference-counting header.
+  em.emit_line("  // Initialize reference counting header");
+  em.emit_line("  sm->header.ref_count = 1;  // Caller owns initial reference");
+  em.emit_string_line(`  GC_DEBUG("AsyncBlock ${struct_name.clone()}: Created ptr=%p RC=1\\n", (void*)sm);`);
+  if(context.base.needs_cycle_gc, {
+    em.emit_line("  sm->header.gc_flags = 0;");
+    em.emit_line("  sm->header.gc_mark = __YO_GC_UNMARKED;");
+    em.emit_line("  sm->header.gc_next = NULL;");
+    em.emit_line("  sm->header.gc_prev = NULL;");
+  });
+  if(context.base.needs_cycle_gc, {
+    em.emit_string_line(`  sm->header.dispose_fn = (void(*)(void*))${dispose_function_name.clone()};`);
+  }, {
+    type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
+    em.emit_string_line(`  sm->header.type_id = ${type_id.to_string()};`);
+  });
+  if(context.base.needs_cycle_gc, {
+    em.emit_line("  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed");
+  });
+  em.emit_line("");
+  em.emit_line("  sm->state = 0;");
+  em.emit_line("  sm->continuation_fn = NULL;");
+  em.emit_line("  sm->continuation_sm = NULL;");
+  em.emit_line("");
+  // Capture struct.
+  match(
+    capture_type,
+    .Some(_) => {
+      em.emit_line("  // Initialize captured variables");
+      em.emit_line("  sm->__capture = __capture;");
+      em.emit_line("");
+    },
+    .None => ()
+  );
+  // Zero-initialize the result.
+  em.emit_line("  // Initialize result (will be set when async block completes)");
+  if(is_unit_type(result_type), {
+    em.emit_line("  // Result is unit type, no initialization needed");
+  }, {
+    em.emit_string_line(`  memset(&sm->result, 0, sizeof(${result_type_c_name.clone()}));`);
+  });
+  em.emit_line("");
+  // Resume + set_effect fn pointers (lazy start at await/spawn).
+  em.emit_string_line(`  sm->__yo_resume_fn = (void(*)(void*))${resume_function_name.clone()};`);
+  em.emit_string_line(`  sm->__yo_set_effect_fn = ${set_effect_function_name.clone()};`);
+  em.emit_line("");
+  em.emit_line("  return sm;");
+  em.emit_line("}");
+  em.emit_line("");
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
@@ -1147,5 +1221,6 @@ export(
   AsyncBlockStructInfo,
   emit_async_block_struct_definition,
   emit_deferred_async_block_struct_definitions,
-  generate_async_block_state_dispose_function
+  generate_async_block_state_dispose_function,
+  generate_async_block_constructor
 );
