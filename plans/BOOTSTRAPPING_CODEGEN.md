@@ -426,18 +426,19 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    Add an `io_builtin : Option(String)` (or equivalent) to the `Func` variant +
    stamp it where `io.async`/`io.await`/… are declared, OR detect `io.async`
    structurally. PREREQUISITE for everything below.
-2. **Evaluator analyses exist but DON'T RUN.** `analyze_await_points`
-   (`evaluator/async/await_analysis.yo`, exported) and the effect analysis
-   (`evaluator/effects/effect_analysis.yo`) are ported but NEVER CALLED. Wire:
-   (a) set `ctx.is_inside_io_async_call = true` around the `io.async` closure-arg
-   eval (mirror helper.ts:1315 — needs #1); (b) in `anonymous_function.yo` after
-   the body eval (~line 886, where `anon_eb` is the evaluated body), when
-   `ctx.is_inside_io_async_call`, run `analyze_await_points(anon_eb)` and set the
-   body ExprInfo's `await_analysis` if `has_awaits` (mirror
-   anonymous-function.ts:898-907). ExprInfo already has the fields
-   (`await_analysis`, `effect_analysis`, `async_state_machine_struct_name`,
-   `async_stack_size`, `capture_struct`). Testable via `check` (no codegen
-   consumer yet → no-op for output; validate no std/yo-self regression).
+2. **Evaluator analyses — await analysis now WIRED (2026-06-17, commit
+   e381d55b6); effect analysis still unrun.** `analyze_await_points`
+   (`evaluator/async/await_analysis.yo`) now RUNS: (a) `function.yo` sets
+   `ctx.is_inside_io_async_call=true` around the arg eval when the call is
+   `io.async(...)` (detected structurally via `is_io_async_call` — no `io_builtin`
+   marker needed; restored after); (b) `anonymous_function.yo` (~line 897, after
+   the body eval) runs `analyze_await_points(anon_eb, get_info)` under that flag
+   and records `await_analysis` on the body ExprInfo when `has_awaits`. Validated
+   no regression (corpus 58/58, std 94/58, async baseline still evaluates). STILL
+   TODO: wire the effect analysis (`evaluator/effects/effect_analysis.yo`)
+   similarly. ExprInfo already has the consumer fields (`await_analysis`,
+   `effect_analysis`, `async_state_machine_struct_name`, `async_stack_size`,
+   `capture_struct`).
 3. **Codegen FSM (the bulk, ~8k LOC, NO yo-self counterpart yet):**
    `exprs/async-completion.ts` (124) + `shared/suspension-codegen.ts` (199) are
    the smallest; `exprs/await.ts` (835); `exprs/async.ts` (2085);
