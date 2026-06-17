@@ -53,3 +53,18 @@ is the dropped value arg.
 3. Add a corpus fixture (`println(i32(...))` differential) once fixed.
 
 Validate: `/tmp/q2.yo` self-bin output `7` matching TS, corpus + std sweep + tests.
+
+## Localization (2026-06-17)
+- Codegen emits ALL recorded args: `generate_other_function_call` (other_fn_call.yo
+  :1083) iterates `na = runtime_args.len()` and the extern "c" path (:1110-1136)
+  emits `args_list` verbatim — no truncation to param count. So the drop is
+  UPSTREAM: the evaluator recorded only 3 entries in `runtime_arg_exprs_in_order`.
+- The inline FuncVal-arm arg loop (function.yo:1760 `while(ai < n_a)`) iterates ALL
+  call args and pushes each to `runtime_arg_exprs` (the 4th/variadic arg's expected
+  type is just `.None` from `fv_param_types.get(3)`), so THIS path would record all 4.
+- => `snprintf(...)` inside the SPECIALIZED `to_string` body must reach a DIFFERENT
+  evaluation arm that records only the fixed args. NEXT: instrument which call arm the
+  extern `snprintf` call takes during the specialized-body re-eval (helper.yo
+  create_specialized), and where the variadic arg is excluded from
+  `runtime_arg_exprs_in_order`. Candidate arms: the extern-specific path, or a
+  has_variadic-aware arg loop that stops at the declared param count.
