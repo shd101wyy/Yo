@@ -446,21 +446,19 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    (mirror helper.ts:2500/2732/2830). ExprInfo already has the consumer fields
    (`await_analysis`, `effect_analysis`, `async_state_machine_struct_name`,
    `async_stack_size`, `capture_struct`).
-3. **Codegen FSM (the bulk, ~8k LOC). FIRST LEAF LANDED 2026-06-17:**
-   `exprs/async-completion.ts` → `yo-self/codegen/exprs/async_completion.yo`
-   (commit 8b0e56d8b, check-clean — `emit_async_future_completion` /
-   `emit_async_future_escape`, self-contained Emitter-only). NEXT leaf:
-   `shared/suspension-codegen.ts` (199) → `suspension_codegen.yo` — body-splitting
-   at suspension points; the `SuspensionPoint` type already exists
-   (`evaluator/shared/suspension_analysis_types.yo`); note it threads an OPTIONAL
-   `should_skip_body` predicate closure THROUGH recursion (yo-self
-   closure-through-`recur` friction — port the predicate as a required
-   `Impl(Fn(AstExpr) -> bool)` and pass a `(e) => false` no-op where TS omits it).
-   Then `exprs/await.ts` (835); `exprs/async.ts` (2085); `async/state-machine.ts`
-   (2605) + `async/state-code-gen.ts` (2136) are the FSM transformation core. The
-   corpus emitters currently `panic("Phase 5")` at every state-machine site (atom
-   SM-var resolution, return-completion, etc.) — those panics get replaced as the
-   FSM core lands and produces `async_state_machine_struct_name` on ExprInfo.
+3. **Codegen FSM (the bulk, ~8k LOC). TWO LEAVES LANDED 2026-06-17 (both
+   check-clean):** `exprs/async-completion.ts` →
+   `yo-self/codegen/exprs/async_completion.yo` (8b0e56d8b — Future-completion
+   emitters); `shared/suspension-codegen.ts` →
+   `yo-self/codegen/shared/suspension_codegen.yo` (9bcecd483 — `SuspensionSegment`
+   + body-splitting at suspension points; `should_skip_body` ported as a required
+   `Impl(Fn(AstExpr) -> bool)`). REMAINING (the large interdependent core, ~7.7k
+   LOC — these cannot be isolated leaves; port against the BASELINE fixture
+   bottom-up): `exprs/await.ts` (835); `exprs/async.ts` (2085);
+   `async/state-machine.ts` (2605) + `async/state-code-gen.ts` (2136). The corpus
+   emitters currently `panic("Phase 5")` at every state-machine site (atom SM-var
+   resolution, return-completion, etc.) — those panics get replaced as the FSM
+   core lands and produces `async_state_machine_struct_name` on ExprInfo.
 4. **C runtime templates:** `async/runtime.ts` + `runtime-core` +
    `runtime-io-common` + macOS/Linux (Windows/WASM deferred).
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
