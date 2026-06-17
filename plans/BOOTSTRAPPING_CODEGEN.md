@@ -689,6 +689,38 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    PHASE3_CAPTURE_PENDING marker pending the deferred closures.yo capture machinery;
    the closure C-name comes from the FuncVal func_id (yo-self has no
    implClosureCallMap). STILL TODO: `exprs/await.ts` (~835) + wire into codegen_c.
+   **await.ts FULLY PORTED + WIRED 2026-06-18** (`yo-self/codegen/exprs/await.yo`):
+   `generate_await` (sync blocking io.await: cold-start → poll → result, with the
+   effectful-abort / unwind-propagation path), `generate_state`,
+   `generate_join_handle_await`, and the effect-injection cluster
+   (`emit_effect_injection_for_await`, `emit_io_spawn_effect_injection`,
+   `emit_effect_record_injection`, `resolve_effect_field_from_scope`,
+   `resolve_evidence_field_from_given_bindings`,
+   `is_await_unwind_handler_installation`). Dispatch WIRED into
+   `generate_func_call` (generation.yo): io.async → `generate_async_block` (await
+   analysis present) else `generate_io_async_sync_call`; io.await/state/spawn/
+   JoinHandle.await routed; `_generate_io_spawn` (the inline cold-start block) ported.
+   codegen_c WIRED: `register_fsm_emitters_impl` + `preregister_async_block_types`
+   (before fn decls) + `generate_deferred_async_blocks` (after dyn fns); and
+   `generate_all_functions` now emits `generate_sys_runtime` unconditionally +
+   `generate_async_runtime` when `uses_async`. SURFACED+FIXED: a stray `}` in the
+   `__yo_dirent_type` sys-runtime template; the `Option(Impl(Fn))` field of
+   `AsyncRuntimeOptions` (clashing cross-module Impl-Fn enum monomorphizations) →
+   replaced with a precomputed `timer_dispose_type_id : Option(i64)` registered on
+   Linux only. corpus 58/58 with the sys-runtime now active for EVERY program.
+   **BASELINE STATUS 2026-06-18: the FSM transformation now RUNS end to end** — the
+   `42` fixture emits real C (sync_fut typedef + io.await poll loop), not malformed
+   stubs. **REMAINING GATE = closure codegen.** `io.async((io)=>{…})` routes to the
+   no-await sync path (`generate_io_async_sync_call`), which needs the closure's
+   registered C FUNCTION + its capture struct C name. yo-self does NOT yet emit
+   Impl(Fn) closures: the closure function is never collected/registered (TS uses
+   `implClosureCallMap` populated by a closure-discovery pass in `closures.ts`,
+   absent here) and a no-capture closure has no capture struct — so the emitter hits
+   `/* Error: no closure function or capture type for io.async sync path */`. The
+   NEXT blocker is therefore the deferred `exprs/closures.ts` → `closures.yo` port
+   (capture-struct machinery + closure-function collection/emission), not anything
+   in async.ts/await.ts (both complete). See
+   `issues/yo-self-closure-codegen-gate.md`.
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
 co-exists — there is no partial runnable async program. Build #1+#2 first
 (testable via `check`), then the FSM bottom-up against a minimal `io.async` +
