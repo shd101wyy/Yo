@@ -355,8 +355,14 @@ is_void_type :: (fn(t : TypeValue) -> bool)(
 is_future_trait_type :: (fn(t : TypeValue) -> bool)(
   match(t,.FutureTraitT(base_name : _) => true, _ => false)
 );
-// Phase 2b: TraitT needs `isConcrete` flag.
-is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(false);
+/// `true` when `t` is a `Concrete(T)` trait type (its `is_concrete` marker is
+/// `.Some`). Mirrors TS `isConcreteTraitType` (`isTraitType(t) && t.isConcrete
+/// !== undefined`). The `TraitT` variant carries `is_concrete :
+/// Option(Box(Self))`; this was a `=> false` stub until the async-Future type
+/// plumbing (Phase 5) needed it (`is_io_future_type`).
+is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.TraitT({ is_concrete }) => is_concrete.is_some(), _ => false)
+);
 /// Return `true` if `t` itself is an RC-managed type (not recursively).
 ///
 /// An RC type is:
