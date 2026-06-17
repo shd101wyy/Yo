@@ -95,3 +95,18 @@ dispatch must key by the receiver's concrete type so `to_string<str>` and `to_st
 don't collide when both exist. (Note: the same-type value-baking fix's param-rebind
 changed this case from `7`/`7` to `<garbage>`/`7` — both wrong; the cross-type method
 dispatch was never correct.)
+
+## ✅ RESOLVED (2026-06-17) — §B fixed via per-specialization body clone
+The residual (`println("cd"); println(i32(7))` → garbage/7) is fixed. Root: every
+specialization of a generic fn shared the ORIGINAL body AST (`Box(AstExpr)(body.*)`),
+so the `v.to_string()` call node had ONE id and ONE method-callee side-table entry —
+`println<str>` and `println<i32>` both wrote it during body eval and the last writer
+won, so BOTH emitted a call to the i32 `to_string` (str printed its byte pointer as
+`%d`). FIX (create_specialized_function_inline): clone the body with fresh ids per
+specialization (`clone_expr_fresh_ids`), eval + store the CLONE, so each specialization
+owns independent nodes / ExprInfo / method-callee entries. Mirrors TS specializeFunction
+(`cloneExpr` of the body). Result: `c_si` → `cd/7`, `mix` (str+str+i32+usize) →
+`abcd/7/42` — all matching TS. Corpus fixture std_println_generic upgraded to the
+mixed-type case. Validated: serial corpus 55/55, std 94/58, 0 regressions. ENTIRE
+generic print/println chain (str + integer, single + multi + mixed) now works
+end-to-end in the self-hosted compiler.

@@ -28,7 +28,8 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
-  make_err_expr
+  make_err_expr,
+  clone_expr_fresh_ids
 } :: import("../../expr.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
@@ -1156,11 +1157,23 @@ create_specialized_function_inline :: (
             });
             rbp_i = (rbp_i + usize(1));
           });
+          // CLONE the body with FRESH ids for this specialization. Each
+          // specialization of a generic function must own its body AST: codegen
+          // walks the body per-node and reads per-node ExprInfo / side-tables
+          // (e.g. `g_method_callee_values` for a `v.to_string()` method
+          // dispatch). If every specialization shared the ORIGINAL body nodes,
+          // the LAST specialization's body eval would overwrite each node's
+          // entry — so `println<str>` and `println<i32>`, sharing one body, both
+          // emitted a call to the i32 `to_string` (the str call printed garbage).
+          // A fresh-id clone gives each specialization independent nodes. Mirrors
+          // TS specializeFunction (`cloneExpr` of the body). The specialized
+          // FuncVal below carries this clone so codegen walks the right nodes.
+          cloned_body := clone_expr_fresh_ids(body.*);
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
           // regular params bound from try_to_call_function_with_arguments steps 4–11).
           specialized_body := evaluate_begin_expression(
-            body.*,
+            cloned_body,
             callee_env,
             ctx,
             ArrayList(Variable).new(),
@@ -1228,13 +1241,15 @@ create_specialized_function_inline :: (
           });
           // Evaluate the specialized body to get its return type
           _ := specialized_body;
-          // Create the specialized function value
+          // Create the specialized function value — carries the fresh-id CLONE
+          // (not the shared original body) so codegen walks this specialization's
+          // own nodes and reads its own per-node ExprInfo / method-callee entries.
           specialized_func_val := EvalValue.FuncVal(
             forall_names,
             params,
             param_type_names,
             evidence_params,
-            Box(AstExpr)(body.*),
+            Box(AstExpr)(cloned_body),
             new_cap_names,
             new_cap_tys,
             new_cap_vals,

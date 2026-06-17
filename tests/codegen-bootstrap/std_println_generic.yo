@@ -1,11 +1,14 @@
 //! Generic ToString-bound print/println specialization end-to-end (Gap 6).
-//! Exercises str.to_string + as_bytes + ptr().unwrap() + fwrite + the trailing
-//! newline byte-cast — the whole generic-fn monomorphization + method-dispatch
-//! + extern-call chain for std/fmt over `str` arguments.
+//! Exercises the FULL chain over MIXED argument types in one unit: str
+//! to_string + as_bytes + ptr().unwrap() + fwrite + trailing newline, integer
+//! to_string (const-generic Array(u8,N).fill buffer + variadic snprintf +
+//! &(buffer(0)) address-of), AND distinct per-type specialization (each
+//! specialization owns a fresh-id body clone so method dispatch doesn't collide).
 { print, println } :: import("std/fmt");
 main :: (fn() -> unit)({
   print("ab");
   println("cd");
-  println("ef");
+  println(i32(7));
+  println(usize(42));
 });
 export(main);
