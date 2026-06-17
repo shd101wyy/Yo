@@ -11,7 +11,11 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
-{ AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
+{ AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
+{ SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
+{ SuspensionSegment, split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
+{ is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
+{ AstExpr } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
@@ -96,4 +100,161 @@ get_state_machine_field_name :: (
   pre.push_string(variable_id);
   sanitize_for_c_identifier(pre, false)
 });
-export(is_io_future_type, StateMachineInfo, generate_resume_function_declaration, get_state_machine_field_name);
+/// A contiguous run of body expressions that execute in one FSM state, ending
+/// at an await (or the final segment). Mirrors `StateSegment`
+/// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
+/// the TS generic to the concrete `SuspensionPoint` base, so the owning
+/// `AwaitPoint` is recovered by matching `base.index`.
+StateSegment :: object(
+  /// The state number this segment represents.
+  state_number : usize,
+  /// Expressions to execute in this state (before the await/return).
+  expressions : ArrayList(AstExpr),
+  /// The await point at the end of this segment (`.None` for the final segment).
+  await_point : Option(AwaitPoint)
+);
+/// Find the `AwaitPoint` whose `base.index` equals `idx`. Used to recover the
+/// async-specific await point from a collapsed `SuspensionPoint`.
+_find_await_point_by_index :: (
+  fn(await_points : ArrayList(AwaitPoint), idx : usize) -> Option(AwaitPoint)
+)({
+  (i : usize) = usize(0);
+  (found : Option(AwaitPoint)) = Option(AwaitPoint).None;
+  while((i < await_points.len()) && found.is_none(), {
+    match(
+      await_points.get(i),
+      .Some(ap) => if(ap.base.index == idx, {
+        found = Option(AwaitPoint).Some(ap);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Split a function body into FSM segments at await points. Each segment holds
+/// the expressions to run before reaching the next await. Mirrors
+/// `splitIntoStateSegments` (state-code-gen.ts:71): a thin wrapper over the
+/// shared `split_body_at_suspension_points` mapping `suspension_point` →
+/// `await_point`, plus a trailing completion segment when the last segment still
+/// ends at an await.
+split_into_state_segments :: (
+  fn(body : AstExpr, await_points : ArrayList(AwaitPoint)) -> ArrayList(StateSegment)
+)({
+  points := ArrayList(SuspensionPoint).new();
+  (pi : usize) = usize(0);
+  while(pi < await_points.len(), {
+    match(
+      await_points.get(pi),
+      .Some(ap) => {
+        points.push(ap.base);
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  shared := split_body_at_suspension_points(body, points, is_io_async_call, true, true);
+  segments := ArrayList(StateSegment).new();
+  (si : usize) = usize(0);
+  while(si < shared.len(), {
+    match(
+      shared.get(si),
+      .Some(seg) => {
+        ap_opt := match(
+          seg.suspension_point,
+          .Some(sp) => _find_await_point_by_index(await_points, sp.index),
+          .None => Option(AwaitPoint).None
+        );
+        segments.push(
+          StateSegment(
+            state_number : seg.state_number,
+            expressions : seg.expressions,
+            await_point : ap_opt
+          )
+        );
+      },
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  // A trailing segment whose await_point is still set (e.g. the body is a single
+  // `cond` with an await in one branch) needs an extra completion segment to
+  // transition into after the await completes / the non-await branch is taken.
+  if(segments.len() > usize(0), {
+    last_has_await := match(
+      segments.get(segments.len() - usize(1)),
+      .Some(last) => match(last.await_point,.Some(_) => true,.None => false),
+      .None => false
+    );
+    if(last_has_await, {
+      segments.push(
+        StateSegment(
+          state_number : segments.len(),
+          expressions : ArrayList(AstExpr).new(),
+          await_point : Option(AwaitPoint).None
+        )
+      );
+    });
+  });
+  segments
+});
+/// True when `expr`'s tree contains the given await expression (skipping nested
+/// async-block bodies, whose awaits belong to the inner state machine). Mirrors
+/// `containsAwaitExpr` (state-code-gen.ts:111) — a thin wrapper over the shared
+/// `contains_suspension_expr` with `is_io_async_call` as the skip predicate.
+contains_await_expr :: (fn(expr : AstExpr, await_expr : AstExpr) -> bool)(
+  contains_suspension_expr(expr, await_expr, is_io_async_call)
+);
+/// The state-machine field name for the Future being awaited. Prefers the
+/// captured Future variable's field (`<name>` for an outer capture, `var_<id>`
+/// for a local) over a dedicated `await_future_<index>` field. Mirrors
+/// `getFutureFieldName` (state-machine.ts:461).
+get_future_field_name :: (
+  fn(await_point : AwaitPoint, analysis : AwaitAnalysisResult) -> String
+)({
+  match(
+    await_point.future_variable_id,
+    .Some(fvid) => {
+      cvs := analysis.captured_variables;
+      (i : usize) = usize(0);
+      (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
+      while((i < cvs.len()) && found.is_none(), {
+        match(
+          cvs.get(i),
+          .Some(cv) => if(cv.base.id == fvid, {
+            found = Option(CapturedVariable).Some(cv);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(
+        found,
+        .Some(cv) => match(
+          cv.kind,
+          .Outer => return(cv.base.name.clone()),
+          .Local => {
+            s := String.from("var_");
+            s.push_string(cv.base.id.clone());
+            return(s);
+          }
+        ),
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  out := String.from("await_future_");
+  out.push_string(await_point.base.index.to_string());
+  out
+});
+export(
+  is_io_future_type,
+  StateMachineInfo,
+  generate_resume_function_declaration,
+  get_state_machine_field_name,
+  StateSegment,
+  split_into_state_segments,
+  contains_await_expr,
+  get_future_field_name
+);

@@ -484,6 +484,40 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    `lookup_some_resolved_concrete(id)`. Still a multi-file evaluator pass, but
    far lower risk than the variant migration. Do this as the dedicated first step
    of the FSM-core session.
+   **STATUS UPDATE 2026-06-17 (post-runtime-layer session):**
+   - ✅ `g_some_resolved_concrete` side-table LANDED (9c05a8dea) + synthesizer
+     set-sites wired (ae997dc83, 514d3cbb9); `is_io_future_type` branch-2 (Concrete
+     trait) ported and the `lookup_some_resolved_concrete` read is wired as the
+     branch-1 marker. `SomeT.is_extern` remains the ONLY open model gap for branch
+     1 — but do NOT port it blind: it is only verifiable once the FSM core CALLS
+     `is_io_future_type` with a real io-future type, so resolve it WITH the first
+     consumer, not before (a `g_some_is_extern` side-table keyed on the resolved
+     concrete's id, registered wherever the extern Concrete SomeType is created).
+   - ✅ Await-analysis layer FULLY ported (`evaluator/async/await_analysis.yo` has
+     all 8 TS fns: `analyze_await_points`, `is_io_{async,await,state,spawn}_call`,
+     `is_join_handle_await_call`, `get_local_variables_from_body`,
+     `collect_variable_bindings_`). This is the evaluator-side input to the FSM.
+   - **FSM-core coupling confirmed (why it cannot be isolated leaves):** the next
+     state-machine.ts unit, `computeCrossBoundaryVariables` (171), already pulls in
+     `collectVariableRefsInExpr` (needs ExprInfo `deferredDropExpressions` /
+     `deferredDupExpressions` runtime fields + `getVariablesFromEnv`),
+     `splitIntoStateSegments` (the state-segment variant of the already-ported
+     `split_body_at_suspension_points`), `typeContainsRcType`, and `getTypeString`.
+     `computeOverlappingSlots` (339) adds greedy live-range coloring over those
+     segments. So the FSM core (`state-machine.ts` body + `state-code-gen.ts` +
+     `await.ts` + `async.ts`, ~7.6k LOC) must be ported as a co-existing mass
+     validated against the BASELINE `42` fixture — there is no single-leaf
+     `check`-validatable increment past the data-model/analysis leaves already
+     landed. Prereq INVENTORY (checked 2026-06-17): ExprInfo
+     `deferred_{drop,dup}_expressions` ✅ present (expr_info.yo:346/348);
+     `type_contains_rc_type` ✅ present (types/utils.yo); `get_variables_from_env`
+     ✅ present. MISSING: `split_into_state_segments` (the state-segment variant of
+     the ported `split_body_at_suspension_points`) and the `g_some_is_extern`
+     branch-1 resolution. So the analysis cluster (`collectVariableRefsInExpr`,
+     `computeCrossBoundaryVariables`, `computeOverlappingSlots`, `getFutureFieldName`)
+     IS portable as a `check`-validatable bottom-up increment once
+     `split_into_state_segments` lands — only the C-emitting transformation
+     (`generateAsyncBlockResumeFunction`, the 1.7k-line monster) needs the full mass.
 4. **C runtime templates** (Phase 5 #4) — PARTIALLY PORTED 2026-06-17:
    - ✅ `runtime-core.ts` → `runtime_core.yo` (5675e1d95) — core scheduler.
    - ✅ `runtime-io-macos.ts` → `runtime_io_macos.yo` (5d40988bc) — sys helpers +
