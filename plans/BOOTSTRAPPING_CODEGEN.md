@@ -573,7 +573,19 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    `canOptimizeAsNullablePointer`, enum C-name lookup via `context.types`,
    `isPrimitiveMatch` ExprInfo flag — plus the already-ported
    `get_state_machine_field_name`/`get_type_string`/`sanitize_for_c_identifier`).
-   Then `register_fsm_emitters(cond, match, while)`. Wire into codegen_c
+   MATCH-CLUSTER HELPER INVENTORY (all verified present 2026-06-17 — port is
+   transcription, not discovery): `can_optimize_as_nullable_pointer` ✅
+   (utils/index.yo), `is_enum_type` ✅ (guards.yo), ExprInfo `is_primitive_match`
+   ✅ (expr_info.yo:340), enum C-name via `context.base.types.get(enum_id)` →
+   `CodegenTypeEntry.c_name` ✅, `EnumT` has `id`/`variant_names`/`variant_fields`/
+   `variant_field_labels` labels ✅, `String.to_uppercase` ✅, plus
+   `get_enum_variant_c_name` ✅ (utils/index.yo — USE THIS for the case tag, as
+   `match.yo` does, instead of the TS `enumCName.toUpperCase()_variant` string).
+   CONVENTION: sanitize variant-field labels with `sanitize_for_c_identifier(label,
+   false)` (drop the TS per-field `type.isExtern === "c"` flag — `match.yo` already
+   passes `false`; that extern-c nuance is the SomeT/Func is_extern gap and is
+   immaterial for the async fixtures). Then `register_fsm_emitters(cond, match,
+   while)`. Wire into codegen_c
    (replace the `panic("Phase 5")` sites), resolving the Func `io_builtin` field +
    `g_some_is_extern` WITH their first consumers. This is the dedicated
    FSM-core-mass session.
