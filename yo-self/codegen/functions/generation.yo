@@ -27,7 +27,7 @@ open(import("std/string"));
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux } :: import("../../target.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type, is_closure_fn } :: import("../../function_value.yo");
 { get_type_string } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen } :: import("./declarations.yo");
@@ -132,7 +132,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
     .FuncVal(_, _, _, _, body_box, _, _, _, func_id) => {
       em := context.base.emitter;
       function_type := get_func_type(func_id.clone());
-      prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, Option(String).None);
+      prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, Option(String).None, is_closure_fn(func_id.clone()));
       is_exported := ((c_function_name == String.from("__yo_user_main")) || context.base.exported_function_labels.contains_key(func_id.clone()));
       is_rc := (!(is_exported) && ((c_function_name.contains("___drop")) || ((c_function_name.contains("___dup")) || (c_function_name.contains("___dispose")))));
       linkage := if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline ")));
@@ -169,7 +169,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
     // branch, so on macOS the id is never allocated and __yo_timer_future_dispose
     // (Linux-only) is never referenced by the dispose-dispatch switch. See
     // AsyncRuntimeOptions for why this is a value, not a callback.
-    timer_dispose_type_id := if((!(context.base.needs_cycle_gc) && is_target_linux(context.base.target_info)), Option(i64).Some(i64(context.base.dispose_type_id_for(String.from("__yo_timer_future_dispose")))), Option(i64).None);
+    timer_dispose_type_id := if(!(context.base.needs_cycle_gc) && is_target_linux(context.base.target_info), Option(i64).Some(i64(context.base.dispose_type_id_for(String.from("__yo_timer_future_dispose")))), Option(i64).None);
     opts := AsyncRuntimeOptions(
       needs_cycle_gc : context.base.needs_cycle_gc,
       timer_dispose_type_id : timer_dispose_type_id

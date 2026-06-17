@@ -45,6 +45,30 @@ is_control_fn :: (fn(func_id : String) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
+// isClosure side-table
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → `true` (only entries for closure functions exist).
+/// Mirrors `FunctionType.isClosure` in TS — yo-self's flattened `Func` variant has
+/// no such field, so the marker is side-tabled by id (same pattern as the
+/// control-fn / default-args / func-type registries). Set when an anon-fn is typed
+/// as a closure (`evaluator/calls/closure_type.yo`); read by the codegen
+/// function-emission driver to prepend the `void* closure_context` capture param
+/// (declarations.ts:405).
+(g_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Mark a function (by `func_id`) as a closure. Idempotent.
+mark_as_closure_fn :: (fn(func_id : String) -> unit)({
+  ___ := g_closure_fn_registry.set(func_id.clone(), true);
+});
+/// True if the function identified by `func_id` is a closure (takes a capture
+/// context as its first C parameter). Mirrors reading `functionType.isClosure`.
+is_closure_fn :: (fn(func_id : String) -> bool)(
+  match(
+    g_closure_fn_registry.get(func_id.clone()),
+    .Some(_) => true,
+    .None => false
+  )
+);
+// ---------------------------------------------------------------------------
 // isEffectRecordMember side-table (codegen)
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → `true` for functions that are effect-record
@@ -153,6 +177,8 @@ get_func_parameters_frame :: (fn(func_id : String) -> Option(Frame))(
 export(
   mark_as_control_fn,
   is_control_fn,
+  mark_as_closure_fn,
+  is_closure_fn,
   mark_as_effect_record_member,
   is_effect_record_member,
   register_definition_site_return,

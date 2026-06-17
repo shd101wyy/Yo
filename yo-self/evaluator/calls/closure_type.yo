@@ -50,6 +50,7 @@ open(import("std/string"));
 :: import("../../error.yo");
 { Exception } :: import("std/error");
 { random_id } :: import("../../utils.yo");
+{ mark_as_closure_fn } :: import("../../function_value.yo");
 {
   create_function_body_evaluation_context
 } :: import("./function_type.yo");
@@ -200,6 +201,9 @@ try_to_implement_closure_by_fn_module_type :: (
     // cap_vals
     closure_id.clone()
   );
+  // Mark this function as a closure so codegen prepends the `void* closure_context`
+  // capture parameter to its C prototype/definition (mirrors FunctionType.isClosure).
+  mark_as_closure_fn(closure_id.clone());
   // Create the function body evaluation context.
   eval_ctx := create_function_body_evaluation_context(
     synthetic_func_ty,
