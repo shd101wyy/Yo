@@ -17,8 +17,39 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
+{ CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
 { CodeGenContext } :: import("../utils/index.yo");
+/// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
+/// via `set_effect("__bundle", &value)`, stored in a dedicated `__yo_param_<i>`
+/// slot on the SM struct. Mirrors the inline `closureParamSlots` records
+/// (context.ts:101). Defined here (not in exprs/async.yo) so `DeferredAsyncBlock`
+/// can reference it without an import cycle.
+ClosureParamSlot :: object(
+  field_name : String,
+  c_type : String,
+  param_name : String,
+  param_type : TypeValue
+);
+/// A deferred async-block generation request: async blocks are generated after
+/// all regular functions. Mirrors the inline `deferredAsyncBlocks[]` element type
+/// (context.ts:82). `futureType` (SomeType | DynType) and `futureTraitType`
+/// (FutureTraitType) both become `TypeValue`.
+DeferredAsyncBlock :: object(
+  body_expr : AstExpr,
+  async_block_id : String,
+  struct_name : String,
+  resume_function_name : String,
+  constructor_name : String,
+  dispose_function_name : String,
+  set_effect_function_name : String,
+  future_type : TypeValue,
+  future_trait_type : TypeValue,
+  result_type : TypeValue,
+  result_type_c_name : String,
+  capture_type : Option(TypeValue),
+  analysis : AwaitAnalysisResult,
+  closure_param_slots : Option(ArrayList(ClosureParamSlot))
+);
 /// State-machine while-loop break info: the after-loop goto label and the
 /// optional while-loop active-flag index. Mirrors the `smWhileBreakInfo` shape.
 SmWhileBreakInfo :: object(label : String, active_index : Option(usize));
@@ -187,7 +218,10 @@ FunctionGenerationContext :: object(
   async_body_return_expr : Option(AstExpr),
   /// Effect-evidence parameters in scope (implicit label → evidence param), for
   /// explicit-effects dispatch / effect injection. Mirrors `currentEvidenceParams`.
-  current_evidence_params : Option(HashMap(String, EvidenceParameter))
+  current_evidence_params : Option(HashMap(String, EvidenceParameter)),
+  /// Async blocks deferred to after all regular functions are generated. Mirrors
+  /// `deferredAsyncBlocks`.
+  deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock))
 );
 impl(
   FunctionGenerationContext,
@@ -224,7 +258,8 @@ impl(
       async_next_while_loop_index : Option(usize).None,
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
       async_body_return_expr : Option(AstExpr).None,
-      current_evidence_params : Option(HashMap(String, EvidenceParameter)).None
+      current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
+      deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None
     )
   )
 );
@@ -239,5 +274,7 @@ export(
   CondBranch,
   ChainedCondBranches,
   AsyncCondBranchInfo,
-  EvidenceParameter
+  EvidenceParameter,
+  ClosureParamSlot,
+  DeferredAsyncBlock
 );

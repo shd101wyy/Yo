@@ -27,9 +27,18 @@ open(import("std/string"));
 } :: import("../../evaluator/async/await_analysis_types.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ type_key, get_type_string } :: import("../utils/index.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
-{ OverlappingSlot, find_bundle_field_name } :: import("../async/state_machine.yo");
+{ type_key, get_type_string, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
+{
+  FunctionGenerationContext,
+  ClosureParamSlot,
+  DeferredAsyncBlock
+} :: import("../functions/context.yo");
+{
+  OverlappingSlot,
+  find_bundle_field_name,
+  compute_cross_boundary_variables,
+  compute_overlapping_slots
+} :: import("../async/state_machine.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
@@ -348,15 +357,6 @@ generate_future_effect_setter :: (
   });
   em.emit_declaration_string_line(`}`);
 });
-/// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
-/// via `set_effect("__bundle", &value)`. Mirrors the inline `closureParamSlots`
-/// records of `emitAsyncBlockStructDefinition` (async.ts:649).
-ClosureParamSlot :: object(
-  field_name : String,
-  c_type : String,
-  param_name : String,
-  param_type : TypeValue
-);
 /// The full description of one async-block state machine, passed to the struct /
 /// dispose / constructor emitters. Mirrors the inline `asyncBlockInfo` object
 /// literal of `emitAsyncBlockStructDefinition` (async.ts:637). Optional TS fields
@@ -704,13 +704,280 @@ emit_async_block_struct_definition :: (
   em.emit_declaration_line("};");
   em.emit_declaration_line("");
 });
+/// The C type string for a dependency check, returning `None` exactly where the
+/// TS `try { getTypeString } catch { continue }` would skip the edge — i.e. when
+/// the type isn't registered yet (it's from an external function, not an inline
+/// async block). Named types (Tuple/Union/Struct/Enum/Dyn) are guarded via the
+/// registry; the always-panic trait/iso lowerings are treated as "skip".
+/// DIVERGENCE: TS catches the panic at any depth (incl. inside Pointer recursion);
+/// yo-self guards only the top-level type, which suffices for async dependency
+/// graphs (futures are embedded by value, not behind a pointer).
+_dep_named_type_string :: (fn(t : TypeValue, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    context.base.get_type_c_name(type_key(t)),
+    .Some(_) => Option(String).Some(get_type_string(t, context.base)),
+    .None => Option(String).None
+  )
+);
+_dep_type_string :: (fn(t : TypeValue, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    t,
+    .IsoT({}) => Option(String).None,
+    .FnTraitT({}) => Option(String).None,
+    .FutureTraitT({}) => Option(String).None,
+    .Tuple(_, _) => _dep_named_type_string(t, context),
+    .Union(_, _, _) => _dep_named_type_string(t, context),
+    .Struct({}) => _dep_named_type_string(t, context),
+    .EnumT({}) => match(
+      can_optimize_as_nullable_pointer(t),
+      .Some(_) => Option(String).Some(get_type_string(t, context.base)),
+      .None => _dep_named_type_string(t, context)
+    ),
+    .DynT({}) => _dep_named_type_string(t, context),
+    _ => Option(String).Some(get_type_string(t, context.base))
+  )
+);
+/// Record that `dep_struct_name` must be emitted before `b_struct_name`: add the
+/// reverse edge `dep -> b` and bump b's indegree (idempotent). Mirrors the inner
+/// `addDep` of `emitDeferredAsyncBlockStructDefinitions`.
+_add_deferred_dep :: (
+  fn(dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), dep_struct_name : String, b_struct_name : String) -> unit
+)({
+  match(
+    dependents.get(dep_struct_name.clone()),
+    .Some(ds) => {
+      if(ds.contains(b_struct_name.clone()), return());
+      _r := ds.add(b_struct_name.clone());
+      _r2 := dependents.set(dep_struct_name, ds);
+      cur := match(indegree.get(b_struct_name.clone()),.Some(n) => n,.None => usize(0));
+      _r3 := indegree.set(b_struct_name, cur + usize(1));
+    },
+    .None => ()
+  );
+});
+/// Build the dependency edges for one deferred block `b`: a local-variable field
+/// or an `await_future_X` field whose type C-string matches another block's
+/// struct name introduces an edge. Mirrors the per-block body of the dependency
+/// graph construction (async.ts:932).
+_build_deferred_deps :: (
+  fn(b : DeferredAsyncBlock, by_struct_name : HashMap(String, DeferredAsyncBlock), dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), context : FunctionGenerationContext) -> unit
+)({
+  // Local variable fields.
+  cvs := b.analysis.captured_variables;
+  (i : usize) = usize(0);
+  while(i < cvs.len(), {
+    match(
+      cvs.get(i),
+      .Some(v) => match(
+        _dep_type_string(v.base.ty, context),
+        .Some(t) => match(
+          by_struct_name.get(t),
+          .Some(target) => if(target.struct_name != b.struct_name, {
+            _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
+          }),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // await_future_X fields.
+  aps := b.analysis.await_points;
+  (j : usize) = usize(0);
+  while(j < aps.len(), {
+    match(
+      aps.get(j),
+      .Some(ap) => match(
+        ap.future_variable_id,
+        .Some(_) => (),
+        .None => {
+          await_expr := ap.base.expr;
+          is_fn_call := match(await_expr,.FnCall(_, _, _, _, _) => true, _ => false);
+          if(is_fn_call, {
+            args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+            match(
+              args.get(usize(0)),
+              .Some(future_expr) => match(
+                context.base.get_expr_info(future_expr),
+                .Some(ei) => match(
+                  _dep_type_string(ei.ty, context),
+                  .Some(t) => match(
+                    by_struct_name.get(t),
+                    .Some(target) => if(target.struct_name != b.struct_name, {
+                      _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
+                    }),
+                    .None => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            );
+          });
+        }
+      ),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+});
+/// Emit struct definitions for all deferred async blocks in dependency order
+/// (Kahn's topological sort over by-value embedding edges; falls back to input
+/// order on cycles). Faithful port of `emitDeferredAsyncBlockStructDefinitions`
+/// (async.ts:907).
+emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGenerationContext) -> unit)({
+  blocks := match(context.deferred_async_blocks,.Some(b) => b,.None => return());
+  if(blocks.len() == usize(0), return());
+  // byStructName.
+  by_struct_name := HashMap(String, DeferredAsyncBlock).new();
+  (i : usize) = usize(0);
+  while(i < blocks.len(), {
+    match(
+      blocks.get(i),
+      .Some(b) => {
+        _r := by_struct_name.set(b.struct_name.clone(), b);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // dependents (reverse edges B -> {A...}) + indegree, both seeded per block.
+  dependents := HashMap(String, HashSet(String)).new();
+  indegree := HashMap(String, usize).new();
+  (i2 : usize) = usize(0);
+  while(i2 < blocks.len(), {
+    match(
+      blocks.get(i2),
+      .Some(b) => {
+        _r := dependents.set(b.struct_name.clone(), HashSet(String).new());
+        _r2 := indegree.set(b.struct_name.clone(), usize(0));
+      },
+      .None => ()
+    );
+    i2 = (i2 + usize(1));
+  });
+  // Build edges.
+  (i3 : usize) = usize(0);
+  while(i3 < blocks.len(), {
+    match(blocks.get(i3),.Some(b) => _build_deferred_deps(b, by_struct_name, dependents, indegree, context),.None => ());
+    i3 = (i3 + usize(1));
+  });
+  // Kahn's algorithm: seed the queue with indegree-0 nodes.
+  queue := ArrayList(String).new();
+  it := indegree.into_iter();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(e) => if(e.value == usize(0), {
+        queue.push(e.key.clone());
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  ordered := ArrayList(String).new();
+  (head : usize) = usize(0);
+  while(head < queue.len(), {
+    n := match(queue.get(head),.Some(x) => x,.None => String.from(""));
+    head = (head + usize(1));
+    ordered.push(n.clone());
+    match(
+      dependents.get(n),
+      .Some(ds) => {
+        dit := ds.into_iter();
+        (dgo : bool) = true;
+        while(dgo, {
+          match(
+            dit.next(),
+            .Some(m) => {
+              next := (match(indegree.get(m.clone()),.Some(d) => d,.None => usize(0)) - usize(1));
+              _r := indegree.set(m.clone(), next);
+              if(next == usize(0), {
+                queue.push(m);
+              });
+            },
+            .None => {
+              dgo = false;
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  // Resolve to the emission order (fall back to input order on cycles).
+  ordered_blocks := ArrayList(DeferredAsyncBlock).new();
+  if(ordered.len() == blocks.len(), {
+    (oi : usize) = usize(0);
+    while(oi < ordered.len(), {
+      match(
+        ordered.get(oi),
+        .Some(name) => match(
+          by_struct_name.get(name),
+          .Some(b) => {
+            ordered_blocks.push(b);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  }, {
+    (bi : usize) = usize(0);
+    while(bi < blocks.len(), {
+      match(
+        blocks.get(bi),
+        .Some(b) => {
+          ordered_blocks.push(b);
+        },
+        .None => ()
+      );
+      bi = (bi + usize(1));
+    });
+  });
+  // Emit each block's struct definition.
+  (ei : usize) = usize(0);
+  while(ei < ordered_blocks.len(), {
+    match(
+      ordered_blocks.get(ei),
+      .Some(b) => {
+        cbr := compute_cross_boundary_variables(b.body_expr, b.analysis, context);
+        osr := compute_overlapping_slots(cbr.cross_boundary_ids, cbr.variable_segments, b.analysis.captured_variables, cbr.await_future_temp_var_aliases, context);
+        emit_async_block_struct_definition(
+          AsyncBlockStructInfo(
+            async_block_id : b.async_block_id.clone(),
+            struct_name : b.struct_name.clone(),
+            result_type : b.result_type,
+            result_type_c_name : b.result_type_c_name.clone(),
+            capture_type : b.capture_type,
+            analysis : b.analysis,
+            cross_boundary_ids : Option(HashSet(String)).Some(cbr.cross_boundary_ids),
+            await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases),
+            overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases),
+            overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(osr.slots),
+            closure_param_slots : b.closure_param_slots
+          ),
+          context
+        );
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
   get_injectable_future_effect_field_mappings,
   SyncParamSlot,
   generate_future_effect_setter,
-  ClosureParamSlot,
   AsyncBlockStructInfo,
-  emit_async_block_struct_definition
+  emit_async_block_struct_definition,
+  emit_deferred_async_block_struct_definitions
 );
