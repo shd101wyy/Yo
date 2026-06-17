@@ -45,6 +45,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
+{ is_io_async_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
@@ -1755,6 +1756,17 @@ Fix: wrap the call:
         // `ei.runtime_arg_exprs_in_order` to materialize the call's C arguments.
         // yo-self treats all regular params as runtime (helper.yo:1879), so every
         // non-quoted evaluated arg is collected here; recorded on `out` below.
+        // Phase 5: when this call is `io.async(closure)`, evaluate the closure
+        // ARGUMENT under async-block context so the anon-fn body eval runs the
+        // await-point analysis and lands `await_analysis` on the body's ExprInfo
+        // (the FSM codegen reads it). Mirrors TS helper.ts:1314 setting
+        // `isInsideIoAsyncCall` before arg eval (TS keys on `ioBuiltin`; yo-self
+        // has no such marker, so detect `io.async(...)` structurally). Restored
+        // after the arg loop.
+        prev_io_async_ctx := ctx.is_inside_io_async_call;
+        if(is_io_async_call(expr), {
+          ctx.is_inside_io_async_call = true;
+        });
         runtime_arg_exprs := ArrayList(AstExpr).new();
         (ai : usize) = usize(0);
         while(ai < n_a, {
@@ -1819,6 +1831,7 @@ Fix: wrap the call:
           };
           ai = (ai + usize(1));
         });
+        ctx.is_inside_io_async_call = prev_io_async_ctx;
         // Build a fresh environment for the function body.
         fresh_env := Environment.new(env.module_path);
         // Bind captures.

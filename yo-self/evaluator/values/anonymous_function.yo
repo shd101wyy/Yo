@@ -40,8 +40,11 @@ open(import("std/string"));
 {
   ExprInfo,
   new_expr_info,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_table_get
 } :: import("../../expr_info.yo");
+{ analyze_await_points } :: import("../async/await_analysis.yo");
+{ AwaitAnalysisResult } :: import("../async/await_analysis_types.yo");
 {
   Environment,
   add_variable_to_env,
@@ -894,6 +897,25 @@ evaluate_anonymous_function_implementation :: (
               )
             )
           );
+        });
+        // Phase 5: inside an `io.async(closure)` call, run the await-point
+        // analysis on the body and record it on the body's ExprInfo when it has
+        // awaits — the async-FSM codegen reads `await_analysis` to drive the
+        // state-machine transformation. Mirrors anonymous-function.ts:898-907
+        // (gated on `context.isInsideIoAsyncCall`). The `get_info` callback reads
+        // the in-process ExprInfo table.
+        if(ctx.is_inside_io_async_call, {
+          info_tbl := ctx.expr_info_table;
+          await_res := analyze_await_points(anon_eb, (e : AstExpr) => expr_info_table_get(info_tbl, ast_expr_id(e)));
+          if(await_res.has_awaits, {
+            match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
+              .Some(body_info) => {
+                body_info.await_analysis = Option(AwaitAnalysisResult).Some(await_res);
+              },
+              .None => ()
+            );
+          });
         });
       },
       .None => ()
