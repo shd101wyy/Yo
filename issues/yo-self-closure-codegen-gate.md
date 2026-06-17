@@ -70,6 +70,24 @@ triggering closure implementation) and fix it so `capture_type` (empty struct fo
 no-capture) + `closure_function_value` are set — then `generate_io_async_sync_call`
 resolves the capture struct and the construction emitter produces its value.
 
+**FURTHER (2026-06-18, commit 65ff909cf).** Added the evaluator groundwork:
+`evaluate_anonymous_function_implementation` now marks io.async `=>` closures as
+closures (`mark_as_closure_fn`) and builds their capture struct (`capture_type`),
+scoped to `ctx.is_inside_io_async_call`. Validated SAFE (std 152/152, corpus 58/58).
+BUT the BASELINE still emits `/* Error: no CAPTURE type */`, AND the closure
+function body (`x := i32(42)`) does not appear in the emitted C at all. So either:
+(a) `is_io_async_call(expr)` (function.yo:1770) does not fire for the baseline's
+`io.async(...)` method call, so `is_inside_io_async_call` is never set during the
+closure arg eval (→ the new code is skipped); or (b) the closure ExprInfo that
+codegen reads (`runtime_arg_exprs_in_order[0]` / `args[0]`) is a different node than
+the one the eval set `capture_type` on; or (c) the closure function is dropped by
+`should_skip_function_codegen` (treated as generic). NEXT: instrument which of
+(a)/(b)/(c) holds — first confirm `is_io_async_call` returns true for the baseline
+call and that the closure fn is collected+emitted, then trace the ExprInfo identity
+from eval to the codegen read. The marker + capture-param convention + capture_type
+plumbing are all in place; the remaining work is making them connect on the actual
+codegen-read node.
+
 ## Original root cause
 
 `io.async((io)=>{…})` with no `await` inside routes to the sync-future path
