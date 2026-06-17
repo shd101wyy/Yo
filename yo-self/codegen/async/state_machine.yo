@@ -20,7 +20,8 @@ open(import("std/string"));
 { Variable, get_variables_from_env } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ sanitize_for_c_identifier, get_type_string } :: import("../utils/index.yo");
+{ get_type_string } :: import("../utils/index.yo");
+{ get_state_machine_field_name } :: import("./state_machine_naming.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
 /// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
 ///
@@ -77,31 +78,6 @@ generate_resume_function_declaration :: (
   line.push_string(info.struct_name.clone());
   line.push_str("* sm);");
   em.emit_declaration_string_line(line);
-});
-/// The C field name for a captured variable in a state-machine struct (consistent
-/// across struct definition and use). Mirrors `getStateMachineFieldName`
-/// (state-machine.ts:549): `outer` → `__capture.<id>`; an alias wins; otherwise
-/// `var_<id>`.
-get_state_machine_field_name :: (
-  fn(variable_id : String, kind : Option(String), aliases : Option(HashMap(String, String))) -> String
-)({
-  match(
-    kind,
-    .Some(k) => if(k == "outer", {
-      o := String.from("__capture.");
-      o.push_string(sanitize_for_c_identifier(variable_id.clone(), false));
-      return(o);
-    }),
-    .None => ()
-  );
-  match(
-    aliases,
-    .Some(a) => match(a.get(variable_id.clone()),.Some(al) => return(al),.None => ()),
-    .None => ()
-  );
-  pre := String.from("var_");
-  pre.push_string(variable_id);
-  sanitize_for_c_identifier(pre, false)
 });
 /// The state-machine field name for the Future being awaited. Prefers the
 /// captured Future variable's field (`<name>` for an outer capture, `var_<id>`

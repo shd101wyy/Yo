@@ -18,14 +18,16 @@ open(import("std/string"));
 { expr_contains_await } :: import("../../expr_traversal.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
-{ _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await } :: import("./_fsm.yo");
+{ _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
 { is_unit_type, is_enum_type } :: import("../../types/guards.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
 { get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_enum_variant_c_name } :: import("../utils/index.yo");
+{ get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 /// A contiguous run of body expressions that execute in one FSM state, ending
 /// at an await (or the final segment). Mirrors `StateSegment`
 /// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
@@ -1496,6 +1498,366 @@ generate_primitive_match_with_await :: (
   );
   context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(pmap);
 });
+/// Append one `CondBranch` to the cond/match entry at `idx` (get-or-create the
+/// entry, push, store back). The enum/nullable match paths accumulate branches
+/// incrementally (vs cond's whole-entry store). Mirrors the
+/// `asyncCondBranchInfo.get(idx) || {branches:[]}; push; set` pattern.
+_push_cond_branch :: (fn(context : FunctionGenerationContext, idx : usize, branch : CondBranch) -> unit)({
+  if(context.async_cond_branch_info.is_none(), {
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  });
+  m := match(context.async_cond_branch_info,.Some(x) => x,.None => HashMap(usize, AsyncCondBranchInfo).new());
+  entry := match(
+    m.get(idx),
+    .Some(e) => e,
+    .None => AsyncCondBranchInfo(
+      branches : ArrayList(CondBranch).new(),
+      target_variable_id : Option(String).None,
+      target_assignment_code : Option(String).None,
+      cond_branch_field_index : Option(usize).None,
+      chained_branches : Option(ArrayList(ChainedCondBranches)).None
+    )
+  );
+  entry.branches.push(branch);
+  m.set(idx, entry);
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
+});
+/// The state-machine variable id whose captured-variable name is `name`, or
+/// `.None`. Replaces the `for (id, varInfo) of stateMachineVariables` lookup.
+_find_sm_var_id_by_name :: (fn(context : FunctionGenerationContext, name : String) -> Option(String))(
+  match(
+    context.state_machine_variables,
+    .Some(m) => {
+      it := m.into_iter();
+      (go : bool) = true;
+      (res : Option(String)) = Option(String).None;
+      while(go, {
+        match(
+          it.next(),
+          .Some(bucket) => if(bucket.value.base.name == name, {
+            res = Option(String).Some(bucket.key);
+            go = false;
+          }),
+          .None => {
+            go = false;
+          }
+        );
+      });
+      res
+    },
+    .None => Option(String).None
+  )
+);
+/// The variant name of an enum match pattern (`.Variant` simple or `.Variant(x)`
+/// destructuring), or `.None`. Mirrors the `variantName` extraction in
+/// `generateMatchWithAwait`.
+_extract_variant_name :: (fn(pattern : AstExpr) -> Option(String))({
+  if(ast_expr_is_fn_call_of(pattern, ".", Option(usize).Some(usize(1))), {
+    return(match(pattern,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(at) => Option(String).Some(ast_expr_token(at).value),.None => Option(String).None), _ => Option(String).None));
+  });
+  if(ast_expr_is_fn_call(pattern), {
+    pf := match(pattern,.FnCall(_, fb, _, _, _) => fb.*, _ => pattern);
+    if(ast_expr_is_fn_call_of(pf, ".", Option(usize).Some(usize(1))), {
+      return(match(pf,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(at) => Option(String).Some(ast_expr_token(at).value),.None => Option(String).None), _ => Option(String).None));
+    });
+  });
+  Option(String).None
+});
+/// Handle one match case body at `case_index`: a branch with await delegates to
+/// `generate_cond_branch_with_await` (recording remaining exprs); a non-await
+/// branch emits Future completion (if it is the async-body return) or the
+/// target-aware value. Shared by the nullable-pointer and enum-switch paths.
+_emit_match_case_await_or_value :: (
+  fn(
+    match_expr : AstExpr,
+    case_body : AstExpr,
+    case_index : usize,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)({
+  if(branch_has_await(case_body), {
+    remaining := generate_cond_branch_with_await(case_body, await_point, indent, context);
+    if(remaining.len() > usize(0), {
+      _push_cond_branch(context, await_point.base.index, _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).Some(remaining), context));
+    });
+  }, {
+    if(_should_emit_async_branch_completion(match_expr, case_body, context, target_variable_id, target_assignment_code), {
+      _emit_non_await_branch_async_completion(case_body, indent, context);
+    }, {
+      _emit_match_case_value(case_body, indent, context, target_variable_id, target_assignment_code);
+    });
+  });
+});
+/// Emit a `match(...)` whose branches contain await. Dispatches to the primitive
+/// path (`is_primitive_match`), the nullable-pointer optimization (Option-like
+/// enums → NULL check), or a general `switch (value.tag)` — recording the taken
+/// branch in `sm->cond_branch_N`, binding destructured fields (into SM fields or
+/// C locals), and storing each awaited Future / delegating to
+/// `generate_cond_branch_with_await`. Mirrors `generateMatchWithAwait`
+/// (state-code-gen.ts:1023).
+generate_match_with_await :: (
+  fn(
+    match_expr : AstExpr,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)({
+  em := context.base.emitter;
+  idx_s := await_point.base.index.to_string();
+  if(!(ast_expr_is_fn_call(match_expr) && ast_expr_is_fn_call_of(match_expr, BK_MATCH, Option(usize).None)), {
+    em.emit_string_line(`${indent}// Error: Expected match expression`);
+    return();
+  });
+  args := match(match_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  matched_value_expr_opt := args.get(usize(0));
+  cases := ArrayList(AstExpr).new();
+  (cb : usize) = usize(1);
+  while(cb < args.len(), {
+    match(
+      args.get(cb),
+      .Some(c) => {
+        cases.push(c);
+      },
+      .None => ()
+    );
+    cb = (cb + usize(1));
+  });
+  match(
+    matched_value_expr_opt,
+    .None => {
+      em.emit_string_line(`${indent}// Error: match must have a value and at least one case`);
+    },
+    .Some(matched_value_expr) => if(cases.len() == usize(0), {
+      em.emit_string_line(`${indent}// Error: match must have a value and at least one case`);
+    }, {
+      matched_value_code := _call_generate_expr(matched_value_expr, indent, context);
+      match_value_type_opt := match(context.base.get_expr_info(matched_value_expr),.Some(ei) => Option(TypeValue).Some(ei.ty),.None => Option(TypeValue).None);
+      match(
+        match_value_type_opt,
+        .None => {
+          em.emit_string_line(`${indent}// Error: match value has no type`);
+        },
+        .Some(match_value_type) => {
+          is_prim := match(context.base.get_expr_info(match_expr),.Some(ei) => match(ei.is_primitive_match,.Some(b) => b,.None => false),.None => false);
+          if(is_prim, {
+            generate_primitive_match_with_await(match_expr, cases, matched_value_code, await_point, indent, context, target_variable_id, target_assignment_code);
+            return();
+          });
+          if(!(is_enum_type(match_value_type)), {
+            em.emit_string_line(`${indent}// Error: match requires an enum type or primitive type`);
+            return();
+          });
+          enum_id := match(match_value_type,.EnumT({ id }) => id, _ => String.from(""));
+          variant_names := match(match_value_type,.EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new());
+          variant_fields := match(match_value_type,.EnumT({ variant_fields : vfs }) => vfs, _ => ArrayList(ArrayList(TypeValue)).new());
+          variant_field_labels := match(match_value_type,.EnumT({ variant_field_labels : vfls }) => vfls, _ => ArrayList(ArrayList(String)).new());
+          enum_c_name := match(context.base.types.get(enum_id),.Some(e) => e.c_name,.None => String.from(""));
+          if(enum_c_name.len() == usize(0), {
+            em.emit_string_line(`${indent}// Error: enum type has no C name`);
+            return();
+          });
+          nullable := can_optimize_as_nullable_pointer(match_value_type);
+          match(
+            nullable,
+            .Some(nullable_type) => {
+              // Nullable-pointer optimization: NULL vs non-NULL.
+              (null_case : Option(usize)) = Option(usize).None;
+              (ptr_case : Option(usize)) = Option(usize).None;
+              (ptr_var_name : Option(String)) = Option(String).None;
+              (ni : usize) = usize(0);
+              while(ni < cases.len(), {
+                match(
+                  cases.get(ni),
+                  .Some(ce) => if(ast_expr_is_fn_call(ce) && ast_expr_is_fn_call_of(ce, "=>", Option(usize).Some(usize(2))), {
+                    pat := match(ce,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+                    match(
+                      pat,
+                      .Some(pattern) => {
+                        if(ast_expr_is_fn_call(pattern) && ast_expr_is_fn_call_of(pattern, ".", Option(usize).None), {
+                          null_case = Option(usize).Some(ni);
+                        }, {
+                          if(ast_expr_is_fn_call(pattern), {
+                            pf := match(pattern,.FnCall(_, fb, _, _, _) => fb.*, _ => pattern);
+                            if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
+                              ptr_case = Option(usize).Some(ni);
+                              pargs := match(pattern,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                              match(pargs.get(usize(0)),.Some(pv) => if(ast_expr_is_atom(pv), {
+                                ptr_var_name = Option(String).Some(ast_expr_token(pv).value);
+                              }),.None => ());
+                            });
+                          });
+                        });
+                      },
+                      .None => ()
+                    );
+                  }),
+                  .None => ()
+                );
+                ni = (ni + usize(1));
+              });
+              em.emit_string_line(`${indent}if (${matched_value_code} != NULL) {`);
+              match(
+                ptr_case,
+                .Some(pci) => match(
+                  cases.get(pci),
+                  .Some(ce) => {
+                    cb_body := match(ce,.FnCall(_, _, a, _, _) => a.get(usize(1)),.Atom(_, _) => Option(AstExpr).None);
+                    match(
+                      cb_body,
+                      .Some(case_body) => {
+                        match(
+                          ptr_var_name,
+                          .Some(pvn) => {
+                            match(
+                              _find_sm_var_id_by_name(context, pvn),
+                              .Some(vid) => {
+                                fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                                em.emit_string_line(`${indent}  sm->${fname} = ${matched_value_code};`);
+                              },
+                              .None => {
+                                em.emit_string_line(`${indent}  ${get_type_string(nullable_type, context.base)} ${pvn} = ${matched_value_code};`);
+                              }
+                            );
+                          },
+                          .None => ()
+                        );
+                        em.emit_string_line(`${indent}  sm->cond_branch_${idx_s} = ${pci.to_string()};`);
+                        _emit_match_case_await_or_value(match_expr, case_body, pci, await_point, `${indent}  `, context, target_variable_id, target_assignment_code);
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              em.emit_string_line(`${indent}} else {`);
+              match(
+                null_case,
+                .Some(nci) => match(
+                  cases.get(nci),
+                  .Some(ce) => {
+                    cb_body := match(ce,.FnCall(_, _, a, _, _) => a.get(usize(1)),.Atom(_, _) => Option(AstExpr).None);
+                    match(
+                      cb_body,
+                      .Some(case_body) => {
+                        em.emit_string_line(`${indent}  sm->cond_branch_${idx_s} = ${nci.to_string()};`);
+                        _emit_match_case_await_or_value(match_expr, case_body, nci, await_point, `${indent}  `, context, target_variable_id, target_assignment_code);
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              em.emit_string_line(`${indent}}`);
+            },
+            .None => {
+              // General enum switch on `.tag`.
+              em.emit_string_line(`${indent}switch (${matched_value_code}.tag) {`);
+              (has_wildcard : bool) = false;
+              (gi : usize) = usize(0);
+              while(gi < cases.len(), {
+                match(
+                  cases.get(gi),
+                  .Some(ce) => if(ast_expr_is_fn_call(ce) && ast_expr_is_fn_call_of(ce, "=>", Option(usize).Some(usize(2))), {
+                    c_args := match(ce,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                    pattern := match(c_args.get(usize(0)),.Some(p) => p,.None => match_expr);
+                    case_body := match(c_args.get(usize(1)),.Some(b) => b,.None => match_expr);
+                    is_wildcard := ast_expr_is_atom_of(pattern, "_");
+                    variant_name_opt := if(is_wildcard, Option(String).None, _extract_variant_name(pattern));
+                    emit_case := if(is_wildcard, {
+                      has_wildcard = true;
+                      em.emit_string_line(`${indent}  default: {`);
+                      true
+                    }, match(
+                      variant_name_opt,
+                      .Some(vn) => {
+                        tag := get_enum_variant_c_name(match_value_type, vn, context.base);
+                        em.emit_string_line(`${indent}  case ${tag}: {`);
+                        true
+                      },
+                      .None => {
+                        em.emit_string_line(`${indent}  // Error: Could not extract variant name`);
+                        false
+                      }
+                    ));
+                    if(emit_case, {
+                      em.emit_string_line(`${indent}    sm->cond_branch_${idx_s} = ${gi.to_string()};`);
+                      // Destructuring: bind variant fields.
+                      if(ast_expr_is_fn_call(pattern), {
+                        pf := match(pattern,.FnCall(_, fb, _, _, _) => fb.*, _ => pattern);
+                        if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
+                          pargs := match(pattern,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                          match(
+                            variant_name_opt,
+                            .Some(vn) => match(
+                              _find_variant_index(variant_names, vn),
+                              .Some(vidx) => {
+                                vfields := match(variant_fields.get(vidx),.Some(f) => f,.None => ArrayList(TypeValue).new());
+                                vlabels := match(variant_field_labels.get(vidx),.Some(l) => l,.None => ArrayList(String).new());
+                                (di : usize) = usize(0);
+                                while((di < pargs.len()) && (di < vfields.len()), {
+                                  dvar := match(pargs.get(di),.Some(d) => d,.None => match_expr);
+                                  if(ast_expr_is_atom(dvar), {
+                                    raw_name := ast_expr_token(dvar).value;
+                                    fld_label := match(vlabels.get(di),.Some(l) => l,.None => String.from(""));
+                                    fld_type := match(vfields.get(di),.Some(t) => t,.None => TypeValue.Unit);
+                                    access := `${matched_value_code}.data.${vn}.${sanitize_for_c_identifier(fld_label.clone(), false)}`;
+                                    match(
+                                      _find_sm_var_id_by_name(context, raw_name),
+                                      .Some(vid) => {
+                                        fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                                        em.emit_string_line(`${indent}    sm->${fname} = ${access};`);
+                                      },
+                                      .None => {
+                                        em.emit_string_line(`${indent}    ${get_type_string(fld_type, context.base)} ${sanitize_for_c_identifier(raw_name, false)} = ${access};`);
+                                      }
+                                    );
+                                  });
+                                  di = (di + usize(1));
+                                });
+                              },
+                              .None => ()
+                            ),
+                            .None => ()
+                          );
+                        });
+                      });
+                      _emit_match_case_await_or_value(match_expr, case_body, gi, await_point, `${indent}    `, context, target_variable_id, target_assignment_code);
+                      em.emit_string_line(`${indent}    break;`);
+                      em.emit_string_line(`${indent}  }`);
+                    });
+                  }),
+                  .None => ()
+                );
+                gi = (gi + usize(1));
+              });
+              if(!(has_wildcard), {
+                em.emit_string_line(`${indent}  default: break;`);
+              });
+              em.emit_string_line(`${indent}}`);
+            }
+          );
+        }
+      );
+    })
+  );
+});
+/// Register the three `*_with_await` emitter entries with the `_fsm.yo` registry.
+/// Call once at codegen init (before any FSM emission). The forward-reference
+/// indirection lets the branch helpers call back into these.
+register_fsm_emitters_impl :: (fn() -> unit)({
+  register_fsm_emitters(generate_cond_with_await, generate_match_with_await, generate_while_with_await);
+});
 export(
   StateSegment,
   split_into_state_segments,
@@ -1511,5 +1873,7 @@ export(
   generate_while_with_await,
   generate_cond_branch_with_await,
   generate_cond_with_await,
-  generate_primitive_match_with_await
+  generate_primitive_match_with_await,
+  generate_match_with_await,
+  register_fsm_emitters_impl
 );
