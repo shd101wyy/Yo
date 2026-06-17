@@ -24,7 +24,7 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop } :: import("../functions/context.yo");
 { expr_contains_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { get_type_string } :: import("../utils/index.yo");
@@ -1834,9 +1834,13 @@ _emit_cond_branch_continuation :: (
         (any_await : bool) = false;
         (bi : usize) = usize(0);
         while((bi < cbd.branches.len()) && !(any_await), {
-          match(cbd.branches.get(bi),.Some(b) => if(b.has_await, {
-            any_await = true;
-          }),.None => ());
+          match(
+            cbd.branches.get(bi),
+            .Some(b) => if(b.has_await, {
+              any_await = true;
+            }),
+            .None => ()
+          );
           bi = (bi + usize(1));
         });
         if(any_await, {
@@ -1912,6 +1916,111 @@ _emit_cond_branch_continuation :: (
     .None => ()
   );
 });
+/// Emit the post-while-loop expressions from an enclosing cond branch (they run
+/// once, after the loop exits, guarded by `sm->cond_branch_N` unless the nested
+/// cond overwrote it). Caller invokes only when the body's after-await code did
+/// NOT itself chain to the next state. Mirrors the post-while block in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:1540).
+_emit_post_while_cond_branch :: (
+  fn(
+    while_data : WhileLoopInfo,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    while_data.cond_branch_post_while_exprs,
+    .Some(pw) => {
+      skip_check := match(pw.skip_cond_branch_check,.Some(b) => b,.None => false);
+      if(skip_check, {
+        em.emit_string_line(`      // Execute post-while-loop code from cond branch (unconditional)`);
+        em.emit_string_line(`      {`);
+      }, {
+        em.emit_string_line(`      // Execute post-while-loop code from cond branch`);
+        em.emit_string_line(`      if (sm->cond_branch_${pw.cond_branch_field_index.to_string()} == ${pw.branch_index.to_string()}) {`);
+      });
+      prev_in_sm := context.in_async_state_machine;
+      prev_smv := context.state_machine_variables;
+      prev_var_remap := context.variable_id_remapping;
+      prev_pdd := context.pending_deferred_drops;
+      context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+      context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+      pdd := ArrayList(AstExpr).new();
+      match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+      context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+      has_next := match(segment.await_point,.Some(_) => true,.None => false);
+      (found : bool) = false;
+      additional := ArrayList(AstExpr).new();
+      (i : usize) = usize(0);
+      while(i < pw.exprs.len(), {
+        expr := match(pw.exprs.get(i),.Some(e) => e,.None => body_expr);
+        if(found, {
+          additional.push(expr);
+        }, {
+          if(has_next && expr_contains_await(expr), {
+            found = true;
+            match(segment.await_point,.Some(ap) => generate_remaining_expr_future(expr, ap, analysis, `        `, context),.None => ());
+          }, {
+            code := _call_generate_expr(expr, `        `, context);
+            skip := if(
+              code.len() == usize(0),
+              true,
+              match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true)
+            );
+            if(!(skip), {
+              em.emit_string_line(`        ${code};`);
+            });
+          });
+        });
+        i = (i + usize(1));
+      });
+      chained := match(
+        segment.await_point,
+        .Some(ap) => if(found, {
+          ccf := if(skip_check, usize.MAX, pw.cond_branch_field_index);
+          bv := match(pw.exprs.get(usize(0)),.Some(e) => e,.None => body_expr);
+          _chain_additional_remaining(context, ap.base.index, pw.branch_index, bv, additional, pw.deferred_drop_expressions, ccf);
+          true
+        }, false),
+        .None => false
+      );
+      if(!(chained), {
+        match(
+          pw.deferred_drop_expressions,
+          .Some(drops) => {
+            (di : usize) = usize(0);
+            while(di < drops.len(), {
+              match(
+                drops.get(di),
+                .Some(d) => {
+                  dc := _call_generate_expr(d, `        `, context);
+                  if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                    em.emit_string_line(`        ${dc};`);
+                  });
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+          },
+          .None => ()
+        );
+      });
+      em.emit_string_line(`      }`);
+      context.in_async_state_machine = prev_in_sm;
+      context.state_machine_variables = prev_smv;
+      context.variable_id_remapping = prev_var_remap;
+      context.pending_deferred_drops = prev_pdd;
+    },
+    .None => ()
+  );
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -1939,5 +2048,6 @@ export(
   _append_exprs,
   _chain_additional_remaining,
   _emit_cond_branch_remaining,
-  _emit_cond_branch_continuation
+  _emit_cond_branch_continuation,
+  _emit_post_while_cond_branch
 );
