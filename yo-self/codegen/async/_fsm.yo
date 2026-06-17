@@ -1,0 +1,110 @@
+//! FSM emitter dispatch indirection — supports the mutually-recursive
+//! state-machine branch emitters in `src/codegen/async/state-code-gen.ts`.
+//!
+//! TS calls `generateCondWithAwait` / `generateMatchWithAwait` /
+//! `generateWhileWithAwait` directly, but they form a cycle with their branch
+//! helpers (`generateCondBranchWithAwait` / `generateWhileBodyWithAwait` /
+//! `generatePrimitiveMatchWithAwait` call back into the three `*_with_await`
+//! entries). yo-self has no forward references, so — exactly as `_expr.yo` does
+//! for the main dispatch — the three `*_with_await` entries are reached through
+//! module-global function pointers: the branch helpers call `_call_*` from here
+//! (no cycle), and `state_code_gen.yo` registers the real implementations via
+//! `register_fsm_emitters` once they are defined.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+/// `generateCondWithAwait(condExpr, awaitPoint, indent, context,
+/// targetVariableId?, targetAssignmentCode?)`.
+GenerateCondWithAwaitFn :: (
+  fn(
+    cond_expr : AstExpr,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+);
+/// `generateMatchWithAwait(matchExpr, awaitPoint, indent, context,
+/// targetVariableId?, targetAssignmentCode?)`.
+GenerateMatchWithAwaitFn :: (
+  fn(
+    match_expr : AstExpr,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+);
+/// `generateWhileWithAwait(whileExpr, awaitPoint, indent, context)`.
+GenerateWhileWithAwaitFn :: (
+  fn(while_expr : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
+);
+(g_generate_cond_with_await : Option(GenerateCondWithAwaitFn)) = Option(GenerateCondWithAwaitFn).None;
+(g_generate_match_with_await : Option(GenerateMatchWithAwaitFn)) = Option(GenerateMatchWithAwaitFn).None;
+(g_generate_while_with_await : Option(GenerateWhileWithAwaitFn)) = Option(GenerateWhileWithAwaitFn).None;
+/// Register the three `*_with_await` emitter entries. Call once after they are
+/// defined (from `state_code_gen.yo`).
+register_fsm_emitters :: (
+  fn(c : GenerateCondWithAwaitFn, m : GenerateMatchWithAwaitFn, w : GenerateWhileWithAwaitFn) -> unit
+)({
+  g_generate_cond_with_await = Option(GenerateCondWithAwaitFn).Some(c);
+  g_generate_match_with_await = Option(GenerateMatchWithAwaitFn).Some(m);
+  g_generate_while_with_await = Option(GenerateWhileWithAwaitFn).Some(w);
+  ()
+});
+/// Dispatch `cond(...)`-with-await emission through the registered entry.
+_call_generate_cond_with_await :: (
+  fn(
+    cond_expr : AstExpr,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)(
+  match(
+    g_generate_cond_with_await,
+    .Some(f) => f(cond_expr, await_point, indent, context, target_variable_id, target_assignment_code),
+    .None => panic("generate_cond_with_await called before register_fsm_emitters")
+  )
+);
+/// Dispatch `match(...)`-with-await emission through the registered entry.
+_call_generate_match_with_await :: (
+  fn(
+    match_expr : AstExpr,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String)
+  ) -> unit
+)(
+  match(
+    g_generate_match_with_await,
+    .Some(f) => f(match_expr, await_point, indent, context, target_variable_id, target_assignment_code),
+    .None => panic("generate_match_with_await called before register_fsm_emitters")
+  )
+);
+/// Dispatch `while(...)`-with-await emission through the registered entry.
+_call_generate_while_with_await :: (
+  fn(while_expr : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
+)(
+  match(
+    g_generate_while_with_await,
+    .Some(f) => f(while_expr, await_point, indent, context),
+    .None => panic("generate_while_with_await called before register_fsm_emitters")
+  )
+);
+export(
+  GenerateCondWithAwaitFn,
+  GenerateMatchWithAwaitFn,
+  GenerateWhileWithAwaitFn,
+  register_fsm_emitters,
+  _call_generate_cond_with_await,
+  _call_generate_match_with_await,
+  _call_generate_while_with_await
+);
