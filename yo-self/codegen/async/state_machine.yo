@@ -24,7 +24,9 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine } :: import("../functions/context.yo");
+{ expr_contains_await } :: import("../../expr_traversal.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
 { get_type_string } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
@@ -1614,6 +1616,302 @@ _emit_prev_await_result_extraction :: (
     )
   );
 });
+/// Append all of `src` onto `dst`. Small helper for building pending-drop lists.
+_append_exprs :: (fn(dst : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    match(
+      src.get(i),
+      .Some(e) => {
+        dst.push(e);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Register the post-await continuation of a cond/match branch for the NEXT
+/// resume state: when an existing entry is present, push a chained-branch layer;
+/// otherwise create a fresh entry holding the branch. Mirrors the chaining blocks
+/// in `generateAsyncBlockResumeFunction` (state-machine.ts:920/1098/1628). The
+/// branch `has_await` is `additional_remaining.len() > 0` (TS's `||
+/// some(exprContainsAwait)` is redundant — non-empty ⇒ true, empty ⇒ false).
+_chain_additional_remaining :: (
+  fn(
+    context : FunctionGenerationContext,
+    next_index : usize,
+    branch_index : usize,
+    branch_value : AstExpr,
+    additional_remaining : ArrayList(AstExpr),
+    deferred_drops : Option(ArrayList(AstExpr)),
+    cond_branch_field_index : usize
+  ) -> unit
+)({
+  has_await := (additional_remaining.len() > usize(0));
+  cb := CondBranch(
+    index : branch_index,
+    value : branch_value,
+    has_await : has_await,
+    remaining_exprs : Option(ArrayList(AstExpr)).Some(additional_remaining),
+    deferred_drop_expressions : deferred_drops
+  );
+  if(context.async_cond_branch_info.is_none(), {
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  });
+  m := match(context.async_cond_branch_info,.Some(x) => x,.None => HashMap(usize, AsyncCondBranchInfo).new());
+  match(
+    m.get(next_index),
+    .Some(existing) => {
+      chained := match(existing.chained_branches,.Some(c) => c,.None => ArrayList(ChainedCondBranches).new());
+      bl := ArrayList(CondBranch).new();
+      bl.push(cb);
+      chained.push(ChainedCondBranches(branches : bl, cond_branch_field_index : cond_branch_field_index));
+      existing.chained_branches = Option(ArrayList(ChainedCondBranches)).Some(chained);
+      m.set(next_index, existing);
+    },
+    .None => {
+      bl := ArrayList(CondBranch).new();
+      bl.push(cb);
+      m.set(
+        next_index,
+        AsyncCondBranchInfo(
+          branches : bl,
+          target_variable_id : Option(String).None,
+          target_assignment_code : Option(String).None,
+          cond_branch_field_index : Option(usize).Some(cond_branch_field_index),
+          chained_branches : Option(ArrayList(ChainedCondBranches)).None
+        )
+      );
+    }
+  );
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
+});
+/// Emit one cond/match branch's post-await remaining code in a resume state:
+/// set up SM context (combined vars + pending drops), emit each remaining expr
+/// (chaining to the next state on an additional await, else emitting drops), and
+/// restore context. `indent` is 10 spaces for the main switch, 6 for chained
+/// layers. Mirrors the per-branch body in the cond-branch-continuation handler
+/// (state-machine.ts:809). (The TS `remainingExprs.length === 0` block at :906 is
+/// dead — it sits inside a `length > 0` guard — and is omitted.)
+_emit_cond_branch_remaining :: (
+  fn(
+    branch : CondBranch,
+    prev_await : AwaitPoint,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    cond_field : usize,
+    branch_target_assignment : Option(String),
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  has_additional := match(segment.await_point,.Some(ap) => match(ap.base.is_inside_cond,.Some(b) => b,.None => false),.None => false);
+  match(
+    branch.remaining_exprs,
+    .Some(rem) => if(rem.len() > usize(0), {
+      prev_in_sm := context.in_async_state_machine;
+      prev_smv := context.state_machine_variables;
+      prev_var_remap := context.variable_id_remapping;
+      prev_pdd := context.pending_deferred_drops;
+      context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+      context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+      pdd := ArrayList(AstExpr).new();
+      match(branch.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ());
+      match(
+        context.async_while_loop_info,
+        .Some(wm) => match(
+          wm.get(prev_await.base.index),
+          .Some(wi) => match(context.base.get_expr_info(wi.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ()),
+          .None => ()
+        ),
+        .None => ()
+      );
+      match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+      context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+      (found_additional : bool) = false;
+      additional_remaining := ArrayList(AstExpr).new();
+      (i : usize) = usize(0);
+      while(i < rem.len(), {
+        expr := match(rem.get(i),.Some(e) => e,.None => body_expr);
+        is_last := (i == (rem.len() - usize(1)));
+        if(found_additional, {
+          additional_remaining.push(expr);
+        }, {
+          if(has_additional && expr_contains_await(expr), {
+            found_additional = true;
+            match(segment.await_point,.Some(ap) => generate_remaining_expr_future(expr, ap, analysis, indent.clone(), context),.None => ());
+          }, {
+            code := _call_generate_expr(expr, indent.clone(), context);
+            skip := if(
+              code.len() == usize(0),
+              true,
+              match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true)
+            );
+            if(!(skip), {
+              match(
+                branch_target_assignment,
+                .Some(tac) => if(is_last, {
+                  em.emit_string_line(`${indent}${tac} = ${code};`);
+                }, {
+                  em.emit_string_line(`${indent}${code};`);
+                }),
+                .None => {
+                  em.emit_string_line(`${indent}${code};`);
+                }
+              );
+            });
+          });
+        });
+        i = (i + usize(1));
+      });
+      chained := match(
+        segment.await_point,
+        .Some(ap) => if(found_additional, {
+          _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field);
+          true
+        }, false),
+        .None => false
+      );
+      if(!(chained), {
+        match(
+          branch.deferred_drop_expressions,
+          .Some(drops) => {
+            (di : usize) = usize(0);
+            while(di < drops.len(), {
+              match(
+                drops.get(di),
+                .Some(d) => {
+                  dc := _call_generate_expr(d, indent.clone(), context);
+                  if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                    em.emit_string_line(`${indent}${dc};`);
+                  });
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+          },
+          .None => ()
+        );
+      });
+      context.in_async_state_machine = prev_in_sm;
+      context.state_machine_variables = prev_smv;
+      context.variable_id_remapping = prev_var_remap;
+      context.pending_deferred_drops = prev_pdd;
+    }),
+    .None => ()
+  );
+});
+/// Emit the cond/match-branch continuation at the top of a resume state: a
+/// `switch (sm->cond_branch_N)` over the await-bearing branches (each runs its
+/// post-await remaining code), then any chained-branch layers, then the cond
+/// result assignment. `cond_field == usize.MAX` is the TS `-1` unconditional
+/// sentinel (skip the switch). Mirrors the cond-branch handler in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:774).
+_emit_cond_branch_continuation :: (
+  fn(
+    async_block_id : String,
+    prev_await : AwaitPoint,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    context.async_cond_branch_info,
+    .Some(cbi_map) => match(
+      cbi_map.get(prev_await.base.index),
+      .Some(cbd) => {
+        (any_await : bool) = false;
+        (bi : usize) = usize(0);
+        while((bi < cbd.branches.len()) && !(any_await), {
+          match(cbd.branches.get(bi),.Some(b) => if(b.has_await, {
+            any_await = true;
+          }),.None => ());
+          bi = (bi + usize(1));
+        });
+        if(any_await, {
+          cond_field := match(cbd.cond_branch_field_index,.Some(x) => x,.None => prev_await.base.index);
+          skip_switch := (cond_field == usize.MAX);
+          em.emit_string_line(`      // Execute remaining code from chosen cond branch`);
+          if(!(skip_switch), {
+            em.emit_string_line(`      switch (sm->cond_branch_${cond_field.to_string()}) {`);
+          });
+          (mbi : usize) = usize(0);
+          while(mbi < cbd.branches.len(), {
+            match(
+              cbd.branches.get(mbi),
+              .Some(branch) => if(branch.has_await, {
+                if(!(skip_switch), {
+                  em.emit_string_line(`        case ${branch.index.to_string()}: {`);
+                });
+                em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: Executing remaining code from branch ${branch.index.to_string()}\\n");`);
+                _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, cbd.target_assignment_code, `          `, context);
+                if(!(skip_switch), {
+                  em.emit_string_line(`          break;`);
+                  em.emit_string_line(`        }`);
+                });
+              }),
+              .None => ()
+            );
+            mbi = (mbi + usize(1));
+          });
+          if(!(skip_switch), {
+            em.emit_string_line(`      }`);
+          });
+          match(
+            cbd.chained_branches,
+            .Some(layers) => {
+              (li : usize) = usize(0);
+              while(li < layers.len(), {
+                match(
+                  layers.get(li),
+                  .Some(layer) => {
+                    (ci : usize) = usize(0);
+                    while(ci < layer.branches.len(), {
+                      match(
+                        layer.branches.get(ci),
+                        .Some(cb) => if(cb.has_await && match(cb.remaining_exprs,.Some(r) => (r.len() > usize(0)),.None => false), {
+                          _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, Option(String).None, `      `, context);
+                        }),
+                        .None => ()
+                      );
+                      ci = (ci + usize(1));
+                    });
+                  },
+                  .None => ()
+                );
+                li = (li + usize(1));
+              });
+            },
+            .None => ()
+          );
+          match(
+            cbd.target_variable_id,
+            .Some(tvid) => {
+              fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+              em.emit_string_line(`      // Assign cond result to target variable`);
+              em.emit_string_line(`      sm->${fname} = sm->await_result_${prev_await.base.index.to_string()};`);
+            },
+            .None => ()
+          );
+          em.emit_string_line(String.from(""));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -1637,5 +1935,9 @@ export(
   _build_combined_sm_variables,
   _emit_await_suspension,
   _emit_last_segment_completion,
-  _emit_prev_await_result_extraction
+  _emit_prev_await_result_extraction,
+  _append_exprs,
+  _chain_additional_remaining,
+  _emit_cond_branch_remaining,
+  _emit_cond_branch_continuation
 );
