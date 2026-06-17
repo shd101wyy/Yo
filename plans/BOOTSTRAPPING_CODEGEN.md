@@ -672,6 +672,23 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    too — derive every block boundary from a single `emitLine(\`` / `\`);` /
    `? \`` / closing-backtick grep, since nested (indented) `emitLine` blocks make
    "first content = open+1" the only reliable rule.
+   **exprs/async.ts FULLY PORTED 2026-06-18** (`yo-self/codegen/exprs/async.yo`,
+   all 11 functions, each check-clean + corpus 58/58, committed): the effect-field
+   mapping cluster + `generateFutureEffectSetter`; `emitAsyncBlockStructDefinition`
+   + `emitDeferredAsyncBlockStructDefinitions` (Kahn topo-sort);
+   `generateAsyncBlockStateDisposeFunction`; `generateAsyncBlockConstructor`;
+   `generateAsyncBlock` (io.async entry) + the capture-literal helper;
+   `generateDeferredAsyncBlocks` (resume/set_effect/dispose/ctor per block);
+   `preRegisterAsyncBlockTypes` + `preRegisterAsyncBlocksInExpr`;
+   `generateIoAsyncSyncCall` (the no-await sync-future path the BASELINE uses).
+   Model additions: `DeferredAsyncBlock`/`ClosureParamSlot` on
+   `FunctionGenerationContext` (+`deferred_async_blocks` field); `TypeField` gained
+   `is_effect_param` (faithful to TS, threaded from `FuncCapturedVarInfo` at capture
+   creation, 7 construction sites updated). DIVERGENCES (documented in-file): the
+   capture-field atom fallback (TS `generateAtom(elem.exprs.expr)`) emits a
+   PHASE3_CAPTURE_PENDING marker pending the deferred closures.yo capture machinery;
+   the closure C-name comes from the FuncVal func_id (yo-self has no
+   implClosureCallMap). STILL TODO: `exprs/await.ts` (~835) + wire into codegen_c.
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
 co-exists — there is no partial runnable async program. Build #1+#2 first
 (testable via `check`), then the FSM bottom-up against a minimal `io.async` +
