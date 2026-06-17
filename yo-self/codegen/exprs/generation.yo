@@ -138,8 +138,23 @@ open(import("std/string"));
 { generate_match_expression } :: import("./match.yo");
 { generate_other_function_call } :: import("./other_fn_call.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_type_string } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
+{ generate_async_block, generate_io_async_sync_call } :: import("./async.yo");
+{
+  generate_await,
+  generate_state,
+  generate_join_handle_await,
+  emit_io_spawn_effect_injection
+} :: import("./await.yo");
+{
+  is_io_async_call,
+  is_io_await_call,
+  is_io_state_call,
+  is_io_spawn_call,
+  is_join_handle_await_call
+} :: import("../../evaluator/async/await_analysis.yo");
+{ is_io_future_type } :: import("../async/state_machine.yo");
 /// The callee name of a FnCall (empty for an Atom).
 _func_name :: (fn(expr : AstExpr) -> String)(
   match(expr,.FnCall(_, func, _, _, _) => ast_expr_token(func.*).value,.Atom(_, _) => String.from(""))
@@ -258,6 +273,42 @@ _passthrough_first_arg :: (fn(expr : AstExpr, indent : String, context : Functio
 _anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, err : str) -> String)(
   match(context.base.get_expr_info(expr),.Some(ei) => match(ei.value,.Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), String.from(err)),.None => String.from(err)),.None => String.from(err))
 );
+/// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
+/// view). Faithful port of the inline io.spawn block in `generateFuncCall`
+/// (generation.ts:702).
+_generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  args := match(expr,.FnCall(_, _, a, _, _) => a, _ => return(String.from("// Error: spawn requires a Future argument")));
+  future_arg := match(args.get(usize(0)),.Some(a) => a,.None => return(String.from("// Error: spawn requires a Future argument")));
+  em := context.base.emitter;
+  future_code := _call_generate_expr(future_arg, indent.clone(), context);
+  future_type_name := match(context.base.get_expr_info(future_arg),.Some(ei) => get_type_string(ei.ty, context.base),.None => String.from("void*"));
+  expr_ei := context.base.get_expr_info(expr);
+  join_handle_type_name := match(expr_ei,.Some(ei) => Option(String).Some(get_type_string(ei.ty, context.base)),.None => Option(String).None);
+  name_suffix := match(expr_ei,.Some(ei) => match(ei.variable_name,.Some(n) => n,.None => String.from("")),.None => String.from(""));
+  spawn_var := if(name_suffix.len() > usize(0), `__spawn_future_${name_suffix.clone()}`, String.from("__spawn_future"));
+  spawn_state_var := if(name_suffix.len() > usize(0), `__spawn_state_${name_suffix.clone()}`, String.from("__spawn_state"));
+  em.emit_string_line(`${indent.clone()}// io.spawn — start cold Future, return JoinHandle`);
+  em.emit_string_line(`${indent.clone()}${future_type_name} ${spawn_var.clone()} = ${future_code};`);
+  em.emit_string_line(`${indent.clone()}int ${spawn_state_var.clone()} = ${spawn_var.clone()}->state;`);
+  em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == -2) {`);
+  em.emit_string_line(`${indent.clone()}  fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`);
+  em.emit_string_line(`${indent.clone()}  abort();`);
+  em.emit_string_line(`${indent.clone()}}`);
+  // Inject the bundle effect into the future's SM before cold-starting.
+  emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
+  is_io_future := match(context.base.get_expr_info(future_arg),.Some(ei) => is_io_future_type(ei.ty),.None => false);
+  if(!(is_io_future), {
+    em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->__yo_resume_fn) {`);
+    em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
+    em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->__yo_resume_fn((void*)${spawn_var.clone()});`);
+    em.emit_string_line(`${indent.clone()}}`);
+  });
+  match(
+    join_handle_type_name,
+    .Some(jh) => `(${jh}){ .__future = (void*)${spawn_var.clone()} }`,
+    .None => `(void*)${spawn_var.clone()}`
+  )
+});
 /// Generate a function-call expression. Mirrors `generateFuncCall`.
 generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   // The unit value `()` is a 0-arg BK_TUPLE call (parser make_unit_call). The
@@ -314,7 +365,18 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BK_TEST, Option(usize).None), return(String.from("/* test declaration skipped */")));
   if(ast_expr_is_fn_call_of(expr, BK_OP_AND, Option(usize).None), return(generate_op_and(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None), return(generate_op_or(expr, indent.clone(), context)));
-  // (io.async / io.await / io.state / io.spawn / JoinHandle.await — Phase 5.)
+  // io.async / io.await / io.state / io.spawn / JoinHandle.await (Phase 5).
+  if(is_io_async_call(expr), {
+    has_await_analysis := match(context.base.get_expr_info(expr),.Some(aei) => aei.await_analysis.is_some(),.None => false);
+    if(has_await_analysis, {
+      return(generate_async_block(expr, indent.clone(), context));
+    });
+    return(generate_io_async_sync_call(expr, indent.clone(), context));
+  });
+  if(is_io_await_call(expr), return(generate_await(expr, indent.clone(), context)));
+  if(is_io_state_call(expr), return(generate_state(expr, indent.clone(), context)));
+  if(is_io_spawn_call(expr), return(_generate_io_spawn(expr, indent.clone(), context)));
+  if(is_join_handle_await_call(expr), return(generate_join_handle_await(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_DYN_LOWER, Option(usize).None), return(generate_dyn_call(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None), return(generate_return(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), return(String.from("/* TODO[codegen-port]: unwind not yet ported (Phase 5 effects) */")));
