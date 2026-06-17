@@ -7,9 +7,13 @@
 //! and the `g_some_resolved_concrete` side-table).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
 /// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
 ///
@@ -44,4 +48,52 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   });
   false
 });
-export(is_io_future_type);
+/// Information about a generated state machine. Mirrors `StateMachineInfo`
+/// (state-machine.ts:516).
+StateMachineInfo :: object(
+  /// The C struct name for this state machine.
+  struct_name : String,
+  /// The C function name for the resume function.
+  resume_function_name : String,
+  /// Analysis result containing await points and captured variables.
+  analysis : AwaitAnalysisResult
+);
+/// Emit the forward declaration for the resume function. Mirrors
+/// `generateResumeFunctionDeclaration` (state-machine.ts:535).
+generate_resume_function_declaration :: (
+  fn(info : StateMachineInfo, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  line := String.from("void ");
+  line.push_string(info.resume_function_name.clone());
+  line.push_str("(");
+  line.push_string(info.struct_name.clone());
+  line.push_str("* sm);");
+  em.emit_declaration_string_line(line);
+});
+/// The C field name for a captured variable in a state-machine struct (consistent
+/// across struct definition and use). Mirrors `getStateMachineFieldName`
+/// (state-machine.ts:549): `outer` → `__capture.<id>`; an alias wins; otherwise
+/// `var_<id>`.
+get_state_machine_field_name :: (
+  fn(variable_id : String, kind : Option(String), aliases : Option(HashMap(String, String))) -> String
+)({
+  match(
+    kind,
+    .Some(k) => if(k == "outer", {
+      o := String.from("__capture.");
+      o.push_string(sanitize_for_c_identifier(variable_id.clone(), false));
+      return(o);
+    }),
+    .None => ()
+  );
+  match(
+    aliases,
+    .Some(a) => match(a.get(variable_id.clone()),.Some(al) => return(al),.None => ()),
+    .None => ()
+  );
+  pre := String.from("var_");
+  pre.push_string(variable_id);
+  sanitize_for_c_identifier(pre, false)
+});
+export(is_io_future_type, StateMachineInfo, generate_resume_function_declaration, get_state_machine_field_name);
