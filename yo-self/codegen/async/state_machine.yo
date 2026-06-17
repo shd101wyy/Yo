@@ -24,7 +24,7 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo } :: import("../functions/context.yo");
 { expr_contains_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { get_type_string } :: import("../utils/index.yo");
@@ -2021,6 +2021,352 @@ _emit_post_while_cond_branch :: (
     .None => ()
   );
 });
+/// Emit the OUTER while-loop continuation for a nested while-with-await: run the
+/// outer body's after-await expressions, then its continue label + body drops +
+/// step + condition re-eval (loop back to `prev_await.index` or fall through to
+/// `after_while_loop_<outer>`). Mirrors the outer-while block in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:1703).
+_emit_outer_while_continuation :: (
+  fn(
+    while_data : WhileLoopInfo,
+    prev_await : AwaitPoint,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    while_data.outer_while_loop,
+    .Some(outer) => {
+      oidx := outer.while_loop_index.to_string();
+      em.emit_string_line(`      // Execute remaining code from outer while loop body`);
+      em.emit_string_line(`      if (sm->while_loop_${oidx}_active) {`);
+      if(outer.body_exprs_after_await.len() > usize(0), {
+        p_in := context.in_async_state_machine;
+        p_smv := context.state_machine_variables;
+        p_vr := context.variable_id_remapping;
+        p_pdd := context.pending_deferred_drops;
+        p_brk := context.sm_while_break_info;
+        p_cont := context.sm_while_continue_info;
+        p_bd := context.sm_while_body_drops;
+        context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+        context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+        pdd := ArrayList(AstExpr).new();
+        match(context.base.get_expr_info(outer.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+        match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+        context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+        obd := ArrayList(AstExpr).new();
+        match(context.base.get_expr_info(outer.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(obd, d),.None => ()),.None => ());
+        context.sm_while_break_info = Option(SmWhileBreakInfo).Some(SmWhileBreakInfo(label : `after_while_loop_${oidx}`, active_index : Option(usize).Some(outer.while_loop_index)));
+        context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(SmWhileContinueInfo(label : `while_loop_${oidx}_continue`, emit_drops_before_goto : false, step_expr : Option(AstExpr).None));
+        context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(obd);
+        (i : usize) = usize(0);
+        while(i < outer.body_exprs_after_await.len(), {
+          expr := match(outer.body_exprs_after_await.get(i),.Some(e) => e,.None => body_expr);
+          code := _call_generate_expr(expr, `        `, context);
+          skip := if(code.len() == usize(0), true, match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true));
+          if(!(skip), {
+            em.emit_string_line(`        ${code};`);
+          });
+          i = (i + usize(1));
+        });
+        context.sm_while_break_info = p_brk;
+        context.sm_while_continue_info = p_cont;
+        context.sm_while_body_drops = p_bd;
+        context.in_async_state_machine = p_in;
+        context.state_machine_variables = p_smv;
+        context.variable_id_remapping = p_vr;
+        context.pending_deferred_drops = p_pdd;
+      });
+      em.emit_string_line(`      while_loop_${oidx}_continue:`);
+      // Outer body drops before condition re-evaluation.
+      match(
+        context.base.get_expr_info(outer.body_expr),
+        .Some(ei0) => match(
+          ei0.deferred_drop_expressions,
+          .Some(outer_drops) => if(outer_drops.len() > usize(0), {
+            p_in2 := context.in_async_state_machine;
+            p_smv2 := context.state_machine_variables;
+            p_vr2 := context.variable_id_remapping;
+            context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+            context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+            context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+            (di : usize) = usize(0);
+            while(di < outer_drops.len(), {
+              match(
+                outer_drops.get(di),
+                .Some(d) => {
+                  dc := _call_generate_expr(d, `        `, context);
+                  if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                    em.emit_string_line(`        ${dc};`);
+                  });
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+            context.in_async_state_machine = p_in2;
+            context.state_machine_variables = p_smv2;
+            context.variable_id_remapping = p_vr2;
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      p_dtv := context.declared_temp_vars;
+      context.declared_temp_vars = Option(HashSet(String)).None;
+      // Outer step expression (3-arg while form).
+      match(
+        outer.step_expr,
+        .Some(step) => {
+          p_in3 := context.in_async_state_machine;
+          p_smv3 := context.state_machine_variables;
+          p_vr3 := context.variable_id_remapping;
+          context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+          context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+          context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+          sc := _call_generate_expr(step, `        `, context);
+          if(sc.len() > usize(0), {
+            em.emit_string_line(`        ${sc};`);
+          });
+          context.in_async_state_machine = p_in3;
+          context.state_machine_variables = p_smv3;
+          context.variable_id_remapping = p_vr3;
+        },
+        .None => ()
+      );
+      // Outer condition re-evaluation.
+      p_in4 := context.in_async_state_machine;
+      p_smv4 := context.state_machine_variables;
+      p_vr4 := context.variable_id_remapping;
+      context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+      context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+      context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+      oc := _call_generate_expr(outer.condition_expr, `        `, context);
+      context.in_async_state_machine = p_in4;
+      context.state_machine_variables = p_smv4;
+      context.variable_id_remapping = p_vr4;
+      em.emit_string_line(`        if (!(${oc})) {`);
+      em.emit_string_line(`          sm->while_loop_${oidx}_active = false;`);
+      em.emit_string_line(`        } else {`);
+      em.emit_string_line(`          sm->state = ${prev_await.base.index.to_string()};`);
+      em.emit_string_line(`          goto while_loop_${oidx}_start;`);
+      em.emit_string_line(`        }`);
+      context.declared_temp_vars = p_dtv;
+      em.emit_string_line(`      }`);
+      em.emit_string_line(String.from(""));
+      em.emit_string_line(`      after_while_loop_${oidx}:`);
+    },
+    .None => ()
+  );
+});
+/// Emit the while-loop continuation at the top of a resume state: run the loop
+/// body's after-await expressions (chaining to the next state + re-registering
+/// the loop info if they contain another await), else emit the continue label +
+/// body drops + step + condition re-eval + loop-back goto; then the post-while
+/// cond-branch code and the outer-while continuation. Mirrors the while-handling
+/// in `generateAsyncBlockResumeFunction` (state-machine.ts:1196).
+_emit_while_continuation :: (
+  fn(
+    prev_await : AwaitPoint,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    async_block_id : String,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    context.async_while_loop_info,
+    .Some(wm) => match(
+      wm.get(prev_await.base.index),
+      .Some(while_data) => {
+        wai := match(while_data.while_loop_origin_index,.Some(o) => o,.None => prev_await.base.index);
+        wai_s := wai.to_string();
+        em.emit_string_line(`      // Execute remaining code from while loop body and continue loop`);
+        em.emit_string_line(`      if (sm->while_loop_${wai_s}_active) {`);
+        (chained_to_next : bool) = false;
+        match(
+          while_data.body_exprs_after_await,
+          .Some(after) => if(after.len() > usize(0), {
+            p_in := context.in_async_state_machine;
+            p_smv := context.state_machine_variables;
+            p_vr := context.variable_id_remapping;
+            p_pdd := context.pending_deferred_drops;
+            p_brk := context.sm_while_break_info;
+            p_cont := context.sm_while_continue_info;
+            p_bd := context.sm_while_body_drops;
+            context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+            context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+            pdd := ArrayList(AstExpr).new();
+            match(context.base.get_expr_info(while_data.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+            match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+            context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+            context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+            bdrops := ArrayList(AstExpr).new();
+            match(context.base.get_expr_info(while_data.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(bdrops, d),.None => ()),.None => ());
+            context.sm_while_break_info = Option(SmWhileBreakInfo).Some(SmWhileBreakInfo(label : `after_while_loop_${wai_s}`, active_index : Option(usize).Some(wai)));
+            context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(SmWhileContinueInfo(label : `while_loop_${wai_s}_continue`, emit_drops_before_goto : false, step_expr : Option(AstExpr).None));
+            context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(bdrops);
+            (i : usize) = usize(0);
+            (stop : bool) = false;
+            while((i < after.len()) && !(stop), {
+              expr := match(after.get(i),.Some(e) => e,.None => body_expr);
+              has_aw := match(segment.await_point,.Some(_) => expr_contains_await(expr),.None => false);
+              if(has_aw, {
+                match(
+                  segment.await_point,
+                  .Some(ap) => {
+                    generate_remaining_expr_future(expr, ap, analysis, `        `, context);
+                    further := ArrayList(AstExpr).new();
+                    (k : usize) = (i + usize(1));
+                    while(k < after.len(), {
+                      match(
+                        after.get(k),
+                        .Some(e) => {
+                          further.push(e);
+                        },
+                        .None => ()
+                      );
+                      k = (k + usize(1));
+                    });
+                    new_wi := WhileLoopInfo(
+                      condition_expr : while_data.condition_expr,
+                      step_expr : while_data.step_expr,
+                      body_expr : while_data.body_expr,
+                      body_exprs_after_await : Option(ArrayList(AstExpr)).Some(further),
+                      while_loop_origin_index : Option(usize).Some(wai),
+                      is_chained_await : Option(bool).Some(true),
+                      cond_branch_post_while_exprs : while_data.cond_branch_post_while_exprs,
+                      outer_while_loop : while_data.outer_while_loop
+                    );
+                    wm.set(ap.base.index, new_wi);
+                    context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);
+                    chained_to_next = true;
+                    stop = true;
+                  },
+                  .None => ()
+                );
+              }, {
+                code := _call_generate_expr(expr, `        `, context);
+                skip := if(code.len() == usize(0), true, match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true));
+                if(!(skip), {
+                  em.emit_string_line(`        ${code};`);
+                });
+              });
+              i = (i + usize(1));
+            });
+            context.sm_while_break_info = p_brk;
+            context.sm_while_continue_info = p_cont;
+            context.sm_while_body_drops = p_bd;
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+            context.pending_deferred_drops = p_pdd;
+          }),
+          .None => ()
+        );
+        if(chained_to_next, {
+          em.emit_string_line(`      }`);
+          em.emit_string_line(String.from(""));
+        }, {
+          em.emit_string_line(`      while_loop_${wai_s}_continue:`);
+          match(
+            context.base.get_expr_info(while_data.body_expr),
+            .Some(ei0) => match(
+              ei0.deferred_drop_expressions,
+              .Some(wbd) => if(wbd.len() > usize(0), {
+                q_in := context.in_async_state_machine;
+                q_smv := context.state_machine_variables;
+                q_vr := context.variable_id_remapping;
+                context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+                context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+                context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+                (di : usize) = usize(0);
+                while(di < wbd.len(), {
+                  match(
+                    wbd.get(di),
+                    .Some(d) => {
+                      dc := _call_generate_expr(d, `        `, context);
+                      if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                        em.emit_string_line(`        ${dc};`);
+                      });
+                    },
+                    .None => ()
+                  );
+                  di = (di + usize(1));
+                });
+                context.in_async_state_machine = q_in;
+                context.state_machine_variables = q_smv;
+                context.variable_id_remapping = q_vr;
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+          em.emit_string_line(`        ASYNC_DEBUG("${async_block_id}: Re-evaluating while loop condition\\n");`);
+          r_dtv := context.declared_temp_vars;
+          context.declared_temp_vars = Option(HashSet(String)).None;
+          match(
+            while_data.step_expr,
+            .Some(step) => {
+              s_in := context.in_async_state_machine;
+              s_smv := context.state_machine_variables;
+              s_vr := context.variable_id_remapping;
+              context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+              context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+              context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+              sc := _call_generate_expr(step, `        `, context);
+              if(sc.len() > usize(0), {
+                em.emit_string_line(`        ${sc};`);
+              });
+              context.in_async_state_machine = s_in;
+              context.state_machine_variables = s_smv;
+              context.variable_id_remapping = s_vr;
+            },
+            .None => ()
+          );
+          c_in := context.in_async_state_machine;
+          c_smv := context.state_machine_variables;
+          c_vr := context.variable_id_remapping;
+          context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+          context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+          context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+          cc := _call_generate_expr(while_data.condition_expr, `        `, context);
+          context.in_async_state_machine = c_in;
+          context.state_machine_variables = c_smv;
+          context.variable_id_remapping = c_vr;
+          context.declared_temp_vars = r_dtv;
+          em.emit_string_line(`        if (!(${cc})) {`);
+          em.emit_string_line(`          sm->while_loop_${wai_s}_active = false;`);
+          em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: While loop condition false, exiting loop\\n");`);
+          em.emit_string_line(`        } else {`);
+          em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: While loop condition true, continuing iteration\\n");`);
+          em.emit_string_line(`          // Loop back by transitioning to while loop state`);
+          em.emit_string_line(`          sm->state = ${wai_s};`);
+          em.emit_string_line(`          goto while_loop_${wai_s}_start;`);
+          em.emit_string_line(`        }`);
+          em.emit_string_line(`      }`);
+          em.emit_string_line(String.from(""));
+          em.emit_string_line(`      after_while_loop_${wai_s}:`);
+        });
+        if(!(chained_to_next), {
+          _emit_post_while_cond_branch(while_data, segment, body_expr, future_type, capture_type, analysis, context);
+        });
+        _emit_outer_while_continuation(while_data, prev_await, body_expr, future_type, capture_type, analysis, context);
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -2049,5 +2395,7 @@ export(
   _chain_additional_remaining,
   _emit_cond_branch_remaining,
   _emit_cond_branch_continuation,
-  _emit_post_while_cond_branch
+  _emit_post_while_cond_branch,
+  _emit_outer_while_continuation,
+  _emit_while_continuation
 );
