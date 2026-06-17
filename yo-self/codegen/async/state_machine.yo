@@ -10,12 +10,14 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_some_type, is_concrete_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_concrete_trait_type, is_struct_type } :: import("../../types/guards.yo");
+{ type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { StateSegment, split_into_state_segments } :: import("./state_code_gen.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_token } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token } :: import("../../expr.yo");
+{ _c_string_literal } :: import("../exprs/comptime_value.yo");
 { TokenKind } :: import("../../token.yo");
 { Variable, get_variables_from_env } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -772,6 +774,106 @@ compute_overlapping_slots :: (
   });
   OverlappingStorageResult(slot_aliases : slot_aliases, slots : slots)
 });
+/// True when an expression contains a `return`. Mirrors `exprContainsReturn`
+/// (state-machine.ts:2346) — the resume generator's local copy (TS keeps a
+/// duplicate of `exprContainsReturnStatement` in this file).
+expr_contains_return :: (fn(expr : AstExpr) -> bool)({
+  if(ast_expr_is_atom_of(expr, "return"), {
+    return(true);
+  });
+  if(ast_expr_is_fn_call_of(expr, "return", Option(usize).None), {
+    return(true);
+  });
+  if(ast_expr_is_fn_call(expr), {
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      arg := match(args.get(i),.Some(a) => a,.None => expr);
+      if(recur(arg), {
+        return(true);
+      });
+      i = (i + usize(1));
+    });
+  });
+  false
+});
+/// True when `future_type` must be driven through the GENERIC Future vtable
+/// (`__yo_set_effect_fn` etc.) rather than a concrete capture struct — i.e. it is
+/// a Future SomeType with no concrete C type registered (nor a registered
+/// resolved-concrete). Mirrors `usesGenericFutureInterface` (state-machine.ts:2366).
+uses_generic_future_interface :: (fn(future_type : TypeValue, context : FunctionGenerationContext) -> bool)({
+  if(!(is_some_type(future_type) && type_implements_future(future_type)), {
+    return(false);
+  });
+  fid := match(future_type,.SomeT({ id }) => id, _ => String.from(""));
+  if(context.base.types.contains_key(fid.clone()), {
+    return(false);
+  });
+  match(
+    lookup_some_resolved_concrete(fid),
+    .Some(rc) => {
+      if(is_some_type(rc), {
+        rcid := match(rc,.SomeT({ id }) => id, _ => String.from(""));
+        if(context.base.types.contains_key(rcid), {
+          return(false);
+        });
+      });
+      if(is_struct_type(rc), {
+        capture_id := match(rc,.Struct({ id }) => id, _ => String.from(""));
+        it := context.base.types.into_iter();
+        (go : bool) = true;
+        while(go, {
+          match(
+            it.next(),
+            .Some(bucket) => {
+              ety := bucket.value.ty;
+              if(is_some_type(ety) && type_implements_future(ety), {
+                esid := match(ety,.SomeT({ id }) => id, _ => String.from(""));
+                match(
+                  lookup_some_resolved_concrete(esid),
+                  .Some(erc) => if(is_struct_type(erc), {
+                    ercid := match(erc,.Struct({ id }) => id, _ => String.from(""));
+                    if(ercid == capture_id, {
+                      return(false);
+                    });
+                  }),
+                  .None => ()
+                );
+              });
+            },
+            .None => {
+              go = false;
+            }
+          );
+        });
+      });
+    },
+    .None => ()
+  );
+  extract_future_trait_from_type(future_type).is_some()
+});
+/// Emit the effect-injection line for one captured effect member of a Future:
+/// the generic vtable `__yo_set_effect_fn` call for generic-interface Futures, or
+/// a direct `__capture.<label>` store for concrete Futures. Mirrors
+/// `emitFutureEffectInjectionLine` (state-machine.ts:2401).
+emit_future_effect_injection_line :: (
+  fn(
+    future_type : TypeValue,
+    future_access : String,
+    field_label : String,
+    member_code : String,
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  if(uses_generic_future_interface(future_type, context), {
+    lbl := _c_string_literal(field_label.clone());
+    em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, ${lbl}, (void*)${member_code});`);
+    return();
+  });
+  em.emit_string_line(`${indent}${future_access}->__capture.${field_label} = (void*)${member_code};`);
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -783,5 +885,8 @@ export(
   compute_cross_boundary_variables,
   OverlappingSlot,
   OverlappingStorageResult,
-  compute_overlapping_slots
+  compute_overlapping_slots,
+  expr_contains_return,
+  uses_generic_future_interface,
+  emit_future_effect_injection_line
 );
