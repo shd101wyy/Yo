@@ -435,10 +435,17 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    the body eval) runs `analyze_await_points(anon_eb, get_info)` under that flag
    and records `await_analysis` on the body ExprInfo when `has_awaits`. Validated
    no regression (corpus 58/58, std 94/58, async baseline still evaluates). STILL
-   TODO: wire the effect analysis (`evaluator/effects/effect_analysis.yo`)
-   similarly. ExprInfo already has the consumer fields (`await_analysis`,
-   `effect_analysis`, `async_state_machine_struct_name`, `async_stack_size`,
-   `capture_struct`).
+   TODO: wire the effect analysis. SCOPED 2026-06-17: this is BIGGER than the
+   await wiring — it lives in `create_specialized_function_inline` (helper.yo:908
+   note), is the TS function's largest section (~600 lines, helper.ts:2490-2830),
+   and FIRST needs `effectCtlParams` infrastructure that yo-self does NOT have yet
+   (ctl-parameter detection + effect-field-path resolution + handler-fn lookup +
+   per-ctl-param analysis merge). `analyze_effect_call_points` is ported+exported
+   (`effect_analysis.yo:777`) but uncalled. Build the ctl-param detection first,
+   then call it per ctl param and set `specializedBody`'s `effect_analysis`
+   (mirror helper.ts:2500/2732/2830). ExprInfo already has the consumer fields
+   (`await_analysis`, `effect_analysis`, `async_state_machine_struct_name`,
+   `async_stack_size`, `capture_struct`).
 3. **Codegen FSM (the bulk, ~8k LOC, NO yo-self counterpart yet):**
    `exprs/async-completion.ts` (124) + `shared/suspension-codegen.ts` (199) are
    the smallest; `exprs/await.ts` (835); `exprs/async.ts` (2085);
