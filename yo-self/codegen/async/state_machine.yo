@@ -14,9 +14,10 @@ open(import("std/string"));
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
-{ StateSegment, split_into_state_segments } :: import("./state_code_gen.yo");
-{ is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token } :: import("../../expr.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression } :: import("./state_code_gen.yo");
+{ is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
+{ _call_generate_expr } :: import("../exprs/_expr.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
 { TokenKind } :: import("../../token.yo");
 { Variable, get_variables_from_env } :: import("../../env.yo");
@@ -874,6 +875,58 @@ emit_future_effect_injection_line :: (
   });
   em.emit_string_line(`${indent}${future_access}->__capture.${field_label} = (void*)${member_code};`);
 });
+/// Store the awaited Future for an EXTRA await in a cond/match branch (chained
+/// awaits): a `:= await` / standalone `io.await` stores into the SM future field;
+/// a nested cond/match/while/begin delegates to `generate_await_expression`.
+/// Mirrors `generateRemainingExprFuture` (state-machine.ts:2257).
+generate_remaining_expr_future :: (
+  fn(expr : AstExpr, await_point : AwaitPoint, analysis : AwaitAnalysisResult, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  future_field_name := get_future_field_name(await_point, analysis);
+  // varName := await(futureExpr)
+  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    match(
+      args.get(usize(1)),
+      .Some(value_expr) => if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
+        v_args := match(value_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        match(
+          v_args.get(usize(0)),
+          .Some(future_expr) => {
+            fc := _call_generate_expr(future_expr, indent, context);
+            em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
+            em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    return();
+  });
+  // Standalone io.await(futureExpr)
+  if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    match(
+      args.get(usize(0)),
+      .Some(future_expr) => {
+        fc := _call_generate_expr(future_expr, indent, context);
+        em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
+        em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
+      },
+      .None => ()
+    );
+    return();
+  });
+  // Nested cond / match / while / begin → delegate to the await emitter.
+  is_block := (((ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None)) || ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None)) || ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None));
+  if(ast_expr_is_fn_call(expr) && is_block, {
+    generate_await_expression(expr, await_point, usize(0), indent, context);
+    return();
+  });
+  em.emit_string_line(`${indent}// Warning: unhandled await pattern in remaining expressions`);
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -888,5 +941,6 @@ export(
   compute_overlapping_slots,
   expr_contains_return,
   uses_generic_future_interface,
-  emit_future_effect_injection_line
+  emit_future_effect_injection_line,
+  generate_remaining_expr_future
 );
