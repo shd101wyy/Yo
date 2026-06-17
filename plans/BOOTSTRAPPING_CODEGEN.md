@@ -566,9 +566,20 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    NOT factor further: its `if (sm->future != NULL)` cond-guard brace spans from
    result-extraction across the cond-branch-continuation; the per-segment loop
    threads mutable local state + ~8 context save/restore blocks + nested
-   chainedBranches data manipulation. Port it as one ~1.5k-line function (the
-   helpers above shrink it), check + corpus each iteration. Then (d) async.ts/
-   await.ts + wiring. (Original note retained:) the effect-injection emitters used
+   chainedBranches data manipulation. **DONE 2026-06-18 — state-machine.ts is
+   FULLY PORTED.** The resume body did factor (the "spanning" braces are EMITTED C
+   strings, not yo-self syntax): it is split into individually check-validated
+   sub-emitters in state_machine.yo — `_emit_prev_await_result_extraction`,
+   `_emit_cond_branch_continuation` (+`_emit_cond_branch_remaining`,
+   `_chain_additional_remaining`, `_append_exprs`), `_emit_while_continuation`
+   (+`_emit_post_while_cond_branch`, `_emit_outer_while_continuation`),
+   `_emit_await_suspension`, `_emit_last_segment_completion`,
+   `_build_combined_sm_variables` — and the orchestrator
+   `generate_async_block_resume_function`. The effect-injection emitters
+   (`emit_effect_injection_for_sm` etc.) + `find_bundle_field_name` +
+   `currentEvidenceParams`/`EvidenceParameter` context fields all landed too. So
+   the ENTIRE FSM transformation core is ported; only (d) async.ts/await.ts +
+   wiring remain. (Original note retained:) the effect-injection emitters used
    the `currentEvidenceParams`
    context field (the effect-ctl-param infrastructure, ~600 LOC) + `findBundleField
    Name` (from async.ts) + the Future-trait `.isFuture.effect` structure access.
