@@ -10,7 +10,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_some_type, is_concrete_trait_type, is_struct_type } :: import("../../types/guards.yo");
+{ is_some_type, is_concrete_trait_type, is_struct_type, is_function_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -20,7 +20,8 @@ open(import("std/string"));
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
 { TokenKind } :: import("../../token.yo");
-{ Variable, get_variables_from_env } :: import("../../env.yo");
+{ EvalValue } :: import("../../value.yo");
+{ Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter } :: import("../functions/context.yo");
 { get_type_string } :: import("../utils/index.yo");
@@ -929,6 +930,284 @@ resolve_effect_field_from_sm_scope :: (
   );
   Option(String).None
 });
+/// The SM struct field holding the outer effect-bundle to forward into an inner
+/// future via `set_effect("__bundle", ...)` — the captured local (`var_<id>`, or
+/// its field alias) whose type matches the future's struct effect. Mirrors
+/// `findBundleFieldName` (async.ts:515; placed here to break the
+/// async.yo<->state_machine.yo cycle — it is a future-trait/SM-var helper).
+find_bundle_field_name :: (
+  fn(
+    future_trait_type : TypeValue,
+    state_machine_variables : Option(HashMap(String, CapturedVariable)),
+    state_machine_field_aliases : Option(HashMap(String, String))
+  ) -> Option(String)
+)({
+  eff_types := match(future_trait_type,.FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+  (eff_id : Option(String)) = Option(String).None;
+  (ei : usize) = usize(0);
+  while((ei < eff_types.len()) && eff_id.is_none(), {
+    match(
+      eff_types.get(ei),
+      .Some(et) => if(is_struct_type(et), {
+        eff_id = Option(String).Some(match(et,.Struct({ id }) => id, _ => String.from("")));
+      }),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  match(
+    eff_id,
+    .None => Option(String).None,
+    .Some(target_id) => match(
+      state_machine_variables,
+      .Some(svm) => {
+        (fallback : Option(String)) = Option(String).None;
+        it := svm.into_iter();
+        (go : bool) = true;
+        while(go, {
+          match(
+            it.next(),
+            .Some(b) => {
+              smvar := b.value;
+              is_outer := match(smvar.kind,.Outer => true,.Local => false);
+              if(!(is_outer), {
+                svid := match(smvar.base.ty,.Struct({ id }) => id, _ => String.from(""));
+                if(svid == target_id, {
+                  aliased := match(state_machine_field_aliases,.Some(al) => al.get(smvar.base.id.clone()),.None => Option(String).None);
+                  match(
+                    aliased,
+                    .Some(a) => return(Option(String).Some(a)),
+                    .None => if(fallback.is_none(), {
+                      f := String.from("var_");
+                      f.push_string(smvar.base.id.clone());
+                      fallback = Option(String).Some(f);
+                    })
+                  );
+                });
+              });
+            },
+            .None => {
+              go = false;
+            }
+          );
+        });
+        fallback
+      },
+      .None => Option(String).None
+    )
+  )
+});
+/// Inject each function-typed member of a struct/source-namespace effect bundle
+/// into the awaited future (resolving the member's C code from SM captures /
+/// the using-arg value / evidence params / env given-bindings), via the generic
+/// vtable or a direct capture store. Mirrors `emitEffectRecordInjectionForSM`
+/// (state-machine.ts:2493).
+emit_effect_record_injection_for_sm :: (
+  fn(
+    source_namespace_type : TypeValue,
+    future_type : TypeValue,
+    future_access : String,
+    indent : String,
+    using_arg_value : Option(EvalValue),
+    context : FunctionGenerationContext,
+    expr : AstExpr
+  ) -> unit
+)({
+  field_labels := match(source_namespace_type,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  field_types := match(source_namespace_type,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  (fi : usize) = usize(0);
+  while(fi < field_labels.len(), {
+    flabel := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+    ftype := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_function_type(ftype), {
+      (member_code : Option(String)) = Option(String).None;
+      // 1. Captured outer SM variable matching the field label.
+      match(
+        context.state_machine_variables,
+        .Some(svm) => {
+          it := svm.into_iter();
+          (go : bool) = true;
+          while(go && member_code.is_none(), {
+            match(
+              it.next(),
+              .Some(b) => {
+                cv := b.value;
+                is_outer := match(cv.kind,.Outer => true,.Local => false);
+                if((cv.base.name == flabel) && is_outer, {
+                  s := String.from("sm->__capture.");
+                  s.push_string(flabel.clone());
+                  member_code = Option(String).Some(s);
+                });
+              },
+              .None => {
+                go = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      );
+      // 2. Explicit using-arg effect record value.
+      if(member_code.is_none(), {
+        match(
+          using_arg_value,
+          .Some(uav) => match(
+            uav,
+            .StructVal(_, ulabels, uvals) => {
+              (ui : usize) = usize(0);
+              while((ui < ulabels.len()) && member_code.is_none(), {
+                match(
+                  ulabels.get(ui),
+                  .Some(ul) => if(ul == flabel, {
+                    match(uvals.get(ui),.Some(mv) => match(mv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(
+                      context.base.functions.get(fid),
+                      .Some(fe) => {
+                        member_code = Option(String).Some(fe.c_name);
+                      },
+                      .None => ()
+                    ), _ => ()),.None => ());
+                  }),
+                  .None => ()
+                );
+                ui = (ui + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
+      // 3. Caller evidence params.
+      if(member_code.is_none(), {
+        match(
+          context.current_evidence_params,
+          .Some(eps) => {
+            it := eps.into_iter();
+            (go : bool) = true;
+            while(go && member_code.is_none(), {
+              match(
+                it.next(),
+                .Some(b) => if(b.value.field_label == flabel, {
+                  member_code = Option(String).Some(b.value.c_param_name);
+                }),
+                .None => {
+                  go = false;
+                }
+              );
+            });
+          },
+          .None => ()
+        );
+      });
+      // 4. Given bindings in the call environment (innermost-first).
+      if(member_code.is_none(), {
+        match(
+          context.base.get_expr_info(expr),
+          .Some(ei) => {
+            implicit_vars := get_variables_from_env_by_filter(ei.env, (v : Variable) => true);
+            (k : usize) = implicit_vars.len();
+            while((k > usize(0)) && member_code.is_none(), {
+              k = (k - usize(1));
+              match(
+                implicit_vars.get(k),
+                .Some(v) => match(
+                  v.value,
+                  .Some(val) => match(
+                    val,
+                    .StructVal(_, vlabels, vvals) => {
+                      (vi : usize) = usize(0);
+                      while((vi < vlabels.len()) && member_code.is_none(), {
+                        match(
+                          vlabels.get(vi),
+                          .Some(vl) => if(vl == flabel, {
+                            match(vvals.get(vi),.Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(
+                              context.base.functions.get(fid),
+                              .Some(fe) => {
+                                member_code = Option(String).Some(fe.c_name);
+                              },
+                              .None => ()
+                            ), _ => ()),.None => ());
+                          }),
+                          .None => ()
+                        );
+                        vi = (vi + usize(1));
+                      });
+                    },
+                    _ => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+      });
+      match(member_code,.Some(mc) => emit_future_effect_injection_line(future_type, future_access, flabel, mc, indent, context),.None => ());
+    });
+    fi = (fi + usize(1));
+  });
+});
+/// Inject effect handlers into an awaited future inside a state machine: for each
+/// effect on the future's trait, a function-type effect resolves its handler from
+/// the SM scope; a struct/source-namespace effect forwards the outer bundle field
+/// (or injects each member). Mirrors `emitEffectInjectionForSM`
+/// (state-machine.ts:2423). yo-self iterates the `FutureTraitT` effect arrays
+/// (TS models a single `effect`).
+emit_effect_injection_for_sm :: (
+  fn(await_expr : AstExpr, future_access : String, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  match(
+    args.get(usize(0)),
+    .Some(fut_arg) => match(
+      context.base.get_expr_info(fut_arg),
+      .Some(fei) => {
+        fut_ty := fei.ty;
+        match(
+          extract_future_trait_from_type(fut_ty),
+          .Some(ftrait) => {
+            eff_labels := match(ftrait,.FutureTraitT({ effect_labels : el }) => el, _ => ArrayList(String).new());
+            eff_types := match(ftrait,.FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+            (i : usize) = usize(0);
+            while(i < eff_labels.len(), {
+              elabel := match(eff_labels.get(i),.Some(l) => l,.None => String.from(""));
+              etype := match(eff_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+              if(is_function_type(etype), {
+                has_forall := match(etype,.Func({ forall_labels : fl }) => (fl.len() > usize(0)), _ => false);
+                if(!(has_forall), {
+                  match(
+                    resolve_effect_field_from_sm_scope(elabel, context, await_expr),
+                    .Some(handler) => emit_future_effect_injection_line(fut_ty, future_access, elabel, handler, indent, context),
+                    .None => ()
+                  );
+                });
+              }, {
+                if(is_struct_type(etype), {
+                  match(
+                    find_bundle_field_name(ftrait, context.state_machine_variables, context.state_machine_field_aliases),
+                    .Some(obf) => {
+                      em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
+                    },
+                    .None => {
+                      emit_effect_record_injection_for_sm(etype, fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);
+                    }
+                  );
+                });
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 /// Store the awaited Future for an EXTRA await in a cond/match branch (chained
 /// awaits): a `:= await` / standalone `io.await` stores into the SM future field;
 /// a nested cond/match/while/begin delegates to `generate_await_expression`.
@@ -997,5 +1276,8 @@ export(
   uses_generic_future_interface,
   emit_future_effect_injection_line,
   generate_remaining_expr_future,
-  resolve_effect_field_from_sm_scope
+  resolve_effect_field_from_sm_scope,
+  find_bundle_field_name,
+  emit_effect_record_injection_for_sm,
+  emit_effect_injection_for_sm
 );
