@@ -517,6 +517,28 @@ register_extern_c_global :: (fn(name : String) -> unit)({
 is_extern_c_global :: (fn(name : String) -> bool)(
   match(g_extern_c_globals.get(name),.Some(b) => b,.None => false)
 );
+// Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
+// SomeT's unique `id`. TS stores this as a mutable `SomeType.resolvedConcreteType`
+// field set during return-type resolution / synthesis; yo-self's `SomeT` has no
+// such field (codegen otherwise lowers an unresolved SomeT to `void*`), so this
+// side-table is the idiomatic eval→codegen bridge (same pattern as
+// `g_method_callee_values` / `g_extern_c_globals`). The async-Future codegen needs
+// it — e.g. `is_io_future_type` distinguishes an extern `__yo_io_future_t` from a
+// state-machine Future by inspecting the resolved concrete type. Keyed by `id`
+// (SomeT's first field, unique); spread-construction in TS keeps the same id, so
+// id-keying is sound. Populated by mirroring the ~15 TS `resolvedConcreteType` set
+// sites; read by the FSM emitters. (Registry foundation — set/read sites are wired
+// as the FSM core lands; see plans/BOOTSTRAPPING_CODEGEN.md Phase 5 #3.)
+(g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
+register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
+  g_some_resolved_concrete.set(some_id, ty);
+  ()
+});
+/// The resolved concrete type for the `SomeT` with id `some_id`, if recorded.
+lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
+  g_some_resolved_concrete.get(some_id)
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
@@ -530,3 +552,4 @@ export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global);
+export(register_some_resolved_concrete, lookup_some_resolved_concrete);

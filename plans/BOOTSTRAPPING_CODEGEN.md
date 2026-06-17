@@ -470,12 +470,20 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    `await.yo`/`async.yo`/`state_machine.yo`, not mere transcription.
    **BLAST RADIUS quantified 2026-06-17:** adding a field to the `SomeT` variant
    would break ~77 POSITIONAL `.SomeT(_, …, _)` destructures (10-arg pattern) +
-   construction sites (~100 sites total); only 7 already use the safe curly
-   `.SomeT({…})` form. SAFE PATH: first migrate those 77 positional destructures
-   to curly form (behavior-preserving, each validatable by the corpus+std sweep),
-   THEN add `resolved_concrete_type` (defaulted) without breaking them. That
-   migration is itself a sizable mechanical pass — do it as the dedicated first
-   step of the FSM-core session.
+   construction sites (~100 sites total); only 7 already use the safe curly form.
+   **RECOMMENDED APPROACH (supersedes the variant migration) — SIDE-TABLE:** mirror
+   the established yo-self eval→codegen bridge pattern (`g_method_callee_values`,
+   `g_extern_c_globals`): a `g_some_resolved_concrete : HashMap(String, TypeValue)`
+   keyed by `SomeT.id` (SomeT's first field is a unique `id : String`). This avoids
+   the ~100-site variant change ENTIRELY. Cost: mirror the ~15 TS sites that set
+   `resolvedConcreteType` (across closure-type, helper, synthesizer,
+   anonymous-function, impl-constraint, init/assignment, function, function-type —
+   note many are spread-constructions `{...someType, resolvedConcreteType}` which
+   KEEP the same `id`, so id-keying is sound) to instead `register_some_resolved_
+   concrete(id, ty)`, and have `isIoFutureType` + the FSM emitters read via
+   `lookup_some_resolved_concrete(id)`. Still a multi-file evaluator pass, but
+   far lower risk than the variant migration. Do this as the dedicated first step
+   of the FSM-core session.
 4. **C runtime templates:** `async/runtime.ts` + `runtime-core` +
    `runtime-io-common` + macOS/Linux (Windows/WASM deferred).
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
