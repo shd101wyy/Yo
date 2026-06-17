@@ -701,6 +701,117 @@ generate_while_with_await :: (
   });
   context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(info_map);
 });
+/// Emit a single cond/match branch body (a `begin` block) up to its first await:
+/// pre-await expressions emit normally, the await stores its Future (or delegates
+/// to a nested cond/match/while), and post-await expressions are returned for the
+/// resume state. Mirrors `generateCondBranchWithAwait` (state-code-gen.ts:1720).
+generate_cond_branch_with_await :: (
+  fn(branch_value : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> ArrayList(AstExpr)
+)({
+  em := context.base.emitter;
+  remaining_exprs := ArrayList(AstExpr).new();
+  idx_s := await_point.base.index.to_string();
+  if(!(ast_expr_is_fn_call(branch_value) && ast_expr_is_fn_call_of(branch_value, BK_BEGIN, Option(usize).None)), {
+    em.emit_string_line(`${indent}// Error: Expected begin block in cond branch with await`);
+    return(remaining_exprs);
+  });
+  expressions := match(branch_value,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  (found_await : bool) = false;
+  n := expressions.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      expressions.get(i),
+      .Some(expr) => if(found_await, {
+        remaining_exprs.push(expr);
+      }, {
+        if(branch_has_await(expr), {
+          found_await = true;
+          is_last := (i == (n - usize(1)));
+          // varName := await(futureExpr)
+          if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+            a_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+            match(
+              a_args.get(usize(1)),
+              .Some(value_expr) => if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
+                v_args := match(value_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                match(
+                  v_args.get(usize(0)),
+                  .Some(future_expr) => {
+                    future_code := _call_generate_expr(future_expr, indent, context);
+                    em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
+                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+                  },
+                  .None => ()
+                );
+              }),
+              .None => ()
+            );
+          }, {
+            // Standalone await.
+            if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
+              s_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+              match(
+                s_args.get(usize(0)),
+                .Some(future_expr) => match(
+                  await_point.future_variable_id,
+                  .None => {
+                    future_code := _call_generate_expr(future_expr, indent, context);
+                    em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
+                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+                  },
+                  .Some(fv) => {
+                    em.emit_string_line(`${indent}// Await will use Future from sm->var_${fv}`);
+                  }
+                ),
+                .None => ()
+              );
+            }, {
+              // Nested cond.
+              if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), {
+                prev := context.async_body_return_expr;
+                if(is_last && context.async_body_return_expr.is_some(), {
+                  context.async_body_return_expr = Option(AstExpr).Some(expr);
+                });
+                _call_generate_cond_with_await(expr, await_point, indent, context, Option(String).None, Option(String).None);
+                context.async_body_return_expr = prev;
+              }, {
+                // Nested match.
+                if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+                  prev := context.async_body_return_expr;
+                  if(is_last && context.async_body_return_expr.is_some(), {
+                    context.async_body_return_expr = Option(AstExpr).Some(expr);
+                  });
+                  _call_generate_match_with_await(expr, await_point, indent, context, Option(String).None, Option(String).None);
+                  context.async_body_return_expr = prev;
+                }, {
+                  // Nested while.
+                  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
+                    _call_generate_while_with_await(expr, await_point, indent, context);
+                  });
+                });
+              });
+            });
+          });
+        }, {
+          // No await — generate normally.
+          code := _call_generate_expr(expr, indent, context);
+          skip := if(
+            code.len() == usize(0),
+            true,
+            match(context.base.get_expr_info(expr),.Some(ei) => is_temp_variable_name(ei.env.module_path, code),.None => true)
+          );
+          if(!(skip), {
+            em.emit_string_line(`${indent}${code};`);
+          });
+        });
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  remaining_exprs
+});
 export(
   StateSegment,
   split_into_state_segments,
@@ -713,5 +824,6 @@ export(
   generate_await_expression,
   generate_state_segment_code,
   generate_while_body_with_await,
-  generate_while_with_await
+  generate_while_with_await,
+  generate_cond_branch_with_await
 );

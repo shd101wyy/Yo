@@ -169,7 +169,11 @@ FunctionGenerationContext :: object(
   /// Cond/match-with-await branch info, keyed by await-point index. Written by
   /// `generate_cond_with_await` / `generate_match_with_await`, read by the resume
   /// generator. Mirrors `asyncCondBranchInfo`.
-  async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo))
+  async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)),
+  /// When set, the cond/match expression that IS the async block body's implicit
+  /// return value — its non-await branches must emit Future completion. Mirrors
+  /// `asyncBodyReturnExpr`.
+  async_body_return_expr : Option(AstExpr)
 );
 impl(
   FunctionGenerationContext,
@@ -204,7 +208,8 @@ impl(
       state_machine_field_aliases : Option(HashMap(String, String)).None,
       async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)).None,
       async_next_while_loop_index : Option(usize).None,
-      async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None
+      async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
+      async_body_return_expr : Option(AstExpr).None
     )
   )
 );
