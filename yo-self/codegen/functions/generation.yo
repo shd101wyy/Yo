@@ -26,7 +26,7 @@ open(import("std/string"));
 { has_any_control_flow } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
-{ is_target_posix } :: import("../../target.yo");
+{ is_target_posix, is_target_linux } :: import("../../target.yo");
 { get_func_type } :: import("../../function_value.yo");
 { get_type_string } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
@@ -35,6 +35,8 @@ open(import("std/string"));
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions } :: import("../exprs/drop_dup.yo");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
+{ generate_sys_runtime, AsyncRuntimeOptions } :: import("../async/runtime_io_common.yo");
+{ generate_async_runtime } :: import("../async/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
@@ -155,12 +157,27 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
 generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(String.from("// Function implementations"));
-  // Runtime prelude (emitted before the function loop). Ported so far: the
-  // borrow primitives + lightweight RC/GC runtime (gc_runtime.yo). DEFERRED
-  // (next prelude increments): generateSysRuntime (sync system helpers),
-  // generateAsyncRuntime / generateParallelismRuntime (Phase 5, gated on
-  // uses_async / uses_parallelism), generateRefStructConstructorFunctions and
-  // generateClosureConstructorFunctions (object/closure constructors).
+  // Always emit the synchronous system helpers (stat/sync ops/signal/TTY); they
+  // have no async dependency and unused ones are dead-code-eliminated.
+  generate_sys_runtime(context.base.emitter, context.base.target_info);
+  // The async/await runtime is emitted only when the program uses async code
+  // (avoids ~8K lines of C for non-async programs). Mirrors generateAllFunctions
+  // (generation.ts:360). register_dispose_type_id bridges to dispose_type_id_for.
+  if(context.uses_async, {
+    // Precompute the Linux timer dispose type-id. Only register it on the LINUX
+    // non-cycle-GC path — TS registers lazily inside the runtime's `if(is_linux)`
+    // branch, so on macOS the id is never allocated and __yo_timer_future_dispose
+    // (Linux-only) is never referenced by the dispose-dispatch switch. See
+    // AsyncRuntimeOptions for why this is a value, not a callback.
+    timer_dispose_type_id := if((!(context.base.needs_cycle_gc) && is_target_linux(context.base.target_info)), Option(i64).Some(i64(context.base.dispose_type_id_for(String.from("__yo_timer_future_dispose")))), Option(i64).None);
+    opts := AsyncRuntimeOptions(
+      needs_cycle_gc : context.base.needs_cycle_gc,
+      timer_dispose_type_id : timer_dispose_type_id
+    );
+    generate_async_runtime(context.base.emitter, context.base.target_info, false, opts);
+  });
+  // DEFERRED: generateParallelismRuntime (Phase 5 parallelism, gated on
+  // uses_parallelism).
   collect_unwind_value_ctypes(context);
   generate_atomic_gc_runtime_functions(context);
   generate_ref_struct_constructor_functions(context);

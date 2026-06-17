@@ -11,12 +11,19 @@ open(import("std/string"));
 /// Options for `generate_async_runtime`. Mirrors `AsyncRuntimeOptions`
 /// (runtime.ts:40). Defined here (not in `runtime.yo`) so `runtime.yo` can
 /// import it without a cycle: `runtime.yo` already imports this module's
-/// `generate_async_runtime_io_common`. `register_dispose_type_id` registers a
-/// dispose-fn name for type-tag dispatch and returns its id (only consulted when
-/// `!needs_cycle_gc`).
+/// `generate_async_runtime_io_common`.
+///
+/// DIVERGENCE from TS (`registerDisposeTypeId: (name) => number` callback): the
+/// callback is consulted at exactly ONE site with exactly ONE fixed name
+/// (`__yo_timer_future_dispose`, the Linux non-cycle-GC timer path), so yo-self
+/// PRECOMPUTES that single dispose type-id and carries it as `timer_dispose_type_id`.
+/// This sidesteps the fact that an `Impl(Fn(...))` type written in two different
+/// modules resolves to two distinct (non-canonical) type instances, which makes
+/// `Option(Impl(Fn(...)))` monomorphize to clashing C enums across the field
+/// declaration site and the construction site. `Some(id)` only when `!needs_cycle_gc`.
 AsyncRuntimeOptions :: object(
   needs_cycle_gc : bool,
-  register_dispose_type_id : Option(Impl(Fn(dispose_fn_name : String) -> i64))
+  timer_dispose_type_id : Option(i64)
 );
 /// Emit the shared POSIX sync runtime + dispatch to the platform sys-runtime.
 /// Mirrors `generateSysRuntime`.
@@ -102,7 +109,6 @@ static const char* __yo_dirent_name(void* entry) {
 
 static uint8_t __yo_dirent_type(void* entry) {
   return ((struct dirent*)entry)->d_type;
-}
 }
 `
   );
@@ -505,9 +511,8 @@ generate_async_runtime_io_common :: (
       timer_dispose_init = String.from("  future->header.dispose_fn = __yo_timer_future_dispose;");
     }, {
       match(
-        options.register_dispose_type_id,
-        .Some(reg) => {
-          tid := reg(String.from("__yo_timer_future_dispose"));
+        options.timer_dispose_type_id,
+        .Some(tid) => {
           s := String.from("  future->header.type_id = ");
           s.push_string(tid.to_string());
           s.push_str(";");

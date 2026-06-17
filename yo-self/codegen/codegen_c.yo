@@ -35,6 +35,8 @@ open(import("std/string"));
 { generate_all_functions, generate_main_wrapper } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
+{ preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
+{ register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
 /// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
 _struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
@@ -173,6 +175,8 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   register_collect_type();
   register_find_function_calls_in_expr();
   register_generate_expr();
+  // Register the FSM await/cond/match/while emitter indirections.
+  register_fsm_emitters_impl();
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
   // Seed the always-needed standard C headers (mirrors the cIncludes set the TS
@@ -224,6 +228,10 @@ static uint8_t** __yo_argv;
 static Slice_uint8_t_u42_ __yo_args;
 `
   );
+  // Pre-register async-block state-machine types (forward-declared struct
+  // typedefs + uses_async flag) before function declarations, so prototypes use
+  // the right SM struct names. Mirrors codegen-c.ts:205.
+  preregister_async_block_types(ctx);
   // Third pass: function declarations (prototypes).
   generate_function_declarations(base);
   // Fourth pass: function bodies (the dispatcher was registered above).
@@ -234,6 +242,9 @@ static Slice_uint8_t_u42_ __yo_args;
   generate_dyn_wrapper_functions(ctx);
   generate_dyn_vtables(ctx);
   generate_dyn_dup_drop(ctx);
+  // Deferred async-block implementations (resume / set_effect / dispose / ctor),
+  // after all regular + dyn functions to avoid nesting. Mirrors codegen-c.ts:232.
+  generate_deferred_async_blocks(ctx);
   // Main wrapper (executable mode only).
   if(!(is_library), {
     generate_main_wrapper(ctx);
