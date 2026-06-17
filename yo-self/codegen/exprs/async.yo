@@ -60,6 +60,7 @@ open(import("std/string"));
 { get_drop_function_for_type, get_dup_function_for_type } :: import("./drop_dup.yo");
 { generate_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ get_evidence_parameters } :: import("../functions/declarations.yo");
 {
   type_key,
   get_type_string,
@@ -69,7 +70,8 @@ open(import("std/string"));
 {
   FunctionGenerationContext,
   ClosureParamSlot,
-  DeferredAsyncBlock
+  DeferredAsyncBlock,
+  EvidenceParameter
 } :: import("../functions/context.yo");
 {
   OverlappingSlot,
@@ -467,6 +469,19 @@ _join_names :: (fn(names : ArrayList(String)) -> String)({
       out.push_str(", ");
     });
     match(names.get(i),.Some(n) => out.push_string(n.clone()),.None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+/// Join path segments with "." (for `__capture.a.b` evidence access paths).
+_join_dotted :: (fn(parts : ArrayList(String)) -> String)({
+  out := String.from("");
+  (i : usize) = usize(0);
+  while(i < parts.len(), {
+    if(i > usize(0), {
+      out.push_str(".");
+    });
+    match(parts.get(i),.Some(n) => out.push_string(n.clone()),.None => ());
     i = (i + usize(1));
   });
   out
@@ -1912,6 +1927,243 @@ preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> uni
     );
   });
 });
+/// Generate C for `io.async(closure)` as a LAZY synchronous future (no await
+/// points). The closure is NOT called at io.async time; its function pointer +
+/// capture live in the future struct, and io.await's resume call executes it.
+/// Faithful port of `generateIoAsyncSyncCall` (async.ts:1798).
+/// DIVERGENCE: the closure's C function name comes from the closure-arg's
+/// `closure_function_value` FuncVal func_id (via get_function_entry) rather than
+/// TS's implClosureCallMap (absent in yo-self); the closure's runtime params +
+/// evidence come from the closure-arg's Func type directly.
+generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* Error: io.async missing ExprInfo */")));
+  future_type := ei.ty;
+  if(!(type_implements_future(future_type)), {
+    return(String.from("/* Error: io.async must return a Future type */"));
+  });
+  future_trait_type := match(extract_future_trait_from_type(future_type),.Some(ft) => ft,.None => return(String.from("/* Error: Could not extract Future trait type */")));
+  // Closure argument expression + its info.
+  closure_arg := match(
+    ei.runtime_arg_exprs_in_order,
+    .Some(rargs) => match(rargs.get(usize(0)),.Some(c) => c,.None => return(String.from("/* Error: Missing closure argument for io.async */"))),
+    .None => return(String.from("/* Error: Missing closure argument for io.async */"))
+  );
+  cei := match(context.base.get_expr_info(closure_arg),.Some(c) => c,.None => return(String.from("/* Error: Missing closure argument for io.async */")));
+  // Result type (resolve unresolved SomeType via the closure body type).
+  (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
+  if(is_some_type(result_type), {
+    rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
+    match(
+      lookup_some_resolved_concrete(rsid),
+      .Some(rct) => {
+        result_type = rct;
+      },
+      .None => match(
+        cei.closure_function_value,
+        .Some(fv) => match(
+          fv,
+          .FuncVal(_, _, _, _, body, _, _, _, _) => match(
+            context.base.get_expr_info(body.*),
+            .Some(bei) => {
+              bt := bei.ty;
+              if(is_some_type(bt), {
+                bsid := match(bt,.SomeT({ id : i }) => i, _ => String.from(""));
+                match(
+                  lookup_some_resolved_concrete(bsid),
+                  .Some(r) => {
+                    result_type = r;
+                  },
+                  .None => ()
+                );
+              }, {
+                result_type = bt;
+              });
+            },
+            .None => ()
+          ),
+          _ => ()
+        ),
+        .None => ()
+      )
+    );
+  });
+  result_type_c_name := get_type_string(result_type, context.base);
+  struct_name := match(ei.async_state_machine_struct_name,.Some(s) => s,.None => return(String.from("/* Error: Missing sync future struct name */")));
+  dispose_function_name := `${struct_name.clone()}_dispose`;
+  resume_function_name := `${struct_name.clone()}_resume`;
+  // Generate the closure argument value (registers the closure fn + emits capture
+  // struct declarations as a side effect), then resolve its C function name.
+  closure_code := _call_generate_expr(closure_arg, indent.clone(), context);
+  closure_function_c_name := match(
+    cei.closure_function_value,
+    .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(context.base.get_function_entry(fid),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),
+    .None => Option(String).None
+  );
+  capture_c_name := match(cei.capture_type,.Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(cap_ty, context)),.None => Option(String).None);
+  cfn := match(closure_function_c_name,.Some(n) => n,.None => return(String.from("/* Error: no closure function or capture type for io.async sync path */")));
+  ccn := match(capture_c_name,.Some(n) => n,.None => return(String.from("/* Error: no closure function or capture type for io.async sync path */")));
+  // Discover the closure's runtime parameters (non-comptime; the bundle param e).
+  // yo-self's Func.param_types already excludes comptime params.
+  sync_param_slots := ArrayList(SyncParamSlot).new();
+  closure_call_type := cei.ty;
+  match(
+    closure_call_type,
+    .Func({ param_types : pts }) => {
+      (i : usize) = usize(0);
+      while(i < pts.len(), {
+        pt := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        ctype := get_type_string(pt, context.base);
+        sync_param_slots.push(SyncParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype));
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  em := context.base.emitter;
+  // Struct definition (embeds __capture so it outlives the call).
+  em.emit_declaration_string_line(`struct ${struct_name.clone()}_struct {`);
+  em.emit_declaration_line("  __yo_ref_header_t header;");
+  em.emit_declaration_line("  int state;");
+  if(is_unit_type(result_type), {
+    em.emit_declaration_line("  uint8_t result;");
+  }, {
+    em.emit_declaration_string_line(`  ${result_type_c_name.clone()} result;`);
+  });
+  em.emit_declaration_line("  void (*continuation_fn)(void*);");
+  em.emit_declaration_line("  void* continuation_sm;");
+  em.emit_declaration_line("  void (*__yo_resume_fn)(void*);");
+  em.emit_declaration_line("  void (*__yo_set_effect_fn)(void*, const char*, void*);");
+  em.emit_declaration_string_line(`  ${ccn.clone()} __capture;`);
+  (si : usize) = usize(0);
+  while(si < sync_param_slots.len(), {
+    match(sync_param_slots.get(si),.Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`),.None => ());
+    si = (si + usize(1));
+  });
+  em.emit_declaration_line("};");
+  em.emit_declaration_line("");
+  // Build resume call args: evidence params from __capture, runtime params from slots.
+  closure_evidence_args := String.from("");
+  shim_args := ArrayList(String).new();
+  eps := get_evidence_parameters(closure_call_type);
+  (ei2 : usize) = usize(0);
+  while(ei2 < eps.len(), {
+    match(
+      eps.get(ei2),
+      .Some(ep) => {
+        path := _join_dotted(ep.field_path);
+        shim_args.push(`(void*)sm->__capture.${path}`);
+      },
+      .None => ()
+    );
+    ei2 = (ei2 + usize(1));
+  });
+  (si2 : usize) = usize(0);
+  while(si2 < sync_param_slots.len(), {
+    match(
+      sync_param_slots.get(si2),
+      .Some(slot) => {
+        shim_args.push(`sm->${slot.field_name.clone()}`);
+      },
+      .None => ()
+    );
+    si2 = (si2 + usize(1));
+  });
+  if(shim_args.len() > usize(0), {
+    closure_evidence_args = `, ${_join_names(shim_args)}`;
+  });
+  sync_set_effect_function_name := `${struct_name.clone()}_set_effect`;
+  generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), future_trait_type, cei.capture_type, context, match(sync_param_slots.get(usize(0)),.Some(s) => Option(SyncParamSlot).Some(s),.None => Option(SyncParamSlot).None));
+  em.emit_declaration_line("");
+  // Resume function — calls the closure with the embedded capture data.
+  em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* ptr) {`);
+  em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
+  if(!(is_unit_type(result_type)), {
+    em.emit_declaration_string_line(`  sm->result = ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
+  }, {
+    em.emit_declaration_string_line(`  ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
+  });
+  // An effect handler calling unwind() returns the closure early → state -2 (aborted).
+  if(closure_evidence_args.len() > usize(0), {
+    em.emit_declaration_line("  if (__yo_effect_escaped) {");
+    em.emit_declaration_line("    __yo_effect_escaped = 0;");
+    em.emit_declaration_line("    sm->state = -2;");
+    em.emit_declaration_line("    __yo_decr_rc(ptr);");
+    em.emit_declaration_line("    return;");
+    em.emit_declaration_line("  }");
+  });
+  em.emit_declaration_line("  sm->state = -1;");
+  em.emit_declaration_line("  void (*continuation)(void*) = sm->continuation_fn;");
+  em.emit_declaration_line("  if (continuation) {");
+  em.emit_declaration_line("    void* cont_sm = sm->continuation_sm;");
+  em.emit_declaration_line("    continuation(cont_sm);");
+  em.emit_declaration_line("  }");
+  em.emit_declaration_line("  __yo_decr_rc(ptr);");
+  em.emit_declaration_line("}");
+  em.emit_declaration_line("");
+  // Dispose function.
+  capture_drop_fn := match(cei.capture_type,.Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None),.None => Option(String).None);
+  capture_dup_fn := match(cei.capture_type,.Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_dup_function_for_type(cap_ty, context), Option(String).None),.None => Option(String).None);
+  result_drop_fn := get_drop_function_for_type(result_type, context);
+  em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
+  has_drop := (match(capture_drop_fn,.Some(_) => true,.None => false) || match(result_drop_fn,.Some(_) => true,.None => false));
+  if(has_drop, {
+    em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
+    match(
+      capture_drop_fn,
+      .Some(drop_fn) => {
+        em.emit_declaration_line("  // Drop captured variables (future owns its references)");
+        em.emit_declaration_string_line(`  ${drop_fn}(sm->__capture);`);
+      },
+      .None => ()
+    );
+    match(
+      result_drop_fn,
+      .Some(drop_fn) => {
+        em.emit_declaration_line("  if (sm->state == -1) {");
+        em.emit_declaration_string_line(`    ${drop_fn}(sm->result);`);
+        em.emit_declaration_line("  }");
+      },
+      .None => ()
+    );
+  });
+  em.emit_declaration_line("}");
+  em.emit_declaration_line("");
+  // Allocation + initialization (body code).
+  result_var := match(ei.variable_name,.Some(n) => n,.None => String.from("__io_async_result"));
+  var_type_and_name := get_variable_type_string(future_type, result_var.clone(), context.base);
+  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)__yo_malloc(sizeof(${struct_name.clone()}));`);
+  em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1;`);
+  if(context.base.needs_cycle_gc, {
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_flags = 0;`);
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_mark = __YO_GC_UNMARKED;`);
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_next = NULL;`);
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_prev = NULL;`);
+  });
+  if(context.base.needs_cycle_gc, {
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.dispose_fn = (void(*)(void*))${dispose_function_name.clone()};`);
+  }, {
+    type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${type_id.to_string()};`);
+  });
+  if(context.base.needs_cycle_gc, {
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.traverse_fn = NULL;`);
+  });
+  // Copy capture data from the stack struct into the heap future, then dup it.
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${closure_code};`);
+  match(
+    capture_dup_fn,
+    .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),
+    .None => ()
+  );
+  // State 0 = not started (lazy); resume executes the closure.
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->__yo_resume_fn = ${resume_function_name.clone()};`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->__yo_set_effect_fn = ${sync_set_effect_function_name.clone()};`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_fn = NULL;`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_sm = NULL;`);
+  result_var
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
@@ -1926,5 +2178,6 @@ export(
   generate_async_block,
   generate_deferred_async_blocks,
   preregister_async_blocks_in_expr,
-  preregister_async_block_types
+  preregister_async_block_types,
+  generate_io_async_sync_call
 );
