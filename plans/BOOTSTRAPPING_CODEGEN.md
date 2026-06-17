@@ -484,8 +484,27 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    `lookup_some_resolved_concrete(id)`. Still a multi-file evaluator pass, but
    far lower risk than the variant migration. Do this as the dedicated first step
    of the FSM-core session.
-4. **C runtime templates:** `async/runtime.ts` + `runtime-core` +
-   `runtime-io-common` + macOS/Linux (Windows/WASM deferred).
+4. **C runtime templates** (Phase 5 #4) — PARTIALLY PORTED 2026-06-17:
+   - ✅ `runtime-core.ts` → `runtime_core.yo` (5675e1d95) — core scheduler.
+   - ✅ `runtime-io-macos.ts` → `runtime_io_macos.yo` (5d40988bc) — sys helpers +
+     kqueue async I/O.
+   - ✅ `runtime-io-linux.ts` → `runtime_io_linux.yo` (fc1824c05) — sys helpers +
+     io_uring async I/O.
+   - ⬜ `runtime-io-common.ts` (1717 LOC) — the SHARED layer (timer, dir scan,
+     DNS, process, FS events, poll/tick, + `generateSysRuntime`). INTRICATE: 33
+     `emitLine` blocks interleaved with TS conditionals + 10 embedded `${...}`
+     target interpolations — NOT a clean verbatim extraction; needs careful
+     block-by-block split-porting (literal chunk → `cond` → literal chunk). The
+     clean 2-block backends above WERE verbatim-extractable (pure C, no `${}`);
+     this one is not. Dedicated-focus task.
+   - ⬜ `async/runtime.ts` (69 LOC) → `runtime.yo` — the DISPATCHER
+     (`generate_async_runtime`): calls runtime_core + the target backend +
+     runtime-io-common. Port LAST (after common), then wire into `codegen_c`.
+   - Deferred: `runtime-io-windows.ts`, `runtime-io-wasm.ts` (follow-up).
+   PORTING TECHNIQUE for verbatim-C files: extract the template-literal body with
+   `sed -n 'A,Bp'` to a temp file and wrap it in `emitter.emit_string_line(\`…\`)`
+   via heredoc concat — zero hand-transcription risk; only works when the block
+   has no `${}` interpolations and no stray backticks (verify both first).
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
 co-exists — there is no partial runnable async program. Build #1+#2 first
 (testable via `check`), then the FSM bottom-up against a minimal `io.async` +
