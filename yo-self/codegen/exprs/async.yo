@@ -19,6 +19,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 {
   AstExpr,
+  ast_expr_id,
   ast_expr_token,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of
@@ -46,8 +47,12 @@ open(import("std/string"));
 } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { TypeField, get_struct_fields } :: import("../../evaluator/types/field.yo");
-{ is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
-{ ExprInfo, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{
+  is_io_async_call,
+  is_io_await_call,
+  is_io_spawn_call
+} :: import("../../evaluator/async/await_analysis.yo");
+{ ExprInfo, lookup_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -1763,6 +1768,150 @@ generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> un
     i = (i + usize(1));
   });
 });
+/// Set an io.async expression's state-machine struct name on its ExprInfo (TS
+/// `expr.$.asyncStateMachineStructName = …` — stored directly on the expr because
+/// it is more reliable than context.types, which can be overwritten).
+_set_async_sm_struct_name :: (fn(expr : AstExpr, struct_name : String, context : FunctionGenerationContext) -> unit)({
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => {
+      ei.async_state_machine_struct_name = Option(String).Some(struct_name);
+      expr_info_table_set(context.base.info_table, ast_expr_id(expr), ei);
+    },
+    .None => ()
+  );
+});
+/// Extract a called function's `(is_extern, extern_name)` from the FnCall's func
+/// sub-expression type, if it is an extern function. Helper for the async-runtime /
+/// parallelism extern detection.
+_called_extern_name :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(String))({
+  func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*, _ => return(Option(String).None));
+  ft := match(context.base.get_expr_info(func_expr),.Some(ei) => ei.ty,.None => return(Option(String).None));
+  match(
+    ft,
+    .Func({ is_extern : ie, extern_name : en }) => match(
+      ie,
+      .Some(lang) => if(lang == "yo", en, Option(String).None),
+      .None => Option(String).None
+    ),
+    _ => Option(String).None
+  )
+});
+/// Recursively search `expr` for async blocks and pre-register their state-machine
+/// types (forward-declared struct typedefs), and flag uses_async / uses_parallelism.
+/// Faithful port of `preRegisterAsyncBlocksInExpr` (async.ts:1668).
+preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> unit)({
+  is_fn_call := match(expr,.FnCall(_, _, _, _, _) => true, _ => false);
+  if(!(is_fn_call), return());
+  ei_opt := context.base.get_expr_info(expr);
+  // Async-block path (struct name always _state_t).
+  if(is_io_async_call(expr), {
+    match(
+      ei_opt,
+      .Some(ei) => if(type_implements_future(ei.ty), {
+        match(
+          extract_future_trait_from_type(ei.ty),
+          .Some(_) => {
+            async_block_id := match(
+              ei.variable_name,
+              .Some(n) => n,
+              .None => {
+                p := String.from("async_block_");
+                p.push_string(random_id(String.from("async")));
+                p
+              }
+            );
+            struct_name := `${async_block_id}_state_t`;
+            _set_async_sm_struct_name(expr, struct_name.clone(), context);
+            context.base.register_type(type_key(ei.ty), ei.ty, struct_name.clone(), Option(String).None);
+            em := context.base.emitter;
+            em.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for async state machine`);
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  // io.async(closure) path: _state_t when it has await analysis, else _sync_fut_t.
+  if(is_io_async_call(expr), {
+    match(
+      ei_opt,
+      .Some(ei) => if(type_implements_future(ei.ty), {
+        match(
+          extract_future_trait_from_type(ei.ty),
+          .Some(_) => {
+            async_block_id := match(
+              ei.variable_name,
+              .Some(n) => n,
+              .None => {
+                p := String.from("io_async_block_");
+                p.push_string(random_id(String.from("async")));
+                p
+              }
+            );
+            has_await_analysis := match(ei.await_analysis,.Some(_) => true,.None => false);
+            struct_name := if(has_await_analysis, `${async_block_id}_state_t`, `${async_block_id}_sync_fut_t`);
+            kind_label := if(has_await_analysis, String.from("state machine"), String.from("sync future"));
+            _set_async_sm_struct_name(expr, struct_name.clone(), context);
+            context.base.register_type(type_key(ei.ty), ei.ty, struct_name.clone(), Option(String).None);
+            em := context.base.emitter;
+            em.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for io.async ${kind_label}`);
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  // io.await / io.spawn both need the async runtime.
+  if(is_io_await_call(expr) || is_io_spawn_call(expr), {
+    context.uses_async = true;
+  });
+  // extern "yo" call into the async runtime (__yo_poll_/__yo_fs_event_/__yo_async_).
+  match(
+    _called_extern_name(expr, context),
+    .Some(name) => if(is_async_runtime_extern_name(name), {
+      context.uses_async = true;
+    }),
+    .None => ()
+  );
+  // Parallelism extern (__yo_thread_spawn / __yo_worker_spawn).
+  match(
+    _called_extern_name(expr, context),
+    .Some(name) => if((name == "__yo_thread_spawn") || (name == "__yo_worker_spawn"), {
+      context.uses_parallelism = true;
+    }),
+    .None => ()
+  );
+  // Recurse into arguments.
+  args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    match(args.get(i),.Some(arg) => recur(arg, context),.None => ());
+    i = (i + usize(1));
+  });
+});
+/// Pre-register every function body's async-block state-machine types before
+/// function declarations are generated, so prototypes see the right struct names.
+/// Faithful port of `preRegisterAsyncBlockTypes` (async.ts:1639).
+preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> unit)({
+  vals := context.base.functions.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => match(
+        entry.value,
+        .FuncVal(_, _, _, _, body, _, _, _, _) => preregister_async_blocks_in_expr(body.*, context),
+        _ => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
@@ -1775,5 +1924,7 @@ export(
   generate_async_block_state_dispose_function,
   generate_async_block_constructor,
   generate_async_block,
-  generate_deferred_async_blocks
+  generate_deferred_async_blocks,
+  preregister_async_blocks_in_expr,
+  preregister_async_block_types
 );
