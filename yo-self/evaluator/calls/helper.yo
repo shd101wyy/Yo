@@ -2055,6 +2055,34 @@ try_to_call_function_with_arguments :: (
         );
         pi = (pi + usize(1));
       });
+      // Step 7b: Variadic arguments — the args beyond the fixed parameters.
+      // Mirrors TS helper.ts:1618-1662 (the non-quote runtime branch). yo-self
+      // models a variadic function only as `has_variadic : bool` (no per-variadic
+      // `isQuote`/`isCompileTimeOnly`/label), so we handle the C-extern runtime
+      // case (e.g. `snprintf(buf, n, fmt, v...)`): evaluate each extra arg and
+      // record it as a runtime arg so codegen emits it. Without this the loop
+      // above (bounded by `n_params`) silently DROPPED every variadic arg from
+      // `runtime_arg_exprs_in_order` — `snprintf(buf, n, "%d", self)` emitted
+      // `snprintf(buf, n, "%d")` (missing `self`), so integer `to_string` no-oped.
+      if(fn_has_variadic && (n_args > n_params), {
+        (vai : usize) = n_params;
+        while(vai < n_args, {
+          varg := match(adjusted_args.get(vai),.Some(a) => a,.None => make_err_expr());
+          v_saved_expected := ctx.expected_type;
+          ctx.expected_type = Option(ExpectedTypeCtx).None;
+          v_evaled := evaluate_expression_raw(varg, caller_env_m, ctx, exn);
+          ctx.expected_type = v_saved_expected;
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(v_evaled)),
+            .Some(vinfo) => {
+              caller_env_m = vinfo.env;
+            },
+            .None => ()
+          );
+          rt_args.push(v_evaled);
+          vai = (vai + usize(1));
+        });
+      });
       // v4.1: validate the PLACES bound to ref parameters (after argument
       // evaluation so the chain types are resolved). Mirrors TS
       // requireValidRefArgumentPlaces in tryToCallFunctionWithArguments.

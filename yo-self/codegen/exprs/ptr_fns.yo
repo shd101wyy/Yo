@@ -20,6 +20,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_name_for_codegen, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+{ is_array_type } :: import("../../types/guards.yo");
 /// The C function name for a func id (registered cName, else None).
 _c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
   match(context.base.get_function_entry(func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None)
@@ -76,6 +77,29 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   );
   // Index-trait address-of: Index.index() already returns a pointer.
   is_idx := match(ei.is_index_trait_address_of,.Some(b) => b,.None => false);
+  // Array-receiver index address-of: `&(arr(i))` where `arr` is a builtin
+  // fixed-size Array (NOT a user `Index` impl). The array index is a BUILTIN
+  // (BF_YO_ARRAY_INDEX), so the evaluator records NO `index_method_value`
+  // FuncVal (it's None for arrays) — the user-Index paths below are gated on
+  // that FuncVal, so an array index would fall through to the rvalue temp-spill
+  // fallback, which copies element 0 into a 1-byte temp and addresses THAT
+  // (`uint8_t t = arr.data[0]; &t`). snprintf then overflows the temp → SIGTRAP.
+  // Emit the address INTO the array buffer directly: `(&((&arr)->data[i]))`.
+  if(ast_expr_is_fn_call(arg) && match(arg_ei_opt,.Some(aei) => aei.index_method_value.is_none(),.None => true), {
+    callee_expr := match(arg,.FnCall(_, func, _, _, _) => func.*,.Atom(_, _) => arg);
+    callee_is_array := match(context.base.get_expr_info(callee_expr),.Some(cei) => is_array_type(cei.ty),.None => false);
+    if(callee_is_array, {
+      callee_code := _call_generate_expr(callee_expr, indent.clone(), context);
+      index_arg_opt := match(arg,.FnCall(_, _, a2, _, _) => a2.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+      index_code := match(index_arg_opt,.Some(ia) => _call_generate_expr(ia, indent.clone(), context),.None => String.from("0"));
+      out := String.from("(&((&");
+      out.push_string(callee_code);
+      out.push_str(")->data[");
+      out.push_string(index_code);
+      out.push_str("]))");
+      return(out);
+    });
+  });
   if(is_idx && ast_expr_is_fn_call(arg), {
     match(
       arg_ei_opt,
