@@ -418,6 +418,39 @@ The largest single block (~13k LOC in scope):
 **Gate:** async_await, algebraic_effects, sync/, parallelism test files
 pass differentially on macOS + Linux.
 
+**Phase-5 ENTRY ANALYSIS (2026-06-17 — start here next session).** Mapped the
+exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtimes:
+
+1. **Func type model gap.** yo-self's `Func` TypeValue carries NO `io_builtin`
+   marker (TS keys on `functionType.ioBuiltin === "io_async"`, helper.ts:1314).
+   Add an `io_builtin : Option(String)` (or equivalent) to the `Func` variant +
+   stamp it where `io.async`/`io.await`/… are declared, OR detect `io.async`
+   structurally. PREREQUISITE for everything below.
+2. **Evaluator analyses exist but DON'T RUN.** `analyze_await_points`
+   (`evaluator/async/await_analysis.yo`, exported) and the effect analysis
+   (`evaluator/effects/effect_analysis.yo`) are ported but NEVER CALLED. Wire:
+   (a) set `ctx.is_inside_io_async_call = true` around the `io.async` closure-arg
+   eval (mirror helper.ts:1315 — needs #1); (b) in `anonymous_function.yo` after
+   the body eval (~line 886, where `anon_eb` is the evaluated body), when
+   `ctx.is_inside_io_async_call`, run `analyze_await_points(anon_eb)` and set the
+   body ExprInfo's `await_analysis` if `has_awaits` (mirror
+   anonymous-function.ts:898-907). ExprInfo already has the fields
+   (`await_analysis`, `effect_analysis`, `async_state_machine_struct_name`,
+   `async_stack_size`, `capture_struct`). Testable via `check` (no codegen
+   consumer yet → no-op for output; validate no std/yo-self regression).
+3. **Codegen FSM (the bulk, ~8k LOC, NO yo-self counterpart yet):**
+   `exprs/async-completion.ts` (124) + `shared/suspension-codegen.ts` (199) are
+   the smallest; `exprs/await.ts` (835); `exprs/async.ts` (2085);
+   `async/state-machine.ts` (2605) + `async/state-code-gen.ts` (2136) are the FSM
+   transformation core. The corpus emitters currently `panic("Phase 5")` at every
+   state-machine site (atom SM-var resolution, return-completion, etc.).
+4. **C runtime templates:** `async/runtime.ts` + `runtime-core` +
+   `runtime-io-common` + macOS/Linux (Windows/WASM deferred).
+NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
+co-exists — there is no partial runnable async program. Build #1+#2 first
+(testable via `check`), then the FSM bottom-up against a minimal `io.async` +
+`io.await` differential fixture.
+
 ### Phase 6 — Self-host fixpoint
 
 1. `yo-self-bin test ./tests` — the self-hosted compiler RUNS the suite
