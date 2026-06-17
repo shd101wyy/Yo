@@ -1,0 +1,480 @@
+//! runtime_io_common — shared POSIX sync helpers + (TODO) async I/O common layer.
+//! Port of `src/codegen/async/runtime-io-common.ts`. `generate_sys_runtime`
+//! ported (macOS + Linux per the plan gate; Windows/WASM deferred → panic).
+//! `generate_async_runtime_io_common` (options/dispose-id logic + timer/dir/DNS/
+//! process/FS-event/poll/tick) is the remaining piece — see plan Phase 5 #4.
+open(import("std/string"));
+{ Emitter } :: import("../../emitter.yo");
+{ TargetInfo, is_target_macos, is_target_linux, is_target_wasm, is_target_windows } :: import("../../target.yo");
+{ generate_platform_sys_runtime_macos } :: import("./runtime_io_macos.yo");
+{ generate_platform_sys_runtime_linux } :: import("./runtime_io_linux.yo");
+/// Emit the shared POSIX sync runtime + dispatch to the platform sys-runtime.
+/// Mirrors `generateSysRuntime`.
+generate_sys_runtime :: (fn(emitter : Emitter, target_info : TargetInfo) -> unit)({
+  if(is_target_windows(target_info), {
+    panic("runtime_io_common: Windows sys-runtime is a Phase-5 follow-up (deferred)");
+  });
+  if(is_target_wasm(target_info), {
+    panic("runtime_io_common: WASM sys-runtime is a Phase-5 follow-up (deferred)");
+  });
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// File System Helper Functions
+// ============================================================================
+// These functions help extract fields from struct stat, which has platform-specific layout.
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <string.h>
+`
+  );
+  if(is_target_macos(target_info), {
+    emitter.emit_string_line(
+      `#include <sys/dirent.h>
+#include <unistd.h>`
+    );
+  });
+  emitter.emit_string_line(
+    `
+
+// Get size of stat buffer (for allocation)
+static size_t __yo_stat_buf_size(void) {
+  return sizeof(struct stat);
+}
+
+// Extract fields from struct stat
+static int64_t __yo_stat_size(void* statbuf) {
+  return (int64_t)((struct stat*)statbuf)->st_size;
+}
+
+static uint32_t __yo_stat_mode(void* statbuf) {
+  return (uint32_t)((struct stat*)statbuf)->st_mode;
+}
+
+static int64_t __yo_stat_mtime(void* statbuf) {
+  return (int64_t)((struct stat*)statbuf)->st_mtime;
+}
+
+static int64_t __yo_stat_atime(void* statbuf) {
+  return (int64_t)((struct stat*)statbuf)->st_atime;
+}
+
+static int64_t __yo_stat_ctime(void* statbuf) {
+  return (int64_t)((struct stat*)statbuf)->st_ctime;
+}
+
+static uint32_t __yo_stat_uid(void* statbuf) {
+  return (uint32_t)((struct stat*)statbuf)->st_uid;
+}
+
+static uint32_t __yo_stat_gid(void* statbuf) {
+  return (uint32_t)((struct stat*)statbuf)->st_gid;
+}
+
+static uint64_t __yo_stat_ino(void* statbuf) {
+  return (uint64_t)((struct stat*)statbuf)->st_ino;
+}
+
+static uint64_t __yo_stat_dev(void* statbuf) {
+  return (uint64_t)((struct stat*)statbuf)->st_dev;
+}
+
+static uint64_t __yo_stat_nlink(void* statbuf) {
+  return (uint64_t)((struct stat*)statbuf)->st_nlink;
+}
+
+// Extract fields from struct dirent
+static const char* __yo_dirent_name(void* entry) {
+  return ((struct dirent*)entry)->d_name;
+}
+
+static uint8_t __yo_dirent_type(void* entry) {
+  return ((struct dirent*)entry)->d_type;
+}
+}
+`
+  );
+  // sendfile/copyfile includes
+  if(is_target_linux(target_info), {
+    emitter.emit_string_line(`#include <sys/sendfile.h>`);
+  });
+  if(is_target_macos(target_info), {
+    emitter.emit_string_line(`#include <copyfile.h>`);
+    emitter.emit_string_line(`#include <sys/socket.h>  // macOS sendfile()`);
+  });
+  // sendfile fallback (linux + macos)
+  emitter.emit_string_line(
+    `
+// Fallback for platforms where sendfile cannot handle all fd combinations
+static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  unsigned char buffer[8192];
+  size_t total = 0;
+
+  while (total < count) {
+  size_t remaining = count - total;
+  size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+
+  ssize_t nread = pread(in_fd, buffer, chunk, (off_t)(offset + (int64_t)total));
+  if (nread < 0) {
+    return -errno;
+  }
+  if (nread == 0) {
+    break;
+  }
+
+  size_t written = 0;
+  while (written < (size_t)nread) {
+    ssize_t nwrite = write(out_fd, buffer + written, (size_t)nread - written);
+    if (nwrite < 0) {
+      return -errno;
+    }
+    written += (size_t)nwrite;
+  }
+
+  total += (size_t)nread;
+  }
+
+  return (int32_t)total;
+}
+`
+  );
+  // sync ops
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// Synchronous Operations (POSIX-only) - no IoFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
+  int result;
+  if (dirfd == -100) {  // AT_FDCWD
+  result = access(path, mode);
+  } else {
+  result = faccessat(dirfd, path, mode, 0);
+  }
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_realpath(const char* path, char* resolved) {
+  char* result = realpath(path, resolved);
+  return result ? 0 : -errno;
+}
+
+static int32_t __yo_sync_mkdtemp(char* template) {
+  char* result = mkdtemp(template);
+  return result ? 0 : -errno;
+}
+
+static int32_t __yo_sync_mkstemp(char* template) {
+  int fd = mkstemp(template);
+  return (fd < 0) ? -errno : fd;
+}
+`
+  );
+  // copyfile (platform-specific)
+  if(is_target_linux(target_info), {
+    emitter.emit_string_line(
+      `
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
+  int src_fd = open(src, O_RDONLY);
+  if (src_fd < 0) return -errno;
+
+  struct stat st;
+  if (fstat(src_fd, &st) < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+  if (flags & 1) open_flags |= O_EXCL;
+
+  int dst_fd = open(dst, open_flags, st.st_mode);
+  if (dst_fd < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  ssize_t copied = 0;
+  off_t off_in = 0;
+#ifdef __NR_copy_file_range
+  copied = syscall(__NR_copy_file_range, src_fd, &off_in, dst_fd, NULL, (size_t)st.st_size, 0);
+#endif
+  if (copied < 0) {
+  off_t offset = 0;
+  copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
+  }
+
+  int err = (copied < 0) ? errno : 0;
+  close(src_fd);
+  close(dst_fd);
+  return (err != 0) ? -err : 0;
+}
+`
+    );
+  });
+  if(is_target_macos(target_info), {
+    emitter.emit_string_line(
+      `
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
+  copyfile_flags_t cf_flags = COPYFILE_ALL;
+  if (flags & 1) cf_flags |= COPYFILE_EXCL;
+  if (flags & 2) cf_flags |= COPYFILE_CLONE;
+  if (flags & 4) cf_flags |= COPYFILE_CLONE_FORCE;
+
+  int result = copyfile(src, dst, NULL, cf_flags);
+  return (result < 0) ? -errno : 0;
+}
+`
+    );
+  });
+  // sendfile (platform-specific)
+  if(is_target_linux(target_info), {
+    emitter.emit_string_line(
+      `
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  off_t off = (off_t)offset;
+  ssize_t sent = sendfile(out_fd, in_fd, &off, count);
+  return (sent < 0) ? -errno : (int32_t)sent;
+}
+`
+    );
+  });
+  if(is_target_macos(target_info), {
+    emitter.emit_string_line(
+      `
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  off_t len = (off_t)count;
+  int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
+  if (result < 0) {
+  if (errno == ENOTSOCK || errno == EINVAL || errno == ENOSYS) {
+    return __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
+  }
+  return -errno;
+  }
+  return (int32_t)len;
+}
+`
+    );
+  });
+  // utime + statfs
+  emitter.emit_string_line(
+    `
+static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                             int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, 0);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec,
+                              int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = futimens(fd, times);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                              int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW);
+  return (result < 0) ? -errno : 0;
+}
+
+// Statfs support
+#include <sys/statvfs.h>
+
+static int32_t __yo_sync_statfs(const char* path, void* buf) {
+  int result = statvfs(path, (struct statvfs*)buf);
+  return (result < 0) ? -errno : 0;
+}
+
+static size_t __yo_statfs_buf_size(void) {
+  return sizeof(struct statvfs);
+}
+
+static uint64_t __yo_statfs_type(void* buf) {
+  (void)buf;
+  return 0;
+}
+
+static uint64_t __yo_statfs_bsize(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_bsize;
+}
+
+static uint64_t __yo_statfs_blocks(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_blocks;
+}
+
+static uint64_t __yo_statfs_bfree(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_bfree;
+}
+
+static uint64_t __yo_statfs_bavail(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_bavail;
+}
+
+static uint64_t __yo_statfs_files(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_files;
+}
+
+static uint64_t __yo_statfs_ffree(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_ffree;
+}
+`
+  );
+  // signal
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// Signal Operations
+// ============================================================================
+#include <signal.h>
+
+static void (*__yo_signal_handlers[32])(void*) = {NULL};
+static void* __yo_signal_handler_data[32] = {NULL};
+
+static void __yo_signal_trampoline(int signum) {
+  if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
+  __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+  }
+}
+
+static int32_t __yo_signal_start(int32_t signum, void* handler) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+  
+  __yo_signal_handlers[signum] = (void (*)(void*))handler;
+  
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = __yo_signal_trampoline;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  
+  if (sigaction(signum, &sa, NULL) < 0) {
+  return -errno;
+  }
+  return 0;
+}
+
+static int32_t __yo_signal_stop(int32_t signum) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+  
+  __yo_signal_handlers[signum] = NULL;
+  __yo_signal_handler_data[signum] = NULL;
+  
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = SIG_DFL;
+  sigemptyset(&sa.sa_mask);
+  
+  if (sigaction(signum, &sa, NULL) < 0) {
+  return -errno;
+  }
+  return 0;
+}
+
+static int32_t __yo_kill(int32_t pid, int32_t signum) {
+  int result = kill((pid_t)pid, signum);
+  return (result < 0) ? -errno : 0;
+}
+`
+  );
+  // tty
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// TTY Operations
+// ============================================================================
+#include <termios.h>
+#include <sys/ioctl.h>
+
+static struct termios __yo_orig_termios;
+static bool __yo_termios_saved = false;
+
+static int32_t __yo_tty_init(int32_t fd) {
+  if (!__yo_termios_saved) {
+  if (tcgetattr(fd, &__yo_orig_termios) < 0) {
+    return -errno;
+  }
+  __yo_termios_saved = true;
+  }
+  return 0;
+}
+
+static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) {
+  struct termios t;
+  if (tcgetattr(fd, &t) < 0) return -errno;
+  
+  switch (mode) {
+  case 0:  // TTY_MODE_NORMAL
+    t = __yo_orig_termios;
+    break;
+  case 1:  // TTY_MODE_RAW
+    t.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    t.c_oflag &= ~(OPOST);
+    t.c_cflag |= (CS8);
+    t.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+    t.c_cc[VMIN] = 1;
+    t.c_cc[VTIME] = 0;
+    break;
+  case 2:  // TTY_MODE_IO (Unix binary mode)
+    t.c_iflag &= ~(ICRNL | IXON);
+    t.c_oflag &= ~(OPOST);
+    break;
+  default:
+    return -EINVAL;
+  }
+  
+  if (tcsetattr(fd, TCSAFLUSH, &t) < 0) return -errno;
+  return 0;
+}
+
+static int32_t __yo_tty_reset_mode(void) {
+  if (__yo_termios_saved) {
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &__yo_orig_termios) < 0) {
+    return -errno;
+  }
+  }
+  return 0;
+}
+
+static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) {
+  struct winsize ws;
+  if (ioctl(fd, TIOCGWINSZ, &ws) < 0) {
+  return -errno;
+  }
+  *width = ws.ws_col;
+  *height = ws.ws_row;
+  return 0;
+}
+
+static int32_t __yo_isatty(int32_t fd) {
+  return isatty(fd) ? 1 : 0;
+}
+`
+  );
+  // platform-specific sync helpers
+  if(is_target_macos(target_info), {
+    generate_platform_sys_runtime_macos(emitter);
+  });
+  if(is_target_linux(target_info), {
+    generate_platform_sys_runtime_linux(emitter);
+  });
+});
+export(generate_sys_runtime);
