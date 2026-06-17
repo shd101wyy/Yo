@@ -10,7 +10,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_some_type, is_concrete_trait_type, is_struct_type, is_function_type } :: import("../../types/guards.yo");
+{ is_some_type, is_concrete_trait_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -28,7 +28,8 @@ open(import("std/string"));
 { get_type_string } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
-{ emit_async_future_completion } :: import("../exprs/async_completion.yo");
+{ emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
+{ get_dup_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
 /// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
 ///
@@ -1459,9 +1460,13 @@ _emit_last_segment_completion :: (
   (has_return : bool) = false;
   (i : usize) = usize(0);
   while((i < segment.expressions.len()) && !(has_return), {
-    match(segment.expressions.get(i),.Some(e) => if(expr_contains_return(e), {
-      has_return = true;
-    }),.None => ());
+    match(
+      segment.expressions.get(i),
+      .Some(e) => if(expr_contains_return(e), {
+        has_return = true;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   if(!(has_return), {
@@ -1511,6 +1516,104 @@ _emit_last_segment_completion :: (
     emit_async_future_completion(em, `      `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
   });
 });
+/// Emit the previous-await result extraction at the top of a resume state: the
+/// abort check (Future state == -2 → escape), the result copy (into
+/// `await_result_N` for cond awaits, or directly into the target SM var for
+/// linear awaits; RC results are dup'd), and the temp-future RC decrement when
+/// the awaited future was anonymous. Mirrors the result-extraction prologue in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:661). Caller guarantees
+/// `state_number >= 1`.
+_emit_prev_await_result_extraction :: (
+  fn(async_block_id : String, state_number : usize, prev_await : AwaitPoint, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  pffn := get_future_field_name(prev_await, analysis);
+  prev_idx_s := (state_number - usize(1)).to_string();
+  // Abort check.
+  em.emit_string_line(`      // Check if the awaited Future was aborted`);
+  em.emit_string_line(`      if (sm->${pffn}->state == -2) {`);
+  em.emit_string_line(`        __yo_decr_rc((void*)sm->${pffn});`);
+  em.emit_string_line(`        sm->${pffn} = NULL;`);
+  emit_async_future_escape(em, `        `, Option(String).None, Option(String).Some(async_block_id.clone()));
+  em.emit_string_line(`      }`);
+  // Result is unit when the type is unit, or an unresolved Future SomeType.
+  is_prev_unit := (
+    is_unit_type(prev_await.result_type) || (
+      is_some_type(prev_await.result_type) && match(prev_await.result_type,.SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+    )
+  );
+  if(!(is_prev_unit), {
+    em.emit_string_line(`      // Extract result from await ${prev_idx_s}`);
+    em.emit_string_line(`      int state_before_read = sm->${pffn}->state;`);
+    em.emit_string_line(`      ASYNC_DEBUG("${async_block_id}: Reading result from await ${prev_idx_s}, state=%d\\n", state_before_read);`);
+    use_await_result_field := match(prev_await.base.is_inside_cond,.Some(b) => b,.None => false);
+    (result_target : Option(String)) = Option(String).None;
+    if(use_await_result_field, {
+      rt := String.from("sm->await_result_");
+      rt.push_string(prev_idx_s.clone());
+      result_target = Option(String).Some(rt);
+    }, {
+      match(
+        prev_await.base.target_variable_id,
+        .Some(tvid) => {
+          fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+          rt := String.from("sm->");
+          rt.push_string(fname);
+          result_target = Option(String).Some(rt);
+        },
+        .None => ()
+      );
+    });
+    match(
+      result_target,
+      .Some(rt) => if(type_contains_rc_type(prev_await.result_type), {
+        match(
+          get_dup_function_for_type(prev_await.result_type, context),
+          .Some(dup) => em.emit_string_line(`      ${rt} = ${dup}(sm->${pffn}->result);`),
+          .None => {
+            em.emit_string_line(`      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`);
+            em.emit_string_line(`      ${rt} = sm->${pffn}->result;`);
+          }
+        );
+      }, {
+        em.emit_string_line(`      ${rt} = sm->${pffn}->result;`);
+      }),
+      .None => ()
+    );
+    if(use_await_result_field, {
+      match(
+        prev_await.base.target_variable_id,
+        .Some(tvid) => {
+          fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+          em.emit_string_line(`      sm->${fname} = sm->await_result_${prev_idx_s};`);
+        },
+        .None => ()
+      );
+    });
+    em.emit_string_line(String.from(""));
+  });
+  // Drop the temp future (anonymous awaited future stored in await_future_N).
+  match(
+    prev_await.future_variable_id,
+    .Some(_) => (),
+    .None => match(
+      prev_await.base.expr,
+      .FnCall(_, _, a, _, _) => match(
+        a.get(usize(0)),
+        .Some(fa) => match(
+          context.base.get_expr_info(fa),
+          .Some(ei) => if(is_some_type(ei.ty) || is_dyn_type(ei.ty), {
+            em.emit_string_line(`      if (sm->${pffn} != NULL) { __yo_decr_rc((void*)sm->${pffn}); sm->${pffn} = NULL; }`);
+            em.emit_string_line(String.from(""));
+          }),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    )
+  );
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -1533,5 +1636,6 @@ export(
   emit_effect_injection_for_sm,
   _build_combined_sm_variables,
   _emit_await_suspension,
-  _emit_last_segment_completion
+  _emit_last_segment_completion,
+  _emit_prev_await_result_extraction
 );
