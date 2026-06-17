@@ -19,14 +19,27 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_function_type, is_struct_type, is_unit_type, is_some_type } :: import("../../types/guards.yo");
+{
+  is_function_type,
+  is_struct_type,
+  is_unit_type,
+  is_some_type,
+  is_dyn_type,
+  is_iso_type,
+  is_atomic_object_type,
+  is_object_type,
+  is_rc_type
+} :: import("../../types/guards.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 {
   CapturedVariable,
   AwaitPoint,
   AwaitAnalysisResult
 } :: import("../../evaluator/async/await_analysis_types.yo");
+{ TypeField, get_struct_fields } :: import("../../evaluator/types/field.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ get_drop_function_for_type } :: import("./drop_dup.yo");
 { type_key, get_type_string, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
 {
   FunctionGenerationContext,
@@ -971,6 +984,160 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     ei = (ei + usize(1));
   });
 });
+/// The drop line for an RC-bearing field/local at `field_ref`, or `None` if the
+/// type needs no drop. Mirrors the per-field drop branches shared by the capture
+/// struct + local-variable cleanup in `generateAsyncBlockStateDisposeFunction`.
+_rc_field_drop_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, context : FunctionGenerationContext) -> Option(String))(
+  cond(
+    is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}if ((${field_ref.clone()}).data != NULL) { __yo_decr_rc((void*)(${field_ref.clone()}).data); }`),
+    (is_iso_type(field_type) || is_atomic_object_type(field_type)) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc_atomic((void*)${field_ref.clone()}); }`),
+    (is_object_type(field_type) || (is_some_type(field_type) && is_rc_type(field_type))) => match(
+      get_drop_function_for_type(field_type, context),
+      .Some(drop_fn) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { ${drop_fn}(${field_ref.clone()}); }`),
+      .None => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc((void*)${field_ref.clone()}); }`)
+    ),
+    type_contains_rc_type(field_type) => match(
+      get_drop_function_for_type(field_type, context),
+      .Some(drop_fn) => Option(String).Some(`${indent.clone()}${drop_fn}(${field_ref.clone()});`),
+      .None => Option(String).None
+    ),
+    true => Option(String).None
+  )
+);
+/// True if `capture_type` is registered in `context.types` (TS
+/// `Object.values(context.types).find(entry => entry.type === captureType)`).
+_capture_type_entry_exists :: (fn(capture_type : TypeValue, context : FunctionGenerationContext) -> bool)({
+  target_key := type_key(capture_type);
+  vals := context.base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => if(type_key(entry.ty) == target_key, {
+        return(true);
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  false
+});
+/// Inline RC-field drops for a capture struct whose `___drop` function was not
+/// generated (e.g. it holds unresolved SomeType fields). Mirrors the inline
+/// fallback in `generateAsyncBlockStateDisposeFunction` (async.ts:1116).
+_emit_inline_capture_field_drops :: (fn(capture_type : TypeValue, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  struct_id := match(capture_type,.Struct({ id : sid }) => sid, _ => String.from(""));
+  fields := match(get_struct_fields(struct_id),.Some(fs) => fs, _ => ArrayList(TypeField).new());
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    match(
+      fields.get(i),
+      .Some(field) => if(!(field.is_effect_param), {
+        field_ref := `sm->__capture.${field.label.clone()}`;
+        match(
+          _rc_field_drop_line(field_ref, field.ty, String.from("  "), context),
+          .Some(line) => em.emit_string_line(line),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate the state-machine dispose function for an async block: drops the
+/// capture struct, the result field (on normal completion, state == -1), and
+/// cross-boundary locals (on unwind/abort, state == -2). Called by `__yo_decr_rc`
+/// at refcount 0 — does NOT free memory. Faithful port of
+/// `generateAsyncBlockStateDisposeFunction` (async.ts:1060). `local_var_drops` is
+/// retained for signature fidelity (unused in the TS body as well).
+generate_async_block_state_dispose_function :: (
+  fn(async_block_id : String, struct_name : String, dispose_function_name : String, result_type : TypeValue, capture_type : Option(TypeValue), analysis : AwaitAnalysisResult, local_var_drops : ArrayList(String), cross_boundary_ids : HashSet(String), await_future_temp_var_aliases : HashMap(String, String), context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  em.emit_string_line(`// Dispose function for async block ${async_block_id.clone()} state machine`);
+  em.emit_line("// Called by __yo_decr_rc when refcount hits 0 - do NOT call __yo_free here");
+  em.emit_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr) {`);
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+  em.emit_string_line(`  ASYNC_DEBUG("${dispose_function_name.clone()}: Disposing state machine\\n");`);
+  em.emit_line("");
+  // Drop capture struct (like closures do).
+  match(
+    capture_type,
+    .Some(cap_ty) => if(type_contains_rc_type(cap_ty), {
+      if(!(_capture_type_entry_exists(cap_ty, context)), {
+        em.emit_line("  /* Error: capture struct type not found in context */");
+      }, {
+        match(
+          get_drop_function_for_type(cap_ty, context),
+          .Some(drop_fn) => {
+            em.emit_line("  ASYNC_DEBUG(\"  Dropping capture struct\\n\");");
+            em.emit_string_line(`  ${drop_fn}(sm->__capture);`);
+          },
+          .None => _emit_inline_capture_field_drops(cap_ty, context)
+        );
+      });
+    }),
+    .None => ()
+  );
+  em.emit_line("");
+  // Drop the result field if it contains GC-managed data (state == -1 = completed).
+  if(!(is_unit_type(result_type)) && type_contains_rc_type(result_type), {
+    result_type_c_name := get_type_string(result_type, context.base);
+    em.emit_line("  // Drop result field if it was set (state == -1 means completed)");
+    em.emit_line("  int final_state = sm->state;");
+    em.emit_line("  if (final_state == -1) {");
+    em.emit_line("    ASYNC_DEBUG(\"  Dropping result field\\n\");");
+    match(
+      get_drop_function_for_type(result_type, context),
+      .Some(drop_fn) => em.emit_string_line(`    ${drop_fn}(sm->result);`),
+      .None => em.emit_string_line(`    /* Warning: No ___drop function found for result type ${result_type_c_name} */`)
+    );
+    em.emit_line("  }");
+  });
+  em.emit_line("");
+  // Drop cross-boundary locals when unwind aborted the SM (state == -2). Normal
+  // completion drops locals inline in the final state.
+  local_drop_lines := ArrayList(String).new();
+  cvs := analysis.captured_variables;
+  (i : usize) = usize(0);
+  while(i < cvs.len(), {
+    match(
+      cvs.get(i),
+      .Some(v) => {
+        is_local := match(v.kind,.Local => true, _ => false);
+        is_owning := match(v.is_owning_the_same_rc_value_as,.Some(_) => true,.None => false);
+        if(((is_local && cross_boundary_ids.contains(v.base.id.clone())) && !(await_future_temp_var_aliases.contains_key(v.base.id.clone()))) && !(is_owning), {
+          field_name := get_state_machine_field_name(v.base.id.clone(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+          field_ref := `sm->${field_name}`;
+          match(
+            _rc_field_drop_line(field_ref, v.base.ty, String.from("    "), context),
+            .Some(line) => {
+              local_drop_lines.push(line);
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(local_drop_lines.len() > usize(0), {
+    em.emit_line("  // Drop local variables on escape (state == -2)");
+    em.emit_line("  if (sm->state == -2) {");
+    (j : usize) = usize(0);
+    while(j < local_drop_lines.len(), {
+      match(local_drop_lines.get(j),.Some(line) => em.emit_string_line(line),.None => ());
+      j = (j + usize(1));
+    });
+    em.emit_line("  }");
+  });
+  em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
+  em.emit_line("}");
+});
 export(
   EffectFieldMapping,
   is_async_runtime_extern_name,
@@ -979,5 +1146,6 @@ export(
   generate_future_effect_setter,
   AsyncBlockStructInfo,
   emit_async_block_struct_definition,
-  emit_deferred_async_block_struct_definitions
+  emit_deferred_async_block_struct_definitions,
+  generate_async_block_state_dispose_function
 );

@@ -57,7 +57,12 @@ TypeField :: struct(
   is_comptime : bool,
   default_value : Option(EvalValue),
   assigned_value : Option(EvalValue),
-  doc_comment : Option(String)
+  doc_comment : Option(String),
+  /// True for an effect-parameter field of a closure capture struct (an effect
+  /// handler / Io bundle threaded into the closure). Mirrors TS
+  /// `TypeField.isEffectParam` (definitions.ts:355). Set only at capture-struct
+  /// creation (closure.yo); false everywhere else.
+  is_effect_param : bool
 );
 /// Result type for evaluate_type_field.
 EvalTypeFieldResult :: struct(
@@ -593,7 +598,8 @@ evaluate_type_field :: (
     is_comptime : is_comptime,
     default_value : default_value,
     assigned_value : assigned_value,
-    doc_comment : final_doc_comment
+    doc_comment : final_doc_comment,
+    is_effect_param : false
   );
   EvalTypeFieldResult(field : field, env : env)
 });
