@@ -168,7 +168,38 @@ become str but create_specialized STILL throws (so no spec is recorded → gener
 emitted). GOTCHA hit: `fa_infer_ty` is a local (move-semantics) — needs `.clone()`
 at `box(...)` (the original `arg_info.ty` was a non-consuming field read).
 
+### COMBINED-FIX ATTEMPT (reverted) + the remaining WALL
+
+Inference probe confirmed println's `T` IS inferred via the line-1865 loop
+(`n_forall=1 ptn=[T,] arg0_ty=comptime_str`). So `T` binds to comptime_str there,
+AND the param binding (line 2019) binds `v` itself as comptime_str (its coercion
+guard skips the SomeT decl type `T`). Tried BOTH together:
+1. inference (line 1865): comptime_str arg → bind `T = TypeValue.Str`;
+2. param binding (line 2019): `resolved_decl_pt = get_value_of_some_type_from_env(
+   fresh_env, bind_decl_pt)` to resolve the SomeT `T`→str, then coerce `v` to str.
+RESULT: build clean BUT println UNCHANGED (C still `yo_id_5545((void*)(...))`,
+generic). So create_specialized still throws / no spec recorded.
+
+LIKELY REMAINING WALL: #2's `get_value_of_some_type_from_env(fresh_env, T)` returns
+`T` unresolved due to the FRAME-LEVEL SomeT-keying mismatch (the param's SomeT
+carries println's DEFINITION frame level; fresh_env binds `T` by name at the CALL
+frame) — the same frame-keyed-SomeT-resolution wall noted elsewhere in this memory.
+So `v` stays comptime_str → throw persists. (.clone gotcha: resolved_decl_pt used
+twice → clone one use.)
+
 ### NEXT STEP (tractable)
+With BOTH coercions in place, re-capture the create_specialized throw (gated
+Exception probe) AND probe `v`'s actual binding type in fresh_env:
+- If `v` is STILL comptime_str → fix #2's SomeT resolution to be NAME-based (match
+  fa_bound_names: `T`→str, available right there) instead of frame-keyed
+  get_value_of_some_type_from_env. (fa_bound_names/types are built in the SAME loop
+  just above the param binding — thread them down, or re-resolve by name.)
+- If `v` became str but it STILL throws "i32 and str" → the clash is elsewhere in
+  println's body (NOT v's binding); bisect the body further.
+Validate guarded + full std sweep (a prior unguarded comptime_str→concrete coercion
+regressed std 151→17).
+
+### (earlier) NEXT STEP (tractable)
 Bisect println's body to the offending sub-expression: temporarily reduce the body
 to just `s := v.to_string();` then add lines back, OR instrument synthesize/unify to
 print the token when it throws "i32"/"str". Most likely a single mis-typed cast
