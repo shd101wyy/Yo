@@ -2212,7 +2212,28 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   if(capture_field_count == usize(0), {
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = (${ccn.clone()}){0};`);
   }, {
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${closure_code};`);
+    // Build the capture-struct literal `(<cap>){ .field = field, ... }` from the
+    // capture struct's field labels — each captured field is the same-named
+    // variable in scope at the io.async call site. (The closure `value` is a
+    // function reference, not a capture struct, so it cannot be used here.)
+    cap_labels := match(eff_capture_type,.Some(ct) => match(ct,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new()),.None => ArrayList(String).new());
+    lit := String.from("(");
+    lit.push_string(ccn.clone());
+    lit.push_str("){ ");
+    (cli : usize) = usize(0);
+    while(cli < cap_labels.len(), {
+      if(cli > usize(0), {
+        lit.push_str(", ");
+      });
+      lbl := match(cap_labels.get(cli),.Some(l) => l,.None => String.from(""));
+      lit.push_str(".");
+      lit.push_string(lbl.clone());
+      lit.push_str(" = ");
+      lit.push_string(lbl);
+      cli = (cli + usize(1));
+    });
+    lit.push_str(" }");
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${lit};`);
     match(
       capture_dup_fn,
       .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),

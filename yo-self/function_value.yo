@@ -69,6 +69,26 @@ is_closure_fn :: (fn(func_id : String) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
+// Closure capture info side-table (func_id → capture struct type + frame level)
+// ---------------------------------------------------------------------------
+/// A closure's capture-struct type + the frame level of its defining scope.
+/// `generate_function` uses these to set the closure-capture codegen context so
+/// the atom emitter rewrites a captured variable `base` to
+/// `((<cap>*)closure_context)->base` (`current_closure_capture_type_c_name` +
+/// `current_closure_captures` from the struct's field labels +
+/// `current_closure_capture_frame_level`). Recorded in
+/// `evaluate_anonymous_function_implementation` for io.async closures.
+ClosureCaptureInfo :: object(capture_type : TypeValue, frame_level : usize);
+(g_closure_capture_info : HashMap(String, ClosureCaptureInfo)) = HashMap(String, ClosureCaptureInfo).new();
+/// Record a closure's capture-struct type + defining frame level, by func_id.
+register_closure_capture_info :: (fn(func_id : String, info : ClosureCaptureInfo) -> unit)({
+  ___ := g_closure_capture_info.set(func_id.clone(), info);
+});
+/// The recorded capture info for `func_id`, if any.
+get_closure_capture_info :: (fn(func_id : String) -> Option(ClosureCaptureInfo))(
+  g_closure_capture_info.get(func_id.clone())
+);
+// ---------------------------------------------------------------------------
 // isEffectRecordMember side-table (codegen)
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → `true` for functions that are effect-record
@@ -179,6 +199,9 @@ export(
   is_control_fn,
   mark_as_closure_fn,
   is_closure_fn,
+  ClosureCaptureInfo,
+  register_closure_capture_info,
+  get_closure_capture_info,
   mark_as_effect_record_member,
   is_effect_record_member,
   register_definition_site_return,
