@@ -90,6 +90,28 @@ but bounded and codegen-only. Validate against `effect_handler_resume.yo` (must
 stay green) + a new `effect_handler_unwind` fixture (currently prints the wrong
 value: 0 vs TS 42).
 
+### PART 1 LANDED (2026-06-18): generate_unwind ported; PART 2 (the harder half).
+
+`generate_unwind` is ported (commit fdff43d42, corpus 70/70) — it sets
+`__yo_effect_escaped`, drops, stashes into `__yo_unwind_value`, returns a dummy. A
+minimal i32 unwind now RUNS (was failing) but computes `42+8=50` instead of
+escaping with `42`: the flag is set but never ACTED ON.
+
+PART 2 = the post-call escape checks (`emitEffectUnwindCheck`,
+other-fn-call.ts:2778) that DISCARD the continuation. It is the harder, intricate
+half: it is wired at ~6 sites in `other-fn-call.ts`'s **evidence / effect-passing
+call path** (call sites 1378/1505/1687/1703/1786/1799), and the crucial
+`isHandlerInstallation` flag is derived from the evidence-arg processing
+(other-fn-call.ts:1167/1543). At an INSTALL site it emits
+`if (__yo_effect_escaped) { drops; __yo_effect_escaped = 0; <extract
+__yo_unwind_value as the call result>; }`; at a transitive/propagation site it
+returns a dummy to propagate the escape up. So PART 2 requires porting the
+evidence/effect-passing call codegen (the largest part of yo-self's
+`other_fn_call.yo`, currently noting "effect-unwind propagation (Phase 5)" as
+deferred at line 661) — a substantial faithful port, NOT a single helper. The
+resume path works WITHOUT it because resume just returns through the handler fn
+pointer; unwind alone needs the escape-propagation.
+
 ### ALL DEPENDENCIES CONFIRMED PRESENT (2026-06-18) — ready for a focused port.
 
 Verified yo-self already has everything `generate_unwind` + `emit_unwind_check`
