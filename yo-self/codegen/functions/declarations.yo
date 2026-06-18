@@ -403,6 +403,14 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   has_generic_return := type_contains_some_type_for_codegen_param(ret, ArrayList(String).new());
   returns_plain_impl := _returns_plain_impl(ret);
   skip2 := (has_generic_params || ((has_generic_return && !(returns_plain_impl)) && !(is_erm)));
+  // A closure marked for codegen (io.async closure) must be EMITTED even when its
+  // synthesized type still has SomeT params (its body + result are concrete; the
+  // io.async sync-future resume calls it directly). Without this it is dropped as
+  // hard-generic and the resume references an undeclared function. SomeT params
+  // lower to void* (the bundle param arrives via the SM __yo_param slot).
+  if(is_closure_fn(func_id.clone()), {
+    return(false);
+  });
   skip_unemittable || (skip1 || skip2)
 });
 /// Emit a single function's forward declaration with the right linkage. Mirrors

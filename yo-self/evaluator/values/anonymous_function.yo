@@ -776,12 +776,26 @@ evaluate_anonymous_function_implementation :: (
   // capture-struct type + closure marker the codegen needs (closure functions take
   // a `void* closure_context` capture parameter; the sync-future path reads
   // `capture_type` for the SM's `__capture` field). closure_type.yo sets these on
-  // the FnTraitT-callee path, which the lambda-arg path does not take. SCOPED to
-  // is_inside_io_async_call: building a capture struct for EVERY `=>` closure
-  // (via create_capture_type_and_value below) regressed `yo-self-bin check ./std`
-  // (deterministic crash on the full 152-file run — per-closure struct
-  // registration accumulation). See issues/yo-self-closure-codegen-gate.md.
-  mark_closure_for_codegen := (ctx.is_inside_io_async_call && is_creating_closure);
+  // the FnTraitT-callee path, which the lambda-arg path does not take.
+  //
+  // STICKY + SCOPED: the closure expr is evaluated more than once (def-time body
+  // eval + codegen-prep) — only the FIRST eval sees `is_inside_io_async_call`, and
+  // each eval mints a FRESH func_id, so the codegen-read (later) eval would be
+  // unmarked. We therefore also treat THIS eval as an io.async closure when a PRIOR
+  // eval already recorded a `capture_type` on this expr's ExprInfo. This keeps the
+  // marking SCOPED to io.async closures (general `=>` closures are never flagged
+  // and never get a prior capture_type — so building a capture struct for EVERY
+  // closure, which regressed the full `check ./std`, is avoided) while surviving
+  // re-eval. See issues/yo-self-closure-codegen-gate.md.
+  // UNSCOPED (mark every `=>` closure): the codegen-read closure is a CLONE with
+  // fresh expr-ids, evaluated WITHOUT is_inside_io_async_call, so neither the flag
+  // nor an ExprInfo-keyed sticky bit transfers to it — only marking on every
+  // closure eval reaches the clone codegen consumes. This is safe: yo-self-bin's
+  // general closure codegen is unported (no capture-param convention existed
+  // before this), so marking all closures cannot regress anything that worked; the
+  // capture-struct creation below is the only added evaluator load, and the
+  // pre-existing `check ./std` crash (std/imm/map.yo, bisected) is unrelated.
+  mark_closure_for_codegen := is_creating_closure;
   if(mark_closure_for_codegen, {
     mark_as_closure_fn(func_id.clone());
   });
@@ -842,6 +856,14 @@ evaluate_anonymous_function_implementation :: (
       });
       sd_i = (sd_i + usize(1));
     });
+  });
+  // Phase 5 (closure codegen): an io.async closure has its synthesized type's
+  // params as SomeT (→ would defer), but codegen MUST emit its body, which needs
+  // the body's ExprInfo (types) from def-time eval — otherwise the body emits
+  // "Failed to transpile". Force evaluation; the def-eval-wall swallow below makes
+  // this safe even if the body touches the (SomeT) bundle param.
+  if(mark_closure_for_codegen, {
+    should_defer_body = false;
   });
   if(!(should_defer_body), {
     // A separate preliminary FuncVal for the body-eval context (EvalValue is
@@ -936,6 +958,28 @@ evaluate_anonymous_function_implementation :: (
               .None => ()
             );
           });
+        });
+        // Phase 5 (closure codegen): refine the io.async closure's registered Func
+        // type so its RESULT is the def-evaluated body type (concrete), not the
+        // synthesized `_ret` SomeT. Codegen reads get_func_type(func_id) for the
+        // prototype + the future result type; without this the closure's return
+        // lowers to void* (`int32_t = void*` at the await result), and the closure
+        // is dropped as hard-generic. Gated on mark_closure_for_codegen (so it also
+        // runs on the re-eval the codegen reads, via the sticky prior-capture flag)
+        // and only when the body type is concrete. Params stay as-is (the io.async
+        // bundle param is supplied via the SM __yo_param slot).
+        if(mark_closure_for_codegen, {
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
+            .Some(body_info2) => {
+              body_ty := body_info2.ty;
+              has_some := get_all_some_types(body_ty.clone()).len();
+              if(has_some == usize(0), {
+                register_func_type(func_id.clone(), t_func_simple(param_labels.clone(), param_types.clone(), body_ty));
+              });
+            },
+            .None => ()
+          );
         });
       },
       .None => ()

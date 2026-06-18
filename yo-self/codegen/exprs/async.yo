@@ -1955,6 +1955,13 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // args[0]'s ExprInfo as a fallback for that metadata.
   orig_closure_ei := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(oa) => context.base.get_expr_info(oa),.None => Option(ExprInfo).None), _ => Option(ExprInfo).None);
   // Result type (resolve unresolved SomeType via the closure body type).
+  // The closure FuncVal: prefer closure_function_value, else the anon-fn `value`
+  // (yo-self carries an io.async lambda as a plain value — see below).
+  result_closure_fv := match(
+    cei.closure_function_value,
+    .Some(fv) => Option(EvalValue).Some(fv),
+    .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+  );
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
   if(is_some_type(result_type), {
     rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
@@ -1964,7 +1971,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         result_type = rct;
       },
       .None => match(
-        cei.closure_function_value,
+        result_closure_fv,
         .Some(fv) => match(
           fv,
           .FuncVal(_, _, _, _, body, _, _, _, _) => match(
