@@ -24,7 +24,19 @@ Option(T)`; for `handle.await(io)` the `T` in `JoinHandle(T)` is not inferred to
 `i32`, so `Option(T)` collapses (to unit/unresolved). So this is a generic-method
 return-type INFERENCE issue (resolve `T` from the `JoinHandle(T)` receiver so the
 return is `Option(i32)`), upstream of `generate_join_handle_await` — NOT a codegen
-emitter bug. (Older note below; superseded by this root cause.) The JoinHandle.await dispatch arm
+emitter bug.
+NARROWED FURTHER: `await` is a function-typed FIELD of the `JoinHandle` struct
+(`await : forall(T)(self : JoinHandle(T), io) -> Option(T)`), so `handle.await(io)`
+is a FIELD-FN call, NOT a method call — it does NOT go through the function.yo
+forall-inference path (whose static-receiver `recv_type_args` fallback + shallow
+name-matched arg inference don't bind `T` from a `self : JoinHandle(T)` arg whose
+value is `JoinHandle(i32)`). The fix must (a) live on the field-fn-call path AND (b)
+do NESTED-generic forall unification — bind `T` by unifying the parameter type
+`JoinHandle(T)` against the argument type `JoinHandle(i32)` (read `T` from the arg's
+`type_arguments`), not just match a param whose type name IS the forall name. (Tried
+a quick instance-receiver fallback in the method-call path — reverted: that path is
+never reached for a field-fn call; corpus stayed 63/63.)
+(Older note below; superseded by this root cause.) The JoinHandle.await dispatch arm
 (`is_join_handle_await_call` → `generate_join_handle_await`) is early in
 `generate_func_call`, yet the codegen emits no `__jh_*` markers — so either the
 evaluator rewrites the `.await` method call into a resolved form that the structural
