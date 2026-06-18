@@ -544,8 +544,22 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
     .Some(ei) => match(
       ei.value,
       .Some(v) => if(is_func_val(v) && is_function_type(ei.ty), {
+        // A control function (ctl handler) used as a fn-pointer value must be a
+        // standalone C function marked an effect-record member so `unwind(v)`
+        // stashes into __yo_unwind_value. Mirrors collection.ts:555
+        // (functionValue.isControlFunction). The control-fn side-table can miss
+        // the codegen'd func_id (fresh-id churn across def/codegen evals), so we
+        // also read the ground truth: the func's own registered type and the
+        // use-site type carrying `is_control`.
+        v_is_control := (
+          is_control_fn(_func_val_id(v)) ||
+            (
+              match(get_func_type(_func_val_id(v)),.Func({ is_control : c }) => c, _ => false) ||
+                match(ei.ty,.Func({ is_control : c }) => c, _ => false)
+            )
+        );
         cond(
-          is_control_fn(_func_val_id(v)) => {
+          v_is_control => {
             mark_as_effect_record_member(_func_val_id(v));
             if(!(context.has_function(_func_val_id(v))), {
               context.register_function(_func_val_id(v), v, sanitize_for_c_identifier(_func_val_id(v), false));

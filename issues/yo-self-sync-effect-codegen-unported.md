@@ -2,6 +2,24 @@
 
 ## Status
 
+✅ RESOLVED (2026-06-19) — unwind part 2 (effect escape-propagation) landed. The
+`emit_effect_unwind_check` helper (`return.yo`, port of `emitEffectUnwindCheck`) is
+wired at the registered + fn-pointer call sites in `other_fn_call.yo`, gated by
+`_call_may_unwind` / `_call_is_handler_installation` (ports of TS's `callMayUnwind`
+/ `callIsHandlerInstallation`). The KEY fix: a `ctl` handler used as a fn-pointer
+value must be marked an effect-record member so `generate_unwind` stashes into
+`__yo_unwind_value` (vs `return v`, which the propagate dummy discards). yo-self's
+control-fn side-table missed the codegen'd func_id (fresh-id churn across
+def/codegen evals), so `collection.yo` now also reads the GROUND TRUTH — the func's
+registered type + use-site type carrying `is_control` — and `generate_function`
+sets `is_effect_record_member_function` from the side-table. Fixture
+`effect_handler_unwind.yo` runs → `zero`/`42` matching TS; corpus 75/75, 0
+regressions. The evidence-passing machinery for IMPLICIT (unthreaded) handlers
+remains deferred, but the explicit-handler model (the supported corpus) is faithful
+and complete.
+
+## (historical) Status
+
 OPEN — scoped. The **async** half of Phase 5 is working and validated end-to-end
 (io.async FSM + closures + JoinHandle, 9 corpus fixtures). The **effects** half —
 synchronous algebraic-effect handlers (`ctl(...)` effects, `return`/`unwind`

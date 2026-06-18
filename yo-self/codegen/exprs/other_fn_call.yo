@@ -16,13 +16,14 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
-{ lookup_method_callee_value } :: import("../../expr_info.yo");
+{ lookup_method_callee_value, ExprInfo } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type, is_control_fn, is_effect_record_member } :: import("../../function_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_object_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ type_is_control_bound } :: import("../../types/utils.yo");
+{ Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name } :: import("../utils/index.yo");
@@ -30,6 +31,7 @@ open(import("std/string"));
 { generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ emit_effect_unwind_check } :: import("./return.yo");
 /// ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -651,6 +653,80 @@ _generate_runtime_enum_construct :: (
     }
   )
 });
+/// FuncVal func_id, or empty if not a FuncVal.
+_func_val_id :: (fn(v : EvalValue) -> String)(match(v,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.new()));
+/// Whether a call to this callee might trigger an effect escape (it directly is
+/// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
+/// fn-typed / ctl-bound param a handler may be threaded through, or its body has
+/// effects). Mirrors the `callMayUnwind` computation in other-fn-call.ts:1205.
+_call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeValue, param_types : ArrayList(TypeValue), context : FunctionGenerationContext) -> bool)({
+  fid_is_control := match(func_ei_value,.Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)), false),.None => false);
+  fid_is_effect_member := match(func_ei_value,.Some(v) => if(is_func_val(v), is_effect_record_member(_func_val_id(v)), false),.None => false);
+  ft_is_control := match(function_type,.Func({ is_control : c }) => c, _ => false);
+  body_has_effects := match(
+    func_ei_value,
+    .Some(v) => match(v,.FuncVal(_, _, _, _, b, _, _, _, _) => match(context.base.get_expr_info(b.*),.Some(bei) => match(bei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
+    .None => false
+  );
+  (param_fn_or_ctl : bool) = false;
+  npt := param_types.len();
+  (pi : usize) = usize(0);
+  while((pi < npt) && !(param_fn_or_ctl), {
+    match(param_types.get(pi),.Some(t) => if(is_function_type(t) || type_is_control_bound(t), {
+      param_fn_or_ctl = true;
+    }),.None => ());
+    pi = (pi + usize(1));
+  });
+  (((fid_is_control || fid_is_effect_member) || ft_is_control) || body_has_effects) || param_fn_or_ctl
+});
+/// Whether the call site is the handler-installation point (where the unwound
+/// value is extracted, vs merely propagated). Mirrors the `callIsHandlerInstallation`
+/// computation in other-fn-call.ts:1240 (direct-control-fn given-binding check +
+/// the Phase-2 explicit-param fallback). The specialized-evidence branch is
+/// omitted (yo-self FuncVal has no specializedType — Gap 2).
+_call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeValue, param_types : ArrayList(TypeValue), runtime_args : ArrayList(AstExpr), context : FunctionGenerationContext) -> bool)({
+  env := func_ei.env;
+  fdfl := match(env.function_declaration_frame_level,.Some(l) => l,.None => usize(0));
+  // (1) Direct call to a control/effect-record handler fn bound via a local
+  //     begin-block frame (handler installation) vs a function parameter.
+  is_direct_handler := match(func_ei.value,.Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)) || is_effect_record_member(_func_val_id(v)), false),.None => false);
+  install1 := if(is_direct_handler, {
+    callee_fid := match(func_ei.value,.Some(v) => _func_val_id(v),.None => String.new());
+    match(
+      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value,.Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid.clone())),.None => false)),
+      .Some(fidx) => ((fidx > fdfl) && match(env.frames.get(fidx),.Some(fr) => fr.is_begin_block,.None => false)),
+      .None => false
+    )
+  }, false);
+  if(install1, return(true));
+  // (2) Phase-2 fallback: a fn-typed / ctl-bound param whose threaded argument
+  //     variable is locally bound in a begin-block frame of the enclosing fn.
+  npt := param_types.len();
+  na := runtime_args.len();
+  (result : bool) = false;
+  (pi : usize) = usize(0);
+  while((pi < npt) && !(result), {
+    is_handler_param := match(param_types.get(pi),.Some(t) => (is_function_type(t) || type_is_control_bound(t)),.None => false);
+    if(is_handler_param, {
+      match(
+        runtime_args.get(pi),
+        .Some(arg) => if(ast_expr_is_atom(arg), {
+          arg_var := ast_expr_token(arg).value;
+          match(
+            find_innermost_frame_with_given_variable(env, (v : Variable) => (v.name == arg_var.clone())),
+            .Some(fidx) => if((fidx > fdfl) && match(env.frames.get(fidx),.Some(fr) => fr.is_begin_block,.None => false), {
+              result = true;
+            }),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+    });
+    pi = (pi + usize(1));
+  });
+  result
+});
 /// The call/method/trait-dispatch emitter. Mirrors `generateOtherFunctionCall`
 /// (corpus path). Returns `.None` to fall through (unhandled shape).
 ///
@@ -1142,6 +1218,12 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     _ => ()
   );
   result_type := match(function_type,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
+  // Effect-unwind detection (port of other-fn-call.ts callMayUnwind /
+  // callIsHandlerInstallation). When a call may unwind, an
+  // `emit_effect_unwind_check` is emitted after it: at the install frame the
+  // unwound value is extracted + returned; elsewhere the escape propagates.
+  ou_may_unwind := _call_may_unwind(func_ei.value, function_type, param_types, context);
+  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(func_ei, function_type, param_types, runtime_args, context), false);
   // Registered (named) function call.
   match(
     func_ei.value,
@@ -1161,6 +1243,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             line.push_str(");");
             em.emit_string_line(line);
             generate_deferred_drop_expressions(expr, indent.clone(), context);
+            if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
             return(Option(String).Some(String.from("")));
           });
           match(
@@ -1192,6 +1275,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 em.emit_string_line(line);
               });
               generate_deferred_drop_expressions(expr, indent.clone(), context);
+              if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
               return(Option(String).Some(tv));
             },
             .None => return(Option(String).Some(String.from("// Error: function call returns non-unit but no temp variable assigned")))
@@ -1225,6 +1309,48 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   out.push_str(")(");
   out.push_string(args_list);
   out.push_str("))");
+  // Effect unwind: a fn-pointer call through a `ctl`/handler param may set
+  // __yo_effect_escaped. Unlike the inline-expression default, emit the call to
+  // a temp + post-call check so the escape propagates (mirrors TS, which always
+  // emits a temp + emitEffectUnwindCheck for such calls).
+  if(ou_may_unwind, {
+    if(is_unit_type(result_type), {
+      ucall := indent.clone();
+      ucall.push_string(out.clone());
+      ucall.push_str(";");
+      em.emit_string_line(ucall);
+      generate_deferred_drop_expressions(expr, indent.clone(), context);
+      emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
+      return(Option(String).Some(String.from("")));
+    });
+    fp_tv := match(ei.variable_name,.Some(tv) => tv,.None => `_eu_${ast_expr_id(expr).to_string()}`);
+    already := match(context.declared_temp_vars,.Some(s) => s.contains(fp_tv.clone()),.None => false);
+    if(!(already), {
+      match(
+        context.declared_temp_vars,
+        .Some(s) => {
+          _a := s.add(fp_tv.clone());
+        },
+        .None => {
+          ns := HashSet(String).new();
+          _a := ns.add(fp_tv.clone());
+          context.declared_temp_vars = Option(HashSet(String)).Some(ns);
+        }
+      );
+      fpc := get_type_string(result_type, context.base);
+      fline := indent.clone();
+      fline.push_string(fpc);
+      fline.push_str(" ");
+      fline.push_string(fp_tv.clone());
+      fline.push_str(" = ");
+      fline.push_string(out.clone());
+      fline.push_str(";");
+      em.emit_string_line(fline);
+    });
+    generate_deferred_drop_expressions(expr, indent.clone(), context);
+    emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
+    return(Option(String).Some(fp_tv));
+  });
   Option(String).Some(out)
 });
 export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call);

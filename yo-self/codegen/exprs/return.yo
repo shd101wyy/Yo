@@ -551,23 +551,67 @@ _unwind_dummy_return :: (fn(context : FunctionGenerationContext) -> String)({
     .Some(ft) => match(ft,.Func({ result : r }) => r.*, _ => t_unit()),
     .None => t_unit()
   );
-  if(
-    is_unit_type(rt),
-    String.from("return"),
-    {
-      rts := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(rt, context.base));
-      if(
-        rts == String.from("void"),
-        String.from("return"),
-        {
-          out := String.from("return (");
-          out.push_string(rts);
-          out.push_str("){0}");
-          out
-        }
-      )
-    }
-  )
+  if(is_unit_type(rt), String.from("return"), {
+    rts := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(rt, context.base));
+    if(rts == String.from("void"), String.from("return"), {
+      out := String.from("return (");
+      out.push_string(rts);
+      out.push_str("){0}");
+      out
+    })
+  })
+});
+/// Emit an unwind check after calling a function that may set
+/// `__yo_effect_escaped`. Faithful port of `emitEffectUnwindCheck`
+/// (other-fn-call.ts:2778). At a handler-installation point
+/// (`is_handler_installation = true`) it clears the flag and extracts the
+/// unwound value from `__yo_unwind_value` as the call result; at a transitive
+/// point it returns a dummy to propagate the escape up the stack.
+///
+/// NOTE: the async-state-machine branch's segment-local RC arg-temp drop loop
+/// (TS 2808-2841) is DEFERRED — it needs `resolve_var_name_in_context` from
+/// `other_fn_call.yo`, which would close a `return -> other_fn_call` import
+/// cycle. The escape CONTROL FLOW is faithful (flag-clear at install + Future
+/// abort via `emit_async_future_escape`); only the leak-prevention drop of
+/// segment-local arg temps is omitted (not exercised by the corpus — no
+/// async+effect-unwind fixture).
+emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationContext, is_handler_installation : bool, expr : AstExpr) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(`${indent.clone()}if (__yo_effect_escaped) {`);
+  inner := indent.clone();
+  inner.push_str("  ");
+  is_async := match(context.in_async_state_machine,.Some(_) => true,.None => false);
+  if(is_async, {
+    if(is_handler_installation, {
+      em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
+    });
+    emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).None);
+  }, {
+    generate_pending_deferred_drops(inner.clone(), context, expr, false, true, false, Option(HashSet(String)).None);
+    generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false);
+    ret_ty := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => r.*, _ => t_unit()),.None => t_unit());
+    if(is_handler_installation, {
+      em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
+      if(is_unit_type(ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
+        cty := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(ret_ty, context.base));
+        if(cty == String.from("void"), em.emit_string_line(`${inner.clone()}return;`), {
+          em.emit_string_line(`${inner.clone()}${cty.clone()} _unw_result;`);
+          em.emit_string_line(`${inner.clone()}memcpy(&_unw_result, __yo_unwind_value, sizeof(${cty}));`);
+          em.emit_string_line(`${inner.clone()}return _unw_result;`);
+        });
+      });
+    }, {
+      if(is_unit_type(ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
+        cty := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(ret_ty, context.base));
+        if(
+          cty == String.from("void"),
+          em.emit_string_line(`${inner.clone()}return;`),
+          em.emit_string_line(`${inner.clone()}return (${cty}){0};`)
+        );
+      });
+    });
+  });
+  em.emit_string_line(`${indent.clone()}}`);
 });
 /// `unwind(expr)` — discard the continuation and exit the enclosing control
 /// function. Faithful port of `generateUnwind` (generation.ts:198-448), minus the
@@ -618,7 +662,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true);
       });
       has_evidence := match(context.current_evidence_params,.Some(ep) => (ep.len() > usize(0)),.None => false);
-      if((context.is_effect_record_member_function || has_evidence), {
+      if(context.is_effect_record_member_function || has_evidence, {
         match(
           context.current_function_type,
           .Some(_) => {
@@ -638,4 +682,4 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     }
   )
 });
-export(generate_return, generate_implicit_return_statement, generate_pending_deferred_drops, generate_consumed_var_drops_for_escape, handle_atom_deferred_dup, handle_func_call_deferred_dup, generate_unwind);
+export(generate_return, generate_implicit_return_statement, generate_pending_deferred_drops, generate_consumed_var_drops_for_escape, handle_atom_deferred_dup, handle_func_call_deferred_dup, generate_unwind, emit_effect_unwind_check);

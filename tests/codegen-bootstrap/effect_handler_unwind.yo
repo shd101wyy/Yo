@@ -1,0 +1,20 @@
+open(import("std/string"));
+{ println } :: import("std/fmt");
+Raise :: (ctl(msg : String) -> i32);
+safe :: (fn(x : i32, raise : Raise) -> i32)(
+  cond(
+    (x == 0) => raise(String.from("zero")),
+    true => x
+  )
+);
+run :: (fn() -> i32)({
+  (raise : Raise) = (ctl(msg : String) -> i32)({
+    println(msg);
+    unwind(i32(42));
+  });
+  safe(0, raise) + safe(5, raise)
+});
+main :: (fn() -> unit)({
+  println(run());
+});
+export(main);
