@@ -120,6 +120,20 @@ the more localized, lower-risk path: make the closure's own concrete signature
 authoritative when annotations/body are available, so it is neither skipped as
 generic nor lowered to void*. This is the final, narrowly-scoped step to emit `42`.
 
+**PRE-EXISTING `check ./std` CRASH (bisected 2026-06-18).** While validating with
+`yo-self-bin check ./std`, the full-directory run crashes deterministically
+(rc=138, SIGBUS) on `std/imm/map.yo` (80 `=>` closures, ZERO io.async — so the
+scoped closure change cannot be involved). Bisect: a binary built from `337bf534d`
+(BEFORE `TypeField.is_effect_param` in `486c90741`, and before all closure-capture
+work) ALSO crashes on `imm/map.yo`. So this is **pre-existing**, not a regression
+from this session — the `yo-self-bin check ./std 152/152` gate was already not green
+on this heavy generic file. Individual std files (async/error/path/log) check fine;
+the codegen-bootstrap corpus is 58/58. Tracked as a separate pre-existing bug
+(likely a heavy-generic-file def-eval crash, akin to the known-heavy
+eval_basics/eval_tail trio). The closure change here stays SCOPED to io.async
+closures (does NOT build a capture struct for every `=>`, which would add load to
+this already-fragile path and regressed the full-dir run when tried unscoped).
+
 ## Original root cause
 
 `io.async((io)=>{…})` with no `await` inside routes to the sync-future path

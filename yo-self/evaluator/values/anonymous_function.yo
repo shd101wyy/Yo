@@ -772,16 +772,17 @@ evaluate_anonymous_function_implementation :: (
   // Record this function's own resolved Func type by func_id so codegen can
   // emit its C prototype (Gap 10 — FuncVal carries only param-name strings).
   register_func_type(func_id.clone(), function_type.clone());
-  // Phase 5 (closure codegen): an `=>` closure passed to `io.async` must carry the
-  // capture-struct type + closure marker the codegen sync-future path needs
-  // (closure_type.yo sets these on the FnTraitT-callee path, which this lambda-arg
-  // path does not take). SCOPED to is_inside_io_async_call to avoid changing
-  // general closure codegen (direct closure-call capture passing is unported).
-  // `closure_capture_type` is filled in the body-eval block below and set on the
-  // ExprInfo. Mirrors FunctionType.isClosure + the capture struct (empty for
-  // no-capture). See issues/yo-self-closure-codegen-gate.md.
-  mark_closure_for_io_async := (ctx.is_inside_io_async_call && is_creating_closure);
-  if(mark_closure_for_io_async, {
+  // Phase 5/3 (closure codegen): an io.async `=>` closure must carry the
+  // capture-struct type + closure marker the codegen needs (closure functions take
+  // a `void* closure_context` capture parameter; the sync-future path reads
+  // `capture_type` for the SM's `__capture` field). closure_type.yo sets these on
+  // the FnTraitT-callee path, which the lambda-arg path does not take. SCOPED to
+  // is_inside_io_async_call: building a capture struct for EVERY `=>` closure
+  // (via create_capture_type_and_value below) regressed `yo-self-bin check ./std`
+  // (deterministic crash on the full 152-file run — per-closure struct
+  // registration accumulation). See issues/yo-self-closure-codegen-gate.md.
+  mark_closure_for_codegen := (ctx.is_inside_io_async_call && is_creating_closure);
+  if(mark_closure_for_codegen, {
     mark_as_closure_fn(func_id.clone());
   });
   (closure_capture_type : Option(TypeValue)) = Option(TypeValue).None;
@@ -963,7 +964,7 @@ evaluate_anonymous_function_implementation :: (
   // for deferred-generic closures too, which simply have no recorded captures).
   // Mirrors closure_type.yo's pop-then-create. Set on the ExprInfo below so
   // generate_io_async_sync_call can resolve the SM's __capture field type.
-  if(mark_closure_for_io_async, {
+  if(mark_closure_for_codegen, {
     cvwv := match(
       closure_body_caps,
       .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
