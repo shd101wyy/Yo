@@ -1,0 +1,22 @@
+open(import("std/string"));
+{ println } :: import("std/fmt");
+Point :: object(x : i32, y : i32);
+Raise :: (ctl(msg : String) -> Point);
+safe :: (fn(x : i32, raise : Raise) -> i32)({
+  p := cond(
+    (x == 0) => raise(`zero`),
+    true => Point(x, x)
+  );
+  p.x + p.y
+});
+run :: (fn() -> i32)({
+  (raise : Raise) = (fn(msg : String) -> Point)({
+    println(msg);
+    return(Point(i32(40), i32(2)));
+  });
+  safe(0, raise)
+});
+main :: (fn() -> unit)({
+  println(run());
+});
+export(main);

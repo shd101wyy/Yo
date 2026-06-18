@@ -1,0 +1,14 @@
+{ println } :: import("std/fmt");
+Point :: object(x : i32, y : i32);
+apply :: (fn(f : (fn() -> Point)) -> i32)({
+  p := f();
+  p.x + p.y
+});
+run :: (fn() -> i32)({
+  (h : (fn() -> Point)) = (fn() -> Point)(Point(i32(40), i32(2)));
+  apply(h)
+});
+main :: (fn() -> unit)({
+  println(run());
+});
+export(main);
