@@ -31,6 +31,31 @@ is generic-method monomorphization, not the emitter.
   struct. Once that lands, the ported emitter resolves it end to end (TS reference:
   `/tmp/th.yo` → `thread sees 42` / `main done`).
 
+### CORRECTION + deeper layers (2026-06-19, continued)
+
+Direct inspection refines the fix below — it is MORE than a guard swap:
+- `Thread.spawn`'s `cb : Impl(Fn(io:Io)->unit, Send)` is a **`FnTraitT`**
+  (types/definitions.yo:305), NOT a `SomeT`. `is_function_type_generic`
+  (guards.yo:428) only treats `forall`/`implicit`/`SomeT`-param functions as
+  generic — it does NOT detect a `FnTraitT` param. So simply swapping the
+  guard at function.yo:2509 to `is_function_type_generic` would NOT fire for
+  `Thread.spawn`. Generic-detection must also count a `FnTraitT` (closure/Impl-Fn)
+  param as "needs specialization."
+- `is_function_type_hard_generic` does not yet check call-site resolved-concrete
+  (its own doc says "Phase 2b: extend to check resolvedConcreteType") — so the
+  `&& !isFunctionTypeHardGeneric` half of the TS guard also needs the call-site
+  view, else it would wrongly treat the resolved call as still-hard-generic.
+- The exact reason the unspecialized `Thread.spawn` is dropped at codegen
+  (skip vs not-collected vs FnTraitT get_type_string) was NOT fully pinned —
+  needs instrumentation before editing.
+So the Gap-2 spawn fix spans at least: (1) FnTraitT-aware generic detection,
+(2) call-site-resolved hard-generic check, (3) the specialization-guard branch
+at function.yo:2509 handling the non-forall case, (4) ensuring the cb arg's
+type is the concrete capture struct in the specialized callee. A focused session
+should instrument the skip/collection path FIRST, then implement these layers
+with full-suite validation. This is genuinely foundational, multi-layer work —
+not a single safe edit.
+
 ### PRECISE FIX LOCATION for the Gap-2 spawn blocker (2026-06-19)
 
 Root-caused to the specialization guard in `yo-self/evaluator/calls/function.yo:2509`:
