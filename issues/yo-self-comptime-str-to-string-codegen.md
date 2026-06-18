@@ -63,6 +63,23 @@ NOTE: the corpus largely avoids bare `"x".to_string()` / no-interp backticks
 returning String (uses `String.from` or interpolated templates), which is why this
 went uncaught.
 
+## NARROWED to comptime_str-specific (2026-06-18)
+
+`i32(42).to_string()` in the SAME `fn -> String` context WORKS in yo-self (prints
+`42`) — so the comptime→runtime method retry + `to_string` + String-return path is
+fine for `comptime_int → i32`. Only `comptime_str → str` fails. The retry lives in
+`env.yo` (`is_comptime_receiver` block, ~2432): it maps the comptime receiver to
+its runtime type via `_comptime_receiver_to_runtime` (→ `_resolve_str_type_from_env`
+for comptime_str) and looks up methods on that runtime type's id. So the gap is
+specifically: for a `comptime_str` receiver, the retry's resolved `str` type +
+`to_string` lookup does NOT find/bind `str`'s `to_string` (std/imm/string.yo:726),
+whereas for `comptime_int` the `i32`/`to_string` lookup succeeds. FIX target:
+why `_resolve_str_type_from_env`'s `str` type id doesn't match where `str`'s
+`to_string` is registered (or `str.to_string` isn't registered in the test's
+import context, while `i32.to_string` is prelude-global). Instrument the
+`is_comptime_receiver` retry for `to_string`+comptime_str: print `runtime_ty`,
+`runtime_id`, and the method-hit count.
+
 ## Why it matters / priority
 
 This is the root of the documented "effects backtick-arg edge"
