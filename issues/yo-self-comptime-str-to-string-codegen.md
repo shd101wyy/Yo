@@ -2,6 +2,10 @@
 
 ## Status
 
+✅ RESOLVED (2026-06-18) — `_resolve_str_type_from_env` fell back to `t_i32()`; changed to `t_str()`. corpus 72/72.
+
+## (historical) Status
+
 OPEN. A no-interpolation backtick / explicit `"...".to_string()` used where a
 runtime `String` is expected mis-compiles. NOT effect- or fn-pointer-specific
 (it was first surfaced as the "effects backtick-arg edge", then isolated to this
