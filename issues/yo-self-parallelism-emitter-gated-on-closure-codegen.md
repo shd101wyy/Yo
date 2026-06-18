@@ -31,6 +31,35 @@ is generic-method monomorphization, not the emitter.
   struct. Once that lands, the ported emitter resolves it end to end (TS reference:
   `/tmp/th.yo` → `thread sees 42` / `main done`).
 
+### FAITHFUL ROOT CAUSE (2026-06-19) — supersedes the FnTraitT/guard guesses below
+
+Comparing yo-self against the TS reference 1-to-1 (per the faithful-porting
+mandate) pins the divergence to a SINGLE missing clause:
+
+- TS `isFunctionTypeHardGeneric` (src/types/guards.ts:466-494) excludes a SomeType
+  param that has a **`resolvedConcreteType`** — guards.ts:490 with the explicit
+  comment: "This matters for closure-typed parameters (e.g. `f : F` where
+  F = Impl(Fn(...)) resolves to the closure's capture struct)." So a `Thread.spawn`
+  whose `cb : Impl(Fn...)` SomeType is resolved to the concrete capture struct is
+  NOT hard-generic → it specializes + emits.
+- yo-self `is_function_type_hard_generic` (yo-self/types/guards.yo:466-504) checks
+  `.SomeT` params but OMITS the `!resolvedConcreteType` clause — so a fully-resolved
+  closure param is still counted hard-generic → `should_skip_function_codegen`
+  drops `Thread.spawn` → undeclared call. (`cb` IS a SomeT in yo-self too, matching
+  TS — the earlier "cb is FnTraitT" note was wrong; both predicates match `.SomeT`.)
+
+FAITHFUL FIX: port the missing guards.ts:490 clause — in `is_function_type_hard_generic`
+(and re-check `is_function_type_generic` likewise), a `.SomeT(id, …)` param with a
+registered resolved-concrete (yo-self's `g_some_resolved_concrete` bridge via
+`lookup_some_resolved_concrete(id)`) must NOT count toward hard-generic. PLUMBING:
+guards.yo is low-level; importing the bridge from expr_info.yo would cycle — use an
+indirection global set at init (the `set_collect_type_fn` pattern in collection.yo)
+or relocate the bridge to a leaf module. VERIFY FIRST (instrument): that the spawn
+call site actually registers `cb`'s SomeT → concrete capture struct in the bridge;
+if not, that registration is the (additional) gap. VALIDATION: hot path
+(should_skip uses this) — corpus 75/75 + `check ./std` + full `./yo-cli test --bail`
+(~30 min) before committing.
+
 ### CORRECTION + deeper layers (2026-06-19, continued)
 
 Direct inspection refines the fix below — it is MORE than a guard swap:
