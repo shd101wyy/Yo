@@ -43,6 +43,36 @@ The variable is DECLARED as `…5660_sync_fut_t*` (the future type's struct name
 but ALLOCATED as `…5658_sync_fut_t` — two different state-machine struct names for
 the SAME call. And `t2`'s capture (`5633`) gets assigned a `5630` value.
 
+## ROOT CAUSE (2026-06-18 — located)
+
+`generate_io_async_sync_call` (`async.yo` ~1885-1898) derives the per-call
+state-machine struct name from `ei.variable_name` (unique per call) — but then
+registers the future TYPE's C name with
+`context.base.register_type(type_key(ei.ty), ei.ty, \`${struct_name}*\`, …)`,
+keyed by `type_key(ei.ty)`. When two `io.async` calls return the **same** future
+type (here both `Future(Point, E)`), they share a `type_key`, so the SECOND
+call's `register_type` OVERWRITES the first's C-name mapping (→ `5660`). The
+binding declaration for `t1` resolves its type via `get_type_string(ei.ty)` →
+that shared, last-wins name (`5660`), while `t1`'s body emission uses its own
+per-call `struct_name` (`5658`). Hence "declared 5660 vs allocated 5658", and the
+capture types (one per block) cross the same way.
+
+The bug only manifests with **2+ `io.async` calls of the SAME result type** in one
+function. Different result types (`Future(i32)` vs `Future(Point)`) have distinct
+`type_key`s and don't collide — which is why single-block and mixed-type cases
+pass.
+
+## Fix direction (refined)
+
+The async-block state-machine struct is inherently **per-call-site**, not
+per-type — so it must not be keyed by `type_key(ei.ty)` (shared across same-typed
+futures). Either: (a) make the io.async-result binding's C declaration use the
+call's specific `async_state_machine_struct_name` (from the binding's ExprInfo)
+rather than `get_type_string(future_type)`; or (b) give each io.async call's
+future type a per-call-unique `type_key` (e.g. fold the call's expr id into the
+key) so `register_type` no longer collides. Option (a) is closer to how TS keys
+the state machine on the call site.
+
 ## Likely cause
 
 The async-block state-machine struct name / capture-type metadata for the two
