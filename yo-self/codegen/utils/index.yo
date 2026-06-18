@@ -38,7 +38,7 @@ open(import("std/string"));
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
-{ ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_UNSAFE,
@@ -743,10 +743,14 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // (mirrors TS getTypeString resolving through `resolvedConcreteType`).
     // Otherwise fall back to `void*` (an unresolved generic `Self`/SomeType is
     // passed by opaque pointer; field/method access casts at use).
-    .SomeT({}) => match(
-      context.get_type_c_name(type_key(t)),
-      .Some(cn) => cn,
-      .None => String.from("void*")
+    .SomeT({ id : sid }) => match(
+      lookup_some_resolved_concrete(sid),
+      .Some(rct) => recur(rct, context),
+      .None => match(
+        context.get_type_c_name(type_key(t)),
+        .Some(cn) => cn,
+        .None => String.from("void*")
+      )
     ),
     .IsoT({}) => panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed

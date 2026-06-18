@@ -54,7 +54,7 @@ open(import("std/string"));
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type } :: import("../../function_value.yo");
-{ ExprInfo, lookup_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
+{ ExprInfo, lookup_some_resolved_concrete, register_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -1989,6 +1989,12 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
   );
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
+  // Capture the future-trait output SomeType id BEFORE resolution. Once we resolve
+  // it to a concrete type below, we register it under this id so the matching
+  // `io.await` site (same future type → same output SomeType id) can resolve the
+  // awaited value's type via `lookup_some_resolved_concrete` instead of lowering
+  // the await binding to `void*`.
+  output_some_id := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
   if(is_some_type(result_type), {
     rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
     match(
@@ -2047,6 +2053,12 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       ),
       .None => ()
     );
+  });
+  // Register the resolved concrete result under the future-trait output SomeType id
+  // so the matching `io.await` site can resolve the awaited value's type (rather
+  // than emitting `void* p = ...; p.field` which fails to transpile).
+  if(!(is_some_type(result_type)) && !(output_some_id.is_empty()), {
+    register_some_resolved_concrete(output_some_id.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
   struct_name := match(ei.async_state_machine_struct_name,.Some(s) => s,.None => return(String.from("/* Error: Missing sync future struct name */")));
