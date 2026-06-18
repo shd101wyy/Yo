@@ -788,7 +788,7 @@ widen. SURFACED BUG along the way:
 accepts `io.await(task)` (missing `e`) that TS rejects; fix the field-fn call
 required-arg-count check during this phase.
 
-**PHASE 5 STATUS SUMMARY (2026-06-18, ~88% — codegen-bootstrap corpus 64→74).**
+**PHASE 5 STATUS SUMMARY (2026-06-19, ~93% — codegen-bootstrap corpus 64→75).**
 LANDED + validated this session (each a 1-to-1 `src/` port, zero corpus regressions):
 - Async FSM + I/O runtimes; async RESULT-TYPE resolution across i32/str/bool/struct/
   multi-await/multi-async (commits incl. bool-result, await-result register +
@@ -807,13 +807,16 @@ LANDED + validated this session (each a 1-to-1 `src/` port, zero corpus regressi
 - **`comptime_str.to_string()` fix** (`env.yo _resolve_str_type_from_env` fell back
   to `t_i32()` → `t_str()`); unblocked backtick effect messages. Fixtures above.
 REMAINING (each scoped in issue docs, multi-session):
-- **`unwind` PART 2 (escape-propagation)** — the FAITHFUL fix is to port the
-  deferred EVIDENCE-PASSING machinery (`other_fn_call.yo:660`:
-  `resolveEvidenceArgsForCallSite` + call-through + `emitEffectUnwindCheck`,
-  mirroring `src/codegen/exprs/other-fn-call.ts`); NOT a direct-fn-pointer
-  escape-check hack (yo-self's resume uses a direct-pointer simplification that
-  diverges from TS's evidence model). See
-  `issues/yo-self-sync-effect-codegen-unported.md`.
+- **`unwind` PART 2 (escape-propagation)** — ✅ DONE (commit a23f535ae, corpus
+  75/75). Ported `emit_effect_unwind_check` (return.yo) + `_call_may_unwind` /
+  `_call_is_handler_installation` (other_fn_call.yo) wired at the registered +
+  fn-pointer call sites; `generate_function` sets `is_effect_record_member_function`
+  and `collection.yo` marks ctl-handler fn-pointer values effect-record members
+  (reading the func's registered/use-site `is_control` ground truth, since the
+  control-fn side-table misses the codegen'd func_id under fresh-id churn). Fixture
+  `effect_handler_unwind.yo` → `zero`/`42`. The explicit-handler model is faithful
+  + complete; the EVIDENCE-PASSING machinery for IMPLICIT (unthreaded) handlers
+  remains deferred. See `issues/yo-self-sync-effect-codegen-unported.md`.
 - **Parallelism** (`parallelism/runtime.ts` 474 + `exprs/parallelism.ts` 318).
   (0) ✅ PREREQUISITE DONE — the thread types `__yo_thread_t`/`__yo_thread_fn`/
   `__YO_THREAD_TYPE`/`__YO_THREAD_SYNC_TYPE`/`__YO_COND_TYPE`/
