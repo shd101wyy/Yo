@@ -13,6 +13,29 @@ PRE-EXISTING `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisect
 to before any of this work) remains — tracked independently; it does not affect the
 BASELINE or the corpus. The history below is retained for context.
 
+**NEXT LAYER — CAPTURING closures (2026-06-18).** The BASELINE is a NO-CAPTURE
+closure. The next async cases need closures that CAPTURE outer variables — e.g.
+`base := i32(10); io.async((io : Io) => (base + i32(32)))` (TS → 42), and `yield`'s
+internal closures (so every await-bearing FSM test hits this). For a capturing
+closure yo-self currently emits three errors:
+1. `__capture = /* skip generating value */` — `generate_io_async_sync_call` (and
+   the FSM ctor) must build the capture-struct LITERAL `(<cap>){ .base = <value> }`
+   from the closure's captured vars (FuncVal `cap_names`/`cap_tys`/`cap_vals`; a
+   runtime capture is a `VarRef(name)` → emit the in-scope variable). The
+   capture_field_count==0 path already emits `(<cap>){0}`; the >0 path still uses
+   the anon-fn `value` (a function reference, not a struct).
+2. `use of undeclared identifier 'base'` in the closure body — `generate_function`
+   must set the closure-capture codegen context (`current_closure_capture_type_c_name`
+   + captured names) for marked closures so the atom emitter rewrites a captured
+   `base` to `((<cap>*)closure_context)->base` (atom.yo already has
+   `check_variable_is_closure_captured`; the context just needs wiring).
+3. `int32_t = void*` at the await result — the result-type refinement must still
+   resolve (it does for no-capture; verify it holds when the body captures).
+This is the `allocateClosureCapture` / `generateClosureConstruction` port (closures.ts)
+plus the closure-body capture-access context — the deferred closure-capture
+machinery. It is the gate for capturing/await-bearing async (incl. the full
+`tests/async_await.test.yo`, which TS passes 116/116).
+
 **Original status (now resolved):** OPEN — the next blocker after the async/await
 emitter ports + wiring.
 
