@@ -140,7 +140,7 @@ open(import("std/string"));
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen, get_type_string } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
-{ generate_async_block, generate_io_async_sync_call } :: import("./async.yo");
+{ generate_async_block, generate_io_async_sync_call, io_async_await_analysis } :: import("./async.yo");
 {
   generate_await,
   generate_state,
@@ -367,7 +367,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None), return(generate_op_or(expr, indent.clone(), context)));
   // io.async / io.await / io.state / io.spawn / JoinHandle.await (Phase 5).
   if(is_io_async_call(expr), {
-    has_await_analysis := match(context.base.get_expr_info(expr),.Some(aei) => aei.await_analysis.is_some(),.None => false);
+    has_await_analysis := io_async_await_analysis(expr, context).is_some();
     if(has_await_analysis, {
       return(generate_async_block(expr, indent.clone(), context));
     });

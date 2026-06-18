@@ -50,7 +50,8 @@ open(import("std/string"));
 {
   is_io_async_call,
   is_io_await_call,
-  is_io_spawn_call
+  is_io_spawn_call,
+  get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { ExprInfo, lookup_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
 {
@@ -1378,6 +1379,30 @@ _build_async_capture_struct_literal :: (
   });
   literal
 });
+/// The await analysis for an io.async call's closure, looked up via the closure's
+/// func_id in the `g_closure_await_analysis` side-table (the evaluator records it
+/// there because the analysis lands on an inaccessible body clone). Drives the
+/// FSM-vs-sync dispatch + the state-machine transformation. `.None` ⇒ no awaits ⇒
+/// the sync-future path.
+io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(AwaitAnalysisResult))({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(AwaitAnalysisResult).None));
+  closure_arg := match(
+    ei.runtime_arg_exprs_in_order,
+    .Some(rargs) => match(rargs.get(usize(0)),.Some(c) => c,.None => return(Option(AwaitAnalysisResult).None)),
+    .None => return(Option(AwaitAnalysisResult).None)
+  );
+  cei := match(context.base.get_expr_info(closure_arg),.Some(c) => c,.None => return(Option(AwaitAnalysisResult).None));
+  fv := match(
+    cei.closure_function_value,
+    .Some(f) => Option(EvalValue).Some(f),
+    .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+  );
+  match(
+    fv,
+    .Some(f) => match(f,.FuncVal(_, _, _, _, _, _, _, _, fid) => get_closure_await_analysis(fid), _ => Option(AwaitAnalysisResult).None),
+    .None => Option(AwaitAnalysisResult).None
+  )
+});
 /// Generate the io.async block: registers the SM struct as the future's concrete
 /// type, emits forward declarations, records a deferred-generation request (resume
 /// /constructor/dispose emitted after all regular functions), and emits the cold
@@ -1434,7 +1459,7 @@ generate_async_block :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // type registry by type_key; TS keyed by the SomeType's unique id).
   context.base.register_type(type_key(future_type), future_type, `${struct_name.clone()}*`, Option(String).None);
   // Await analysis computed during evaluation.
-  analysis := match(ei.await_analysis,.Some(a) => a,.None => panic("Missing await analysis for async block. This should have been computed during evaluation."));
+  analysis := match(io_async_await_analysis(expr, context),.Some(a) => a,.None => panic("Missing await analysis for async block. This should have been computed during evaluation."));
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
   if(is_some_type(result_type), {
@@ -1865,7 +1890,7 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
                 p
               }
             );
-            has_await_analysis := match(ei.await_analysis,.Some(_) => true,.None => false);
+            has_await_analysis := io_async_await_analysis(expr, context).is_some();
             struct_name := if(has_await_analysis, `${async_block_id}_state_t`, `${async_block_id}_sync_fut_t`);
             kind_label := if(has_await_analysis, String.from("state machine"), String.from("sync future"));
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
@@ -2217,5 +2242,6 @@ export(
   generate_deferred_async_blocks,
   preregister_async_blocks_in_expr,
   preregister_async_block_types,
-  generate_io_async_sync_call
+  generate_io_async_sync_call,
+  io_async_await_analysis
 );

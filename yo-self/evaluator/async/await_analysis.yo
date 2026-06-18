@@ -567,9 +567,32 @@ get_local_variables_from_body :: (
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Closure await-analysis side-table (func_id → AwaitAnalysisResult)
+// ---------------------------------------------------------------------------
+/// The await analysis for an io.async closure, keyed by the closure's `func_id`.
+/// yo-self records `await_analysis` on the def-evaluated body CLONE (an
+/// inaccessible expr distinct from the FuncVal body and from the codegen-read
+/// clone), so the codegen cannot reach it via ExprInfo. The closure's `func_id`,
+/// however, IS what codegen resolves (via the closure value's FuncVal), so the
+/// analysis is side-tabled by func_id — the same eval→codegen bridge pattern as
+/// `g_some_resolved_concrete`. Set in `evaluate_anonymous_function_implementation`
+/// for marked io.async closures with awaits; read by the async dispatch +
+/// `generate_async_block` + `preregister_async_blocks_in_expr`.
+(g_closure_await_analysis : HashMap(String, AwaitAnalysisResult)) = HashMap(String, AwaitAnalysisResult).new();
+/// Register a closure's await analysis by func_id (only when it has awaits).
+register_closure_await_analysis :: (fn(func_id : String, result : AwaitAnalysisResult) -> unit)({
+  ___ := g_closure_await_analysis.set(func_id.clone(), result);
+});
+/// The await analysis recorded for `func_id`, if any.
+get_closure_await_analysis :: (fn(func_id : String) -> Option(AwaitAnalysisResult))(
+  g_closure_await_analysis.get(func_id.clone())
+);
 export(
   // Types (re-exported for convenience — canonical home is await_analysis_types.yo)
   AwaitPointExtra,
+  register_closure_await_analysis,
+  get_closure_await_analysis,
   // Future-trait helpers
   extract_future_trait_from_type,
   type_implements_future,
