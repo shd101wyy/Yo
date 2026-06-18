@@ -62,6 +62,34 @@ resume path; whether unwind needs more analysis is TBD). NOTE: also still open �
 the `i64(raise(...))`-wrapped unwind variant additionally hits "Failed to
 transpile" (a separate conversion-wrapping-an-effect-call eval issue).
 
+### UNWIND mechanism — complete TS map (2026-06-18), for the faithful port.
+
+The `unwind`/escape layer has three coordinated parts (all in `src/codegen/`):
+1. **`unwind(v)`** (`generation.ts:285-440`, the `generate_unwind` stub at
+   yo-self `generation.yo:382`): emit
+   `{ T _unw_val = <v>; memcpy(__yo_unwind_value, &_unw_val, sizeof(T)); }`,
+   then `__yo_effect_escaped = 1;`, then drops (handler-param drops + pending
+   deferred drops + consumed-var drops, with the SUPPRESSION of drops for the
+   escaping value's own temp — it transfers via `__yo_unwind_value`), then
+   `return (RetT){0};` (a dummy the caller ignores). Zero-arg `unwind()` skips the
+   stash.
+2. **Post-effect-call check** (`other-fn-call.ts:2770` `emitUnwindCheck`, invoked
+   at the effect/control-fn call sites): after calling a fn that may set the flag,
+   emit `if (__yo_effect_escaped) { <drops>; <T _unw_result; memcpy(&_unw_result,
+   __yo_unwind_value, sizeof(T)); return _unw_result;> } ` — propagating the
+   unwound value up, OR at the INSTALL site clearing the flag
+   (`__yo_effect_escaped = 0;`) and yielding `_unw_result` as the handled value.
+3. Runtime globals `__yo_effect_escaped` (thread-local int) + `__yo_unwind_value`
+   (a buffer) — yo-self emits the FLAG decl already (1 site) but neither the
+   buffer nor the checks.
+
+So the faithful port = `generate_unwind` (part 1) + an `emit_unwind_check` helper
+(part 2) wired at the effect-call sites in `other_fn_call.yo`/`generation.yo` +
+the `__yo_unwind_value` runtime global. Intricate (woven with the drop machinery)
+but bounded and codegen-only. Validate against `effect_handler_resume.yo` (must
+stay green) + a new `effect_handler_unwind` fixture (currently prints the wrong
+value: 0 vs TS 42).
+
 ### PROGRESS (2026-06-18): first-class fn-VALUE codegen LANDED.
 
 The fn-value-lowering piece is done (faithful port of `comptime-value.ts:266-283`):
