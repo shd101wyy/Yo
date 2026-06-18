@@ -31,6 +31,36 @@ is generic-method monomorphization, not the emitter.
   struct. Once that lands, the ported emitter resolves it end to end (TS reference:
   `/tmp/th.yo` → `thread sees 42` / `main done`).
 
+### PRECISE FIX LOCATION for the Gap-2 spawn blocker (2026-06-19)
+
+Root-caused to the specialization guard in `yo-self/evaluator/calls/function.yo:2509`:
+```
+if(forall_names.len() > usize(0), { … create_specialized_function_inline … });
+```
+yo-self only specializes functions with `forall` params. TS's guard
+(`src/evaluator/calls/helper.ts:1917`) is
+`isFunctionTypeGeneric(functionType) && !isFunctionTypeHardGeneric(functionType)`
+(plus `!isControlFunction`, no-unknown-implicits, etc.) — so TS ALSO specializes
+SOFT-generic functions whose generic-ness comes from an `Impl(...)` / SomeType
+param, e.g. `Thread.spawn : (fn(cb : Impl(Fn(io:Io)->unit, Send)) -> Self)`. TS's
+specialized output is `fn_…_spawn_rtparam0_struct(value:i32)…(struct(value:i32) cb)`
+— cb monomorphized to the CONCRETE capture struct.
+
+The fix: broaden the yo-self guard to the TS form. BUT the existing arm at 2509 is
+built entirely around `forall` binding (`fa_bound_names`/`fa_bound_types`,
+`_static_dot_receiver_self_type`, forall-result re-registration), so a non-forall
+soft-generic call needs either a separate branch that calls
+`create_specialized_function_inline` with EMPTY forall args + the concrete reg-arg
+types, or careful generalization of this arm. `create_specialized_function_inline`
+already derives `runtime_param_tys` from `ae.arg_type` (helper.yo:982) and
+`compute_compile_time_signature` already keys on concrete closure capture types
+(helper.yo:642) — so once invoked, it should specialize cb correctly, PROVIDED the
+cb arg's `arg_type` is the concrete closure/capture type at the call site (verify;
+may tie back to closure-arg typing). HIGH REGRESSION RISK: this guard is on the
+hot call path the entire std depends on — validate with `check ./std` + the full
+corpus + ideally the ~30-min suite. yo-self has `is_function_type_hard_generic`
+(used in declarations.yo); confirm/port `is_function_type_generic`.
+
 ## (historical) Status
 
 OPEN (2026-06-18). The parallelism **runtime** (`generate_parallelism_runtime`,
