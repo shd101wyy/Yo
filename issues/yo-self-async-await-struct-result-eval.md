@@ -11,6 +11,42 @@ zero regressions. Fix below. **`JoinHandle.await` (`io.spawn` → `handle.await`
 `is_io_await_call`; apply the same mechanism to `io.spawn` (register under the
 `JoinHandle(T)` argument id) + the `handle.await` field-fn dispatch.
 
+### ⭐ CORRECTED ROOT CAUSE (2026-06-18) — the cfid theory was WRONG.
+
+Direct instrumentation overturned the multi-step cfid diagnosis below:
+- `find_methods_from_generic_impls("await", JoinHandle_3665)`: the receiver's
+  `constructor_func_id` is **`yo_id_3658` — the SAME as the impl pattern**
+  (`__RC await recv_id=struct_yo_id_3665 recv_cfid=yo_id_3658 results=0`). So
+  `same_constructor3` HOLDS and the struct-id/cfid check is NOT the failure. All
+  the cfid work (canonical-stamp, structural-match, the "3819 vs 3658" reading —
+  3819 was a different `__future`-bearing struct, polluted probe) was chasing a
+  non-issue.
+- `try_match_generic_impl` fails at the **forall-binding** step: for `JoinHandle(T)`,
+  after synthesize, `T` is unbound, and the `_bind_forall_from_type_args` fallback
+  reads the receiver's `type_arguments` — but the spawn-result `JoinHandle`'s
+  type-argument is **io.spawn's own forall `T` (an unresolved SomeType), not the
+  concrete future output**. `_bind_forall_from_type_args` SKIPS SomeType args
+  (`if(!(is_some_type(ct)) ...)`), so `T` never binds → `all_bound=false` → no
+  match → `await` not found → soft-fall to unit → `result.unwrap()` fails.
+- Confirmed: an io.spawn-result type-arg resolution attempt printed
+  `__SP spawn ta[0] in=T out=T` — the type-arg is the forall `T`, and the io.async
+  output-id registry does NOT contain it (it's io.spawn's forall, a different id),
+  so a `lookup_some_resolved_concrete` bridge there is the WRONG mechanism (tested
+  + reverted).
+
+**THE REAL FIX (faithful):** io.spawn's return type `JoinHandle(T)` must have its
+forall `T` SUBSTITUTED with the bound concrete type (the future output) during
+return-type instantiation — including the NESTED `type_arguments` position, not
+just top-level SomeTs. The extern/`try_to_call_function_with_arguments` (helper.yo)
+return-type path binds `T` (via synthesize) but does not substitute it into the
+return type's nested type-arg, so `JoinHandle(T)` stays `JoinHandle(<unresolved
+T>)`. TS substitutes the bound forall throughout the return type (so io.spawn
+yields `JoinHandle(i32)`). NEXT: find where helper.yo instantiates the extern
+return type and ensure the forall bindings are substituted into nested
+`type_arguments` (faithful to TS's full return-type substitution). The io.await
+fix already handles the bare-`T` return; this is the nested-`T`-in-`JoinHandle`
+analog.
+
 ### JoinHandle.await — DECISIVE finding (2026-06-18): method-resolution, not result-refine
 
 Instrumented `is_join_handle_await_call` at the result arms: `handle.await(io)`
