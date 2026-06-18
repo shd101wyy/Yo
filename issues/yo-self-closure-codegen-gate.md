@@ -13,6 +13,20 @@ PRE-EXISTING `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisect
 to before any of this work) remains — tracked independently; it does not affect the
 BASELINE or the corpus. The history below is retained for context.
 
+**io.spawn / JoinHandle.await (2026-06-18, partial).** `io.spawn(task, io)` now emits
+its full cold-start + JoinHandle block correctly. But `result := handle.await(io)`
+(JoinHandle.await) emits no `result` binding and the following `match(result, …)`
+falls to "Failed to transpile". The JoinHandle.await dispatch arm
+(`is_join_handle_await_call` → `generate_join_handle_await`) is early in
+`generate_func_call`, yet the codegen emits no `__jh_*` markers — so either the
+evaluator rewrites the `.await` method call into a resolved form that the structural
+`is_join_handle_await_call` check no longer matches, or `result`'s init-assignment is
+mis-handled (the value may be folded/typed such that codegen skips it). NEXT: trace
+whether `handle.await(io)` reaches `is_join_handle_await_call` as a `.await` dot-call
+at codegen (it may have been lowered during eval), and why the `result` binding +
+`match` don't emit. The five compile-path async fixtures (baseline, capture-return,
+capture+operator, single-await FSM, multi-await FSM) are unaffected and pass.
+
 **CAPTURE WORKS END-TO-END; remaining issue is the `+` OPERATOR body type (2026-06-18,
 commit 6085f2b2f).** A capturing closure that RETURNS the captured value runs → 42
 (corpus fixture `io_async_capture_42.yo`). The remaining `void*` issue is NOT the
