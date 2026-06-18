@@ -90,6 +90,36 @@ but bounded and codegen-only. Validate against `effect_handler_resume.yo` (must
 stay green) + a new `effect_handler_unwind` fixture (currently prints the wrong
 value: 0 vs TS 42).
 
+### ALL DEPENDENCIES CONFIRMED PRESENT (2026-06-18) — ready for a focused port.
+
+Verified yo-self already has everything `generate_unwind` + `emit_unwind_check`
+need (so this is pure transcription, no infra to build first):
+- Context fields: `current_function_type`, `is_effect_record_member_function`,
+  `effect_handler_param_drops`, `override_return_type_str`,
+  `current_evidence_params`, `in_async_state_machine`, `pending_deferred_drops`,
+  `consumed_var_pending_drops` (all in `functions/context.yo`).
+- Drop helpers: `generate_pending_deferred_drops` +
+  `generate_consumed_var_drops_for_escape` (ported + exported in `return.yo`).
+- Async escape: `emit_async_future_escape` (ported in `async_completion.yo`;
+  sig `(emitter, indent, result_code : Option(String), debug_label :
+  Option(String))`).
+- Runtime globals: `__yo_unwind_value` buffer + `__yo_effect_escaped` flag (both
+  emitted in `functions/gc_runtime.yo`); `_call_generate_expr` (`_expr.yo`);
+  `get_type_string`/`is_unit_type`.
+- ONLY absent: `continuation_variables` (the nested-resume-handler escape branch,
+  generation.ts:206-241) — skip it; it's an edge for nested handlers.
+
+`generate_unwind` is a near-1-to-1 transcription of `generation.ts:198-448`
+(minus the continuation_variables branch): async-SM branch → `emit_async_future
+_escape`; else `__yo_effect_escaped = 1`, eval arg (with the escaping-value
+drop-suppression — snapshot/restore `pending_deferred_drops`/
+`consumed_var_pending_drops` lengths + filter by argCode), drops, then for an
+effect-record-member/evidence fn `memcpy` the arg into `__yo_unwind_value` +
+`return (RetT){0}`, else `return <argCode>`. Then `emit_unwind_check`
+(other-fn-call.ts:2770) at the effect-call sites. Replace the
+`generation.yo:382` TODO stub. Both parts must land together (part 1 sets the
+flag/stash; part 2 propagates) before `effect_handler_unwind` passes.
+
 ### PROGRESS (2026-06-18): first-class fn-VALUE codegen LANDED.
 
 The fn-value-lowering piece is done (faithful port of `comptime-value.ts:266-283`):

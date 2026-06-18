@@ -115,7 +115,7 @@ open(import("std/string"));
 { generate_yo_gc_collect } :: import("./gc.yo");
 { generate_panic } :: import("./panic.yo");
 { generate_dyn_call } :: import("./dyn.yo");
-{ generate_return } :: import("./return.yo");
+{ generate_return, generate_unwind } :: import("./return.yo");
 { generate_yo_array_fill, generate_anonymous_array } :: import("./array_fns.yo");
 { generate_binding } :: import("./binding.yo");
 { generate_initialization_assignment } :: import("./init_assignment.yo");
@@ -379,7 +379,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(is_join_handle_await_call(expr), return(generate_join_handle_await(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_DYN_LOWER, Option(usize).None), return(generate_dyn_call(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None), return(generate_return(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), return(String.from("/* TODO[codegen-port]: unwind not yet ported (Phase 5 effects) */")));
+  if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), return(generate_unwind(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL, Option(usize).Some(usize(2))), return(generate_yo_array_fill(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, "::", Option(usize).Some(usize(2))), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), return(generate_binding(expr, indent.clone(), context)));

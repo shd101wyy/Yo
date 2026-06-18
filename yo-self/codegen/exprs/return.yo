@@ -20,8 +20,11 @@ open(import("std/string"));
 { Token } :: import("../../token.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ emit_async_future_escape } :: import("./async_completion.yo");
+{ t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
@@ -523,4 +526,116 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
     })
   )
 });
-export(generate_return, generate_implicit_return_statement, generate_pending_deferred_drops, generate_consumed_var_drops_for_escape, handle_atom_deferred_dup, handle_func_call_deferred_dup);
+/// Emit the effect-handler parameter drops (if any) before an escape return.
+_emit_effect_handler_param_drops :: (fn(context : FunctionGenerationContext, indent : String) -> unit)(
+  match(
+    context.effect_handler_param_drops,
+    .Some(drops) => {
+      em := context.base.emitter;
+      (di : usize) = usize(0);
+      while(di < drops.len(), {
+        d := match(drops.get(di),.Some(s) => s,.None => String.from(""));
+        em.emit_string_line(`${indent.clone()}${d};`);
+        di = (di + usize(1));
+      });
+    },
+    .None => ()
+  )
+);
+/// The dummy `return` statement for an escaping control function: `return` for a
+/// unit/void result, else `return (RetT){0}` (the caller ignores it once it
+/// observes `__yo_effect_escaped`). Mirrors generation.ts:325-342/431-446.
+_unwind_dummy_return :: (fn(context : FunctionGenerationContext) -> String)({
+  rt := match(
+    context.current_function_type,
+    .Some(ft) => match(ft,.Func({ result : r }) => r.*, _ => t_unit()),
+    .None => t_unit()
+  );
+  if(
+    is_unit_type(rt),
+    String.from("return"),
+    {
+      rts := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(rt, context.base));
+      if(
+        rts == String.from("void"),
+        String.from("return"),
+        {
+          out := String.from("return (");
+          out.push_string(rts);
+          out.push_str("){0}");
+          out
+        }
+      )
+    }
+  )
+});
+/// `unwind(expr)` — discard the continuation and exit the enclosing control
+/// function. Faithful port of `generateUnwind` (generation.ts:198-448), minus the
+/// nested-resume-handler `continuationVariables` branch (yo-self has no such
+/// context field). Async-state-machine context routes through
+/// `emit_async_future_escape` (Future aborted). Synchronous effect handlers set
+/// the thread-local `__yo_effect_escaped` flag, drop locals, and — for an
+/// effect-record-member / evidence-passing handler — stash the unwound value into
+/// `__yo_unwind_value` (memcpy) before returning a dummy; otherwise `return <v>`.
+generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  arg_opt := match(expr,.FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
+  em := context.base.emitter;
+  is_async := match(context.in_async_state_machine,.Some(_) => true,.None => false);
+  if(is_async, {
+    match(
+      arg_opt,
+      .Some(arg) => {
+        argc := _call_generate_expr(arg, indent.clone(), context);
+        if((argc.len() > usize(0)) && !(argc == String.from("(void)0")), {
+          em.emit_string_line(`${indent.clone()}(void)${argc};`);
+        });
+      },
+      .None => ()
+    );
+    _emit_effect_handler_param_drops(context, indent.clone());
+    generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
+    generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true);
+    emit_async_future_escape(em, indent.clone(), Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
+    return(String.from(""));
+  });
+  // Synchronous effect handler: set the thread-local escape flag.
+  em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
+  match(
+    arg_opt,
+    .None => {
+      _emit_effect_handler_param_drops(context, indent.clone());
+      generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
+      if(!(context.is_effect_record_member_function), {
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true);
+      });
+      _unwind_dummy_return(context)
+    },
+    .Some(arg) => {
+      argc := _call_generate_expr(arg, indent.clone(), context);
+      _emit_effect_handler_param_drops(context, indent.clone());
+      generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
+      if(!(context.is_effect_record_member_function), {
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true);
+      });
+      has_evidence := match(context.current_evidence_params,.Some(ep) => (ep.len() > usize(0)),.None => false);
+      if((context.is_effect_record_member_function || has_evidence), {
+        match(
+          context.current_function_type,
+          .Some(_) => {
+            arg_ty := match(context.base.get_expr_info(arg),.Some(ei) => ei.ty,.None => t_unit());
+            if(!(is_unit_type(arg_ty)), {
+              ats := get_type_string(arg_ty, context.base);
+              em.emit_string_line(`${indent.clone()}{ ${ats.clone()} _unw_val = ${argc.clone()}; memcpy(__yo_unwind_value, &_unw_val, sizeof(${ats})); }`);
+            });
+          },
+          .None => ()
+        );
+        return(_unwind_dummy_return(context));
+      });
+      out := String.from("return ");
+      out.push_string(argc);
+      out
+    }
+  )
+});
+export(generate_return, generate_implicit_return_statement, generate_pending_deferred_drops, generate_consumed_var_drops_for_escape, handle_atom_deferred_dup, handle_func_call_deferred_dup, generate_unwind);
