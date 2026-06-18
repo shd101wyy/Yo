@@ -115,8 +115,26 @@ to stamp. A real fix needs either (a) a stable constructor identity carried on t
 (b) de-duplicating a top-level comptime-constructor binding to a single `FuncVal`.
 Both are deep/central. This is the true bottom of the JoinHandle.await chain.
 
-**The fix is func_id CANONICALIZATION for comptime type-constructors:** stamp (and
-match on) a constructor identity that is stable across module/context — e.g. the
+**FAITHFUL FIX (confirmed against TS — 2026-06-18).** TS `synthesizer.ts:646-671`
+unifies two struct instantiations when
+`expected.functionValue.funcId === given.functionValue.funcId`, with a comment
+that literally cites "JoinHandle(T) from module definition vs JoinHandle(T) from
+extern function definition" — i.e. TS keeps ONE `FunctionValue` (stable `funcId`)
+per binding and the impl-pattern + io.spawn-extern references share it. The
+faithful yo-self fix is therefore NOT a new identity scheme (position-string,
+structural match — both invented, both reverted) but to ELIMINATE the divergence:
+JoinHandle's `FuncVal` must carry ONE stable `func_id` across the impl-definition
+and io.spawn-extern contexts (currently 3658 vs 3819), mirroring TS. Both
+`TS`/`yo-self` assign `func_id = fn_${randomId(modulePath)}`, so the divergence is
+that yo-self EVALUATES/re-binds JoinHandle's fn-value more than once (fresh id
+each time) where TS evaluates the module once and shares the FunctionValue.
+RULED OUT: `clone_env` (it preserves func_ids, no freshening). NEXT: instrument to
+find where JoinHandle's FuncVal is created/bound twice (candidates: per-module
+re-evaluation by the demand loader; export/re-import re-binding; impl/forall-scope
+re-eval of the `JoinHandle :: (fn…)(…)` value) and make the binding resolve to a
+single FuncVal — the 1-to-1 port of TS's single-FunctionValue-per-binding.
+
+(superseded) earlier framing — "stamp a CANONICAL constructor identity": — e.g. the
 constructor binding's original definition-site func_id (carried on the `FuncVal`),
 or its export-qualified name — instead of `func_id_str` (the per-context call
 func_id). This is deep + central (touches every comptime-type-constructor struct
