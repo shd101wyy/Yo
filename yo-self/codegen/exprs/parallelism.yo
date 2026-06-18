@@ -1,0 +1,241 @@
+//! Codegen for Thread/Worker spawn calls — 1-to-1 port of
+//! `src/codegen/exprs/parallelism.ts`.
+//!
+//! `Thread.spawn(cb)` / `Worker.spawn(cb)` lower (via the `__yo_thread_spawn` /
+//! `__yo_worker_spawn` extern "yo" symbols) to: heap-copy the closure's capture
+//! struct (so the thread owns it after the spawner returns), dup it (independent
+//! RC refs), and call the raw spawn primitive with a generated WRAPPER that runs
+//! the closure, drops the capture struct, and frees it.
+//!
+//! DIVERGENCE from TS: TS reads the closure fn + capture type + `consumedCaptures`
+//! from `implClosureCallMap`; yo-self has no such map, so (like `async.yo`) it
+//! resolves the closure C function from the cb arg's `closure_function_value`
+//! ExprInfo and the capture struct from `capture_type`. `consumedCaptures` (the
+//! `own(self)`-consumed capture fields the wrapper must NULL before dropping) is
+//! NOT tracked in yo-self, so the NULLing is omitted — correct for closures that
+//! do not consume a captured RC value via `own(self)` (a consuming spawn closure
+//! would double-free; documented in
+//! issues/yo-self-parallelism-emitter-gated-on-closure-codegen.md).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalValue, is_func_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ get_func_type } :: import("../../function_value.yo");
+{ random_id } :: import("../../utils.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ get_type_string, get_variable_name_for_codegen, type_key } :: import("../utils/index.yo");
+{ get_dup_function_for_type, get_drop_function_for_type } :: import("./drop_dup.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+/// C name of the capture struct for `capture_type`: the registered type-entry
+/// c_name if present, else `async_capture_<id>`. (Same lookup as async.yo's
+/// `_find_capture_type_c_name`; duplicated to avoid importing the heavy async
+/// module.)
+_capture_type_c_name :: (fn(capture_type : TypeValue, context : FunctionGenerationContext) -> String)({
+  target_key := type_key(capture_type);
+  vals := context.base.types.values();
+  (go : bool) = true;
+  (found : Option(String)) = Option(String).None;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => if(type_key(entry.ty) == target_key, {
+        found = Option(String).Some(entry.c_name.clone());
+        go = false;
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  match(
+    found,
+    .Some(name) => name,
+    .None => {
+      cap_id := match(capture_type,.Struct({ id : sid }) => sid, _ => String.from(""));
+      o := String.from("async_capture_");
+      o.push_string(cap_id);
+      o
+    }
+  )
+});
+/// The cb closure's C function name (its FuncVal func_id → registered entry).
+_closure_fn_c_name :: (fn(cb_ei_value : Option(EvalValue), cb_closure_fn_val : Option(EvalValue), context : FunctionGenerationContext) -> Option(String))({
+  fv_opt := match(
+    cb_closure_fn_val,
+    .Some(fv) => Option(EvalValue).Some(fv),
+    .None => match(cb_ei_value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+  );
+  match(
+    fv_opt,
+    .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(context.base.get_function_entry(fid),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),
+    .None => Option(String).None
+  )
+});
+/// The cb closure's func_id, for its runtime-param types.
+_closure_fid :: (fn(cb_ei_value : Option(EvalValue), cb_closure_fn_val : Option(EvalValue)) -> String)({
+  fv_opt := match(
+    cb_closure_fn_val,
+    .Some(fv) => Option(EvalValue).Some(fv),
+    .None => match(cb_ei_value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+  );
+  match(fv_opt,.Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.new()),.None => String.new())
+});
+/// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
+/// `io : Io` of a `Thread.spawn` callback). Mirrors the `runtimeParamArgs` build
+/// in generateSpawnWrapper. yo-self's Func param_types already exclude comptime
+/// params, so every entry is a runtime param.
+_closure_runtime_arg_zeroinits :: (fn(closure_fid : String, context : FunctionGenerationContext) -> String)({
+  out := String.from("");
+  match(
+    get_func_type(closure_fid),
+    .Func({ param_types : pts }) => {
+      n := pts.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          pts.get(i),
+          .Some(pt) => {
+            out.push_str(", (");
+            out.push_string(get_type_string(pt, context.base));
+            out.push_str("){0}");
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// Emit a spawn-wrapper function (RC cleanup for the heap-copied capture struct)
+/// to the declaration section and return its C name. Mirrors `generateSpawnWrapper`.
+_generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name : String, capture_type : TypeValue, runtime_args : String, prefix : String, context : FunctionGenerationContext) -> String)({
+  wrapper_name := String.from("__yo_spawn_wrapper_");
+  wrapper_name.push_string(random_id(prefix));
+  em := context.base.emitter;
+  em.emit_declaration_string_line(String.from(""));
+  em.emit_declaration_string_line(String.from("// Spawn wrapper: handles RC cleanup for thread-spawned closures"));
+  open_line := String.from("static void ");
+  open_line.push_string(wrapper_name.clone());
+  open_line.push_str("(void* closure) {");
+  em.emit_declaration_string_line(open_line);
+  // Step 1: call the closure with the closure-context pointer + runtime-param
+  // zero-inits.
+  call_line := String.from("  ");
+  call_line.push_string(closure_fn_c_name);
+  call_line.push_str("(closure");
+  call_line.push_string(runtime_args);
+  call_line.push_str(");");
+  em.emit_declaration_string_line(call_line);
+  // Step 2-3: drop the capture struct (releases the thread's RC refs), free it.
+  // (consumed-capture NULLing omitted — see module doc.)
+  match(
+    get_drop_function_for_type(capture_type, context),
+    .Some(drop_fn) => {
+      drop_line := String.from("  ");
+      drop_line.push_string(drop_fn);
+      drop_line.push_str("(*(");
+      drop_line.push_string(capture_struct_c_name.clone());
+      drop_line.push_str("*)closure);");
+      em.emit_declaration_string_line(drop_line);
+    },
+    .None => ()
+  );
+  em.emit_declaration_string_line(String.from("  __yo_free(closure);"));
+  em.emit_declaration_string_line(String.from("}"));
+  wrapper_name
+});
+/// Shared body of generate_thread_spawn_call / generate_worker_spawn_call. Emits
+/// the heap-copy + dup + wrapper, then the spawn primitive call. `is_worker`
+/// selects the primitive + (unit) return convention.
+_generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, is_worker : bool) -> Option(String))({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
+  cb := match(
+    ei.runtime_arg_exprs_in_order,
+    .Some(ra) => if(ra.len() == usize(1), match(ra.get(usize(0)),.Some(c) => c,.None => return(Option(String).None)), return(Option(String).None)),
+    .None => return(Option(String).None)
+  );
+  cei := match(context.base.get_expr_info(cb),.Some(e) => e,.None => return(Option(String).None));
+  capture_type := match(cei.capture_type,.Some(c) => c,.None => return(Option(String).Some(String.from("/* Error: spawn cb has no capture type */"))));
+  capture_c_name := _capture_type_c_name(capture_type, context);
+  closure_fn := match(_closure_fn_c_name(cei.value, cei.closure_function_value, context),.Some(n) => n,.None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))));
+  closure_fid := _closure_fid(cei.value, cei.closure_function_value);
+  runtime_args := _closure_runtime_arg_zeroinits(closure_fid, context);
+  module_path := String.from("");
+  wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, module_path, context);
+  // The capture-struct VALUE (the cb arg's variable, or its generated code).
+  cb_code := _call_generate_expr(cb, indent.clone(), context);
+  cb_var := match(cei.variable_name,.Some(vn) => get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env)),.None => cb_code);
+  em := context.base.emitter;
+  heap_var := String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_"));
+  heap_var.push_string(random_id(module_path.clone()));
+  // <capCName>* <heapVar> = (<capCName>*)__yo_malloc(sizeof(<capCName>));
+  alloc_line := indent.clone();
+  alloc_line.push_string(capture_c_name.clone());
+  alloc_line.push_str("* ");
+  alloc_line.push_string(heap_var.clone());
+  alloc_line.push_str(" = (");
+  alloc_line.push_string(capture_c_name.clone());
+  alloc_line.push_str("*)__yo_malloc(sizeof(");
+  alloc_line.push_string(capture_c_name.clone());
+  alloc_line.push_str("));");
+  em.emit_string_line(alloc_line);
+  // *<heapVar> = <cbVar>;
+  copy_line := indent.clone();
+  copy_line.push_str("*");
+  copy_line.push_string(heap_var.clone());
+  copy_line.push_str(" = ");
+  copy_line.push_string(cb_var);
+  copy_line.push_str(";");
+  em.emit_string_line(copy_line);
+  // <dupFn>(*<heapVar>);
+  match(
+    get_dup_function_for_type(capture_type, context),
+    .Some(dup_fn) => {
+      dup_line := indent.clone();
+      dup_line.push_string(dup_fn);
+      dup_line.push_str("(*");
+      dup_line.push_string(heap_var.clone());
+      dup_line.push_str(");");
+      em.emit_string_line(dup_line);
+    },
+    .None => ()
+  );
+  if(is_worker, {
+    // __yo_worker_spawn returns void (unit).
+    ws := indent.clone();
+    ws.push_str("__yo_worker_spawn(");
+    ws.push_string(wrapper);
+    ws.push_str(", ");
+    ws.push_string(heap_var);
+    ws.push_str(");");
+    em.emit_string_line(ws);
+    Option(String).Some(String.from(""))
+  }, {
+    // __yo_thread_t <tv> = __yo_thread_spawn(<wrapper>, <heapVar>);
+    tv := match(ei.variable_name,.Some(v) => v,.None => `_thr_${random_id(module_path)}`);
+    ts := indent.clone();
+    ts.push_str("__yo_thread_t ");
+    ts.push_string(tv.clone());
+    ts.push_str(" = __yo_thread_spawn(");
+    ts.push_string(wrapper);
+    ts.push_str(", ");
+    ts.push_string(heap_var);
+    ts.push_str(");");
+    em.emit_string_line(ts);
+    Option(String).Some(tv)
+  })
+});
+/// `__yo_thread_spawn(cb)` — spawn a dedicated OS thread. Mirrors `generateThreadSpawnCall`.
+generate_thread_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))(
+  _generate_spawn_call(expr, indent, context, false)
+);
+/// `__yo_worker_spawn(cb)` — spawn a task on the worker pool. Mirrors `generateWorkerSpawnCall`.
+generate_worker_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))(
+  _generate_spawn_call(expr, indent, context, true)
+);
+export(generate_thread_spawn_call, generate_worker_spawn_call);

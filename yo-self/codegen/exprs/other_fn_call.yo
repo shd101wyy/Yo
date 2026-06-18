@@ -32,6 +32,7 @@ open(import("std/string"));
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_effect_unwind_check } :: import("./return.yo");
+{ generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
 /// ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -672,9 +673,13 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
   npt := param_types.len();
   (pi : usize) = usize(0);
   while((pi < npt) && !(param_fn_or_ctl), {
-    match(param_types.get(pi),.Some(t) => if(is_function_type(t) || type_is_control_bound(t), {
-      param_fn_or_ctl = true;
-    }),.None => ());
+    match(
+      param_types.get(pi),
+      .Some(t) => if(is_function_type(t) || type_is_control_bound(t), {
+        param_fn_or_ctl = true;
+      }),
+      .None => ()
+    );
     pi = (pi + usize(1));
   });
   (((fid_is_control || fid_is_effect_member) || ft_is_control) || body_has_effects) || param_fn_or_ctl
@@ -1189,6 +1194,14 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           _maybe_emit_auto_borrow_assert(name.clone(), indent.clone(), context);
           if(is_builtin_yo_inline_function(name.clone()), {
             return(Option(String).Some(generate_yo_inline_function_call(name, args2, expr, context, indent.clone())));
+          });
+          // Parallelism spawn primitives: heap-copy the closure capture + emit a
+          // cleanup wrapper, then call the raw spawn. Mirrors other-fn-call.ts:906.
+          if(name == String.from("__yo_thread_spawn"), {
+            return(generate_thread_spawn_call(expr, indent.clone(), context));
+          });
+          if(name == String.from("__yo_worker_spawn"), {
+            return(generate_worker_spawn_call(expr, indent.clone(), context));
           });
           if(is_unit_type(r.*), {
             line := indent.clone();

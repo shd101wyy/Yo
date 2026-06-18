@@ -2,6 +2,37 @@
 
 ## Status
 
+PARTIAL (2026-06-19). The spawn emitter IS ported + wired; the remaining blocker
+is generic-method monomorphization, not the emitter.
+
+### UPDATE 2026-06-19 — emitter ported; blocked on Thread.spawn monomorphization.
+
+- The `Io`-type-collection crash is FIXED (commit pending): `collection.yo` now
+  collects function SIGNATURE types (param + return) via `get_func_type(fid)`, not
+  just bodies — a non-async `main(io : Io)` whose body never mentions `Io` now
+  compiles (was rc=134 `get_type_string: no C type name found for Io`). Validated:
+  `/tmp/th2.yo` → `value 42`; corpus 75/75.
+- `generate_thread_spawn_call` / `generate_worker_spawn_call` / spawn-wrapper are
+  ported to `yo-self/codegen/exprs/parallelism.yo` (resolving the closure fn +
+  capture struct from the cb arg's ExprInfo, like async.yo; `consumedCaptures`
+  NULLing omitted — non-`own(self)` only) and wired into `other_fn_call.yo`'s
+  `is_extern == "yo"` dispatch for `__yo_thread_spawn` / `__yo_worker_spawn`. Type-
+  checks clean; corpus stays 75/75 (the wiring is inert for the corpus).
+- REMAINING BLOCKER: the spawn closure (`closure_yo_id_*`) IS emitted correctly
+  (capture-param convention), but `Thread.spawn` itself (the std/thread.yo wrapper
+  method `spawn : (fn(cb : Impl(Fn(io:Io)->unit, Send)) -> Self)`) is SKIPPED as
+  generic — its `cb : Impl(Fn...)` param is a SomeType → `is_function_type_hard_generic`
+  → `should_skip_function_codegen` drops it. So `Thread.spawn(cb)` lowers to a call
+  to an undeclared `yo_id_<spawn>`, and the `__yo_thread_spawn(cb)` extern INSIDE
+  its body (which would hit the new emitter with `cb : <concreteCaptureStruct>`) is
+  never reached. The fix is GENERIC-METHOD MONOMORPHIZATION (Gap 2: yo-self FuncVal
+  has no `specializedType`/`specializedFunctionCaches`) — specialize `Thread.spawn`
+  per concrete closure type so it's emitted with `cb` typed as the concrete capture
+  struct. Once that lands, the ported emitter resolves it end to end (TS reference:
+  `/tmp/th.yo` → `thread sees 42` / `main done`).
+
+## (historical) Status
+
 OPEN (2026-06-18). The parallelism **runtime** (`generate_parallelism_runtime`,
 the `__yo_thread_*` / `__yo_worker_*` C boilerplate) is ported and wired
 (`yo-self/codegen/parallelism/runtime.yo`, gated on `context.uses_parallelism` in
