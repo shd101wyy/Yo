@@ -59,6 +59,46 @@ the awaited value type correctly and get ExprInfo. This is the evaluator
 counterpart of the codegen registration above; once it lands, add a corpus fixture
 (`io_async_struct_field` — currently kept OUT of the green corpus).
 
+## COMPLETE ROOT CAUSE + FIX RECIPE (2026-06-18 — systematically traced)
+
+Both blockers share one root: `T` is never bound to the concrete result at
+**eval** time, so the future/await/spawn/unwrap chain stays `SomeType`. Traced
+the exact dispatch and fix sites by elimination (two speculative attempts in the
+FuncVal forall loop were implemented, tested, and reverted — see below):
+
+1. `io.async` / `io.await` / `io.spawn` are `extern("Yo", …)` builtins
+   (`std/prelude.yo:8195`). Their signatures use `Impl(Fn(e : E) -> T)` params
+   and `Impl(Future(T, E))` / `JoinHandle(T)` returns. **`Impl(Fn(...))` lowers to
+   an `FnTraitT`** (there is no `ImplT` TypeValue variant), `call_result = T`.
+2. Extern calls do **NOT** go through `evaluate_function_call`'s `forall`
+   inference loop (that path is for FuncVals/closures with bodies). They bind
+   `forall` vars via **`check_if_function_parameter_matches_argument`**
+   (`helper.yo:409`) → **`synthesize_types`** (`helper.yo:536`), unifying the
+   declared param type against `arg_type = arg_info.ty`.
+3. For the closure arg, `arg_info.ty` still carries a `SomeType` **result** (the
+   body-refined concrete result lands in the func_id side-table, readable via
+   `get_func_type(closure_func_id)` — the same bridge the async **codegen** uses).
+   So `synthesize_types` binds `T = SomeType`.
+
+**Fix (two coordinated sites, central synthesizer — do as a focused session with
+full std + tests + corpus validation):**
+- `helper.yo` ~530, before the `synthesize_types` call: when the arg VALUE is a
+  closure `FuncVal` and `resolved_pt` is fn-like (`FnTraitT`), compute an
+  `arg_type_for_synth` from `get_func_type(closure_func_id)` (the refined `Func`
+  with the concrete result) and pass THAT to `synthesize_types` (keep `arg_type`
+  for the Step-8 compatibility check).
+- `synthesizer.yo` `_synthesize_fn_traits` (961-964): it extracts
+  `giv_params`/`giv_result` ONLY from a `FnTraitT` given-type; a bare `Func`
+  given-type falls through to `TypeValue.Unit`. Add fn-like extraction so a `Func`
+  given-type's `param_types`/`result` are read (normalize `Func` + `FnTraitT`),
+  so `exp_result = T` unifies against `giv_result = Point` and binds `T`.
+
+Once `T` binds at eval time, `task : Future(Point)`, `io.await → Point`,
+`io.spawn → JoinHandle(Point)`, `handle.await → Option(Point)` all resolve
+naturally, `p.x` / `result.unwrap()` get ExprInfo, and both fixtures compile.
+The async **codegen** registration already in place (prior commits) becomes
+belt-and-suspenders.
+
 ## Dispatch-path finding (2026-06-18 — avoid this dead end)
 
 The fix is NOT in the generic FuncVal-call `forall` inference loop in
