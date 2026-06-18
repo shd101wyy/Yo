@@ -788,6 +788,34 @@ widen. SURFACED BUG along the way:
 accepts `io.await(task)` (missing `e`) that TS rejects; fix the field-fn call
 required-arg-count check during this phase.
 
+**PHASE 5 STATUS SUMMARY (2026-06-18, ~80% — codegen-bootstrap corpus 64→72).**
+LANDED + validated this session (each a 1-to-1 `src/` port, zero corpus regressions):
+- Async FSM + I/O runtimes; async RESULT-TYPE resolution across i32/str/bool/struct/
+  multi-await/multi-async (commits incl. bool-result, await-result register +
+  `get_type_string` SomeType, io.await eval-time struct-field, multi-await C
+  temp-name uniquify, multi-async-block freshening).
+- **JoinHandle.await / io.spawn** — faithful `resolvedConcreteType` registry bridge
+  (`_resolve_some_types_deep` env→registry chain + `_bind_forall_from_type_args`
+  registry resolve). Fixture `io_spawn_join_handle.yo`.
+- **First-class fn-VALUE codegen** (`comptime-value.ts:266` port — FuncVal → C
+  function-pointer name). Fixture `fn_pointer_param.yo`.
+- **Synchronous effect handlers — RESUME (return)** work, incl. NATURAL backtick
+  messages. Fixtures `effect_handler_resume.yo`, `effect_handler_backtick.yo`.
+- **`unwind` PART 1** (`generate_unwind`, `generation.ts:198-448` minus the
+  continuation_variables nested branch) — sets `__yo_effect_escaped`, stashes
+  `__yo_unwind_value`, dummy return.
+- **`comptime_str.to_string()` fix** (`env.yo _resolve_str_type_from_env` fell back
+  to `t_i32()` → `t_str()`); unblocked backtick effect messages. Fixtures above.
+REMAINING (each scoped in issue docs, multi-session):
+- **`unwind` PART 2 (escape-propagation)** — the FAITHFUL fix is to port the
+  deferred EVIDENCE-PASSING machinery (`other_fn_call.yo:660`:
+  `resolveEvidenceArgsForCallSite` + call-through + `emitEffectUnwindCheck`,
+  mirroring `src/codegen/exprs/other-fn-call.ts`); NOT a direct-fn-pointer
+  escape-check hack (yo-self's resume uses a direct-pointer simplification that
+  diverges from TS's evidence model). See
+  `issues/yo-self-sync-effect-codegen-unported.md`.
+- **Parallelism** (`parallelism/runtime.ts` + `exprs/parallelism.ts`) — unported.
+
 ### Phase 6 — Self-host fixpoint
 
 1. `yo-self-bin test ./tests` — the self-hosted compiler RUNS the suite
