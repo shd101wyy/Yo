@@ -2,6 +2,20 @@
 
 ## Status
 
+✅ **RESOLVED — 2026-06-18.** `tests/codegen-bootstrap/io_async_two_await_struct.yo`
+(two `io.async`/`io.await` of the same `Point` type, both field-accessed) runs →
+`72`; corpus 67/67, zero regressions. Fix: in `evaluate_function_call`'s io.async
+block, **freshen the result type's wrapper SomeType id per call site**
+(`generate_some_type_id()`, all other fields preserved) so two same-typed futures
+get distinct `type_key`s and their per-call state-machine struct registrations no
+longer collide. The OUTPUT SomeType id (inside `required_trait_types`) is
+preserved, so the `io.await` resolution (which keys on the output id) still
+matches. Done at EVAL (not codegen) so both the io.async result and the bound
+variable carry the fresh type. (Also depends on the earlier per-call temp-name
+uniquification.)
+
+## (Historical) Status
+
 OPEN. Two `io.async(...)` calls (each later awaited) in the same function emit C
 that crosses the two async blocks' state-machine struct types and capture types.
 

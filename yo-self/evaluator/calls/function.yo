@@ -49,7 +49,7 @@ open(import("std/string"));
 { get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
-{ t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, type_of_eval_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
@@ -2775,6 +2775,19 @@ Fix: wrap the call:
               .None => ()
             ),
             .None => ()
+          );
+          // Freshen the io.async RESULT type's wrapper SomeType id per call site.
+          // Two io.async calls returning the SAME future type otherwise share a
+          // type_key, so their per-call state-machine struct registrations collide
+          // at codegen (the second overwrites the first; the binding picks up the
+          // wrong struct). A distinct wrapper id per call gives distinct type_keys.
+          // The OUTPUT SomeType id (inside required_trait_types) is PRESERVED, so
+          // the io.await resolution above (which keys on the output id) still
+          // matches. See issues/yo-self-multi-async-block-metadata-collision.md.
+          ret_type_rt = match(
+            ret_type_rt,
+            .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, is_effects_row : sier, kind_function_type : skft }) => TypeValue.SomeT(generate_some_type_id(), sn, sfl, spt, srtt, srtl, sntt, sntl, sier, skft),
+            _ => ret_type_rt
           );
         });
         if(is_io_await_call(expr), {
