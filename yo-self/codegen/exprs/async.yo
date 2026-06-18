@@ -53,6 +53,7 @@ open(import("std/string"));
   is_io_spawn_call,
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
+{ get_func_type } :: import("../../function_value.yo");
 { ExprInfo, lookup_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
@@ -2022,6 +2023,29 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         ),
         .None => ()
       )
+    );
+  });
+  // Final fallback: if the result type is still an unresolved SomeType, read the
+  // closure's recorded `Func` type result. The result-refine in
+  // anonymous_function.yo re-registers the concrete closure func type once the
+  // body types (e.g. a `bool`/`true` body), so its result is concrete even when
+  // the future-trait output SomeType was never resolved through the body-ExprInfo
+  // path above.
+  if(is_some_type(result_type), {
+    match(
+      result_closure_fv,
+      .Some(fv) => match(
+        fv,
+        .FuncVal(_, _, _, _, _, _, _, _, fid) => match(
+          get_func_type(fid),
+          .Func({ result : rb }) => if(!(is_some_type(rb.*)), {
+            result_type = rb.*.clone();
+          }),
+          _ => ()
+        ),
+        _ => ()
+      ),
+      .None => ()
     );
   });
   result_type_c_name := get_type_string(result_type, context.base);
