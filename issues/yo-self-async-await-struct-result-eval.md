@@ -99,6 +99,37 @@ naturally, `p.x` / `result.unwrap()` get ExprInfo, and both fixtures compile.
 The async **codegen** registration already in place (prior commits) becomes
 belt-and-suspenders.
 
+### ⚠️ CORRECTION (2026-06-18): the "bind T at io.async synthesis" approach
+### REGRESSES ALL ASYNC — do NOT implement it as written above.
+
+I implemented exactly the two-site recipe above (helper.yo closure→`Func` bridge
+before `synthesize_types` + `_synthesize_fn_traits` reading a `Func` given-type's
+params/result) and validated against a rebuilt yo-self-bin. Result: **7 SELF-FAIL
+in the corpus (58/65) — every async fixture broke** (`io_async_str`,
+`io_async_await_42`, the FSM fixtures, …). Even `task := io.async(...)` then
+`// Failed to transpile` (io.async eval now throws and the def-eval trial wrapper
+swallows it → no ExprInfo). Both files reverted; corpus back to 65/65.
+
+**Why:** the async pipeline DELIBERATELY keeps the future-trait OUTPUT as an
+unresolved `SomeType` through evaluation — the FSM / future-completion / await
+machinery keys on that SomeType identity (the `g_some_resolved_concrete`
+registration + `get_type_string` resolution done at CODEGEN in the prior commits
+is the intended resolution layer). Binding `T` to the concrete result at
+io.async's arg-synthesis time collapses that SomeType eagerly and breaks the
+downstream async handling for ALL futures, not just struct results.
+
+**Revised direction:** do NOT resolve the future's output SomeType at eval.
+Instead resolve ONLY the narrow case that needs it — the type of a binding
+`p := io.await(...)` (or `result := handle.await(...)`) — so that DOWNSTREAM
+field/method access (`p.x`, `result.unwrap()`) type-checks and gets ExprInfo,
+WITHOUT touching the future's output SomeType or the io.async result. Candidate:
+in the `io.await` / field-`await` result-type handling, when the awaited future's
+output resolves to a concrete type (via the same func_id side-table bridge), set
+the AWAIT-CALL's own result type (and thus the bound variable's type) to that
+concrete type — a local refinement at the await site, leaving the future type
+untouched. Validate that this leaves all async fixtures green (the regression
+above is the trap to check against).
+
 ## Dispatch-path finding (2026-06-18 — avoid this dead end)
 
 The fix is NOT in the generic FuncVal-call `forall` inference loop in
