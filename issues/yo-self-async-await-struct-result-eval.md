@@ -66,7 +66,26 @@ class as the resolved HashMap.new blocker). `evaluate_comptime_fn_call` stamps t
 result with the constructor's func_id (function.yo:2241), but that id isn't
 canonical/stable for JoinHandle across contexts.
 
-**Fix direction:** stamp `constructor_func_id` from a CANONICAL constructor
+**STAMPING SITE (2026-06-18): `comptime_fn.yo:843-846`.** When a comptime fn
+returns a `Struct` whose `constructor_func_id` is empty, it stamps `func_id_str`
+(the CALLED fn's func_id at this call). So `JoinHandle(X)`'s cfid = the JoinHandle
+`FuncVal`'s func_id at that call — and that func_id is **3658 in the impl-pattern
+context but 3819 in the io.spawn context** (and EMPTY on the pure-`substitute`
+return-type path, which never reaches this stamp). I.e. the top-level `JoinHandle`
+comptime fn is reached via `FuncVal`s with different func_ids in different
+contexts, so its instantiations get different (or empty) cfids and the
+generic-impl match's `same_constructor3` never holds.
+
+**The fix is func_id CANONICALIZATION for comptime type-constructors:** stamp (and
+match on) a constructor identity that is stable across module/context — e.g. the
+constructor binding's original definition-site func_id (carried on the `FuncVal`),
+or its export-qualified name — instead of `func_id_str` (the per-context call
+func_id). This is deep + central (touches every comptime-type-constructor struct
+stamp + the synthesizer match) with regression risk to std/tests, so it warrants a
+focused session with full validation; it is the same class as the resolved
+HashMap.new func_id blocker. Earlier framing:
+
+stamp `constructor_func_id` from a CANONICAL constructor
 identity (stable across module/context — e.g. the constructor's original
 definition-site func_id or its export name), so all JoinHandle instantiations
 share it and `same_constructor3` holds. (A narrower alternative — match by field
