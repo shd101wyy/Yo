@@ -130,6 +130,47 @@ concrete type — a local refinement at the await site, leaving the future type
 untouched. Validate that this leaves all async fixtures green (the regression
 above is the trap to check against).
 
+### ✅ SAFE MECHANISM confirmed + remaining unknown is the SITE (2026-06-18)
+
+The **narrow** mechanism (distinct from the regressing env-binding) is sound and
+SAFE:
+- At `io.async` eval: record the closure's CONCRETE result (read via
+  `get_func_type(closure_func_id)` — the closure `FuncVal` is on the io.async
+  arg's `ExprInfo.closure_function_value`, set in `closure_type.yo:279`) under the
+  future-output SomeType id, into `g_some_resolved_concrete`
+  (`register_some_resolved_concrete`).
+- At `io.await` eval: if the call's result type is that SomeType, refine ONLY this
+  call's OWN `resolved_ret`/`ExprInfo.ty` via `lookup_some_resolved_concrete` —
+  never the future type, never an env binding, never `synthesize_types`.
+
+Safety is verified: `lookup_some_resolved_concrete` has **no evaluator reader**
+(only codegen reads it: async/await/state_machine/utils/closures), and
+`register_some_resolved_concrete` is already called from eval (synthesizer.yo). So
+registering at io.async eval can't perturb async eval; it only feeds codegen
+(idempotent with the existing `generate_io_async_sync_call` registration) plus the
+new io.await refinement.
+
+**The remaining unknown is purely the SITE.** I implemented this mechanism at the
+plain-FuncVal runtime-return path (`function.yo:2446`, where `out_rt`/`resolved_ret`
+are built) — but it produced BYTE-IDENTICAL broken output (no effect), proving
+`io.async`/`io.await` results are NOT computed there. Sites eliminated so far:
+1. `evaluate_function_call`'s `forall` inference loop — not on the path.
+2. `function.yo:2446` plain-FuncVal runtime-return path — not on the path.
+3. `synthesize_types` env-binding of `T` — ON a path but REGRESSES all async.
+
+`io.X` is a property-access (`io . async`) resolving to a struct-field `FuncVal`,
+then called — so the result type is built on a method/property-callee arm of
+`evaluate_function_call` (candidates: the `out_m`/`out_s`/`out_e` arms around
+`function.yo:1257/1338/1460`, or the property-access callee handling), NOT the
+bare-FuncVal arm.
+
+**NEXT-SESSION METHOD (stop guessing — instrument):** add a module-path-guarded
+`eprintln` gated on `is_io_async_call(expr)` / `is_io_await_call(expr)` at each
+candidate `new_expr_info(...)` result site in `function.yo`, rebuild yo-self-bin
+ONCE, compile `/tmp/as.yo`, and observe which site fires for the io.async/io.await
+calls. Then apply the SAFE mechanism above at that exact site and validate against
+the corpus (the 7-SELF-FAIL regression from approach #3 is the trap).
+
 ## Dispatch-path finding (2026-06-18 — avoid this dead end)
 
 The fix is NOT in the generic FuncVal-call `forall` inference loop in
