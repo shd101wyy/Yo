@@ -61,6 +61,27 @@ NEXT: find the `UnknownVal(Func)`-callee dispatch arm in `evaluate_function_call
 and route its arg eval through (or replicate) the comptime coercion. Then the
 effect-specific escape-flag layer (`isControlFunction` codegen) on top.
 
+### NARROWED (2026-06-18): the backtick arg EVAL throws, before param-matching.
+
+The `UnknownVal(Func)`-callee call DOES route through `try_to_call_function_with_
+arguments` → `check_if_function_parameter_matches_argument` (function.yo default
+arm 2680). A `__CP` probe (gated on a comptime_str arg) inside `check_if` fired for
+the backtick's INTERNAL machinery (`acc`/`init`/`lhs`/`rhs` comptime_str params)
+but NEVER for the `f`-call's String `msg` param — and that probe sits AFTER the
+arg-eval line (`evaluate_expression_raw(actual_arg, ..., expected = resolved_pt)`).
+So `check_if(msg, String, …)` IS entered but THROWS at the arg-eval step BEFORE the
+probe: evaluating the backtick `\`zero\`` with `expected_type = String` throws
+during apply's def-time body eval (the def-eval trial wrapper swallows it → apply's
+body gets no ExprInfo → `// Failed to transpile`). `String.from("zero")` with the
+same expected String works. So the bug is specifically the **backtick/comptime_str
+template arg evaluated against an expected `String` type** on this path — likely
+the `("zero".to_string)()` desugaring's to_string resolution under an expected
+String. NEXT: probe the arg-eval at check_if line ~438 (move the marker BEFORE
+`evaluate_expression_raw`) to capture the throw, then fix the backtick/to_string
+eval under expected-String (or coerce the expected type for the backtick arg).
+NOTE: this edge only blocks backtick-literal args to fn-pointer calls; effects can
+be exercised meanwhile with `String.from(...)` messages.
+
 ## Minimal reproducer
 
 ```rust
