@@ -46,6 +46,23 @@ expected `String` type and/or how its comptime-String result is lowered by
 does NOT go through comptime_str.to_string) works correctly, which is the current
 workaround.
 
+## Resolution chain (located 2026-06-18)
+
+The parser desugars a template-string part `"hello"` into `"hello".to_string()`
+(parser.ts:180-233). There is NO `to_string` on `comptime_str` in the prelude
+(only `to_comptime_string` via the `ComptimeToString` trait). The runtime
+`to_string` lives in **`std/imm/string.yo:726`** (str's `to_string -> String`) and
+the **`std/fmt/to_string.yo` `ToString` trait**. So `"hello".to_string()` must
+resolve via `comptime_str → str → str.to_string() → String`. yo-self's eval of
+that chain THROWS (def-eval, swallowed → no ExprInfo → "Failed to transpile"). Fix
+target: make the `comptime_str` receiver's `to_string` resolve (coerce
+`comptime_str → str` for the method receiver, or bind the `ToString`/str impl)
+under an expected `String` type during def-time body eval — then verify the
+comptime-folded result lowers (generate_comptime_value String/StructVal case).
+NOTE: the corpus largely avoids bare `"x".to_string()` / no-interp backticks
+returning String (uses `String.from` or interpolated templates), which is why this
+went uncaught.
+
 ## Why it matters / priority
 
 This is the root of the documented "effects backtick-arg edge"
