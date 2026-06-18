@@ -48,7 +48,32 @@ throws on the id mismatch. This is the SAME CLASS as the resolved HashMap.new
 generic-instantiation blocker (`memory: yo-self-phase3-hashmap-new-blocker` —
 struct identity for generic instantiations).
 
-**Fix direction:** make `JoinHandle(T)` instantiations share a stable struct id
+**DEFINITIVE root cause (2026-06-18) — `constructor_func_id` is not stable.**
+Instrumented the synthesizer struct case (gated on the `__future` field label):
+the impl-pattern JoinHandle has `constructor_func_id = yo_id_3658`, but the
+receiver instantiations have `constructor_func_id = yo_id_3819` (or EMPTY).
+`synthesize_types`' struct case matches two generic instantiations only when they
+share `constructor_func_id` (`exp_cfid == giv_cfid`, synthesizer.yo:1341); since
+JoinHandle's is **different across contexts** (3658 vs 3819), `same_constructor3`
+is false, the ids differ, and it throws "incompatible struct types" → the await
+impl never matches.
+
+So JoinHandle's comptime type-constructor produces result structs stamped with
+DIFFERENT `constructor_func_id`s depending on the evaluation context (impl
+registration vs `io.spawn` return-type instantiation) — JoinHandle's `FuncVal`
+apparently carries different func_ids in those contexts (the same func_id-stability
+class as the resolved HashMap.new blocker). `evaluate_comptime_fn_call` stamps the
+result with the constructor's func_id (function.yo:2241), but that id isn't
+canonical/stable for JoinHandle across contexts.
+
+**Fix direction:** stamp `constructor_func_id` from a CANONICAL constructor
+identity (stable across module/context — e.g. the constructor's original
+definition-site func_id or its export name), so all JoinHandle instantiations
+share it and `same_constructor3` holds. (A narrower alternative — match by field
+labels + type-arg arity in the generic-impl-match path — is structural and was
+previously shown unsound for exact cache keys, so prefer the cfid-stability fix.)
+
+**Earlier (superseded) fix-direction note:** make `JoinHandle(T)` instantiations share a stable struct id
 (comptime-type-constructor result caching/identity), OR relax the struct case in
 `synthesize_types`/`try_match_generic_impl` to unify two instantiations of the
 same generic struct constructor by NAME + type-arguments rather than requiring id
