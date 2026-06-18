@@ -90,7 +90,26 @@ but bounded and codegen-only. Validate against `effect_handler_resume.yo` (must
 stay green) + a new `effect_handler_unwind` fixture (currently prints the wrong
 value: 0 vs TS 42).
 
-### PART 2 — EXACT C-level transformation needed (2026-06-18).
+### ⚠️ FAITHFULNESS NOTE (2026-06-18): part 2 = port the EVIDENCE machinery, not a hack.
+
+I was about to add a "ctl-type detection" post-call escape check on yo-self's
+direct fn-pointer call path. That would be UNFAITHFUL: TS does NOT use a direct
+fn-pointer effect model — it passes handlers as EVIDENCE params, and
+`isHandlerInstallation` (which decides install-extract vs propagate) comes from
+`resolveEvidenceArgsForCallSite` (other-fn-call.ts:1167/1543), the evidence-passing
+machinery. yo-self's resume effects currently work via a DIRECT fn-pointer
+simplification (`safe(int32_t (*raise)(...))`), which diverges from TS; resume
+happens to work because the handler just returns through the pointer, but unwind's
+install-vs-propagate decision genuinely needs the evidence model. So the faithful
+fix is to PORT the deferred evidence-passing machinery
+(`other_fn_call.yo:660` "evidence-param call-through + effect-unwind propagation
+(Phase 5)") — `resolveEvidenceArgsForCallSite` + the call-through +
+`emitEffectUnwindCheck` — mirroring `src/codegen/exprs/other-fn-call.ts`, NOT an
+invented direct-call escape check. This is a substantial faithful port (the
+largest deferred piece of `other_fn_call.yo`). The C-level effect of that port is
+the transformation below.
+
+### PART 2 — EXACT C-level transformation the evidence-machinery port must produce.
 
 From the `eu2` (i32 unwind) output, the two missing post-call checks are precise:
 - **In `run` (the install frame — it holds the `(raise : Raise) = …` binding):**
