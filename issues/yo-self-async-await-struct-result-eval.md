@@ -23,7 +23,41 @@ unit-returning generic call. `result := handle.await(io)` is therefore typed
 `unit`, no `result` C declaration is emitted, and `result.unwrap()` →
 `// Failed to transpile`.
 
-**So the fix is in METHOD RESOLUTION, not the io.async/io.await result bridge.**
+**FULLY ISOLATED (2026-06-18) — generic-impl pattern match fails on struct id.**
+Layered instrumentation pinned it exactly:
+- `get_receiver_methods_by_name_from_env("await", JoinHandle_3665)` → `hits=0`,
+  instance call (`static=N`).
+- The non-comptime generic-impl fallback (`env.yo`) calls
+  `find_methods_from_generic_impls("await", JoinHandle_3665)` → `results=0`.
+- Inside it: `field_entries=1` (the `impl(forall(T), JoinHandle(T), await : …)`
+  generic impl IS registered and HAS an `await` field) but `matched=0` —
+  `try_match_generic_impl` returns no match.
+- `try_match_generic_impl` matches via
+  `synthesize_types(entry.receiver_type_pattern = JoinHandle(T), resolved =
+  JoinHandle_3665)`; that synthesis FAILS even though the receiver has the right
+  shape: `recv_id=struct_yo_id_3665`, `recv_ta=1` (one type argument — correct
+  arity for `JoinHandle(T)`).
+
+So matching shape + arity but no match ⇒ the synthesizer rejects it on **struct
+identity**: `JoinHandle` is a comptime type-constructor
+(`JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))` in prelude), so the
+impl-pattern's `JoinHandle(T)` instantiation and the `io.spawn`-result's
+`JoinHandle(<output>)` get **different struct ids**, and `synthesize_types`'
+struct case (`synthesizer.yo` ~1347 "Cannot unify incompatible struct types")
+throws on the id mismatch. This is the SAME CLASS as the resolved HashMap.new
+generic-instantiation blocker (`memory: yo-self-phase3-hashmap-new-blocker` —
+struct identity for generic instantiations).
+
+**Fix direction:** make `JoinHandle(T)` instantiations share a stable struct id
+(comptime-type-constructor result caching/identity), OR relax the struct case in
+`synthesize_types`/`try_match_generic_impl` to unify two instantiations of the
+same generic struct constructor by NAME + type-arguments rather than requiring id
+equality (carefully — name-only struct comparison was previously shown unsound for
+exact cache keys; scope it to the generic-impl-match path). Once the await impl
+matches, `handle.await` resolves to `Option(T)` and the (separate) `Option`-result
+nested-SomeType resolution + `.unwrap()` can follow.
+
+**(superseded) The earlier framing — "method-resolution, not result-refine":**
 The generic-impl method lookup must find `JoinHandle(T)`'s `await` for a receiver
 whose type is `JoinHandle(<future-output>)` (after `io.spawn`). Likely the
 receiver's `JoinHandle` type arg `T` is unresolved / the generic-impl match
