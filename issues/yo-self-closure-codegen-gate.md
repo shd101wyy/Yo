@@ -13,6 +13,21 @@ PRE-EXISTING `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisect
 to before any of this work) remains — tracked independently; it does not affect the
 BASELINE or the corpus. The history below is retained for context.
 
+**CAPTURE WORKS END-TO-END; remaining issue is the `+` OPERATOR body type (2026-06-18,
+commit 6085f2b2f).** A capturing closure that RETURNS the captured value runs → 42
+(corpus fixture `io_async_capture_42.yo`). The remaining `void*` issue is NOT the
+capture machinery: a NO-CAPTURE operator body `io.async((io)=>(i32(20)+i32(22)))`
+ALSO lowers to void*. The closure body is def-evaluated with the synthesized closure
+return type (`SomeT _ret`) as the EXPECTED type, which coerces the `+` result to
+SomeT → the body type is SomeT → the concrete result-refine (guarded on
+`has_some==0`) is skipped → closure return + future result are void*. The fix is to
+let the operator-bodied closure type naturally: either clear the expected type for a
+marked closure's body def-eval (so `i32+i32` → i32), or resolve the body SomeT to its
+concrete in the result-refine. A plain-value body (`x := i32(42); x` or a captured
+value) already types concretely, which is why the BASELINE + capture-return fixtures
+pass. This is a def-eval expected-type / operator-resolution interaction, separate
+from the (now-working) capture codegen.
+
 **CAPTURING-CLOSURE CODEGEN LANDED 2026-06-18 (commit e7ba72e7e).** The capture
 machinery now works: the capture-struct literal `(<cap>){ .base = base }` is built
 (from the capture struct field labels — each is the same-named in-scope var), and

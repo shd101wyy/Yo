@@ -1,0 +1,10 @@
+{ println } :: import("std/fmt");
+run :: (fn(io : Io) -> i32)({
+  base := i32(10);
+  task := io.async((io : Io) => (base + i32(32)));
+  io.await(task, io)
+});
+main :: (fn(io : Io) -> unit)({
+  println(run(io));
+});
+export(main);

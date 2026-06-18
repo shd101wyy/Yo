@@ -60,7 +60,8 @@ open(import("std/string"));
 } :: import("../../value.yo");
 {
   EvalContext,
-  CapturedVarInfo
+  CapturedVarInfo,
+  ExpectedTypeCtx
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
@@ -898,6 +899,15 @@ evaluate_anonymous_function_implementation :: (
       body_eval_env,
       ctx
     );
+    // Phase 5 (closure codegen): for a marked io.async closure, the synthesized
+    // closure return type is a fresh `SomeT _ret` — using it as the body's expected
+    // type coerces an operator-bodied result (e.g. `i32+i32`) to that SomeT, so the
+    // body types as SomeT and the concrete result-refine is skipped (closure return
+    // + future result then lower to void*). Clear the expected type so the body
+    // types naturally (the closure's result is inferred from the body anyway).
+    if(mark_closure_for_codegen, {
+      body_eval_ctx.expected_type = Option(ExpectedTypeCtx).None;
+    });
     anon_body_out := ArrayList(AstExpr).new();
     _trial_eval_anon_body(body_for_def_eval, body_eval_env, body_eval_ctx, anon_body_out);
     // Channel 1: re-raise a flow violation the trial swallow ate (a
