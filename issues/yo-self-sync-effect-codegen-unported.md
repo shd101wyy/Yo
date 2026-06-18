@@ -165,7 +165,18 @@ NEXT: find the `UnknownVal(Func)`-callee dispatch arm in `evaluate_function_call
 and route its arg eval through (or replicate) the comptime coercion. Then the
 effect-specific escape-flag layer (`isControlFunction` codegen) on top.
 
-### FURTHER NARROWED (2026-06-18): backtick eval throws under expected-String.
+### ✅ BACKTICK EDGE RESOLVED (2026-06-18).
+
+Fixed via the `comptime_str.to_string()` root cause (env.yo
+`_resolve_str_type_from_env` fell back to `t_i32()` instead of `t_str()`; see
+`issues/yo-self-comptime-str-to-string-codegen.md`). The original effect handler
+with a backtick message — `raise(\`zero\`)` — now compiles + runs → `zero`/`104`
+matching TS (fixture `effect_handler_backtick.yo`, corpus 72/72). So synchronous
+effect handlers (return/resume) now work with NATURAL backtick messages, not just
+`String.from(...)`. The only remaining effects piece is unwind PART 2 (the
+escape-propagation, below).
+
+### FURTHER NARROWED (2026-06-18, now resolved): backtick eval threw under expected-String.
 
 A `__CPB` probe at `check_if`'s arg-eval confirmed: `check_if(msg)` IS entered with
 `resolved_pt=String`, the "enter" probe fires, but the "after-argeval" probe does
