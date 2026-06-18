@@ -1,6 +1,20 @@
 # yo-self closure codegen gate (blocks the async BASELINE)
 
-**Status:** OPEN — the next blocker after the async/await emitter ports + wiring.
+**Status: ✅ RESOLVED 2026-06-18 (commit 100f1c3c4).** The async BASELINE compiles
+end-to-end via `yo-self-bin` and runs → prints `42` (matches the TS reference);
+added as the permanent corpus fixture `tests/codegen-bootstrap/io_async_await_42.yo`
+(corpus 59/59, differential-clean). Resolution (all in the commit): mark every `=>`
+closure for codegen (capture-param convention); build its capture struct
+(`capture_type`); FORCE body def-eval for marked closures (was deferred as generic
+→ "Failed to transpile"); re-register the closure Func type with the concrete body
+RESULT (`t_func_simple`); don't skip marked closures in codegen; and resolve the
+sync-future result type via the closure `value` FuncVal body. NB: a separate
+PRE-EXISTING `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisected
+to before any of this work) remains — tracked independently; it does not affect the
+BASELINE or the corpus. The history below is retained for context.
+
+**Original status (now resolved):** OPEN — the next blocker after the async/await
+emitter ports + wiring.
 
 ## Summary
 

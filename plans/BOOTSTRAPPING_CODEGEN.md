@@ -721,6 +721,20 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    (capture-struct machinery + closure-function collection/emission), not anything
    in async.ts/await.ts (both complete). See
    `issues/yo-self-closure-codegen-gate.md`.
+   **✅ BASELINE GREEN 2026-06-18 (commit 100f1c3c4).** The closure-codegen gate is
+   CLOSED — the canonical async fixture now compiles end-to-end via `yo-self-bin`
+   AND runs → prints `42` (matches TS); added as the permanent corpus fixture
+   `tests/codegen-bootstrap/io_async_await_42.yo` (corpus 59/59, differential-clean).
+   Fix: mark every `=>` closure (capture-param `void* closure_context` convention) +
+   build its capture struct + FORCE body def-eval for marked closures (was deferred
+   as "generic" → "Failed to transpile") + re-register the closure Func type with
+   the concrete body RESULT + don't skip marked closures + resolve the sync-future
+   result type via the closure `value` FuncVal body
+   (`issues/yo-self-closure-codegen-gate.md`, RESOLVED). REMAINING Phase 5: widen to
+   the full async/effects/sync/parallelism test files (effect handlers, captured
+   async blocks, io.spawn/JoinHandle, multi-await FSMs). A PRE-EXISTING
+   `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisected to before
+   this work) is tracked independently.
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
 co-exists — there is no partial runnable async program. Build #1+#2 first
 (testable via `check`), then the FSM bottom-up against a minimal `io.async` +
