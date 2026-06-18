@@ -11,6 +11,32 @@ zero regressions. Fix below. **`JoinHandle.await` (`io.spawn` → `handle.await`
 `is_io_await_call`; apply the same mechanism to `io.spawn` (register under the
 `JoinHandle(T)` argument id) + the `handle.await` field-fn dispatch.
 
+### JoinHandle.await — instrumented findings (2026-06-18, next-session start)
+
+Probed `is_io_spawn_call` / `is_join_handle_await_call` at the result arms:
+- `io.spawn(task, io)` reaches the `try_to_call` runtime-return path (2729) and
+  returns `<struct:struct_yo_id_3665>` — the `JoinHandle` struct. The print shows
+  no visible type-argument SomeType (need to inspect `JoinHandle`'s
+  `type_arguments` — `T` should be the future-output SomeType id already
+  registered by `io.async`).
+- `handle.await(io)` reaches `evaluate_function_call` (entry probe fires) but
+  records its result via NONE of the probed arms (out_op @ ~984, out_m @ ~2961,
+  try_to_call rt @ 2729). So it exits through a still-unidentified arm (or throws)
+  — `result := handle.await(io)` produces NO C declaration at all (only `handle`
+  is declared, then `return // Failed to transpile (result.unwrap)()`).
+
+So two more sub-problems beyond `io.await`:
+1. Find `handle.await`'s actual result-recording arm (continue the same
+   instrument-the-remaining-`out_*`-sites method; candidates left: out_m@1298
+   module, out_u, out_idx, out_none@~3011, the body-exec `out`).
+2. Its result is `Option(T)` (not a bare `T`), so the refinement must resolve the
+   SomeType NESTED inside `Option`'s type argument — generalize the io.await
+   refinement to recurse into enum/struct `type_arguments` (or reuse a
+   substitute-by-registered-id walk), so `result : Option(Point)` and
+   `result.unwrap()` dispatches.
+Also verify `io.spawn`'s `JoinHandle(T)` carries the registered future-output
+SomeType id (so step 2's lookup hits).
+
 ### The fix that landed (narrow, regression-free)
 
 In `evaluate_function_call`'s `try_to_call_function_with_arguments` runtime-return
