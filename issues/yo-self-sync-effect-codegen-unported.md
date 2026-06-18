@@ -90,6 +90,29 @@ but bounded and codegen-only. Validate against `effect_handler_resume.yo` (must
 stay green) + a new `effect_handler_unwind` fixture (currently prints the wrong
 value: 0 vs TS 42).
 
+### PART 2 — EXACT C-level transformation needed (2026-06-18).
+
+From the `eu2` (i32 unwind) output, the two missing post-call checks are precise:
+- **In `run` (the install frame — it holds the `(raise : Raise) = …` binding):**
+  currently `int32_t _t = yo_id_5626(0, (void*)raise); return _t + 8;`. Needs,
+  right after the `_t = safe(...)` call:
+  `if (__yo_effect_escaped) { __yo_effect_escaped = 0; int32_t _u; memcpy(&_u,
+  __yo_unwind_value, sizeof(int32_t)); return _u; }` — so `run` returns the
+  unwound 42 and DISCARDS the `+ 8` continuation.
+- **In `safe` (calls the ctl handler `raise`):** after `raise(...)`, needs
+  `if (__yo_effect_escaped) return (int32_t){0};` — propagate up to `run`.
+
+DETECTION (available from yo-self's existing info, no evidence machinery needed
+for the single-handler synchronous case): emit the PROPAGATE check after a call
+whose callee is a `ctl` fn (the `raise` param's type is `Raise = ctl(...)`, and
+`is_control_fn` tracks control fns); emit the INSTALL check + value-extract after a
+call, in a function that contains a `(name : CtlType) = …` handler binding (the
+install frame). This is the same logic as TS `emitEffectUnwindCheck`
+(other-fn-call.ts:2778) with `isHandlerInstallation` from the handler binding. The
+wiring point is the call-emission site in `generation.yo`/`other_fn_call.yo` (after
+the C call string + result-temp assignment). CENTRAL change (corpus 72/72 at
+stake) — validate the full corpus + `effect_handler_resume`/`_backtick` stay green.
+
 ### PART 1 LANDED (2026-06-18): generate_unwind ported; PART 2 (the harder half).
 
 `generate_unwind` is ported (commit fdff43d42, corpus 70/70) — it sets
