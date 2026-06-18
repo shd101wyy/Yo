@@ -165,6 +165,21 @@ NEXT: find the `UnknownVal(Func)`-callee dispatch arm in `evaluate_function_call
 and route its arg eval through (or replicate) the comptime coercion. Then the
 effect-specific escape-flag layer (`isControlFunction` codegen) on top.
 
+### FURTHER NARROWED (2026-06-18): backtick eval throws under expected-String.
+
+A `__CPB` probe at `check_if`'s arg-eval confirmed: `check_if(msg)` IS entered with
+`resolved_pt=String`, the "enter" probe fires, but the "after-argeval" probe does
+NOT — so `evaluate_expression_raw(\`zero\`, …, expected_type=String)` THROWS during
+apply's def-time body eval (swallowed → no ExprInfo → `// Failed to transpile`).
+So this is NOT a fn-pointer-coercion gap — it's the **backtick/comptime_str
+template arg evaluated against an expected `String` type** that throws (the
+`("zero".to_string)()` desugaring under expected-String, during def-eval).
+`String.from("zero")` with the same expected String does NOT throw. NARROW edge —
+synchronous effects work with `String.from(...)` messages
+(`effect_handler_resume.yo` is green). NEXT (deprioritized vs unwind part 2 +
+parallelism): probe inside the backtick/template eval (or to_string method
+resolution) to find why expected-String throws under def-eval, then fix.
+
 ### NARROWED (2026-06-18): the backtick arg EVAL throws, before param-matching.
 
 The `UnknownVal(Func)`-callee call DOES route through `try_to_call_function_with_
