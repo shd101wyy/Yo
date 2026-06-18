@@ -1,0 +1,13 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+run :: (fn(io : Io) -> i32)({
+  task := io.async((io : Io) => {
+    io.await(yield(io), io);
+    i32(42)
+  });
+  io.await(task, io)
+});
+main :: (fn(io : Io) -> unit)({
+  println(run(io));
+});
+export(main);
