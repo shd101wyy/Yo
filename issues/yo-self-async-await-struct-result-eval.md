@@ -58,3 +58,36 @@ the concrete output from the awaited future's type), so downstream expressions o
 the awaited value type correctly and get ExprInfo. This is the evaluator
 counterpart of the codegen registration above; once it lands, add a corpus fixture
 (`io_async_struct_field` — currently kept OUT of the green corpus).
+
+## Dispatch-path finding (2026-06-18 — avoid this dead end)
+
+The fix is NOT in the generic FuncVal-call `forall` inference loop in
+`evaluate_function_call` (`function.yo`, the `fa_bound` direct-match +
+receiver-type-args + capture fallbacks). I implemented and tested a recursive
+`_infer_forall_nested` helper there (binds a `forall` from a NESTED position of a
+declared param type vs the arg type — `Func` result/params, `FutureTraitT` output,
+`Struct` type_arguments) and wired it as a fallback. It is correct in principle,
+left the corpus at 65/65 with zero regressions, but fixed **neither** this case
+**nor** `JoinHandle.await` — so it was reverted as speculative (no concrete win).
+
+Reason: neither blocker routes through that loop.
+- **struct-result async** is **builtin-dispatched** (`io.async`/`io.await` are io
+  builtins). The await result type must be resolved on the builtin-call path, and
+  the awaited value's type must resolve at EVAL time (not just codegen) so `p.x`
+  gets ExprInfo.
+- **`JoinHandle.await`** is a **field-fn call** (`await` is a function-typed FIELD
+  of `JoinHandle`). `handle.await(io)` returns `Option(T)`; `T` stays SomeType so
+  `result := handle.await(io)` is `Option(SomeT)` and `result.unwrap()` →
+  `// Failed to transpile`. The `T` must be bound from the receiver
+  `handle : JoinHandle(T_concrete)` on the **field-fn-call dispatch path** (the
+  receiver's `type_arguments`), which is a different code path from the FuncVal
+  forall loop. TS reference prints `42` for:
+  ```rust
+  run :: (fn(io : Io) -> i32)({
+    task := io.async((io : Io) => i32(42));
+    handle := io.spawn(task, io);
+    result := handle.await(io);
+    result.unwrap()
+  });
+  ```
+  (`io.spawn(task, io)` takes 2 args; `handle.await(io)` returns `Option(T)`.)
