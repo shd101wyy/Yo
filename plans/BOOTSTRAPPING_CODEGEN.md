@@ -735,6 +735,21 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    async blocks, io.spawn/JoinHandle, multi-await FSMs). A PRE-EXISTING
    `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisected to before
    this work) is tracked independently.
+   **✅ CLOSURE + FSM CODEGEN WORKING 2026-06-18.** Validated end-to-end via
+   compile-path corpus fixtures (all run → `42`, differential-clean; corpus 63):
+   `io_async_await_42` (no-capture sync), `io_async_capture_42` (capture+return),
+   `io_async_capture_add` (capture + `+` operator), `io_async_fsm_yield` (single
+   await INSIDE → state machine), `io_async_fsm_multi` (two awaits + cross-boundary
+   locals). Fixes landed: capture-param convention + capture-struct literal + body
+   capture-access (`((cap*)closure_context)->f`); func_id await-analysis side-table
+   for FSM-vs-sync dispatch; clearing the synthesized SomeT expected type for marked
+   closure bodies (so operator bodies type concretely). REMAINING Phase 5: effect
+   handlers, io.spawn/JoinHandle, parallelism. REMAINING for the full
+   `tests/async_await.test.yo` (TS 116/116) and Phase 6: **`run_test` is unwired** in
+   `yo-self/main.yo` (throws "codegen removed") — wiring it is the test-runner port
+   (`src/test-runner.ts`, ~1632 LOC: extractTests + generateBatchedTestProgram —
+   inline each test body into a `main` dispatched by `YO_TEST_INDEX` — + per-test
+   run loop + summary parse). `run_compile` is fully wired and is the model.
 NOTE (same lesson as Phase 1): no differential PASS until a large mass of #1–#4
 co-exists — there is no partial runnable async program. Build #1+#2 first
 (testable via `check`), then the FSM bottom-up against a minimal `io.async` +
