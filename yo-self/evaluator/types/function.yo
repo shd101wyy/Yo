@@ -34,7 +34,7 @@ open(import("std/fmt"));
   BK_TUPLE
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
@@ -3747,7 +3747,27 @@ _resolve_some_types_deep :: (
   (sti : usize) = usize(0);
   while(sti < some_types.len(), {
     st := match(some_types.get(sti),.Some(t) => t,.None => t_unit());
-    resolved := get_value_of_some_type_from_env(env, st);
+    (resolved : TypeValue) = get_value_of_some_type_from_env(env, st);
+    // If the env resolves `st` only to ANOTHER SomeType (e.g. an async future's
+    // output type, which yo-self keeps unresolved through eval), try the codegen
+    // resolved-concrete registry — the same resolvedConcreteType bridge the
+    // io.await/io.spawn refinements use. This lets `io.spawn`'s `JoinHandle(T)`
+    // return type concretize `T` to the spawned future's actual output so the
+    // `handle.await` generic-impl match can bind it. See
+    // issues/yo-self-async-await-struct-result-eval.md.
+    if(is_some_type(resolved), {
+      match(
+        resolved,
+        .SomeT({ id : rsid }) => match(
+          lookup_some_resolved_concrete(rsid),
+          .Some(c) => {
+            resolved = c;
+          },
+          .None => ()
+        ),
+        _ => ()
+      );
+    });
     if(!(is_some_type(resolved)), {
       match(
         st,

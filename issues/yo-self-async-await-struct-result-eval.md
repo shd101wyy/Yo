@@ -11,6 +11,25 @@ zero regressions. Fix below. **`JoinHandle.await` (`io.spawn` → `handle.await`
 `is_io_await_call`; apply the same mechanism to `io.spawn` (register under the
 `JoinHandle(T)` argument id) + the `handle.await` field-fn dispatch.
 
+### ✅ JoinHandle.await RESOLVED (2026-06-18) — faithful registry-bridge fix.
+
+`tests/codegen-bootstrap/io_spawn_join_handle.yo` (`io.async` → `io.spawn` →
+`handle.await` → `Option(T)` → `.unwrap()`) runs → `42`; corpus 68/68, zero
+regressions; TS agrees. Two coordinated changes, both using the established
+resolvedConcreteType registry bridge (`g_some_resolved_concrete`) — NOT the
+invented cfid/structural schemes (all reverted):
+1. `_resolve_some_types_deep` (`types/function.yo`): when the callee env resolves a
+   forall only to ANOTHER SomeType (the async future output, kept unresolved
+   through eval), chain through `lookup_some_resolved_concrete` so io.spawn's
+   `JoinHandle(T)` return type concretizes `T` to the spawned output.
+2. `_bind_forall_from_type_args` (`impl.yo`): when a receiver type-argument is a
+   SomeType, resolve it via `lookup_some_resolved_concrete` before the
+   skip-SomeType guard, so the `handle.await` generic-impl match binds `T`.
+Faithful to TS (which resolves the future output via resolvedConcreteType and so
+matches `JoinHandle(i32)`'s `await` impl by funcId); yo-self keeps the output as a
+SomeType through eval for the FSM, and the registry bridge supplies the concrete at
+the match — the same pattern as the landed io.await fix.
+
 ### ⭐ CORRECTED ROOT CAUSE (2026-06-18) — the cfid theory was WRONG.
 
 Direct instrumentation overturned the multi-step cfid diagnosis below:
