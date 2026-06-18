@@ -24,7 +24,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
-{ is_control_fn } :: import("../../function_value.yo");
+{ is_control_fn, get_func_type } :: import("../../function_value.yo");
 {
   is_struct_type,
   is_enum_type,
@@ -408,6 +408,12 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
           field_values.get(i),
           .Some(value) => cond(
             is_func_val(value) => {
+              // Collect the function's SIGNATURE types (param + return), not just
+              // its body — a param type used only in the signature (e.g. a
+              // non-async `main(io : Io)` whose body never mentions Io) would
+              // otherwise never be collected. Bridges Gap 2 via the get_func_type
+              // side-table. Mirrors collectTypesFromFunctionType (collection.ts:127).
+              collect_types_from_function_type(get_func_type(_fv_id(value)), context);
               collect_types_from_expr(_fv_body(value), context, info);
             },
             true => {
@@ -453,7 +459,12 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
         found_new = true;
         match(
           context.get_function_entry(key.clone()),
-          .Some(entry) => collect_types_from_expr(_fv_body(entry.value), context, info),
+          .Some(entry) => {
+            // Signature types (param + return) in addition to the body — see the
+            // module-level branch above. Mirrors collectTypesFromFunctionType.
+            collect_types_from_function_type(get_func_type(key.clone()), context);
+            collect_types_from_expr(_fv_body(entry.value), context, info);
+          },
           .None => ()
         );
       });
