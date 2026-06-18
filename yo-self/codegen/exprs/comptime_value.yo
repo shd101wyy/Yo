@@ -361,6 +361,20 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         }
       )
     ),
+    // A first-class function VALUE lowers to its registered C function name —
+    // i.e. a function pointer. Mirrors `comptime-value.ts:266-283`
+    // (`isFunctionValue(value)` → `context.functions[value.funcId].cName`). The
+    // function must have been collected for codegen; if not, emit a diagnostic.
+    .FuncVal(_, _, _, _, _, _, _, _, fid) => match(
+      context.get_function_entry(fid),
+      .Some(e) => e.c_name,
+      .None => {
+        c := String.from("/* Error: no C function name for func value ");
+        c.push_string(fid);
+        c.push_str(" */");
+        c
+      }
+    ),
     _ => String.from("/* skip generating value */")
   )
 );

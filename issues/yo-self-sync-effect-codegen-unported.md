@@ -38,6 +38,29 @@ and the evaluator effect-analysis (`src/evaluator/effects/effect-analysis.ts`,
 263 LOC). Port first-class fn-pointer values FIRST (faithfully, mirroring TS's
 fn-value codegen), then the effect-specific escape-flag layer on top.
 
+### PROGRESS (2026-06-18): first-class fn-VALUE codegen LANDED.
+
+The fn-value-lowering piece is done (faithful port of `comptime-value.ts:266-283`):
+`generate_comptime_value` now emits a `FuncVal`'s registered C function name (=a
+function pointer) instead of `/* skip generating value */`. Combined with the
+already-working fn-pointer param TYPE lowering (`int32_t (*f)(...)`) and indirect
+call, these now work end-to-end (corpus fixture `fn_pointer_param.yo`, 69/69):
+- a bare `fn`-value bound to a variable (`(h : (fn..)) = (fn..)({...})`)
+- a `fn`-typed parameter (`f : (fn(n : i32) -> i32)`)
+- an indirect call, including inside `cond` (`f()`, `f(i32(7))`)
+
+REMAINING edge: a fn-pointer call with a **comptime_str (backtick) argument**
+(`f(\`zero\`)`) still fails — the comptime_str→String coercion that
+`check_if_function_parameter_matches_argument` applies on the FuncVal/try_to_call
+path is NOT reached for an `UnknownVal(Func)`-callee fn-pointer call (verified: a
+`__CP` probe on comptime_str args never fires for the `f`-call's String param). So
+the fn-pointer-call arg path (the `UnknownVal(Func)`-callee dispatch in
+`function.yo`) evaluates args WITHOUT the comptime coercion. Non-comptime args
+(i32, `String.from(...)`) work; only bare backtick/comptime_str literals fail.
+NEXT: find the `UnknownVal(Func)`-callee dispatch arm in `evaluate_function_call`
+and route its arg eval through (or replicate) the comptime coercion. Then the
+effect-specific escape-flag layer (`isControlFunction` codegen) on top.
+
 ## Minimal reproducer
 
 ```rust
