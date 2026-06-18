@@ -11,7 +11,29 @@ zero regressions. Fix below. **`JoinHandle.await` (`io.spawn` → `handle.await`
 `is_io_await_call`; apply the same mechanism to `io.spawn` (register under the
 `JoinHandle(T)` argument id) + the `handle.await` field-fn dispatch.
 
-### JoinHandle.await — instrumented findings (2026-06-18, next-session start)
+### JoinHandle.await — DECISIVE finding (2026-06-18): method-resolution, not result-refine
+
+Instrumented `is_join_handle_await_call` at the result arms: `handle.await(io)`
+records via the **`out_none`** arm (the no-method-found path) with result type
+**`unit`**. So `JoinHandle.await` is NOT a result-type-refinement case like
+`io.await` — the `await` impl method on `JoinHandle(T)`
+(`impl(forall(T), JoinHandle(T), await : __yo_join_handle_await)` in the prelude)
+is **not being resolved** for the receiver `handle`, so the call soft-falls to a
+unit-returning generic call. `result := handle.await(io)` is therefore typed
+`unit`, no `result` C declaration is emitted, and `result.unwrap()` →
+`// Failed to transpile`.
+
+**So the fix is in METHOD RESOLUTION, not the io.async/io.await result bridge.**
+The generic-impl method lookup must find `JoinHandle(T)`'s `await` for a receiver
+whose type is `JoinHandle(<future-output>)` (after `io.spawn`). Likely the
+receiver's `JoinHandle` type arg `T` is unresolved / the generic-impl match
+(`try_match_generic_impl` / `get_receiver_methods_by_name_from_env`) doesn't bind
+it, so the method isn't found. Next step: instrument the method-lookup for
+`handle.await` (why `get_receiver_methods` returns none for `JoinHandle.await`),
+then ensure the `await` impl resolves; only after the method dispatches will the
+`Option(T)` result + `.unwrap()` need the (separate) nested-SomeType resolution.
+
+### JoinHandle.await — earlier instrumented findings (superseded by the above)
 
 Probed `is_io_spawn_call` / `is_join_handle_await_call` at the result arms:
 - `io.spawn(task, io)` reaches the `try_to_call` runtime-return path (2729) and
