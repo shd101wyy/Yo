@@ -2,6 +2,39 @@
 
 ## Status
 
+✅ **RESOLVED for `io.await` (struct + any result type) — 2026-06-18.** A bound
+`p := io.await(...)` now types concretely and downstream `p.field` compiles;
+`tests/codegen-bootstrap/io_async_struct_field.yo` runs → `42`, corpus 66/66,
+zero regressions. Fix below. **`JoinHandle.await` (`io.spawn` → `handle.await` →
+`Option(T)` → `.unwrap()`) is still open** — it is a separate chain
+(`is_join_handle_await_call` + `io.spawn`'s `JoinHandle(T)` return), not
+`is_io_await_call`; apply the same mechanism to `io.spawn` (register under the
+`JoinHandle(T)` argument id) + the `handle.await` field-fn dispatch.
+
+### The fix that landed (narrow, regression-free)
+
+In `evaluate_function_call`'s `try_to_call_function_with_arguments` runtime-return
+path (`function.yo`, where `io.async`/`io.await` extern builtins actually record
+their result — located by instrumentation, NOT the FuncVal-forall loop nor the
+2446 path):
+- `io.async`: extract the future-output SomeType id via `_future_output_some_id`
+  (which unwraps the `Impl(Future(T,E))` = a `SomeT` whose `required_trait_types`
+  holds the `FutureTraitT`), read the closure's CONCRETE result from the closure
+  arg's `ExprInfo.value` `FuncVal` → `get_func_type(func_id).result` (the recorded
+  arg type still has a SomeType result; the side-table has the refined `Func`),
+  and `register_some_resolved_concrete(output_id, result)`.
+- `io.await`: when this call's own result type is that SomeType,
+  `lookup_some_resolved_concrete` and set `ret_type_rt` (the bound variable's
+  type) to the concrete type — NOTHING ELSE (no env binding, no future-type
+  change, no `synthesize_types` change).
+
+Two prior mistakes corrected by this: (a) `cinfo.closure_function_value` is None
+for the io.async closure — use `cinfo.value` instead; (b) the result is
+`Impl(Future(...))` (a SomeT-with-required-FutureTrait), not a bare `FutureTraitT`
+— must unwrap.
+
+## (Historical) Status
+
 PARTIAL. The **codegen** side of resolving an `io.await` result type to its
 concrete type is now fixed (two commits below); a struct-returning `io.async`
 whose awaited value is **field-accessed** still fails because the **evaluator**

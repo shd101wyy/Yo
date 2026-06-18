@@ -33,7 +33,9 @@ open(import("std/string"));
   expr_info_table_get,
   expr_info_table_set,
   record_method_callee_type,
-  record_method_callee_value
+  record_method_callee_value,
+  register_some_resolved_concrete,
+  lookup_some_resolved_concrete
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -45,7 +47,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
-{ is_io_async_call } :: import("../async/await_analysis.yo");
+{ is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
@@ -641,6 +643,44 @@ _try_rewrite_range_index_to_slice_copy :: (
   // node (TS mutates expr.func in place — same node identity).
   Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), box(method_access), new_args, false, tok))
 });
+/// The SomeType id of a Future type's OUTPUT, unwrapping an `Impl(Future(T,E))`
+/// constraint. `io.async`'s return type is `Impl(Future(T, E))`, represented as a
+/// `SomeT` whose `required_trait_types` holds the `FutureTraitT` (not a bare
+/// `FutureTraitT`), so the output must be reached through that constraint. Returns
+/// the output's SomeType id (when the output is itself an unresolved SomeType), or
+/// `None`. Used to bridge the async closure's concrete result to the matching
+/// `io.await` site without touching the future type — see
+/// issues/yo-self-async-await-struct-result-eval.md.
+_future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
+  match(
+    t,
+    .FutureTraitT({ output : o }) => match(o.*,.SomeT({ id : oid }) => Option(String).Some(oid), _ => Option(String).None),
+    .SomeT({ required_trait_types : rtts }) => {
+      (i : usize) = usize(0);
+      (found : Option(String)) = Option(String).None;
+      while((i < rtts.len()) && found.is_none(), {
+        match(
+          rtts.get(i),
+          .Some(rt) => match(
+            rt,
+            .FutureTraitT({ output : o }) => match(
+              o.*,
+              .SomeT({ id : oid }) => {
+                found = Option(String).Some(oid);
+              },
+              _ => ()
+            ),
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => Option(String).None
+  )
+);
 /// arguments, and returning the annotated expression.
 ///
 /// Phase 2bn: handles function definitions (TypeVal callee) and simple FuncVal calls.
@@ -2692,7 +2732,64 @@ Fix: wrap the call:
           false,
           exn
         );
-        ret_type_rt := call_result_rt.return_type;
+        (ret_type_rt : TypeValue) = call_result_rt.return_type;
+        // Phase 5 — narrow async result-type refinement (io.async/io.await reach
+        // evaluate_function_call HERE: extern builtins dispatched via
+        // try_to_call_function_with_arguments — confirmed by instrumentation).
+        // Does NOT touch the future type, any env binding, or synthesize (binding
+        // `T` at synthesis regresses ALL async — the pipeline keeps the future
+        // output as an unresolved SomeType through eval; see
+        // issues/yo-self-async-await-struct-result-eval.md). Instead: at io.async,
+        // record the closure's CONCRETE result (read from the func_id side-table,
+        // the same eval→codegen bridge the async emitter uses) under the
+        // future-output SomeType id (the result is `Impl(Future(T,E))`, a SomeT
+        // whose required-trait FutureTraitT carries the output — unwrapped by
+        // `_future_output_some_id`); at io.await, refine ONLY this call's OWN
+        // result type (the bound variable's type) via that record, so downstream
+        // `p.field` / `result.unwrap()` get ExprInfo.
+        // `lookup_some_resolved_concrete` has no other evaluator reader.
+        if(is_io_async_call(expr), {
+          match(
+            _future_output_some_id(ret_type_rt),
+            .Some(oid) => match(
+              args.get(usize(0)),
+              .Some(carg) => match(
+                expr_info_table_get(ctx.expr_info_table, ast_expr_id(carg)),
+                .Some(cinfo) => match(
+                  cinfo.value,
+                  .Some(cfv) => match(
+                    cfv,
+                    .FuncVal(_, _, _, _, _, _, _, _, cfid) => match(
+                      get_func_type(cfid),
+                      .Func({ result : rr }) => if(!(is_some_type(rr.*)), {
+                        register_some_resolved_concrete(oid.clone(), rr.*.clone());
+                      }),
+                      _ => ()
+                    ),
+                    _ => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+        if(is_io_await_call(expr), {
+          match(
+            ret_type_rt,
+            .SomeT({ id : tid }) => match(
+              lookup_some_resolved_concrete(tid),
+              .Some(concrete) => {
+                ret_type_rt = concrete;
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+        });
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
