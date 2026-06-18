@@ -788,7 +788,7 @@ widen. SURFACED BUG along the way:
 accepts `io.await(task)` (missing `e`) that TS rejects; fix the field-fn call
 required-arg-count check during this phase.
 
-**PHASE 5 STATUS SUMMARY (2026-06-18, ~80% — codegen-bootstrap corpus 64→72).**
+**PHASE 5 STATUS SUMMARY (2026-06-18, ~88% — codegen-bootstrap corpus 64→74).**
 LANDED + validated this session (each a 1-to-1 `src/` port, zero corpus regressions):
 - Async FSM + I/O runtimes; async RESULT-TYPE resolution across i32/str/bool/struct/
   multi-await/multi-async (commits incl. bool-result, await-result register +
@@ -814,22 +814,27 @@ REMAINING (each scoped in issue docs, multi-session):
   escape-check hack (yo-self's resume uses a direct-pointer simplification that
   diverges from TS's evidence model). See
   `issues/yo-self-sync-effect-codegen-unported.md`.
-- **Parallelism** (`parallelism/runtime.ts` 474 + `exprs/parallelism.ts` 318) —
-  unported (no yo-self parallelism dir). Parts (verified 2026-06-18):
-  (0) ✅ PREREQUISITE ALREADY DONE — the thread types `__yo_thread_t`/
-  `__yo_thread_fn`/`__YO_THREAD_TYPE`/`__YO_THREAD_SYNC_TYPE`/`__YO_COND_TYPE`/
-  `__yo_raw_thread_create`/`PARALLELISM_DEBUG` etc. ARE emitted in yo-self's
-  `codegen/types/generation.yo:317-414` (they came with the async/types port; a
-  prior plan note wrongly said they were missing from `gc_runtime.yo` — they live
-  in `types/generation.yo`). `uses_parallelism` is ALSO already tracked
-  (`async.yo:1924`, `context.yo:187`). So the port reduces to: (1)
-  `generate_parallelism_runtime` (`parallelism/runtime.ts`, one ~474-LOC
-  platform-conditional C-template fn referencing those existing types — break into
-  `emit_string_line` + `cond()` platform branches like the async runtimes; wire
-  into `generate_all_functions` gated on `uses_parallelism`, beside
-  `generate_async_runtime`); (2) the `exprs/parallelism.ts` emitter (318 LOC — the
-  `parallel`/spawn-block codegen); (3) a parallel corpus fixture. Parts 1+2+3 are
-  all needed before the subsystem is exercisable/testable.
+- **Parallelism** (`parallelism/runtime.ts` 474 + `exprs/parallelism.ts` 318).
+  (0) ✅ PREREQUISITE DONE — the thread types `__yo_thread_t`/`__yo_thread_fn`/
+  `__YO_THREAD_TYPE`/`__YO_THREAD_SYNC_TYPE`/`__YO_COND_TYPE`/
+  `__yo_raw_thread_create`/`PARALLELISM_DEBUG` are emitted in
+  `codegen/types/generation.yo:317-414`; `uses_parallelism` is tracked
+  (`async.yo:1924`, `context.yo:187`).
+  (1) ✅ DONE (commit 357dca084) — `generate_parallelism_runtime` ported to
+  `yo-self/codegen/parallelism/runtime.yo` (faithful 1-to-1, wired into
+  `generate_all_functions` gated on `uses_parallelism`). NOTE: emitted as many
+  0-interpolation `emit_string_line` calls, NOT one 16-interpolation template —
+  a single huge interpolated template makes the TS codegen hang >28min (the
+  concat-AST is quadratic in interpolation count; template SIZE is fine, cf.
+  `runtime_io_macos.yo`'s 1700-line 0-interp template). corpus stays 74/74.
+  (2) ❌ DEFERRED — the `exprs/parallelism.ts` spawn emitter
+  (`generateThreadSpawnCall`/`generateWorkerSpawnCall`/`generateSpawnWrapper`).
+  GATED on the deferred closure-codegen subsystem (`implClosureCallMap` /
+  `registerImplClosureCallMappings`): the spawn wrapper needs `consumedCaptures`
+  for RC-cleanup NULLing, which yo-self does not track. Porting it without that
+  would silently drop the double-free guard. See
+  `issues/yo-self-parallelism-emitter-gated-on-closure-codegen.md`.
+  (3) a parallel corpus fixture follows (2).
 
 ### Phase 6 — Self-host fixpoint
 
