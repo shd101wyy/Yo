@@ -76,6 +76,21 @@ comptime fn is reached via `FuncVal`s with different func_ids in different
 contexts, so its instantiations get different (or empty) cfids and the
 generic-impl match's `same_constructor3` never holds.
 
+**TESTED (2026-06-18): a scoped structural fallback at the synthesize struct case
+ALSO does not fix it.** Added (then reverted) a fallback in `synthesizer.yo`'s
+`is_struct_type && is_struct_type` case: when both structs are ANONYMOUS (empty
+name) with identical field labels and equal type-arg arity, skip the
+"incompatible struct types" throw and fall through to field unification (scoped so
+named newtypes like Meters/Seconds still require id/cfid identity — sound). Corpus
+stayed 67/67 but JoinHandle.await STILL failed. Implication: the
+`try_match_generic_impl` match for `JoinHandle(T)` vs the spawn-result does NOT
+fail at the struct-id throw I targeted — it fails EARLIER or ELSEWHERE
+(`_root_shapes_could_match` step 1b, or the per-field unification of `*(T)` vs
+`*(<output>)`, or the receiver/pattern aren't both bare `Struct`s at that point —
+one may be `Impl`/`SomeT`-wrapped). NEXT: re-instrument INSIDE
+`try_match_generic_impl` (print which step returns None / where synthesize throws)
+for the `await` entry specifically, before attempting another fix.
+
 **TESTED (2026-06-18): canonicalizing the comptime stamp ALONE does not fix it.**
 Implemented a canonical cfid at `comptime_fn.yo` (stamp the constructor's
 definition-site source position `module_path:row:column` from the body token
