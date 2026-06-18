@@ -62,6 +62,31 @@ function. Different result types (`Future(i32)` vs `Future(Point)`) have distinc
 `type_key`s and don't collide — which is why single-block and mixed-type cases
 pass.
 
+## REFINEMENT (2026-06-18 — a `type_key` FutureTrait case does NOT fix it)
+
+Tried adding a `.FutureTraitT({ output : o }) => \`__future_of_${recur(o)}\`` case
+to `type_key` (so two `Future(T)`s key distinctly by output). It had NO effect and
+was reverted. Reason: the io.async RESULT type is `Impl(Future(T,E))` — a
+**SomeT-wrapped** type, so `type_key` hits the `.SomeT({ id })` case, never the
+`.FutureTraitT` case. And the collision means the two calls' Impl-SomeT result
+types **share the same SomeType id** — i.e. the function-signature return type
+`Impl(Future(T,E))`'s SomeType is NOT freshened per call site. So both
+`register_type` calls use the same key; the second (5660) overwrites the first
+(5658); `t1`'s binding declaration then resolves to 5660 while `t1`'s body emits
+5658.
+
+So the real fix is one of:
+- **Freshen the io.async result SomeType per call site** (give each call's
+  `Impl(Future(...))` return a distinct SomeType id) so `type_key` distinguishes
+  them — the most general fix, but touches return-type instantiation.
+- **Don't key the async-block struct by the result type at all**: at the io.async
+  call, register / declare the binding via the per-call
+  `async_state_machine_struct_name` (already unique per call via
+  `ei.variable_name`) instead of `register_type(type_key(ei.ty), …)` +
+  `get_type_string(ei.ty)`. Requires the io.async-result binding's C declaration
+  to consult the call's struct name (a side-table keyed by the binding/call expr
+  id), bypassing the shared-`type_key` lookup.
+
 ## Fix direction (refined)
 
 The async-block state-machine struct is inherently **per-call-site**, not
