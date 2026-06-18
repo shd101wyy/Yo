@@ -13,10 +13,18 @@ PRE-EXISTING `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisect
 to before any of this work) remains — tracked independently; it does not affect the
 BASELINE or the corpus. The history below is retained for context.
 
-**io.spawn / JoinHandle.await (2026-06-18, partial).** `io.spawn(task, io)` now emits
-its full cold-start + JoinHandle block correctly. But `result := handle.await(io)`
-(JoinHandle.await) emits no `result` binding and the following `match(result, …)`
-falls to "Failed to transpile". The JoinHandle.await dispatch arm
+**io.spawn / JoinHandle.await (2026-06-18, partial — root-caused).** `io.spawn(task, io)`
+now emits its full cold-start + JoinHandle block correctly. The remaining issue on
+`result := handle.await(io)` is ROOT-CAUSED: `handle.await(io)`'s result type
+resolves to **unit** (not `Option(i32)`), so `generate_initialization_assignment`
+takes its `is_unit_type(lhs_type)` branch and emits NO `result` declaration, and the
+trailing `match(result, …)` on the unit-typed `result` falls to "Failed to
+transpile". JoinHandle.await's signature is `forall(T)(self : JoinHandle(T), io) ->
+Option(T)`; for `handle.await(io)` the `T` in `JoinHandle(T)` is not inferred to
+`i32`, so `Option(T)` collapses (to unit/unresolved). So this is a generic-method
+return-type INFERENCE issue (resolve `T` from the `JoinHandle(T)` receiver so the
+return is `Option(i32)`), upstream of `generate_join_handle_await` — NOT a codegen
+emitter bug. (Older note below; superseded by this root cause.) The JoinHandle.await dispatch arm
 (`is_join_handle_await_call` → `generate_join_handle_await`) is early in
 `generate_func_call`, yet the codegen emits no `__jh_*` markers — so either the
 evaluator rewrites the `.await` method call into a resolved form that the structural
