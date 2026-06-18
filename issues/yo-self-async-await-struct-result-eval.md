@@ -76,6 +76,17 @@ comptime fn is reached via `FuncVal`s with different func_ids in different
 contexts, so its instantiations get different (or empty) cfids and the
 generic-impl match's `same_constructor3` never holds.
 
+**WHY the fid differs (bottom of the chain):** `func_id_str` is just the called
+`FuncVal`'s `fid` (`comptime_fn.yo:364`). JoinHandle is a top-level binding, but it
+is reached via DIFFERENT `FuncVal` instances (different fids: 3658 vs 3819) in the
+impl-registration context vs the `io.spawn` return-type context — i.e. the binding
+does not resolve to one canonical `FuncVal`. yo-self's `FuncVal` is anonymous (no
+stable definition-site identity / name field), so there is no ready canonical id
+to stamp. A real fix needs either (a) a stable constructor identity carried on the
+`FuncVal` (definition-site id or binding name) that survives cloning/re-eval, or
+(b) de-duplicating a top-level comptime-constructor binding to a single `FuncVal`.
+Both are deep/central. This is the true bottom of the JoinHandle.await chain.
+
 **The fix is func_id CANONICALIZATION for comptime type-constructors:** stamp (and
 match on) a constructor identity that is stable across module/context — e.g. the
 constructor binding's original definition-site func_id (carried on the `FuncVal`),
