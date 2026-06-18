@@ -38,6 +38,30 @@ and the evaluator effect-analysis (`src/evaluator/effects/effect-analysis.ts`,
 263 LOC). Port first-class fn-pointer values FIRST (faithfully, mirroring TS's
 fn-value codegen), then the effect-specific escape-flag layer on top.
 
+### ⭐ MAJOR PROGRESS (2026-06-18): RESUME effect handlers WORK; only UNWIND remains.
+
+With first-class fn-value codegen landed (below), a synchronous `ctl`-effect
+handler using **`return` (resume)** now works END-TO-END:
+`tests/codegen-bootstrap/effect_handler_resume.yo` runs → `zero`/`104` matching TS;
+corpus 70/70. Effects ARE first-class fn values + `ctl` typing, so the resume path
+fell out of the fn-value fix for free.
+
+**`unwind` (escape/discard-continuation) is the ONLY remaining effect piece** — and
+it's a CODEGEN-only gap now (it compiles, but gives the WRONG RESULT): a minimal
+i32 unwind handler prints `0` where TS prints `42` (the unwound value is lost).
+Root: yo-self emits the `__yo_effect_escaped` thread-local **declaration** (1
+occurrence) but NONE of the post-effect-call CHECKS — TS's output has **35**
+`__yo_effect_escaped` sites (the mechanism: after every effect call, emit
+`if (__yo_effect_escaped) { /* drop locals */ return {0}; }` so the escape
+propagates up the stack, and `unwind(v)` sets the flag + stashes `v`). So the
+remaining work is porting the **escape-flag emission layer**: the
+`isControlFunction` post-call checks (TS `codegen/async/state-code-gen.ts` +
+`codegen/types/collection.ts`) + `unwind` setting the flag. This is a bounded,
+codegen-only faithful port (the evaluator effect-analysis is NOT blocking the
+resume path; whether unwind needs more analysis is TBD). NOTE: also still open —
+the `i64(raise(...))`-wrapped unwind variant additionally hits "Failed to
+transpile" (a separate conversion-wrapping-an-effect-call eval issue).
+
 ### PROGRESS (2026-06-18): first-class fn-VALUE codegen LANDED.
 
 The fn-value-lowering piece is done (faithful port of `comptime-value.ts:266-283`):
