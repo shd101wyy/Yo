@@ -2220,7 +2220,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_line("}");
   em.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := match(ei.variable_name,.Some(n) => n,.None => String.from("__io_async_result"));
+  result_var := match(ei.variable_name,.Some(n) => n,.None => `__io_async_result_${ast_expr_id(expr).to_string()}`);
   var_type_and_name := get_variable_type_string(future_type, result_var.clone(), context.base);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)__yo_malloc(sizeof(${struct_name.clone()}));`);
   em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
