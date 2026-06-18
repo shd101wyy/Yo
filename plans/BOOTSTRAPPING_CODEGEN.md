@@ -743,8 +743,21 @@ exact prerequisites; Phase 5 spans evaluator wiring → codegen FSM → C runtim
    locals). Fixes landed: capture-param convention + capture-struct literal + body
    capture-access (`((cap*)closure_context)->f`); func_id await-analysis side-table
    for FSM-vs-sync dispatch; clearing the synthesized SomeT expected type for marked
-   closure bodies (so operator bodies type concretely). REMAINING Phase 5: effect
-   handlers, io.spawn/JoinHandle, parallelism. REMAINING for the full
+   closure bodies (so operator bodies type concretely).
+   **RESULT-TYPE COVERAGE WIDENED 2026-06-18 (corpus 65/65, differential-clean):**
+   added `io_async_str` (str result) and `io_async_bool` (bool result). The bool
+   case needed a fix in `generate_io_async_sync_call`: a bool body left the
+   future-trait output SomeType unresolved through the body-ExprInfo path, so the
+   result field lowered to `void*`. Final fallback added — when result_type is still
+   an unresolved SomeType, read the closure's recorded `Func` type result via
+   `get_func_type(closure_func_id)` (the result-refine in `anonymous_function.yo`
+   re-registers the concrete closure func type once the body types).
+   **REMAINING Phase 5: effect handlers (synchronous `ctl` effects — distinct
+   unported subsystem, scoped in `issues/yo-self-sync-effect-codegen-unported.md`:
+   fn-pointer effect params + `__yo_effect_escaped` post-call escape checks +
+   handler-binding-as-fnptr + the upstream evaluator-metadata gap that leaves
+   effect-using fn bodies without ExprInfo), io.spawn/JoinHandle, parallelism.**
+   REMAINING for the full
    `tests/async_await.test.yo` (TS 116/116) and Phase 6: **`run_test` is unwired** in
    `yo-self/main.yo` (throws "codegen removed") — wiring it is the test-runner port
    (`src/test-runner.ts`, ~1632 LOC: extractTests + generateBatchedTestProgram —
