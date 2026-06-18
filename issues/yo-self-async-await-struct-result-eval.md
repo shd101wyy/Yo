@@ -76,6 +76,19 @@ comptime fn is reached via `FuncVal`s with different func_ids in different
 contexts, so its instantiations get different (or empty) cfids and the
 generic-impl match's `same_constructor3` never holds.
 
+**TESTED (2026-06-18): canonicalizing the comptime stamp ALONE does not fix it.**
+Implemented a canonical cfid at `comptime_fn.yo` (stamp the constructor's
+definition-site source position `module_path:row:column` from the body token
+instead of `func_id_str`, for both the Struct stamp and the enum cfid registry).
+Corpus stayed 67/67 (no regression) but JoinHandle.await STILL failed — reverted
+as ineffective. Conclusion: the JoinHandle receiver (spawn result) does NOT reach
+this comptime stamp on the relevant path (it comes via return-type instantiation /
+`substitute`, carrying an empty-or-different cfid), so canonicalizing only the
+stamp doesn't make the impl-pattern and the receiver agree. A complete fix must
+canonicalize cfid across ALL JoinHandle-producing paths (comptime stamp +
+substitute/return-type instantiation) — a coordinated multi-site change. This is
+why it's a focused-session task, not a single-edit fix.
+
 **WHY the fid differs (bottom of the chain):** `func_id_str` is just the called
 `FuncVal`'s `fid` (`comptime_fn.yo:364`). JoinHandle is a top-level binding, but it
 is reached via DIFFERENT `FuncVal` instances (different fids: 3658 vs 3819) in the
