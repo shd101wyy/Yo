@@ -814,7 +814,18 @@ REMAINING (each scoped in issue docs, multi-session):
   escape-check hack (yo-self's resume uses a direct-pointer simplification that
   diverges from TS's evidence model). See
   `issues/yo-self-sync-effect-codegen-unported.md`.
-- **Parallelism** (`parallelism/runtime.ts` + `exprs/parallelism.ts`) — unported.
+- **Parallelism** (`parallelism/runtime.ts` 474 + `exprs/parallelism.ts` 318) —
+  unported (no yo-self parallelism dir). Multi-part dependency chain (verified
+  2026-06-18): (1) PREREQUISITE — the thread types `__yo_thread_t`/`__yo_thread_fn`/
+  `__YO_THREAD_TYPE`/`__YO_THREAD_SYNC_TYPE`/`__YO_COND_TYPE`/`__yo_raw_thread_create`/
+  `PARALLELISM_DEBUG` etc. are emitted in TS's GC-runtime types section but NOT in
+  yo-self's `functions/gc_runtime.yo` — port those first; (2) `generate_parallelism_
+  runtime` (one ~474-LOC platform-conditional C-template fn, gated on
+  `uses_parallelism` which yo-self ALREADY tracks — `async.yo:1924`,
+  `context.yo:187`; wire in `generate_all_functions` like the async runtime); (3)
+  `exprs/parallelism.ts` emitter (the `parallel`/spawn-block codegen); (4) a
+  parallel corpus fixture to validate. Each part needed before the subsystem is
+  testable.
 
 ### Phase 6 — Self-host fixpoint
 
