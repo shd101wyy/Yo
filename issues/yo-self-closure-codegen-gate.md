@@ -13,6 +13,23 @@ PRE-EXISTING `yo-self-bin check ./std` crash on `std/imm/map.yo` (rc=138, bisect
 to before any of this work) remains — tracked independently; it does not affect the
 BASELINE or the corpus. The history below is retained for context.
 
+**CAPTURING-CLOSURE CODEGEN LANDED 2026-06-18 (commit e7ba72e7e).** The capture
+machinery now works: the capture-struct literal `(<cap>){ .base = base }` is built
+(from the capture struct field labels — each is the same-named in-scope var), and
+the closure body reads captured vars via `((<cap>*)closure_context)->base`
+(g_closure_capture_info side-table + generate_function's closure-capture context).
+The capture struct correctly types `base : int32_t`. ONE issue remains on the
+capturing fixture: the closure's REGISTERED return type and the sync_fut `result`
+field lower to `void*` — during the closure's body def-eval, captured `base` types
+as a `SomeT` (so `base + i32(32)` is `SomeT` → the concrete result-refine, guarded
+on `has_some==0`, is skipped), EVEN THOUGH the value-level capture is the concrete
+i32. So it is a value/type mismatch: the captured value is i32 but the evaluator
+types the body expression as SomeT. The fix is evaluator-side: type a captured
+variable by its ACTUAL outer type (i32) during the closure body def-eval (the body
+eval resolves the captured `base` with a SomeT type, not the i32 binding from the
+outer snapshot env). Then the body type is concrete → the result-refine fires →
+closure return + future result are i32.
+
 **NEXT LAYER — CAPTURING closures (2026-06-18).** The BASELINE is a NO-CAPTURE
 closure. The next async cases need closures that CAPTURE outer variables — e.g.
 `base := i32(10); io.async((io : Io) => (base + i32(32)))` (TS → 42), and `yield`'s
