@@ -788,7 +788,11 @@ widen. SURFACED BUG along the way:
 accepts `io.await(task)` (missing `e`) that TS rejects; fix the field-fn call
 required-arg-count check during this phase.
 
-**PHASE 5 STATUS SUMMARY (2026-06-19, ~93% — codegen-bootstrap corpus 64→75).**
+**PHASE 5 STATUS SUMMARY (2026-06-19, ~95% — codegen-bootstrap corpus 64→75).**
+Effects fully done (resume + unwind). Parallelism runtime + spawn emitter ported;
+spawn end-to-end blocked only on generic-method monomorphization (Gap 2, a
+foundational subsystem also needed beyond parallelism). Implicit-effect evidence
+machinery remains deferred.
 LANDED + validated this session (each a 1-to-1 `src/` port, zero corpus regressions):
 - Async FSM + I/O runtimes; async RESULT-TYPE resolution across i32/str/bool/struct/
   multi-await/multi-async (commits incl. bool-result, await-result register +
@@ -830,14 +834,20 @@ REMAINING (each scoped in issue docs, multi-session):
   a single huge interpolated template makes the TS codegen hang >28min (the
   concat-AST is quadratic in interpolation count; template SIZE is fine, cf.
   `runtime_io_macos.yo`'s 1700-line 0-interp template). corpus stays 74/74.
-  (2) ❌ DEFERRED — the `exprs/parallelism.ts` spawn emitter
-  (`generateThreadSpawnCall`/`generateWorkerSpawnCall`/`generateSpawnWrapper`).
-  GATED on the deferred closure-codegen subsystem (`implClosureCallMap` /
-  `registerImplClosureCallMappings`): the spawn wrapper needs `consumedCaptures`
-  for RC-cleanup NULLing, which yo-self does not track. Porting it without that
-  would silently drop the double-free guard. See
-  `issues/yo-self-parallelism-emitter-gated-on-closure-codegen.md`.
-  (3) a parallel corpus fixture follows (2).
+  (2) ✅ PORTED (commit be1241a1f) — the `exprs/parallelism.ts` spawn emitter
+  (`generate_thread_spawn_call`/`generate_worker_spawn_call`/spawn-wrapper) →
+  `yo-self/codegen/exprs/parallelism.yo`, wired into `other_fn_call.yo`'s extern
+  "yo" dispatch. Resolves the closure fn + capture struct from the cb arg's
+  ExprInfo (async.yo pattern, no `implClosureCallMap`); `consumedCaptures` NULLing
+  omitted (non-`own(self)` only). Type-checks clean; corpus 75/75 (inert there).
+  Also fixed a prerequisite: `collection.yo` now collects function SIGNATURE types
+  (a non-async `main(io:Io)` crashed on uncollected `Io`; commit 07ce421b8).
+  (2b) ❌ BLOCKED end-to-end on GENERIC-METHOD MONOMORPHIZATION (Gap 2): the
+  std `Thread.spawn` wrapper (`fn(cb : Impl(Fn(io:Io)->unit, Send)) -> Self`) is
+  skipped as hard-generic, so the `__yo_thread_spawn(cb)` extern inside it never
+  reaches the new emitter. Needs specializing the wrapper per concrete closure
+  type (yo-self FuncVal has no `specializedType`). See the issue doc.
+  (3) a parallel corpus fixture follows (2b).
 
 ### Phase 6 — Self-host fixpoint
 
