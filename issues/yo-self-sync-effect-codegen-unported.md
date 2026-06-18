@@ -3,10 +3,40 @@
 ## Status
 
 OPEN — scoped. The **async** half of Phase 5 is working and validated end-to-end
-(io.async FSM + closures, 7 corpus fixtures: i32 / str / bool / capture /
-capture+operator / single-await FSM / multi-await FSM). The **effects** half —
+(io.async FSM + closures + JoinHandle, 9 corpus fixtures). The **effects** half —
 synchronous algebraic-effect handlers (`ctl(...)` effects, `return`/`unwind`
 continuations) — is not yet ported in the self-hosted codegen.
+
+### REFINED ROOT (2026-06-18): the blocker is FIRST-CLASS FUNCTION-POINTER VALUES,
+### not anything `ctl`-specific.
+
+A plain `fn`-typed (NOT `ctl`, NOT closure) higher-order example fails IDENTICALLY:
+```rust
+safe :: (fn(x : i32, f : (fn(msg : String) -> i32)) -> i32)(
+  cond((x == 0) => f(`zero`), true => x));
+run :: (fn() -> i32)({
+  (h : (fn(msg : String) -> i32)) = (fn(msg : String) -> i32)({ println(msg); return(i32(99)); });
+  safe(0, h) + safe(5, h)
+});
+```
+yo-self emits `void* h = /* skip generating value */;` (the `fn`-VALUE bound to a
+variable is not lowered to a C function pointer) and `// Failed to transpile`
+for `safe`'s body (the indirect call `f(...)` through a `fn`-typed parameter).
+Both the `ctl` and plain-`fn` versions produce the SAME two errors.
+
+So the prerequisite for synchronous effects is **first-class function-pointer
+value codegen** (distinct from the working closure path, which is SomeT/FnTrait
+`=>`-typed and captures context):
+1. A bare `fn`-VALUE bound to a variable / passed as an argument → emit the fn as a
+   top-level C function and the value as `&that_fn` (a function pointer).
+2. A `fn`-typed PARAMETER → a C function-pointer type.
+3. An indirect call through such a param → `f(args)` (already valid C for a fn ptr).
+Only AFTER that does the effects layer add: handler binding = the fn pointer,
+effect call = indirect call + `__yo_effect_escaped` post-call check (the TS
+`isControlFunction` codegen in `async/state-code-gen.ts` + `types/collection.ts`),
+and the evaluator effect-analysis (`src/evaluator/effects/effect-analysis.ts`,
+263 LOC). Port first-class fn-pointer values FIRST (faithfully, mirroring TS's
+fn-value codegen), then the effect-specific escape-flag layer on top.
 
 ## Minimal reproducer
 
