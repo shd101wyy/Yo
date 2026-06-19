@@ -27,7 +27,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { TypeValue } :: import("../types/definitions.yo");
-{ is_function_type, is_some_type, is_pointer_type, is_struct_type } :: import("../types/guards.yo");
+{ is_function_type, is_some_type, is_pointer_type, is_struct_type, is_extern_type_name } :: import("../types/guards.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -1290,6 +1290,13 @@ type_contains_some_type_for_codegen_param :: (
       return(false);
     });
     if(type_implements_future(ty), {
+      return(false);
+    });
+    // Extern opaque type (`extern("Yo", X : Type)` → a SomeT placeholder named X)
+    // that codegen lowers to a concrete C type: NOT a codegen-blocking generic.
+    // Mirrors TS excluding `isExtern` SomeTypes (src/types/utils.ts:10).
+    tc_some_nm := match(ty,.SomeT({ name : snm }) => snm, _ => String.from(""));
+    if(is_extern_type_name(tc_some_nm), {
       return(false);
     });
     return(true);

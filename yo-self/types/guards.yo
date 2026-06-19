@@ -10,8 +10,26 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag } :: import("./creators.yo");
+// ---------------------------------------------------------------------------
+// Extern opaque-Type registry. `extern("Yo", X : Type)` declares an opaque type
+// whose value is a SomeT PLACEHOLDER (e.g. `__yo_thread_t`); codegen emits a
+// concrete C type for it, so it is NOT a codegen-blocking generic. TS marks
+// these via `SomeType.isExtern` (src/types/utils.ts:10); yo-self's SomeT has no
+// such field, so the extern declaration records the type NAME here (extern.yo)
+// and the codegen-generic checks (type_contains_some_type_for_codegen_param)
+// exclude a SomeT whose name is registered. Empty during pure evaluation.
+// ---------------------------------------------------------------------------
+(g_extern_type_names : HashSet(String)) = HashSet(String).new();
+register_extern_type_name :: (fn(name : String) -> unit)({
+  if(name.len() > usize(0), {
+    _r := g_extern_type_names.add(name);
+  });
+  ()
+});
+is_extern_type_name :: (fn(name : String) -> bool)(g_extern_type_names.contains(name));
 // ---------------------------------------------------------------------------
 // Resolved-concrete bridge indirection (mirrors TS reading
 // `someType.resolvedConcreteType`). guards.yo is low-level and cannot import
@@ -630,6 +648,8 @@ export(
   is_function_type_generic,
   is_function_type_hard_generic,
   set_lookup_some_resolved_concrete,
+  register_extern_type_name,
+  is_extern_type_name,
   is_function_specializable,
   // Box / effects-row guards
   is_boxed_type,

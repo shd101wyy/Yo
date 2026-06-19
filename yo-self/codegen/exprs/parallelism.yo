@@ -160,10 +160,25 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
     .None => return(Option(String).None)
   );
   cei := match(context.base.get_expr_info(cb),.Some(e) => e,.None => return(Option(String).None));
-  capture_type := match(cei.capture_type,.Some(c) => c,.None => return(Option(String).Some(String.from("/* Error: spawn cb has no capture type */"))));
-  capture_c_name := _capture_type_c_name(capture_type, context);
-  closure_fn := match(_closure_fn_c_name(cei.value, cei.closure_function_value, context),.Some(n) => n,.None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))));
-  closure_fid := _closure_fid(cei.value, cei.closure_function_value);
+  // `cb` is either a closure literal (cei.capture_type set) OR — inside a
+  // SPECIALIZED Thread.spawn body — the lowered capture-struct PARAM (cei.ty IS
+  // the capture struct, registered in impl_closure_call_map by the closure
+  // construction at the call site). Resolve the capture struct + closure impl fn
+  // from whichever is present.
+  capture_type := match(cei.capture_type,.Some(c) => c,.None => cei.ty);
+  mapped_opt := context.base.impl_closure_call_map.get(type_key(capture_type.clone()));
+  capture_c_name := _capture_type_c_name(capture_type.clone(), context);
+  closure_fn := match(
+    _closure_fn_c_name(cei.value, cei.closure_function_value, context),
+    .Some(n) => n,
+    .None => match(mapped_opt,.Some(m) => m.function_c_name,.None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
+  );
+  closure_fid_direct := _closure_fid(cei.value, cei.closure_function_value);
+  closure_fid := if(
+    closure_fid_direct.len() > usize(0),
+    closure_fid_direct,
+    match(mapped_opt,.Some(m) => m.closure_fid,.None => String.from(""))
+  );
   runtime_args := _closure_runtime_arg_zeroinits(closure_fid, context);
   module_path := String.from("");
   wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, module_path, context);
