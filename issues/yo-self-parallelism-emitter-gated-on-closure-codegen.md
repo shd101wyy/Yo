@@ -59,19 +59,25 @@ RISK: broadening the trigger routes many soft-generic std calls through
 create_specialized (which lacks effects analysis, helper.yo:908) — validate corpus
 + check ./std + watch compile time.
 
-LAYER-2 MECHANISM (investigated 2026-06-19): create_specialized builds the
-specialized param types at helper.yo:1285-1287 via
-`convert_comptime_type_to_runtime_type_with_expected(rpt, Option(TypeValue).None,
-callee_env)` — `expected = None`. So to resolve `cb`'s SomeT to the concrete
-capture struct, layer 2 must thread the call's CONCRETE arg type in as that
-`expected` (currently None) — i.e. pass the per-param resolved arg type so the
-SomeT param lowers to the capture struct in `spec_param_types`. Then spec_type's
-`cb` is concrete (option (a)) and it's emittable directly (layer 1's
-resolved-concrete clause then mainly helps cases where the SomeT identity is
-retained). Net layer-2 edits: (1) function.yo:2509 trigger broadened to
-non-forall soft-generic (is_function_type_generic, !is_control_fn); (2) thread the
-concrete arg type as `expected` into the spec-param-type conversion so `cb`
-resolves. Validate heavily (hot path).
+LAYER-2 MECHANISM (investigated 2026-06-19 — REFINED): `create_specialized_function_inline`
+builds `runtime_param_tys` from the CONCRETE ARG types (`ae.arg_type`,
+helper.yo:982), NOT the param SomeTs — and `spec_param_types` (helper.yo:1283-1287)
+is built from those same `runtime_param_tys`. So a specialized `Thread.spawn`
+ALREADY gets `cb` as the concrete capture struct (not a SomeT) — meaning it's
+directly emittable once specialized, and layer 1's resolved-concrete clause isn't
+even strictly required for this path. Therefore LAYER 2 REDUCES TO A SINGLE CHANGE:
+broaden the specialization TRIGGER at function.yo:2509 from `forall_names.len() > 0`
+to TS's guard — `is_function_type_generic(callee_func_type) && !is_control_fn(cv_fid)`
+(helper.ts:1911-1929) — so a non-forall soft-generic call (cb : SomeT) specializes.
+The existing arm body already handles the non-forall case (empty forall args, concrete
+reg args). Edits: import `is_function_type_generic` (types/guards.yo) + `is_control_fn`
+(evaluator/types/control_fn_registry.yo) into function.yo; OR the guard. ⚠️ HIGHEST-RISK
+change in the whole effort: it routes EVERY soft-generic (SomeT-param) std call through
+create_specialized (which lacks effects analysis, helper.yo:908) — memory
+[[yo-self-phase3-generic-impl-funcid]] records a prior broad generic-specialization
+attempt was REVERTED. MUST validate beyond the 75-fixture corpus: at minimum the full
+`./yo-cli test` corpus PLUS yo-self-bin sweeps over std/tests, watching compile time,
+in a FOCUSED (non-compacted) session. Do NOT land it validated only by the small corpus.
 
 ### FAITHFUL ROOT CAUSE (2026-06-19) — supersedes the FnTraitT/guard guesses below
 
