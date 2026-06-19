@@ -279,6 +279,42 @@ fully specializes, cascading.
 (c) Secondary: shrink `_build_def_time_body_env`'s whole-env deep clone.
 Validate: corpus 76/76 AND `check main.yo` no longer overflows (2 GB stack).
 
+## UPDATE (2026-06-19, round 3) — two constraints that rule out the easy fixes
+
+Investigated fix (a) and the env-share lever; both hit a wall that must be respected:
+
+- **Cannot skip specialization during the def-time body trial.** The trial context
+  (`create_function_body_evaluation_context`) SHARES `ctx.expr_info_table`
+  (function_type.yo: `expr_info_table : ctx.expr_info_table`). So the def-time body
+  eval is NOT throwaway — it is the single pass that populates the ExprInfo (incl.
+  specialized callee FuncVals) that CODEGEN consumes. yo-self does validate +
+  codegen-metadata population in ONE recursive pass over the call graph. Gating
+  `create_specialized_function_inline` on `!is_validating_function_definition` (or the
+  checking-phase flag) therefore breaks codegen for every generic call inside a body.
+  This is the core reason the recursion can't simply be cut: the specialization chain
+  IS the work codegen needs.
+
+- **The env flat-copy is NOT a behavior-preserving target for `snapshot_env`.**
+  `_build_def_time_body_env`'s copy (function_type.yo:247-274) does two things: the
+  expensive O(unified-env) copy AND a re-bind that forces `is_compile_time_only =
+  (variable has a value)` (so valued module globals become comptime in the body env).
+  `snapshot_env` (shallow frame share) would keep each variable's ORIGINAL
+  `is_compile_time_only`, changing comptime/runtime classification in the body —
+  load-bearing (see the std/log.yo `is_reassignable` note in-code). So the env-share
+  win requires replicating the is_compile_time_only re-bind on the shared frames (or
+  proving TS's variables already carry the right flag at definition and the re-bind is
+  itself the divergence to remove).
+
+**Net:** the genuine fix is a COORDINATED change — most likely (1) box/`*(TypeValue)`
+the hottest by-value TypeValue paths to shrink the C stack frame so the deep-but-
+necessary specialization chain fits (attacks rc=138 directly, the only lever that does
+not fight codegen's need for the chain), plus (2) the env-share + is_compile_time_only
+re-bind to cut the heap/OOM half, plus (3) the mutual-recursion stack + forward-ref
+port for the cyclic specializations. Each needs its own validated rebuild cycle
+(~13 min) and must keep the corpus at 76/76; this is a dedicated multi-iteration effort,
+not a single rapid edit. Three fixes were attempted this session and ALL reverted to
+preserve 76/76 — the working compiler must not be regressed for a partial fix.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
