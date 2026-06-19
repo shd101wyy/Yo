@@ -6,6 +6,56 @@ OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
 self-compile (`yo-self-bin compile yo-self/main.yo`) — crashes before producing C.
 
+## BREAKTHROUGH (2026-06-20): the crash is a FIXABLE specialization-recursion bug, NOT a memory wall
+
+An **overflow-surviving depth probe** (a temporary global counter in
+`_evaluate_expression` that `eprintln`s — and thus flushes — each new maximum
+depth) overturned the long-standing "memory wall / needs 24 GB" diagnosis for
+PER-MODULE compiles:
+
+- **token.yo** self-compiles to clean C now (after the runtime-operator-dispatch
+  fix, commit 590735ea3); peak eval-depth 105.
+- **lexer.yo** crashes (rc=138) at eval-depth **107 — IDENTICALLY at 2 GB, 6 GB,
+  and 8 GB stacks**. Stack exhaustion scales with stack size; a stack-INVARIANT
+  crash depth does not.
+- The env var IS honored: token.yo @256 MB crashes at depth 33, @1 GB succeeds at
+  max 105 (~8 MB/eval-level). So at 8 GB the eval ceiling is ~1000 levels —
+  eval-depth 107 is NOT the eval ceiling. The crash is a SEPARATE, stack-invariant
+  (effectively unbounded/cyclic) recursion triggered AT eval-depth 107.
+
+**Crash site (lldb):** frame #0 = `ArrayList(TypeValue).get` (mangled
+`fn_yo51ba7706_id_121_get_specialized_T_TypeValue_Self_ArrayList(TypeValue)`),
+faulting in its PROLOGUE (giant frame — returns `Option(TypeValue)` by value, and
+`sizeof(TypeValue)` is enormous). lldb can only unwind 2 frames (prologue crash).
+
+**Trigger (probe token trace):** depths 92-100 = a repeating `n`/`usize`/`usize`
+3-cycle = the `__yo_comptime_fold_range` `n - usize(1)` recursion = the DERIVE
+machinery unrolling once per enum variant (the CLAUDE.md derive(Eq)-fold-range
+pitfall); then `.variants`/`.`/`v`/`a`/`lhs` = a derived `==` executing at
+comptime. So lexer.yo's compile runs derive comptime-folding →
+`create_specialized_function_inline` (helper.yo:993) → `_find_specialization_cache`
+(helper.yo:774) / `compute_compile_time_signature` (helper.yo:649) →
+`value_to_signature_string` / `type_to_string` deep-traverses an
+`ArrayList(TypeValue)` and recurses unboundedly over a pathological/cyclic
+TypeValue → overflow in `get`.
+
+**Root:** `type_to_string` / `value_to_signature_string` (and the structural type
+traversal in the specialization signature/cache path) lack a cycle/depth guard.
+TS shares TypeValue refs / bounds this; yo-self deep-traverses without a guard.
+This is the same class as the `substitute()` self-referential-trait cycle bug
+already fixed (`yo-self-substitute-cycle-guard`, commit 9b67b199).
+
+**NEXT FIX (focused; must keep corpus 76/76 + std 151 — a naive depth-cap on
+`type_to_string` risks cache-key collisions that regressed std 151→17 before):**
+1. Identify the exact pathological/cyclic TypeValue lexer.yo instantiates —
+   instrument `compute_compile_time_signature` / `type_to_string` with a
+   depth-guarded type print (bail+print past depth ~200 to survive).
+2. Add a visited-set or depth cycle guard at the true cycle point (prefer a
+   visited-set keyed by type identity over a blind depth-cap, to avoid collapsing
+   distinct deep types onto one cache key).
+3. Validate: corpus 76/76 (diff-test), `check ./std` 151/151, then re-run
+   `yo-self-bin compile yo-self/lexer.yo` (should produce C, no rc=138).
+
 ## Symptom
 
 - `YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin compile yo-self/main.yo` (the -O0 binary):
