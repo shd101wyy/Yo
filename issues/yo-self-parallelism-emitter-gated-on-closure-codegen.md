@@ -355,3 +355,38 @@ data-model gaps (no FunctionValue.closureInfo; no Struct field source exprs) mea
 A/C port designs from yo-self's ExprInfo + side registries, not TS's field/closureInfo
 shapes. The context field (impl_closure_call_map + ImplClosureCallInfo) is step 1 and
 must land WITH its consumers (steps 2-4), not as standalone scaffolding.
+
+### UPDATE 2026-06-19 (5) — general closure-param codegen DONE; spawn blocked on method/extern-Type Self-resolution.
+
+MILESTONE (commits cf11393c1, 574c654e8): the general closure-param specialization
+codegen WORKS end-to-end. `apply :: (fn(cb : Impl(Fn(x:i32)->i32)) -> i32)(cb(i32(10)))`
+called `apply((x) => (x + base))` compiles + runs → prints 15 (matches TS). Corpus
+75/75, no regression. Pieces A (capture-struct construction emission), B (collection
+past the unknown-value guard), C (closure call via impl_closure_call_map) all landed,
+plus the closure-param eval binding (callable SomeT + g_some_resolved_concrete capture
+struct), callee-type normalization (SomeT(Impl(Fn))→Func in eval + codegen), and the
+spec static-method `-> Self` return resolution.
+
+SPAWN (Thread.spawn, the extern-wrapper IMPL-METHOD variant) remains blocked — but on
+a DISTINCT gap from the closure work: codegen's should_skip_function_codegen
+(declarations.yo) drops the specialized `Thread.spawn` and `Thread.join`. Confirmed by
+instrumentation (DIAG-SKIP):
+- `Thread.spawn` spec: `ret=Thread` (Self resolved ✓) but `has_generic_return=T` →
+  skip2. Cause: `type_contains_some_type_for_codegen_param(Thread)` recurses into the
+  field `handle : __yo_thread_t`, and `__yo_thread_t` (an `extern("Yo", X : Type)`
+  declaration) is a SomeT PLACEHOLDER (trait_checking.yo:269). TS excludes extern
+  SomeTypes: `if (type.isExtern) return false` (src/types/utils.ts:10). yo-self's SomeT
+  has NO is_extern field (the port made that a no-op), so the extern opaque type is
+  wrongly counted as a codegen SomeType. FIX OPTIONS: (a) add `is_extern : bool` to
+  SomeT + stamp it in the extern-Type declaration path (faithful but touches every
+  SomeT constructor/match — broad); (b) register extern Types' resolved-concrete and
+  have type_contains_some_type follow it (TS utils.ts:11 does; yo-self's port skips
+  it); (c) a narrower extern-type side-table queried here.
+- `Thread.join`: `ret=unit` but `has_generic_params=T` → skip2. Cause: its `self : Self`
+  param stays an unresolved SomeT in get_func_type(join) — non-generic-struct method
+  Self is not resolved to the concrete receiver (Thread) for codegen. Generic-impl
+  methods (ArrayList(T)) avoid this via specialization; non-generic-struct methods need
+  Self→receiver resolution at method collection/codegen.
+
+These two are method/extern-Type Self-resolution — the next focused unit, separate
+from (and unblocked by) the now-complete closure-param codegen.
