@@ -160,6 +160,125 @@ to call `ArrayList(TypeValue).get`. Next-session probe should target the eval
 recursion (unwind-aware depth guard in `_evaluate_expression_wrapper`) rather than the
 type helpers.
 
+## BREAKTHROUGH (2026-06-19) — sampling profiler pins the REAL recursion
+
+The lldb dead-ends were sidestepped with macOS `sample`, which snapshots the live
+call tree *while the recursion is still descending* (run with a big stack so it
+doesn't crash mid-sample):
+
+```
+YO_MAIN_STACK_MB=16384 /tmp/yo-self-bin check yo-self/main.yo & PID=$!
+sleep 3; sample $PID 4 -file /tmp/s.txt; kill $PID
+```
+
+**The `get_specialized` frame in the old lldb backtrace was a RED HERRING.** The
+profiled hot recursion is the EVALUATOR's def-time body-eval path, not a type
+traversal. Two facts from the sample:
+
+1. The recursive cycle is:
+   `_evaluate_expression → evaluate_function_call → try_to_call_function_with_arguments
+   → … → _build_def_time_body_env → _trial_eval_fn_body (body eval) → _evaluate_expression`,
+   with `synthesize_types`/`_synthesize_types_impl`, `try_to_implement_function_by_function_type`,
+   `find_methods_from_generic_impls`, `get_variables_from_env`, `merge_and_check_envs`
+   interleaved. So **def-time body eval is being RE-ENTERED** — evaluating one
+   function's body triggers def-time body eval of further functions, descending the
+   (cyclic) compiler call graph that only the UNIFIED load makes fully resolvable.
+2. **~half the samples are `clone` / `clone_specialized_T_TypeValue_Self_ArrayList` /
+   `…_Box`** — every `_build_def_time_body_env` copies the ENTIRE caller env's
+   variables (function_type.yo:247-274 loops all frames × all variables, cloning each
+   `cv.ty`), and in the unified load that env holds all modules' symbols. So each
+   re-entry is a giant frame (huge env clone + TypeValue-by-value) AND the depth is
+   the call-graph depth → GBs.
+
+Why per-file `check ./yo-self` (227/227) is fine but `check main.yo` overflows: in
+per-file isolation a cross-module callee is a shell/signature, so a call to it
+type-checks via its return type; in the unified load the callee's full body is
+present, so def-time body eval descends into it (and into ITS callees…).
+
+## Fix lead — TS's `skipSpecialization` + `skipCtfeExecution` + checking-phase flag
+
+TS breaks exactly this recursion (see `docs/SPECIALIZATION_CACHE_PITFALL.md`,
+function.ts:885/945): when CHECKING a call it passes
+`tryToCallFunctionWithArguments({ …, skipSpecialization: true, skipCtfeExecution: true,
+context: { …, isInFunctionCallCheckingPhase: true } })` so the call's result type is
+computed WITHOUT executing/specializing the callee body, and the
+`isInFunctionCallCheckingPhase` flag PROPAGATES so nested calls also skip CTFE.
+
+yo-self ports the pieces but does NOT honor one:
+- `is_in_function_call_checking_phase` exists (context.yo:235), is set during trials
+  (function.yo:534) and read in comptime_fn.yo:429. ✓
+- `skip_specialization` is honored (helper.yo:2523 `if(!(skip_specialization) && …`). ✓
+- **`skip_ctfe_execution` is DISCARDED — helper.yo:1816 `_ := skip_ctfe_execution;`.**
+  The parameter is accepted and thrown away, so CTFE/body execution is NOT skipped
+  during the checking phase. ✗  ← prime suspect.
+
+NEXT: trace where `try_to_call_function_with_arguments` actually executes the callee
+body (post-`synthesize_types`) and gate it on `skip_ctfe_execution ||
+ctx.is_in_function_call_checking_phase` (mirroring TS). Also confirm every def-time
+body-eval call site enters the checking phase with both flags true. Validate the
+corpus stays 76/76 (the flag must not suppress execution that real CTFE needs) AND
+that `check main.yo` no longer overflows. CAUTION: this gates comptime execution —
+an over-broad gate will regress CTFE-dependent fixtures, so scope to the
+checking-phase path only.
+
+Secondary lever if depth persists: `_build_def_time_body_env` copies the whole env by
+value every re-entry — share/alias it instead of deep-cloning (cuts frame size + the
+clone half of the samples).
+
+## UPDATE (2026-06-19, cont.) — two experiments, root narrowed to specialization-during-validation
+
+Profiled `create_specialized_function_inline` IS in the hot recursion (21 frames in a
+3 s sample), so the deep chain is GENERIC SPECIALIZATION. Two fixes attempted, BOTH
+reverted (kept 76/76 clean):
+
+1. **Skip def-time body validation during the checking phase** (gate
+   `try_to_implement_function_by_function_type`'s body eval on
+   `!ctx.is_in_function_call_checking_phase`). REVERTED: no effect — the flag is not
+   set on the hot recursion path (the recursion is not reached via the
+   checking-phase trial calls).
+
+2. **Port the missing mutual-recursion stack guard.** yo-self's `is_recursive_spec`
+   guard (helper.yo:2524) only checked the SINGLE slot `currently_specializing_function`,
+   so MUTUAL recursion (f specializes g specializes f — the slot is overwritten by g)
+   was not caught — only direct self-recursion. TS tracks the full
+   `currentlySpecializingFunctionStack` and checks it with `.some(...)`
+   (helper.ts:1852-1857, push/restore 2419-2469). I ported it (helper
+   `_func_id_being_specialized` scanning the stack + push/pop the stack at the
+   set/restore sites; stack entries need only `original_func_id` since yo-self has no
+   stack-based forward-ref — `EvalValue` has no `.clone()`, so the entry's
+   `original_func_value` was a `UnitVal` placeholder). RESULT: partial — the eval
+   recursion shrank (`_evaluate_expression` 1659→966 samples) but the crash REMAINED,
+   AND it regressed `runtime_numeric_cast.yo` to SELF-FAIL (75/76). So the
+   mutual-recursion stack is NECESSARY (it is a real TS mechanism yo-self lacks) but
+   INSUFFICIENT alone, and its naive form perturbs an existing specialization the
+   numeric-cast fixture depends on.
+
+**Refined root cause:** generic specialization (`create_specialized_function_inline`,
+which deep-clones the callee env + TypeValues — the clone half of the samples) RUNS
+during def-time body validation and recurses a deep chain of DISTINCT specializations
+down the compiler's generic call graph. TS avoids this: while CHECKING a call it
+passes `skipSpecialization: true` (+`skipCtfeExecution: true`, +
+`isInFunctionCallCheckingPhase: true`) so the call's result type is resolved WITHOUT
+specializing/executing the callee body. **yo-self DISCARDS `skip_ctfe_execution`
+(helper.yo:1816 `_ := skip_ctfe_execution;`) and does not propagate
+`skip_specialization` into the calls inside a body being validated**, so each call
+fully specializes, cascading.
+
+**Fix plan (do together, validate as one):**
+(a) Honor the checking-phase intent: during def-time body validation, calls resolve
+    their return type via `synthesize_types` WITHOUT `create_specialized_function_inline`
+    — i.e. propagate `skip_specialization`/`skip_ctfe_execution` (or gate
+    specialization on `!ctx.is_in_function_call_checking_phase` AND not-validating)
+    exactly where TS sets them. Compare TS function.ts:885/945 + the
+    `isInFunctionCallCheckingPhase` propagation precisely.
+(b) Add the mutual-recursion stack guard (experiment 2) for the genuine recursive
+    specializations that remain — but reconcile it with `runtime_numeric_cast.yo`
+    (understand why that fixture needs the specialization the stack guard suppressed;
+    likely the guard must still allow the FIRST specialization and only short-circuit
+    a re-entrant one with identical args).
+(c) Secondary: shrink `_build_def_time_body_env`'s whole-env deep clone.
+Validate: corpus 76/76 AND `check main.yo` no longer overflows (2 GB stack).
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
