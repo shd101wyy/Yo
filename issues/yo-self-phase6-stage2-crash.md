@@ -487,6 +487,44 @@ entry, save/restore across the per-call exn handler (_expr.yo:898 restores befor
 construct, after which the fix is either a re-entrancy guard there OR the round-6
 frame-size reduction (box TypeValue) on the specific hot functions involved.
 
+## UPDATE (2026-06-19, round 8) — CONFIRMED recursive cycle from the sample tree
+
+Traced the deepest chain in the existing `sample` output frame-by-frame. The recursive
+cycle is:
+
+```
+evaluate_function_call
+  → (CTFE body execution) evaluate_begin_expression
+     → evaluate_cond / evaluate_match / evaluate_initialization_assignment
+        → evaluate_expression_raw → _evaluate_expression_raw_wrapper → _evaluate_expression
+           → evaluate_function_call   (repeat)
+```
+
+i.e. CTFE-executing a callee body (`evaluate_begin_expression`) whose statements
+(cond/match/init-assignment) contain more calls, each descending the self-source's
+mutually-recursive type/comptime call graph. The ONLY `evaluate_begin_expression` call
+in `evaluate_function_call` reachable here is via the comptime/type CTFE-execution
+path, so the recursion does flow through it.
+
+Re-evaluating round 7: the CTFE-cap experiment was INCONCLUSIVE, not a disproof — each
+CTFE level is ~15-20 stack frames (begin+cond+match+init+identifier+call), so only
+~40 CTFE levels fit a 4 GB stack, and the cap was set at 150 (never reached before
+overflow). A cap low enough to fire (≈25-30) would, however, also be below plausible
+legit CTFE depth, so it is a stack-vs-correctness band-aid, not the fix.
+
+**This fully confirms the round-6 root cause:** bounded CTFE recursion (TS compiles
+main.yo, so it terminates) overflowing yo-self-bin's stack because the per-level frames
+are enormous (`evaluate_function_call` ~8 MB, `evaluate_match` ~9 MB at -O0; multi-MB at
+-O2). **The faithful fix is frame-size reduction** in exactly these hot functions —
+`evaluate_function_call`, `_evaluate_expression`, `evaluate_match`,
+`evaluate_begin_expression`, `evaluate_cond`, `evaluate_initialization_assignment`:
+box the large by-value `TypeValue`/`EvalValue` locals and extract the big NON-recursive
+match arms into helpers so -O0 stops allocating their slots in the recursive frame.
+Equivalent alternative: a yo-self CODEGEN change to reuse/colour stack slots across
+match arms (so even -O0 frames shrink), which would fix this class globally. Both are
+large, semantics-preserving changes touching the hottest evaluator code; corpus must
+stay 76/76 at each step. No further diagnosis is needed — this is the implementation.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
