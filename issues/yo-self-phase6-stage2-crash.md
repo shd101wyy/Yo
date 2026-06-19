@@ -30,6 +30,25 @@ uses — verify the shell's id == the finalized method's id, and that
 register_func_type runs for it. Distinct from the Dyn(Error) chain; the next
 per-module step.
 
+**PARTIAL FIX (commit 1d28fbfee) + DEEPER GAP (2026-06-20):**
+`_try_create_forward_shell` now calls `register_func_type(shell_fid, fn_ty)` — so
+the recursive-method SIGNATURE is now correct (`get_program` → `ArrayList* fn(Parser*
+self, Exception exn)`, no longer `void fn(void)`). Corpus 77/77, lexer still clean.
+BUT parser.yo still has 36 transpile errors: the shell carries the UNEVALUATED body
+(no ExprInfo), and the main pass updates the registry ENTRY's value to the real
+method (impl.yo:2073) — but the real method has its OWN func_id, while the
+forward-ref CALL SITES captured the SHELL's func_id (the real didn't exist yet).
+yo-self FuncVals are immutable VALUES (unlike TS's mutated-in-place shell object),
+so call sites still resolve to the shell id → codegen emits the shell's unevaluated
+body ("Failed to transpile"). TRIED: making the real method ADOPT the shell's
+func_id on update (so call sites hit the real body) — REGRESSED the corpus
+(SELF-FAIL 1), reverted. So the reconciliation needs a non-id-swap approach: e.g.
+register the real method's body+type under the shell func_id in the function
+registry codegen reads (without changing the FuncVal identity others hold), or make
+the shell carry/lazily-resolve the evaluated body. Note parser.yo is a HEAVIER
+module — beyond get_program the 36 errors span other recursive/forward-ref methods;
+expect a broader wave than lexer.yo had.
+
 
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
 self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
