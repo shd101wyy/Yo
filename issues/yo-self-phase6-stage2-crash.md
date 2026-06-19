@@ -420,6 +420,41 @@ function.ts:822-831 (`isInFunctionCallCheckingPhase` + `skipCtfeExecution` on ea
 dry-run). Validate: corpus 76/76 (must not break overload resolution — the glob.yo
 case) AND `check main.yo` completes.
 
+## UPDATE (2026-06-19, round 6) — DEFINITIVE: bounded-but-deep CTFE × giant frames (NOT unbounded)
+
+Traced the body-eval to the CTFE gate (function.yo:2324): type-hierarchy-return /
+comptime-only-return / all-args-are-types / macro functions EXECUTE their body at call
+time; runtime-return functions correctly yield `UnknownVal` without it (the 2466
+comment, faithful to helper.ts:1731). So the deep recursion is CTFE of the self-
+source's mutually-recursive TYPE-returning functions over the self-referential
+`TypeValue`.
+
+**KEY PROOF it is BOUNDED, not unbounded:** the TS compiler SUCCESSFULLY compiles
+`yo-self/main.yo` — that is exactly how `/tmp/yo-self-bin` is built (eval + CTFE +
+codegen, ~5 min, exit 0). So the very CTFE recursion that overflows yo-self-bin
+TERMINATES under TS. The recursion is bounded; the earlier "unbounded" reading
+(round 5) was wrong.
+
+**Therefore the crash is FRAME SIZE, not recursion count.** TS runs on a huge JS call
+stack with tiny frames; yo-self-bin's enormous `evaluate_*` functions
+(`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB at -O0; still multi-MB at -O2
+because they are giant inlined matches holding `TypeValue`/`EvalValue` BY VALUE) blow
+the C stack at a depth TS's stack absorbs. That is why `--release` (smaller, but still
+multi-MB frames) also overflows 16 GB: a few-thousand-deep CTFE × multi-MB/frame > 16 GB.
+
+**THE FIX (frame-size reduction, faithful):** box the large by-value locals in the
+hottest recursive evaluator functions so each C frame shrinks ~Nx:
+`_evaluate_expression`, `evaluate_function_call`, `evaluate_match`,
+`evaluate_begin_expression`, `evaluate_cond` — pass/return `TypeValue`/`EvalValue` via
+`Box`/`*(…)` in the hot paths and split the giant match arms into helpers (each helper
+frame is independent, so LLVM stack-colors them separately). This is pervasive but
+targeted at ~5 functions; it does not change semantics (so corpus stays 76/76) and
+mirrors why TS never hits this (JS boxes everything). Secondary: the
+def-time-body-env share (round 3) trims the heap half. Validate: corpus 76/76 + check
+main.yo completes at a sane stack (e.g. 2-4 GB). NOTE the evaluator deadline (TS
+_expr.ts:236) is a TIME limit, not a depth limit — it does not prevent the overflow
+because the stack blows before the deadline fires.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
