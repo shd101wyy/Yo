@@ -723,6 +723,241 @@ _func_type_has_closure_param :: (fn(ft : TypeValue) -> bool)(
 /// Complex dispatch (overloads, CTFE, method calls, trait dispatch) deferred to Phase 3.
 ///
 /// Mirrors `evaluateFunctionCall` in `src/evaluator/calls/function.ts`.
+/// [Phase-6 frame-size split] Extracted runtime-return branch of the FuncVal arm of
+/// `evaluate_function_call`. Pulling this ~200-line block (incl. the 16-field Func
+/// destructuring) out of `evaluate_function_call` removes its many -O0 stack slots
+/// from that function's frame, shrinking the per-level frame on the deep CTFE
+/// recursion path (Phase-6 stage-2 self-compile overflow). Pure code motion — same
+/// behavior. Returns the call expr.
+_evaluate_funcval_runtime_call :: (
+  fn(
+    expr : AstExpr,
+    func_expr : AstExpr,
+    env : Environment,
+    fresh_env : Environment,
+    ctx : EvalContext,
+    ret_type : TypeValue,
+    callee_func_type_opt : Option(TypeValue),
+    cv : EvalValue,
+    func_id_fv : String,
+    forall_names : ArrayList(String),
+    fa_bound_names : ArrayList(String),
+    fa_bound_types : ArrayList(TypeValue),
+    runtime_arg_exprs : ArrayList(AstExpr),
+    evaled_arg_infos : ArrayList(ExprInfo),
+    n_supplied_reg : usize,
+    param_vars : ArrayList(Variable),
+    exn : Exception
+  ) -> AstExpr
+)({
+  // Resolve forall SomeTs in the declared return type using the
+  // forall bindings just inferred from the call arguments — keyed
+  // by NAME against the SomeT occurrences in the return type, each
+  // with ITS OWN recorded frame level. (The levels are the callee's
+  // definition-site levels, which a fresh call env cannot confirm,
+  // so the env-lookup resolver returns them unresolved; TS instead
+  // re-evaluates the return type EXPRESSION in the callee env,
+  // helper.ts:1282 — a plain name lookup.) E.g. `(bit_not) ::
+  // (fn(forall(_Self), self : _Self, ...) -> _Self)` called with
+  // `self : u32` must return u32, not the abstract `_Self` SomeT.
+  (resolved_ret : TypeValue) = ret_type;
+  if(fa_bound_names.len() > usize(0), {
+    ret_somes := get_all_some_types(ret_type);
+    if(ret_somes.len() > usize(0), {
+      s_ret := subst_new();
+      (s_ret_any : bool) = false;
+      (rsi : usize) = usize(0);
+      while(rsi < ret_somes.len(), {
+        rst := match(ret_somes.get(rsi),.Some(t) => t,.None => t_unit());
+        match(
+          rst,
+          .SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _) => {
+            (bni : usize) = usize(0);
+            while(bni < fa_bound_names.len(), {
+              bn := match(fa_bound_names.get(bni),.Some(x) => x,.None => String.from(""));
+              if(bn == rst_name, {
+                bt := match(fa_bound_types.get(bni),.Some(t) => t,.None => t_unit());
+                subst_add(s_ret, rst_name.clone(), rst_lvl, bt);
+                s_ret_any = true;
+              });
+              bni = (bni + usize(1));
+            });
+          },
+          _ => ()
+        );
+        rsi = (rsi + usize(1));
+      });
+      if(s_ret_any, {
+        resolved_ret = substitute(s_ret, ret_type);
+      });
+    });
+  });
+  // Then resolve any REMAINING SomeTs from the callee env — an
+  // instantiation method's type params (ArrayList(JsonValue)'s
+  // `T` in `get`'s `?(T)`) are bound as CAPTURES, not foralls;
+  // without this the unresolved `T` was later looked up by NAME
+  // in whatever env was current and picked up stale bindings
+  // (a double-wrapped `Option(Option(JsonValue))` in
+  // std/encoding/json.yo's `at`). Mirrors TS's Step 9
+  // `evaluateFunctionReturnTypeAgain(returnType, calleeEnv)` —
+  // already ported on the helper.yo path (helper.yo:1811); this
+  // inline FuncVal arm is yo-self's second call path and needs
+  // the same resolution.
+  resolved_ret = evaluate_function_return_type_again(resolved_ret, fresh_env, ctx);
+  out_rt := new_expr_info(env, resolved_ret);
+  out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+  // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
+  // path — the body is NOT executed, so it returns before the 2341 site).
+  out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
+  // Assign a temp variable name to the (non-unit) call result so codegen
+  // can materialize it as `<cty> <tmp> = call(...)`. Mirrors TS
+  // function.ts:2263 attachTempVariableToExpr(expr, true, ...).
+  attach_temp_variable_to_expr(expr, true, ctx);
+  _ := param_vars;
+  // Generic-function SPECIALIZATION for codegen (Gap 6). The runtime-
+  // return path doesn't execute the body, leaving the callee's ExprInfo
+  // as the GENERIC FuncVal (its `forall(T) v:T` type crashes
+  // get_type_string). For a generic callee, produce a monomorphized
+  // FuncVal (specialized func_id + forall-free registered type, see
+  // helper.yo) and record it (value + type) on the callee node so
+  // codegen collects/emits the SPECIALIZED instance. (Method-chain
+  // generics like println still hit the upstream soft-fallback-to-unit
+  // inside create_specialized — that's the deeper Gap-6 evaluator work;
+  // simple generic bodies specialize cleanly.) Mirrors TS recording the
+  // specialized FunctionValue on `call.func.$.value`.
+  // Specialize for codegen when the callee is generic. Forall functions
+  // always specialize; additionally — mirroring TS's specialization guard
+  // (`isFunctionTypeGeneric(functionType) && !functionValue.isControlFunction`,
+  // helper.ts:1911-1929) — a NON-forall soft-generic function (one with a
+  // SomeType param, e.g. a closure param `cb : Impl(Fn(...))`) also
+  // specializes so its concrete arg types lower into the specialized C
+  // function (e.g. Thread.spawn's `cb` → its capture struct). Control
+  // (ctl/effect-handler) functions are excluded — the effect system handles
+  // them.
+  ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) && !(is_control_fn(func_id_fv.clone()))) && _func_type_has_closure_param(spec_ft)),.None => false);
+  if((forall_names.len() > usize(0)) || ou_spec_soft_generic, {
+    // Bind `Self` to the concrete static dot-receiver around the
+    // specialization so a STATIC generic-impl method's body (e.g.
+    // `ArrayList(u8).new`'s `Self(...)` construction) re-evaluates with
+    // `Self` concrete. The forall type params (`T`) are bound into
+    // `fresh_env` by the capture fallback in the forall-binding loop
+    // above; `Self` is the remaining piece for static methods (instance
+    // methods get it from the concrete `self` arg). Restored after spec.
+    spec_self_saved := ctx.self_type;
+    match(
+      _static_dot_receiver_self_type(func_expr, ctx),
+      .Some(spec_st) => {
+        // A static method whose declared return is `Self` (a SomeT) leaves
+        // resolved_ret as that unresolved SomeT — which makes codegen's
+        // should_skip_function_codegen drop the specialized method as
+        // "has_generic_return" (declarations.yo skip2), so e.g. the
+        // specialized `Thread.spawn -> Self` would never be emitted.
+        // Resolve `Self` to the concrete static-dot receiver here (the
+        // body constructs that concrete type). Gated to a SomeT return so
+        // concrete returns are untouched.
+        if(is_some_type(resolved_ret), {
+          resolved_ret = spec_st.clone();
+        });
+        ctx.self_type = Option(TypeValue).Some(spec_st);
+      },
+      .None => ()
+    );
+    spec_ct := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
+    spec_forall_args := ArrayList(ArgEntry).new();
+    (sfa_i : usize) = usize(0);
+    while(sfa_i < fa_bound_names.len(), {
+      fbt := match(fa_bound_types.get(sfa_i),.Some(t) => t,.None => t_unit());
+      _sfa := spec_forall_args.push(
+        ArgEntry(
+          value : Option(EvalValue).Some(EvalValue.TypeVal(box(fbt.clone()))),
+          parameter_type : TypeValue.TypeUni(usize(0)),
+          arg_type : fbt
+        )
+      );
+      sfa_i = (sfa_i + usize(1));
+    });
+    spec_reg_args := ArrayList(ArgEntry).new();
+    (sra_i : usize) = usize(0);
+    while(sra_i < n_supplied_reg, {
+      ainfo := match(evaled_arg_infos.get(sra_i),.Some(i) => i,.None => new_expr_info(env, t_unit()));
+      // For a closure arg, the evaluator records the concrete capture
+      // struct on ExprInfo.capture_type (anonymous_function.yo:1052) while
+      // ExprInfo.ty stays the Fn-trait type. Use the capture struct as the
+      // specialization arg_type so the closure param (`cb : Impl(Fn(...),
+      // Send)`) lowers to its concrete capture struct in the specialized C
+      // function — the same concretion TS achieves via the SomeType's
+      // resolvedConcreteType (helper.ts:2245-2252).
+      arg_ty_spec := match(ainfo.capture_type,.Some(ct) => ct,.None => ainfo.ty);
+      _sra := spec_reg_args.push(
+        ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : arg_ty_spec)
+      );
+      sra_i = (sra_i + usize(1));
+    });
+    spec_av := ArgValues(
+      forall_args : spec_forall_args,
+      args : spec_reg_args,
+      implicit_args : Option(ArrayList(ArgEntry)).None,
+      variadic_args : ArrayList(VarArgEntry).new()
+    );
+    spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
+    spec_fid := match(spec_fv,.FuncVal(_, _, _, _, _, _, _, _, sid) => sid, _ => String.from(""));
+    // helper.yo's create_specialized registers the specialized type but
+    // resolves its RETURN type via evaluate_function_return_type_again,
+    // which does NOT resolve a forall-result SomeT (frame-level mismatch)
+    // — e.g. `fn(a,b:T)->T` specialized to i32 args registers
+    // `fn(a:i32,b:i32)->T` (result still `T`). This arm already computed
+    // the concrete return (`resolved_ret`, via explicit forall subst), so
+    // re-register the specialized type with the result corrected.
+    base_spec_ty := get_func_type(spec_fid);
+    spec_ty_fixed := match(
+      base_spec_ty,
+      .Func({
+        forall_labels : fx_fl,
+        forall_types : fx_ft,
+        param_labels : fx_pl,
+        param_types : fx_pt,
+        implicit_labels : fx_il,
+        implicit_types : fx_it,
+        implicit_spreads : fx_isp,
+        where_types : fx_wt,
+        result_is_comptime_only : fx_rico,
+        param_is_ref : fx_pir,
+        param_is_owning : fx_pio,
+        result_is_ref : fx_rir,
+        has_variadic : fx_hv,
+        is_extern : fx_ie,
+        extern_name : fx_en,
+        is_control : fx_ic
+      }) => TypeValue.Func(
+        fx_fl,
+        fx_ft,
+        fx_pl,
+        fx_pt,
+        fx_il,
+        fx_it,
+        fx_isp,
+        fx_wt,
+        box(resolved_ret.clone()),
+        fx_rico,
+        fx_pir,
+        fx_pio,
+        fx_rir,
+        fx_hv,
+        fx_ie,
+        fx_en,
+        fx_ic
+      ),
+      _ => base_spec_ty
+    );
+    register_func_type(spec_fid.clone(), spec_ty_fixed);
+    spec_callee_info := new_expr_info(env, spec_ty_fixed);
+    spec_callee_info.value = Option(EvalValue).Some(spec_fv);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);
+    ctx.self_type = spec_self_saved;
+  });
+  expr
+});
 evaluate_function_call :: (
   fn(
     expr : AstExpr,
@@ -2478,213 +2713,27 @@ Fix: wrap the call:
         // rely on — verified: yo-self 53->57, std 150->151, tests 154->155, 0
         // regressions across 560 files.
         if((!(is_type_hierarchy_type(ret_type))) && (!(callee_result_is_comptime)), {
-          // Resolve forall SomeTs in the declared return type using the
-          // forall bindings just inferred from the call arguments — keyed
-          // by NAME against the SomeT occurrences in the return type, each
-          // with ITS OWN recorded frame level. (The levels are the callee's
-          // definition-site levels, which a fresh call env cannot confirm,
-          // so the env-lookup resolver returns them unresolved; TS instead
-          // re-evaluates the return type EXPRESSION in the callee env,
-          // helper.ts:1282 — a plain name lookup.) E.g. `(bit_not) ::
-          // (fn(forall(_Self), self : _Self, ...) -> _Self)` called with
-          // `self : u32` must return u32, not the abstract `_Self` SomeT.
-          (resolved_ret : TypeValue) = ret_type;
-          if(fa_bound_names.len() > usize(0), {
-            ret_somes := get_all_some_types(ret_type);
-            if(ret_somes.len() > usize(0), {
-              s_ret := subst_new();
-              (s_ret_any : bool) = false;
-              (rsi : usize) = usize(0);
-              while(rsi < ret_somes.len(), {
-                rst := match(ret_somes.get(rsi),.Some(t) => t,.None => t_unit());
-                match(
-                  rst,
-                  .SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _) => {
-                    (bni : usize) = usize(0);
-                    while(bni < fa_bound_names.len(), {
-                      bn := match(fa_bound_names.get(bni),.Some(x) => x,.None => String.from(""));
-                      if(bn == rst_name, {
-                        bt := match(fa_bound_types.get(bni),.Some(t) => t,.None => t_unit());
-                        subst_add(s_ret, rst_name.clone(), rst_lvl, bt);
-                        s_ret_any = true;
-                      });
-                      bni = (bni + usize(1));
-                    });
-                  },
-                  _ => ()
-                );
-                rsi = (rsi + usize(1));
-              });
-              if(s_ret_any, {
-                resolved_ret = substitute(s_ret, ret_type);
-              });
-            });
-          });
-          // Then resolve any REMAINING SomeTs from the callee env — an
-          // instantiation method's type params (ArrayList(JsonValue)'s
-          // `T` in `get`'s `?(T)`) are bound as CAPTURES, not foralls;
-          // without this the unresolved `T` was later looked up by NAME
-          // in whatever env was current and picked up stale bindings
-          // (a double-wrapped `Option(Option(JsonValue))` in
-          // std/encoding/json.yo's `at`). Mirrors TS's Step 9
-          // `evaluateFunctionReturnTypeAgain(returnType, calleeEnv)` —
-          // already ported on the helper.yo path (helper.yo:1811); this
-          // inline FuncVal arm is yo-self's second call path and needs
-          // the same resolution.
-          resolved_ret = evaluate_function_return_type_again(resolved_ret, fresh_env, ctx);
-          out_rt := new_expr_info(env, resolved_ret);
-          out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
-          // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
-          // path — the body is NOT executed, so it returns before the 2341 site).
-          out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
-          // Assign a temp variable name to the (non-unit) call result so codegen
-          // can materialize it as `<cty> <tmp> = call(...)`. Mirrors TS
-          // function.ts:2263 attachTempVariableToExpr(expr, true, ...).
-          attach_temp_variable_to_expr(expr, true, ctx);
-          _ := param_vars;
-          // Generic-function SPECIALIZATION for codegen (Gap 6). The runtime-
-          // return path doesn't execute the body, leaving the callee's ExprInfo
-          // as the GENERIC FuncVal (its `forall(T) v:T` type crashes
-          // get_type_string). For a generic callee, produce a monomorphized
-          // FuncVal (specialized func_id + forall-free registered type, see
-          // helper.yo) and record it (value + type) on the callee node so
-          // codegen collects/emits the SPECIALIZED instance. (Method-chain
-          // generics like println still hit the upstream soft-fallback-to-unit
-          // inside create_specialized — that's the deeper Gap-6 evaluator work;
-          // simple generic bodies specialize cleanly.) Mirrors TS recording the
-          // specialized FunctionValue on `call.func.$.value`.
-          // Specialize for codegen when the callee is generic. Forall functions
-          // always specialize; additionally — mirroring TS's specialization guard
-          // (`isFunctionTypeGeneric(functionType) && !functionValue.isControlFunction`,
-          // helper.ts:1911-1929) — a NON-forall soft-generic function (one with a
-          // SomeType param, e.g. a closure param `cb : Impl(Fn(...))`) also
-          // specializes so its concrete arg types lower into the specialized C
-          // function (e.g. Thread.spawn's `cb` → its capture struct). Control
-          // (ctl/effect-handler) functions are excluded — the effect system handles
-          // them.
-          ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) && !(is_control_fn(func_id_fv.clone()))) && _func_type_has_closure_param(spec_ft)),.None => false);
-          if((forall_names.len() > usize(0)) || ou_spec_soft_generic, {
-            // Bind `Self` to the concrete static dot-receiver around the
-            // specialization so a STATIC generic-impl method's body (e.g.
-            // `ArrayList(u8).new`'s `Self(...)` construction) re-evaluates with
-            // `Self` concrete. The forall type params (`T`) are bound into
-            // `fresh_env` by the capture fallback in the forall-binding loop
-            // above; `Self` is the remaining piece for static methods (instance
-            // methods get it from the concrete `self` arg). Restored after spec.
-            spec_self_saved := ctx.self_type;
-            match(
-              _static_dot_receiver_self_type(func_expr, ctx),
-              .Some(spec_st) => {
-                // A static method whose declared return is `Self` (a SomeT) leaves
-                // resolved_ret as that unresolved SomeT — which makes codegen's
-                // should_skip_function_codegen drop the specialized method as
-                // "has_generic_return" (declarations.yo skip2), so e.g. the
-                // specialized `Thread.spawn -> Self` would never be emitted.
-                // Resolve `Self` to the concrete static-dot receiver here (the
-                // body constructs that concrete type). Gated to a SomeT return so
-                // concrete returns are untouched.
-                if(is_some_type(resolved_ret), {
-                  resolved_ret = spec_st.clone();
-                });
-                ctx.self_type = Option(TypeValue).Some(spec_st);
-              },
-              .None => ()
-            );
-            spec_ct := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
-            spec_forall_args := ArrayList(ArgEntry).new();
-            (sfa_i : usize) = usize(0);
-            while(sfa_i < fa_bound_names.len(), {
-              fbt := match(fa_bound_types.get(sfa_i),.Some(t) => t,.None => t_unit());
-              _sfa := spec_forall_args.push(
-                ArgEntry(
-                  value : Option(EvalValue).Some(EvalValue.TypeVal(box(fbt.clone()))),
-                  parameter_type : TypeValue.TypeUni(usize(0)),
-                  arg_type : fbt
-                )
-              );
-              sfa_i = (sfa_i + usize(1));
-            });
-            spec_reg_args := ArrayList(ArgEntry).new();
-            (sra_i : usize) = usize(0);
-            while(sra_i < n_supplied_reg, {
-              ainfo := match(evaled_arg_infos.get(sra_i),.Some(i) => i,.None => new_expr_info(env, t_unit()));
-              // For a closure arg, the evaluator records the concrete capture
-              // struct on ExprInfo.capture_type (anonymous_function.yo:1052) while
-              // ExprInfo.ty stays the Fn-trait type. Use the capture struct as the
-              // specialization arg_type so the closure param (`cb : Impl(Fn(...),
-              // Send)`) lowers to its concrete capture struct in the specialized C
-              // function — the same concretion TS achieves via the SomeType's
-              // resolvedConcreteType (helper.ts:2245-2252).
-              arg_ty_spec := match(ainfo.capture_type,.Some(ct) => ct,.None => ainfo.ty);
-              _sra := spec_reg_args.push(
-                ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : arg_ty_spec)
-              );
-              sra_i = (sra_i + usize(1));
-            });
-            spec_av := ArgValues(
-              forall_args : spec_forall_args,
-              args : spec_reg_args,
-              implicit_args : Option(ArrayList(ArgEntry)).None,
-              variadic_args : ArrayList(VarArgEntry).new()
-            );
-            spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
-            spec_fid := match(spec_fv,.FuncVal(_, _, _, _, _, _, _, _, sid) => sid, _ => String.from(""));
-            // helper.yo's create_specialized registers the specialized type but
-            // resolves its RETURN type via evaluate_function_return_type_again,
-            // which does NOT resolve a forall-result SomeT (frame-level mismatch)
-            // — e.g. `fn(a,b:T)->T` specialized to i32 args registers
-            // `fn(a:i32,b:i32)->T` (result still `T`). This arm already computed
-            // the concrete return (`resolved_ret`, via explicit forall subst), so
-            // re-register the specialized type with the result corrected.
-            base_spec_ty := get_func_type(spec_fid);
-            spec_ty_fixed := match(
-              base_spec_ty,
-              .Func({
-                forall_labels : fx_fl,
-                forall_types : fx_ft,
-                param_labels : fx_pl,
-                param_types : fx_pt,
-                implicit_labels : fx_il,
-                implicit_types : fx_it,
-                implicit_spreads : fx_isp,
-                where_types : fx_wt,
-                result_is_comptime_only : fx_rico,
-                param_is_ref : fx_pir,
-                param_is_owning : fx_pio,
-                result_is_ref : fx_rir,
-                has_variadic : fx_hv,
-                is_extern : fx_ie,
-                extern_name : fx_en,
-                is_control : fx_ic
-              }) => TypeValue.Func(
-                fx_fl,
-                fx_ft,
-                fx_pl,
-                fx_pt,
-                fx_il,
-                fx_it,
-                fx_isp,
-                fx_wt,
-                box(resolved_ret.clone()),
-                fx_rico,
-                fx_pir,
-                fx_pio,
-                fx_rir,
-                fx_hv,
-                fx_ie,
-                fx_en,
-                fx_ic
-              ),
-              _ => base_spec_ty
-            );
-            register_func_type(spec_fid.clone(), spec_ty_fixed);
-            spec_callee_info := new_expr_info(env, spec_ty_fixed);
-            spec_callee_info.value = Option(EvalValue).Some(spec_fv);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);
-            ctx.self_type = spec_self_saved;
-          });
-          return(expr);
+          return(
+            _evaluate_funcval_runtime_call(
+              expr,
+              func_expr,
+              env,
+              fresh_env,
+              ctx,
+              ret_type,
+              callee_func_type_opt,
+              cv,
+              func_id_fv.clone(),
+              forall_names,
+              fa_bound_names,
+              fa_bound_types,
+              runtime_arg_exprs,
+              evaled_arg_infos,
+              n_supplied_reg,
+              param_vars,
+              exn
+            )
+          );
         });
         old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
         old_ret_ty := ctx.enclosing_function_return_type;
