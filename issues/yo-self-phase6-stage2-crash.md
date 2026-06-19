@@ -76,11 +76,33 @@ has only `source`/`to_string`, no `throw`) instead of invoking `exn`'s `throw`
 ctl handler. So the effect-handler-call codegen for a `ctl` STRUCT FIELD picks the
 wrong receiver when the effect's argument is itself a `Dyn`. The corpus effect
 fixtures (effect_handler_unwind/resume, in the green 77) throw non-Dyn args, so
-this Dyn-arg variant is unexercised. NEXT: in the effect/ctl-field call codegen,
-ensure `exn.throw(arg)` invokes the `throw` ctl on the RECEIVER `exn`, with the
-`Dyn` value passed as the `error : AnyError` argument — do not treat the Dyn arg
-as the dispatch receiver. Then the 2 remaining errors (missing concrete `source`
-wrapper + its fn-ptr type) are the Dyn(Error)-vtable wrapper-generation gap.
+this Dyn-arg variant is unexercised.
+
+**THROW DISPATCH FIXED (2026-06-20, commit fcdb0d944): clang errors 8 → 2.** The
+Dyn method-dispatch path now also requires the DOT-RECEIVER (`exn`) to be a Dyn,
+not just `dm_runtime[0]` (which for the ctl-field call was the dyn ARGUMENT). All
+6 `.throw` errors gone; corpus 77/77 (incl. dyn_dispatch.yo).
+
+**REMAINING 2 errors — trait-DEFAULT-method not modeled (structural Gap):** the
+`Dyn(Error+ToString)` vtable references `__yo_wrap_<LexerError>_source`, but that
+wrapper is never emitted — `generate_dyn_wrapper_functions` (functions/dyn.yo)
+emits `/* Warning: Module field source is not a function value */` because the Dyn
+EVIDENCE has `None` for `source`. Root: `Error.source` has a DEFAULT impl
+(`(source : ...) ?= ((self) -> .None)`, std/error.yo:7); `LexerError` doesn't
+override it. `_resolve_dyn_trait_values` (evaluator/values/dyn.yo:39) gathers a
+type's trait methods from `get_type_trait_methods_for_type` and finds NO `source`
+entry (defaults aren't registered as the type's methods) → `None`. yo-self's
+`TraitT` does NOT store per-field default values (explicit divergence noted at
+trait_type.yo:6-8: "TraitT has no defaultValueExpr/defaultValue per field"). FIX
+(structural, deeper — defer to a focused pass): model trait method defaults —
+store each defaulted method's default FuncVal (keyed by trait id + field label,
+populated when the `trait(...)` is evaluated) and, when a type impls the trait
+WITHOUT overriding a defaulted method, register the default as that type's method
+(so `_resolve_dyn_trait_values` and normal dispatch both find it). Then the
+`source` wrapper is emitted and the fn-ptr type resolves. HIGH-VALUE: trait
+defaults are pervasive (Error, many std traits); this unblocks every module using
+`std/error` (lexer/parser/evaluator/codegen all do). Validate corpus 77/77 + std
++ token/lexer after.
 
 OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
