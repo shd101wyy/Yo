@@ -119,13 +119,53 @@ for all NON-cyclic types or it regresses the whole compiler. Requires careful
 implementation + full validation (corpus 76/76 + check ./std 151/151 + check
 ./yo-self 227/227) in a focused session. Same idea applies to `EvalValue`.
 
+**THIRD FIX TESTED + REVERTED (2026-06-20): `substitute`-normalize `spec_ret_ty`.**
+Re-added the `substitute` cycle guard (`visited_type_ids`, path-based push/pop on
+EnumT/Struct) AND normalized `spec_ret_ty` via `substitute(subst_new(), …)` in
+`create_specialized` (a cycle-safe structural clone) before the 4 derived
+`.clone()` sites. Rebuilt; lexer.yo STILL crashed rc=138. Reverted. CONCLUSION:
+the crashing derived clone is NOT `spec_ret_ty.clone()` — it is in the
+SPECIALIZED-BODY EVAL (helper.yo ~1209+), which clones the cyclic type at one of
+the evaluator's many `.clone()` sites (param/arg types, EvalValues carrying
+TypeValues, etc.). Normalizing individual sites is whack-a-mole and does not
+scale.
+
+**THE ONLY SCALABLE FIX (next session — large + must validate hard): replace
+`derive(TypeValue, Clone)` (definitions.yo:323) with a MANUAL cycle-aware clone.**
+This fixes EVERY `.clone()` site at once, including `EvalValue` clones TRANSITIVELY
+(derived `EvalValue.clone` delegates to its fields' `.clone()`, so a cycle-aware
+`TypeValue.clone` makes `EvalValue.clone` bounded too — no separate EvalValue fix
+needed). Recipe:
+  - Add `_clone_tv :: (fn(t : TypeValue, visited : ArrayList(String)) -> TypeValue)`
+    in definitions.yo (it already imports ArrayList; `box`/`Option` are prelude).
+    Mirror `substitute`'s variant-by-variant structure (substitution.yo:93-339) but
+    with NO substitution — just reconstruct each variant, using `recur(child,
+    visited)` for `Box(Self)` and inline loops with `recur` for `ArrayList(Self)` /
+    `ArrayList(ArrayList(Self))`; `.clone()` the non-TypeValue lists
+    (ArrayList(String)/usize/bool/i64). 39 variants; the first ~22 are fieldless
+    leaves (reconstruct directly). Field ORDER must match definitions.yo EXACTLY
+    (esp. `Func`'s 17 positional fields).
+  - On EnumT/Struct: `cond(((id.len()>0) && _path_visited(visited, id)) => <SHELL
+    with same id+name, empty variants/fields>, true => { visited.push(id);
+    <reconstruct with recurs>; visited.pop(); <full> })`. Path-based push/pop so
+    sibling repeats of a generic type still fully clone; only a type containing
+    ITSELF on the path collapses to a shell (which resolve_enum_shell re-expands).
+  - Replace `derive(TypeValue, Clone)` with `impl(TypeValue, Clone(TypeValue),
+    clone : (fn(ref(self) : TypeValue) -> TypeValue)(_clone_tv(self,
+    ArrayList(String).new())))`.
+  - VALIDATE before commit: `bun run build`, diff-test corpus (76/76), `check
+    ./std` (151/151), `check ./yo-self` (227/227), then `compile yo-self/lexer.yo`
+    (must produce C, no rc=138), then ideally `compile yo-self/main.yo`.
+  RISK: the manual clone must be byte-equivalent to the derived one for all
+  ACYCLIC types (the guard never fires there). A single wrong field silently
+  corrupts the compiler — hence the full validation sweep is mandatory, which is
+  why this is a focused-session task, not an end-of-session change.
+
 **NEXT FIX (focused; must keep corpus 76/76 + std 151):**
-0. The compat backstop AND the substitute guard are NOT the fix (both tested
-   ineffective — the loop is the auto-clone of an already-cyclic value). Enum
-   finalization is also ruled out (finite DAG). The fix is either the global
-   manual cycle-aware `Clone` (above) or pinpointing the eager shell-resolution
-   that materializes the true cycle (instrument `resolve_enum_shell` call counts
-   during lexer.yo compile to catch a resolution spiral). The fix is a
+0. The compat backstop, the substitute guard, AND spec_ret_ty normalization are
+   all NOT the fix (three tested-ineffective attempts). Enum finalization is ruled
+   out (finite DAG). The crash is the derived clone in the specialized-body eval.
+   THE fix is the global manual cycle-aware `TypeValue.clone` recipe above. The fix is a
    cycle-aware CLONE of `TypeValue` used by the specialization path: a manual
    `clone_type_acyclic(t, visited)` that deep-clones but, on revisiting a
    type id already on the path, returns a shell/leaf (mirroring how
