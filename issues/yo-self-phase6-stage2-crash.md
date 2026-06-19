@@ -90,6 +90,25 @@ parse_expression) "Failed to transpile" — a codegen gap in those constructs (n
 forward-shells). NEXT: pick one failing `if`/`while`/`cond`-as-value statement,
 find why generate_other_function_call / the dispatcher returns None for it, fix.
 
+**PINPOINTED (2026-06-20):** the failing functions are REAL, mostly-transpiled
+bodies (e.g. yo_id_12129 — a parse method — emits proper switch/vtable C), NOT
+shells. Within such a body, codegen transpiles fine up to a point, then EVERY
+subsequent statement in the begin-block "Failed to transpile" (cascade). The
+TRIGGER (first failure) is an `if`-AS-STATEMENT whose `begin` body contains an
+early `return`, e.g.:
+  `if(next_tok_kind == TokenKind.RParen, begin(unit_tok := …, return(ParseResult(…)), ()))`
+Everything after it (`pr := self.parse_expression(…)`, `(expr : AstExpr) = pr.expr`,
+`idx := pr.index`, the next `if(curr_kind == …, begin(return …))`) is then dumped
+as "Failed to transpile". So the gap is codegen for a CONDITIONAL EARLY-RETURN
+inside a begin-sequence (`if(cond, begin(…, return(x), ()))` as a statement) — the
+dispatcher returns None for that `if`, and the block's remaining statements
+cascade. (Note: the recursive calls inside — parse_expression — are fine, they're
+thunks now.) early_return.yo (corpus) covers a simple early return, so the gap is
+the if+begin+return-in-sequence shape specifically. NEXT: build a minimal repro
+(`fn → if(cond, begin(stmt, return(v), ())); more_stmts`), find why the
+if-statement codegen / block emitter drops it, fix. Likely many of parser's 34
+errors share this root.
+
 
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
 self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
