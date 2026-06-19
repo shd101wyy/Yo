@@ -59,7 +59,30 @@ the `substitute()` self-referential-trait cycle bug already fixed
 (`yo-self-substitute-cycle-guard`, commit 9b67b199), but in the clone-during-
 specialize path.
 
+**REFINED (2026-06-20, tested): the recursion is the auto-CLONE, not the compare.**
+Added a backstop in `_compat_impl` (the structural type-comparison core,
+compatibility.yo:101) bailing to `false` when its shared `visited` list (ArrayList
+is `object` ⇒ passed by reference, so it DOES accumulate) exceeds 1000 — under
+`require_exact` only. Rebuilt; lexer.yo STILL crashes rc=138 in the SAME frame
+(`ArrayList(TypeValue).get`), and the cap never changed behavior ⇒ the comparison
+is NOT the unbounded recursion. Reverted the backstop (ineffective). Therefore the
+loop is the **auto-generated `clone` of `TypeValue`** (`clone_specialized_T_TypeValue`,
+≈half of round-3's sample), which has no cycle guard, cloning the inherently-cyclic
+`TypeValue` EnumT (variants hold `Box(Self)`). `spec_ret_ty.clone()` in
+create_specialized (helper.yo:1116/1125/1165/1205) and/or the specialized body's
+type substitution clone the return/param type, which for the culprit (`yo_id_3835`
+over `Bucket(String, FuncCapturedVarInfo)`) transitively contains `TypeValue`.
+Can't just drop the `.clone()`: `TypeValue` is a value-type enum, so the multiple
+uses genuinely need copies (move semantics).
+
 **NEXT FIX (focused; must keep corpus 76/76 + std 151):**
+0. The compat backstop is NOT the fix (tested ineffective). The fix is a
+   cycle-aware CLONE of `TypeValue` used by the specialization path: a manual
+   `clone_type_acyclic(t, visited)` that deep-clones but, on revisiting a
+   type id already on the path, returns a shell/leaf (mirroring how
+   `resolve_recursive_type_ref` keeps recursive refs as finite-DAG leaves), then
+   use it for `spec_ret_ty` and any specialized param/body type clone. (Or, like
+   TS, restructure so recursive EnumTs are never deep-cloned at all.)
 1. Identify the exact pathological/cyclic TypeValue lexer.yo's derive-fold
    instantiates — instrument the clone / `create_specialized_function_inline`
    entry with a depth-guarded type print (bail+print past depth ~200 to survive).
