@@ -127,6 +127,25 @@ body-eval recursion across the full call graph, amplified by the giant
 `TypeValue`-by-value frame cost. The fix is frame-size reduction (box TypeValue in hot
 paths) + memoization/visited-guards on the type traversal, not more stack.
 
+### UPDATE — rebuild-free diagnostics exhausted (both lldb directions blocked)
+
+- `lldb bt` cannot unwind past frame #0 (the overflow faults at the prologue before
+  the frame/FP chain is established).
+- `lldb memory read -f A -c 8000 $sp` returns only ~21 entries — reading UP the stack
+  from `$sp` immediately hits the guard page / unmapped region (the deep frames are in
+  the exhausted area), so the repeating-return-address scan can't see the recursion.
+
+So pinning the EXACT recursive function needs depth instrumentation, and a naive
+global counter is unreliable here: the def-eval-wall unwinds frequently (trial-eval
+swallow), and `unwind` skips a decrement-on-exit → the count leaks upward across many
+shallow evals and gives false depth. A correct probe must save/restore depth across
+BOTH normal return AND the unwind handler (e.g. in `_evaluate_expression_wrapper`
+_expr.yo:898, the per-call exn handler restores `g_eval_depth = saved` before
+`unwind`). With that, panic-at-N (on the descent) prints the recursive expr/construct.
+Alternatively, address the SYMPTOM: shrink the per-frame cost by boxing/`*(TypeValue)`
+in the hottest type helpers (e.g. `Option(TypeValue)` returns) so the same depth fits
+— but TypeValue is pervasive, so that is a large, carefully-validated change.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
