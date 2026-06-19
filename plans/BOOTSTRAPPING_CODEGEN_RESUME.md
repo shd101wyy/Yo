@@ -12,30 +12,45 @@ point + validation gate. Resume from the top. Tree is clean + green at
   **sequentially gated** on Phase 5 codegen being complete enough to compile all
   of yo-self's own source.
 
-## Step 1 — Gap-2: monomorphize soft-generic (Impl(Fn)-param) functions
+## Step 1 — Gap-2: closure-param specialization codegen-emission (A/B/C)
 
 THE keystone — unblocks parallelism spawn AND is required for the Phase-6 fixpoint.
 
-- Entry: `yo-self/evaluator/calls/function.yo:2509`, guard `forall_names.len() > 0`.
-- Faithful target: TS `src/evaluator/calls/helper.ts:1917` guard =
-  `isFunctionTypeGeneric(ft) && !isFunctionTypeHardGeneric(ft)` (+ `!isControlFunction`,
-  no-unknown-implicits). Both helpers exist in yo-self
-  (`types/guards.yo:428` `is_function_type_generic`, `is_function_type_hard_generic`).
-- The existing arm at 2509 is forall-centric; add a NON-forall branch (empty
-  forall args + concrete reg-arg types) calling `create_specialized_function_inline`
-  (helper.yo:914), then record value+type on the callee node (mirror lines 2604-2607,
-  skip the forall-return-fix).
-- ALSO REQUIRED: the closure (cb) arg's `arg_type` must be the CONCRETE capture
-  struct at the call site (else specialization can't refine `cb`). Verify; may need
-  closure-arg typing work.
-- RISK: `is_function_type_generic` is broad → routes many std calls through
-  `create_specialized_function_inline`, which lacks effects analysis (helper.yo:908)
-  and uses soft-fallbacks; prior broad attempts regressed std + were reverted.
-  Consider NARROWING the new branch to Impl(Fn)-closure params first.
-- GATE: `./yo-cli check ./std` (TS) clean, rebuild yo-self-bin, corpus 75/75, then
-  the spawn repro (`/tmp/th.yo` shape) → `thread sees 42` / `main done`; add a
-  parallelism corpus fixture. Run the full `./yo-cli test --bail` (~30 min) before
-  committing — this touches the hot call path.
+TYPE-LOWERING HALF: DONE (commit fd019e82b, 2026-06-19). `Thread.spawn` / any
+closure-param fn now specializes with `cb` typed as its concrete capture struct.
+Four faithful, corpus-safe (75/75), non-regressing changes landed (expected-type
+coercion of `Impl(Fn)` args, capture_type→spec arg_type, narrowed soft-generic
+trigger via `_func_type_has_closure_param`, ref-spill monotonic counter). See
+`issues/yo-self-parallelism-emitter-gated-on-closure-codegen.md` UPDATE (2).
+
+CODEGEN-EMISSION HALF: REMAINING. None of A/B/C alone compiles the repro — land
+together. MINIMAL non-extern repro (fix this before spawn — same gap, no wrapper):
+`apply :: (fn(cb : Impl(Fn(x:i32)->i32)) -> i32)(cb(i32(10)));` called
+`apply((x) => (x + base))` — TS prints 15; yo-self-bin emits broken C. NOTE: the
+clean HEAD binary breaks it identically → PRE-EXISTING unported feature, not a
+regression. Pieces (full TS mechanism in the issue doc):
+
+- (B) COLLECTION — root cause LOCATED: `function.yo:2536` records the runtime
+  call-site result as `_call_result_unknown(...)` (an `UnknownVal`); TS leaves
+  `expr.$.value` undefined for runtime calls. So `cb(10)` in a specialized body
+  trips the `expr_contains_unknown_value` guard (collection.yo:496) and the body is
+  skipped (undeclared symbol). `a+b` does NOT trip it (operator path records
+  differently — `add2` compiles fine), so the divergence is specifically the
+  function-call result-value recording. FIX (validate corpus 75/75 — hot path):
+  align the runtime-call result to a non-UnknownVal (value=None + return type) like
+  the operator path, OR refine the collection guard to not skip concrete-typed
+  (specialized) functions. The TS guard chain is collection.ts:401-492.
+- (A) CALLER arg emission — a closure arg passed where the param is the capture
+  struct must emit `(captureStruct){ .field = capturedVar }` (temp + by-value),
+  NOT `(captureStruct)(closure_fn_name)`. Call-site arg path in other_fn_call.yo.
+- (C) SPECIALIZED-BODY closure call — `cb(x)` (cb = capture-struct param) → emit
+  `closure_fn(&(cb), x)`. For spawn this is instead the `__yo_thread_spawn(wrapper,
+  &cb_heapcopy)` path already in parallelism.yo; the general case is a direct
+  closure call and is the broader missing emitter. The async path (async.yo,
+  `sm->__capture.field`) is the SM analogue.
+- GATE: rebuild yo-self-bin, corpus 75/75, the apply repro prints 15, then the
+  spawn repro (`/tmp/th.yo`) → `thread sees 42` / `main done`; add a parallelism
+  corpus fixture. Run the full `./yo-cli test --bail` before committing (hot path).
 
 ## Step 2 — implicit-effect evidence machinery (optional for fixpoint)
 
