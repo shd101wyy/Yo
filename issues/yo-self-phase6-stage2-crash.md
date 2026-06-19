@@ -315,6 +315,46 @@ port for the cyclic specializations. Each needs its own validated rebuild cycle
 not a single rapid edit. Three fixes were attempted this session and ALL reverted to
 preserve 76/76 — the working compiler must not be regressed for a partial fix.
 
+## UPDATE (2026-06-19, round 4) — mutual-recursion fix landed; depth is huge/unbounded → suspect the spec cache
+
+- **Mutual-recursion specialization guard + forward-reference PORTED & committed**
+  (b2f62e781): yo-self lacked TS's `currentlySpecializingFunctionStack` + forward-ref
+  (helper.ts:1985-2010) — it handled only DIRECT recursion (single slot + `recur`).
+  Now the stack is pushed/popped around specialization and mutual recursion forward-
+  refs the in-progress specialized funcId. Corpus 76/76 (runtime_numeric_cast.yo
+  exercises it). **But this does NOT fix the stage-2 crash** — profiling the fixed
+  binary shows `_build_forward_ref_funcval` is hit ZERO times on the crash path, so
+  cyclic specialization is NOT the crash driver.
+
+- **`--release` ALSO crashes (rc=138, 4 GB) — confirmed with a fresh -O2 build.** This
+  rules out the "-O0 giant-frame" explanation: at ~100× smaller -O2 frames, a bounded
+  ~514-deep chain (what a 3 s `sample` showed) would fit in well under 1 GB. Crashing
+  at 4 GB (and 32 GB OOM, per above) means the recursion is genuinely **thousands deep
+  or unbounded**, not deep-but-finite × big frames. The `sample` max-depth (~514) was
+  an undercount (tree-merge / mid-descent snapshot).
+
+- **Prime remaining suspect: specialization-cache MISS → re-descent.** Only GENERIC
+  calls recurse during validation (non-generic calls resolve their return type from the
+  signature without evaluating the callee body; `is_func_generic` gates
+  create_specialized_function_inline). So the deep chain is generic specialization
+  descending the call graph. With a working cache, each `(func, concrete-args)`
+  specializes ONCE and repeats hit the cache — bounding the chain. If
+  `_find_specialization_cache` / `compute_compile_time_signature` produces an UNSTABLE
+  key for functions over the self-referential `TypeValue` (e.g. freshened type ids per
+  specialization, or a key that varies for the same logical type), every repeat call
+  re-specializes → unbounded re-descent. This is the OPPOSITE failure of the cache
+  COLLISION fixed earlier (see memory yo-self-phase3-hashmap-new-blocker, where a
+  name-only struct compare gave false HITS) — here we'd have false MISSES.
+
+  NEXT: instrument `create_specialized_function_inline` to log `(func_id, signature)`
+  on cache miss; if the SAME logical specialization recurs with differing signatures
+  (or the same signature misses), the cache key is unstable — fix
+  `compute_compile_time_signature` to render the self-referential `TypeValue`
+  canonically/structurally (id-independent), mirroring how TS keys it. Verify: the
+  miss log stops repeating + `check main.yo` completes. Secondary: confirm via a
+  depth-counter panic in create_specialized whether depth is bounded (frame-size) or
+  unbounded (cache) — a panic at N=2000 with a clean trace settles it.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
