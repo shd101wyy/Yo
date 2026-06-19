@@ -633,16 +633,51 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 /// types fall back to their structural string. Used everywhere TS uses
 /// `type.id` as a registry key. See issues/codegen-port-type-model-gaps.md
 /// Gap 5. MUST be the single source of truth for keys (registration + lookup).
-type_key :: (fn(t : TypeValue) -> String)(
+/// Structural type key (used for BOTH C-type collection and lookup, so it must be
+/// consistent). For an EnumT, the definition `id` is SHARED across generic
+/// instantiations (e.g. `Option(Token)` and `Option(u8)` both carry the Option
+/// definition's id) — `substitute` keeps the id but DOES substitute `variant_fields`.
+/// Keying by `id` alone therefore collapses `Option(Token)` onto `Option(u8)`'s C enum
+/// (whose `Some.value` is `uint8_t`), miscompiling `ArrayList(Token).get`. So append
+/// the variant field types' keys to distinguish instantiations (TS keeps them distinct:
+/// 16 enums vs yo-self's 6 for token.yo). Depth-capped to stay finite on self-
+/// referential enums. Struct ids are already per-instantiation (no suffix needed).
+_type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
-    .EnumT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    .EnumT({ id, variant_fields : vfs }) => if((id.len() == usize(0)) || (depth > usize(4)), if(id.len() > usize(0), id.clone(), type_to_string(t)), {
+      key := id.clone();
+      (vi : usize) = usize(0);
+      while(vi < vfs.len(), {
+        match(
+          vfs.get(vi),
+          .Some(fields) => {
+            (fi : usize) = usize(0);
+            while(fi < fields.len(), {
+              match(
+                fields.get(fi),
+                .Some(ft) => {
+                  key.push_str("_");
+                  key.push_string(recur(ft, depth + usize(1)));
+                },
+                .None => ()
+              );
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      key
+    }),
     .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     _ => type_to_string(t)
   )
 );
+type_key :: (fn(t : TypeValue) -> String)(_type_key_at(t, usize(0)));
 /// Look up the registered C type name for a named/structural type, panicking
 /// with a diagnostic if it was not collected. Mirrors the `context.types[...]`
 /// lookup + throw inside getTypeString's Tuple/Struct/Union/Enum arm.
