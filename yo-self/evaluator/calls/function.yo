@@ -67,7 +67,8 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic } :: import("../../types/guards.yo");
+{ is_control_fn } :: import("../types/control_fn_registry.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
@@ -679,6 +680,41 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
       found
     },
     _ => Option(String).None
+  )
+);
+/// True if this function type has a regular parameter that is a SomeType
+/// wrapping an Fn trait (a closure param, e.g. `cb : Impl(Fn(...), Send)`).
+/// Used to NARROW the non-forall specialization trigger: only closure-param
+/// soft-generic functions (Thread.spawn / io.async-style) are specialized for
+/// codegen so the closure param lowers to its concrete capture struct. Routing
+/// EVERY soft-generic function through create_specialized_function_inline
+/// (which lacks full effects analysis) crashed `check ./std`.
+_func_type_has_closure_param :: (fn(ft : TypeValue) -> bool)(
+  match(
+    ft,
+    .Func({ param_types }) => {
+      n := param_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !(found), {
+        match(
+          param_types.get(i),
+          .Some(pt) => if(is_some_type(pt.clone()), {
+            match(
+              extract_fn_trait_from_type(pt),
+              .Some(_) => {
+                found = true;
+              },
+              .None => ()
+            );
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
   )
 );
 /// arguments, and returning the annotated expression.
@@ -1844,7 +1880,19 @@ Fix: wrap the call:
                 // enum-variant shorthands (".Table(...)" looked up in
                 // SomeT-T → "variant not found").
                 is_type_hierarchy_type(apt) => Option(ExpectedTypeCtx).None,
-                is_some_type(apt) => Option(ExpectedTypeCtx).None,
+                // Abstract SomeTs (bare type-param `T`) are skipped — an abstract
+                // expected mis-resolves enum-variant shorthands. EXCEPTION: a
+                // SomeT wrapping an Fn trait (`cb : Impl(Fn(...), Send)`) MUST be
+                // passed so the closure arg coerces through closure_type.yo and
+                // records its capture struct as the SomeT's resolvedConcreteType
+                // (needed for spawn/parallelism specialization). Mirrors TS
+                // passing the declared param type as the arg's expected type
+                // (helper.ts:330).
+                is_some_type(apt) => match(
+                  extract_fn_trait_from_type(apt),
+                  .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env)),
+                  .None => Option(ExpectedTypeCtx).None
+                ),
                 true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env))
               ),
               .None => Option(ExpectedTypeCtx).None
@@ -2506,7 +2554,17 @@ Fix: wrap the call:
           // inside create_specialized — that's the deeper Gap-6 evaluator work;
           // simple generic bodies specialize cleanly.) Mirrors TS recording the
           // specialized FunctionValue on `call.func.$.value`.
-          if(forall_names.len() > usize(0), {
+          // Specialize for codegen when the callee is generic. Forall functions
+          // always specialize; additionally — mirroring TS's specialization guard
+          // (`isFunctionTypeGeneric(functionType) && !functionValue.isControlFunction`,
+          // helper.ts:1911-1929) — a NON-forall soft-generic function (one with a
+          // SomeType param, e.g. a closure param `cb : Impl(Fn(...))`) also
+          // specializes so its concrete arg types lower into the specialized C
+          // function (e.g. Thread.spawn's `cb` → its capture struct). Control
+          // (ctl/effect-handler) functions are excluded — the effect system handles
+          // them.
+          ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) && !(is_control_fn(func_id_fv.clone()))) && _func_type_has_closure_param(spec_ft)),.None => false);
+          if((forall_names.len() > usize(0)) || ou_spec_soft_generic, {
             // Bind `Self` to the concrete static dot-receiver around the
             // specialization so a STATIC generic-impl method's body (e.g.
             // `ArrayList(u8).new`'s `Self(...)` construction) re-evaluates with
@@ -2540,8 +2598,16 @@ Fix: wrap the call:
             (sra_i : usize) = usize(0);
             while(sra_i < n_supplied_reg, {
               ainfo := match(evaled_arg_infos.get(sra_i),.Some(i) => i,.None => new_expr_info(env, t_unit()));
+              // For a closure arg, the evaluator records the concrete capture
+              // struct on ExprInfo.capture_type (anonymous_function.yo:1052) while
+              // ExprInfo.ty stays the Fn-trait type. Use the capture struct as the
+              // specialization arg_type so the closure param (`cb : Impl(Fn(...),
+              // Send)`) lowers to its concrete capture struct in the specialized C
+              // function — the same concretion TS achieves via the SomeType's
+              // resolvedConcreteType (helper.ts:2245-2252).
+              arg_ty_spec := match(ainfo.capture_type,.Some(ct) => ct,.None => ainfo.ty);
               _sra := spec_reg_args.push(
-                ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : ainfo.ty)
+                ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : arg_ty_spec)
               );
               sra_i = (sra_i + usize(1));
             });

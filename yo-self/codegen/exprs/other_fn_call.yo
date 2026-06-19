@@ -33,6 +33,12 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_effect_unwind_check } :: import("./return.yo");
 { generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
+/// Monotonic counter for ref-spill temporaries (`__yo_ref_spill_N`). Must be
+/// unique per generated C function body, not per call's arg index — two
+/// separate calls in one function both spilling arg 0 would otherwise collide
+/// on `__yo_ref_spill_0`. Mirrors TS module-level `refSpillCounter`
+/// (src/codegen/exprs/other-fn-call.ts:84).
+(g_ref_spill_counter : usize) = usize(0);
 /// ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -450,7 +456,8 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
         }, {
           cty := match(runtime_args.get(i),.Some(ra) => match(context.base.get_expr_info(ra),.Some(rei) => get_type_string(rei.ty, context.base),.None => String.from("size_t")),.None => String.from("size_t"));
           spill := String.from("__yo_ref_spill_");
-          spill.push_string(i.to_string());
+          spill.push_string(g_ref_spill_counter.to_string());
+          g_ref_spill_counter = (g_ref_spill_counter + usize(1));
           decl := indent.clone();
           decl.push_string(cty);
           decl.push_str(" ");
