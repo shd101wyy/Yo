@@ -63,6 +63,7 @@ open(import("std/string"));
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { random_id } :: import("../../utils.yo");
+{ register_func_type } :: import("../../function_value.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -1227,6 +1228,17 @@ _try_create_forward_shell :: (
       sh_foralls := match(fn_ty,.Func({ forall_labels : fl }) => fl.clone(), _ => ArrayList(String).new());
       sh_params := match(fn_ty,.Func({ param_labels : pl }) => pl.clone(), _ => ArrayList(String).new());
       sh_implicits := match(fn_ty,.Func({ implicit_labels : il }) => il.clone(), _ => ArrayList(String).new());
+      shell_fid := `fn_${random_id(env.module_path)}_${label}`;
+      // Register the shell's func TYPE under its func_id. Codegen's
+      // generate_function reads get_func_type(func_id) for the C signature; an
+      // unregistered id defaults to `t_unit` → a malformed `void fn(void)`
+      // prototype whose body (referencing self/params) then fails to transpile.
+      // The shell carries the type in MethodEntry.ty, but codegen keys off the
+      // registry, not the entry. A RECURSIVE/forward-referenced impl method
+      // (e.g. parser.yo's `get_program`, in the parse_template_string→get_program
+      // cycle) is collected as this shell, so without registering its type the
+      // whole method emits malformed C.
+      register_func_type(shell_fid.clone(), fn_ty.clone());
       shell := EvalValue.FuncVal(
         sh_foralls,
         sh_params,
@@ -1236,7 +1248,7 @@ _try_create_forward_shell :: (
         ArrayList(String).new(),
         ArrayList(TypeValue).new(),
         ArrayList(EvalValue).new(),
-        `fn_${random_id(env.module_path)}_${label}`
+        shell_fid
       );
       Option(MethodEntry).Some(
         MethodEntry(
