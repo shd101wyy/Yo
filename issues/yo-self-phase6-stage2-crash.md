@@ -104,6 +104,30 @@ defaults are pervasive (Error, many std traits); this unblocks every module usin
 `std/error` (lexer/parser/evaluator/codegen all do). Validate corpus 77/77 + std
 + token/lexer after.
 
+**TRAIT DEFAULTS NOW MODELED (2026-06-20, commit f9c2b4140).** Added a
+trait-default registry (type_trait_methods.yo: register_trait_default /
+get_trait_default, keyed `trait_id::label`); the trait evaluator records each
+`?=` default's FuncVal (trait.yo); `_resolve_dyn_trait_values` falls back to it
+when a type omits a defaulted method (dyn.yo). The "Module field source is not a
+function value" warning is GONE — the Dyn(Error) evidence now carries `source`
+and its vtable wrapper IS emitted. Corpus 77/77, token.yo clean.
+
+**REMAINING (lexer.yo: 8 → 3 clang errors): default-LAMBDA codegen-readiness.**
+The emitted wrapper now calls the default's func (`fn_..._5629` = `(self) -> .None`),
+but:
+  - `call to undeclared function 'fn_..._5629'` — the default lambda's body is
+    referenced but not generated. `collect_required_functions` DOES walk the
+    TraitVal evidence (functions/collection.yo:656), so the default FuncVal is
+    reached; the gap is that the default lambda (comptime-evaluated in the trait
+    def) lacks a registered Func TYPE / collectable body — codegen skips emitting
+    it. Needs: register the default lambda's func type + ensure its body is
+    collected/generated (or generate the trivial `-> .None` wrapper inline).
+  - 2× result-type mismatch: the default returns `Option(Dyn(Error))` but the
+    wrapper/vtable slot types disagree (the self-referential enum's C type vs the
+    int the body returns) — align the default wrapper's return type with the
+    vtable slot.
+This is the NEXT step for lexer.yo; then parser/evaluator/codegen modules → main.yo.
+
 OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
 self-compile (`yo-self-bin compile yo-self/main.yo`) — crashes before producing C.
