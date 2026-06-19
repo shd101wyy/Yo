@@ -390,3 +390,30 @@ instrumentation (DIAG-SKIP):
 
 These two are method/extern-Type Self-resolution — the next focused unit, separate
 from (and unblocked by) the now-complete closure-param codegen.
+
+### UPDATE 2026-06-19 (6) — spawn root narrowed to ONE cause; lowered-type-id attempt + next direction.
+
+Verified both spawn blockers reduce to ONE root: `Thread` contains `handle : __yo_thread_t`
+(an `extern("Yo", X : Type)` opaque type = a SomeT placeholder), and
+`type_contains_some_type_for_codegen_param(Thread)` flags it → should_skip drops BOTH the
+specialized `Thread.spawn` (has_generic_return) and `Thread.join` (has_generic_params via
+the same field). Confirmed `Point.get` (a plain non-generic struct, `self:Self` method,
+i32 field) compiles + runs fine — so the `self:Self` machinery works; the ONLY difference
+is the extern-opaque field.
+
+ATTEMPTED + REVERTED (inert): a `g_codegen_lowered_type_ids` set populated by register_type
+(utils/index.yo) and queried in type_contains (exclude SomeTs whose id is a registered
+codegen type). DIAG-TC showed every SomeT reaching the branch was `lowered=F` — the
+`__yo_thread_t` SomeT id is NOT in the set. Cause: `__yo_thread_t` is a HARDCODED runtime
+typedef (codegen/types/generation.yo:409 `typedef struct __yo_thread_t {...}`), not
+register_type'd; and/or the field-type SomeT id differs from any codegen-registered id.
+Reverted (unvalidated + didn't catch the target).
+
+NEXT DIRECTION (faithful to TS `SomeType.isExtern`): mark extern-Type SomeTs at the
+DECLARATION. `extern("Yo", X : Type)` (evaluator/exprs/extern.yo) should record X's name
+(and/or the SomeT id once the placeholder is created) in a global extern-type registry;
+type_contains_some_type_for_codegen_param then excludes a SomeT whose name/id is a
+registered extern type. Verify the extern SomeT's `name` field == "__yo_thread_t" first
+(extend the DIAG-TC to print the name). This is the single fix that unblocks spawn end to
+end (both spawn + join). Then: spawn repro → `thread sees 42` / `main done`, corpus 75/75,
+add a parallelism corpus fixture.
