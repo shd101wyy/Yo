@@ -455,6 +455,38 @@ main.yo completes at a sane stack (e.g. 2-4 GB). NOTE the evaluator deadline (TS
 _expr.ts:236) is a TIME limit, not a depth limit — it does not prevent the overflow
 because the stack blows before the deadline fires.
 
+## UPDATE (2026-06-19, round 7) — CTFE-execution gate ELIMINATED; recursion is in arg/expr eval
+
+Added a CTFE-execution depth cap (reverted): a `g_ctfe_exec_depth` save/restore around
+the comptime/type-return execution gate (function.yo:2336), yielding `UnknownVal` past
+a cap of 150. `check main.yo` (4 GB) STILL crashed rc=138, 0 output — UNCHANGED. So the
+deep recursion does NOT flow through the call-time CTFE-execution gate.
+
+Also established by reading the control flow: the non-comptime body-eval at
+function.yo:~2716 is effectively UNREACHABLE — the comptime gate (2336:
+`type||comptime||all_args_types||macro`) always `return(expr)`s, and the runtime path
+(2507: `!type && !comptime`) always `return(expr)`s at 2714; their negations can't both
+hold. So neither body-eval path (comptime nor the 2716 inline) is the recursion.
+
+**Eliminated so far:** specialization nesting (round 5 probe, bounded <300), the
+comptime/type CTFE-execution gate (round 7 cap, no effect), and both call-time
+body-eval blocks (unreachable/guarded). **Remaining locus:** the recursion
+(`_evaluate_expression → evaluate_function_call → _evaluate_expression`, with
+evaluate_match / evaluate_cond / evaluate_begin in the sample) must be ARGUMENT
+evaluation (`evaluate_expression_raw` on arg exprs, function.yo:~811/1900/2406), the
+CALLEE-expression eval (~1049), or a `_evaluate_expression` construct that recurses —
+descending the call graph some other way. Note the round-6 frame-size conclusion still
+holds (TS compiles main.yo, so the recursion is bounded; yo-self overflows on giant
+frames) — these rounds just keep narrowing WHICH eval recursion is the deep one.
+
+NEXT (now unavoidable): a FLUSHED, UNWIND-AWARE depth probe. (1) Make output flush
+(the crash yields 0 buffered output, hiding the phase — wrap with explicit flush or
+write progress to a file line-by-line). (2) Increment a global at `evaluate_function_call`
+entry, save/restore across the per-call exn handler (_expr.yo:898 restores before
+`unwind`), panic at N printing the callee chain. That pins the exact recursive
+construct, after which the fix is either a re-entrancy guard there OR the round-6
+frame-size reduction (box TypeValue) on the specific hot functions involved.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
