@@ -300,3 +300,40 @@ REMAINING CODEGEN-EMISSION PIECES (the complete TS mechanism, from cls.yo emit):
 A+B+C must land together (none alone compiles the repro). The async/io.async path
 (async.yo, `sm->__capture.field`) is the state-machine analogue; the non-async
 closure-param path is capture-struct-by-value + direct closure call.
+
+### UPDATE 2026-06-19 (3) — full A/C blueprint: the implClosureCallMap subsystem.
+
+Scoped the codegen-emission half precisely against TS. The general closure-call
+mechanism centers on `context.implClosureCallMap` (TS utils/index.ts:139, on the
+BASE CodeGenContext): `Map<captureStructTypeId, { functionCName, callTypeId,
+callType?, consumedCaptures? }>`. yo-self's CodeGenContext (utils/index.yo:90) does
+NOT have this field yet — ADD it + an `ImplClosureCallInfo` object.
+
+- (A) `generate_closure_construction` (closures.ts:250) — UNPORTED (yo-self
+  closures.yo has only the 3 helpers, not this). For Impl(Fn) with captures:
+  `allocate_closure_capture` (closures.ts:99) builds `(captureCName){ .field = arg }`
+  (stack alloc, value semantics; each field via generateExpr of its dup-expr or a
+  synthesized Atom), emits `captureCName tmp = {...};`, registers
+  `implClosureCallMap[resolveSomeTypeToConcrete(captureType).id] = {functionCName,
+  callType,...}`, returns the temp var. Route closure-construction FnCall exprs
+  (is_closure_construction already exists, closures.yo:62) to this in the expr
+  dispatcher. Without-captures + Dyn branches also exist (closures.ts:314-356).
+- (C) call-site (other-fn-call.ts:2103) — when calling a value whose type is the
+  capture struct (or a SomeT resolving to it), look up `implClosureCallMap[id]`;
+  HIT → `mapped.functionCName(&(cb), args...)` (+ evidence/borrow branches); MISS →
+  fn-pointer cast fallback `((ret(*)(params))(closureCode))(args)`.
+- DATA-MODEL GAP: TS's `register_impl_closure_call_mappings` pre-pass
+  (closures.ts:223) iterates context.functions reading `value.closureInfo`
+  (closureType+captureType+consumedCaptures). yo-self FuncVal has NO closureInfo
+  field; it uses ExprInfo.closure_function_value + .capture_type + the
+  register_closure_capture_info(funcId, ClosureCaptureInfo) registry
+  (anonymous_function.yo:1039). So the pre-pass must be rebuilt from those side
+  registries, OR rely on per-site registration in generate_closure_construction
+  (works when the closure-constructing fn is codegen'd before the consumer; add the
+  pre-pass only if ordering breaks). mark_as_closure_fn marks closures.
+
+IMPLEMENTATION ORDER (each ~1 build): (1) add impl_closure_call_map +
+ImplClosureCallInfo to utils/index.yo; (2) port allocate_closure_capture +
+generate_closure_construction into closures.yo + wire is_closure_construction in the
+expr dispatcher; (3) port the call-site closure-call (piece C) in other_fn_call.yo;
+(4) fix collection (piece B); validate the apply repro → 15, corpus 75/75, then spawn.
