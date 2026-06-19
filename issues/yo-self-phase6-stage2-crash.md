@@ -2,6 +2,30 @@
 
 ## Status
 
+**CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
+self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
+replaced with a manual cycle-aware clone (path-based `g_tv_clone_path` guard on
+the `EnumT` arm; on a self-reference it returns the FULL enum with SHARED
+variant_fields — finite, collectable). Validated: corpus 77/77 zero diffs;
+yo-self-bin builds clean; lexer.yo no longer crashes rc=138. `EvalValue` clones
+fixed transitively. See `yo-self-phase6-stage2-crash-root.md` (memory) for the
+full diagnosis chain that led here (disproved the "memory wall"; eliminated
+compare/substitute/enum-finalization by test).
+
+**REMAINING (now reachable since the cycle is fixed):** lexer.yo reaches CODEGEN
+and aborts (rc=134) on a SEPARATE pre-existing collection gap:
+`get_type_string: no C type name found for <enum:enum_yo_id_5628> (type not
+collected before lowering)` — an enum (empty name, id 5628) referenced during
+lowering but never registered in `context.types` by the codegen type-collection
+pass (collect_type, codegen/types/collection.yo). This is the same CLASS of
+per-module codegen gap fixed for token.yo (true/false, enum-monomorphization,
+enum `==` dispatch), not the cycle. NEXT: identify enum 5628 (instrument the
+`_lookup_named_c_type` failure in codegen/utils/index.yo to dump its variant
+names — note: avoid `.to_string()`/label-destructure pitfalls there) and find why
+collect_type misses it (likely an enum reached only via a position the collection
+walk doesn't cover — a specialized return type, a comptime value's type, or a
+generic instantiation).
+
 OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
 self-compile (`yo-self-bin compile yo-self/main.yo`) — crashes before producing C.
