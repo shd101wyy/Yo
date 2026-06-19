@@ -461,7 +461,11 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_GHOST, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BK_OPEN, Option(usize).None), return(generate_open(expr, indent.clone(), context)));
-  // (Index-trait dispatch — Phase 3, generateIndexTraitCall not ported.)
+  // (No separate Index-trait codegen needed: the evaluator resolves `x[i]` /
+  // `x(i)` index-trait calls (try_to_call_with_index_trait, index_trait.yo) and
+  // records the method FuncVal in the method-callee side-table, so they reach
+  // generate_other_function_call as ordinary method calls. Verified: array_index
+  // corpus fixture passes. TS's generateIndexTraitCall is folded into that path.)
   // Primitive infix operator (`x + y`, `a == b`, …): lower directly to the
   // builtin-inline (`__yo_op_add` → `(a + b)`) via the inline path. This avoids
   // resolving the (generic, SomeType-bearing) operator trait method in codegen,
