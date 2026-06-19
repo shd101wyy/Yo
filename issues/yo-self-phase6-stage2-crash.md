@@ -672,6 +672,35 @@ collection, so the change must be consistent across both, validated incrementall
 against the corpus. This is the path to module-by-module self-host (option b), which
 sidesteps the unified-load memory wall entirely.
 
+## UPDATE (2026-06-20, per-module path PROGRESS) — enum-monomorphization FIXED
+
+Pursuing option (b) (module-by-module self-host, memory-feasible). Progress on
+token.yo's codegen bugs:
+
+- ✅ **`true`/`false` literal mangling** — FIXED (commit 1d2d5aa9).
+- ✅ **Enum-monomorphization collision** — FIXED (commit af865895f). `type_key` now
+  appends EnumT variant field types, so `Option(Token)` ≠ `Option(u8)` (was: both →
+  one C enum with `Some.value : uint8_t`). Corpus 76/76, the `ArrayList(Token).get`
+  type error is gone. yo-self enum C names now carry instantiation suffixes
+  (`__yo_enum_yo_id_3891_usize`).
+
+Remaining token.yo codegen bugs (next, each surfaces in the emitted C):
+1. **enum-value `==` variant → "Failed to transpile"** (the structural-error cascade
+   root). `start_kind == TokenKind.LCurlyBracket` is not primitive-infix
+   (`_is_primitive_infix_operator` false for enums) and
+   `generate_other_function_call` returns None → emits an inline `// Failed to
+   transpile` comment that breaks the surrounding C expression (→ "expected ')'",
+   "while loop outside of a function", "extraneous '}'" cascade). Needs enum equality
+   codegen (tag compare for fieldless enums; the corpus's working enum `==` paths
+   suggest a specific gap when the RHS is a bare variant literal). generation.yo:474.
+2. **`stat` / `start` collisions** — a variable named `start` and a libc symbol
+   collision (`int (*)(const char *, struct stat *)`), and `redefinition of 'i'` —
+   identifier-collision / shadowing codegen issues.
+3. Undeclared temps (`_file____User_temp_700x`) — cascade artifacts of (1).
+
+Fixing (1) should clear most of the structural cascade. These are the standard
+"Phase-6 wave" codegen gaps, now being cleared one validated fix at a time.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
