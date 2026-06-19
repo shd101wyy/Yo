@@ -63,6 +63,23 @@ when a func is collected/generated under a shell_fid, substitute the real method
 FuncVal (so the shell_fid's c_name emits the real evaluated body). Validate corpus
 77/77 + lexer + parser after.
 
+**IMPLEMENTATION CONSTRAINT (tried 2026-06-20, reverted): EvalValue MOVE-semantics
+block storing the real FuncVal in two places.** EvalValue has no `.clone()`
+(method) and `clone_value(v, …)` returns a FuncVal as-is BUT takes `v` BY VALUE
+(consumes it) — so you can't keep `method_val` for both the registry entry
+(`ex_entry.value`) AND a `shell→real FuncVal` redirect map. So the redirect must
+NOT duplicate the FuncVal. VIABLE PATH: store the redirect as `shell_fid →
+real_func_id` (String→String, no FuncVal). Then in codegen, generate the SHELL
+function as a THUNK that forwards to the real method: emit
+`<ret> <shell_cname>(<params>) { return <real_cname>(<params>); }` (params/return
+from get_func_type(shell_fid) — already registered via 1d28fbfee; real_cname =
+sanitize(real_func_id)). The thunk is generated in `generate_function`
+(functions/generation.yo) when `get_shell_redirect(func_id)` is Some. This makes
+both ids resolve to the real body without duplicating the FuncVal, and avoids the
+adoption regression (non-forward sites keep using the real id/cname directly).
+Validate corpus 77/77 + lexer + parser. Note parser.yo is HEAVY (36 errors across
+several recursive methods) — expect more after this.
+
 
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
 self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
