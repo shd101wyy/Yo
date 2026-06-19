@@ -1,0 +1,87 @@
+# Phase 6 (self-host fixpoint): stage-2 self-compile crashes on the full self-source
+
+## Status
+
+OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
+end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
+self-compile (`yo-self-bin compile yo-self/main.yo`) — crashes before producing C.
+
+## Symptom
+
+- `YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin compile yo-self/main.yo` (the -O0 binary):
+  rc=138 (SIGBUS), ZERO output.
+- `YO_MAIN_STACK_MB=16384 ... check yo-self/main.yo` (-O0, eval-only, 16 GB stack):
+  rc=138, zero output → the crash is in EVAL/module-load of the full self-source,
+  not codegen-specific.
+- `YO_MAIN_STACK_MB=8192 /tmp/yo-self-rel compile yo-self/main.yo` (the **--release**
+  binary, -O2 small frames): STILL rc=138, zero output.
+
+## Key conclusion: NOT (just) deep-recursion stack exhaustion
+
+CLAUDE.md attributes the rc=139/138 deep-recursion crash to -O0 multi-MB frames and
+prescribes `--release` (LLVM stack coloring, ~100× smaller frames → 1000s of levels).
+Here the **--release binary crashes identically** (rc=138, 8 GB stack), so it is NOT
+stack depth — it is a GENUINE crash (null/misaligned access, or a memory/resource
+limit manifesting as SIGBUS) triggered by loading+evaluating the ENTIRE self-source
+graph in one process. (The --release binary is otherwise healthy: it compiles +
+runs the spawn repro → `thread sees 42` / `main done`.)
+
+Note `check ./yo-self` (Phase-3 milestone, 227/227) checks each file in ISOLATION;
+`check yo-self/main.yo` loads main + ALL transitive imports together — the harsher
+unified load is what crashes.
+
+## lldb backtrace (2026-06-19) — pinned to `get_specialized` frame
+
+`lldb -b -o run -o bt -- /tmp/yo-self-rel compile yo-self/main.yo`:
+```
+thread #2, stop reason = EXC_BAD_ACCESS (code=2, address=0x300003ff0)
+frame #0: fn_yo51ba7706_id_121_get_specialized_T_TypeValue_Self_ArrayList_(enum(Unit,BoolT,Void,Str,Int(...),Float(...),...,Pointer(Box(enum(...))),Array(Box(enum(...)),length,length_var))...)  +4
+->  stp x24, x23, [sp, #0x10]   ; (function PROLOGUE — store to the stack)
+```
+The fault is a WRITE (code=2) at a stack-pointer-relative store in the function
+PROLOGUE → a STACK OVERFLOW, in `get_specialized` specialized over the GIANT nested
+`TypeValue` enum (the `Self` = `ArrayList(enum(... the whole TypeValue ...))`). It
+runs on thread #2 (the `__yo_main_stack` worker that runs `main`; YO_MAIN_STACK_MB
+applies to it), yet 8 GB overflowed at --release — so this is NOT ordinary
+deep-recursion-with-small-frames. Likely cause: `get_specialized`'s frame holds the
+giant `TypeValue`/`ArrayList(enum…)` BY VALUE (a multi-KB+ frame even at -O2), and it
+recurses over the deeply self-referential `TypeValue` (`Box(enum(...Box(enum...)))`),
+so a moderate depth × giant frame blows the stack — OR it is genuine unbounded
+recursion in `get_specialized` for this self-referential type. NOTE: `get_specialized`
+(types/...:id_121, the `Type.get_specialized` method) is unrelated to the closure work
+— this is a pre-existing self-compile gap surfaced by the harshest input.
+
+## Diagnosis directions (next session)
+
+0. Pin whether it's unbounded vs deep-but-finite. ATTEMPTED: `lldb bt 200` shows only
+   frame #0 — lldb cannot unwind past the overflowing prologue (the frame isn't
+   established), so depth is hidden. Next: set a breakpoint on `..._get_specialized`
+   with a counter, or instrument the Yo `get_specialized` source with a depth guard
+   that panics at N to confirm recursion. Inspect the `Type.get_specialized` source
+   (types/...:id_121, a generic method specialized over the self-referential
+   `TypeValue` enum): look for (a) a missing cycle/base case when recursing the
+   self-referential type, and (b) the giant `TypeValue`/`ArrayList(enum…)` passed/
+   returned BY VALUE (multi-KB frames) — box it / pass by ref to shrink frames.
+   8 GB overflowing at --release points to deep-or-unbounded recursion over the
+   self-referential type, OR giant frames × moderate depth.
+
+1. The empty output is the main obstacle. Force-flush / run under a debugger:
+   - `lldb -- /tmp/yo-self-rel compile yo-self/main.yo` → backtrace at the SIGBUS;
+     `MallocStackLogging=1` / `MallocScribble=1` if it's a heap/UAF.
+   - Check Console.app / `~/Library/Logs/DiagnosticReports` for the crash report
+     (signal, faulting address, frame).
+2. Bisect by input size: `check` progressively larger SUBSETS of the import graph
+   (e.g. a driver that imports only lexer+token+parser, then + evaluator, then +
+   codegen) to find the module/threshold that triggers it. Distinguishes
+   memory-pressure-scales-with-size from a specific-module bug.
+3. Rule out OOM/mmap: watch RSS during the run; if it balloons then SIGBUS, it is
+   memory pressure (SIGBUS from a failed lazy page-in), not a logic bug.
+4. If a specific construct: minimize to a standalone repro (the usual issues/
+   workflow) and fix the evaluator/loader.
+
+## Why this matters
+
+This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
+Phase 7 (revive yo-self/tests under the stage-2 binary). Per the plan, the stage-2
+compile is EXPECTED to surface a wave of executing-mode gaps; this startup crash is
+the first one and must be cleared before the wave is even visible.
