@@ -59,6 +59,20 @@ RISK: broadening the trigger routes many soft-generic std calls through
 create_specialized (which lacks effects analysis, helper.yo:908) — validate corpus
 + check ./std + watch compile time.
 
+LAYER-2 MECHANISM (investigated 2026-06-19): create_specialized builds the
+specialized param types at helper.yo:1285-1287 via
+`convert_comptime_type_to_runtime_type_with_expected(rpt, Option(TypeValue).None,
+callee_env)` — `expected = None`. So to resolve `cb`'s SomeT to the concrete
+capture struct, layer 2 must thread the call's CONCRETE arg type in as that
+`expected` (currently None) — i.e. pass the per-param resolved arg type so the
+SomeT param lowers to the capture struct in `spec_param_types`. Then spec_type's
+`cb` is concrete (option (a)) and it's emittable directly (layer 1's
+resolved-concrete clause then mainly helps cases where the SomeT identity is
+retained). Net layer-2 edits: (1) function.yo:2509 trigger broadened to
+non-forall soft-generic (is_function_type_generic, !is_control_fn); (2) thread the
+concrete arg type as `expected` into the spec-param-type conversion so `cb`
+resolves. Validate heavily (hot path).
+
 ### FAITHFUL ROOT CAUSE (2026-06-19) — supersedes the FnTraitT/guard guesses below
 
 Comparing yo-self against the TS reference 1-to-1 (per the faithful-porting
