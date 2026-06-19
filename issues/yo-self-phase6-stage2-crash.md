@@ -369,6 +369,57 @@ preserve 76/76 — the working compiler must not be regressed for a partial fix.
   name-only loosening already regressed std 151→17 once — see
   memory yo-self-phase3-hashmap-new-blocker).
 
+## UPDATE (2026-06-19, round 5) — INSTRUMENTED: specialization is bounded; the driver is unbounded EVAL recursion
+
+Added a diagnostic probe in `create_specialized_function_inline` (reverted after): two
+STATIC panics — one if the callee's `func_id` already appears on the specializing
+stack (a cycle that slipped the mutual-recursion guard), one if specialization nesting
+exceeds 300. Ran `check yo-self/main.yo` (4 GB): **NEITHER fired**, yet it still
+crashed rc=138. So:
+
+- **Specialization nesting is BOUNDED (< 300)** and **no cycle slips the guard** — the
+  mutual-recursion forward-ref (committed b2f62e781) is working; specialization is NOT
+  the depth driver. (Consistent with the sample: ~28 `create_specialized` frames vs
+  ~971 `_evaluate_expression`.)
+- **The driver is the EVAL recursion** (`_evaluate_expression → evaluate_function_call
+  → … → _evaluate_expression`), and it is **unbounded/enormous**: a fresh `--release`
+  (-O2, ~100× smaller frames) build crashes rc=138 at **16 GB** — at ~90 KB/frame that
+  is >100k levels, so the ~514 a `sample` showed was a gross undercount; the recursion
+  does not converge.
+
+So the bug is an unbounded EVAL descent that does NOT go through deep specialization.
+The most likely mechanism: the function-call **checking phase** (function.yo:525-547
+sets `is_in_function_call_checking_phase`; calls `try_to_call_function_with_arguments`
+with `skip_specialization: true`) descends into the callee to resolve its return type,
+and for the compiler's MUTUALLY-RECURSIVE call graph (evaluate_expression ↔
+evaluate_function_call ↔ …) this re-enters without a guard. TS passes
+`skipCtfeExecution: true` in the checking phase precisely to stop that descent;
+**yo-self DISCARDS it (helper.yo:1816 `_ := skip_ctfe_execution;`)**. So the eval, not
+specialization, recurses the cyclic graph forever.
+
+Precise locus (read function.yo:520-547): the recursion is the OVERLOAD-RESOLUTION
+trial machinery. `evaluate_other_function_call` sets
+`ctx.is_in_function_call_checking_phase = true` and, for EACH candidate, runs
+`_trial_call_overload_candidate(cv, ct, call_expr, func_expr, args, env, ctx, …)`. That
+trial re-evaluates the call (cloned arg exprs etc.). The in-code comment already notes
+this was once "exponential in nested operator-call chains (std/glob.yo never
+finished)", fixed by setting the checking-phase flag so nested comptime/macro calls
+short-circuit to UnknownVal. The stage-2 self-source evidently hits a case the flag
+does NOT cover: the trial re-evaluates argument calls, which re-enter
+`evaluate_function_call` → trials → … unboundedly for the mutually-recursive call
+graph (and `skip_ctfe_execution` is discarded at helper.yo:1816, so nothing stops the
+callee descent).
+
+NEXT (clear, scoped): (1) confirm with an UNWIND-AWARE depth probe in
+`evaluate_function_call`/`_evaluate_expression` (save/restore the counter across normal
+return AND the trial-eval unwind handler, _expr.yo:898) that panics at N with the
+callee chain. (2) Fix in the overload-trial path: a "currently-checking (funcId,arg-
+shape)" memo so a candidate trial is not re-run inside its own nested trials, AND/OR
+honor `skip_ctfe_execution` to stop the callee body descent — mirror TS
+function.ts:822-831 (`isInFunctionCallCheckingPhase` + `skipCtfeExecution` on each
+dry-run). Validate: corpus 76/76 (must not break overload resolution — the glob.yo
+case) AND `check main.yo` completes.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
