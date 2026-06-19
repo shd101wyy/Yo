@@ -644,6 +644,34 @@ overflow (cap-to-survive, since stack-overflow discards buffered output). Reduci
 yo-self's CTFE depth toward TS's ~150 would shrink the stack enough to fit — the
 highest-leverage fix, and it directly answers the user's "should be ≈ TS".
 
+## UPDATE (2026-06-20, per-module path) — enum-monomorphization collision (option b blocker)
+
+Self-compiling a single module (`token.yo`) succeeds memory-wise (rc=0) but emits
+INVALID C (~6 distinct codegen bugs). The root/highest-value one: **generic enum
+instantiations collapse onto one C type.** yo-self emits **6 enum structs where TS emits
+16** for token.yo. Concretely: `ArrayList(Token).get` and `ArrayList(u8).get` (distinct
+specializations `yo_id_3835_…struct_6668…` / `…struct_3812…`) BOTH return the same
+Option C enum `__yo_enum_yo_id_3832`, whose `Some.value` field is typed `uint8_t` — so
+`Option(Token)` is assigned a `Token` into a `uint8_t` slot → C type error.
+
+Root: `type_key` (codegen/utils/index.yo:640) keys an `EnumT` by its definition `id`
+(`__yo_enum_yo_id_3832`), which is SHARED across all `Option(T)` instantiations. So
+`type_key(Option(Token)) == type_key(Option(u8))` → same C name + same collected type
+(`.value` from whichever T was collected first, here u8). TS keeps them distinct
+(structural key incl. variant field types → 16 enums). The `true`/`false` fix
+(commit 1d2d5aa9) removed one of token.yo's bugs; this enum collision is the next.
+
+FIX (focused, must keep corpus 76/76): distinguish generic enum (and likewise struct)
+INSTANTIATIONS — either make `type_key` for EnumT include the variant field types
+(e.g. `id + structural-suffix`, so `Option(Token)` ≠ `Option(u8)` while a non-generic
+enum's suffix is constant and still shares), OR ensure instantiated enums receive a
+per-instantiation id at evaluation (the corpus's generic enums evidently DO get distinct
+ids — only some self-source instantiations reuse the definition id, so identify why
+Option(T) here reuses 3832). RISK: `type_key` drives BOTH C-name lookup AND type
+collection, so the change must be consistent across both, validated incrementally
+against the corpus. This is the path to module-by-module self-host (option b), which
+sidesteps the unified-load memory wall entirely.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
