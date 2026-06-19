@@ -243,3 +243,60 @@ spawn closure's param/capture types are collected (the `Io` crash); (3)
 a fixture WITHOUT own(self) consumption (like the repro above) is faithful without
 it and can land first. The parallelism RUNTIME (`runtime.yo`) is already in place,
 so once the emitter lands a fixture is differential-testable end to end.
+
+### UPDATE 2026-06-19 (2) — type-lowering groundwork LANDED (commit fd019e82b); codegen-emission half remains.
+
+Gap-2 monomorphization now produces the correctly-typed specialized callee. Four
+faithful, corpus-safe (75/75), non-regressing changes landed:
+
+1. ref-spill monotonic counter (other_fn_call.yo) — fixes `__yo_ref_spill_0`
+   redefinition when two calls in one fn both spill arg 0.
+2. arg-eval passes the `Impl(Fn(...))` SomeT as the closure arg's expected type
+   (function.yo, mirrors helper.ts:330) — closures now resolve `fn(io:Io)->unit`
+   instead of garbage `fn(io:io)->_ret`.
+3. closure arg's `ExprInfo.capture_type` used as the specialization arg_type
+   (function.yo) — `cb` lowers to its concrete capture struct (mirrors TS
+   resolvedConcreteType, helper.ts:2245).
+4. specialization trigger fires for NON-forall soft-generic fns, NARROWED to
+   closure-(Impl(Fn))-param fns (`_func_type_has_closure_param`). Broad (all
+   soft-generic) crashed large-corpus processing; closure-only is corpus-safe.
+
+Result: `Thread.spawn` (and any closure-param fn, e.g. `apply` in the minimal
+repro below) is specialized with `cb` typed as `__yo_capture_<id>` (the capture
+struct), matching TS. Confirmed via the specialized C name
+`yo_id_<n>_rtparam0__struct_capture_<id>_`.
+
+NON-REGRESSION PROOF: the clean HEAD binary breaks the same closure-param-value
+cases IDENTICALLY (just a different error: `yo_id_<n>` undeclared). Closure-param
+functions returning non-unit values are a PRE-EXISTING unported codegen feature.
+
+MINIMAL NON-EXTERN REPRO (simpler than spawn — exercises the same gap WITHOUT the
+thread wrapper, so fix/validate this first):
+```rust
+apply :: (fn(cb : Impl(Fn(x : i32) -> i32)) -> i32)(cb(i32(10)));
+main :: (fn() -> unit)({ base := i32(5); r := apply((x) => (x + base)); println(`${r.to_string()}`); });
+```
+TS → prints 15. yo-self-bin → broken C (capture-struct cast where pointer needed).
+
+REMAINING CODEGEN-EMISSION PIECES (the complete TS mechanism, from cls.yo emit):
+- (A) CALLER: a closure arg passed to a fn whose param is the capture struct must
+  emit the capture-struct CONSTRUCTION `(captureStruct){ .field = capturedVar }`
+  (assigned to a temp, passed by value), NOT `(captureStruct)(closure_fn_name)`.
+  TS: `__capture_..._4 = (struct..){ .base = base }; apply((struct..)(_tmp))`.
+  This is the call-site arg emission in other_fn_call.yo.
+- (B) COLLECTION: the specialized closure-param body must be emitted. It is
+  currently SKIPPED by the `exprContainsUnknownValue(body)` guard
+  (collection.yo:496) because the body's value is UnknownVal of a non-unit type
+  (`cb(10)` → unknown i32; `Self(raw)` → unknown Thread). In TS the same guard
+  exists but the body value is a StructValue/known and passes — investigate why
+  yo-self records UnknownVal here (struct-construction / closure-call result value)
+  and align, OR relax the guard for specialized (concrete-typed) functions.
+- (C) SPECIALIZED BODY: `cb(x)` where `cb` is a capture-struct param must emit
+  `closure_fn(&(cb), x)` (closure called with `&cb` as `closure_context`). TS:
+  `closure_..._49(&(cb), 10)`. For spawn specifically this is instead the
+  `__yo_thread_spawn(wrapper, &cb-heap-copy)` path already ported in parallelism.yo;
+  the GENERAL case is a direct closure call and is the broader missing emitter.
+
+A+B+C must land together (none alone compiles the repro). The async/io.async path
+(async.yo, `sm->__capture.field`) is the state-machine analogue; the non-async
+closure-param path is capture-struct-by-value + direct closure call.
