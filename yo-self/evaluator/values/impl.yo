@@ -54,6 +54,7 @@ open(import("std/string"));
 {
   MethodEntry,
   register_type_trait_method,
+  register_shell_redirect,
   get_type_trait_methods_by_name,
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
@@ -2071,6 +2072,16 @@ evaluate_module_value :: (
                         existing_entries.get(sh_ei),
                         .Some(ex_entry) => {
                           if(ex_entry.source_trait_id == "__forward_shell", {
+                            // Record shell_func_id → real_func_id (Strings, no
+                            // FuncVal clone) so codegen emits the shell-id function
+                            // as a thunk forwarding to the real method — both ids
+                            // then resolve to the real evaluated body. See
+                            // type_trait_methods.register_shell_redirect.
+                            shell_fid := match(ex_entry.value,.Some(sv) => match(sv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.new()),.None => String.new());
+                            real_fid := match(method_val,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.new());
+                            if((shell_fid.len() > usize(0)) && (real_fid.len() > usize(0)), {
+                              register_shell_redirect(shell_fid, real_fid);
+                            });
                             ex_entry.ty = fi.ty;
                             ex_entry.value = Option(EvalValue).Some(method_val);
                             ex_entry.source_trait_id = String.from("");

@@ -216,10 +216,28 @@ register_trait_default :: (fn(trait_id : String, label : String, value : EvalVal
 get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
   _trait_method_defaults.get((trait_id + String.from("::")) + label)
 );
+/// Forward-shell → real-method func_id REDIRECT (`shell_func_id` → `real_func_id`,
+/// both Strings — NOT FuncVals, since EvalValue has no `.clone()` and `clone_value`
+/// consumes its arg, so the real FuncVal can't live in both the registry entry and
+/// here). A forward-referenced/recursive impl method has TWO func_ids: forward-ref
+/// /self-recursive call sites captured the SHELL id; non-forward sites use the REAL
+/// id. The impl evaluator records shell→real on the shell entry-update; codegen's
+/// `generate_function` emits the shell-id function as a THUNK forwarding to the
+/// real method's C name — so both ids resolve to the real evaluated body. Fixes
+/// parser.yo's recursive `get_program` emitting a shell's unevaluated body.
+(_shell_redirect : HashMap(String, String)) = HashMap(String, String).new();
+register_shell_redirect :: (fn(shell_func_id : String, real_func_id : String) -> unit)({
+  ___ := _shell_redirect.set(shell_func_id, real_func_id);
+});
+get_shell_redirect :: (fn(shell_func_id : String) -> Option(String))(
+  _shell_redirect.get(shell_func_id)
+);
 export(
   MethodEntry,
   register_trait_default,
   get_trait_default,
+  register_shell_redirect,
+  get_shell_redirect,
   register_type_trait_method,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,

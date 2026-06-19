@@ -28,7 +28,8 @@ open(import("std/string"));
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
-{ get_type_string } :: import("../utils/index.yo");
+{ get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_shell_redirect } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen } :: import("./declarations.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -127,6 +128,40 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
   });
 });
 /// Generate a single function (signature + linkage + body). Mirrors `generateFunction`.
+/// Comma-separated parameter names for a thunk's forwarding call, matching the
+/// names `generate_function_prototype` emits (sanitized param label, else `paramN`).
+_thunk_forward_args :: (fn(function_type : TypeValue) -> String)(
+  match(
+    function_type,
+    .Func({ param_labels, param_types }) => {
+      out := String.from("");
+      n := param_types.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        if(i > usize(0), {
+          out.push_str(", ");
+        });
+        pname := match(
+          param_labels.get(i),
+          .Some(lbl) => if(lbl.len() > usize(0), sanitize_for_c_identifier(lbl.clone(), false), {
+            p := String.from("param");
+            p.push_string(i.to_string());
+            p
+          }),
+          .None => {
+            p := String.from("param");
+            p.push_string(i.to_string());
+            p
+          }
+        );
+        out.push_string(pname);
+        i = (i + usize(1));
+      });
+      out
+    },
+    _ => String.from("")
+  )
+);
 generate_function :: (fn(function_value : EvalValue, c_function_name : String, context : FunctionGenerationContext) -> unit)(
   match(
     function_value,
@@ -141,6 +176,26 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       open.push_string(prototype);
       open.push_str(" {");
       em.emit_string_line(open);
+      // Forward-shell thunk: if this func_id is a shell that was redirected to a
+      // real method (a forward-ref/recursive impl method, e.g. parser.yo's
+      // get_program), emit a thunk forwarding to the real method's C name instead
+      // of the shell's UNEVALUATED body. Both ids then resolve to the real body.
+      match(
+        get_shell_redirect(func_id.clone()),
+        .Some(real_fid) => {
+          real_cname := sanitize_for_c_identifier(real_fid.clone(), false);
+          fwd := _thunk_forward_args(function_type);
+          ret_unit := match(function_type,.Func({ result : r }) => is_unit_type(r.*), _ => true);
+          if(ret_unit, {
+            em.emit_string_line(`  ${real_cname}(${fwd});`);
+          }, {
+            em.emit_string_line(`  return ${real_cname}(${fwd});`);
+          });
+          em.emit_string_line(String.from("}"));
+          return(());
+        },
+        .None => ()
+      );
       prev_name := context.base.current_function_name;
       prev_type := context.current_function_type;
       context.base.current_function_name = c_function_name;
