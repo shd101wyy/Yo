@@ -128,6 +128,25 @@ but:
     vtable slot.
 This is the NEXT step for lexer.yo; then parser/evaluator/codegen modules → main.yo.
 
+**DEFAULT-LAMBDA FIX DEPTH CONFIRMED (2026-06-20):** the filled default
+(`(self) -> .None`, func_id e.g. fn_..._5629) is GENERIC over `Self`. Two facts
+make this a full-monomorphization job, not a quick patch:
+  - Collection skips it: `_is_generic_unspecialized_func(fv)` (functions/
+    collection.yo:526) keys off `get_func_type(func_id)` — the REGISTERED type,
+    still generic (`Self`) — so even substituting Self in the evidence copy does
+    not change what collection sees → the body is never generated (undeclared
+    `fn_..._5629`).
+  - The result type stays `Option(Dyn(SelfTrait))`; `_substitute_self_in_method_ty`
+    (impl.yo:1103) fixes the TYPE but not the body/collection.
+  So the default must be MONOMORPHIZED: produce a NEW func_id with concrete
+  type + body (Self→concrete), register its func type, and let collection emit it
+  — i.e. route the default through `create_specialized_function_inline` (helper.yo)
+  with `ArgValues` for `self : concrete`, at the point it's filled into the Dyn
+  evidence (`_resolve_dyn_trait_values`, which would need `ctx`/caller_env
+  threaded in — its 2 callers both have `ctx`). Substantial integration; high
+  value (every `std/error` user — lexer/parser/evaluator/codegen). Validate corpus
+  77/77 + token/lexer after.
+
 **CYCLE-AWARE CLONE COMPLETED (commit 7b2862f68): EnumT + STRUCT.** The clone now
 guards self-referential structs too (was EnumT-only). **main.yo (UNIFIED load)
 status:** still rc=138 at 8 GB, still in `get_specialized` — but with clone now
