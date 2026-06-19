@@ -355,6 +355,20 @@ preserve 76/76 — the working compiler must not be regressed for a partial fix.
   depth-counter panic in create_specialized whether depth is bounded (frame-size) or
   unbounded (cache) — a panic at N=2000 with a clean trace settles it.
 
+  REFINEMENT (inspected the key): `compute_compile_time_signature` keys forall type
+  args via `value_to_signature_string` → `type_to_string(t)`, which is DETERMINISTIC
+  (name-based, depth-capped at 40). So it is NOT a simple key-instability miss; if
+  anything the depth-40 cap + name-only struct/enum rendering risks false HITS
+  (collisions), which would REDUCE recursion, not cause it. Sample composition:
+  `_evaluate_expression` ~971 vs `create_specialized` ~28 ⇒ depth ≈ (specialization
+  nesting ~28) × (per-body expression-eval nesting ~18) ≈ the observed ~514. So the
+  next step is NOT a cache-key tweak by inspection — it is an INSTRUMENTED run (depth
+  counter in create_specialized + cache hit/miss log) to settle bounded-but-huge
+  (→ frame-size / box TypeValue) vs unbounded (→ a specific re-descent bug). That is a
+  dedicated rebuild-driven investigation; do not blind-edit the cache key (the
+  name-only loosening already regressed std 151→17 once — see
+  memory yo-self-phase3-hashmap-new-blocker).
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
