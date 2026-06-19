@@ -80,6 +80,16 @@ adoption regression (non-forward sites keep using the real id/cname directly).
 Validate corpus 77/77 + lexer + parser. Note parser.yo is HEAVY (36 errors across
 several recursive methods) — expect more after this.
 
+**DONE (commit c4927b8e7): forward-shell THUNK.** shell_func_id→real_func_id
+(Strings) recorded at impl.yo's shell-update; `generate_function` emits the shell
+function as a thunk forwarding to the real C name. get_program is now a clean thunk;
+corpus 77/77, lexer clang-clean. parser.yo 36→34. REMAINING 34 = a broader wave:
+control-flow-as-value (`if`/`while`/`cond` returning values; init-assignments of
+match/cond results) in the heavy parser functions (parse_template_string /
+parse_expression) "Failed to transpile" — a codegen gap in those constructs (not
+forward-shells). NEXT: pick one failing `if`/`while`/`cond`-as-value statement,
+find why generate_other_function_call / the dispatcher returns None for it, fix.
+
 
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
 self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
