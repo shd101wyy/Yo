@@ -114,6 +114,19 @@ unbounded recursion triggered only by the full graph, or (c) just-too-deep × th
    in the unified load (mirrors the substitute() / type_contains cycle guards already
    added elsewhere this port).
 
+### UPDATE — scales with unified-load size (not main.yo-specific)
+
+`YO_MAIN_STACK_MB=4096 /tmp/yo-self-rel check yo-self/codegen/codegen_c.yo` (a large
+SUBGRAPH — the whole codegen + evaluator, less main's full graph) ALSO crashes rc=138,
+0 "evaluator OK". So the deep recursion is NOT a single main.yo-only construct — it
+triggers on any sufficiently large unified load and scales with graph/type count. Small
+isolated files (`check ./yo-self` per-file, 227/227) are fine. → strongly favors a
+combinatorial re-descent of shared self-referential types (missing memoization in a
+type-traversal run per-module during the unified load) and/or genuinely-deep def-time
+body-eval recursion across the full call graph, amplified by the giant
+`TypeValue`-by-value frame cost. The fix is frame-size reduction (box TypeValue in hot
+paths) + memoization/visited-guards on the type traversal, not more stack.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
