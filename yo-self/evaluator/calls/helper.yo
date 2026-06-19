@@ -893,6 +893,83 @@ _store_specialization_cache :: (
     );
   });
 });
+/// Find the in-progress specialization for `fid` on the FULL specializing stack,
+/// used for the MUTUAL-recursion forward-reference. Returns None when `fid` is the
+/// innermost (top-slot) specialization — that DIRECT case is handled by yo-self's
+/// `recur` machinery, so it must NOT be forward-ref'd (only mutual recursion, where
+/// the single slot has been overwritten by an inner sibling, needs it). Mirrors the
+/// stack `.find` in TS helper.ts:1993. The returned info carries only the id/type
+/// fields (EvalValue has no clone; `original_func_value` is unused here).
+_find_mutual_specializing_info :: (
+  fn(ctx : EvalContext, fid : String) -> Option(SpecializingFunctionInfo)
+)({
+  top_is_fid := match(
+    ctx.currently_specializing_function,
+    .Some(si) => (si.original_func_id == fid),
+    .None => false
+  );
+  if(
+    top_is_fid,
+    Option(SpecializingFunctionInfo).None,
+    match(
+      ctx.currently_specializing_function_stack,
+      .Some(stk) => {
+        (i : usize) = usize(0);
+        (found : Option(SpecializingFunctionInfo)) = Option(SpecializingFunctionInfo).None;
+        while(i < stk.len(), {
+          match(
+            stk.get(i),
+            .Some(si) => if((si.original_func_id == fid) && found.is_none(), {
+              found = Option(SpecializingFunctionInfo).Some(
+                SpecializingFunctionInfo(
+                  original_func_id : si.original_func_id.clone(),
+                  specialized_func_id : si.specialized_func_id.clone(),
+                  specialized_return_type : si.specialized_return_type.clone(),
+                  original_func_value : EvalValue.UnitVal
+                )
+              );
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      .None => Option(SpecializingFunctionInfo).None
+    )
+  )
+});
+/// Build a forward-reference `FuncVal` for a recursive call encountered mid-
+/// specialization: a copy of the callee's arity (forall/param/evidence labels) with
+/// the body + captures stripped and `func_id` rewritten to the in-progress
+/// `specialized_func_id`, so codegen emits a call to the specialized function rather
+/// than re-specializing the generic original. Mirrors TS helper.ts:1998-2010
+/// (`{...functionValue, funcId: specInfo.specializedFuncId}`); yo-self strips the
+/// body/caps because the value is a reference (never re-evaluated) and `EvalValue`
+/// is not clonable.
+_build_forward_ref_funcval :: (
+  fn(func_val : Option(EvalValue), specialized_func_id : String) -> EvalValue
+)(
+  match(
+    func_val,
+    .Some(fv) => match(
+      fv,
+      .FuncVal(fn_labels, p, ptn, ep, _, _, _, _, _) => EvalValue.FuncVal(
+        fn_labels.clone(),
+        p.clone(),
+        ptn.clone(),
+        ep.clone(),
+        box(make_err_expr()),
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        ArrayList(EvalValue).new(),
+        specialized_func_id
+      ),
+      _ => EvalValue.UnitVal
+    ),
+    .None => EvalValue.UnitVal
+  )
+);
 // ---------------------------------------------------------------------------
 // create_specialized_function_inline
 // ---------------------------------------------------------------------------
@@ -1019,6 +1096,28 @@ create_specialized_function_inline :: (
             ctx
           );
           prev_spec := ctx.currently_specializing_function;
+          // Push onto the FULL specializing stack BEFORE moving the originals into
+          // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
+          // single slot — overwritten by the inner sibling g — cannot; without it the
+          // unified stage-2 self-compile re-specializes the compiler's own mutually
+          // recursive call graph forever and overflows the stack (Phase 6). Stack
+          // entries need only the id/return-type fields (EvalValue has no clone, and
+          // `original_func_value` is never read off the stack). Mirrors TS
+          // currentlySpecializingFunctionStack (helper.ts:2419-2429); popped below.
+          spec_stack := match(
+            ctx.currently_specializing_function_stack,
+            .Some(s) => s,
+            .None => ArrayList(SpecializingFunctionInfo).new()
+          );
+          _ := spec_stack.push(
+            SpecializingFunctionInfo(
+              original_func_id : func_id.clone(),
+              specialized_func_id : specialized_func_id.clone(),
+              specialized_return_type : spec_ret_ty.clone(),
+              original_func_value : EvalValue.UnitVal
+            )
+          );
+          ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack);
           ctx.currently_specializing_function = Option(SpecializingFunctionInfo).Some(
             SpecializingFunctionInfo(
               original_func_id : func_id,
@@ -1222,6 +1321,14 @@ create_specialized_function_inline :: (
           ctx.captured_variables = prev_caps;
           ctx.is_evaluating_function_body_or_async_block = prev_fb;
           ctx.currently_specializing_function = prev_spec;
+          // Pop this specialization off the full stack (pushed at the set site above).
+          spec_stack_r := match(
+            ctx.currently_specializing_function_stack,
+            .Some(s) => s,
+            .None => ArrayList(SpecializingFunctionInfo).new()
+          );
+          _ := spec_stack_r.pop();
+          ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack_r);
           // Build updated captures from the specialized callee_env.
           // This ensures the specialized function "closes over" the bound
           // compile-time values (forall type params, given handlers, etc.)
@@ -2521,26 +2628,39 @@ try_to_call_function_with_arguments :: (
       is_func_generic := (((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall);
       (spec_func_val : Option(EvalValue)) = Option(EvalValue).None;
       if(!(skip_specialization) && is_func_generic, {
+        callee_fid_g := match(
+          func_val,
+          .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from("")),
+          .None => String.from("")
+        );
+        // Direct self-recursion (callee is the innermost specialization): left to the
+        // existing skip + `recur` machinery (unchanged behavior).
         is_recursive_spec := match(
           ctx.currently_specializing_function,
-          .Some(spec_info) => match(
-            func_val,
-            .Some(fv) => match(
-              fv,
-              .FuncVal(_, _, _, _, _, _, _, _, fid) =>
-                (spec_info.original_func_id == fid),
-              _ => false
-            ),
-            .None => false
-          ),
+          .Some(spec_info) => (spec_info.original_func_id == callee_fid_g),
           .None => false
         );
+        // MUTUAL recursion (callee is being specialized higher up, not innermost):
+        // forward-reference the in-progress specialization instead of re-specializing
+        // it (which never terminates and overflows the stack in the unified stage-2
+        // self-compile — Phase 6). Mirrors TS helper.ts:1985-2010.
+        mutual_info := _find_mutual_specializing_info(ctx, callee_fid_g);
+        mutual_is_some := mutual_info.is_some();
         is_concrete_fv := match(
           func_val,
           .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
           .None => false
         );
-        if(!(is_recursive_spec) && is_concrete_fv, {
+        match(
+          mutual_info,
+          .Some(minfo) => if(is_concrete_fv, {
+            spec_func_val = Option(EvalValue).Some(
+              _build_forward_ref_funcval(func_val, minfo.specialized_func_id.clone())
+            );
+          }),
+          .None => ()
+        );
+        if((!(is_recursive_spec) && !(mutual_is_some)) && is_concrete_fv, {
           fv2 := match(func_val,.Some(v) => v,.None => EvalValue.UnitVal);
           // ----------------------------------------------------------------
           // Ctl function path: isControlFunction + has forall params.
