@@ -1,13 +1,15 @@
-//! runtime_io_common — shared POSIX sync helpers + (TODO) async I/O common layer.
-//! Port of `src/codegen/async/runtime-io-common.ts`. `generate_sys_runtime`
-//! ported (macOS + Linux per the plan gate; Windows/WASM deferred → panic).
-//! `generate_async_runtime_io_common` (options/dispose-id logic + timer/dir/DNS/
-//! process/FS-event/poll/tick) is the remaining piece — see plan Phase 5 #4.
+//! runtime_io_common — shared POSIX sync helpers + async I/O common layer.
+//! 1:1 port of `src/codegen/async/runtime-io-common.ts`. `generate_sys_runtime`
+//! dispatches to the macOS/Linux POSIX helpers or (Windows) the self-contained
+//! Windows platform sys-runtime; WASM is deferred → panic. `generate_async_
+//! runtime_io_common` emits the timer + (POSIX-only) dir/DNS/process/FS-event/
+//! poll/tick layer — Windows gets only the threadpool-timer branch (matching TS).
 open(import("std/string"));
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo, is_target_macos, is_target_linux, is_target_wasm, is_target_windows } :: import("../../target.yo");
 { generate_platform_sys_runtime_macos } :: import("./runtime_io_macos.yo");
 { generate_platform_sys_runtime_linux } :: import("./runtime_io_linux.yo");
+{ generate_platform_sys_runtime_windows } :: import("./runtime_io_windows.yo");
 /// Options for `generate_async_runtime`. Mirrors `AsyncRuntimeOptions`
 /// (runtime.ts:40). Defined here (not in `runtime.yo`) so `runtime.yo` can
 /// import it without a cycle: `runtime.yo` already imports this module's
@@ -29,13 +31,15 @@ AsyncRuntimeOptions :: object(
 /// Mirrors `generateSysRuntime`.
 generate_sys_runtime :: (fn(emitter : Emitter, target_info : TargetInfo) -> unit)({
   if(is_target_windows(target_info), {
-    panic("runtime_io_common: Windows sys-runtime is a Phase-5 follow-up (deferred)");
-  });
-  if(is_target_wasm(target_info), {
-    panic("runtime_io_common: WASM sys-runtime is a Phase-5 follow-up (deferred)");
-  });
-  emitter.emit_string_line(
-    `
+    // Windows is self-contained: emit only the Windows platform sys-runtime and
+    // skip the POSIX common helpers (TS `generateSysRuntime` early-returns here).
+    generate_platform_sys_runtime_windows(emitter);
+  }, {
+    if(is_target_wasm(target_info), {
+      panic("runtime_io_common: WASM sys-runtime is a Phase-5 follow-up (deferred)");
+    });
+    emitter.emit_string_line(
+      `
 // ============================================================================
 // File System Helper Functions
 // ============================================================================
@@ -46,15 +50,15 @@ generate_sys_runtime :: (fn(emitter : Emitter, target_info : TargetInfo) -> unit
 #include <dirent.h>
 #include <string.h>
 `
-  );
-  if(is_target_macos(target_info), {
-    emitter.emit_string_line(
-      `#include <sys/dirent.h>
-#include <unistd.h>`
     );
-  });
-  emitter.emit_string_line(
-    `
+    if(is_target_macos(target_info), {
+      emitter.emit_string_line(
+        `#include <sys/dirent.h>
+#include <unistd.h>`
+      );
+    });
+    emitter.emit_string_line(
+      `
 
 // Get size of stat buffer (for allocation)
 static size_t __yo_stat_buf_size(void) {
@@ -111,18 +115,18 @@ static uint8_t __yo_dirent_type(void* entry) {
   return ((struct dirent*)entry)->d_type;
 }
 `
-  );
-  // sendfile/copyfile includes
-  if(is_target_linux(target_info), {
-    emitter.emit_string_line(`#include <sys/sendfile.h>`);
-  });
-  if(is_target_macos(target_info), {
-    emitter.emit_string_line(`#include <copyfile.h>`);
-    emitter.emit_string_line(`#include <sys/socket.h>  // macOS sendfile()`);
-  });
-  // sendfile fallback (linux + macos)
-  emitter.emit_string_line(
-    `
+    );
+    // sendfile/copyfile includes
+    if(is_target_linux(target_info), {
+      emitter.emit_string_line(`#include <sys/sendfile.h>`);
+    });
+    if(is_target_macos(target_info), {
+      emitter.emit_string_line(`#include <copyfile.h>`);
+      emitter.emit_string_line(`#include <sys/socket.h>  // macOS sendfile()`);
+    });
+    // sendfile fallback (linux + macos)
+    emitter.emit_string_line(
+      `
 // Fallback for platforms where sendfile cannot handle all fd combinations
 static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
   unsigned char buffer[8192];
@@ -155,10 +159,10 @@ static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_
   return (int32_t)total;
 }
 `
-  );
-  // sync ops
-  emitter.emit_string_line(
-    `
+    );
+    // sync ops
+    emitter.emit_string_line(
+      `
 // ============================================================================
 // Synchronous Operations (POSIX-only) - no IoFuture overhead
 // ============================================================================
@@ -188,11 +192,11 @@ static int32_t __yo_sync_mkstemp(char* template) {
   return (fd < 0) ? -errno : fd;
 }
 `
-  );
-  // copyfile (platform-specific)
-  if(is_target_linux(target_info), {
-    emitter.emit_string_line(
-      `
+    );
+    // copyfile (platform-specific)
+    if(is_target_linux(target_info), {
+      emitter.emit_string_line(
+        `
 static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
   int src_fd = open(src, O_RDONLY);
   if (src_fd < 0) return -errno;
@@ -230,11 +234,11 @@ static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flag
   return (err != 0) ? -err : 0;
 }
 `
-    );
-  });
-  if(is_target_macos(target_info), {
-    emitter.emit_string_line(
-      `
+      );
+    });
+    if(is_target_macos(target_info), {
+      emitter.emit_string_line(
+        `
 static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
   copyfile_flags_t cf_flags = COPYFILE_ALL;
   if (flags & 1) cf_flags |= COPYFILE_EXCL;
@@ -245,23 +249,23 @@ static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flag
   return (result < 0) ? -errno : 0;
 }
 `
-    );
-  });
-  // sendfile (platform-specific)
-  if(is_target_linux(target_info), {
-    emitter.emit_string_line(
-      `
+      );
+    });
+    // sendfile (platform-specific)
+    if(is_target_linux(target_info), {
+      emitter.emit_string_line(
+        `
 static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
   off_t off = (off_t)offset;
   ssize_t sent = sendfile(out_fd, in_fd, &off, count);
   return (sent < 0) ? -errno : (int32_t)sent;
 }
 `
-    );
-  });
-  if(is_target_macos(target_info), {
-    emitter.emit_string_line(
-      `
+      );
+    });
+    if(is_target_macos(target_info), {
+      emitter.emit_string_line(
+        `
 static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
   off_t len = (off_t)count;
   int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
@@ -274,11 +278,11 @@ static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset,
   return (int32_t)len;
 }
 `
-    );
-  });
-  // utime + statfs
-  emitter.emit_string_line(
-    `
+      );
+    });
+    // utime + statfs
+    emitter.emit_string_line(
+      `
 static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec,
                              int64_t mtime_sec, int64_t mtime_nsec) {
   struct timespec times[2];
@@ -353,10 +357,10 @@ static uint64_t __yo_statfs_ffree(void* buf) {
   return (uint64_t)((struct statvfs*)buf)->f_ffree;
 }
 `
-  );
-  // signal
-  emitter.emit_string_line(
-    `
+    );
+    // signal
+    emitter.emit_string_line(
+      `
 // ============================================================================
 // Signal Operations
 // ============================================================================
@@ -410,10 +414,10 @@ static int32_t __yo_kill(int32_t pid, int32_t signum) {
   return (result < 0) ? -errno : 0;
 }
 `
-  );
-  // tty
-  emitter.emit_string_line(
-    `
+    );
+    // tty
+    emitter.emit_string_line(
+      `
 // ============================================================================
 // TTY Operations
 // ============================================================================
@@ -484,13 +488,14 @@ static int32_t __yo_isatty(int32_t fd) {
   return isatty(fd) ? 1 : 0;
 }
 `
-  );
-  // platform-specific sync helpers
-  if(is_target_macos(target_info), {
-    generate_platform_sys_runtime_macos(emitter);
-  });
-  if(is_target_linux(target_info), {
-    generate_platform_sys_runtime_linux(emitter);
+    );
+    // platform-specific sync helpers
+    if(is_target_macos(target_info), {
+      generate_platform_sys_runtime_macos(emitter);
+    });
+    if(is_target_linux(target_info), {
+      generate_platform_sys_runtime_linux(emitter);
+    });
   });
 });
 /// Timer, directory scanning, DNS, process, FS events, poll, and the tick
@@ -663,7 +668,41 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
       );
     }, {
       if(is_windows, {
-        panic("runtime_io_common: Windows timer is a Phase-5 follow-up (deferred)");
+        emitter.emit_string_line(
+          `
+// ============================================================================
+// Timer Operations (Windows - threadpool timers)
+// ============================================================================
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
+#include <windows.h>
+
+static void __yo_io_init(void);
+static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds);
+
+static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
+  __yo_io_init();
+
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  future->header.ref_count = 1;
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  __yo_win_timer_add(future, milliseconds);
+  
+  ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms\\n", (unsigned long long)milliseconds);
+  
+  return future;
+}
+`
+        );
       });
     });
   });

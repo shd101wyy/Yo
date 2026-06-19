@@ -1,38 +1,16 @@
-/**
- * runtime-io-windows.ts
- *
- * Windows I/O helpers split into two categories:
- *
- * 1. generatePlatformSysRuntimeWindows -- synchronous helpers (pipe, dup,
- *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
- *    that do NOT depend on IoFuture or the async event loop.
- *
- * 2. generateAsyncRuntimeIOWindows -- async I/O via IOCP (I/O Completion Ports).
- *    Provides async read, write, openat, close, statx, mkdir, unlink, rename,
- *    symlink, link, fsync, fdatasync, ftruncate, and socket operations.
- */
-
-import { Emitter } from "../../emitter";
-
-// ---------------------------------------------------------------------------
-// 1. Synchronous platform helpers (Windows) -- no IoFuture / event-loop dependency
-// ---------------------------------------------------------------------------
-
-/**
- * Emits synchronous Windows-specific helpers.  These do NOT depend on the
- * async runtime (no IoFuture, no event-loop types).  All functions are `static`
- * so unused ones are dead-code-eliminated by the C compiler.
- *
- * Sections: includes & defines, utility functions (error conversion, string
- * encoding, mmap helpers), iovec struct, sync FD ops (pipe, dup, lseek,
- * fallocate, fcntl, flock, readv/writev, fadvise, madvise, mmap, mprotect,
- * msync, fchmod, fchown, readlinkat), sync socket ops (getsockname, getpeername,
- * setsockopt, getsockopt, socketpair, clock_gettime, uname, gethostname, umask),
- * file open/close/size, statx accessors, socket address helpers,
- * file extra ops (filetime, sendfile), sync ops (access, realpath, mkdtemp, etc.).
- */
-export function generatePlatformSysRuntimeWindows(emitter: Emitter): void {
-  emitter.emitLine(`
+//! runtime_io_windows -- Windows platform sync helpers + IOCP async I/O runtime.
+//! 1:1 port of `src/codegen/async/runtime-io-windows.ts`. The C bodies are
+//! verbatim (extracted, not hand-transcribed) -- pure C, no interpolations.
+//! Phase 5 #4 (platform I/O backend). Wired by generate_async_runtime
+//! (runtime.yo dispatcher) + generate_platform_sys_runtime (runtime_io_common)
+//! into codegen_c for Windows targets.
+open(import("std/string"));
+{ Emitter } :: import("../../emitter.yo");
+/// Emit Windows platform-specific SYNC helpers. Mirrors
+/// `generatePlatformSysRuntimeWindows`.
+generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
+  emitter.emit_string_line(
+    `
 // ============================================================================
 // Platform-specific sync helpers (Windows)
 // ============================================================================
@@ -1908,21 +1886,14 @@ static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height)
 
 static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
 
-`);
-}
-
-/**
- * Emits Windows async I/O helpers using IOCP (I/O Completion Ports).
- * These functions create / consume IoFuture or participate in the event loop.
- * Only emitted when `usesAsync` is true.
- *
- * Sections: IOCP globals & types, init/cleanup, timer management, IOCP
- * completion processing, async file ops, directory listing, async socket ops,
- * directory scanning, DNS, process spawn/waitpid, signals, TTY, FS events,
- * poll, tick.
- */
-export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
-  emitter.emitLine(`
+`
+  );
+});
+/// Emit the Windows IOCP-based async I/O runtime. Mirrors
+/// `generateAsyncRuntimeIOWindows`.
+generate_async_runtime_io_windows :: (fn(emitter : Emitter) -> unit)({
+  emitter.emit_string_line(
+    `
 // ============================================================================
 // Async I/O Runtime (Windows - IOCP)
 // ============================================================================
@@ -4224,5 +4195,7 @@ static int __yo_poll_and_fs_event_tick(void) {
 }
 
 
-`);
-}
+`
+  );
+});
+export(generate_platform_sys_runtime_windows, generate_async_runtime_io_windows);

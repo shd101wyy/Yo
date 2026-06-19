@@ -8,10 +8,18 @@ Categorized as A) FAITHFUL DEFERRAL (matches TS and/or the documented design —
 
 ## A. Faithful deferrals (match TS / the BOOTSTRAPPING_CODEGEN plan)
 
-- **Windows/WASM async I/O runtime** — `async/runtime.yo:36,39`,
-  `async/runtime_io_common.yo:32,35,666` panic. The port target is darwin/POSIX; the
-  plan is explicitly "async POSIX-first". TS also platform-branches its async runtime;
-  these panic only when targeting Windows/WASM, which is out of scope. FAITHFUL.
+- **WASM async I/O runtime** — `async/runtime.yo:39`, `runtime_io_common.yo:35` panic.
+  TS has `runtime-io-wasm.ts` (797 lines); WASM is lower-priority (not requested).
+  Deferred, but TS-backed so portable when needed.
+
+> RESOLVED (2026-06-19): **Windows is now ported.** `yo-self/codegen/async/
+> runtime_io_windows.yo` (4201 lines) ports `generatePlatformSysRuntimeWindows` +
+> `generateAsyncRuntimeIOWindows` (IOCP); wired into runtime.yo + runtime_io_common.yo.
+> The C templates diff byte-identical to TS, yo-self emits the full IOCP runtime under
+> `--target x86_64-windows-gnu` (markers match TS, 0 NUL bytes), corpus stays 76/76.
+> Also fixed a latent TS bug (`'\0'`→raw-NUL in the Windows C). All three first-class
+> platforms (Linux/macOS/Windows) are now covered. See issues/fixed/
+> yo-self-windows-codegen-port.md. WASM remains the only deferred backend.
 - **Cyclic GC** — `codegen_c.yo` `compute_needs_cycle_gc` uses the conservative
   `can_type_form_rc_cycle` stub (→ false), and `traverse_fn = NULL` in dyn.yo:140 /
   async.yo:1225. This is the documented "lightweight RC, cyclic-GC deferred" design

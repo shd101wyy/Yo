@@ -55,7 +55,7 @@ open(import("std/fmt"));
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target } :: import("./target.yo");
+{ host_target, parse_target, TargetInfo } :: import("./target.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -871,12 +871,16 @@ run_compile :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o out] [--c-compiler cc]`));
+    exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o out] [--c-compiler cc] [--target <triple>] [--emit-c]`));
   });
-  // Parse args: positional input path, -o <output>, --c-compiler <cc>.
+  // Parse args: positional input path, -o <output>, --c-compiler <cc>,
+  // --target <triple> (cross-compile; defaults to host), --emit-c (write the
+  // C and skip the C compiler — needed for cross-target inspection/diffing).
   (input_path : String) = String.from("");
   (output : String) = String.from("a.out");
   (cc : String) = String.from("clang");
+  (target_triple : String) = String.from("");
+  (skip_cc : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -892,6 +896,16 @@ run_compile :: (
           cc = argv(ai + usize(1));
         });
         ai = (ai + usize(2));
+      },
+      (a == "--target") => {
+        if((ai + usize(1)) < argv.len(), {
+          target_triple = argv(ai + usize(1));
+        });
+        ai = (ai + usize(2));
+      },
+      ((a == "--emit-c") || (a == "--skip-c-compiler")) => {
+        skip_cc = true;
+        ai = (ai + usize(1));
       },
       (a == "--release") => {
         ai = (ai + usize(1));
@@ -947,21 +961,36 @@ run_compile :: (
       return(())
     }
   );
+  // Resolve the compilation target: --target <triple> if given, else host.
+  target := match(
+    cond(
+      (target_triple == "") => Result(TargetInfo, String).Ok(host_target()),
+      true => parse_target(target_triple)
+    ),
+    .Ok(t) => t,
+    .Err(e) => {
+      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
+      return(())
+    }
+  );
   // Generate C11 from the evaluated module.
-  c_src := compile_module(module_value, ctx.expr_info_table, host_target(), String.from("libc"), false, false, false, false);
+  c_src := compile_module(module_value, ctx.expr_info_table, target, String.from("libc"), false, false, false, false);
   c_path := `${output}.c`;
   io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
-  // Invoke the C compiler to produce the output binary.
-  cmd := Command.new(cc.clone());
-  cmd.arg(String.from("-std=c11"));
-  cmd.arg(String.from("-pthread"));
-  cmd.arg(c_path.clone());
-  cmd.arg(String.from("-o"));
-  cmd.arg(output.clone());
-  cmd.arg(String.from("-lm"));
-  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
-  if(st.raw != i32(0), {
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
+  // --emit-c (or a cross-target build the host C compiler can't link): write the
+  // C and stop. Otherwise invoke the C compiler to produce the output binary.
+  if(!(skip_cc), {
+    cmd := Command.new(cc.clone());
+    cmd.arg(String.from("-std=c11"));
+    cmd.arg(String.from("-pthread"));
+    cmd.arg(c_path.clone());
+    cmd.arg(String.from("-o"));
+    cmd.arg(output.clone());
+    cmd.arg(String.from("-lm"));
+    st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+    if(st.raw != i32(0), {
+      exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
+    });
   });
 });
 run_test :: (
