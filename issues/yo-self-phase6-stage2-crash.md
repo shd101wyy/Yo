@@ -2,6 +2,21 @@
 
 ## Status
 
+**✅ MILESTONE (2026-06-20): token.yo AND lexer.yo BOTH FULLY SELF-COMPILE** to
+valid C (zero transpile errors + clang -c rc=0). The self-referential Dyn(Error)
+chain is fully resolved (commits a822b16dd…3e6463f6b; see the memory note
+`yo-self-phase6-stage2-crash-root` for the full chain). Corpus 77/77.
+
+**NEXT module — parser.yo:** emits C but with 36 transpile errors. ROOT: malformed
+METHOD SIGNATURES — e.g. `Parser.get_program` (`fn(self, exn) -> ArrayList(AstExpr)`)
+is emitted as `void fn_..._get_program(void)` (no params, void return), so its body
+(referencing self/exn) all "Failed to transpile". A few such malformed-signature
+methods account for all 36 errors. This is a FUNCTION-GENERATION gap (the method's
+param/return types aren't reaching the C signature — investigate func-type
+registration for these methods / whether they're emitted as unspecialized stubs),
+distinct from the Dyn(Error) chain. NEXT step for the per-module self-host.
+
+
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
 self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
 replaced with a manual cycle-aware clone (path-based `g_tv_clone_path` guard on
