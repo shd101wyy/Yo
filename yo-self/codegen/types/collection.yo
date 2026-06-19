@@ -110,6 +110,7 @@ _enum_some_type_is_only_in_function_fields :: (
           cond(
             is_function_type(ft) => (),
             (is_struct_type(ft) && _struct_some_type_is_only_in_function_fields(ft, visited)) => (),
+            is_dyn_type(ft) => (),
             type_contains_some_type(ft) => {
               ok = false;
             },
@@ -254,13 +255,38 @@ collect_type :: (fn(type : TypeValue, context : CodeGenContext) -> unit)({
       _ => ()
     );
     // SourceNamespace / Trait field TYPES (field-function collection deferred).
+    // A trait METHOD is a `Func` field type; `collect_type(Func)` erases the
+    // function and never walks its param/return types, so a method's return type
+    // (which codegen LOWERS when emitting the trait's Dyn vtable) goes
+    // uncollected — e.g. `Error.source : fn(self : Self) -> Option(Dyn(Error))`
+    // leaves `Option(Dyn(Error))` uncollected → "type not collected before
+    // lowering" when compiling any module using `std/error` (lexer.yo). So for a
+    // Func field, recur into its param + result types. (Can't call
+    // `collect_types_from_function_type` — it is defined after this; no forward
+    // refs. The register-before-recurse order above breaks the Error→source→Error
+    // cycle: the second encounter early-returns on the already-registered key.)
     match(
       type,
       .TraitT({ field_types }) => {
         n := field_types.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(field_types.get(i),.Some(ft) => recur(ft, context),.None => ());
+          match(
+            field_types.get(i),
+            .Some(ft) => match(
+              ft,
+              .Func({ param_types : __mpt, result : __mres }) => {
+                (__mpi : usize) = usize(0);
+                while(__mpi < __mpt.len(), {
+                  match(__mpt.get(__mpi),.Some(__pt) => recur(__pt, context),.None => ());
+                  __mpi = (__mpi + usize(1));
+                });
+                recur(__mres.*, context);
+              },
+              _ => recur(ft, context)
+            ),
+            .None => ()
+          );
           i = (i + usize(1));
         });
       },
