@@ -79,6 +79,41 @@ recursion in `get_specialized` for this self-referential type. NOTE: `get_specia
 4. If a specific construct: minimize to a standalone repro (the usual issues/
    workflow) and fix the evaluator/loader.
 
+## UPDATE — 32 GB stack → OOM-kill (rc=137): NOT fixable by more stack
+
+`YO_MAIN_STACK_MB=32768 /tmp/yo-self-rel compile yo-self/main.yo`: rc=137 (SIGKILL =
+OS OOM-kill). So at 8 GB it stack-overflows (rc=138) and at 32 GB it exhausts RAM
+before finishing → the recursion is pathologically deep (or unbounded). More stack is
+NOT the fix.
+
+The crash frame (`get_specialized` = the SPECIALIZED `ArrayList.get`; C comment:
+`(ArrayList(u8)) fn(self, index) -> Option(u8)`) is `ArrayList(TypeValue).get →
+Option(TypeValue)` — `Option(TypeValue)` is returned BY VALUE, and `TypeValue` is the
+huge self-referential enum, so each such frame is large. `get` itself isn't recursive;
+it's just where the already-near-exhausted stack tips over during a deep evaluator
+recursion (lldb couldn't unwind the caller chain past the overflow).
+
+Important contrast: `check ./yo-self` (Phase-3, 227/227) checks each file in ISOLATION
+and is fine; `check`/`compile yo-self/main.yo` loads main + ALL transitive imports in
+ONE evaluation, and THAT unified eval recurses deeply enough to exhaust 32 GB. This
+smells like either (a) a missing memoization/cycle-guard so a shared self-referential
+type (TypeValue) is re-descended combinatorially in the unified load, or (b) a genuine
+unbounded recursion triggered only by the full graph, or (c) just-too-deep × the giant
+`TypeValue`-by-value frame cost.
+
+### Refined fix directions
+1. Determine bounded-vs-unbounded: instrument the hot evaluator recursion (or
+   `ArrayList(TypeValue).get`'s caller) with a depth counter that panics at e.g. 5000
+   — a panic with a clean Yo stack trace shows the recursive cycle; no panic before
+   OOM = genuinely deep, not a single tight loop.
+2. Shrink the per-frame cost: `TypeValue` is large + returned/passed by value in
+   hot recursive paths (e.g. `Option(TypeValue)` returns, `clone`, `match` temps).
+   Boxing more of TypeValue (or returning `*(TypeValue)` in the hottest helpers)
+   cuts frame size ~Nx and may bring depth back under a sane stack.
+3. Add memoization/cycle-guards to whatever traverses the self-referential TypeValue
+   in the unified load (mirrors the substitute() / type_contains cycle guards already
+   added elsewhere this port).
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
