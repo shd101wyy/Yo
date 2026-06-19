@@ -20,9 +20,9 @@ open(import("std/string"));
 { TypeValue } :: import("../types/definitions.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable } :: import("../expr_info.yo");
+{ ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
 { Emitter } :: import("../emitter.yo");
-{ is_object_type, is_atomic_object_type } :: import("../types/guards.yo");
+{ is_object_type, is_atomic_object_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
 { type_contains_some_type, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { CodeGenContext } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
@@ -177,6 +177,10 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   register_generate_expr();
   // Register the FSM await/cond/match/while emitter indirections.
   register_fsm_emitters_impl();
+  // Inject the resolved-concrete lookup into the low-level type guards so
+  // is_function_type_hard_generic can exclude SomeType params that resolved to a
+  // concrete type (mirrors TS reading someType.resolvedConcreteType).
+  set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
   // Seed the always-needed standard C headers (mirrors the cIncludes set the TS

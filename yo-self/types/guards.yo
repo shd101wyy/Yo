@@ -13,6 +13,24 @@ open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag } :: import("./creators.yo");
 // ---------------------------------------------------------------------------
+// Resolved-concrete bridge indirection (mirrors TS reading
+// `someType.resolvedConcreteType`). guards.yo is low-level and cannot import
+// expr_info.yo's `lookup_some_resolved_concrete` (would cycle), so the lookup is
+// injected at codegen init via `set_lookup_some_resolved_concrete` — the same
+// indirection pattern as `set_collect_type_fn` in codegen/functions/collection.yo.
+// When unset (e.g. during evaluation, before codegen) it reports "no concrete",
+// preserving prior behavior.
+// ---------------------------------------------------------------------------
+LookupSomeResolvedConcreteFn :: (fn(some_id : String) -> Option(TypeValue));
+(g_lookup_some_resolved_concrete : Option(LookupSomeResolvedConcreteFn)) = Option(LookupSomeResolvedConcreteFn).None;
+set_lookup_some_resolved_concrete :: (fn(f : LookupSomeResolvedConcreteFn) -> unit)({
+  g_lookup_some_resolved_concrete = Option(LookupSomeResolvedConcreteFn).Some(f);
+  ()
+});
+_some_param_has_resolved_concrete :: (fn(some_id : String) -> bool)(
+  match(g_lookup_some_resolved_concrete,.Some(f) => f(some_id).is_some(),.None => false)
+);
+// ---------------------------------------------------------------------------
 // Variant-shape predicates — were in `type.yo` before Phase A.3.2; relocated
 // here to mirror `src/types/guards.ts`. These are one-line wrappers around a
 // `match` on the TypeValue variant, used pervasively by callers that want a
@@ -474,7 +492,10 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
     .Func({ forall_labels : fl, param_types : pts }) =>
       cond(
         (fl.len() > usize(0)) => true,
-        // Partial: check if any param is SomeT (Phase 2b: exclude resolved SomeType)
+        // A SomeType param makes the unspecialized form hard-generic — UNLESS it
+        // has a resolved concrete type, in which case codegen can lower it via the
+        // concrete (e.g. a closure-typed param `cb : Impl(Fn(...))` resolved to its
+        // capture struct). Mirrors TS guards.ts:490 (`!p.type.resolvedConcreteType`).
         true => {
           found := false;
           i := usize(0);
@@ -484,8 +505,10 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
               pts.get(i),
               .Some(pt) => match(
                 pt,
-                .SomeT(name : _) => {
-                  found = true;
+                .SomeT(id : sid, name : _) => {
+                  if(!(_some_param_has_resolved_concrete(sid)), {
+                    found = true;
+                  });
                 },
                 _ => ()
               ),
@@ -606,6 +629,7 @@ export(
   // Function genericity guards
   is_function_type_generic,
   is_function_type_hard_generic,
+  set_lookup_some_resolved_concrete,
   is_function_specializable,
   // Box / effects-row guards
   is_boxed_type,
