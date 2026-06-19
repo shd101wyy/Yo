@@ -49,6 +49,20 @@ the shell carry/lazily-resolve the evaluated body. Note parser.yo is a HEAVIER
 module — beyond get_program the 36 errors span other recursive/forward-ref methods;
 expect a broader wave than lexer.yo had.
 
+**WHY the func_id-adoption regressed (root, for the next attempt):** there are TWO
+func_ids for a forward-shelled method. FORWARD-ref call sites (incl. the method's
+own self-recursion, evaluated while the entry still held the shell) capture the
+SHELL id; NON-forward call sites (e.g. parser.yo:1444's top-level
+`p.get_program(exn)`, evaluated AFTER the main pass updated the entry to the real
+method) resolve to the REAL id. Making the real method adopt the shell id fixed the
+forward sites but BROKE the non-forward ones (→ corpus SELF-FAIL). So NEITHER single
+id works for both. TS has one identity (mutated-in-place shell). The yo-self fix
+must make BOTH ids emit the real body: maintain a `shell_fid → real FuncVal` map
+(recorded at the impl.yo:2073 shell-update), and in codegen function-collection,
+when a func is collected/generated under a shell_fid, substitute the real method's
+FuncVal (so the shell_fid's c_name emits the real evaluated body). Validate corpus
+77/77 + lexer + parser after.
+
 
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
 self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
