@@ -65,6 +65,23 @@ trait (`source : fn(self) -> Option(Dyn(Error))`) + Exception handling — a dee
 codegen layer, the NEXT step for the per-module self-host (lexer.yo → parser.yo →
 evaluator/codegen modules → main.yo).
 
+**ROOT of the 6× `.throw` errors (2026-06-20):** `Exception` (std/error.yo:20) is
+a STRUCT with a `throw : ctl(forall(ResumeType), error : AnyError) -> ResumeType)`
+field — so `exn.throw(dyn(LexerError(...)))` is an ALGEBRAIC-EFFECT handler call
+(the `throw` ctl), NOT a method call. Codegen misgenerates it as a Dyn
+method-DISPATCH on the ARGUMENT: the emitted C is
+`temp.vtable->throw(temp.data)` where `temp` is the `dyn(LexerError)` arg cast to
+`Dyn(Error + ToString)` — i.e. it calls `.throw` on the error-arg's vtable (which
+has only `source`/`to_string`, no `throw`) instead of invoking `exn`'s `throw`
+ctl handler. So the effect-handler-call codegen for a `ctl` STRUCT FIELD picks the
+wrong receiver when the effect's argument is itself a `Dyn`. The corpus effect
+fixtures (effect_handler_unwind/resume, in the green 77) throw non-Dyn args, so
+this Dyn-arg variant is unexercised. NEXT: in the effect/ctl-field call codegen,
+ensure `exn.throw(arg)` invokes the `throw` ctl on the RECEIVER `exn`, with the
+`Dyn` value passed as the `error : AnyError` argument — do not treat the Dyn arg
+as the dispatch receiver. Then the 2 remaining errors (missing concrete `source`
+wrapper + its fn-ptr type) are the Dyn(Error)-vtable wrapper-generation gap.
+
 OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
 self-compile (`yo-self-bin compile yo-self/main.yo`) — crashes before producing C.
