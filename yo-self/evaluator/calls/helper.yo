@@ -56,7 +56,8 @@ open(import("std/string"));
 {
   type_implements_future,
   type_implements_fn,
-  type_implements_trait_bool
+  type_implements_trait_bool,
+  extract_fn_trait_from_type
 } :: import("../trait_checking.yo");
 {
   EvalValue,
@@ -87,7 +88,8 @@ open(import("std/string"));
   path_collection_new,
   ExprInfo,
   new_expr_info,
-  expr_info_table_get
+  expr_info_table_get,
+  register_some_resolved_concrete
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -1119,6 +1121,9 @@ create_specialized_function_inline :: (
           // specialization identity (a str `println` regressed to an undeclared
           // specialized callee). Mirrors TS specializeFunction using runtime
           // placeholders for value params.
+          // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
+          // used below to keep a closure param CALLABLE during body eval.
+          decl_param_types := match(func_type,.Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -1135,7 +1140,37 @@ create_specialized_function_inline :: (
                 )
               )
             };
-            if(cur_is_folded_const, {
+            // For a CLOSURE param (declared `Impl(Fn(...))`, a SomeT), the runtime
+            // placeholder MUST be bound to that SomeT — NOT to runtime_param_tys[i]
+            // (the concrete capture struct) — so the body's `cb(x)` stays a
+            // CALLABLE closure call (a bare capture-struct value is not callable,
+            // so `cb(x)` would fail to evaluate and codegen would see no ExprInfo).
+            // This rebind is UNCONDITIONAL for closure params (try_to_call already
+            // binds them to UnknownVal(captureStruct), so the folded-const gate
+            // below would otherwise skip them). Register the capture struct as the
+            // SomeT's resolved concrete so get_type_string(SomeT) lowers to it
+            // (utils/index.yo:760).
+            decl_pt := match(decl_param_types.get(rbp_i),.Some(t) => t,.None => TypeValue.Unit);
+            closure_some_id := match(
+              decl_pt,
+              .SomeT({ id : sid }) => match(extract_fn_trait_from_type(decl_pt),.Some(_) => sid,.None => String.from("")),
+              _ => String.from("")
+            );
+            is_closure_param := (closure_some_id.len() > usize(0));
+            if(is_closure_param, {
+              match(runtime_param_tys.get(rbp_i),.Some(cap_ty) => register_some_resolved_concrete(closure_some_id.clone(), cap_ty),.None => ());
+              _rbc := add_variable_to_env(
+                callee_env,
+                p_label,
+                decl_pt.clone(),
+                Option(EvalValue).Some(create_unknown_val(decl_pt)),
+                false,
+                false,
+                false,
+                false,
+                synthetic_token(p_label, callee_env.module_path)
+              );
+            }, if(cur_is_folded_const, {
               match(
                 runtime_param_tys.get(rbp_i),
                 .Some(p_ty) => {
@@ -1154,7 +1189,7 @@ create_specialized_function_inline :: (
                 },
                 .None => ()
               );
-            });
+            }));
             rbp_i = (rbp_i + usize(1));
           });
           // CLONE the body with FRESH ids for this specialization. Each
@@ -1780,8 +1815,46 @@ try_to_call_function_with_arguments :: (
   _ := callee_expr;
   _ := skip_ctfe_execution;
   tok := ast_expr_token(expr);
-  match(
+  // Normalize a closure-trait callee type (`Impl(Fn(...))` SomeT or a bare
+  // FnTraitT) to its Func signature so the `.Func` arm below types the call.
+  // A specialized closure param `cb` is bound to its declared SomeT(Impl(Fn))
+  // (callable + codegen-resolvable via g_some_resolved_concrete); calling it
+  // (`cb(x)`) lands here with that SomeT — without this it would miss the
+  // `.Func` arm and the call would not be typed (no ExprInfo → codegen
+  // "Failed to transpile"). Real Func callees pass through unchanged.
+  norm_func_type := match(
     func_type,
+    .Func({ result : _ }) => func_type,
+    _ => match(
+      extract_fn_trait_from_type(func_type),
+      .Some(ftt) => match(
+        ftt,
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
+          ArrayList(String).new(),
+          ArrayList(TypeValue).new(),
+          cpl,
+          cpt,
+          ArrayList(String).new(),
+          ArrayList(TypeValue).new(),
+          ArrayList(bool).new(),
+          ArrayList(TypeValue).new(),
+          cr_box,
+          false,
+          ArrayList(bool).new(),
+          ArrayList(bool).new(),
+          false,
+          false,
+          Option(String).None,
+          Option(String).None,
+          false
+        ),
+        _ => func_type
+      ),
+      .None => func_type
+    )
+  );
+  match(
+    norm_func_type,
     .Func({ forall_labels : fl, forall_types : ft, param_labels : pl, param_types : pt, implicit_labels : il, implicit_types : it, implicit_spreads : ispr, where_types : wt, result : ret_b, has_variadic : fn_has_variadic }) => {
       _ := ispr;
       _ := wt;

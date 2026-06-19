@@ -137,6 +137,7 @@ open(import("std/string"));
 { generate_op_and, generate_op_or } :: import("./and_or.yo");
 { generate_match_expression } :: import("./match.yo");
 { generate_other_function_call } :: import("./other_fn_call.yo");
+{ is_closure_construction, generate_closure_construction } :: import("./closures.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen, get_type_string } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
@@ -337,7 +338,10 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // Macro expansion: generate the already-expanded form.
   match(ei.macro_expansion,.Some(mx) => return(_call_generate_expr(mx, indent.clone(), context)),.None => ());
   // (SomeType-Future ___drop/___dup fast path — Phase 5, omitted.)
-  // (closure CONSTRUCTION with captures — Phase 3, generateClosureConstruction not ported.)
+  // Closure construction: `(x) => body` used as a value/arg — emit the capture
+  // struct construction + register the impl-closure-call mapping. Mirrors the
+  // isClosureConstruction branch in generateFuncCall (other-fn-call.ts).
+  if(is_closure_construction(expr, context), return(generate_closure_construction(expr, indent.clone(), context)));
   // RC builtins.
   if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, Option(usize).None), return(generate_yo_decr_rc(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, Option(usize).None), return(generate_yo_incr_rc(expr, indent.clone(), context)));
