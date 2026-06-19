@@ -40,10 +40,22 @@ recursing unboundedly over a pathological/cyclic TypeValue → overflow in `get`
 (Note `type_to_string`/`_tts` is NOT the culprit — `_tts` already has a depth-40
 guard, `types/string.yo:20`; the unguarded recursion is the CLONE.)
 
-**Root:** `create_specialized_function_inline` deep-CLONES TypeValues with no
-cycle guard. TS shares TypeValue references instead of cloning, so a cyclic /
-deeply self-referential TypeValue never loops there. Same class as the
-`substitute()` self-referential-trait cycle bug already fixed
+**Root (CONFIRMED 2026-06-20):** `create_specialized_function_inline` deep-CLONES
+TypeValues with no cycle guard, and the cyclic type is **the compiler's own
+recursive `TypeValue` enum**. Chain: instrumenting create_specialized's entry
+shows the last specialization before the crash is a generic over
+`Bucket(String, FuncCapturedVarInfo)` (the capture-analysis HashMap's bucket).
+`FuncCapturedVarInfo` (closure.yo:59) has a field `ty : TypeValue` (and
+`value : Option(EvalValue)`). To specialize over that bucket, the clone descends
+into the field type `TypeValue` — which AS A TYPE is an `EnumT` whose own variants
+hold `Box(Self)` (`Pointer(pointee: Box(Self))`, `result: Box(Self)`, etc.,
+definitions.yo:63/70/93) ⇒ a **self-referential EnumT**. Deep-cloning it recurses
+forever (iterating each variant's `ArrayList(TypeValue)` field via `get` — the
+crash frame). TS shares the EnumT reference (a cycle in the object graph that is
+never deep-cloned), so it never loops. token.yo self-compiles because it never
+specializes a generic over a `TypeValue`-bearing type; lexer.yo is the first
+module whose compilation does (via the capture-analysis `HashMap`). Same class as
+the `substitute()` self-referential-trait cycle bug already fixed
 (`yo-self-substitute-cycle-guard`, commit 9b67b199), but in the clone-during-
 specialize path.
 
