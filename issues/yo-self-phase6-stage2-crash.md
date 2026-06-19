@@ -109,6 +109,25 @@ the if+begin+return-in-sequence shape specifically. NEXT: build a minimal repro
 if-statement codegen / block emitter drops it, fix. Likely many of parser's 34
 errors share this root.
 
+**REPRO RESULT (2026-06-20): the simple shape does NOT reproduce.** A minimal
+`classify :: fn(n:i32)->i32 ({ if(n==0, begin(x:=99, return(x), ())); y:=n+1; y })`
+compiles cleanly under BOTH TS and yo-self-bin (0 transpile errors, runs correct).
+So the trigger is NOT the conditional-early-return shape per se. The parser's
+failing statement is more specific: `if(next_tok_kind == TokenKind.RParen,
+begin(unit_tok := Token(...), return(ParseResult(expr : .FnCall(self.alloc_id(),
+box(.Atom(...)), ArrayList(AstExpr).new(), false, tok), index : ...)), ()))` — it
+constructs a `ParseResult` wrapping a runtime `.FnCall(...)` AstExpr enum, with an
+`enum ==` condition, inside a large function (switches, many locals). And the
+CASCADE (every statement after the first failure has NO transpilation) strongly
+suggests the body's EVALUATION bailed partway — a swallowed def-time eval error at
+that statement leaves the REST of the body without ExprInfo, so codegen emits
+"Failed to transpile" for each. So the likely root is an EVAL error (not pure
+codegen) in that ParseResult/.FnCall construction (e.g. the runtime AstExpr enum
+construction, or the ParseResult struct with an AstExpr field), swallowed by the
+def-time-body-eval trial wrapper. NEXT: repro the ParseResult/.FnCall construction
++ enum-== in a struct-returning fn with a conditional early return; or instrument
+the def-time body eval to surface the swallowed error for yo_id_12129's body.
+
 
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
 self-host stack-overflow (rc=138) is resolved: `derive(TypeValue, Clone)` is
