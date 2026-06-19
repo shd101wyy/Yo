@@ -33,26 +33,31 @@ faulting in its PROLOGUE (giant frame — returns `Option(TypeValue)` by value, 
 machinery unrolling once per enum variant (the CLAUDE.md derive(Eq)-fold-range
 pitfall); then `.variants`/`.`/`v`/`a`/`lhs` = a derived `==` executing at
 comptime. So lexer.yo's compile runs derive comptime-folding →
-`create_specialized_function_inline` (helper.yo:993) → `_find_specialization_cache`
-(helper.yo:774) / `compute_compile_time_signature` (helper.yo:649) →
-`value_to_signature_string` / `type_to_string` deep-traverses an
-`ArrayList(TypeValue)` and recurses unboundedly over a pathological/cyclic
-TypeValue → overflow in `get`.
+`create_specialized_function_inline` (helper.yo:993), which **deep-clones** the
+callee's TypeValues (the auto-generated `clone_specialized_T_TypeValue`, ≈half of
+round-3's `sample` profile), iterating an `ArrayList(TypeValue)` via `get` and
+recursing unboundedly over a pathological/cyclic TypeValue → overflow in `get`.
+(Note `type_to_string`/`_tts` is NOT the culprit — `_tts` already has a depth-40
+guard, `types/string.yo:20`; the unguarded recursion is the CLONE.)
 
-**Root:** `type_to_string` / `value_to_signature_string` (and the structural type
-traversal in the specialization signature/cache path) lack a cycle/depth guard.
-TS shares TypeValue refs / bounds this; yo-self deep-traverses without a guard.
-This is the same class as the `substitute()` self-referential-trait cycle bug
-already fixed (`yo-self-substitute-cycle-guard`, commit 9b67b199).
+**Root:** `create_specialized_function_inline` deep-CLONES TypeValues with no
+cycle guard. TS shares TypeValue references instead of cloning, so a cyclic /
+deeply self-referential TypeValue never loops there. Same class as the
+`substitute()` self-referential-trait cycle bug already fixed
+(`yo-self-substitute-cycle-guard`, commit 9b67b199), but in the clone-during-
+specialize path.
 
-**NEXT FIX (focused; must keep corpus 76/76 + std 151 — a naive depth-cap on
-`type_to_string` risks cache-key collisions that regressed std 151→17 before):**
-1. Identify the exact pathological/cyclic TypeValue lexer.yo instantiates —
-   instrument `compute_compile_time_signature` / `type_to_string` with a
-   depth-guarded type print (bail+print past depth ~200 to survive).
-2. Add a visited-set or depth cycle guard at the true cycle point (prefer a
-   visited-set keyed by type identity over a blind depth-cap, to avoid collapsing
-   distinct deep types onto one cache key).
+**NEXT FIX (focused; must keep corpus 76/76 + std 151):**
+1. Identify the exact pathological/cyclic TypeValue lexer.yo's derive-fold
+   instantiates — instrument the clone / `create_specialized_function_inline`
+   entry with a depth-guarded type print (bail+print past depth ~200 to survive).
+2. Either (a) avoid the deep-clone (share/reuse the TypeValue ref like TS where
+   the specialization doesn't actually substitute that sub-type), or (b) add a
+   visited-set cycle guard to the TypeValue clone used by specialization. Prefer
+   the narrowest change that breaks the cycle without altering specialization
+   identity (a blind depth-cap on clone risks producing distinct-but-equal
+   specializations → cache anomalies; std 151→17 regressed on a cache-key edit
+   before).
 3. Validate: corpus 76/76 (diff-test), `check ./std` 151/151, then re-run
    `yo-self-bin compile yo-self/lexer.yo` (should produce C, no rc=138).
 
