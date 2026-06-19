@@ -417,3 +417,33 @@ registered extern type. Verify the extern SomeT's `name` field == "__yo_thread_t
 (extend the DIAG-TC to print the name). This is the single fix that unblocks spawn end to
 end (both spawn + join). Then: spawn repro → `thread sees 42` / `main done`, corpus 75/75,
 add a parallelism corpus fixture.
+
+### UPDATE 2026-06-19 (7) — extern-Type exclusion landed (spawn compiles through to the wrapper); LAST blocker = capture-struct identity.
+
+Commit 292d8af81: the extern-opaque-Type exclusion (g_extern_type_names, populated
+by extern.yo, queried in type_contains_some_type_for_codegen_param) WORKS — verified
+`__yo_thread_t` is now `extern=T`. `Thread.spawn` + `Thread.join` now COMPILE and
+EMIT (were undeclared). The spawn-wrapper emitter (parallelism.yo) was adapted to
+handle `cb` being the lowered capture-struct PARAM (capture type from cei.ty, closure
+fn + funcId from impl_closure_call_map's new closure_fid field). Corpus 75/75, apply
+still prints 15.
+
+LAST BLOCKER (capture-struct IDENTITY): inside the specialized `Thread.spawn` body,
+`__yo_thread_spawn(cb)` looks up impl_closure_call_map by cb's capture-struct id, but
+that id (`__yo_capture_..._5654`, the spec param type from the eval-time arg_ty_spec)
+DIFFERS from the id the closure construction in `main` registered under
+(`__yo_capture_..._5638`, the codegen ei.capture_type). → "spawn cb has no closure
+function". The closure's `ExprInfo.capture_type` is created with a fresh id on the
+eval pass (sets the spec param) vs the codegen pass (does the construction); for the
+free-function `apply` repro they coincided (one capture struct, works), but the
+Thread.spawn METHOD path re-evaluates the closure → a second capture struct id.
+
+FIX DIRECTION: unify the closure's capture-struct identity across eval/codegen (create
+it ONCE per closure and reuse, or canonicalize the id), OR register impl_closure_call_map
+under a stable key both sides compute (e.g. the closure funcId, which is stable — key
+the map by the closure's funcId instead of the capture-struct id, and have both the
+construction and the spawn site look up by funcId). The funcId-keyed approach is likely
+the cleanest: generate_closure_construction has the closure FuncVal (fid); the spawn
+site has cb's closure (via the spec param's source) — thread the closure funcId to the
+spawn site. TS sidesteps this by sharing the same StructType object (reference identity)
+for the closure's capture across eval+codegen.
