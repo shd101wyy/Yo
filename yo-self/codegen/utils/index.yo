@@ -674,6 +674,42 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     }),
     .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    // Key a Dyn by its trait IDS (each trait keyed by the stable TraitT arm
+    // above, which uses the id WITHOUT recursing into method signatures), NOT
+    // by `type_to_string`. For a self-referential trait like `Error`
+    // (`source : fn(self) -> Option(Dyn(Error))`), `type_to_string` spells the
+    // method sig differently across contexts (full `(source : fn… -> <enum>)`
+    // vs abbreviated `_`), so the same `Dyn(Error)` got TWO C type names — the
+    // vtable `source` slot vs its wrapper's return type mismatched (fn-ptr type
+    // error). Trait-id keying is stable and still distinguishes distinct Dyns.
+    .DynT({ required_trait_types : drtt, negative_trait_types : dntt }) => {
+      key := String.from("dyn");
+      (di : usize) = usize(0);
+      while(di < drtt.len(), {
+        match(
+          drtt.get(di),
+          .Some(tt) => {
+            key.push_str("_");
+            key.push_string(recur(tt, depth + usize(1)));
+          },
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      (ni : usize) = usize(0);
+      while(ni < dntt.len(), {
+        match(
+          dntt.get(ni),
+          .Some(tt) => {
+            key.push_str("_n");
+            key.push_string(recur(tt, depth + usize(1)));
+          },
+          .None => ()
+        );
+        ni = (ni + usize(1));
+      });
+      key
+    },
     _ => type_to_string(t)
   )
 );
