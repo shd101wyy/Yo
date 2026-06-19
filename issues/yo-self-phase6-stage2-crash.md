@@ -598,6 +598,52 @@ Diagnosis is now fully quantified; this is purely an implementation task. Diagno
 recipe for the next session: `clang -O0 -c -Wframe-larger-than=500000 <emitted>.c -o
 /dev/null 2>&1 | grep 'stack frame size'` to re-measure after each extraction.
 
+## UPDATE (2026-06-20) — memory investigation: why yo-self needs ≫ TS, and what's fixable
+
+User question: TS compiles `main.yo` fine (~1 GB), so yo-self shouldn't need >24 GB.
+Correct — it's a memory-efficiency gap, not an inherent need. Hard data gathered:
+
+- **This machine has 16 GB RAM.** The unified `main.yo` self-compile overflows at a
+  24 GB stack request (rc=138; 31.8 GB peak footprint) — so it needs >24 GB, which
+  16 GB cannot provide.
+- **TS's max `evaluateExpression` recursion depth compiling `main.yo` is only ~100-200**
+  (instrumented `src/evaluator/exprs/expr.ts`, reverted). yo-self overflows even 24 GB
+  → at ~25-40 MB per recursion level it implies a depth of **several hundred**, i.e.
+  yo-self recurses **meaningfully deeper than TS for the same compilation** (a divergence).
+- **Per-frame cost is huge and `-O2` does NOT shrink it.** Measured `-O0` frames:
+  `evaluate_function_call` 13.1 MB, `evaluate_match` 10.4 MB, `evaluate_property_access`
+  8.1 MB. A fresh `--release` (-O2) build still overflows at 12 GB — coloring can't
+  reuse these slots (function-spanning lifetimes). TS's JS frames are ~1 KB; yo-self's
+  are MB-scale (monolithic match functions, `TypeValue`/`EvalValue` by value). That is
+  ~10⁴× per frame.
+- **Per-module self-compile WORKS** (`token.yo` → valid C after the `true`/`false` fix);
+  only the full unified `main.yo` (every transitive module in one eval) is memory-blocked.
+
+So the gap is TWO compounding divergences vs TS: (a) ~10⁴×-larger per-frame stack cost
+(monolithic functions + by-value structs), and (b) deeper recursion (yo-self CTFE-eval
+is several-hundred deep vs TS's ~150 for the SAME type computations).
+
+**What was tried (this round):**
+- Frame extraction (runtime branch + forall loop → helpers): `evaluate_function_call`
+  13.1 → 10.8 MB. Correct + committed, but ~1 MB/extraction — too slow to close a
+  multi-MB × hundreds-of-levels gap by extraction alone.
+- `--release` (-O2 coloring): ~2× at best; still overflows 12 GB.
+- Deferring CTFE execution during def-time body VALIDATION (gate on
+  `!is_validating_function_definition`, macros exempt): **no effect** — proving the
+  deep recursion is the REAL CTFE execution (`is_validating=false`), the same path TS
+  takes, just ~4× deeper. Reverted.
+
+**The actionable lever (next):** the depth divergence. yo-self's CTFE eval recurses
+~hundreds deep where TS does ~150 for identical type computations. Candidate causes to
+investigate: (1) yo-self lacks an eval-result/CTFE memo TS has, so shared type
+sub-computations re-descend; (2) the eval-dispatch indirection (`evaluate_expression_raw
+→ _evaluate_expression_raw_wrapper → _evaluate_expression`) adds frames per logical
+step; (3) a type-representation difference yielding more nested calls. Pinning it needs
+an unwind-aware depth probe in `evaluate_function_call` whose output survives the
+overflow (cap-to-survive, since stack-overflow discards buffered output). Reducing
+yo-self's CTFE depth toward TS's ~150 would shrink the stack enough to fit — the
+highest-leverage fix, and it directly answers the user's "should be ≈ TS".
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
