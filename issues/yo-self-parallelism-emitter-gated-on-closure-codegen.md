@@ -337,3 +337,21 @@ ImplClosureCallInfo to utils/index.yo; (2) port allocate_closure_capture +
 generate_closure_construction into closures.yo + wire is_closure_construction in the
 expr dispatcher; (3) port the call-site closure-call (piece C) in other_fn_call.yo;
 (4) fix collection (piece B); validate the apply repro → 15, corpus 75/75, then spawn.
+
+### UPDATE 2026-06-19 (4) — 2nd structural divergence: Struct carries no per-field source exprs.
+
+`allocate_closure_capture` (closures.ts:132) generates each capture field value
+from `field.exprs.expr` (the captured-var source expr) + handles `field.isEffectParam`
++ Rc dup-exprs. yo-self's `Struct` TypeValue (definitions.yo:179) has ONLY
+`field_labels` + `field_types` — NO per-field source exprs, no isEffectParam flag.
+So the capture-struct construction must be ADAPTED: emit `.<label> = <c_var_name>`
+where the value is the captured variable accessed in the CONSTRUCTING scope (the
+field label IS the captured var name). Use the constructing scope's variable→C-name
+mapping (get_variable_name_for_codegen / atom emission); Rc captures need the closure
+expr's `deferred_dup_expressions` (ExprInfo) for the dup'd value. Effect-param fields
+(io.async bundles) → NULL; detect via the field being an effect-record/fn type since
+there's no isEffectParam flag. This is an ADAPTATION, not a transcription — the two
+data-model gaps (no FunctionValue.closureInfo; no Struct field source exprs) mean the
+A/C port designs from yo-self's ExprInfo + side registries, not TS's field/closureInfo
+shapes. The context field (impl_closure_call_map + ImplClosureCallInfo) is step 1 and
+must land WITH its consumers (steps 2-4), not as standalone scaffolding.
