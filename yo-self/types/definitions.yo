@@ -393,7 +393,13 @@ impl(
         .Func({ forall_labels : fls, forall_types : fts, param_labels : pls, param_types : pts, implicit_labels : ils, implicit_types : its, implicit_spreads : isp, where_types : wts, result : ret, result_is_comptime_only : rico, param_is_ref : pir, param_is_owning : pio, result_is_ref : rir, has_variadic : hv, is_extern : ie, extern_name : en, is_control : ic }) => TypeValue.Func(fls.clone(), fts.clone(), pls.clone(), pts.clone(), ils.clone(), its.clone(), isp.clone(), wts.clone(), ret.clone(), rico, pir.clone(), pio.clone(), rir, hv, ie.clone(), en.clone(), ic),
         .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft.clone(), irs, iar, isnt, cfid.clone(), sta.clone(), isns),
         .EnumT(eid, enm, evns, evfs, esvn, evfl, edis) => cond(
-          ((eid.len() > usize(0)) && _tv_clone_on_path(eid)) => TypeValue.EnumT(eid.clone(), enm.clone(), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), esvn.clone(), ArrayList(ArrayList(String)).new(), ArrayList(i64).new()),
+          // CYCLE: this enum is already on the clone path (self-reference). Return
+          // the FULL enum but SHARE its `variant_fields` (no deep clone) instead of
+          // recursing — finite to construct, and unlike an empty shell it keys
+          // correctly and is collectable by codegen (the compiler's own `TypeValue`
+          // enum is NOT in `g_enum_finals` at the runtime where it is specialized,
+          // so a shell could not be resolved back to its full form).
+          ((eid.len() > usize(0)) && _tv_clone_on_path(eid)) => TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs, esvn.clone(), evfl.clone(), edis.clone()),
           true => {
             if(eid.len() > usize(0), {
               g_tv_clone_path.push(eid.clone());
