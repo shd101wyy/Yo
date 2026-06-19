@@ -38,15 +38,32 @@ in CODEGEN collection/keying, not the clone.
    (SELF-FAIL 1) — collecting a previously-skipped Dyn-bearing type broke a
    fixture. Reverted.
 
-**REAL ISSUE:** `Option(Dyn(Error))` is a cyclic type whose `type_key` depends on
-a depth-capped traversal of the self-referential structure; the key computed at
-COLLECTION likely differs from the key at LOWERING (freshly-evaluated vs
-cycle-shared-cloned instances traverse differently), so the lookup misses even
-when the type IS collected. The robust fix is either (a) STABILIZE type_key for
-cyclic types (key purely by the enum id + a bounded canonical form, so all
-instances of `Option(Dyn(Error))` key identically), or (b) resolve the `Self`
-SomeType in the Dyn (Gap 6 — the deeper SomeType-resolution port). (a) is the
-smaller, more targeted next step; validate corpus 77/77 + token.yo after.
+**RESOLVED (2026-06-20, commit 1a0366a50): it was a COLLECTION-WALK gap, not
+keying.** A diagnostic proved `collect_type` was NEVER called on
+`Option(Dyn(Error))`. Root: `collect_type`'s `TraitT` case walked method field
+types via `recur` = `collect_type(Func)`, which ERASES the Func and never collects
+its return type — so `Error.source`'s return `Option(Dyn(Error))` (lowered when
+emitting the `Dyn(Error)` vtable) was never registered. Fix: the TraitT case now
+walks a method `Func`'s param + result types directly (register-before-recurse
+breaks the Error→source→Error cycle); plus the enum some-type filter treats a
+`Dyn` field as ABI-concrete so `Option(Dyn(Error))` is not skipped. **lexer.yo now
+self-compiles with ZERO transpile errors and emits C.** Corpus 77/77, token.yo
+clean.
+
+**REMAINING (newly reachable — the emitted C does not yet clang-compile):** 8
+clang errors in the `Dyn(Error + ToString)` VTABLE codegen:
+  - 6× `no member named 'throw' in struct __yo_dyn_(Error + ToString)_vtable_s` —
+    codegen emits a `.throw` vtable access, but the Error/ToString vtable has only
+    `source` + `to_string` (`throw` is an `Exception` method, not Error) → a
+    Dyn method-DISPATCH confusion (Exception vs Error vtable) in the error-handling
+    lowering.
+  - 1× undeclared `__yo_wrap_<concrete>_source` — the concrete error type's
+    `source` method WRAPPER is not generated (only `to_string`'s is).
+  - 1× incompatible fn-ptr type initializing the vtable `source` slot.
+These are distinct Dyn-vtable codegen gaps specific to the self-referential Error
+trait (`source : fn(self) -> Option(Dyn(Error))`) + Exception handling — a deeper
+codegen layer, the NEXT step for the per-module self-host (lexer.yo → parser.yo →
+evaluator/codegen modules → main.yo).
 
 OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
