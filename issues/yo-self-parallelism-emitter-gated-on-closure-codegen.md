@@ -447,3 +447,35 @@ the cleanest: generate_closure_construction has the closure FuncVal (fid); the s
 site has cb's closure (via the spec param's source) — thread the closure funcId to the
 spawn site. TS sidesteps this by sharing the same StructType object (reference identity)
 for the closure's capture across eval+codegen.
+
+### UPDATE 2026-06-19 (8) — spawn final fix = pre-pass + capture-struct-id alias + ordering (not a one-liner).
+
+Tried a call-site alias (in main's Thread.spawn-call codegen, register
+impl_closure_call_map[specParamCaptureId] = [closureConstructionCaptureId]).
+DIDN'T unblock spawn → confirms a GENERATION-ORDERING issue: the specialized
+`Thread.spawn` BODY (which does `__yo_thread_spawn(cb)` and reads the map by cb's
+capture-struct id) is codegen'd BEFORE `main`'s closure construction + alias run,
+so the map is still empty there. Reverted (unvalidated + ineffective alone).
+
+TS avoids both problems via `registerImplClosureCallMappings` — a PRE-PASS
+(closures.ts:223) that walks all collected closure functions and populates
+impl_closure_call_map BEFORE any function body is generated. yo-self deferred this
+pre-pass (relied on per-site construction registration, which works for the
+free-function `apply` case where the consumer body happens to be generated after
+the producer, but NOT for the Thread.spawn method case).
+
+COMPLETE FIX (do together, validate corpus 75/75 + spawn + apply):
+1. Port register_impl_closure_call_mappings as a PRE-PASS in compile_module/
+   generate_all_functions, BEFORE bodies. yo-self has no FunctionValue.closureInfo,
+   so iterate the closure registry (mark_as_closure_fn / register_closure_capture_info
+   ClosureCaptureInfo) — each closure's capture struct + impl fn C name + funcId.
+2. Capture-struct IDENTITY: eval and codegen mint different ids for the same
+   closure's capture struct (create_capture_type_and_value uses random_id,
+   closure.yo:218). EITHER make that id stable per closure (derive from a stable
+   closure identity — hard, fresh func_ids per eval), OR have the pre-pass + call
+   site register the map under BOTH ids (construction id AND the spec-param id the
+   cast targets). The call-site alias (computed here) feeds the pre-pass'd map.
+3. Then the spawn-wrapper lookup (parallelism.yo, capture-struct-param path) hits.
+
+This is the single remaining piece for spawn end-to-end; it's a bounded but
+multi-part change (pre-pass + identity reconciliation + ordering), not a one-liner.
