@@ -98,9 +98,34 @@ source to instrument). NEXT TOOLING STEP: instrument `resolve_enum_shell` /
 a recursive self-reference is expanded to its full form during lexer.yo's
 compile, to catch where the cycle is created.
 
+**RULED OUT (static analysis): enum finalization is NOT the cycle source.**
+`evaluate_enum_type` (enum.yo:662-706) builds the finalized EnumT as a FINITE
+one-level DAG: `_patch_self_shell` (enum.yo:180) replaces a self-shell with
+`pre_final_ty` ONE level deep, and `pre_final_ty`'s own self-fields stay SHELLS
+(empty variants); deeper nesting resolves lazily via `resolve_enum_shell`
+(creators.yo:333). So a derived `clone` of the finalized enum is bounded. The
+true cycle must form later — when something eagerly RESOLVES the inner shells in
+place (each `resolve_enum_shell` returns the full `pre_final_ty`, whose inner is
+again a shell that resolves to the full…), producing an unboundedly deep / truly
+cyclic value that the derived clone then loops on.
+
+**GLOBAL FIX CANDIDATE: replace `derive(TypeValue, Clone)` (definitions.yo:323)
+with a MANUAL cycle-aware `Clone` impl** that, on revisiting a type id already on
+the clone path, emits a shell (empty-variant EnumT / empty-field Struct) instead
+of recursing. This fixes EVERY `.clone()` site at once (sidesteps having to
+pinpoint the specific one). HIGH RISK: `clone` is fundamental and called
+everywhere; the manual impl must be byte-for-byte equivalent to the derived clone
+for all NON-cyclic types or it regresses the whole compiler. Requires careful
+implementation + full validation (corpus 76/76 + check ./std 151/151 + check
+./yo-self 227/227) in a focused session. Same idea applies to `EvalValue`.
+
 **NEXT FIX (focused; must keep corpus 76/76 + std 151):**
 0. The compat backstop AND the substitute guard are NOT the fix (both tested
-   ineffective — the loop is the auto-clone of an already-cyclic value). The fix is a
+   ineffective — the loop is the auto-clone of an already-cyclic value). Enum
+   finalization is also ruled out (finite DAG). The fix is either the global
+   manual cycle-aware `Clone` (above) or pinpointing the eager shell-resolution
+   that materializes the true cycle (instrument `resolve_enum_shell` call counts
+   during lexer.yo compile to catch a resolution spiral). The fix is a
    cycle-aware CLONE of `TypeValue` used by the specialization path: a manual
    `clone_type_acyclic(t, visited)` that deep-clones but, on revisiting a
    type id already on the path, returns a shell/leaf (mirroring how
