@@ -525,6 +525,38 @@ match arms (so even -O0 frames shrink), which would fix this class globally. Bot
 large, semantics-preserving changes touching the hottest evaluator code; corpus must
 stay 76/76 at each step. No further diagnosis is needed — this is the implementation.
 
+## UPDATE (2026-06-19, round 9) — gate-narrowing ruled out; frame-size is the ONLY fix
+
+Considered narrowing yo-self's CTFE-execution gate (function.yo:2324,
+`is_type_hierarchy_type || callee_result_is_comptime || all_args_are_types || macro`)
+to match TS, which executes the body only for `isCompileTimeOnly` (helper.ts:1751) +
+macro. Ruled out:
+- `callee_result_is_comptime` IS `result_is_comptime_only` = TS's `isCompileTimeOnly`
+  (faithful, 1:1).
+- `all_args_are_types` (type-constructor instantiation, `HashMap(String,X)`) is already
+  recursion-guarded (finite SomeT-leaf placeholder, per the in-code comment), so it is
+  not the unbounded path.
+- The self-source's deeply-recursing functions are LEGITIMATE type-computing functions
+  (return Type / comptime) — TS CTFE-executes the same ones and terminates. So they
+  fire via `callee_result_is_comptime` regardless; removing `is_type_hierarchy_type`
+  either does nothing (flag still fires) or, if the flag has a gap, routes them to the
+  UnknownVal path and BREAKS type resolution. Not a divergence, not a fix.
+
+**Every surgical alternative is now eliminated** (specialization depth, spec cache,
+CTFE-execution gate value, missing memo [TS has none], gate-narrowing). The CTFE of the
+self-source's type functions is correct and matches TS; it simply recurses deep enough
+that yo-self-bin's multi-MB per-level frames overflow the stack where TS's tiny JS
+frames don't. **The only remaining fix is frame-size reduction** — and it must be done,
+not designed-around:
+  (1) split `evaluate_function_call`'s giant FuncVal arm sub-blocks (the comptime-exec
+      2324 block, the runtime/spec 2480 block, the inline body-eval) into separate
+      functions so -O0 stops co-allocating every arm's temporaries in the recursive
+      frame; likewise `evaluate_match` / `_evaluate_expression` arms; OR
+  (2) a yo-self CODEGEN change so emitted C reuses stack slots across mutually-exclusive
+      match arms (fixes the whole class at once).
+Both are large, semantics-preserving, and must hold corpus 76/76 at every increment —
+a dedicated effort with its own build/validate budget. No diagnosis remains.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
