@@ -19,12 +19,34 @@ collected before lowering)` — an enum (empty name, id 5628) referenced during
 lowering but never registered in `context.types` by the codegen type-collection
 pass (collect_type, codegen/types/collection.yo). This is the same CLASS of
 per-module codegen gap fixed for token.yo (true/false, enum-monomorphization,
-enum `==` dispatch), not the cycle. NEXT: identify enum 5628 (instrument the
-`_lookup_named_c_type` failure in codegen/utils/index.yo to dump its variant
-names — note: avoid `.to_string()`/label-destructure pitfalls there) and find why
-collect_type misses it (likely an enum reached only via a position the collection
-walk doesn't cover — a specialized return type, a comptime value's type, or a
-generic instantiation).
+enum `==` dispatch), not the cycle.
+
+**IDENTIFIED (2026-06-20): enum_5628 = `Option(Dyn(Error))`** — the
+self-referential std `Error` trait type (`Error.source : fn(self : Self) ->
+Option(Dyn(Error))`), used by lexer.yo via `std/error`. type_key:
+`enum_yo_id_5628_dyn((source : fn(self : Self : (ToString)) -> <enum:enum_yo_id_5628>) + ToString)`
+(self-ref, depth-capped). So this is ANOTHER manifestation of cyclic types — now
+in CODEGEN collection/keying, not the clone.
+
+**TWO fixes attempted + reverted:**
+1. Resolve enum shells in `type_key` — no effect (the cycle-clone no longer emits
+   shells; and the compiler's TypeValue isn't in g_enum_finals at this runtime).
+2. Add an `is_dyn_type(ft) => ()` case to `_enum/_struct_some_type_is_only_in_
+   function_fields` (collection.yo) — a Dyn field IS ABI-concrete (fat pointer),
+   so it shouldn't block collection; TS passes the filter because it RESOLVES
+   `Self` (yo-self's Gap 6 leaves it unresolved). But this REGRESSED the corpus
+   (SELF-FAIL 1) — collecting a previously-skipped Dyn-bearing type broke a
+   fixture. Reverted.
+
+**REAL ISSUE:** `Option(Dyn(Error))` is a cyclic type whose `type_key` depends on
+a depth-capped traversal of the self-referential structure; the key computed at
+COLLECTION likely differs from the key at LOWERING (freshly-evaluated vs
+cycle-shared-cloned instances traverse differently), so the lookup misses even
+when the type IS collected. The robust fix is either (a) STABILIZE type_key for
+cyclic types (key purely by the enum id + a bounded canonical form, so all
+instances of `Option(Dyn(Error))` key identically), or (b) resolve the `Self`
+SomeType in the Dyn (Gap 6 — the deeper SomeType-resolution port). (a) is the
+smaller, more targeted next step; validate corpus 77/77 + token.yo after.
 
 OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
