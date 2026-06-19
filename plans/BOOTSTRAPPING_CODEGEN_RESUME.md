@@ -2,19 +2,25 @@
 
 Single ordered checklist for finishing Phases 5–7. Each step has a precise entry
 point + validation gate. Resume from the top. Tree is clean + green at
-`codeberg feat/bootstrap-codegen` (codegen-bootstrap corpus 75/75).
+`codeberg feat/bootstrap-codegen` (codegen-bootstrap corpus 76/76).
 
 ## State at handoff
 
-- Phase 5 ~95%: async + effects (resume **and** unwind) DONE; parallelism runtime
-  + spawn emitter PORTED; spawn blocked only on Gap-2 (below).
-- Phase 6 (self-host fixpoint) + Phase 7 (revive yo-self/tests) UNSTARTED, and
-  **sequentially gated** on Phase 5 codegen being complete enough to compile all
-  of yo-self's own source.
+- Phase 5 ✅ DONE: async + effects (resume **and** unwind) + parallelism. Gap-2
+  closure-param specialization + Thread.spawn now work END-TO-END (commit 88d060546;
+  spawn → "thread sees 42"/"main done", corpus 76/76 incl. thread_spawn.yo).
+- **NEXT = Step 3 (Phase 6, self-host fixpoint).** Phase 7 (revive yo-self/tests)
+  follows. Both were gated on Phase 5 codegen, now unblocked. EXPECT the stage-2
+  compile (yo-self-bin compiling yo-self's own source) to surface a wave of new
+  executing-mode codegen/eval gaps — each a Phase-5-style fix done THERE.
 
-## Step 1 — Gap-2: closure-param specialization codegen-emission (A/B/C)
+## Step 1 — Gap-2: closure-param specialization codegen-emission ✅ DONE (88d060546)
 
-THE keystone — unblocks parallelism spawn AND is required for the Phase-6 fixpoint.
+CLOSED. Closure-param functions specialize per closure, the closure lowers to its
+capture struct, and the closure is called via the impl-closure-call map; Thread.spawn
+works end-to-end. Fixes: general closure-param codegen (A/B/C, e9cc6806a), extern-
+opaque-Type exclusion + lowering, deterministic capture-struct id, closure-call-map
+pre-pass. (Historical entry-point notes below retained for reference.)
 
 TYPE-LOWERING HALF: DONE (commit fd019e82b, 2026-06-19). `Thread.spawn` / any
 closure-param fn now specializes with `cb` typed as its concrete capture struct.

@@ -479,3 +479,14 @@ COMPLETE FIX (do together, validate corpus 75/75 + spawn + apply):
 
 This is the single remaining piece for spawn end-to-end; it's a bounded but
 multi-part change (pre-pass + identity reconciliation + ordering), not a one-liner.
+
+### RESOLVED 2026-06-19 (commit 88d060546) — Thread.spawn works end-to-end.
+
+`Thread.spawn((io)=>{...}); thread.join()` compiles + runs on yo-self-bin →
+`thread sees 42` / `main done`, matching TS. Added tests/codegen-bootstrap/
+thread_spawn.yo; corpus 76/76. Closed by four closure-capture-identity/ordering
+fixes (see commit msg + the closure-param-specialization memory):
+deterministic capture-struct id (source-position-keyed), the closure-call-map
+PRE-PASS (register_impl_closure_call_mappings before bodies), the spawn-emitter
+SomeT→capture-struct resolution, and extern-opaque-Type lowering to its C name.
+Phase-5 parallelism keystone (Gap-2 closure-param specialization + spawn) COMPLETE.
