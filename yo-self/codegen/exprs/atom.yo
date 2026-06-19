@@ -166,6 +166,14 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     });
     return(String.from("return"));
   });
+  // --- boolean literals: emit the C literal, not a sanitized identifier ---
+  // `true`/`false` are reserved C words (stdbool), so the general identifier
+  // path's `sanitize_for_c_identifier` mangles them to the undeclared
+  // `__yo_c_reserved_true`/`_false`. They are valid C bool literals, so emit
+  // them verbatim. Surfaced self-compiling yo-self/token.yo (`while(true, …)`).
+  if((tv == "true") || (tv == "false"), {
+    return(tv);
+  });
   // --- unit-typed expression → empty ---
   ei_opt := context.base.get_expr_info(expr);
   match(

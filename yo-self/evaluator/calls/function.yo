@@ -723,6 +723,135 @@ _func_type_has_closure_param :: (fn(ft : TypeValue) -> bool)(
 /// Complex dispatch (overloads, CTFE, method calls, trait dispatch) deferred to Phase 3.
 ///
 /// Mirrors `evaluateFunctionCall` in `src/evaluator/calls/function.ts`.
+/// [Phase-6 frame split] Extracted forall-binding loop of evaluate_function_call's
+/// FuncVal arm. Runs during call SETUP (before the recursive CTFE descent), so
+/// moving its loop temps into this helper's frame removes them from
+/// evaluate_function_call's -O0 frame on the deep recursion path. Fills
+/// fa_bound_names/fa_bound_types + binds forall type params into fresh_env. Pure
+/// code motion.
+_funcval_bind_foralls :: (
+  fn(
+    forall_names : ArrayList(String),
+    param_type_names : ArrayList(String),
+    evaled_arg_infos : ArrayList(ExprInfo),
+    cap_names : ArrayList(String),
+    cap_vals : ArrayList(EvalValue),
+    recv_type_args : ArrayList(TypeValue),
+    fresh_env : Environment,
+    env : Environment,
+    n_forall : usize,
+    fa_bound_names : ArrayList(String),
+    fa_bound_types : ArrayList(TypeValue)
+  ) -> unit
+)({
+  (fa_i : usize) = usize(0);
+  while(fa_i < n_forall, {
+    fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
+    n_ptn := param_type_names.len();
+    (ptn_i : usize) = usize(0);
+    (fa_bound : bool) = false;
+    while((ptn_i < n_ptn) && (!(fa_bound)), {
+      ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
+      if(ptn == fa_name, {
+        arg_info := match(
+          evaled_arg_infos.get(ptn_i),
+          .Some(i) => i,
+          .None => new_expr_info(env, t_unit())
+        );
+        // A forall type param inferred from a comptime_str VALUE argument (a
+        // string literal `"hi"` to `fn(forall(T), v : T)`) must bind to the
+        // RUNTIME type `str`, not `comptime_str` — else the specialized body
+        // dispatches `v.to_string()` against comptime_str (→ comptime_int →
+        // i32), throwing "Cannot unify i32 and str" when specializing
+        // println/print (Gap-6). A comptime TYPE arg is a `Type` value, not
+        // comptime_str, so this only catches string-literal value args.
+        fa_infer_ty := cond(
+          is_comptime_string_type(arg_info.ty) => TypeValue.Str,
+          true => arg_info.ty
+        );
+        _add_forall := add_variable_to_env(
+          fresh_env,
+          fa_name,
+          TypeValue.TypeUni(usize(0)),
+          Option(EvalValue).Some(EvalValue.TypeVal(box(fa_infer_ty.clone()))),
+          true,
+          false,
+          false,
+          false,
+          synthetic_token(fa_name, env.module_path)
+        );
+        fa_bound_names.push(fa_name.clone());
+        fa_bound_types.push(fa_infer_ty);
+        fa_bound = true;
+      });
+      ptn_i = (ptn_i + usize(1));
+    });
+    // Fallback: bind the i-th forall param from the receiver's i-th type
+    // argument when it could not be inferred from call arguments.
+    if(!(fa_bound) && (fa_i < recv_type_args.len()), {
+      match(
+        recv_type_args.get(fa_i),
+        .Some(rta) => {
+          fa_bound_names.push(fa_name.clone());
+          fa_bound_types.push(rta.clone());
+          _add_forall_rt := add_variable_to_env(
+            fresh_env,
+            fa_name,
+            TypeValue.TypeUni(usize(0)),
+            Option(EvalValue).Some(EvalValue.TypeVal(box(rta))),
+            true,
+            false,
+            false,
+            false,
+            synthetic_token(fa_name, env.module_path)
+          );
+          fa_bound = true;
+        },
+        .None => ()
+      );
+    });
+    // Capture fallback (STATIC generic-impl methods, e.g.
+    // `ArrayList(u8).new`): no arg binds `T` and the receiver Struct may
+    // not carry `type_arguments`, but the generic-impl resolver injected
+    // the impl's forall binding (`T = u8`) into this FuncVal's CAPTURES
+    // (`_inject_forall_captures`, appended at the tail). Bind `T` from that
+    // capture so the body / specialization concretize.
+    if(!(fa_bound), {
+      (fcap_i : usize) = usize(0);
+      while((fcap_i < cap_names.len()) && !(fa_bound), {
+        if(match(cap_names.get(fcap_i),.Some(cn) => (cn == fa_name),.None => false), {
+          match(
+            cap_vals.get(fcap_i),
+            .Some(cvv) => match(
+              cvv,
+              .TypeVal(ctb) => {
+                cap_ty := ctb.*;
+                fa_bound_names.push(fa_name.clone());
+                fa_bound_types.push(cap_ty.clone());
+                _add_forall_cap := add_variable_to_env(
+                  fresh_env,
+                  fa_name,
+                  TypeValue.TypeUni(usize(0)),
+                  Option(EvalValue).Some(EvalValue.TypeVal(box(cap_ty))),
+                  true,
+                  false,
+                  false,
+                  false,
+                  synthetic_token(fa_name, env.module_path)
+                );
+                fa_bound = true;
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+        fcap_i = (fcap_i + usize(1));
+      });
+    });
+    fa_i = (fa_i + usize(1));
+  });
+});
 /// [Phase-6 frame-size split] Extracted runtime-return branch of the FuncVal arm of
 /// `evaluate_function_call`. Pulling this ~200-line block (incl. the 16-field Func
 /// destructuring) out of `evaluate_function_call` removes its many -O0 stack slots
@@ -2224,113 +2353,19 @@ Fix: wrap the call:
         // runtime-return path below).
         fa_bound_names := ArrayList(String).new();
         fa_bound_types := ArrayList(TypeValue).new();
-        (fa_i : usize) = usize(0);
-        while(fa_i < n_forall, {
-          fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
-          n_ptn := param_type_names.len();
-          (ptn_i : usize) = usize(0);
-          (fa_bound : bool) = false;
-          while((ptn_i < n_ptn) && (!(fa_bound)), {
-            ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
-            if(ptn == fa_name, {
-              arg_info := match(
-                evaled_arg_infos.get(ptn_i),
-                .Some(i) => i,
-                .None => new_expr_info(env, t_unit())
-              );
-              // A forall type param inferred from a comptime_str VALUE argument (a
-              // string literal `"hi"` to `fn(forall(T), v : T)`) must bind to the
-              // RUNTIME type `str`, not `comptime_str` — else the specialized body
-              // dispatches `v.to_string()` against comptime_str (→ comptime_int →
-              // i32), throwing "Cannot unify i32 and str" when specializing
-              // println/print (Gap-6). A comptime TYPE arg is a `Type` value, not
-              // comptime_str, so this only catches string-literal value args.
-              fa_infer_ty := cond(
-                is_comptime_string_type(arg_info.ty) => TypeValue.Str,
-                true => arg_info.ty
-              );
-              _add_forall := add_variable_to_env(
-                fresh_env,
-                fa_name,
-                TypeValue.TypeUni(usize(0)),
-                Option(EvalValue).Some(EvalValue.TypeVal(box(fa_infer_ty.clone()))),
-                true,
-                false,
-                false,
-                false,
-                synthetic_token(fa_name, env.module_path)
-              );
-              fa_bound_names.push(fa_name.clone());
-              fa_bound_types.push(fa_infer_ty);
-              fa_bound = true;
-            });
-            ptn_i = (ptn_i + usize(1));
-          });
-          // Fallback: bind the i-th forall param from the receiver's i-th type
-          // argument when it could not be inferred from call arguments.
-          if(!(fa_bound) && (fa_i < recv_type_args.len()), {
-            match(
-              recv_type_args.get(fa_i),
-              .Some(rta) => {
-                fa_bound_names.push(fa_name.clone());
-                fa_bound_types.push(rta.clone());
-                _add_forall_rt := add_variable_to_env(
-                  fresh_env,
-                  fa_name,
-                  TypeValue.TypeUni(usize(0)),
-                  Option(EvalValue).Some(EvalValue.TypeVal(box(rta))),
-                  true,
-                  false,
-                  false,
-                  false,
-                  synthetic_token(fa_name, env.module_path)
-                );
-                fa_bound = true;
-              },
-              .None => ()
-            );
-          });
-          // Capture fallback (STATIC generic-impl methods, e.g.
-          // `ArrayList(u8).new`): no arg binds `T` and the receiver Struct may
-          // not carry `type_arguments`, but the generic-impl resolver injected
-          // the impl's forall binding (`T = u8`) into this FuncVal's CAPTURES
-          // (`_inject_forall_captures`, appended at the tail). Bind `T` from that
-          // capture so the body / specialization concretize.
-          if(!(fa_bound), {
-            (fcap_i : usize) = usize(0);
-            while((fcap_i < cap_names.len()) && !(fa_bound), {
-              if(match(cap_names.get(fcap_i),.Some(cn) => (cn == fa_name),.None => false), {
-                match(
-                  cap_vals.get(fcap_i),
-                  .Some(cvv) => match(
-                    cvv,
-                    .TypeVal(ctb) => {
-                      cap_ty := ctb.*;
-                      fa_bound_names.push(fa_name.clone());
-                      fa_bound_types.push(cap_ty.clone());
-                      _add_forall_cap := add_variable_to_env(
-                        fresh_env,
-                        fa_name,
-                        TypeValue.TypeUni(usize(0)),
-                        Option(EvalValue).Some(EvalValue.TypeVal(box(cap_ty))),
-                        true,
-                        false,
-                        false,
-                        false,
-                        synthetic_token(fa_name, env.module_path)
-                      );
-                      fa_bound = true;
-                    },
-                    _ => ()
-                  ),
-                  .None => ()
-                );
-              });
-              fcap_i = (fcap_i + usize(1));
-            });
-          });
-          fa_i = (fa_i + usize(1));
-        });
+        _funcval_bind_foralls(
+          forall_names,
+          param_type_names,
+          evaled_arg_infos,
+          cap_names,
+          cap_vals,
+          recv_type_args,
+          fresh_env,
+          env,
+          n_forall,
+          fa_bound_names,
+          fa_bound_types
+        );
         // v4.1: validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved). Mirrors TS
         // requireValidRefArgumentPlaces; this inline FuncVal arm is
