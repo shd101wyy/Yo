@@ -391,7 +391,26 @@ impl(
         .Array(el, len, lvar) => TypeValue.Array(el.clone(), len, lvar.clone()),
         .Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone()),
         .Func({ forall_labels : fls, forall_types : fts, param_labels : pls, param_types : pts, implicit_labels : ils, implicit_types : its, implicit_spreads : isp, where_types : wts, result : ret, result_is_comptime_only : rico, param_is_ref : pir, param_is_owning : pio, result_is_ref : rir, has_variadic : hv, is_extern : ie, extern_name : en, is_control : ic }) => TypeValue.Func(fls.clone(), fts.clone(), pls.clone(), pts.clone(), ils.clone(), its.clone(), isp.clone(), wts.clone(), ret.clone(), rico, pir.clone(), pio.clone(), rir, hv, ie.clone(), en.clone(), ic),
-        .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft.clone(), irs, iar, isnt, cfid.clone(), sta.clone(), isns),
+        .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => cond(
+          // CYCLE: a self-referential struct already on the clone path (e.g. a
+          // struct whose field type transitively contains itself). Mirror the
+          // EnumT guard: return the FULL struct but SHARE its field_types +
+          // type_arguments (no deep clone) to break the recursion — finite,
+          // keys correctly, collectable. The unified main.yo self-compile reaches
+          // such structs (definitions.yo's own types), where the EnumT-only guard
+          // was insufficient.
+          ((sid.len() > usize(0)) && _tv_clone_on_path(sid)) => TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft, irs, iar, isnt, cfid.clone(), sta, isns),
+          true => {
+            if(sid.len() > usize(0), {
+              g_tv_clone_path.push(sid.clone());
+            });
+            cloned_struct := TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft.clone(), irs, iar, isnt, cfid.clone(), sta.clone(), isns);
+            if(sid.len() > usize(0), {
+              g_tv_clone_path.pop();
+            });
+            cloned_struct
+          }
+        ),
         .EnumT(eid, enm, evns, evfs, esvn, evfl, edis) => cond(
           // CYCLE: this enum is already on the clone path (self-reference). Return
           // the FULL enum but SHARE its `variant_fields` (no deep clone) instead of
