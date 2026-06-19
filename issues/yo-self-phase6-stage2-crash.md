@@ -557,6 +557,47 @@ not designed-around:
 Both are large, semantics-preserving, and must hold corpus 76/76 at every increment —
 a dedicated effort with its own build/validate budget. No diagnosis remains.
 
+## UPDATE (2026-06-19, round 10) — MEASURED frame sizes + the two concrete fix options
+
+Compiled the generated C (`/tmp/yo-self-bin4.c`) with `clang -O0 -c
+-Wframe-larger-than=500000` to get REAL frame sizes. The recursive-path offenders:
+
+| function | -O0 frame |
+|---|---|
+| `evaluate_function_call` | **13.1 MB** |
+| `evaluate_match` | **10.4 MB** |
+| `evaluate_property_access` | 8.1 MB |
+| `evaluate_cond` | 2.9 MB |
+| `evaluate_initialization_assignment` | 2.3 MB |
+| `evaluate_begin_expression` | 1.8 MB |
+
+The recursive cycle (`evaluate_function_call → evaluate_match/cond → evaluate_begin →
+…`) sums to ~28 MB/level, so ~150 levels overflow 4 GB — matching the observed crash.
+
+Confirmed temps ARE already block-scoped: begin blocks emit `{ … }` (begin.yo:136/200),
+cond emits branch braces (cond.yo:368+), and match arms wrap each case body in `{ … }`
+(match.yo:352-358). So the giant frames are NOT from missing scoping — they are
+`sizeof(EvalValue)`/`sizeof(TypeValue)` (large by-value tagged unions) × the many
+distinct temp slots these huge match functions hold. `-O2` coloring cannot shrink
+`sizeof`, which is why `--release` still overflows (a TS-bounded depth × multi-MB
+frames).
+
+**Two concrete fix options (pick one; both are large + semantics-preserving, corpus
+must stay 76/76 at every step):**
+1. **Split the giant match functions.** Extract `evaluate_function_call`'s arms/sub-
+   blocks (FuncVal comptime-exec / runtime / body-eval, plus TypeVal etc.) and
+   `evaluate_match`'s/`evaluate_property_access`'s arms into separate helper functions,
+   so each function holds far fewer temp slots and the recursive path's per-level frame
+   drops from ~13+10 MB to the small active-helper frames. Highest-impact targets first:
+   `evaluate_function_call` (13 MB) and `evaluate_match` (10 MB).
+2. **Shrink `sizeof(TypeValue)`/`sizeof(EvalValue)`.** If the tagged unions inline large
+   variants, route more variants through `Box`/pointer so every by-value slot shrinks
+   ~Nx at once — fixes the whole class globally but touches the core data model.
+
+Diagnosis is now fully quantified; this is purely an implementation task. Diagnostic
+recipe for the next session: `clang -O0 -c -Wframe-larger-than=500000 <emitted>.c -o
+/dev/null 2>&1 | grep 'stack frame size'` to re-measure after each extraction.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
