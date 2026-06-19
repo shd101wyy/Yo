@@ -146,6 +146,20 @@ Alternatively, address the SYMPTOM: shrink the per-frame cost by boxing/`*(TypeV
 in the hottest type helpers (e.g. `Option(TypeValue)` returns) so the same depth fits
 — but TypeValue is pervasive, so that is a large, carefully-validated change.
 
+### UPDATE — ruled out the obvious type-traversal recursers
+
+The deep recurser is NOT a naive cyclic type traversal — the usual suspects are
+already bounded/guarded: `type_to_string`/`_tts` (types/string.yo) caps at depth 40
+(`_d > 40 → "…"`) and doesn't recurse Struct/Enum field types (prints the name);
+`are_types_compatible` (compatibility.yo) has a `visited` cycle guard on
+Struct/Union/Enum; `substitute` has the `visited_trait_ids` cycle guard. So the deep
+recursion is in the EVAL / comptime-execution path (e.g. `_evaluate_expression`
+mutual recursion or a comptime fn executing over the unified graph), not a tight
+type-structure loop — consistent with the crash being where a deep eval chain happens
+to call `ArrayList(TypeValue).get`. Next-session probe should target the eval
+recursion (unwind-aware depth guard in `_evaluate_expression_wrapper`) rather than the
+type helpers.
+
 ## Why this matters
 
 This is the gate for the whole Phase-6 fixpoint (stage-2 → stage-3 ≡ stage-2) and
