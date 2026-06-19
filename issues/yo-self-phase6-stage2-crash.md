@@ -128,6 +128,19 @@ but:
     vtable slot.
 This is the NEXT step for lexer.yo; then parser/evaluator/codegen modules → main.yo.
 
+**CYCLE-AWARE CLONE COMPLETED (commit 7b2862f68): EnumT + STRUCT.** The clone now
+guards self-referential structs too (was EnumT-only). **main.yo (UNIFIED load)
+status:** still rc=138 at 8 GB, still in `get_specialized` — but with clone now
+fully cycle-guarded, the remaining unified-load loop is in `substitute` and/or the
+structural compare (`_compat_impl`) traversing cyclic types (NOT clone). Those
+have their own (tested-but-reverted) guard sketches; the unified main.yo ALSO
+remains memory-heavy. STRATEGIC NOTE: the PER-MODULE self-host path (compile each
+module, link) is memory-feasible and is the pragmatic route — lexer.yo is at 3
+clang errors (default-lambda codegen) on it; finish lexer → parser → evaluator →
+codegen modules, rather than chasing the unified main.yo (deeper memory + multiple
+cyclic-traversal spots). The cycle-aware clone (this session's keystone) is the
+shared foundation both paths needed.
+
 OPEN (2026-06-19). Phase 5 is DONE (parallelism keystone + Thread.spawn work
 end-to-end, corpus 76/76, commit 88d060546). Phase 6's first step — the stage-2
 self-compile (`yo-self-bin compile yo-self/main.yo`) — crashes before producing C.
