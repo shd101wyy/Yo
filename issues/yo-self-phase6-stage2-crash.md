@@ -11,10 +11,24 @@ chain is fully resolved (commits a822b16dd…3e6463f6b; see the memory note
 METHOD SIGNATURES — e.g. `Parser.get_program` (`fn(self, exn) -> ArrayList(AstExpr)`)
 is emitted as `void fn_..._get_program(void)` (no params, void return), so its body
 (referencing self/exn) all "Failed to transpile". A few such malformed-signature
-methods account for all 36 errors. This is a FUNCTION-GENERATION gap (the method's
-param/return types aren't reaching the C signature — investigate func-type
-registration for these methods / whether they're emitted as unspecialized stubs),
-distinct from the Dyn(Error) chain. NEXT step for the per-module self-host.
+methods account for all 36 errors. This is a FUNCTION-GENERATION gap. ROOT refined: `generate_function`
+(functions/generation.yo:135) reads `get_func_type(func_id)`; `get_func_type`
+returns `t_unit()` for an UNREGISTERED func_id (function_value.yo:160), and
+`generate_function_prototype(t_unit, …)` yields `void fn(void)`. So
+`get_program`'s func type was never registered under the func_id codegen
+collected. token.yo + lexer.yo (which have impl methods) self-compile fine, so
+general impl-method func-type registration WORKS — `get_program` is special: it
+sits in a FORWARD-REFERENCE/recursion cycle (parser.yo:474 comment:
+"avoids forward reference: parse_template_string → get_program cycle"; it also
+self-recurses via `Parser.new(...).get_program(...)`). The likely cause: the
+forward-SHELL FuncVal created for the mutual-recursion ref (impl.yo
+`_try_create_forward_shell`/`register_type_trait_method` shell path) is what
+collection picks up, and its func_id has no `register_func_type` entry → t_unit →
+void(void). NEXT: ensure the forward-shell (or the collected method FuncVal for a
+recursive impl method) has its func TYPE registered under the SAME func_id codegen
+uses — verify the shell's id == the finalized method's id, and that
+register_func_type runs for it. Distinct from the Dyn(Error) chain; the next
+per-module step.
 
 
 **CORE CYCLE CRASH FIXED (2026-06-20, commits a822b16dd + 6ec332472).** The
