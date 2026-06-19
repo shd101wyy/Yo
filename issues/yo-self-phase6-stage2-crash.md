@@ -75,8 +75,32 @@ over `Bucket(String, FuncCapturedVarInfo)`) transitively contains `TypeValue`.
 Can't just drop the `.clone()`: `TypeValue` is a value-type enum, so the multiple
 uses genuinely need copies (move semantics).
 
+**ALSO TESTED + REVERTED (2026-06-20): a `substitute` cycle guard.** Added a
+path-based (push/pop) `visited_type_ids` guard to `substitute`'s `EnumT` and
+`Struct` arms (substitution.yo), mirroring the existing `visited_trait_ids`
+TraitT guard, so substitute returns a self-referential struct/enum unchanged on
+the recursion path. Rebuilt; lexer.yo STILL crashed rc=138 in the same
+`ArrayList(TypeValue).get` frame. Reverted (ineffective). With BOTH the
+comparison (`_compat_impl`) and `substitute` guards now ruled out by test, the
+unbounded recursion is **purely the auto-generated `derive(Clone)` of an
+already-cyclic `TypeValue`** — the cycle exists in the input value before the
+clone, and the generated clone (no cycle guard, not user-editable) loops on it.
+Neither a compare-side nor substitute-side guard helps because neither is on the
+loop. The fix must therefore break the cycle EARLIER (where the recursive type's
+self-reference is materialized as a full back-edge instead of a finite-DAG
+shell — recursive types are normally shells, so some path during lexer.yo's
+specialization resolves one to its full cyclic form) OR replace the specific
+`.clone()` of that type in the specialization path with a manual cycle-aware
+clone. Both are blocked on PINPOINTING the exact site: lldb only unwinds the 2
+prologue frames of the overflow, and the clone is compiler-generated (not in
+source to instrument). NEXT TOOLING STEP: instrument `resolve_enum_shell` /
+`resolve_recursive_type_ref` / the enum-definition materialization to print when
+a recursive self-reference is expanded to its full form during lexer.yo's
+compile, to catch where the cycle is created.
+
 **NEXT FIX (focused; must keep corpus 76/76 + std 151):**
-0. The compat backstop is NOT the fix (tested ineffective). The fix is a
+0. The compat backstop AND the substitute guard are NOT the fix (both tested
+   ineffective — the loop is the auto-clone of an already-cyclic value). The fix is a
    cycle-aware CLONE of `TypeValue` used by the specialization path: a manual
    `clone_type_acyclic(t, visited)` that deep-clones but, on revisiting a
    type id already on the path, returns a shell/leaf (mirroring how
