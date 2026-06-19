@@ -203,8 +203,23 @@ clear_type_trait_methods :: (fn() -> unit)({
   fresh := HashMap(String, ArrayList(MethodEntry)).new();
   _type_trait_methods = fresh;
 });
+/// Trait-method DEFAULT values (`?=` defaults). yo-self's `TraitT` does not store
+/// per-field default values (divergence — trait_type.yo:6-8), so the trait
+/// evaluator records each defaulted method's FuncVal here, keyed by
+/// `${trait_id}::${label}`. Consumers (`_resolve_dyn_trait_values`, method
+/// dispatch) fall back to this when a concrete type implements the trait WITHOUT
+/// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
+(_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+register_trait_default :: (fn(trait_id : String, label : String, value : EvalValue) -> unit)({
+  ___ := _trait_method_defaults.set((trait_id + String.from("::")) + label, value);
+});
+get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
+  _trait_method_defaults.get((trait_id + String.from("::")) + label)
+);
 export(
   MethodEntry,
+  register_trait_default,
+  get_trait_default,
   register_type_trait_method,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,

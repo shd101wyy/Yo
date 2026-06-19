@@ -27,7 +27,7 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
-{ get_type_trait_methods_for_type, type_id_or_empty } :: import("./type_trait_methods.yo");
+{ get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { Exception } :: import("std/error");
 /// Build the ordered TraitVal evidence for a DynType over a concrete value
 /// type, resolving each trait method to the concrete type's registered impl
@@ -85,7 +85,14 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue) -
                   );
                   k = (k + usize(1));
                 });
-                field_vals.push(match(exact,.Some(v) => Option(EvalValue).Some(v),.None => by_label));
+                // Fall back to the trait's `?=` DEFAULT method when the concrete
+                // type implements the trait WITHOUT overriding this method (e.g.
+                // `Error.source ?= (self) -> .None` for a LexerError that omits
+                // `source`). Without this the evidence slot is `None`, the Dyn
+                // vtable references an unemitted `__yo_wrap_<T>_<method>` wrapper
+                // ("Module field <m> is not a function value") → the C does not
+                // compile.
+                field_vals.push(match(exact,.Some(v) => Option(EvalValue).Some(v),.None => match(by_label,.Some(bv) => Option(EvalValue).Some(bv),.None => get_trait_default(trait_id.clone(), fname.clone()))));
                 j = (j + usize(1));
               });
               trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));

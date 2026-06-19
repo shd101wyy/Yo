@@ -53,6 +53,7 @@ open(import("std/fmt"));
 { _add_where_clause_constraint, _trait_has_receiver } :: import("./function.yo");
 { ArrayList } :: import("std/collections/array_list");
 { random_id } :: import("../../utils.yo");
+{ register_trait_default } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -1211,6 +1212,15 @@ evaluate_trait_type :: (
       exn
     );
     field_index = (field_index + usize(1));
+    // Record a `?=` default method value so a type implementing this trait
+    // WITHOUT overriding the method can fall back to it (TraitT itself stores no
+    // per-field defaults — divergence). Keyed by trait_id + label; read by
+    // `_resolve_dyn_trait_values` (and method dispatch) on a missing override.
+    match(
+      field_result.default_value_opt,
+      .Some(__dv) => register_trait_default(trait_id.clone(), field_result.label.clone(), __dv),
+      .None => ()
+    );
     // Check for duplicate labels
     (is_duplicate : bool) = false;
     (li : usize) = usize(0);
