@@ -17,6 +17,7 @@ open(import("std/string"));
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { type_key, get_variable_name_for_codegen, ImplClosureCallInfo } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 /// Monotonic counter for unique closure capture temp names. yo-self has no
@@ -190,4 +191,58 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     out
   })
 });
-export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction);
+/// Pre-pass: register every collected closure's impl fn into impl_closure_call_map
+/// (keyed by its concrete capture-struct id) BEFORE any function body is generated.
+/// Without this, a specialized callee whose body calls the closure (e.g. the
+/// specialized `Thread.spawn` body → `__yo_thread_spawn(cb)`) can be codegen'd
+/// before the closure's construction site (which also registers the map), so the
+/// call-site lookup misses. Mirrors TS `registerImplClosureCallMappings`
+/// (closures.ts:223); yo-self has no FunctionValue.closureInfo, so it reads the
+/// capture struct from the get_closure_capture_info side-table (keyed by func_id).
+register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) -> unit)({
+  it := context.base.functions.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(fid) => {
+        if(is_closure_fn(fid.clone()), {
+          match(
+            get_closure_capture_info(fid.clone()),
+            .Some(cci) => {
+              key := match(
+                resolve_some_type_to_concrete(cci.capture_type),
+                .Struct({ id : sid }) => sid,
+                .SomeT({ id : sid }) => sid,
+                _ => String.from("")
+              );
+              if(key.len() > usize(0), {
+                match(
+                  context.base.functions.get(fid.clone()),
+                  .Some(entry) => {
+                    _r := context.base.impl_closure_call_map.set(
+                      key,
+                      ImplClosureCallInfo(
+                        function_c_name : entry.c_name,
+                        call_type_id : String.from(""),
+                        call_type : Option(TypeValue).None,
+                        consumed_captures : Option(ArrayList(String)).None,
+                        closure_fid : fid.clone()
+                      )
+                    );
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings);

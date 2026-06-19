@@ -27,6 +27,7 @@ open(import("std/string"));
 { random_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_name_for_codegen, type_key } :: import("../utils/index.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
 { get_dup_function_for_type, get_drop_function_for_type } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
@@ -165,7 +166,11 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // the capture struct, registered in impl_closure_call_map by the closure
   // construction at the call site). Resolve the capture struct + closure impl fn
   // from whichever is present.
-  capture_type := match(cei.capture_type,.Some(c) => c,.None => cei.ty);
+  // For a closure-PARAM cb (specialized Thread.spawn body), cei.ty is the SomeT
+  // the param was bound to (callable) — resolve it to the concrete capture struct
+  // (via g_some_resolved_concrete) so the map key matches what the construction /
+  // pre-pass registered (the capture-struct id, not the SomeT id).
+  capture_type := resolve_some_type_to_concrete(match(cei.capture_type,.Some(c) => c,.None => cei.ty));
   mapped_opt := context.base.impl_closure_call_map.get(type_key(capture_type.clone()));
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(

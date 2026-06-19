@@ -35,6 +35,7 @@ open(import("std/string"));
 { generate_all_functions, generate_main_wrapper } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
+{ register_impl_closure_call_mappings } :: import("./exprs/closures.yo");
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
@@ -238,6 +239,11 @@ static Slice_uint8_t_u42_ __yo_args;
   preregister_async_block_types(ctx);
   // Third pass: function declarations (prototypes).
   generate_function_declarations(base);
+  // Register Impl(Fn) closure → impl-fn mappings BEFORE function bodies, so a
+  // specialized callee whose body calls a closure (e.g. Thread.spawn →
+  // __yo_thread_spawn(cb)) resolves the closure regardless of generation order.
+  // Mirrors TS registerImplClosureCallMappings (codegen-c.ts before generateAllFunctions).
+  register_impl_closure_call_mappings(ctx);
   // Fourth pass: function bodies (the dispatcher was registered above).
   generate_all_functions(ctx);
   // Dyn dispatch scaffolding (box ctor/dispose + RC dup/drop ported; wrappers

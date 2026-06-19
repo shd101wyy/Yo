@@ -24,6 +24,16 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ type_to_string } :: import("../../types/string.yo");
+// Deterministic capture-struct ids: keyed by the closure's source position +
+// capture field signature, so the SAME closure (re-evaluated across the eval and
+// codegen passes) gets the SAME capture-struct id. A fresh `random_id` per call
+// produced DIFFERENT ids for one closure (e.g. construction `..._5638` vs a
+// specialized callee's eval-time param `..._5654`), breaking the
+// impl_closure_call_map lookup that links a capture struct to its closure impl fn
+// (Thread.spawn). The key is unique per closure source AND per capture-type
+// instantiation, so distinct closures never collide.
+(g_capture_struct_ids : HashMap(String, String)) = HashMap(String, String).new();
 {
   EvalValue
 } :: import("../../value.yo");
@@ -215,7 +225,6 @@ create_capture_type_and_value :: (
       ),
     .None => {
       // Inference case: build struct from captured variables.
-      struct_id := `capture_${random_id(env.module_path)}`;
       field_labels := ArrayList(String).new();
       field_types := ArrayList(TypeValue).new();
       type_fields := ArrayList(TypeField).new();
@@ -260,6 +269,34 @@ create_capture_type_and_value :: (
           );
         });
       });
+      // Stable capture-struct id (see g_capture_struct_ids note): keyed by the
+      // closure's source position + capture field signature, reused across evals.
+      cap_key := String.from("cap@");
+      cap_key.push_string(closure_tok.module_path.clone());
+      cap_key.push_str(":");
+      cap_key.push_string(closure_tok.row.to_string());
+      cap_key.push_str(":");
+      cap_key.push_string(closure_tok.column.to_string());
+      cap_key.push_str(":");
+      cap_key.push_string(closure_tok.character.to_string());
+      cap_key.push_str("|");
+      (csi : usize) = usize(0);
+      while(csi < field_labels.len(), {
+        cap_key.push_string(match(field_labels.get(csi),.Some(l) => l,.None => String.from("")));
+        cap_key.push_str(":");
+        cap_key.push_string(match(field_types.get(csi),.Some(t) => type_to_string(t),.None => String.from("")));
+        cap_key.push_str(",");
+        csi = (csi + usize(1));
+      });
+      struct_id := match(
+        g_capture_struct_ids.get(cap_key.clone()),
+        .Some(existing) => existing,
+        .None => {
+          fresh := `capture_${random_id(env.module_path)}`;
+          _s := g_capture_struct_ids.set(cap_key.clone(), fresh.clone());
+          fresh
+        }
+      );
       // Register field metadata.
       register_struct_fields(struct_id.clone(), type_fields);
       // Build the capture struct TypeValue.

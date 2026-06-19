@@ -32,7 +32,8 @@ open(import("std/string"));
   is_object_type,
   is_pointer_type,
   is_struct_type,
-  is_enum_type
+  is_enum_type,
+  is_extern_type_name
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
@@ -760,13 +761,21 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // (mirrors TS getTypeString resolving through `resolvedConcreteType`).
     // Otherwise fall back to `void*` (an unresolved generic `Self`/SomeType is
     // passed by opaque pointer; field/method access casts at use).
-    .SomeT({ id : sid }) => match(
+    .SomeT({ id : sid, name : snm }) => match(
       lookup_some_resolved_concrete(sid),
       .Some(rct) => recur(rct, context),
-      .None => match(
-        context.get_type_c_name(type_key(t)),
-        .Some(cn) => cn,
-        .None => String.from("void*")
+      // An `extern("Yo", X : Type)` opaque type is a SomeT placeholder that
+      // codegen emits as a concrete C typedef named X (e.g. `__yo_thread_t`,
+      // hard-coded in the parallelism runtime) — lower it to that name, not
+      // `void*`. Mirrors TS lowering an extern SomeType to its C name.
+      .None => if(
+        is_extern_type_name(snm),
+        snm.clone(),
+        match(
+          context.get_type_c_name(type_key(t)),
+          .Some(cn) => cn,
+          .None => String.from("void*")
+        )
       )
     ),
     .IsoT({}) => panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
