@@ -2576,6 +2576,17 @@ Fix: wrap the call:
             match(
               _static_dot_receiver_self_type(func_expr, ctx),
               .Some(spec_st) => {
+                // A static method whose declared return is `Self` (a SomeT) leaves
+                // resolved_ret as that unresolved SomeT — which makes codegen's
+                // should_skip_function_codegen drop the specialized method as
+                // "has_generic_return" (declarations.yo skip2), so e.g. the
+                // specialized `Thread.spawn -> Self` would never be emitted.
+                // Resolve `Self` to the concrete static-dot receiver here (the
+                // body constructs that concrete type). Gated to a SomeT return so
+                // concrete returns are untouched.
+                if(is_some_type(resolved_ret), {
+                  resolved_ret = spec_st.clone();
+                });
                 ctx.self_type = Option(TypeValue).Some(spec_st);
               },
               .None => ()
