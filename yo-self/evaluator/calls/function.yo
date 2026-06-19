@@ -1381,6 +1381,42 @@ evaluate_function_call :: (
       out_op.value = op_result_val;
       out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
+      // RUNTIME operator on a non-primitive type (e.g. derived `==`/`<` on an
+      // enum or struct): the result is an `UnknownVal`, so codegen must emit a
+      // CALL to the resolved operator method. Two things the comptime-folded
+      // path never needed, gated to the runtime case so comptime operators are
+      // completely unaffected (codegen takes the concrete-value short-cut on the
+      // whole-expr ExprInfo before reaching either of these):
+      //   (1) Attach a result temp to the whole-expr ExprInfo. Without it,
+      //       codegen has no variable to assign the non-unit call result to →
+      //       "// Error: function call returns non-unit but no temp variable
+      //       assigned". The FuncVal arm (function.yo:945) and the `.method()`
+      //       arm (function.yo:2856) both call this; the operator block omitted it.
+      //   (2) Stamp the resolved operator-method FuncVal onto the CALLEE node
+      //       (`func_expr`, the `==` atom). TS funnels infix operators through
+      //       the common call path, which sets `expr.func.$.value = functionValue`;
+      //       yo-self's operator block is a separate early-return that never
+      //       evaluates the callee (an identifier lookup on `==` would throw), so
+      //       the callee node carries NO ExprInfo. Codegen collection
+      //       (functions/collection.yo callee-FuncVal walk) and dispatch
+      //       (other_fn_call.yo `get_expr_info(func_expr)`) BOTH read it to emit +
+      //       call the function; without the stamp the method is neither
+      //       generated nor dispatched → "// Failed to transpile". Prefer the
+      //       specialized (monomorphized) FuncVal; fall back to the resolved one.
+      op_result_is_runtime := match(op_result_val,.Some(orv) => is_unknown_val(orv),.None => false);
+      if(op_result_is_runtime, {
+        attach_temp_variable_to_expr(expr, true, ctx);
+        op_callee_fv := match(call_result_op.specialized_function_value,.Some(sfv) => Option(EvalValue).Some(sfv),.None => first_m.value);
+        match(
+          op_callee_fv,
+          .Some(_) => {
+            op_callee_info := new_expr_info(call_result_op.callee_env, first_m.ty);
+            op_callee_info.value = op_callee_fv;
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), op_callee_info);
+          },
+          .None => ()
+        );
+      });
       return(expr);
     });
   });
