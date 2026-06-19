@@ -19,8 +19,10 @@ open(import("std/string"));
   expr_info_table_get
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
+{ EvalValue, is_func_val } :: import("../../value.yo");
+{ get_func_type } :: import("../../function_value.yo");
+{ create_specialized_function_inline } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_object_type } :: import("../../types/guards.yo");
@@ -36,7 +38,7 @@ open(import("std/string"));
 /// wrappers read these FuncVals to dispatch; a field with no registered method
 /// falls back to None. Shared by both the executing and non-executing paths so
 /// codegen has the evidence regardless of the mode the body was evaluated in.
-_resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue) -> ArrayList(EvalValue))({
+_resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, ctx : EvalContext, caller_env : Environment, exn : Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
   match(
     dyn_type,
@@ -88,11 +90,45 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue) -
                 // Fall back to the trait's `?=` DEFAULT method when the concrete
                 // type implements the trait WITHOUT overriding this method (e.g.
                 // `Error.source ?= (self) -> .None` for a LexerError that omits
-                // `source`). Without this the evidence slot is `None`, the Dyn
-                // vtable references an unemitted `__yo_wrap_<T>_<method>` wrapper
-                // ("Module field <m> is not a function value") → the C does not
-                // compile.
-                field_vals.push(match(exact,.Some(v) => Option(EvalValue).Some(v),.None => match(by_label,.Some(bv) => Option(EvalValue).Some(bv),.None => get_trait_default(trait_id.clone(), fname.clone()))));
+                // `source`). The registered default is GENERIC over `Self`, so it
+                // must be MONOMORPHIZED to the concrete receiver: codegen would
+                // otherwise skip its generic body (undeclared wrapper) and the
+                // `Self`-bearing return type would mismatch the vtable slot. Route
+                // it through create_specialized_function_inline with `self :
+                // value_type` (ctx.self_type set so `Self` in the body/return
+                // resolves to the receiver), producing a concrete, collectable
+                // FuncVal. Falls back to the raw default if specialization is not
+                // possible.
+                resolved_field := match(
+                  exact,
+                  .Some(v) => Option(EvalValue).Some(v),
+                  .None => match(
+                    by_label,
+                    .Some(bv) => Option(EvalValue).Some(bv),
+                    .None => match(
+                      get_trait_default(trait_id.clone(), fname.clone()),
+                      .Some(default_fv) => if(is_func_val(default_fv), {
+                        default_fid := match(default_fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.new());
+                        default_ft := get_func_type(default_fid.clone());
+                        self_args := ArrayList(ArgEntry).new();
+                        _sa := self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));
+                        spec_argvals := ArgValues(
+                          forall_args : ArrayList(ArgEntry).new(),
+                          args : self_args,
+                          implicit_args : Option(ArrayList(ArgEntry)).None,
+                          variadic_args : ArrayList(VarArgEntry).new()
+                        );
+                        saved_self_ty := ctx.self_type;
+                        ctx.self_type = Option(TypeValue).Some(value_type.clone());
+                        spec_fv := create_specialized_function_inline(default_fv, default_ft, spec_argvals, caller_env, caller_env, ctx, exn);
+                        ctx.self_type = saved_self_ty;
+                        Option(EvalValue).Some(spec_fv)
+                      }, Option(EvalValue).Some(default_fv)),
+                      .None => Option(EvalValue).None
+                    )
+                  )
+                );
+                field_vals.push(resolved_field);
                 j = (j + usize(1));
               });
               trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
@@ -217,7 +253,7 @@ evaluate_dyn_value :: (
     // resolution is structural (registry lookup), not execution-dependent.
     ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),.Some(ii) => ii.ty,.None => t_unit());
     if(is_dyn_type(ret_type.clone()), {
-      out_info.dyn_call_trait_values =.Some(_resolve_dyn_trait_values(ret_type, ne_value_type));
+      out_info.dyn_call_trait_values =.Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn));
     });
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
@@ -364,7 +400,7 @@ evaluate_dyn_value :: (
   // Collect a TraitVal for each required trait, resolving the concrete type's
   // registered impl methods (the registry-based stand-in for TS's
   // `concreteType.trait.fields`). Resolved on the pre-box concrete type.
-  trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), value_type);
+  trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), value_type, ctx, cur_env, exn);
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(cur_env, dyn_type);
