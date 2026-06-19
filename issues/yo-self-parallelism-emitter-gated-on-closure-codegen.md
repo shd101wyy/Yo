@@ -31,6 +31,34 @@ is generic-method monomorphization, not the emitter.
   struct. Once that lands, the ported emitter resolves it end to end (TS reference:
   `/tmp/th.yo` → `thread sees 42` / `main done`).
 
+### LAYER 1 LANDED (2026-06-19, commit 00247c89f) — hard-generic resolvedConcrete clause
+
+The missing `guards.ts:490` clause is now ported: `is_function_type_hard_generic`
+excludes a `.SomeT(id)` param that has a registered resolved-concrete (via the
+`g_some_resolved_concrete` bridge, injected into guards.yo at codegen init by
+`set_lookup_some_resolved_concrete` — the `set_collect_type_fn` indirection
+pattern, to avoid the guards→expr_info cycle). corpus 75/75, 0 regressions.
+This alone does NOT fix spawn: `Thread.spawn` is still never SPECIALIZED (the
+function.yo:2509 trigger is `forall_names.len() > 0`), so the call references the
+UNSPECIALIZED `Thread.spawn` whose `cb` SomeT has no registered concrete → still
+hard-generic → skipped. Layer 2 below is the remaining piece.
+
+### LAYER 2 (next) — specialization trigger + cb resolved-concrete
+
+Broaden the function.yo:2509 specialization trigger from `forall_names.len() > 0`
+to TS's guard (`is_function_type_generic(ft) && !is_control_fn`, helper.ts:1911-1929)
+so a non-forall soft-generic call (`cb : SomeT`) specializes. KEY OPEN QUESTION to
+investigate FIRST: when `create_specialized_function_inline` (helper.yo:914) builds
+the specialized `Thread.spawn`, does its registered `spec_type` (register_func_type
+@1310) carry `cb` as (a) the CONCRETE capture struct — then it's emittable with no
+SomeT at all, layer 1 not even needed for spawn — or (b) still a SomeT — then
+create_specialized must ALSO `register_some_resolved_concrete(cb_some_id,
+capture_struct)` so layer 1's clause fires. TS does (b) (SomeType keeps identity +
+gets resolvedConcreteType). Determine which yo-self does, then wire accordingly.
+RISK: broadening the trigger routes many soft-generic std calls through
+create_specialized (which lacks effects analysis, helper.yo:908) — validate corpus
++ check ./std + watch compile time.
+
 ### FAITHFUL ROOT CAUSE (2026-06-19) — supersedes the FnTraitT/guard guesses below
 
 Comparing yo-self against the TS reference 1-to-1 (per the faithful-porting
