@@ -23,7 +23,7 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_ptr } :: import("../../types/creators.yo");
-{ is_comptime_string_type } :: import("../../types/guards.yo");
+{ is_comptime_string_type, is_str_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -131,12 +131,14 @@ evaluate_panic :: (
         cur_env = info.env;
         msg_type := info.ty;
         msg_value := info.value;
-        // str type : Type.Struct named "str" (newtype)
-        is_str_type := match(
-          msg_type,
-          .Struct({ name }) => (name == "str"),
-          _ => false
-        );
+        // `str` is the fieldless `.Str` TypeValue variant (NOT a Struct named
+        // "str") — use the is_str_type guard. The old inline `.Struct(name=="str")`
+        // check never matched a real `str` param, so a `panic(msg : str)` body
+        // (e.g. `assert`'s `cond(flag => (), true => panic(msg))`) threw
+        // "panic message must be a comptime_str or str", was swallowed by the
+        // def-time trial-eval, and left the enclosing cond without ExprInfo →
+        // "Failed to transpile cond(...)" in codegen.
+        is_str := is_str_type(msg_type);
         // comptime_str: StrLit value, or an UNKNOWN value whose type is
         // comptime_str — mirrors TS panic.ts:91-93
         // (`isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)`).
@@ -153,7 +155,7 @@ evaluate_panic :: (
           ),
           .None => is_comptime_string_type(msg_type)
         );
-        if(!(is_str_type) && !(is_comptime_str), {
+        if(!(is_str) && !(is_comptime_str), {
           exn.throw(
             dyn(
               format_error_message(
