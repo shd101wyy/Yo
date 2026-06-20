@@ -6559,7 +6559,8 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       ctx.make_impl(
         quote(
           Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> #(eq_body))
+            (==) : ((lhs, rhs) -> #(eq_body)),
+            (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
       )
@@ -6629,7 +6630,8 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       ctx.make_impl(
         quote(
           Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> #(match_body.to_expr()))
+            (==) : ((lhs, rhs) -> #(match_body.to_expr())),
+            (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
       )
@@ -6638,7 +6640,8 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       ctx.make_impl(
         quote(
           Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> true)
+            (==) : ((lhs, rhs) -> true),
+            (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
       )

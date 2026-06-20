@@ -2,6 +2,36 @@
 
 ## Status
 
+**✅ FIXED (2026-06-20): enum `!=` (derived-Eq) — parser 13 → 9.** `a != b` on a
+derived-Eq enum produced `unit` (soft-fallback): `derive(Eq)` generated only `==`,
+and the `!=` method is the Eq trait's `?=` default (`not(Self.(==)(lhs, rhs))`),
+which was never registered/dispatched on the receiver. Two layers were explored:
+
+1. **Dispatch (solved, then superseded):** an impl-registration default-fill that
+   registers + MONOMORPHIZES the trait's unprovided `?=` defaults for the receiver
+   (via a `create_specialized_function_inline` slot, ctx.self_type = receiver).
+   This made `!=` DISPATCH (parser 13→9/10, corpus 77/77) — BUT the monomorphized
+   default BODY "Failed to transpile": `create_specialized`'s body re-eval does NOT
+   codegen-record the default body's operator call, whether written `Self.(==)
+   (lhs, rhs)` OR the equivalent `not(lhs == rhs)` (a standalone `not(a == b)`
+   codegens fine; only the create_specialized-monomorphized body fails). This is a
+   deeper `create_specialized` limitation (trait-`?=`-default bodies) — REVERTED.
+
+2. **derive generates `!=` (SHIPPED):** `__derive_eq` (std/prelude.yo) now emits
+   `(!=) : ((lhs, rhs) -> not(lhs == rhs))` alongside `==` for the struct, enum,
+   and empty-enum branches. The `!=` is then a PROVIDED method, evaluated/codegen'd
+   exactly like `==` (no create_specialized). Shared std → both compilers stay
+   consistent. Validated: enum-`!=` repro runs identically on TS and yo-self;
+   `tests/codegen-bootstrap/enum_ne_dispatch.yo` (new fixture, exercises `!=` in
+   `&&` + `cond` guards) passes DIFF 0; corpus 78/78; TS `check ./std` 152/152;
+   parser 13 → 9.
+
+REMAINING (related, NOT yet fixed): HAND-WRITTEN `Eq` impls that provide only `==`
+and rely on the `!=` default (e.g. `impl(String, Eq(str))` in std/string.yo) still
+hit the broken create_specialized default-body path for `!=`. The general fix is
+`create_specialized` codegen-recording trait-`?=`-default bodies (layer 1 above);
+a stopgap is adding explicit `(!=)` to those hand-written impls.
+
 **✅ PROGRESS (2026-06-20): operator OVERLOAD selection — String `==` str fixed
 (parser 14 → 13).** `v == "->"` (String == str literal) failed with "Cannot unify
 String and str": `String` implements both `Eq(String)` (rhs: String) and
