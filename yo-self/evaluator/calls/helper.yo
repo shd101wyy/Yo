@@ -1904,6 +1904,76 @@ validate_where_constraints_for_call :: (
     wcl_i = (wcl_i + usize(1));
   });
 });
+/// Resolve a function's parameter types by synthesizing its `forall` parameters
+/// from the expected return type. For the FuncVal-arm call path (`function.yo`),
+/// which sets each argument's expected type from the DECLARED parameter type —
+/// an unresolved `forall` (e.g. `value : V` in `box`) is skipped there, so a
+/// `.Variant`-shorthand argument cannot resolve its enum type. Mirrors TS
+/// `helper.ts:1283-1310`: synthesize the foralls from the expected type, then
+/// re-evaluate the parameter types so they become concrete (`V → Tree` for
+/// `box(.Atom(...))` with expected `Box(Tree)`).
+///
+/// The resolved types are pushed to `out` (which the caller pre-creates empty);
+/// on synthesis failure `out` stays empty and the caller keeps the declared
+/// types. The synthesis runs under a capture-free swallow `Exception` (a `->`
+/// effect handler cannot close over outer variables, so it just unwinds `()` —
+/// the results ride out via `out`, exactly like `_trial_eval_fn_body`).
+resolve_param_types_from_expected :: (
+  fn(
+    func_type : TypeValue,
+    expected_ty : TypeValue,
+    expected_env : Environment,
+    caller_env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(TypeValue)
+  ) -> unit
+)({
+  default_pts := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  forall_lbls := match(func_type,.Func({ forall_labels : fl }) => fl, _ => ArrayList(String).new());
+  ret_b := match(func_type,.Func({ result : rb }) => rb, _ => box(t_unit()));
+  if(forall_lbls.len() == usize(0), {
+    return(());
+  });
+  // Capture-free swallow: on any synthesis error, unwind `()` (the loop that
+  // fills `out` runs only after a successful synth, so `out` stays empty).
+  rps_exn := Exception(throw : ((_e) -> unwind(())));
+  // Seed every signature SomeT as a self-binding placeholder so
+  // `synthesize_types` has a slot to rebind (mirrors the forall-placeholder
+  // setup in `try_to_call_function_with_arguments`).
+  synth_env := Environment.new(caller_env.module_path);
+  _ := synth_env.push_frame(false);
+  sig_somes := get_all_some_types(func_type);
+  (si : usize) = usize(0);
+  while(si < sig_somes.len(), {
+    sst := match(sig_somes.get(si),.Some(t) => t,.None => t_unit());
+    snm := match(sst,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+    if(snm.len() > usize(0), {
+      _ := add_variable_to_env(
+        synth_env,
+        snm,
+        t_type(),
+        Option(EvalValue).Some(create_type_value(sst)),
+        true,
+        false,
+        false,
+        false,
+        synthetic_token(snm, synth_env.module_path)
+      );
+    });
+    si = (si + usize(1));
+  });
+  temp_ret := evaluate_function_return_type_again(ret_b.*, synth_env, ctx);
+  rps_checked := ArrayList(TypePair).new();
+  (rps_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+  rps_synth := synthesize_types(temp_ret, synth_env, expected_ty, expected_env, rps_checked, rps_opts, rps_exn);
+  resolved_env := rps_synth.expected_env;
+  (pj : usize) = usize(0);
+  while(pj < default_pts.len(), {
+    p_orig := match(default_pts.get(pj),.Some(t) => t,.None => t_unit());
+    _ := out.push(evaluate_function_return_type_again(p_orig, resolved_env, ctx));
+    pj = (pj + usize(1));
+  });
+});
 try_to_call_function_with_arguments :: (
   fn(
     func_val : Option(EvalValue),
@@ -2756,6 +2826,7 @@ try_to_call_function_with_arguments :: (
   )
 });
 export(try_to_call_function_with_arguments);
+export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);
 export(validate_where_constraints_for_call);
 export(extract_function_value);

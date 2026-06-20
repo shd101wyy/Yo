@@ -101,7 +101,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, validate_where_constraints_for_call, create_specialized_function_inline } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, create_specialized_function_inline } :: import("./helper.yo");
 { get_func_type, register_func_type } :: import("../../function_value.yo");
 { create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
@@ -2229,6 +2229,35 @@ Fix: wrap the call:
         // (quoted params / unquote returns) stays populated so the
         // experiment patch only has to flip this constant.
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
+        // Early forall synthesis from the expected return type (TS helper.ts:
+        // 1283-1310). When this call has an expected type, the function has
+        // `forall` parameters, and there is NO explicit `forall(...)` argument,
+        // resolve the parameter types from the expected type so that a
+        // `.Variant`-shorthand argument whose declared parameter type is a
+        // forall (e.g. `value : V` in `box`) can resolve its concrete enum type
+        // in the loop below. Without this, `box(.Atom(...))` with expected
+        // `Box(Tree)` left `.Atom` with no expected enum type → "Failed to
+        // infer enum variant type".
+        fv_func_type := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
+        fv_has_explicit_forall := match(
+          args.get(usize(0)),
+          .Some(a0) => ast_expr_is_fn_call_of(a0, "forall", Option(usize).None),
+          .None => false
+        );
+        (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
+        if(((forall_names.len() > usize(0)) && !(fv_has_explicit_forall)) && ctx.expected_type.is_some(), {
+          match(
+            ctx.expected_type,
+            .Some(fv_exp) => {
+              rpt_holder := ArrayList(TypeValue).new();
+              resolve_param_types_from_expected(fv_func_type, fv_exp.ty, fv_exp.env, env, ctx, rpt_holder);
+              if(rpt_holder.len() == fv_param_types.len(), {
+                resolved_param_types = rpt_holder;
+              });
+            },
+            .None => ()
+          );
+        });
         // Evaluate all arguments.
         evaled_arg_infos := ArrayList(ExprInfo).new();
         // Runtime arg EXPRESSIONS in order — codegen reads
@@ -2271,7 +2300,7 @@ Fix: wrap the call:
             // unify(ArrayList(u8), bool) and the whole module failed.
             arg_saved_expected := ctx.expected_type;
             ctx.expected_type = match(
-              fv_param_types.get(ai),
+              resolved_param_types.get(ai),
               .Some(apt) => cond(
                 // Skip Type params (constructor args) AND unresolved
                 // SomeTs — TS passes the SPECIALIZED parameterType

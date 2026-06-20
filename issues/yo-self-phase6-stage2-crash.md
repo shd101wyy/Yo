@@ -2,6 +2,39 @@
 
 ## Status
 
+**✅ PROGRESS (2026-06-20): parser.yo 34 → 14 transpile errors — `box(.Variant)`
+early-forall-synth fixed.** The biggest parser wave (8× "Failed to evaluate
+argument expression") was `box(.Atom(...))` / nested `.FnCall(...)` constructions:
+a `.Variant`-shorthand argument INSIDE `box(...)` failed with "Failed to infer
+enum variant type" because `box`'s `forall V` was not bound to the concrete enum
+before the argument was evaluated. ROOT: yo-self's FuncVal-arm call path
+(`function.yo`, `.FuncVal(...)` arm) sets each argument's expected type from the
+DECLARED parameter type; for `box`'s `value : V` that is an unresolved `forall`
+SomeT, which it SKIPS (`is_some_type(apt) => None`), leaving `.Atom` with no
+expected enum type. TS does **early synthesis** (`helper.ts:1283-1310`): bind the
+foralls from the expected RETURN type (`Box(Tree)` → `V = Tree`) BEFORE evaluating
+args, then pass the concrete param type. FIX: `resolve_param_types_from_expected`
+(helper.yo) builds a placeholder synth env, synthesizes the foralls from the
+expected return type, re-evaluates the declared param types to concretes, and
+returns them via an `out` param (the swallow handler is capture-free `->`, so it
+unwinds `()` — results ride out via `out`, like `_trial_eval_fn_body`). The
+FuncVal arm calls it once (when there's an expected type, forall params, and no
+explicit `forall(...)`), then uses the resolved param types as each arg's expected
+type. Validated: box repro fixed, corpus 77/77 (DIFF 0), parser 34→14.
+
+REMAINING parser waves (14): 7× "Frame level is different" (6 in std/string
+begin-block cond/match arms + 1 parser.yo:488 — swallowed, do NOT block
+std/string codegen which compiles clean for token/lexer); 2× `array_list(...)`
+("Failed to evaluate argument expression") — `array_list` is a MACRO
+(`unquote(Expr)` return), blocked on MACRO_DISPATCH (gated off, heap-corruption);
+2× "Cannot unify String and str" (`v == "->"` — heterogeneous-Eq overload
+resolution picks `impl(String, Eq(String))` and fails to unify the `str` arg
+instead of `impl(String, Eq(str))`); 2× "Expected bool type for and/or" (downstream
+of the String/str `==`); 1× "panic message must be comptime_str or str". NEXT:
+the String/str Eq overload (tractable dispatch fix — `get_receiver_methods_by_name_
+from_env` returns both overloads and `function.yo` takes `[0]` instead of matching
+the arg type).
+
 **✅ MILESTONE (2026-06-20): token.yo AND lexer.yo BOTH FULLY SELF-COMPILE** to
 valid C (zero transpile errors + clang -c rc=0). The self-referential Dyn(Error)
 chain is fully resolved (commits a822b16dd…3e6463f6b; see the memory note
