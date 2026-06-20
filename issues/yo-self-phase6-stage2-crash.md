@@ -26,20 +26,27 @@ which was never registered/dispatched on the receiver. Two layers were explored:
    `&&` + `cond` guards) passes DIFF 0; corpus 78/78; TS `check ./std` 152/152;
    parser 13 → 9.
 
-REMAINING (related, NOT yet fixed): HAND-WRITTEN `Eq` impls that provide only `==`
-and rely on the `!=` default (e.g. `impl(String, Eq(str))` + `impl(str, Eq(String))`
-in std/string.yo) still hit the broken create_specialized default-body path for
-`!=` (confirmed: `s != "->"` C-compile-fails in yo-self while TS prints `Y`). The
-band-aid of adding explicit `(!=) : (... -> not(self == other))` to those impls
-REGRESSED the TS std (`check ./std` 152 → 104): in a HETEROGENEOUS `Eq(str)` impl
-body, `self == other` (String vs str) mis-resolves the `==` overload at std-eval
-time and breaks broadly — REVERTED. So the ONLY viable fix for hand-written
-Eq-`!=`-defaults (and other trait `?=` defaults: Ord, Error.source, …) is the
-GENERAL one: make `create_specialized_function_inline` codegen-record a
-monomorphized trait-`?=`-default body (the layer-1 path), i.e. evaluate the
-default body the way a PROVIDED method body is evaluated (which codegens) rather
-than via the current create_specialized re-eval (which leaves the body's operator
-call unrecorded). That is the next trait-default task.
+REMAINING (related, NOT yet fixed — 3rd revert): HAND-WRITTEN `Eq` impls that
+provide only `==` and rely on the `!=` default (`impl(String, Eq(str))` etc.) still
+fail in yo-self (`s != "->"` C-compile-fails while TS prints `Y`). The general fix
+(impl-registration default-fill: register + monomorphize the unprovided default
+via `create_specialized_function_inline`) was attempted with the layer findings:
+  - The default body's "Failed to transpile" ROOT = `create_specialized` assumes
+    params are PRE-BOUND by `try_to_call` (its rebind loop only handles closure /
+    folded-const params); a direct caller leaves `lhs`/`rhs` unbound → body can't
+    resolve. Binding unbound params (npv==0) inside create_specialized DOES make
+    the `!=` body codegen — BUT it also fires on io_async closure-param
+    specialization and REGRESSED the corpus (SELF-FAIL io_async_capture). The
+    npv==0 guard is NOT actually direct-call-only.
+  - Even with params bound, String `!=` then hits a struct-id MISMATCH in the
+    monomorphized body (`_bytes` `Option` id 3990 vs canonical 3841) — the
+    create_specialized re-eval mints a different `Option` struct id.
+So the general path needs a DIRECT-CALL-ONLY param bind (not the shared
+create_specialized rebind loop) AND struct-id stability across monomorphized
+default bodies. The band-aid (explicit `(!=)` per impl) also regressed the TS std
+(152→104: heterogeneous `Eq(str)` `self == other` mis-resolves the `==` overload).
+The SHIPPED fix is `derive(Eq)` generating `!=` (covers derived enums); hand-written
+Eq defaults + other trait `?=` defaults (Ord, Error.source) remain a parity gap.
 
 **✅ PROGRESS (2026-06-20): operator OVERLOAD selection — String `==` str fixed
 (parser 14 → 13).** `v == "->"` (String == str literal) failed with "Cannot unify
