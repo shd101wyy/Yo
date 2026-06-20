@@ -150,8 +150,22 @@ function generateCaseBody(
       }
     }
 
-    // Generate deferred drop expressions for the begin block
-    if (bodyExpr.$?.deferredDropExpressions) {
+    // Generate deferred drop expressions for the begin block — but NOT when the
+    // final expression exits via control flow (return/unwind/break/continue).
+    // On that path the control-flow exit (e.g. `return`) has already flushed
+    // pendingDeferredDrops, which — per the concatenation above (line ~75) —
+    // INCLUDES this begin block's drops. Re-emitting them here double-frees: the
+    // drops land BEFORE the `return` (finalExprCode is returned, not yet emitted),
+    // so they execute, then the return's own flush already dropped the same
+    // temps. This is the intermittent SIGTRAP-in-malloc double-free on
+    // `match(o, .Some => return(f(x.clone())), …)`. See
+    // issues/yo-self-codegen-intermittent-sigtrap.md.
+    const beginFinalExpr =
+      beginArgs.length > 0 ? beginArgs[beginArgs.length - 1] : undefined;
+    const beginFinalExits = beginFinalExpr
+      ? hasAnyControlFlow(beginFinalExpr.$?.controlFlow)
+      : false;
+    if (bodyExpr.$?.deferredDropExpressions && !beginFinalExits) {
       generateDeferredDropExpressions(bodyExpr, indent, context);
     }
 

@@ -1,4 +1,9 @@
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
-open(import("std/fmt"));
-main :: (fn() -> unit)({ println(String.from("hi")); () });
+sink :: (fn(s : String) -> String)(String.from("r"));
+f :: (fn(o : Option(String), indent : String) -> String)({
+  local := String.from("L");
+  match(o, .Some(mx) => return(sink(indent.clone())), .None => String.from("none"))
+});
+main :: (fn() -> unit)({ b := f(Option(String).Some(String.from("m")), String.from("  ")); () });
 export(main);

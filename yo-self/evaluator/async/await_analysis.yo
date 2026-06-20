@@ -156,9 +156,15 @@ is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
 ///
 /// Mirrors `isJoinHandleAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
-  // Check if this is any X.await(..., X) method call
+  // Check if this is any X.await(..., X) method call. Match `expr` directly —
+  // a read-only structural match does NOT consume it (the sibling
+  // `_is_dot_access` matches the same shape without cloning, and `expr` is still
+  // used below in `is_io_await_call(expr)`). The previous `expr.clone()` was an
+  // unfaithful divergence (TS `isJoinHandleAwaitCall` does no clone) that
+  // deep-cloned the whole AST on EVERY generate_func_call — a large allocation
+  // source and a suspected trigger for the intermittent RC freelist corruption.
   is_method_await := match(
-    expr.clone(),
+    expr,
     .Atom(_, _) => false,
     .FnCall(_, outer_func_box, _, _, _) => match(
       outer_func_box.*,
