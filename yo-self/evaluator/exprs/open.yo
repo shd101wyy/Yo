@@ -32,6 +32,7 @@ open(import("std/fmt"));
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, type_of_eval_value, is_module_val } :: import("../../value.yo");
+{ get_func_type } :: import("../../function_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_struct_type } :: import("../../types/guards.yo");
@@ -201,7 +202,19 @@ evaluate_open :: (
             while(i < mnames.len(), {
               field_name := match(mnames.get(i),.Some(n) => n,.None => String.from(""));
               field_val := match(mvals.get(i),.Some(x) => x,.None => EvalValue.UnitVal);
-              field_ty := type_of_eval_value(field_val);
+              // A FuncVal field's type must be its registered Func type (with
+              // forall labels), NOT type_of_eval_value — which has no FuncVal arm
+              // and returns `unit`. Binding a function under type `unit` made the
+              // callee a non-Func, so `try_to_call` soft-fell to unit without
+              // inferring forall args (e.g. `open(std/fmt)` then `println(s)`
+              // specialized to `(void)` instead of `(String v)` and failed to
+              // transpile). Mirrors TS, where the open'd value carries its own
+              // `.type`. Named imports already bind via the real Func type.
+              field_ty := match(
+                field_val,
+                .FuncVal(_, _, _, _, _, _, _, _, fid) => get_func_type(fid),
+                _ => type_of_eval_value(field_val)
+              );
               _added := add_variable_to_env(
                 next_env,
                 field_name,
