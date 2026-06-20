@@ -24,7 +24,7 @@ open(import("std/fmt"));
 { exit, getenv } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_OPEN, BK_IMPORT } :: import("./expr.yo");
-{ ExprInfoTable } :: import("./expr_info.yo");
+{ ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
 { Environment, clone_env } :: import("./env.yo");
@@ -721,6 +721,17 @@ check_single_file :: (
     prelude_env := Environment.new(input_path.clone());
     prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
     prelude_ctx.is_executing = true;
+    // Route the prelude's per-expression metadata into the shared codegen table
+    // when set (compile path), so codegen finds the body ExprInfo of prelude
+    // functions emitted directly (e.g. `assert`). No-op for `check`/`test`
+    // (g_shared is None there → prelude uses its own throwaway table).
+    match(
+      g_shared_expr_info_table,
+      .Some(t) => {
+        prelude_ctx.expr_info_table = t;
+      },
+      .None => ()
+    );
     register_evaluate_expression();
     println(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
     // keep_frame_at_end=true so the prelude's bindings survive into the
@@ -920,6 +931,17 @@ run_compile :: (
     );
   });
   std_path := resolve_std_path();
+  // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
+  // via g_shared_expr_info_table now (not after the prelude load). The prelude
+  // is def-eval'd inside check_single_file; routing its per-expression metadata
+  // into THIS table makes codegen find the body ExprInfo of non-specialized
+  // prelude functions (e.g. `assert`'s `cond(flag => (), true => panic(msg))`).
+  // Previously the prelude loaded into a discarded table and g_shared was only
+  // set to the entry ctx's table afterwards, so a prelude function emitted
+  // directly (not re-specialized at a call site) had no cond ExprInfo →
+  // "Failed to transpile cond(...)". See issues/yo-self-cond-panic-arm-codegen.md.
+  shared_info_table := expr_info_table_new();
+  g_shared_expr_info_table = Option(ExprInfoTable).Some(shared_info_table);
   // Ensure the prelude env is cached (provides std types to the evaluator).
   if(g_cached_prelude_env.is_none(), {
     _pre := check_single_file(`${std_path}/prelude.yo`, std_path.clone(), io, exn);
@@ -943,10 +965,11 @@ run_compile :: (
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
   ctx.load_module = g_demand_loader;
-  // Share this entry context's ExprInfoTable with every module the entry eval
-  // demand-loads (std/fmt, std/string, …) so codegen has metadata for the
-  // bodies of ALL collected functions, not just the entry module's.
-  g_shared_expr_info_table = Option(ExprInfoTable).Some(ctx.expr_info_table);
+  // Reuse the shared ExprInfoTable (created above, also used by the prelude load
+  // and every demand-loaded module) so codegen has metadata for the bodies of
+  // ALL collected functions — the prelude's, every imported module's, and the
+  // entry module's.
+  ctx.expr_info_table = shared_info_table;
   register_evaluate_expression();
   register_loading(entry_abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();

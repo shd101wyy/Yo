@@ -1,5 +1,24 @@
 # yo-self: `cond(... => panic(msg))` arm — codegen "Failed to transpile"
 
+## Status: FIXED (two commits)
+
+Final root cause was TWO independent bugs:
+1. `evaluate_panic`'s str-check used `.Struct(name=="str")` instead of `is_str_type`
+   (the fieldless `.Str` variant) → `panic(msg : str)` threw, swallowed by
+   def-time trial-eval → enclosing cond lost ExprInfo. (commit 5f00593a7)
+2. The COMPILE driver loaded the prelude into a throwaway ExprInfoTable BEFORE
+   `g_shared_expr_info_table` was set (it was set to the *entry* ctx's table
+   afterwards). So a non-specialized prelude function emitted directly (e.g. std
+   `assert`) had its body ExprInfo stranded in the discarded prelude table —
+   codegen, reading the shared table, found nothing. Fix: create the shared
+   table first, route the prelude load AND the entry ctx into it. Diagnostic
+   proof: `CONDEVAL id=19721` + `CONDREC-None id=19721` (eval recorded) vs
+   `CGMISS id=19721` (codegen missed) = same node, different tables.
+   (this commit; std `assert` + the ArrayList index fixture now emit 0 errors;
+   error.yo 2→1, expr.yo 3→2, parser.yo 9→8; corpus 79/79.)
+
+## (historical analysis below)
+
 ## Status: PARTIALLY FIXED
 
 - **FIXED (committed):** `evaluate_panic`'s `str`-type check. It used an inline
