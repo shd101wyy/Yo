@@ -2,6 +2,23 @@
 
 ## Status
 
+**✅ PROGRESS (2026-06-20): unified `main.yo` self-compile rc=138 → rc=137 —
+infinite Clone recursion FIXED; OOM is the remaining blocker.** An `lldb`
+backtrace (small `YO_MAIN_STACK_MB=512` to crash fast) pinned the rc=138 crash to
+`clone_specialized_T_TypeValue` recursing forever on a cyclic `TypeValue`. The
+manual cycle-aware Clone (definitions.yo) guarded EnumT/Struct by id, but the
+`TraitT` and `DynT` arms cloned children unconditionally — so the self-referential
+std `Error` trait (`source : fn(self) -> Option(Dyn(Error))`) looped
+`TraitT(Error) → tft → Option(Dyn(Error)) → DynT.required_trait_types →
+TraitT(Error) → …`. FIX: added a `tid`-based cycle guard to the `TraitT` arm
+(mirrors EnumT/Struct — when the trait id is on the clone path, share `tft`
+instead of deep-cloning). Validated: corpus 77/77 (DIFF 0), parser.yo still 14
+(no regression). The unified `main.yo --release` compile now runs much further
+and is **OOM-killed (rc=137 = SIGKILL)** instead of recursing — the documented
+"memory-heavy unified load". The recursion blocker is closed; reducing the
+compile's peak memory (excessive large-cyclic-TypeValue clones) is the next
+fixpoint blocker. The PER-MODULE path stays memory-feasible and is unaffected.
+
 **✅ PROGRESS (2026-06-20): parser.yo 34 → 14 transpile errors — `box(.Variant)`
 early-forall-synth fixed.** The biggest parser wave (8× "Failed to evaluate
 argument expression") was `box(.Atom(...))` / nested `.FnCall(...)` constructions:

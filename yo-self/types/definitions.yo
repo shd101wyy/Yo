@@ -431,7 +431,27 @@ impl(
           }
         ),
         .Union(unm, ufl, uft) => TypeValue.Union(unm.clone(), ufl.clone(), uft.clone()),
-        .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) => TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft.clone(), tid.clone(), tisc.clone(), tsc.clone(), tnsc.clone()),
+        .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) => cond(
+          // CYCLE: a self-referential trait (e.g. std `Error`, whose
+          // `source : fn(self) -> Option(Dyn(Error))` reaches its own `TraitT`
+          // again via the method func types `tft` → `Option(Dyn(Error))` →
+          // `DynT.required_trait_types` → `TraitT(Error)`). When this trait id is
+          // already on the clone path, SHARE `tft` (no deep clone) — finite to
+          // construct, and the shared method types key/collect correctly. Mirrors
+          // the EnumT/Struct guards above; without it the unified `main.yo`
+          // self-compile recurses forever cloning `Dyn(Error)` (rc=138).
+          ((tid.len() > usize(0)) && _tv_clone_on_path(tid)) => TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft, tid.clone(), tisc.clone(), tsc.clone(), tnsc.clone()),
+          true => {
+            if(tid.len() > usize(0), {
+              g_tv_clone_path.push(tid.clone());
+            });
+            cloned_trait := TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft.clone(), tid.clone(), tisc.clone(), tsc.clone(), tnsc.clone());
+            if(tid.len() > usize(0), {
+              g_tv_clone_path.pop();
+            });
+            cloned_trait
+          }
+        ),
         .SomeT(smid, snm2, slvl, spt, srtt, srtl, sntt, sntl, sier, skft) => TypeValue.SomeT(smid.clone(), snm2.clone(), slvl, spt.clone(), srtt.clone(), srtl.clone(), sntt.clone(), sntl.clone(), sier, skft.clone()),
         .ComptimeListT(clchild) => TypeValue.ComptimeListT(clchild.clone()),
         .EffectsRowT(erl, ert) => TypeValue.EffectsRowT(erl.clone(), ert.clone()),
