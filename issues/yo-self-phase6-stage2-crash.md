@@ -2,6 +2,30 @@
 
 ## Status
 
+**✅ PROGRESS (2026-06-20): operator OVERLOAD selection — String `==` str fixed
+(parser 14 → 13).** `v == "->"` (String == str literal) failed with "Cannot unify
+String and str": `String` implements both `Eq(String)` (rhs: String) and
+`Eq(str)` (rhs: str), but yo-self's infix dispatch always took `op_methods[0]`
+and tried to unify the `str` arg against the `String` parameter. FIX
+(function.yo infix path): when a receiver has >1 overload of the operator,
+evaluate the 2nd operand (under a capture-free swallow — `_try_eval_operand_type`
+— so a `.Variant`-shorthand operand that needs an expected type falls back
+instead of aborting) and pick the overload whose 2nd parameter (`rhs`) type
+accepts that operand's type (`are_types_compatible`). Single-overload operators
+keep index 0 (no change). Mirrors TS trying each overload (function.ts:867+).
+Validated: corpus 77/77 (DIFF 0), parser 14 → 13. Fixing `v == "->"` surfaced the
+NEXT layer at expr.yo:673 — `match(inner_func_box.*, .Atom(...) => …)` throws
+"Enum variant Atom not found in <enum:..._self_shell>": matching a `.Variant`
+shorthand against a self-referential enum (`AstExpr`) while it is still a
+FORWARD-SHELL. That (shorthand-match-on-self-shell) is the next parser bug.
+
+REMAINING parser waves (13): 7× frame-level (std/string begin-block arms,
+benign), 2× `array_list(...)` (macro, MACRO_DISPATCH-gated), 1× panic-msg, 1×
+enum `!=` (the Eq `?=` default `!=` is NOT registered/dispatched on the receiver
+→ soft-fallback `unit`; only surfaces under strict bool checks — `&&`/`||`,
+`if`/`while`; needs trait-`?=`-default filling at impl registration), 1×
+`.Atom`-on-self-shell (above).
+
 **MEMORY PROFILE (2026-06-20): unified `main.yo` compile is clone-dominated.**
 With a 2 GB stack (not 8 GB — the 8 GB reservation starved the heap on this 16 GB
 machine, causing the rc=137), `main.yo --release` compile runs ~126 s, peaks at

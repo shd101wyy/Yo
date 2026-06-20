@@ -69,6 +69,7 @@ open(import("std/string"));
 } :: import("../context.yo");
 { is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic } :: import("../../types/guards.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
@@ -1087,6 +1088,26 @@ _evaluate_funcval_runtime_call :: (
   });
   expr
 });
+/// Evaluate an operator's 2nd operand under a capture-free swallow `Exception`
+/// to read its type for overload selection, WITHOUT aborting the caller on
+/// failure. The selection eval clears the expected type to read the operand's
+/// natural type; a `.Variant`-shorthand operand then cannot resolve (no expected
+/// enum) and throws — here that error is swallowed and `out` stays empty, so the
+/// caller falls back to the first overload (the `->` handler is capture-free, so
+/// it unwinds `()` and the result rides out via `out`, like `_trial_eval_fn_body`).
+_try_eval_operand_type :: (
+  fn(arg : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
+)({
+  oe_exn := Exception(throw : ((_e) -> unwind(())));
+  oe_evaled := evaluate_expression_raw(arg, env, ctx, oe_exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(oe_evaled)),
+    .Some(si) => {
+      _ := out.push(si.ty);
+    },
+    .None => ()
+  );
+});
 evaluate_function_call :: (
   fn(
     expr : AstExpr,
@@ -1180,10 +1201,57 @@ evaluate_function_call :: (
     // pointer conversion of the receiver.
     op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
     if(op_methods.len() > usize(0), {
-      first_m := match(
+      first_m_0 := match(
         op_methods.get(usize(0)),
         .Some(m) => m,
         .None => return(expr)
+      );
+      // Operator OVERLOAD selection. A receiver can carry multiple overloads of
+      // the same operator — e.g. `String` implements both `Eq(String)` (rhs:
+      // String) and `Eq(str)` (rhs: str), so `v == "->"` must pick the `str`
+      // overload. yo-self previously always took index 0 and failed to unify the
+      // `str` argument against the `String` parameter ("Cannot unify String and
+      // str"). When there is more than one candidate, evaluate the 2nd operand
+      // and pick the overload whose 2nd parameter (`rhs`) type accepts that
+      // operand's type. Mirrors TS trying each overload and using the matching
+      // one (function.ts:867+). A single candidate keeps index 0 (no behavior
+      // change).
+      (chosen_idx : usize) = usize(0);
+      if((op_methods.len() > usize(1)) && (args.len() >= usize(2)), {
+        snd_arg := match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+        snd_saved := ctx.expected_type;
+        ctx.expected_type = Option(ExpectedTypeCtx).None;
+        snd_ty_holder := ArrayList(TypeValue).new();
+        _try_eval_operand_type(snd_arg, env, ctx, snd_ty_holder);
+        ctx.expected_type = snd_saved;
+        // Only refine when the 2nd operand evaluated to a concrete type; a
+        // shorthand operand left `snd_ty_holder` empty → keep the first overload.
+        match(
+          snd_ty_holder.get(usize(0)),
+          .Some(snd_ty) => {
+            (osi : usize) = usize(0);
+            (osel : bool) = false;
+            while((osi < op_methods.len()) && !(osel), {
+              ocand := match(op_methods.get(osi),.Some(m) => m,.None => first_m_0);
+              ocand_p1 := match(
+                ocand.ty,
+                .Func({ param_types : ocpt }) => match(ocpt.get(usize(1)),.Some(t) => t,.None => t_unit()),
+                _ => t_unit()
+              );
+              if(are_types_compatible(snd_ty, ocand_p1), {
+                chosen_idx = osi;
+                osel = true;
+              });
+              osi = (osi + usize(1));
+            });
+          },
+          .None => ()
+        );
+      });
+      first_m := match(
+        op_methods.get(chosen_idx),
+        .Some(m) => m,
+        .None => first_m_0
       );
       // Classify by the method's return shape: an associated-type return
       // (contains a SomeT, e.g. `comptime(Self.Output)`) marks arithmetic;
