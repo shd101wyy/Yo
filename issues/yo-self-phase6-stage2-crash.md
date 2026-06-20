@@ -27,10 +27,19 @@ which was never registered/dispatched on the receiver. Two layers were explored:
    parser 13 → 9.
 
 REMAINING (related, NOT yet fixed): HAND-WRITTEN `Eq` impls that provide only `==`
-and rely on the `!=` default (e.g. `impl(String, Eq(str))` in std/string.yo) still
-hit the broken create_specialized default-body path for `!=`. The general fix is
-`create_specialized` codegen-recording trait-`?=`-default bodies (layer 1 above);
-a stopgap is adding explicit `(!=)` to those hand-written impls.
+and rely on the `!=` default (e.g. `impl(String, Eq(str))` + `impl(str, Eq(String))`
+in std/string.yo) still hit the broken create_specialized default-body path for
+`!=` (confirmed: `s != "->"` C-compile-fails in yo-self while TS prints `Y`). The
+band-aid of adding explicit `(!=) : (... -> not(self == other))` to those impls
+REGRESSED the TS std (`check ./std` 152 → 104): in a HETEROGENEOUS `Eq(str)` impl
+body, `self == other` (String vs str) mis-resolves the `==` overload at std-eval
+time and breaks broadly — REVERTED. So the ONLY viable fix for hand-written
+Eq-`!=`-defaults (and other trait `?=` defaults: Ord, Error.source, …) is the
+GENERAL one: make `create_specialized_function_inline` codegen-record a
+monomorphized trait-`?=`-default body (the layer-1 path), i.e. evaluate the
+default body the way a PROVIDED method body is evaluated (which codegens) rather
+than via the current create_specialized re-eval (which leaves the body's operator
+call unrecorded). That is the next trait-default task.
 
 **✅ PROGRESS (2026-06-20): operator OVERLOAD selection — String `==` str fixed
 (parser 14 → 13).** `v == "->"` (String == str literal) failed with "Cannot unify
