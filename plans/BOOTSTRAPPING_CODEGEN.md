@@ -151,31 +151,29 @@ Phase 6).
 
 ## Remaining work — PRIORITIZED
 
-The three systemic issues below gate the fixpoint, in priority order. Priority
-rationale: P0 first because without a deterministic corpus we cannot safely
-validate any other fix; then the P1 tail (steady, well-understood drain); the
-P2 memory issue is the deepest and is what ultimately blocks the unified fixpoint on this
-hardware.
+The systemic issues below gate the fixpoint, in priority order. With P0 fixed
+(2026-06-21), the corpus is deterministically green again, so the validation
+signal is reliable; the lead is now the P1 tail (steady, well-understood drain);
+the P2 memory issue is the deepest and ultimately blocks the unified fixpoint on
+this hardware.
 
-### P0 — intermittent SIGTRAP-in-malloc (heap corruption)
+### P0 — intermittent SIGTRAP-in-malloc (heap corruption) — ✅ FIXED (2026-06-21)
 
-The self-hosted binary crashes `rc=133` (SIGTRAP, in malloc) on ~**30–40%** of
-runs on heavier fixtures (measured 2026-06-20: 8/20 baseline, 6/20 current, on
-`match_arm_folded_fncall.yo` — independent of recent diffs). A real
-use-after-free / heap-corruption bug. **This is P0 because it makes every
-corpus run non-deterministic, destroying the validation signal for all other
-work.**
+Was a deterministic double-free of a borrowed clone-argument temp on a
+`match(o, .Some(_) => return(f(x.clone())), …)` path: `src/codegen/exprs/match.ts`
+re-emitted the arm begin-block's `deferredDropExpressions` at scope-close even
+when the arm's final expression exits via control flow — but the `return` had
+already flushed `pendingDeferredDrops` (which includes those drops) and dedup'd
+them, so the temp was dropped twice (the redundant drop executes live, before the
+return). Fixed by skipping the scope-close drop emission when the final
+expression has control flow. Validation: heavy fixtures 0/20 crashes (was ~33%),
+corpus PASS 80/80 deterministically, full TS suite 2601/2601 (shared codegen —
+no regressions), regression test `tests/return_call_clone_arg_drop.test.yo`.
+Detection used an RC quarantine (poison-instead-of-free in `__yo_decr_rc` →
+deterministic abort) — gmalloc does NOT reproduce freelist-corruption
+double-frees. See `issues/fixed/yo-self-codegen-intermittent-sigtrap.md`.
 
-- Suspect class: RC dup/drop placement (early-return over-release; consume vs
-  transfer-site), per the prior UAF dossier
-  (`issues/fixed/yo-self-macro-dispatch-corruption.md`,
-  `yo-codegen-continue-while-corruption.md`).
-- Method: reproduce standalone with repeated runs to confirm flakiness, then
-  `libgmalloc` + `MallocStackLogging=full` + lldb `malloc_history` to turn the
-  intermittent fault into a deterministic alloc/free/use backtrace.
-- Exit: heavy fixtures compile 20/20 clean; corpus is deterministically green.
-
-### P1 — executing-mode evaluator/codegen tail (per-module transpile errors)
+### P1 (LEAD) — executing-mode evaluator/codegen tail (per-module transpile errors)
 
 Compiling individual modules surfaces `// Failed to transpile …` markers — each
 a real executing-mode gap. Small/medium modules are clean or near-clean
