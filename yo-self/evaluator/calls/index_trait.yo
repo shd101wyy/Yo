@@ -29,7 +29,7 @@ open(import("std/string"));
   is_unknown_val,
   create_unknown_val
 } :: import("../../value.yo");
-{ EvalContext, IndexCallResult } :: import("../context.yo");
+{ EvalContext, IndexCallResult, ExpectedTypeCtx } :: import("../context.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -39,6 +39,7 @@ open(import("std/string"));
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
+{ try_to_call_function_with_arguments } :: import("./helper.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Private types
@@ -719,6 +720,50 @@ _try_comptime_string_index :: (
   )
 });
 // ---------------------------------------------------------------------------
+// _specialize_index_method
+// ---------------------------------------------------------------------------
+/// Specialize the (generic-impl) index method for codegen and ride the
+/// concrete FuncVal out via `out`. yo-self specializes impl methods LAZILY at
+/// the call site: `find_methods_from_generic_impls` returns the UNSPECIALIZED
+/// generic method (forall T, generic func_id whose registered type is
+/// hard-generic), which `should_skip_function_codegen` then drops — so the index
+/// call would reference an unemitted C function. A normal call `recv.m(i)` routes
+/// through `try_to_call_function_with_arguments` → `create_specialized_function_inline`,
+/// producing a concrete func_id with a registered concrete type that IS emitted.
+/// Route the index method through that same path (args = [receiver, idx]) so its
+/// specialized FuncVal reaches codegen. TS uses `indexMethod.value` directly
+/// because a concrete type there already carries specialized methods (eager
+/// instantiation); this is the faithful-equivalent for yo-self's lazy model.
+///
+/// `expected_type` is CLEARED around the call: the ambient expected type at the
+/// index site is the auto-DEREFERENCED element type (e.g. `u8` for `(b : u8) =
+/// al(i)`), but the index method itself returns `*(Output)` (`*(u8)`) — the deref
+/// happens at the index-call layer, not inside the method. Leaving it set throws
+/// "Cannot unify *(u8) and u8". The swallowing handler + `out`-param fallback
+/// (the `_trial_eval_fn_body` idiom) keeps a throw for any other receiver type
+/// from unwinding the caller's def-time body eval.
+/// NOTE: a throw here unwinds straight to the CALLER of this fn (the swallow
+/// handler's `unwind(())` exits `_specialize_index_method`), so `ctx.expected_type`
+/// is saved/cleared/restored at the CALL SITE, not here — a restore line after
+/// the call below would be skipped on the throw path and leak `None`.
+_specialize_index_method :: (
+  fn(mv : Option(EvalValue), mty : TypeValue, expr : AstExpr, caller_env : Environment, ctx : EvalContext, idx_expr : AstExpr, out : ArrayList(EvalValue)) -> unit
+)({
+  recv := match(expr,.FnCall(_, func, _, _, _) => func.*,.Atom(_, _) => expr);
+  margs := ArrayList(AstExpr).new();
+  _a0 := margs.push(recv);
+  _a1 := margs.push(idx_expr);
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  r := try_to_call_function_with_arguments(mv, mty, expr, recv, margs, caller_env, ctx, true, false, false, inner_exn);
+  match(
+    r.specialized_function_value,
+    .Some(sv) => {
+      _p := out.push(sv);
+    },
+    .None => ()
+  );
+});
+// ---------------------------------------------------------------------------
 // try_to_call_with_index_trait
 // ---------------------------------------------------------------------------
 /// Dispatch `value(arg)` via the Index trait.
@@ -899,12 +944,28 @@ try_to_call_with_index_trait :: (
     _ => ret_ty
   );
   result_val := create_unknown_val(output_ty);
+  // Specialize the index method so codegen has an emittable concrete FuncVal (see
+  // _specialize_index_method). On any failure, fall back to the generic value
+  // (no worse than before — the codegen branch then references an unemitted fn).
+  // expected_type is cleared around the call (the method returns *(Output), the
+  // ambient expected type is the dereferenced Output) and restored here so a
+  // swallowed throw inside the helper cannot leak `None` into later evaluation.
+  spec_out := ArrayList(EvalValue).new();
+  saved_idx_exp := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  match(
+    method.method_value,
+    .Some(_) => _specialize_index_method(method.method_value, method.method_type, expr, caller_env, ctx, arg_expr, spec_out),
+    .None => ()
+  );
+  ctx.expected_type = saved_idx_exp;
+  spec_method_value := match(spec_out.get(usize(0)),.Some(sv) => Option(EvalValue).Some(sv),.None => method.method_value);
   IndexCallResult(
     value : Option(EvalValue).Some(result_val),
     ty : output_ty,
     ptr_type : t_ptr(output_ty),
     index_method_type : Option(TypeValue).Some(method.method_type),
-    index_method_value : method.method_value,
+    index_method_value : spec_method_value,
     caller_env : updated_env,
     index : Option(usize).None
   )

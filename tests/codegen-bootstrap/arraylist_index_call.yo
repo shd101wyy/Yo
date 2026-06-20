@@ -6,10 +6,13 @@ main :: (fn() -> unit)({
   al := ArrayList(u8).new();
   al.push(u8(89));
   al.push(u8(78));
-  (b : u8) = al(usize(0));
-  unsafe(_r := putchar(int(usize(b))));
-  (c : u8) = al(usize(1));
-  unsafe(_r2 := putchar(int(usize(c))));
+  al.push(u8(83));
+  (i : usize) = usize(0);
+  while(i < al.len(), {
+    (b : u8) = al(i);
+    unsafe(_r := putchar(int(usize(b))));
+    i = (i + usize(1));
+  });
   ()
 });
 export(main);

@@ -101,10 +101,13 @@ open(import("std/string"));
   BF_ENSURES,
   BF_INVARIANT,
   BF_GHOST,
-  BK_OPEN
+  BK_OPEN,
+  BF_YO_ARRAY_INDEX,
+  ast_expr_id,
+  ast_expr_is_atom
 } :: import("../../expr.yo");
-{ has_any_control_flow } :: import("../../expr_info.yo");
-{ is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
+{ has_any_control_flow, ExprInfo } :: import("../../expr_info.yo");
+{ is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
@@ -139,7 +142,7 @@ open(import("std/string"));
 { generate_other_function_call } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction } :: import("./closures.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_variable_name_for_codegen, get_type_string } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 { generate_async_block, generate_io_async_sync_call, io_async_await_analysis } :: import("./async.yo");
 {
@@ -310,6 +313,78 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     .None => `(void*)${spawn_var.clone()}`
   )
 });
+/// `<method_c_name>(recv_arg, idx)` for a non-inline Index `index()` method.
+/// `recv_arg` is the already-formed receiver argument (the caller decides whether
+/// to take its address — see _generate_index_trait_call). Looks the specialized
+/// FuncVal's func_id up in the codegen function registry (populated by
+/// collection.yo's index_method_value pass).
+_index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, index_code : String, context : FunctionGenerationContext) -> String)({
+  fid := match(method_value,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => return(String.from("/* Error: Index method not a FuncVal */")));
+  match(
+    context.base.get_function_entry(fid),
+    .Some(e) => `${e.c_name}(${recv_arg}, ${index_code})`,
+    .None => String.from("/* Error: Index method not found in function registry */")
+  )
+});
+/// Generate C for Index-trait dispatch: `value(i)` → `*index_fn(&value, i)`.
+/// Mirrors `generateIndexTraitCall` (generation.ts). The evaluator stamps the
+/// specialized `index()` method FuncVal on `ei.index_method_value` and the
+/// pointer-return type on `ei.index_trait_ptr_type`; collection.yo registers the
+/// method for emission. We emit `&receiver`, call the method, and auto-deref the
+/// returned pointer unless this is an `&(value(i))` (is_index_trait_address_of).
+_generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String, context : FunctionGenerationContext) -> String)({
+  method_value := match(
+    ei.index_method_value,
+    .Some(v) => if(is_func_val(v), v, return(String.from("/* Error: Index trait method value missing */"))),
+    .None => return(String.from("/* Error: Index trait method value missing */"))
+  );
+  // callee = expr.func; the receiver whose address we take.
+  callee := match(expr,.FnCall(_, func, _, _, _) => func.*,.Atom(_, _) => return(String.from("/* Error: Index trait call on non-call */")));
+  (callee_code : String) = _call_generate_expr(callee, indent.clone(), context);
+  // rvalue spill: if the callee is a function call returning a temporary (not an
+  // atom, not a `.` property access which yields an lvalue), store it into a temp
+  // first so we can take its address. Keyed by ast id for a unique temp name.
+  if(ast_expr_is_fn_call(callee) && (!(ast_expr_is_atom(callee)) && !(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))))), {
+    match(
+      context.base.get_expr_info(callee),
+      .Some(cei) => {
+        already_var := match(cei.variable_name,.Some(vn) => (callee_code == get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env))),.None => false);
+        if(!(already_var), {
+          callee_type := get_type_string(cei.ty, context.base);
+          temp_name := `__yo_idx_tmp_${ast_expr_id(callee).to_string()}`;
+          em := context.base.emitter;
+          em.emit_string_line(`${indent.clone()}${callee_type} ${temp_name.clone()} = ${callee_code.clone()};`);
+          callee_code = temp_name;
+        });
+      },
+      .None => ()
+    );
+  });
+  // The single index argument.
+  index_code := match(
+    expr,
+    .FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(ix) => _call_generate_expr(ix, indent.clone(), context),.None => String.from("0")),
+    .Atom(_, _) => String.from("0")
+  );
+  // The receiver argument is its address (`&callee`): the specialized index
+  // method's `ref(self) : Self` lowers to a `Self*` C param (for an RC object
+  // type Self, a `Self*` is a pointer-to-handle), and the method body
+  // dereferences it via the param's is_ref flag (`(*self)->field`). Mirrors
+  // generation.ts, which always passes `&calleeCode`.
+  recv_arg := `&${callee_code.clone()}`;
+  // Inline builtin (`__yo_array_index` → `&((&recv)->data[idx])`) vs by-name call.
+  call_code := match(
+    is_function_value_with_only_builtin_yo_inline_function_call(method_value),
+    .Some(inline_op) => if(
+      inline_op == String.from(BF_YO_ARRAY_INDEX),
+      `(&((&${callee_code.clone()})->data[${index_code.clone()}]))`,
+      _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
+    ),
+    .None => _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
+  );
+  // Auto-deref the returned pointer unless this is `&(value(i))`.
+  match(ei.is_index_trait_address_of,.Some(true) => call_code, _ => `(*${call_code})`)
+});
 /// Generate a function-call expression. Mirrors `generateFuncCall`.
 generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   // The unit value `()` is a 0-arg BK_TUPLE call (parser make_unit_call). The
@@ -461,11 +536,11 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_GHOST, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BK_OPEN, Option(usize).None), return(generate_open(expr, indent.clone(), context)));
-  // (No separate Index-trait codegen needed: the evaluator resolves `x[i]` /
-  // `x(i)` index-trait calls (try_to_call_with_index_trait, index_trait.yo) and
-  // records the method FuncVal in the method-callee side-table, so they reach
-  // generate_other_function_call as ordinary method calls. Verified: array_index
-  // corpus fixture passes. TS's generateIndexTraitCall is folded into that path.)
+  // Index trait dispatch: `value(i)` → `*index_fn(&value, i)`. The evaluator
+  // stamps the specialized `index()` method FuncVal + pointer-return type on the
+  // ExprInfo (function.yo's index branch). Mirrors generation.ts:991. (Fixed-array
+  // `a(i)` resolves to a comptime ref instead and never reaches here.)
+  if(ei.index_trait_ptr_type.is_some() && ei.index_method_type.is_some(), return(_generate_index_trait_call(expr, ei, indent.clone(), context)));
   // Primitive infix operator (`x + y`, `a == b`, …): lower directly to the
   // builtin-inline (`__yo_op_add` → `(a + b)`) via the inline path. This avoids
   // resolving the (generic, SomeType-bearing) operator trait method in codegen,

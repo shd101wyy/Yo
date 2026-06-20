@@ -3010,6 +3010,11 @@ Fix: wrap the call:
           // so the ref-argument place gate recognizes `xs(i)` as a pointer
           // into the container's buffer. Mirrors TS function.ts:2788.
           out_idx_rt.index_trait_ptr_type = Option(TypeValue).Some(idx_result_rt.ptr_type);
+          // Also record the specialized index() method type + value so codegen
+          // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
+          // Mirrors TS function.ts:2790-2791.
+          out_idx_rt.index_method_type = idx_result_rt.index_method_type;
+          out_idx_rt.index_method_value = idx_result_rt.index_method_value;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           return(expr);
         });
@@ -3304,6 +3309,11 @@ Fix: wrap the call:
             // Record the index method's `*(T)` so the ref-argument place
             // gate recognizes `xs(i)` as a buffer pointer (TS function.ts:2788).
             out_idx.index_trait_ptr_type = Option(TypeValue).Some(idx_result.ptr_type);
+            // Also record the specialized index() method type + value so codegen
+            // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
+            // Mirrors TS function.ts:2790-2791.
+            out_idx.index_method_type = idx_result.index_method_type;
+            out_idx.index_method_value = idx_result.index_method_value;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             return(expr);
           });

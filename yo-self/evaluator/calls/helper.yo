@@ -1303,6 +1303,35 @@ create_specialized_function_inline :: (
           // TS specializeFunction (`cloneExpr` of the body). The specialized
           // FuncVal below carries this clone so codegen walks the right nodes.
           cloned_body := clone_expr_fresh_ids(body.*);
+          // Mark `ref`-parameter bindings as is_ref so the specialized body's
+          // codegen dereferences them (`(*self)->field`), matching the def-time
+          // body-eval path (_build_def_time_body_env). try_to_call binds params
+          // via check_if_function_parameter_matches_argument → add_variable_to_env,
+          // which can't set is_ref — so a `ref(self) : Self` object method (e.g.
+          // ArrayList's Index `index`, reached only via the index-trait
+          // specialization path) emitted `self->field` on a `Self*` (pointer to
+          // handle) and failed to transpile. Scoped to specialization, so the hot
+          // normal-call binding path is untouched; non-specialized bodies already
+          // get is_ref from the def-time eval. Variable is an object (mutable).
+          spec_param_is_ref := match(func_type,.Func({ param_is_ref : spir }) => spir, _ => ArrayList(bool).new());
+          (mref_i : usize) = usize(0);
+          while(mref_i < params.len(), {
+            is_ref_param := match(spec_param_is_ref.get(mref_i),.Some(b) => b,.None => false);
+            if(is_ref_param, {
+              p_lbl := match(params.get(mref_i),.Some(l) => l,.None => String.from(""));
+              mvars := get_variables_from_env(callee_env, p_lbl);
+              if(mvars.len() > usize(0), {
+                match(
+                  mvars.get(mvars.len() - usize(1)),
+                  .Some(mv) => {
+                    mv.is_ref = true;
+                  },
+                  .None => ()
+                );
+              });
+            });
+            mref_i = (mref_i + usize(1));
+          });
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
           // regular params bound from try_to_call_function_with_arguments steps 4–11).
