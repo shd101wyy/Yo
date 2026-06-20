@@ -65,6 +65,27 @@ enum `!=` (the Eq `?=` default `!=` is NOT registered/dispatched on the receiver
 `if`/`while`; needs trait-`?=`-default filling at impl registration), 1×
 `.Atom`-on-self-shell (above).
 
+**MEMORY REDUCTION ATTEMPTED (2026-06-20) — clones are LOAD-BEARING, needs a
+structural redesign.** Re-profiled (peak physical footprint **36.9 GB** at a 2 GB
+stack). Findings: `create_specialized_function_inline` already checks its cache
+BEFORE cloning the body (cache hits don't re-clone — clone churn is inherent to
+monomorphization, one body-clone per DISTINCT specialization); `ArrayList.clone`
+already pre-sizes via `with_capacity` (no growth reallocs). Two clone-elimination
+ideas were rejected: (1) MEMOIZE `TypeValue.clone` (return a shared clone for a
+given id) — UNSAFE because `TypeValue`'s `ArrayList` fields are reference-semantics
+objects, so a shared clone's fields alias and a later in-place `push`/`set`
+corrupts every holder; (2) short-circuit `substitute` to return `ty` unchanged on
+an EMPTY substitution — REGRESSED the corpus (SELF-FAIL 1): a caller relies on
+`substitute` yielding a DISTINCT fresh copy (identity), so the deep reconstruction
+is load-bearing, not redundant. CONCLUSION: the per-clone churn is intrinsic to
+yo-self's value-typed `TypeValue`/`EvalValue`/`AstExpr` representation (the TS
+compiler avoids it via reference-typed type objects shared by identity). A safe
+reduction requires a structural redesign — make the large type/value enums
+shared-immutable (Rc/interned) so clone is a refcount bump, with an
+immutability/COW guarantee for their `ArrayList` fields — a large, regression-prone
+refactor. On THIS 16 GB machine the unified fixpoint is memory-bound; a 32 GB+
+machine fits the 9–37 GB footprint. The per-module path stays memory-feasible.
+
 **MEMORY PROFILE (2026-06-20): unified `main.yo` compile is clone-dominated.**
 With a 2 GB stack (not 8 GB — the 8 GB reservation starved the heap on this 16 GB
 machine, causing the rc=137), `main.yo --release` compile runs ~126 s, peaks at
