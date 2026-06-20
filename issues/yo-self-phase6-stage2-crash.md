@@ -2,6 +2,23 @@
 
 ## Status
 
+**MEMORY PROFILE (2026-06-20): unified `main.yo` compile is clone-dominated.**
+With a 2 GB stack (not 8 GB — the 8 GB reservation starved the heap on this 16 GB
+machine, causing the rc=137), `main.yo --release` compile runs ~126 s, peaks at
+**9.2 GB RSS** with an **89.5 GB cumulative allocation footprint**, then is
+memory-killed under pressure. `sample` shows the hot leaves are overwhelmingly
+CLONE: `id_635 clone` (ArrayList(TypeValue).clone, 4408) + `id_73 clone` (3713)
+dominate `_find_bucket` (2790), `evaluate_expression` (2643),
+`evaluate_function_call` (2236), `expr_info_table_set` (2000). So the unified
+fixpoint is now MEMORY-bound (pervasive deep-cloning of value-typed `TypeValue`s —
+an architectural cost the TS compiler avoids via reference-typed type objects),
+NOT recursion- or transpile-error-bound. Fitting 16 GB needs a major clone-
+reduction effort (share/intern types, or audit out redundant `.clone()` sites) or
+a bigger machine. The PER-MODULE path stays memory-feasible and is the route for
+fixing the (orthogonal) per-module transpile errors. Next per-module: the
+`(a == b) && (c == d)` comparison cluster (String==str overload + enum `!=`
+producing a non-bool operand).
+
 **✅ PROGRESS (2026-06-20): unified `main.yo` self-compile rc=138 → rc=137 —
 infinite Clone recursion FIXED; OOM is the remaining blocker.** An `lldb`
 backtrace (small `YO_MAIN_STACK_MB=512` to crash fast) pinned the rc=138 crash to
