@@ -7,13 +7,13 @@ evaluator/codegen gap. As of 2026-06-21 (after the Index-trait, cond/panic,
 open-import, and P0 double-free fixes), the small/medium modules are near-clean:
 
 Per-module status as of 2026-06-21 AFTER Candidates 1–3 + the frame-depth fix +
-the specialization-Self fix:
+the specialization-Self fix + the receiver-arg-type fix:
 
 | module | swallowed errors | note |
 |---|---|---|
 | `error/token/utils/lexer/expr/target/naming_checker` | **0** | ✅ all clear (Candidates 1–3 + frame-depth relaxation) |
-| `value.yo` | 2 | was 6 — `Self`-not-found ×4 CLEARED (specialization-Self fix below); remaining: `field_labels` type-member ×1, `and` bool-arg ×1 |
-| `parser.yo` | 3 | `args` type-member ×2, arg-count ×1 (unaffected by the Self fix) |
+| `value.yo` | **field_labels CLEARED** | `Self`-not-found ×4 (Self fix, 378914804) + `field_labels` (receiver-arg-type fix, 8910182ad) both RESOLVED. The 6 remaining `// Failed to transpile` markers are ALL `if(...)`-as-value COLLATERAL = the separate OPEN issue `yo-codegen-block-rhs-drops-statements`, NOT new transpile gaps. `and` bool-arg: likely also cleared (sibling self-first-method class — re-verify with DBG_SW). |
+| `parser.yo` | 4 markers | `array_list(...)` macro-expansion ×3 (gated MACRO_DISPATCH) + arg-count |
 
 IMPORTANT — STACK, not memory: standalone-compiling a big module SIGSEGVs (rc=139,
 peak mem only ~2.8 GB — NOT OOM) at the default 1 GiB main-thread stack due to
@@ -123,8 +123,19 @@ TWO root families:
    Deferred — deep + gated.
 
 2. **`labels.clone()` (value `field_labels` ×1) = pointer cast `(*(T))(_ptr)`
-   yields `Type(1)` during NESTED `clone` specialization.** ROOT LOCATED + RELIABLE
-   REPRO (this session):
+   yields `Type(1)` during NESTED `clone` specialization. ✅ RESOLVED (commit
+   8910182ad).** FIX: in `create_specialized_function_inline` set `ctx.self_type`
+   from the actual RECEIVER ARGUMENT's type (`arg_values.args[0].arg_type`) when the
+   first param is `self`, instead of the `self` param's DECLARED type — which during
+   def-time signature eval can be a freshly-minted SHELL struct id for the same
+   generic (the dual-struct-instantiation root). The argument carries the real,
+   complete receiver struct, so `Self`→that struct and the nested
+   `Self.with_capacity`/`(*(T))(_ptr)` specialization succeeds. Validated: repro
+   `xs.clone()` 1→0, value.yo field_labels cleared (remaining value.yo markers are
+   if-as-value collateral, `yo-codegen-block-rhs-drops-statements`), std 152/152,
+   corpus PASS 83/83. The `and`/`name.starts_with()` sibling (a self-first method)
+   is likely cleared by the same fix — re-verify with DBG_SW if pursuing.
+   Investigation history (kept for the methodology):
    - Reliable minimal repro: a fn `m_clone(xs : ArrayList(String)) -> xs.clone()`
      that is **CALLED from `main`** (so its body is EMITTED) fails to transpile.
      The earlier "clean in isolation" repros were a RED HERRING — with a trivial
