@@ -67,7 +67,23 @@ the recursive-enum representation / `register_enum_final` time so no `__self_she
 survives into method resolution (preferred — kills the whole class), OR (b) finer
 instrumentation to pin which clone-resolution path (property_access vs
 _try_find_receiver_method) evaluates the failing `types.clone` func and returns a
-type. Confirmed beyond 8 single-build attempts — a focused multi-step effort. That is a focused
+type. Confirmed beyond 8 single-build attempts — a focused multi-step effort.
+9TH ATTEMPT (no-op, reverted): resolve_enum_shell at the CENTRAL method-registry
+chokepoint `type_id_or_empty` (type_trait_methods.yo:58 — used by every
+method/assoc-type lookup) — still no-op. CRITICAL PATTERN: resolve_enum_shell has
+now no-op'd across FIVE distinct resolve attempts (#3,4,5,6,9). This strongly
+implies resolve_enum_shell CANNOT resolve THIS shell at these points — most likely
+the shell's final is NOT in `g_enum_finals` when/where these run (a
+registration-TIMING issue: the value.yo def-time-eval reaches the inner element
+clone before `register_enum_final` has registered EvalValue's final, OR under a
+different g_enum_finals state), NOT a wrong-site issue. THE DEFINITIVE NEXT STEP is
+to INSTRUMENT resolve_enum_shell itself (print whether it finds the final for the
+failing shell id during value.yo compile): if it does NOT find it → fix is
+registration timing/ordering (ensure the final is registered before any clone of a
+shell-typed value); if it DOES find it → the failing clone routes through a path
+that never calls these resolve sites (trace it). Either way this is a deep,
+focused, multi-step effort in the recursive-enum-shell subsystem — NOT a single
+targeted resolve insertion (9 ruled out). Warm-up-masked; systemic (field_types + args). That is a focused
 effort on the recursive-enum-shell subsystem (the hardest part of the port, per
 [[yo-self-recursive-enum-self-shell]] + [[yo-self-phase3-hashmap-new-blocker]]).
 Warm-up-masked (not a real fixpoint blocker). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool. ISOLATED (repro ladder, this session): NOT default-arg (both `starts_with("a")` and `starts_with("a", usize(0))` fail) and NOT the `&&` (starts_with ALONE fails; `len()==` alone works). ROOT: a COMPTIME_STRING LITERAL arg to a `Self`-TYPED param — `name.starts_with(p)` with a String VARIABLE `p` WORKS, but `name.starts_with("a")` (literal) FAILS. `starts_with(self : Self, prefix : Self, …)`: the comptime-arg→param coercion (helper.yo:482) is GUARDED `!is_some_type(resolved_pt)`, and `prefix`'s `Self` is NOT resolved to the concrete receiver (String) because `ctx.self_type` is not the receiver during `try_to_call`'s arg-binding (the create_specialized Self fix runs LATER). FIX ATTEMPT (FAILED + REVERTED, this session): setting `ctx.self_type` from the `self` param's arg_type inside `try_to_call`'s param loop (so a later `prefix : Self` resolves) did NOT fix starts_with AND regressed expr 0→1, target 0→1, parser 4→5. Two reasons learned: (1) `resolved_pt` for `prefix` is an ALREADY-EVALUATED SomeT, not the `Self` identifier, so setting `ctx.self_type` does NOT make `evaluate_function_parameter_type_again` resolve it; (2) the self param's `arg_type` is NOT a clean receiver type (e.g. `*(Self)` for `ref(self) : Self` methods), so overwriting `ctx.self_type` with it corrupts Self resolution elsewhere. So the real fix must RESOLVE the SomeT `Self` in `resolved_pt` directly (in the coercion at helper.yo:482, guarded: only when the SomeT is `Self` and resolves to a concrete non-SomeT) — the regression-prone coercion area (touching it unguarded once regressed std 151→17, see [[yo-self-template-string-to-string-cluster]]); a careful, validated focused effort. Gates that catch regressions here: the small-module marker counts (expr/target were 0) + `check ./std` (sensitive to this coercion class). The 6 visible MARKERS are all `if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
