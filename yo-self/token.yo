@@ -38,7 +38,36 @@ Token :: struct(
   module_path : String,
   input : String
 );
-derive(Token, Clone, Eq(Token));
+derive(Token, Eq(Token));
+// Manual Clone that SHARES the immutable `input` (the full module source text)
+// and `module_path` instead of deep-copying them. Every `AstExpr` embeds a
+// `Token`, and AST clones (def-time body trial eval, `clone_expr_fresh_ids`,
+// macro/quote expansion) are pervasive during the self-compile — `derive(Clone)`
+// called `String.clone` on `input`, deep-copying the entire ~100–200 KB source
+// string PER token clone. That single deep copy was ~1.6 GB (≈76%) of peak
+// memory in the unified `main.yo` self-compile. `String` is
+// `newtype(Option(ArrayList(u8)))` and `ArrayList` is RC, so a plain field copy
+// (`input : self.input`) bumps the buffer's refcount rather than reallocating +
+// copying its bytes (the same share that makes `snapshot_env` cheap). Sound
+// because `input`/`module_path` are immutable after lexing, and faithful to TS,
+// where a Token's source is a shared by-reference string. `value` (the per-token
+// lexeme) and `kind` stay cloned — small and unconditionally safe.
+impl(
+  Token,
+  Clone(
+    clone : (fn(ref(self) : Self) -> Self)(
+      Token(
+        kind : self.kind.clone(),
+        value : self.value.clone(),
+        row : self.row,
+        column : self.column,
+        character : self.character,
+        module_path : self.module_path,
+        input : self.input
+      )
+    )
+  )
+);
 is_operator_char :: (fn(c : rune) -> bool)(
   cond(
     (c.char == u32(61)) => true,

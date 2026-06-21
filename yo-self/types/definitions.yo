@@ -320,44 +320,34 @@ TypeValue :: enum(
     effect_spreads : ArrayList(bool)
   )
 );
-// Cycle-aware Clone for TypeValue (replaces `derive(TypeValue, Clone)`).
+// Cycle-aware, SHARE-on-recursion Clone for TypeValue (replaces
+// `derive(TypeValue, Clone)`).
 //
 // The compiler's own `TypeValue` enum is SELF-REFERENTIAL (its variants hold
-// `Box(Self)` / `ArrayList(Self)`). When a generic is specialized over a type
-// that transitively contains a `TypeValue` field — e.g.
-// `Bucket(String, FuncCapturedVarInfo)` (`FuncCapturedVarInfo.ty : TypeValue`),
-// reached via the capture-analysis `HashMap` while compiling a module with
-// closures — the resulting TypeValue value can be cyclic, and the DERIVED clone
-// recurses into it forever and overflows the stack (Phase-6 stage-2 self-compile
-// of lexer.yo: rc=138 at a stack-INVARIANT depth — see
-// issues/yo-self-phase6-stage2-crash.md).
+// `Box(Self)` / `ArrayList(Self)`), so a naive deep clone recurses forever on a
+// cyclic value (e.g. a `TypeValue` reached via capture analysis), overflowing the
+// stack. It is also ruinously expensive even when finite: during the self-compile,
+// the def-time body eval of the compiler's own giant functions stores each expr's
+// type into ExprInfo via a clone, and those types are frequently the ~40-variant
+// `TypeValue` / `AstExpr` enums — deep-cloning all their variant field types
+// thousands of times peaked the unified `main.yo` self-compile at ~10 GB and then
+// OOM-killed it (Phase-6 P2; see plans/BOOTSTRAPPING_CODEGEN.md).
 //
-// This clone reconstructs each variant, deep-cloning every field via `.clone()`
-// (for `Box`/`ArrayList`/`Option` of `TypeValue` that recurses back through THIS
-// impl) — identical to the derived clone EXCEPT the `EnumT` arm carries a
-// PATH-BASED cycle guard: `g_tv_clone_path` holds the enum ids currently on the
-// clone path (pushed before cloning a variant's field types, popped after). If an
-// enum id is already on the path (a self-reference), the clone returns a SHELL
-// (same id+name, empty variants) instead of recursing — `resolve_enum_shell`
-// re-expands it by id at use sites, and the result is a finite DAG. Acyclic enums
-// clone identically (the guard never fires; siblings are unaffected by the
-// push/pop). `EvalValue` clones are fixed TRANSITIVELY (its derived clone
-// delegates here for `TypeValue` fields). The path stack is a module-level global
-// (the `Clone` method signature cannot carry it); CTFE is single-threaded.
-(g_tv_clone_path : ArrayList(String)) = ArrayList(String).new();
-/// True if `id` is currently on the TypeValue-clone recursion path.
-_tv_clone_on_path :: (fn(id : String) -> bool)({
-  i := usize(0);
-  n := g_tv_clone_path.len();
-  while(i < n, {
-    v := match(g_tv_clone_path.get(i),.Some(x) => x,.None => ``);
-    if(v == id, {
-      return(true);
-    });
-    i = (i + usize(1));
-  });
-  false
-});
+// Both problems have the SAME fix: the recursive, nested-type collection fields
+// (`EnumT.variant_fields`, `Struct.field_types` + `type_arguments`, and `TraitT`'s
+// method func types `tft`) are SHARED (RC-bump) rather than deep-cloned.
+// `ArrayList` is an RC object, so passing the matched binding straight through
+// bumps its refcount instead of deep-copying every element `TypeValue`. This is
+// sound because TypeValues are rebuilt-not-mutated: `substitute` and every other
+// consumer construct FRESH ArrayLists, and a codebase-wide audit found NO in-place
+// mutation of these fields. Sharing also breaks self-reference cycles
+// UNCONDITIONALLY — the clone never recurses into the shared fields, and every
+// type cycle must pass through a NAMED type (enum/struct/trait), so the former
+// path-based cycle guard (`g_tv_clone_path`) is no longer needed. Every
+// non-recursive scalar/label field is still cloned (cheap). All OTHER variant arms
+// recurse one shallow level, but their `TypeValue` children clone cheaply by the
+// same rule. `EvalValue` clones are fixed TRANSITIVELY (its derived clone delegates
+// here for `TypeValue` fields).
 impl(
   TypeValue,
   Clone(
@@ -391,67 +381,28 @@ impl(
         .Array(el, len, lvar) => TypeValue.Array(el.clone(), len, lvar.clone()),
         .Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone()),
         .Func({ forall_labels : fls, forall_types : fts, param_labels : pls, param_types : pts, implicit_labels : ils, implicit_types : its, implicit_spreads : isp, where_types : wts, result : ret, result_is_comptime_only : rico, param_is_ref : pir, param_is_owning : pio, result_is_ref : rir, has_variadic : hv, is_extern : ie, extern_name : en, is_control : ic }) => TypeValue.Func(fls.clone(), fts.clone(), pls.clone(), pts.clone(), ils.clone(), its.clone(), isp.clone(), wts.clone(), ret.clone(), rico, pir.clone(), pio.clone(), rir, hv, ie.clone(), en.clone(), ic),
-        .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => cond(
-          // CYCLE: a self-referential struct already on the clone path (e.g. a
-          // struct whose field type transitively contains itself). Mirror the
-          // EnumT guard: return the FULL struct but SHARE its field_types +
-          // type_arguments (no deep clone) to break the recursion — finite,
-          // keys correctly, collectable. The unified main.yo self-compile reaches
-          // such structs (definitions.yo's own types), where the EnumT-only guard
-          // was insufficient.
-          ((sid.len() > usize(0)) && _tv_clone_on_path(sid)) => TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft, irs, iar, isnt, cfid.clone(), sta, isns),
-          true => {
-            if(sid.len() > usize(0), {
-              g_tv_clone_path.push(sid.clone());
-            });
-            cloned_struct := TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft.clone(), irs, iar, isnt, cfid.clone(), sta.clone(), isns);
-            if(sid.len() > usize(0), {
-              g_tv_clone_path.pop();
-            });
-            cloned_struct
-          }
-        ),
-        .EnumT(eid, enm, evns, evfs, esvn, evfl, edis) => cond(
-          // CYCLE: this enum is already on the clone path (self-reference). Return
-          // the FULL enum but SHARE its `variant_fields` (no deep clone) instead of
-          // recursing — finite to construct, and unlike an empty shell it keys
-          // correctly and is collectable by codegen (the compiler's own `TypeValue`
-          // enum is NOT in `g_enum_finals` at the runtime where it is specialized,
-          // so a shell could not be resolved back to its full form).
-          ((eid.len() > usize(0)) && _tv_clone_on_path(eid)) => TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs, esvn.clone(), evfl.clone(), edis.clone()),
-          true => {
-            if(eid.len() > usize(0), {
-              g_tv_clone_path.push(eid.clone());
-            });
-            cloned_enum := TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs.clone(), esvn.clone(), evfl.clone(), edis.clone());
-            if(eid.len() > usize(0), {
-              g_tv_clone_path.pop();
-            });
-            cloned_enum
-          }
-        ),
+        // SHARE (RC-bump) `field_types` + `type_arguments` — the recursive
+        // nested-type collections — instead of deep-cloning. (See the rationale
+        // on the impl above; `ArrayList` is RC, so sharing is a refcount bump and
+        // is sound because these fields are rebuilt-not-mutated.)
+        .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) =>
+          TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft, irs, iar, isnt, cfid.clone(), sta, isns),
+        // SHARE (RC-bump) `variant_fields` — the ArrayList(ArrayList(TypeValue))
+        // holding every variant's field types — instead of deep-cloning it. This
+        // is the single biggest self-compile win: an expr of type `TypeValue` /
+        // `AstExpr` stored its ~40-variant enum type into ExprInfo thousands of
+        // times, each formerly a deep clone of all variant field types. (Same
+        // RC-share rationale + safety as the impl doc above.)
+        .EnumT(eid, enm, evns, evfs, esvn, evfl, edis) =>
+          TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs, esvn.clone(), evfl.clone(), edis.clone()),
         .Union(unm, ufl, uft) => TypeValue.Union(unm.clone(), ufl.clone(), uft.clone()),
-        .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) => cond(
-          // CYCLE: a self-referential trait (e.g. std `Error`, whose
-          // `source : fn(self) -> Option(Dyn(Error))` reaches its own `TraitT`
-          // again via the method func types `tft` → `Option(Dyn(Error))` →
-          // `DynT.required_trait_types` → `TraitT(Error)`). When this trait id is
-          // already on the clone path, SHARE `tft` (no deep clone) — finite to
-          // construct, and the shared method types key/collect correctly. Mirrors
-          // the EnumT/Struct guards above; without it the unified `main.yo`
-          // self-compile recurses forever cloning `Dyn(Error)` (rc=138).
-          ((tid.len() > usize(0)) && _tv_clone_on_path(tid)) => TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft, tid.clone(), tisc.clone(), tsc.clone(), tnsc.clone()),
-          true => {
-            if(tid.len() > usize(0), {
-              g_tv_clone_path.push(tid.clone());
-            });
-            cloned_trait := TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft.clone(), tid.clone(), tisc.clone(), tsc.clone(), tnsc.clone());
-            if(tid.len() > usize(0), {
-              g_tv_clone_path.pop();
-            });
-            cloned_trait
-          }
-        ),
+        // SHARE (RC-bump) `tft` — the trait's method func types — instead of
+        // deep-cloning. This also subsumes the former self-referential-trait cycle
+        // guard (e.g. std `Error`'s `source : fn(self) -> Option(Dyn(Error))`,
+        // whose `tft` reaches its own `TraitT` via `Option(Dyn(Error))`). (Same
+        // RC-share rationale + safety as the impl doc above.)
+        .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) =>
+          TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft, tid.clone(), tisc.clone(), tsc.clone(), tnsc.clone()),
         .SomeT(smid, snm2, slvl, spt, srtt, srtl, sntt, sntl, sier, skft) => TypeValue.SomeT(smid.clone(), snm2.clone(), slvl, spt.clone(), srtt.clone(), srtl.clone(), sntt.clone(), sntl.clone(), sier, skft.clone()),
         .ComptimeListT(clchild) => TypeValue.ComptimeListT(clchild.clone()),
         .EffectsRowT(erl, ert) => TypeValue.EffectsRowT(erl.clone(), ert.clone()),
