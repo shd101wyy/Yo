@@ -165,24 +165,31 @@ TWO root families:
      specialization path (create_specialized_function_inline / the call dispatch),
      not only on the direct path. Lower priority than first thought (likely not a
      real fixpoint blocker).
-   - FURTHER PINNED (DBG_SPEC of create_specialized_function_inline, comparing the
-     failing m_clone-only file vs a passing m_wc-direct-first file): `with_capacity`
-     specializes with `foralls=1` (the impl `T`, propagated onto the method FuncVal)
-     and `self=<struct ArrayList…>` in BOTH cases. The difference is the FORALL-ARG
-     binding: the DIRECT call provides `T=String`, so `*(T)`/`sizeof(T)` resolve;
-     the NESTED `Self.with_capacity(cap)` does NOT — the call-resolution computes
-     forall args from the UNRESOLVED `Self` (the method's declared receiver SomeT)
-     instead of the concrete `ctx.self_type` (= ArrayList(String), which the Self
-     fix sets for the BODY but not for the call's forall-arg computation). Targeted
-     fix is upstream: resolve `Self`→`ctx.self_type` before computing a
-     `Self.method` call's forall args; OR (localized, soundness-sensitive) in
-     create_specialized bind any forall left UNBOUND by arg_values from
-     `ctx.self_type.type_arguments` positionally (impl forall is first & matches the
-     receiver's type-arg order; method foralls sit beyond the type-arg count) —
-     GUARDED + corpus/std-validated, and noting it lives in the SAME function as
-     the Self fix. (Diagnostic note: `type_to_string` renders a struct as
-     `<struct:id>` WITHOUT type args, so instrument by printing
-     `arg_values.forall_args` values, not the struct self-type.)
+   - DEFINITIVE ROOT (DBG_FA instrumentation printing `arg_values.forall_args`
+     VALUES in create_specialized_function_inline, failing m_clone-only vs passing
+     m_wc-direct-first): the forall-binding hypothesis is DISPROVEN — `with_capacity`
+     specializes with `names=[T] forall_args=[String]` in BOTH cases, so `T` IS
+     bound to `String`. The real differentiator is STRUCT IDENTITY:
+       FAIL: with_capacity specialized for `self=struct_3934`(String) + `struct_3984`(u8); NO struct_4028.
+       PASS: same + with_capacity for `self=struct_4028`(String)  ← the extra one.
+     `ArrayList(String)` exists as TWO distinct struct ids (3934 vs 4028). `m_clone`'s
+     `xs.clone()` (receiver = one instance) has clone's body call `Self.with_capacity`
+     where `Self` resolves to the OTHER `ArrayList(String)` instance (struct_3934, a
+     def-time-minted shell); that instance's `with_capacity` body throws (the
+     `(*(T))(_ptr)`→Type(1) construction mismatch) so clone's body eval fails →
+     `xs.clone()` gets no ExprInfo → "Failed to transpile". The passing m_wc case
+     first specializes `with_capacity` for struct_4028 directly, and warm-up reuses
+     it. So this is the DUAL-STRUCT-INSTANTIATION / CTFE-struct-identity class (the
+     same family as the HashMap.new cache collision — see
+     [[yo-self-phase3-hashmap-new-blocker]] — and the "two struct instantiations of
+     one generic type" def-time-minting issues), NOT forall-binding and NOT
+     cache-key-completeness alone. Real fix is deep struct-identity unification
+     (make the def-time signature eval and the call-site agree on ONE struct id for
+     `ArrayList(String)`, OR resolve `Self` in clone's body to clone's ACTUAL
+     receiver struct, not a freshly-minted shell). Known-hardest area; high
+     regression risk; a focused effort, not a session-end fix. (Diagnostic note:
+     `type_to_string` renders a struct as `<struct:id>` WITHOUT type args; print
+     `arg_values.forall_args` values, and compare struct IDS across pass/fail.)
    The `name.starts_with()` (`and` ×1) error is a sibling — same "method call in an
    emitted body during specialization mis-resolves" class; re-confirm its exact
    throw the same way. LOWER-VALUE than the Self family (2 errors, 1 module);
