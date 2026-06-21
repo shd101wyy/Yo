@@ -83,7 +83,28 @@ registration timing/ordering (ensure the final is registered before any clone of
 shell-typed value); if it DOES find it → the failing clone routes through a path
 that never calls these resolve sites (trace it). Either way this is a deep,
 focused, multi-step effort in the recursive-enum-shell subsystem — NOT a single
-targeted resolve insertion (9 ruled out). Warm-up-masked; systemic (field_types + args). That is a focused
+targeted resolve insertion (9 ruled out). Warm-up-masked; systemic (field_types + args).
+
+DEFINITIVE DIAGNOSTIC (build #21, DBG_RESOLVE inside type_id_or_empty): for the
+SAME shell id (e.g. `enum_yo_id_5981__self_shell`), resolve_enum_shell returns BOTH
+`…5981__self_shell|vars=0` (final NOT registered — TIMING) on ~2 calls AND
+`…5981|vars=39` (resolved) on ~9 calls. So TWO facts are now PROVEN:
+  (1) TIMING — some clone-resolutions run BEFORE `register_enum_final`, so resolve
+      is a genuine no-op there (vars=0).
+  (2) PATH — the chokepoint fix used the RESOLVED id (vars=39) yet field_types
+      STILL failed → `clone` for these enums is NOT in the `type_id_or_empty`
+      method registry at all; it is resolved via a DIFFERENT path (the generic
+      Clone-impl resolver / derived-clone), which the shell breaks.
+So the failing `types.clone()`/`__v_args.clone()` resolve via the generic-impl /
+derived-clone path on a shell-typed RUNTIME (NoVal) receiver — NOT
+`_try_find_receiver_method` (8th attempt, no-op) and NOT
+`find_methods_from_generic_impls` (takes a TypeVal, our receiver is NoVal). The
+TRUE next step: find the clone-resolution path for a RUNTIME enum value receiver
+(derive(Clone)/generic Clone impl dispatch in the method-CALL path,
+evaluator/calls/*), resolve the shell receiver THERE, AND fix the registration
+TIMING so the final exists before any clone of a shell-typed value. A deep,
+multi-faceted effort (shell + clone-via-generic-impl/derived + registration timing)
+— the hardest subsystem, confirmed beyond 9 build-validated targeted attempts. That is a focused
 effort on the recursive-enum-shell subsystem (the hardest part of the port, per
 [[yo-self-recursive-enum-self-shell]] + [[yo-self-phase3-hashmap-new-blocker]]).
 Warm-up-masked (not a real fixpoint blocker). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool. ISOLATED (repro ladder, this session): NOT default-arg (both `starts_with("a")` and `starts_with("a", usize(0))` fail) and NOT the `&&` (starts_with ALONE fails; `len()==` alone works). ROOT: a COMPTIME_STRING LITERAL arg to a `Self`-TYPED param — `name.starts_with(p)` with a String VARIABLE `p` WORKS, but `name.starts_with("a")` (literal) FAILS. `starts_with(self : Self, prefix : Self, …)`: the comptime-arg→param coercion (helper.yo:482) is GUARDED `!is_some_type(resolved_pt)`, and `prefix`'s `Self` is NOT resolved to the concrete receiver (String) because `ctx.self_type` is not the receiver during `try_to_call`'s arg-binding (the create_specialized Self fix runs LATER). FIX ATTEMPT (FAILED + REVERTED, this session): setting `ctx.self_type` from the `self` param's arg_type inside `try_to_call`'s param loop (so a later `prefix : Self` resolves) did NOT fix starts_with AND regressed expr 0→1, target 0→1, parser 4→5. Two reasons learned: (1) `resolved_pt` for `prefix` is an ALREADY-EVALUATED SomeT, not the `Self` identifier, so setting `ctx.self_type` does NOT make `evaluate_function_parameter_type_again` resolve it; (2) the self param's `arg_type` is NOT a clean receiver type (e.g. `*(Self)` for `ref(self) : Self` methods), so overwriting `ctx.self_type` with it corrupts Self resolution elsewhere. So the real fix must RESOLVE the SomeT `Self` in `resolved_pt` directly (in the coercion at helper.yo:482, guarded: only when the SomeT is `Self` and resolves to a concrete non-SomeT) — the regression-prone coercion area (touching it unguarded once regressed std 151→17, see [[yo-self-template-string-to-string-cluster]]); a careful, validated focused effort. Gates that catch regressions here: the small-module marker counts (expr/target were 0) + `check ./std` (sensitive to this coercion class). The 6 visible MARKERS are all `if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
