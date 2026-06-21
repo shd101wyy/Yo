@@ -803,7 +803,16 @@ merge_and_check_envs :: (
           (kk : usize) = usize(0);
           while(kk < frame.variables.len(), {
             base_var := match(frame.variables.get(kk),.Some(v) => v,.None => make_err_variable(env));
-            case_var_k := match(case_frame.variables.get(kk),.Some(v) => v,.None => make_err_variable(env));
+            // A case env may be SHORTER than the base at this frame: a trivial
+            // match arm (e.g. `.None => .None`) records no copy of an enclosing
+            // binding (`self_al`) that the base and destructuring sibling arms
+            // carry — a yo-self recorded-env divergence (TS arm envs keep the
+            // enclosing bindings). Such a binding was initialized BEFORE the
+            // match, so an arm that simply doesn't re-bind it "retains the base
+            // state" — treat a missing case var as the base var rather than a
+            // mismatch. (Mirrored in the per-column merge below.) See
+            // issues/yo-self-p1-transpile-tail.md Candidate 3.
+            case_var_k := match(case_frame.variables.get(kk),.Some(v) => v,.None => base_var);
             if(((base_var.name != case_var_k.name) && !(is_temp_variable_name(env.module_path, base_var.name))) && !(is_temp_variable_name(env.module_path, case_var_k.name)), {
               exn.throw(
                 dyn(
@@ -837,7 +846,12 @@ merge_and_check_envs :: (
           while(ck < case_envs.len(), {
             case_env := match(case_envs.get(ck),.Some(e) => e,.None => env);
             case_frame_k := match(case_env.frames.get(frame_i),.Some(f) => f,.None => new_frame(false));
-            case_var := match(case_frame_k.variables.get(var_j),.Some(v) => v,.None => make_err_variable(env));
+            // Missing case var → retains the base (pre-match) state: a trivial
+            // arm that doesn't re-bind an enclosing binding leaves it untouched
+            // (init'd before the match). Using base_var (vs make_err_variable)
+            // keeps the consume/init merge consistent. See the names-check note
+            // above + issues/yo-self-p1-transpile-tail.md Candidate 3.
+            case_var := match(case_frame_k.variables.get(var_j),.Some(v) => v,.None => base_var);
             {
               ___ := initialized_at_tokens.push(case_var.initialized_at_token);
             };

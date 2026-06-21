@@ -96,7 +96,21 @@ wrong here. Fix: require each arm env to CONTAIN the outer frames
 match total depth; the per-frame variable-count check remains the soundness
 guard. target.yo 2→0, std 152/152, corpus PASS 83.
 
-## Candidate 3 — embedded early `return` inside a `cond`/`begin` value — OPEN
+## Candidate 3 — ✅ RESOLVED (trivial nested-match arm drops an enclosing binding)
+
+FIXED in merge_and_check_envs (evaluator/utils.yo): treat a case var MISSING from
+an arm's recorded frame as the BASE var (it retains its pre-match state) rather
+than `make_err_variable`, at BOTH the variable-names check and the per-column
+consume/init merge. A trivial arm (`.None => .None`) records no copy of an
+enclosing destructure binding (`self_al`) that the base + destructuring sibling
+arms carry; since that binding was init'd BEFORE the match, an arm that doesn't
+re-bind it simply retains the base state. This keeps genuine partial-consume/init
+detection intact (a consuming arm keeps the var in its frame with consumed_token).
+naming_checker.yo 1→0 (std/string/string.yo's `index_of` — and all
+`.index_of`/`.contains`/`.find`), check ./std 152/152, no regression. Details
+below for history.
+
+### Original diagnosis (kept for history)
 
 `std/string/string.yo:516` `index_of` (surfaced via naming_checker.yo): the
 function body is `cond(simple => .Some(i), true => begin(… match … begin(…
