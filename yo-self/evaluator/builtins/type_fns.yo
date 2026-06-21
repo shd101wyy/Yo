@@ -160,8 +160,18 @@ evaluate_yo_type_to_string :: (
     .Some(v) => match(
       v,
       .TypeVal(tv) => {
+        // StrLit comptime-string values carry SURROUNDING double-quotes (the
+        // lexer keeps them; `+` concat and the string method shims strip the
+        // first/last char to recover the inner text — see eval.yo). The raw type
+        // name from `type_to_string` has none, so wrap it to match the
+        // convention. Without the quotes the quote-stripping consumers eat the
+        // real first/last char — e.g. derive(Clone)'s `__s3(type_name, "(", …)`
+        // built `oke(…)` for `Token` and an empty callee for `T`, so the
+        // synthesized constructor failed to transpile. Mirrors process.yo's
+        // `__yo_process_platform` StrLit construction.
         s := type_to_string(tv.*);
-        out_info.value = Option(EvalValue).Some(EvalValue.StrLit(s));
+        quoted := ((String.from("\"") + s) + String.from("\""));
+        out_info.value = Option(EvalValue).Some(EvalValue.StrLit(quoted));
       },
       _ => ()
     ),

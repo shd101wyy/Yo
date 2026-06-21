@@ -516,6 +516,18 @@ evaluate_anonymous_function_implementation :: (
     .Func({ param_types : pt }) => pt,
     _ => ArrayList(TypeValue).new()
   );
+  // The expected type's per-param ref-ness. A `ref(self) : Self` trait-method
+  // param (e.g. Clone's `clone : fn(ref(self) : Self) -> Self`) makes `self` a
+  // C pointer; the body's `self.field` read must dereference it (`(*self).field`,
+  // emitted by generate_atom on an is_ref binding). add_variable_to_env can't set
+  // is_ref, so we stamp it onto the bound variable below — matching the
+  // def-time (_build_def_time_body_env) and specialized
+  // (create_specialized_function_inline) body-eval paths.
+  param_is_ref := match(
+    function_type,
+    .Func({ param_is_ref : pir }) => pir,
+    _ => ArrayList(bool).new()
+  );
   implicit_labels := match(
     function_type,
     .Func({ implicit_labels : il }) => il,
@@ -741,7 +753,7 @@ evaluate_anonymous_function_implementation :: (
     param_type_names.push(ptn.clone());
     actual_param_labels.push(param_name.clone());
     rp_tok := ast_expr_token(rpe);
-    _rp_v := add_variable_to_env(
+    rp_v_opt := add_variable_to_env(
       env,
       param_name,
       rp_ty,
@@ -752,6 +764,17 @@ evaluate_anonymous_function_implementation :: (
       false,
       rp_tok
     );
+    // Stamp is_ref from the expected type so a `ref(...)` param's body reads
+    // dereference the C pointer (see param_is_ref note above).
+    if(match(param_is_ref.get(rp_i),.Some(b) => b,.None => false), {
+      match(
+        rp_v_opt,
+        .Some(rp_v) => {
+          rp_v.is_ref = true;
+        },
+        .None => ()
+      );
+    });
     rp_i = (rp_i + usize(1));
   });
   // -------------------------------------------------------------------------

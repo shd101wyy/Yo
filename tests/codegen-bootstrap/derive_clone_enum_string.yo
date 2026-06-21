@@ -1,0 +1,29 @@
+// Regression for derive(Clone) — the non-primitive-field path. Exercises three
+// codegen fixes that all surface in derived clone bodies:
+//   * Type.to_comptime_string must keep its StrLit quotes (else the constructor
+//     head is corrupted: `Token`->`oke`, `T`->empty).        [type_fns.yo]
+//   * a `ref(self)` field read must dereference the pointer (`(*self).field`).
+//     [anonymous_function.yo is_ref]
+//   * a derived ENUM clone matches on `ref(self)` — the match subject must NOT
+//     be re-materialized into a local named `self` (C redefinition). [match.yo]
+//     T's clone calls K's derived clone, so the enum-clone match body is emitted.
+// (A derived clone of a PRIMITIVE field — `__yo_return_self` receiver address-of —
+// is a separate fix; see derive_clone_multifield.yo / issues.)
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+K :: enum(A, B);
+derive(K, Clone);
+
+T :: struct(kind : K, value : String, name : String);
+derive(T, Clone);
+
+mk :: (fn() -> T)(T(kind : K.B, value : String.from("hello"), name : String.from("world")));
+
+main :: (fn() -> unit)({
+  a := mk();
+  b := a.clone();
+  println(b.value);
+  println(b.name);
+});
+export(main);

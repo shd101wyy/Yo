@@ -20,7 +20,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { has_any_control_flow } :: import("../../expr_info.yo");
 { is_unit_type, is_pointer_type, is_object_type, is_enum_type } :: import("../../types/guards.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
@@ -951,11 +951,22 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   match_value_type := subject_ei.ty;
   (matched_value_code : String) = _call_generate_expr(subject, indent.clone(), context);
   // Materialize the subject into its temp var when the evaluator assigned one.
+  // Skip when the subject is a `ref`-param atom: emitting `T name = (*name);`
+  // declares a local that shadows the pointer parameter and triggers a C
+  // redefinition error (e.g. a derived enum `clone` whose `ref(self)` subject
+  // is matched). Mirrors the isInoutAtom guard in match.ts (and begin.ts).
   match(
     subject_ei.variable_name,
     .Some(svn) => {
       subject_var_name := get_variable_name_for_codegen(svn, Option(Environment).Some(subject_ei.env));
-      if(!(matched_value_code == subject_var_name), {
+      is_inout_atom := if(ast_expr_is_atom(subject), {
+        vs := get_variables_from_env(subject_ei.env, svn.clone());
+        cond(
+          (vs.len() == usize(0)) => false,
+          true => match(vs.get(vs.len() - usize(1)),.Some(v) => v.is_ref,.None => false)
+        )
+      }, false);
+      if(!(is_inout_atom) && !(matched_value_code == subject_var_name), {
         decl := indent.clone();
         decl.push_string(get_type_string(match_value_type, context.base));
         decl.push_str(" ");
