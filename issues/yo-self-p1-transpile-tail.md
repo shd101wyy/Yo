@@ -6,13 +6,14 @@ Per-module `// Failed to transpile` markers, each a real executing-mode
 evaluator/codegen gap. As of 2026-06-21 (after the Index-trait, cond/panic,
 open-import, and P0 double-free fixes), the small/medium modules are near-clean:
 
-Per-module status as of 2026-06-21 AFTER Candidates 1–3 + the frame-depth fix:
+Per-module status as of 2026-06-21 AFTER Candidates 1–3 + the frame-depth fix +
+the specialization-Self fix:
 
-| module | errors | note |
+| module | swallowed errors | note |
 |---|---|---|
 | `error/token/utils/lexer/expr/target/naming_checker` | **0** | ✅ all clear (Candidates 1–3 + frame-depth relaxation) |
-| `value.yo` | 6 | `if(...)`-as-value/statement failures — CONTEXT-DEPENDENT (see below) |
-| `parser.yo` | ~8 | mostly benign std/string begin-block arms + macro array_list |
+| `value.yo` | 2 | was 6 — `Self`-not-found ×4 CLEARED (specialization-Self fix below); remaining: `field_labels` type-member ×1, `and` bool-arg ×1 |
+| `parser.yo` | 3 | `args` type-member ×2, arg-count ×1 (unaffected by the Self fix) |
 
 IMPORTANT — STACK, not memory: standalone-compiling a big module SIGSEGVs (rc=139,
 peak mem only ~2.8 GB — NOT OOM) at the default 1 GiB main-thread stack due to
@@ -56,6 +57,46 @@ The other big modules (`function.yo`, `helper.yo`, `codegen_c.yo` TIMEOUT >240 s
 `match.yo` SIGABRTs) are slow/heavy standalone even with the big stack — their
 tail + the unified self-host fixpoint remain gated on P2 (memory / compile-time)
 or a 32 GB+ box.
+
+## `Self`-not-found in specialized method bodies — ✅ RESOLVED
+
+The dominant `value.yo` family (`Variable "Self" not found.` ×4) was traced via
+the printing-swallow instrumentation (DBG_SW handler in `_trial_eval_fn_body` +
+DBG_LOC at the def-time call site) to four GENERIC method bodies evaluated during
+SPECIALIZATION:
+- `std/collections/hash_map.yo:287` (`set` → `Self._find_bucket(self, key, hash)`)
+- `std/collections/hash_map.yo:335` (`get` → `Self._find_bucket(...)`)
+- `std/collections/hash_set.yo:272` (`add` → `Self._find_slot(self, element, hash)`)
+- `std/collections/hash_set.yo:306` (`remove`/`contains` → `Self._find_slot(...)`)
+
+These surface when compiling `value.yo` because an outer function's def-time body
+eval calls `map.set(...)`/`set.add(...)` with concrete K/V, triggering
+specialization of the generic method. The specialized body is evaluated by
+`create_specialized_function_inline` (`evaluator/calls/helper.yo:1338`,
+`evaluate_begin_expression(cloned_body, callee_env, ctx, …)`), which did NOT set
+`ctx.self_type` — so `Self` (and `Self.static_method`) hit
+`identifer_and_operator.yo:166` "Variable Self not found." and the def-time
+swallow ate it → no ExprInfo → "Failed to transpile".
+
+ROOT vs TS: TS evaluates the specialized body with `{ ...context }`
+(`helper.ts:2434`), and the method-dispatch caller has already set
+`context.SelfType` (carried from the method's `functionType.SelfType`, a field on
+TS `FunctionType`). yo-self's `Func` TypeValue has NO `SelfType` field and the
+dispatch doesn't thread `self_type` to this point, so the specialized body lost
+it. FIX (faithful-in-effect, commit pending): reconstruct `ctx.self_type` from
+the bound `self` parameter's type (the concrete receiver) just before the
+specialized body eval, scoped (saved + restored in the context-restore block, so
+nested specializations each see their own receiver). NOT a `self`-named-param
+heuristic at `create_function_body_evaluation_context` — that path (the def-time
+eval) is NOT where generic methods are evaluated; specialization is. Validated:
+value.yo Self-not-found 4→0 (all-DBG_SW 6→2), parser/expr/target/naming_checker
+unchanged, check ./std 152/152.
+
+A fully-faithful alternative (add a `self_type` field to the `Func` enum, stamp
+it from `ctx.self_type` at `evaluate_function_type`, read at every body-eval
+site) would also cover STATIC methods (no `self` param) that reference `Self` —
+none are among the current tail, so deferred. Tracked here if such a case
+surfaces.
 
 ## Candidate 1 — derived multi-field `Clone` — ✅ RESOLVED (4-layer fix)
 

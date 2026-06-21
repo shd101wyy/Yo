@@ -1332,6 +1332,28 @@ create_specialized_function_inline :: (
             });
             mref_i = (mref_i + usize(1));
           });
+          // Set `ctx.self_type` to the concrete receiver so `Self` — and
+          // especially `Self.static_method` like HashMap's
+          // `Self._find_bucket(self, ...)` — resolves inside the specialized
+          // method body. TS evaluates the specialized body with `{ ...context }`
+          // (helper.ts:2434), and the method-dispatch caller has already set
+          // `context.SelfType` (carried from the method's `functionType.SelfType`).
+          // yo-self's dispatch doesn't thread self_type to this point and `Func`
+          // carries no SelfType field, so reconstruct it from the bound `self`
+          // parameter — its type IS the concrete receiver. Scoped: saved here and
+          // restored in the context-restore block below (handles nested
+          // specializations, where each method's body must see its own receiver).
+          prev_self_type_spec := ctx.self_type;
+          spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
+          if(spec_self_vars.len() > usize(0), {
+            match(
+              spec_self_vars.get(spec_self_vars.len() - usize(1)),
+              .Some(spec_self_v) => {
+                ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
+              },
+              .None => ()
+            );
+          });
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
           // regular params bound from try_to_call_function_with_arguments steps 4–11).
@@ -1344,6 +1366,7 @@ create_specialized_function_inline :: (
             exn
           );
           // Restore context
+          ctx.self_type = prev_self_type_spec;
           ctx.function_return_impl_concrete_type = prev_fri;
           ctx.expected_type = prev_expected;
           ctx.is_evaluating_loop_body = prev_loop;
