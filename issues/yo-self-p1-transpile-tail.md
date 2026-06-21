@@ -12,7 +12,7 @@ the specialization-Self fix + the receiver-arg-type fix:
 | module | swallowed errors | note |
 |---|---|---|
 | `error/token/utils/lexer/expr/target/naming_checker` | **0** | ✅ all clear (Candidates 1–3 + frame-depth relaxation) |
-| `value.yo` | **field_labels CLEARED** | `Self`-not-found ×4 (Self fix, 378914804) + `field_labels` (receiver-arg-type fix, 8910182ad) both RESOLVED. The 6 remaining `// Failed to transpile` markers are ALL `if(...)`-as-value COLLATERAL = the separate OPEN issue `yo-codegen-block-rhs-drops-statements`, NOT new transpile gaps. `and` bool-arg: likely also cleared (sibling self-first-method class — re-verify with DBG_SW). |
+| `value.yo` | 6→2 swallowed | `Self`-not-found ×4 (378914804) + `field_labels` (8910182ad) RESOLVED. DBG_SW2 re-survey shows 2 remain: (a) `field_types` ×1 — `types.clone()` (the SECOND arg of the SAME `.Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone())` at definitions.yo:392, masked behind field_labels before) where `types : ArrayList(Self)` has the RECURSIVE-ENUM element `TypeValue` (vs `labels`'s concrete `String`) → still Type(1); receiver-arg-type fix did NOT clear it = recursive-enum-element + Self-substitution intersection (deeper). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool; UNAFFECTED by the self-resolution fix (different class: method-call-result type at def-time eval). The 6 visible `// Failed to transpile` MARKERS are all `if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
 | `parser.yo` | 4 markers | `array_list(...)` macro-expansion ×3 (gated MACRO_DISPATCH) + arg-count |
 
 IMPORTANT — STACK, not memory: standalone-compiling a big module SIGSEGVs (rc=139,
