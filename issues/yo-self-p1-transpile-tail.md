@@ -21,20 +21,30 @@ scripts/diff-test.sh already does) and it compiles. So `value.yo`'s earlier
 "no .c" was stack exhaustion, not a transpile bug; with 4096 MB it emits C with 6
 errors.
 
-`value.yo`'s 6 remaining errors are all `if(...)` used as a value/statement
-(`if(b, "true", "false")`; `if(name.len()>0, name, "<struct:id>")`;
-`if(e.enum_id==eid, begin(…))`) in heavily-used helpers (`_tts`/type_to_string,
-`resolve_enum_shell`). A MINIMAL standalone `if(b, String.from("true"),
-String.from("false"))` compiles+runs fine — so these are CONTEXT-DEPENDENT
-(collateral from a def-time-eval swallow elsewhere in the containing function
-during value.yo's specific compile, leaving the `if` node without ExprInfo), NOT
-a simple if-as-value gap. NEXT: re-instrument the def-time swallow
-(`_trial_eval_fn_body`) and compile `value.yo` with `YO_MAIN_STACK_MB=4096` to
-surface the real per-function throws.
+The visible `// Failed to transpile` markers (all `if(...)`-shaped) are COLLATERAL
+— a minimal `if(b, …)` compiles fine. Instrumenting the def-time swallow
+(`_trial_eval_fn_body`) under the big stack surfaced the REAL per-function throws
+(the remaining MEASURABLE P1 tail, 2026-06-21):
 
-The other big modules (`function.yo`, `match.yo`, `helper.yo`, `codegen_c.yo`,
-async) need the same big-stack treatment to even measure; their tail + the
-unified fixpoint remain gated on P2 (memory) / a 32 GB+ box.
+| module | real swallowed errors (count) |
+|---|---|
+| `value.yo` | `Variable "Self" not found` ×4 (dominant); `Type mismatch for type member "field_labels"` ×1; `Expected bool type for "and" argument` ×1 |
+| `parser.yo` | `Type mismatch for type member "args"` ×2; `Argument count mismatch: expected 0, got 1` ×1 |
+
+These are NEW families (distinct from Candidates 1–3): (a) `Self` unbound in some
+def-time body-eval context (likely an impl/trait-method body or a nested
+closure/construction referencing `Self`); (b) struct/enum CONSTRUCTION type-member
+mismatch (`field_labels`/`args` — a `Struct(...)`/`EnumT(...)` built with a
+wrong-typed field at def-time eval); (c) `and`/arg-count argument-shape errors.
+The `Self`-unbound family (4×, dominant) is the highest-leverage next target —
+fixing it should also clear the collateral `if`-markers in those functions. NEXT:
+correlate each swallow to its function (instrument the swallow to also print the
+body's first token / fn name) → fix the `Self` binding in the def-time eval.
+
+The other big modules (`function.yo`, `helper.yo`, `codegen_c.yo` TIMEOUT >240 s;
+`match.yo` SIGABRTs) are slow/heavy standalone even with the big stack — their
+tail + the unified self-host fixpoint remain gated on P2 (memory / compile-time)
+or a 32 GB+ box.
 
 ## Candidate 1 — derived multi-field `Clone` — ✅ RESOLVED (4-layer fix)
 
