@@ -19,9 +19,21 @@ The big modules (`function.yo`, `match.yo`, `helper.yo`, `codegen_c.yo`, async)
 still OOM on standalone compile — their tail is reachable only after the P2
 memory work or on a 32 GB+ box.
 
-## Candidate 1 — derived multi-field `Clone` in return position
+## Candidate 1 — derived multi-field `Clone` — ✅ RESOLVED (4-layer fix)
 
-### Repro (TS passes, yo-self fails)
+Root-caused as FOUR stacked yo-self-only codegen bugs (not the suspected
+generate_other_function_call constructor-callee gap below). All fixed; see
+`yo-self-derive-clone-typename-quote.md` for the overview, plus
+`yo-self-anon-fn-ref-param-deref.md` and `yo-self-method-inline-ref-amp.md`:
+(1) `Type.to_comptime_string` stored an unquoted StrLit → corrupted constructor
+head (Token->oke, T->empty); (2) `ref(self)` field reads not dereferenced
+(anon-fn binding dropped is_ref); (3) derived enum clone re-materialized its
+`ref(self)` match subject into a colliding local `self`; (4) a primitive field's
+inlined `__yo_return_self` receiver was not address-of'd. Regression tests
+`derive_clone_enum_string.yo` (non-primitive) + `derive_clone_multifield.yo`
+(primitive) in the corpus.
+
+### Original (now-disproven) hypothesis + repro
 
 ```rust
 open(import("std/string"));

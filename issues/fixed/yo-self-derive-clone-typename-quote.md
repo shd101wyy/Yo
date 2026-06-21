@@ -105,12 +105,12 @@ codegen fixes, each exposed only after the prior one. This dossier is layer 1.
 | 1 | `Type.to_comptime_string` unquoted StrLit → corrupted constructor head | `evaluator/builtins/type_fns.yo` | ✅ fixed |
 | 2 | `ref(self)` field read not dereferenced (anon-fn binding dropped `is_ref`) | `evaluator/values/anonymous_function.yo` | ✅ fixed (`yo-self-anon-fn-ref-param-deref.md`) |
 | 3 | derived enum `clone` matches `ref(self)` → match subject re-materialized into a colliding local `self` | `codegen/exprs/match.yo` | ✅ fixed (isInoutAtom guard) |
-| 4 | derived clone of a **primitive** field: inlined `__yo_return_self` receiver lacks the `&` (`(*((*self).x))` vs `(*(&((*self).x)))`) | inline-call receiver address-of | ⏳ pending |
+| 4 | derived clone of a **primitive** field: inlined `__yo_return_self` receiver lacks the `&` (`(*((*self).x))` vs `(*(&((*self).x)))`) | `codegen/exprs/other_fn_call.yo` (method-call inline path) | ✅ fixed (`yo-self-method-inline-ref-amp.md`) |
 
-Layers 1–3 make all `ref(self)` field reads and non-primitive `derive(Clone)` /
-`derive(ToString)` work (`tests/codegen-bootstrap/derive_clone_enum_string.yo`).
-Layer 4 (primitive fields) is the last piece; its all-primitive-field repro is
-held in the scratchpad (`derive_clone_multifield.yo`) until it lands.
+All four are fixed: `derive(Clone)` / `derive(ToString)` on a value struct with
+any field mix (enum / String / primitive) now compiles+runs under the
+self-hosted compiler. Regression tests: `derive_clone_enum_string.yo`
+(non-primitive) and `derive_clone_multifield.yo` (primitive field) in the corpus.
 
 ## Why it slipped past `check`
 

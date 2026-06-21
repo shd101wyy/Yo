@@ -966,7 +966,19 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 );
                 ia_i = (ia_i + usize(1));
               });
-              return(Option(String).Some(generate_yo_inline_function_call(op, inline_args, expr, context, indent.clone())));
+              // Apply the method's per-param ref-amp (`&`) to the inline args, as
+              // the registered-call path does for `args2`. A `ref(self)` inline
+              // method — e.g. a primitive's derived `clone :
+              // ((self) -> __yo_return_self(self))` — must receive its receiver
+              // BY ADDRESS so `__yo_return_self` emits `(*(&recv))`, not `(*recv)`
+              // (which dereferences a value). Without this, a derived clone of a
+              // primitive STRUCT FIELD (`self.row.clone()`) emitted
+              // `(*((*self).row))` and failed to compile. Mirrors the param.isRef
+              // `&` in the main arg loop (other-fn-call.ts).
+              m_fid_amp := match(mfv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+              m_pir := match(get_func_type(m_fid_amp),.Func({ param_is_ref : pr }) => pr, _ => ArrayList(bool).new());
+              inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
+              return(Option(String).Some(generate_yo_inline_function_call(op, inline_args_amped, expr, context, indent.clone())));
             },
             .None => ()
           ),
