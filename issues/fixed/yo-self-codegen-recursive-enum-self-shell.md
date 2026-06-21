@@ -1,6 +1,26 @@
 # yo-self codegen: recursive-enum self-shell leaks into C type emission → "use of empty enum"
 
-## Status: OPEN — discovered 2026-06-21 alongside the match-side self-shell fix
+## Status: FIXED 2026-06-21 (pending corpus gate) — discovered alongside the match-side self-shell fix
+
+## Fix (applied)
+
+Resolve self-shells to their registered finals in codegen's type machinery —
+codegen-local (NOT the evaluator CTFE identity), so the enum.yo
+shell-distinct-id rationale is preserved:
+
+* `codegen/utils/index.yo` `_type_key_at` — in the `.EnumT` case, resolve the
+  enum via `resolve_enum_shell` and key by the FINAL's id + recurse the FINAL's
+  variant fields. This unifies `Box(shell)` and `Box(final)` to one C key, and
+  (transitively, via `_lookup_named_c_type` → `type_key`) makes
+  `get_type_string(shell)` return the final's C name.
+* `codegen/types/collection.yo` `collect_type` — resolve at entry so collection
+  always descends into the FINAL's variants (the shell has none), regardless of
+  whether the shell or the final is reached first.
+
+`resolve_enum_shell` is a passthrough for every non-shell type, so all
+non-recursive types are unaffected (corpus stays green). Validated:
+`scratchpad/recursive_enum_nested_match.yo` now compiles + runs
+(`leaf`/`node-of-leaf`/`node-of-node`); added to the corpus; expr.yo stays 0.
 
 ## Symptom
 

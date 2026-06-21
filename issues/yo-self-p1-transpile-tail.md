@@ -77,10 +77,12 @@ transpile". Found by instrumenting `_trial_eval_fn_body`'s swallow to print
 `err.to_string()`. Fix: `resolve_enum_shell(matched_type)` in match.yo (mirrors
 synthesizer.yo / property_access.yo). check ./std 152/152, corpus PASS 82.
 
-SIBLING (codegen, OPEN): the same self-shell leaks into C type emission — a
-recursive enum's `Box(Self)` field emits an empty C enum ("use of empty enum").
-See `yo-self-codegen-recursive-enum-self-shell.md` (repro + fix plan). Likely a
-fixpoint blocker (AstExpr is itself a Box(Self) recursive enum).
+SIBLING (codegen) — ✅ ALSO FIXED: the same self-shell leaked into C type
+emission (a recursive enum's `Box(Self)` field emitted an empty C enum, "use of
+empty enum"). Fixed by resolving shells in codegen's `_type_key_at` + `collect_type`
+(codegen-local). Regression test `recursive_enum_nested_match.yo` in the corpus.
+See `issues/fixed/yo-self-codegen-recursive-enum-self-shell.md`. This unblocks the
+AstExpr (`Box(Self)`) recursive-enum codegen for the fixpoint.
 
 `naming_checker.yo` / `value.yo` remaining failures are a DIFFERENT root — the
 arm-frame-depth check (evaluator/utils.yo:711, "Frame level is different for

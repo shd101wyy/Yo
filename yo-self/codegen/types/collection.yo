@@ -39,6 +39,7 @@ open(import("std/string"));
   is_array_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
+{ resolve_enum_shell } :: import("../../types/creators.yo");
 {
   CodeGenContext,
   type_key,
@@ -128,7 +129,13 @@ _enum_some_type_is_only_in_function_fields :: (
 /// Collect a single type if it's a user-defined / structural type, registering
 /// it in `context.types` and recursing into its component types. Mirrors
 /// `collectType` (TYPE-structural portion; see header for deferred branches).
-collect_type :: (fn(type : TypeValue, context : CodeGenContext) -> unit)({
+collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
+  // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
+  // recursion descends into the FINAL's variant fields (the shell has none) and
+  // the empty shell type is never registered/emitted — regardless of whether the
+  // shell or the final is reached first. With the type_key shell-resolve above,
+  // references to the shell also key to the final. Passthrough for non-shells.
+  type := resolve_enum_shell(type_in);
   if(context.get_type_entry(type_key(type)).is_some(), {
     return(()); // Already collected this type
   });

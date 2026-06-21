@@ -36,6 +36,7 @@ open(import("std/string"));
   is_extern_type_name
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ resolve_enum_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
@@ -646,32 +647,42 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
-    .EnumT({ id, variant_fields : vfs }) => if((id.len() == usize(0)) || (depth > usize(4)), if(id.len() > usize(0), id.clone(), type_to_string(t)), {
-      key := id.clone();
-      (vi : usize) = usize(0);
-      while(vi < vfs.len(), {
-        match(
-          vfs.get(vi),
-          .Some(fields) => {
-            (fi : usize) = usize(0);
-            while(fi < fields.len(), {
-              match(
-                fields.get(fi),
-                .Some(ft) => {
-                  key.push_str("_");
-                  key.push_string(recur(ft, depth + usize(1)));
-                },
-                .None => ()
-              );
-              fi = (fi + usize(1));
-            });
-          },
-          .None => ()
-        );
-        vi = (vi + usize(1));
-      });
-      key
-    }),
+    .EnumT({ id, variant_fields : vfs }) => {
+      // Resolve a leaked recursive-enum SELF-SHELL to its final so the shell and
+      // its final share ONE C type key (else a `Box(Self)` field two levels deep
+      // keys/emits a separate empty `..._self_shell` enum — "use of empty enum").
+      // Passthrough for any non-shell enum. See
+      // issues/.../recursive-enum-self-shell.md.
+      rs := resolve_enum_shell(t);
+      eid := match(rs,.EnumT({ id : rid }) => rid, _ => id.clone());
+      evfs := match(rs,.EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs);
+      if((eid.len() == usize(0)) || (depth > usize(4)), if(eid.len() > usize(0), eid.clone(), type_to_string(rs)), {
+        key := eid.clone();
+        (vi : usize) = usize(0);
+        while(vi < evfs.len(), {
+          match(
+            evfs.get(vi),
+            .Some(fields) => {
+              (fi : usize) = usize(0);
+              while(fi < fields.len(), {
+                match(
+                  fields.get(fi),
+                  .Some(ft) => {
+                    key.push_str("_");
+                    key.push_string(recur(ft, depth + usize(1)));
+                  },
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        key
+      })
+    },
     .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     // Key a Dyn by its trait IDS (each trait keyed by the stable TraitT arm
