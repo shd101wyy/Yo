@@ -37,9 +37,20 @@ closure/construction referencing `Self`); (b) struct/enum CONSTRUCTION type-memb
 mismatch (`field_labels`/`args` — a `Struct(...)`/`EnumT(...)` built with a
 wrong-typed field at def-time eval); (c) `and`/arg-count argument-shape errors.
 The `Self`-unbound family (4×, dominant) is the highest-leverage next target —
-fixing it should also clear the collateral `if`-markers in those functions. NEXT:
-correlate each swallow to its function (instrument the swallow to also print the
-body's first token / fn name) → fix the `Self` binding in the def-time eval.
+fixing it should also clear the collateral `if`-markers in those functions.
+ROOT (traced, no rebuild): the identifier evaluator DOES resolve `Self` via
+`ctx.self_type` (identifer_and_operator.yo:107, `if identifier=="Self" &&
+self_type.is_some()`); so a `Self not found` means `ctx.self_type` is **None**
+during the DEF-TIME body eval of some type/impl method that references `Self`
+(as a param type or constructor). `create_function_body_evaluation_context`
+(function_type.yo) only COPIES the parent ctx's `self_type`, so the parent ctx
+at that def-time-eval site lacks it. Most type methods work (self_type is set),
+so the 4 failures are specific — likely derived methods, or methods
+def-time-evaluated outside their impl's self_type scope. NEXT: instrument the
+identifer_and_operator.yo:166 throw to print `token.module_path:token.row` (so
+the swallow names the failing method) → set `ctx.self_type` for that def-time
+path. EvalValue is itself a recursive enum (`ArrayList(Self)`/`Box(Self)`
+fields), so its derived/`==` methods are prime suspects.
 
 The other big modules (`function.yo`, `helper.yo`, `codegen_c.yo` TIMEOUT >240 s;
 `match.yo` SIGABRTs) are slow/heavy standalone even with the big stack — their
