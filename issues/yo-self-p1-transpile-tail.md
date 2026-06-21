@@ -6,18 +6,35 @@ Per-module `// Failed to transpile` markers, each a real executing-mode
 evaluator/codegen gap. As of 2026-06-21 (after the Index-trait, cond/panic,
 open-import, and P0 double-free fixes), the small/medium modules are near-clean:
 
-| module | errors | family |
-|---|---|---|
-| `error.yo`, `token.yo`, `utils.yo`, `lexer.yo` | 0 | — |
-| `expr.yo` | 2 | derived `Clone` in return pos; `match(...)` in return pos |
-| `target.yo` | 2 | `cond(... => begin(... return ...))` as `:=` RHS; enum-ctor in return |
-| `naming_checker.yo` | 1 | big `cond`/`while` (string `index_of`) in return pos |
-| `value.yo` | 9 | mix (recursive `match` value-eq, `if(...)` in return, while-with-break) |
-| `parser.yo` | ~8 | (mostly benign std/string begin-block arms + macro array_list) |
+Per-module status as of 2026-06-21 AFTER Candidates 1–3 + the frame-depth fix:
 
-The big modules (`function.yo`, `match.yo`, `helper.yo`, `codegen_c.yo`, async)
-still OOM on standalone compile — their tail is reachable only after the P2
-memory work or on a 32 GB+ box.
+| module | errors | note |
+|---|---|---|
+| `error/token/utils/lexer/expr/target/naming_checker` | **0** | ✅ all clear (Candidates 1–3 + frame-depth relaxation) |
+| `value.yo` | 6 | `if(...)`-as-value/statement failures — CONTEXT-DEPENDENT (see below) |
+| `parser.yo` | ~8 | mostly benign std/string begin-block arms + macro array_list |
+
+IMPORTANT — STACK, not memory: standalone-compiling a big module SIGSEGVs (rc=139,
+peak mem only ~2.8 GB — NOT OOM) at the default 1 GiB main-thread stack due to
+deep compile-time recursion. Run with `YO_MAIN_STACK_MB=4096` (as
+scripts/diff-test.sh already does) and it compiles. So `value.yo`'s earlier
+"no .c" was stack exhaustion, not a transpile bug; with 4096 MB it emits C with 6
+errors.
+
+`value.yo`'s 6 remaining errors are all `if(...)` used as a value/statement
+(`if(b, "true", "false")`; `if(name.len()>0, name, "<struct:id>")`;
+`if(e.enum_id==eid, begin(…))`) in heavily-used helpers (`_tts`/type_to_string,
+`resolve_enum_shell`). A MINIMAL standalone `if(b, String.from("true"),
+String.from("false"))` compiles+runs fine — so these are CONTEXT-DEPENDENT
+(collateral from a def-time-eval swallow elsewhere in the containing function
+during value.yo's specific compile, leaving the `if` node without ExprInfo), NOT
+a simple if-as-value gap. NEXT: re-instrument the def-time swallow
+(`_trial_eval_fn_body`) and compile `value.yo` with `YO_MAIN_STACK_MB=4096` to
+surface the real per-function throws.
+
+The other big modules (`function.yo`, `match.yo`, `helper.yo`, `codegen_c.yo`,
+async) need the same big-stack treatment to even measure; their tail + the
+unified fixpoint remain gated on P2 (memory) / a 32 GB+ box.
 
 ## Candidate 1 — derived multi-field `Clone` — ✅ RESOLVED (4-layer fix)
 
