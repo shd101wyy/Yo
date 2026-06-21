@@ -65,12 +65,26 @@ Compare how the evaluator annotates the derived-clone construction's ExprInfo
 labeled construction, and route the synthesized form through the same
 runtime-construction emitter.
 
-## Candidate 2 — `match`/`cond`/`if` (control-flow expression) in return position
+## Candidate 2 — COMPLEX (nested/boxed) `match`/`cond` in return position
 
-`expr.yo:2592` (`return match(e, .Atom => …, .FnCall => match(…))`),
-`value.yo` (`return match(...)`, `if(...)` in return), `naming_checker.yo`
-(big `cond`/`while`). These are complex control-flow expressions as the
-implicit return value. May share a root with the begin-RHS family.
+`expr.yo` `is_function_boundary_arrow` (`return match(e, .Atom => …, .FnCall(_,
+func_box,…) => match(func_box.*, .Atom(_,tok) => begin(v := tok.value.clone(),
+…)))`), `naming_checker.yo` (`return cond(… => begin(… while … match … return …))`),
+`value.yo` (`return match(...)`, `if(...)`).
+
+REFINED 2026-06-21: a SIMPLE `match(e, .A => false, .B({x}) => (x > 0))` in
+single-expr return position COMPILES + RUNS fine under the self-hosted compiler —
+so the generic "control-flow expr in return" is NOT the bug. The failing cases
+are COMPLEX: nested match on a BOXED field deref (`func_box.*`, a `Box(AstExpr)`)
+with `begin`-block arms, or `cond`/`begin` with embedded `while`/`return`. The
+match/cond node has NO ExprInfo at codegen time (the `// Failed to transpile` is
+the no-metadata fallback, generation.yo:407) — i.e. the def-time trial-eval
+(_trial_eval_fn_body) likely SWALLOWED an error while evaluating the complex
+nested body, so no ExprInfo was recorded. NEXT: instrument the def-time body-eval
+swallow for `is_function_boundary_arrow` (module-path-guarded panic in the trial
+wrapper) to surface the swallowed throw; the root is probably the boxed-deref
+nested match or a begin-arm `:=` under trial eval. Shares the "def-eval swallow
+masks errors" diagnostic gap.
 
 ## Candidate 3 — `cond`/`begin` with an embedded early `return`, used as `:=` RHS
 
