@@ -8,13 +8,17 @@ Plan for the codegen slice of self-hosting (successor to
 complete — Phases 0–5 are done or near-done and the differential corpus
 (`tests/codegen-bootstrap/`, 83 fixtures) passes — but the **self-host fixpoint
 (Phase 6) is not reached**. P0 (the intermittent heap-corruption SIGTRAP) is FIXED.
-Remaining gates: **P2** — a memory blowup (~37 GB peak) that physically prevents
-the stage-2 fixpoint from running on a 16 GB box (needs a 32 GB+ machine or the
-multi-week immutability refactor); and **P1** — a long tail of executing-mode
-evaluator/codegen gaps, now substantially drained (the dominant Self-not-found
-family + field_labels are FIXED; the residual `field_types`/`and`/`array_list`
-errors are root-caused to deep recursive-enum-shell / coercion / gated-macro
-subsystems — see P1 below). Prioritized in **Remaining work** below.
+Remaining gates: **P2** — memory. The old "~37 GB, can't run on 16 GB" wall is
+**BROKEN**: building the self-host binary at `--optimize 1` + Rust-style sharing
+fixes (RC-share recursive `TypeValue` collections; share the immutable token
+source; share the def-time body env) make the unified stage-2 self-compile
+**complete on this 16 GB box** (peak ~7.5 GB; commit `e9d7bfde3`, corpus 83/83).
+It is now an optimization target: get under the measured **TS baseline of 3.8 GB**
+(yo-self codegen < TS). And **P1** — a long tail of executing-mode
+evaluator/codegen gaps, now **measurable** (the completing self-compile emits
+`stage2.c` with **30** `Failed to transpile` markers = the genuine tail);
+substantially drained already (Self-not-found family + field_labels FIXED).
+Prioritized in **Remaining work** below.
 
 ---
 
@@ -241,39 +245,63 @@ Known open items in this bucket:
   `rc=134` OOM mid-compile (the P2 memory issue). Their tail is only reachable
   once P2 is addressed or on a bigger box.
 
-### P2 (deepest) — memory blowup blocks the unified fixpoint
+### P2 — memory: the unified self-compile now COMPLETES on 16 GB (goal: < TS)
 
-Compiling `yo-self/main.yo` peaks at **~36.9 GB**. A 16 GB dev box physically
-cannot run the stage-2 fixpoint, and even large individual modules OOM
-standalone (`rc=134`). Root cause (see Architecture): the core types are
-value-type enums with `Box`-owned children and mutable `ArrayList` fields, and
-the port deep-`.clone()`s wherever TS shared a reference. The clones are
-**load-bearing** — code mutates the cloned ArrayList fields and relies on
-independence (memoizing the clone, and a `substitute` short-circuit, both
-corrupted holders and regressed the corpus).
+**The "~37 GB, can't run on a 16 GB box" wall is BROKEN.** That figure was the
+`-O0` build (stack-dominated: ~13 MB eval frames forcing a ~17 GB stack). The
+real *heap* driver was the port deep-`.clone()`ing value-type data wherever TS
+shares a reference. Building the self-host binary at **`--optimize 1`** (LLVM
+stack coloring shrinks frames ~100×) plus a sequence of **Rust-style sharing
+fixes** make the unified `yo-self/main.yo` stage-2 self-compile **complete** on
+this 16 GB box.
 
-Two pragmatic tracks:
-- **Unblock the fixpoint now**: run the unified stage-2/stage-3 build on a
-  **32 GB+ machine** (the 9–37 GB footprint fits). The per-module path stays
-  memory-feasible on 16 GB for day-to-day work.
-- **Reduce memory (the right long-term fix, a multi-week refactor)**: the lever
-  is shared-**immutable**, NOT `object`. `object` is a product type (can't
-  represent the sum-typed shells) and is shared-*mutable* — sharing via `object`
-  would reintroduce exactly the aliasing-corruption the clones prevent. Options,
-  cleanest first:
-  1. **`std/imm` persistent vectors for the collection fields**
-     (`field_types`/`param_types`/`type_arguments`): a "clone" shares the
-     backing structure and edits produce new versions — kills both the
-     aliasing-unsafety and the deep-copy cost of the largest fields, without
-     touching the enum shells. Most localized; do it incrementally one hot field
-     at a time and measure the `main.yo` peak after each.
-  2. **`Rc`-shared recursive edges instead of `Box`** — makes "clone a
-     TypeValue" a refcount bump. Higher leverage, more invasive (wrap each child
-     enum in a 1-field RC handle).
-  Both require enforcing **immutability** (rebuild-don't-mutate) on these types
-  first — partially started (e.g. `g_some_resolved_concrete` is a side-table
-  precisely because the shared `SomeT` couldn't be mutated in place). That
-  immutability discipline is the actual hard part.
+**Confirmed (commit `e9d7bfde3`, corpus 83/83 clean):**
+- `TypeValue.clone` RC-shares its recursive nested-type collections instead of
+  deep-cloning them (the `EnumT`/`Struct`/`TraitT` arms; `ArrayList` is RC, so a
+  plain field copy is a refcount bump). Sound because TypeValues are
+  rebuilt-not-mutated; also retired the `g_tv_clone_path` cycle guard.
+- `Token.clone` shares the immutable `input` (full module source) instead of
+  deep-copying it on every AST clone — that single copy was **~1.6 GB / 76% of
+  peak** (`String.clone` 1.6 GB → 145 MB).
+- **Result: stage-2 self-compile completes, peak ~7.5 GB, `stage2.c` emitted,
+  30 transpile-error markers** = the real P1 tail (now measurable — P2 was
+  blocking P1 measurement).
+
+**Target: the measured TS baseline is 3.8 GB** (`node yo-cli compile main.yo
+--emit-c --skip-c-compiler`), NOT the ~1 GB an earlier note assumed. So "yo-self
+codegen < TS" is now a ~2× reduction from 7.5 GB.
+
+**Approach = Rust's memory model — owned `String` for building, `str` for views,
+`Arc<str>`(=`std/imm/string`) / RC-sharing for clone-heavy immutable data —
+applied biggest-first:**
+- ✅ RC-share recursive `TypeValue` collections; share the immutable token source.
+- ❌ Sharing the def-time body env (`snapshot_env` in `_build_def_time_body_env`
+  instead of copying caller variables) — TRIED, REVERTED. Corpus-clean (83/83,
+  same 30 markers) but it *increased* peak 7.5 → 8.9 GB (sharing the caller
+  frames pinned more via ExprInfo env-snapshots than the copy did). Lesson: the
+  2.6M `add_variable_to_env` Variables are **not** a single copy-loop — they are
+  genuine bindings across all evaluated bodies (confirmed by `sample`: called
+  from `_evaluate_funcval_runtime_call` / identifier eval / init-assignment on
+  every call), retained via ExprInfo env-snapshots.
+
+**The remaining gap to < TS is a multi-session object-shrink refactor.** The
+peak is dominated by heavy *value-type* objects where TS uses light shared refs:
+**2.6M `Variable` @ 896 B (2.32 GB / 44%)** + **688K `ExprInfo` @ 1366 B
+(0.94 GB / 18%)**. Shrinking them means **boxing rarely-`Some` value-type
+fields** (e.g. `Variable.consumed_at_token`, `ExprInfo.origin_type` /
+`converted_runtime_type` — `Option(T)` reserves `sizeof(T)` inline even when
+`None`). Each such cut yields only ~150–270 MB and **ripples to consumers**
+(they expect the unboxed type → unbox at every read), so ~12–15 cuts are needed.
+Higher-leverage **type interning** (share one canonical `TypeValue`) is
+infeasible without converting the entire `TypeValue` representation to an
+RC/handle type (thousands of sites) — the original "multi-week refactor". The
+heavy `Variable` fields (`ty`, `token`×3) can't be cheaply boxed (always present
+→ boxing just moves them to the heap unless interned).
+
+**Fallback / pragmatic stance**: the practical win — the self-compile *completes*
+on 16 GB (the fixpoint is now physically runnable here, and on a 32 GB+ box with
+ample headroom) — is DONE. Driving under TS's 3.8 GB is a separate, dedicated
+multi-session effort along the object-shrink path above.
 
 ### Phase 6 — the fixpoint (after the above)
 
