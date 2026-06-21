@@ -110,17 +110,32 @@ instrumentation. ROOT: `merge_and_check_envs` has THREE strictness checks
 an IDENTICAL frame/variable layout at every level 0..max_frame_level. A
 `begin`-block arm's `:=` bindings (e.g. `char_index`/`byte_index`) land in a
 scanned frame that a simple sibling arm (`.None => .None`) does not have — so the
-names/counts diverge. The depth relaxation fixed one of the three; the other two
-still trip. The clean fix is the same root as the depth issue: yo-self records
-arm-body envs one (or two, for begin) frames DEEPER than the outer level, while
-TS records at the outer level (so TS's checks never see the begin's locals). So
-either (a) make the begin's `:=` locals NOT leak into the merge-scanned frames
-(record arm envs at the outer level, the faithful TS shape), or (b) extend the
-name/count checks to tolerate per-arm/begin-local frames (as the depth check now
-does). NEXT: instrument the frame CONTENTS (print each arm frame's var names at
-the failing level) to choose between (a)/(b). Affects ALL
-`.index_of`/`.contains`/`.find` users — high value. Related: `target.yo:3389`
-(now compiling) and OPEN `issues/yo-codegen-block-rhs-drops-statements.md`.
+names/counts diverge. PRECISE ROOT (instrumented the names-check, DBG_NAMES dump):
+```
+frame=4/max=4 kk=0 base.len=1 case.len=0 base[kk]=self_al   case[kk]=__err__
+frame=5/max=5 kk=0 base.len=1 case.len=0 base[kk]=search_al case[kk]=__err__
+```
+i.e. it is NOT the begin-arm adding locals — it is the TRIVIAL arm DROPPING an
+outer binding. In the nested `match(self._bytes, .None => .None, .Some(self_al)
+=> match(substr._bytes, .None => .None, .Some(sub_al) => begin(…)))`, the inner
+match's env (base) has the OUTER destructure binding `self_al`/`search_al` at
+frame 4/5, but the trivial `.None => .None` arm's recorded env has that frame
+EMPTY (case.len=0). So the names check compares `self_al` vs missing and throws.
+In TS every arm env retains the outer bindings (arms sit at the outer level), so
+this never arises — it is a yo-self recorded-env divergence: a trivial match arm
+records a shallower/emptier env than its siblings, losing an in-scope outer
+binding. (Disabling the names check alone does NOT clear index_of — the layout
+inconsistency also affects the count check / per-column merge.)
+
+FIX (deep, soundness-sensitive — fresh task): make a trivial arm's recorded env
+carry the same outer-frame bindings as the base/other arms (match.yo arm-env
+recording / per-arm frame management), OR teach merge_and_check_envs to treat a
+case frame that is SHORTER than base as "arm did not touch those outer vars"
+(skip kk >= case.len in the name/count checks AND in the per-column merge at
+utils.yo:826+, so the merge tolerates partial presence). Prefer (a) — it matches
+TS and keeps the merge's soundness checks intact. Affects ALL
+`.index_of`/`.contains`/`.find` users — high value. Related: the now-compiling
+`target.yo` and OPEN `issues/yo-codegen-block-rhs-drops-statements.md`.
 
 ## Method
 
