@@ -83,7 +83,7 @@ ROOT vs TS: TS evaluates the specialized body with `{ ...context }`
 `context.SelfType` (carried from the method's `functionType.SelfType`, a field on
 TS `FunctionType`). yo-self's `Func` TypeValue has NO `SelfType` field and the
 dispatch doesn't thread `self_type` to this point, so the specialized body lost
-it. FIX (faithful-in-effect, commit pending): reconstruct `ctx.self_type` from
+it. FIX (faithful-in-effect, commit 378914804): reconstruct `ctx.self_type` from
 the bound `self` parameter's type (the concrete receiver) just before the
 specialized body eval, scoped (saved + restored in the context-restore block, so
 nested specializations each see their own receiver). NOT a `self`-named-param
@@ -97,6 +97,59 @@ it from `ctx.self_type` at `evaluate_function_type`, read at every body-eval
 site) would also cover STATIC methods (no `self` param) that reference `Self` —
 none are among the current tail, so deferred. Tracked here if such a case
 surfaces.
+
+## Remaining value.yo (2) + parser.yo (3) — characterized, ORDER/CONTEXT-dependent
+
+After the Self fix, the remaining swallowed errors are:
+- `value.yo`: `Type mismatch for type member "field_labels"` ×1 (definitions.yo:392,
+  `.Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone())` —
+  `labels.clone()` evaluated to `Type(1)`); `Expected bool type for "and"` ×1
+  (guards.yo:561, `… && name.starts_with("Box(")` — the method call evaluated to
+  non-bool).
+- `parser.yo`: `Type mismatch for type member "args"` ×2 (parser.yo:996,1410,
+  `array_list(arg, arg_copy)` / `array_list(str_atom)` → `Type(1)`);
+  `Argument count mismatch: expected 0, got 1` ×1 (parser.yo:1219,
+  `array_list(rhs_expr)`).
+
+TWO root families:
+
+1. **`array_list(...)` (parser ×3) = MACRO EXPANSION at def-time eval.**
+   `array_list` is a MACRO (`std/collections/array_list.yo:827`,
+   `fn(...(quote(elems))) -> unquote(Expr)`). At def-time body eval the call is
+   NOT expanded → evaluated as a plain variadic fn → `Type(1)` (from
+   `unquote(Expr)`) or "expected 0, got 1" (the `...(quote(elems))` declares 0
+   normal params). Tied to the gated MACRO_DISPATCH subsystem (corruption history,
+   see [[yo-self-macro-dispatch-corruption-fixed]] / [[yo-self-macro-expansion-port]]).
+   Deferred — deep + gated.
+
+2. **`labels.clone()` / `name.starts_with()` (value ×2) = method call on an
+   unknown-valued receiver at def-time eval — but ORDER/CONTEXT-DEPENDENT.**
+   Confirmed via repros against the committed binary: a method whose receiver is
+   an unknown value (a def-time param, or a field destructured from an unknown
+   enum) sometimes evaluates to `Type(1)` (clone, return type `Self`) or non-bool
+   (starts_with). BUT this DOES NOT reproduce minimally: a file with JUST
+   `m_clone(xs : ArrayList(String)) -> xs.clone()` + `m_starts(name) ->
+   name.starts_with(...)` + trivial `main` compiles 100% CLEAN (0 markers). The
+   SAME bodies fail only inside a larger structural context. Observed (repros
+   against the committed binary, this session):
+   - `m_clone(xs : ArrayList(String)) -> xs.clone()` ALONE + trivial main → CLEAN.
+   - `m_len -> xs.len()` then `m_clone -> xs.clone()` + trivial main → CLEAN.
+   - enum-match fns (`.Two(labels, more) => labels.clone()`, a `.starts_with`
+     fn) defined first, THEN `param_clone -> xs.clone()` → param_clone's body
+     FAILS (`Type(1)`), as does the enum-match-clone and the starts_with body.
+   So it is NOT a simple warm-up/order rule (clone-alone works; the failure is
+   triggered by SPECIFIC prior definitions — enum-match-with-`.clone()` /
+   `.starts_with` functions — poisoning later method resolution). Exact mechanism
+   UNKNOWN; minimal repros mislead (the per-fn outcome flips with unrelated
+   siblings). The proper next step is instrumented investigation in the REAL
+   value.yo def-time-eval (instrument the method-call return-type computation —
+   where `Self`/bool return types are produced — print receiver type + resolved
+   return type, compile value.yo, find the first call that yields `Type(1)`/
+   non-bool and why). LOWER-VALUE than the Self family (2 errors, 1 module) and
+   does NOT gate the fixpoint (P2 does). Session fixme.yo repro ladder: repro2
+   (both fail in-context) → repro3 (isolates: direct-field-return OK, method-call
+   fails) → repro5 (5 method bodies alone → all CLEAN) → repro6 (clone alone →
+   CLEAN). The signal lives only in multi-fn context.
 
 ## Candidate 1 — derived multi-field `Clone` — ✅ RESOLVED (4-layer fix)
 
