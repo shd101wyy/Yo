@@ -165,6 +165,24 @@ TWO root families:
      specialization path (create_specialized_function_inline / the call dispatch),
      not only on the direct path. Lower priority than first thought (likely not a
      real fixpoint blocker).
+   - FURTHER PINNED (DBG_SPEC of create_specialized_function_inline, comparing the
+     failing m_clone-only file vs a passing m_wc-direct-first file): `with_capacity`
+     specializes with `foralls=1` (the impl `T`, propagated onto the method FuncVal)
+     and `self=<struct ArrayList…>` in BOTH cases. The difference is the FORALL-ARG
+     binding: the DIRECT call provides `T=String`, so `*(T)`/`sizeof(T)` resolve;
+     the NESTED `Self.with_capacity(cap)` does NOT — the call-resolution computes
+     forall args from the UNRESOLVED `Self` (the method's declared receiver SomeT)
+     instead of the concrete `ctx.self_type` (= ArrayList(String), which the Self
+     fix sets for the BODY but not for the call's forall-arg computation). Targeted
+     fix is upstream: resolve `Self`→`ctx.self_type` before computing a
+     `Self.method` call's forall args; OR (localized, soundness-sensitive) in
+     create_specialized bind any forall left UNBOUND by arg_values from
+     `ctx.self_type.type_arguments` positionally (impl forall is first & matches the
+     receiver's type-arg order; method foralls sit beyond the type-arg count) —
+     GUARDED + corpus/std-validated, and noting it lives in the SAME function as
+     the Self fix. (Diagnostic note: `type_to_string` renders a struct as
+     `<struct:id>` WITHOUT type args, so instrument by printing
+     `arg_values.forall_args` values, not the struct self-type.)
    The `name.starts_with()` (`and` ×1) error is a sibling — same "method call in an
    emitted body during specialization mis-resolves" class; re-confirm its exact
    throw the same way. LOWER-VALUE than the Self family (2 errors, 1 module);
