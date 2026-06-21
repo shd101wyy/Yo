@@ -81,7 +81,13 @@ EvalValue :: enum(
   ///
   /// Propagated upward through begin blocks and while loops until it reaches
   /// the function call boundary, where it is unwrapped into the return value.
-  ReturnVal(val : Box(Self), ty : TypeValue),
+  // `ty` is `Box`ed: it is the ONLY `EvalValue` variant that embedded a
+  // `TypeValue` inline (~126 B), which set `sizeof(EvalValue)` and inflated every
+  // inline `Option(EvalValue)` (Variable.value ×2.6M, ExprInfo.value, every
+  // ArrayList(EvalValue)) in the self-compile. Boxing it drops `sizeof(EvalValue)`
+  // to the next-biggest variant; the per-`return` box is transient (control-flow
+  // signals are short-lived) while the inline savings are retained (P2).
+  ReturnVal(val : Box(Self), ty : Box(TypeValue)),
   /// Control-flow signal emitted by a `break` statement inside a while or for loop.
   ///
   /// Propagated upward through begin blocks until it reaches the enclosing loop,
