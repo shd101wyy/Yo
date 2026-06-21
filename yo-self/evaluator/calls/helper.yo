@@ -1344,15 +1344,38 @@ create_specialized_function_inline :: (
           // restored in the context-restore block below (handles nested
           // specializations, where each method's body must see its own receiver).
           prev_self_type_spec := ctx.self_type;
-          spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
-          if(spec_self_vars.len() > usize(0), {
-            match(
-              spec_self_vars.get(spec_self_vars.len() - usize(1)),
-              .Some(spec_self_v) => {
-                ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
-              },
-              .None => ()
-            );
+          (spec_self_set : bool) = false;
+          // Prefer the actual RECEIVER ARGUMENT's type over the `self` param's
+          // DECLARED type. During def-time signature eval the declared `Self` can
+          // be a freshly-MINTED shell instance of the generic (e.g. a SECOND
+          // `ArrayList(String)` struct id distinct from the call-site's), whose
+          // nested specializations (`Self.with_capacity` → `(*(T))(_ptr)`) fail —
+          // see issues/yo-self-p1-transpile-tail.md. The call argument carries the
+          // real, complete receiver struct, so resolve `Self` to it.
+          if(params.len() > usize(0), {
+            is_self_first := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+            if(is_self_first, {
+              match(
+                arg_values.args.get(usize(0)),
+                .Some(rcv_ae) => {
+                  ctx.self_type = Option(TypeValue).Some(rcv_ae.arg_type);
+                  spec_self_set = true;
+                },
+                .None => ()
+              );
+            });
+          });
+          if(!(spec_self_set), {
+            spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
+            if(spec_self_vars.len() > usize(0), {
+              match(
+                spec_self_vars.get(spec_self_vars.len() - usize(1)),
+                .Some(spec_self_v) => {
+                  ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
+                },
+                .None => ()
+              );
+            });
           });
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
