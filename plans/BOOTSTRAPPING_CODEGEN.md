@@ -6,11 +6,15 @@ Plan for the codegen slice of self-hosting (successor to
 
 **Status in one line (2026-06-20):** the emitter port is substantially
 complete — Phases 0–5 are done or near-done and the differential corpus
-(`tests/codegen-bootstrap/`, 80 fixtures) passes — but the **self-host fixpoint
-(Phase 6) is not reached**, gated by three systemic issues: a memory blowup, an
-intermittent heap-corruption crash, and a long tail of executing-mode
-evaluator/codegen gaps. Those three, prioritized, are in **Remaining work**
-below.
+(`tests/codegen-bootstrap/`, 83 fixtures) passes — but the **self-host fixpoint
+(Phase 6) is not reached**. P0 (the intermittent heap-corruption SIGTRAP) is FIXED.
+Remaining gates: **P2** — a memory blowup (~37 GB peak) that physically prevents
+the stage-2 fixpoint from running on a 16 GB box (needs a 32 GB+ machine or the
+multi-week immutability refactor); and **P1** — a long tail of executing-mode
+evaluator/codegen gaps, now substantially drained (the dominant Self-not-found
+family + field_labels are FIXED; the residual `field_types`/`and`/`array_list`
+errors are root-caused to deep recursive-enum-shell / coercion / gated-macro
+subsystems — see P1 below). Prioritized in **Remaining work** below.
 
 ---
 
@@ -178,10 +182,29 @@ double-frees. See `issues/fixed/yo-self-codegen-intermittent-sigtrap.md`.
 Compiling individual modules surfaces `// Failed to transpile …` markers — each
 a *candidate* executing-mode gap. Small/medium modules are clean or near-clean;
 foundational modules (`error.yo`, `lexer.yo`, `token.yo`, `utils.yo`) are at 0.
-As of 2026-06-21: the dominant family — `Self`-not-found in specialized
-HashMap/HashSet method bodies (×4) — is FIXED (commit 378914804); `value.yo` is
-down to 2 (a clone/`with_capacity` nested-specialization cast artifact + a
-sibling), `parser.yo` 3 (all `array_list` macro-expansion, gated MACRO_DISPATCH).
+As of 2026-06-21, TWO families FIXED (validated: corpus 83/83 + std 152/152, zero
+regression): `Self`-not-found in specialized HashMap/HashSet method bodies ×4
+(`378914804`) + value.yo `field_labels` dual-struct clone (`8910182ad`). value.yo
+is down to **2** (`field_types` + `and`), parser.yo **3** (`array_list` ×2 + arg-count).
+The remaining tail is now ROOT-CAUSED to a few systemic mechanisms (see
+`issues/yo-self-p1-transpile-tail.md` for the full evidence; 10 build-validated fix
+attempts ruled out 10 distinct sites):
+- **`field_types` (value) / `args` (parser)** — clone of a recursive-enum
+  SELF-SHELL-typed runtime receiver. `clone` resolves via the generic Clone-impl /
+  derived-clone path (NOT the `type_id_or_empty` registry — proven: the chokepoint
+  resolve no-op'd), which the shell breaks → `clone`→TypeVal→`Type(1)`. Compounded by
+  registration TIMING (`resolve_enum_shell` returns `vars=0` before
+  `register_enum_final` on early calls). A deep, MULTI-FACETED effort (shell +
+  clone-via-generic-impl/derived + timing) in the hardest subsystem — not a single
+  targeted fix (10 ruled out). Warm-up-masked (likely vanishes in the real
+  fixpoint, like field_labels did).
+- **`and` (value)** — a comptime_str LITERAL arg to a `Self`-typed param
+  (`String.starts_with(prefix : Self)`): the comptime-arg→param coercion
+  (helper.yo:482) skips it because `Self` isn't resolved to the receiver during
+  arg-binding. Regression-prone area (touching it unguarded once regressed std
+  151→17); needs careful Self-resolution-in-coercion.
+- **`array_list` (parser ×2 + arg-count)** — gated MACRO_DISPATCH (the macro isn't
+  expanded at def-time eval).
 
 > ⚠️ **Standalone per-module surveys OVERCOUNT.** Some markers are
 > warm-up/ordering artifacts, NOT real fixpoint blockers: a method first
