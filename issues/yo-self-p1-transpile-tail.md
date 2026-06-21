@@ -122,34 +122,40 @@ TWO root families:
    see [[yo-self-macro-dispatch-corruption-fixed]] / [[yo-self-macro-expansion-port]]).
    Deferred — deep + gated.
 
-2. **`labels.clone()` / `name.starts_with()` (value ×2) = method call on an
-   unknown-valued receiver at def-time eval — but ORDER/CONTEXT-DEPENDENT.**
-   Confirmed via repros against the committed binary: a method whose receiver is
-   an unknown value (a def-time param, or a field destructured from an unknown
-   enum) sometimes evaluates to `Type(1)` (clone, return type `Self`) or non-bool
-   (starts_with). BUT this DOES NOT reproduce minimally: a file with JUST
-   `m_clone(xs : ArrayList(String)) -> xs.clone()` + `m_starts(name) ->
-   name.starts_with(...)` + trivial `main` compiles 100% CLEAN (0 markers). The
-   SAME bodies fail only inside a larger structural context. Observed (repros
-   against the committed binary, this session):
-   - `m_clone(xs : ArrayList(String)) -> xs.clone()` ALONE + trivial main → CLEAN.
-   - `m_len -> xs.len()` then `m_clone -> xs.clone()` + trivial main → CLEAN.
-   - enum-match fns (`.Two(labels, more) => labels.clone()`, a `.starts_with`
-     fn) defined first, THEN `param_clone -> xs.clone()` → param_clone's body
-     FAILS (`Type(1)`), as does the enum-match-clone and the starts_with body.
-   So it is NOT a simple warm-up/order rule (clone-alone works; the failure is
-   triggered by SPECIFIC prior definitions — enum-match-with-`.clone()` /
-   `.starts_with` functions — poisoning later method resolution). Exact mechanism
-   UNKNOWN; minimal repros mislead (the per-fn outcome flips with unrelated
-   siblings). The proper next step is instrumented investigation in the REAL
-   value.yo def-time-eval (instrument the method-call return-type computation —
-   where `Self`/bool return types are produced — print receiver type + resolved
-   return type, compile value.yo, find the first call that yields `Type(1)`/
-   non-bool and why). LOWER-VALUE than the Self family (2 errors, 1 module) and
-   does NOT gate the fixpoint (P2 does). Session fixme.yo repro ladder: repro2
-   (both fail in-context) → repro3 (isolates: direct-field-return OK, method-call
-   fails) → repro5 (5 method bodies alone → all CLEAN) → repro6 (clone alone →
-   CLEAN). The signal lives only in multi-fn context.
+2. **`labels.clone()` (value `field_labels` ×1) = pointer cast `(*(T))(_ptr)`
+   yields `Type(1)` during NESTED `clone` specialization.** ROOT LOCATED + RELIABLE
+   REPRO (this session):
+   - Reliable minimal repro: a fn `m_clone(xs : ArrayList(String)) -> xs.clone()`
+     that is **CALLED from `main`** (so its body is EMITTED) fails to transpile.
+     The earlier "clean in isolation" repros were a RED HERRING — with a trivial
+     `main` the fn is dead code (never emitted), so no marker even though the
+     def-time eval threw. Emit it (call it) and it fails. So this is NOT
+     order/context-dependent; it is consistent once the body is emitted.
+   - The swallowed throw (via the instrumented binary): `Type mismatch for type
+     member "_ptr": Expected <enum…(Option(*(T)))> Got Type(1)` at
+     `std/collections/array_list.yo:124` — `_ptr : .Some((*(T))(_ptr))` inside
+     `with_capacity`. `xs.clone()` calls `Self.with_capacity(...)`; when
+     `with_capacity` is specialized INSIDE clone's specialization (nested), the
+     pointer cast `(*(T))(_ptr)` evaluates to `Type(1)` instead of a `*(T)` value.
+   - Cast dispatch: `evaluator/calls/function.yo:2103` (`.Pointer(_) =>` →
+     `try_to_convert_to_pointer_type`). NEXT STEP: instrument there to print
+     `func_type` (is the `.Pointer` branch even taken? is `T` bound to String, or
+     is `*(T)` a `*(SomeT)`/Type?) for the `(*(T))(_ptr)` call when compiling
+     repro8; the cast likely falls through to the `_ =>` numeric branch or
+     `try_to_convert_to_pointer_type` returns a type because `T` is unbound in the
+     nested specialization. Likely fix: bind the callee type's forall (`T`) in the
+     nested `with_capacity` specialization, OR resolve `*(T)` against the bound
+     element type before the cast.
+   - CONFIRMED PRE-EXISTING: repro8 fails IDENTICALLY (2 markers) under the
+     pre-Self-fix baseline binary — the 378914804 Self fix introduced NO
+     regression here.
+   The `name.starts_with()` (`and` ×1) error is a sibling — same "method call in an
+   emitted body during specialization mis-resolves" class; re-confirm its exact
+   throw the same way. LOWER-VALUE than the Self family (2 errors, 1 module);
+   does NOT gate the fixpoint (P2 does). Session fixme.yo repro ladder: repro2→3
+   (isolate method-call) → repro5/6 (FALSE clean = dead-code-elim) → repro7 (enum
+   fn alone, trivial main → false clean) → **repro8 (fns CALLED from main → both
+   bodies fail; the reliable repro)**.
 
 ## Candidate 1 — derived multi-field `Clone` — ✅ RESOLVED (4-layer fix)
 
