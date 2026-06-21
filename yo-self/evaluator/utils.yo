@@ -699,16 +699,28 @@ merge_and_check_envs :: (
   // ownership loop below keeps using the outer `max_frame_level`, so it scans
   // exactly the outer frames (present in every arm env) and skips the transient
   // per-arm frame.
-  base_case_depth := match(case_envs.get(usize(0)),.Some(e0) => e0.frames.len(),.None => env.frames.len());
+  // Each arm env must CONTAIN the outer frames (indices 0..max_frame_level) that
+  // the per-frame ownership merge below scans — but arms need NOT have identical
+  // TOTAL depth. yo-self evaluates each arm under a per-arm `push_frame`, and a
+  // `begin`-block arm pushes a SECOND (binding) frame while a simple-expr arm
+  // does not, so requiring exact depth equality (TS's `frames.length-1 ===
+  // maxFrameLevel`, which holds in TS because arm envs sit at the outer level)
+  // spuriously rejected a cond/match that MIXES begin and non-begin arms — e.g.
+  // naming_checker's `index_of`: `cond(… => .Some(i), true => begin(…))`. The
+  // transient per-arm / begin frames sit ABOVE max_frame_level and are NOT
+  // scanned by the ownership loop; the real inter-arm consistency guard is the
+  // per-frame variable-count comparison there. So require only that the outer
+  // frames are present.
+  required_depth := (max_frame_level + usize(1));
   (ci : usize) = usize(0);
   while(ci < case_envs.len(), {
     case_env := match(case_envs.get(ci),.Some(e) => e,.None => env);
-    if(case_env.frames.len() != base_case_depth, {
+    if(case_env.frames.len() < required_depth, {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(match(bodies.get(ci),.Some(b) => b,.None => make_err_expr())),
-            `Frame level is different for different cases.`,
+            `Case env is missing outer frames (has ${case_env.frames.len().to_string()}, need ${required_depth.to_string()}).`,
             false,
             .None
           )
