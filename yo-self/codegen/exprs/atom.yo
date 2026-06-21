@@ -223,7 +223,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value,.Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty), context.base),.None => String.from("")));
+            return(match(ei.value,.Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt.*,.None => ei.ty), context.base),.None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           captured := match(
@@ -287,7 +287,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
         (match(ei.value,.Some(v) => !(is_unknown_val(v)),.None => false)) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty), context.base),
+          .Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt.*,.None => ei.ty), context.base),
           .None => _var_read_code(tv.clone(), env_opt)
         ),
         true => _var_read_code(tv.clone(), env_opt)

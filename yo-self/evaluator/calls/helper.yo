@@ -496,7 +496,7 @@ check_if_function_parameter_matches_argument :: (
     // and for a literal arg `evaled_arg` IS the original node codegen reads.
     // Only the codegen reads this field — no evaluator logic branches on it.
     if(arg_was_comptime, {
-      arg_info.converted_runtime_type = Option(TypeValue).Some(arg_type);
+      arg_info.converted_runtime_type = Option(Box(TypeValue)).Some(box(arg_type.clone()));
     });
   });
   arg_value := arg_info.value;
