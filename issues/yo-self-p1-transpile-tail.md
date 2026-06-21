@@ -38,11 +38,23 @@ field_types-failing `types.clone()`'s `T` is NOT at any path I resolved. The "sh
 in clone→with_capacity" mechanism was ASSUMED from DBG_EL (which showed shells in
 SOME clone receivers) but NEVER CONFIRMED for the actual failing `types.clone()`
 call — its `T` may come from a different path, or types.clone() may fail for a
-DIFFERENT reason entirely. The next effort must INSTRUMENT the ACTUAL
-`types.clone()` evaluation (e.g. print the receiver/element type + the failing
-sub-expression at definitions.yo:392, and trace where Type(1) is produced) BEFORE
-attempting a fix — do not assume the shell mechanism. Likely still a SOURCE-level
-recursive-enum fix, but the precise mechanism is UNCONFIRMED. That is a focused
+DIFFERENT reason entirely. INSTRUMENTED (DBG_CONSTR at the construction check, type.yo:275): `types.clone()`
+evaluates to `valkind=TypeVal` (a TYPE value, typed Type(1)) — i.e. `clone` itself
+resolves to a TYPE-returning result on this receiver, NOT a runtime clone. SAME
+root for parser.yo's `args`: `__v_args.clone()` also → `valkind=TypeVal`. So the
+issue is in CLONE METHOD RESOLUTION on a receiver whose type carries the recursive
+self-shell (the method likely isn't found on the shell-element receiver, so
+`types.clone` resolves to a type and `(type)()` yields a type). 7th fix attempt
+(resolve_enum_shell_deep — a NEW recursive shell-resolver — applied to the
+destructured field TYPE at both match.yo destructure sites) was ALSO a no-op:
+resolving the field TYPE doesn't change that `clone` resolves to a TypeVal. SEVEN
+build-validated fix sites now ruled out; the resolve-shell approach CONSISTENTLY
+no-ops, so the bug is NOT "shell reaches type-application" — it is in how the CLONE
+METHOD CALL is resolved/evaluated when the receiver type contains the shell. The
+next effort must trace the `types.clone()` method-call resolution itself (property
+access → method lookup → why it yields a TypeVal instead of a runtime call) — a
+deep focused effort in method dispatch + recursive-enum-shell, the hardest
+subsystem. Systemic (value.yo field_types + parser.yo args), warm-up-masked. That is a focused
 effort on the recursive-enum-shell subsystem (the hardest part of the port, per
 [[yo-self-recursive-enum-self-shell]] + [[yo-self-phase3-hashmap-new-blocker]]).
 Warm-up-masked (not a real fixpoint blocker). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool. ISOLATED (repro ladder, this session): NOT default-arg (both `starts_with("a")` and `starts_with("a", usize(0))` fail) and NOT the `&&` (starts_with ALONE fails; `len()==` alone works). ROOT: a COMPTIME_STRING LITERAL arg to a `Self`-TYPED param — `name.starts_with(p)` with a String VARIABLE `p` WORKS, but `name.starts_with("a")` (literal) FAILS. `starts_with(self : Self, prefix : Self, …)`: the comptime-arg→param coercion (helper.yo:482) is GUARDED `!is_some_type(resolved_pt)`, and `prefix`'s `Self` is NOT resolved to the concrete receiver (String) because `ctx.self_type` is not the receiver during `try_to_call`'s arg-binding (the create_specialized Self fix runs LATER). FIX ATTEMPT (FAILED + REVERTED, this session): setting `ctx.self_type` from the `self` param's arg_type inside `try_to_call`'s param loop (so a later `prefix : Self` resolves) did NOT fix starts_with AND regressed expr 0→1, target 0→1, parser 4→5. Two reasons learned: (1) `resolved_pt` for `prefix` is an ALREADY-EVALUATED SomeT, not the `Self` identifier, so setting `ctx.self_type` does NOT make `evaluate_function_parameter_type_again` resolve it; (2) the self param's `arg_type` is NOT a clean receiver type (e.g. `*(Self)` for `ref(self) : Self` methods), so overwriting `ctx.self_type` with it corrupts Self resolution elsewhere. So the real fix must RESOLVE the SomeT `Self` in `resolved_pt` directly (in the coercion at helper.yo:482, guarded: only when the SomeT is `Self` and resolves to a concrete non-SomeT) — the regression-prone coercion area (touching it unguarded once regressed std 151→17, see [[yo-self-template-string-to-string-cluster]]); a careful, validated focused effort. Gates that catch regressions here: the small-module marker counts (expr/target were 0) + `check ./std` (sensitive to this coercion class). The 6 visible MARKERS are all `if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
