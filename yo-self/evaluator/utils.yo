@@ -404,7 +404,7 @@ require_expr_not_consumed :: (
           );
           entries.push(
             TokenAndError(
-              token : consumed_tok,
+              token : consumed_tok.*,
               error_message : String.from("value moved here")
             )
           );
@@ -515,14 +515,14 @@ set_expr_as_consumed :: (
             // Step 5: not yet consumed → mark now.
             .None => {
               new_var := v;
-              new_var.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
+              new_var.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
               update_existing_variable(env, v, new_var);
             },
             .Some(consumed_tok) => cond(
               // Allowed to re-consume — overwrite the consumption point.
               allow_consume_again => {
                 new_var := v;
-                new_var.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
+                new_var.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
                 update_existing_variable(env, v, new_var);
               },
               // Step 4: throw `use of moved value`.
@@ -536,7 +536,7 @@ set_expr_as_consumed :: (
                 );
                 entries.push(
                   TokenAndError(
-                    token : consumed_tok,
+                    token : consumed_tok.*,
                     error_message : String.from("value moved here")
                   )
                 );
@@ -612,7 +612,7 @@ consume_case_body_temp_var :: (
       v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
       if(v.consumed_at_token.is_none(), {
         // Variable is an RC object; mutation is in-place and visible through env.
-        v.consumed_at_token = Option(Token).Some(ast_expr_token(evaluated_body));
+        v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_body)));
       });
     }
   );
@@ -856,7 +856,7 @@ merge_and_check_envs :: (
               ___ := initialized_at_tokens.push(case_var.initialized_at_token);
             };
             {
-              ___ := consumed_at_tokens.push(case_var.consumed_at_token);
+              ___ := consumed_at_tokens.push(match(case_var.consumed_at_token,.Some(b) => Option(Token).Some(b.*),.None => Option(Token).None));
             };
             owning_token := cond(
               case_var.is_owning_the_rc_value => Option(Token).Some(case_var.token),
@@ -960,7 +960,7 @@ merge_and_check_envs :: (
                 match(
                   base_var.consumed_at_token,
                   .None => {
-                    base_var.consumed_at_token = Option(Token).Some(ct);
+                    base_var.consumed_at_token = Option(Box(Token)).Some(box(ct.clone()));
                   },
                   .Some(_) => ()
                 );
@@ -991,7 +991,7 @@ merge_and_check_envs :: (
               match(
                 first_tok,
                 .Some(t) => {
-                  base_var.consumed_at_token = Option(Token).Some(t);
+                  base_var.consumed_at_token = Option(Box(Token)).Some(box(t.clone()));
                 },
                 .None => ()
               );

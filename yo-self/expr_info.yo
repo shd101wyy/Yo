@@ -350,7 +350,10 @@ ExprInfo :: object(
   /// (needed when `unwind` propagates through the function).
   consumed_variable_drop_expressions : Option(ArrayList(AstExpr)),
   /// Optional runtime stack size expression for `async` spawns.
-  async_stack_size : Option(AstExpr),
+  // `Box`ed: `Option(AstExpr)` reserved ~sizeof(AstExpr) (~128 B) inline in every
+  // ExprInfo even though async-stack analysis isn't wired up yet (always `.None`
+  // currently) — boxing reclaims it (P2).
+  async_stack_size : Option(Box(AstExpr)),
   /// C struct name for the async state machine (used by codegen).
   async_state_machine_struct_name : Option(String),
   /// Capture struct type for closures / async blocks that close over RC vars.
@@ -416,7 +419,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     deferred_dup_expressions : Option(ArrayList(AstExpr)).None,
     deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
     consumed_variable_drop_expressions : Option(ArrayList(AstExpr)).None,
-    async_stack_size : Option(AstExpr).None,
+    async_stack_size : Option(Box(AstExpr)).None,
     async_state_machine_struct_name : Option(String).None,
     capture_type : Option(TypeValue).None,
     await_analysis : Option(AwaitAnalysisResult).None,

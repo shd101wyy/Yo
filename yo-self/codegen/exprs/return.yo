@@ -165,7 +165,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
     return(false);
   });
   latest_var := match(_resolve_drop_target_in_scope(drop_expr, variables, ast_expr_token(expr), context),.Some(v) => v,.None => return(false));
-  consumed_before := match(latest_var.consumed_at_token,.Some(ct) => _variable_was_consumed_before_cleanup_point(ct, expr),.None => false);
+  consumed_before := match(latest_var.consumed_at_token,.Some(ct) => _variable_was_consumed_before_cleanup_point(ct.*, expr),.None => false);
   if(consumed_before, {
     return(false);
   });

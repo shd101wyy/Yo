@@ -86,7 +86,7 @@ set_variable_as_consumed :: (
         );
         entries.push(
           TokenAndError(
-            token : consumed_token,
+            token : consumed_token.*,
             error_message : String.from("value moved here")
           )
         );
@@ -96,7 +96,7 @@ set_variable_as_consumed :: (
     .None => {
       // Set the variable as consumed.
       (new_var : Variable) = variable;
-      new_var.consumed_at_token = Option(Token).Some(token);
+      new_var.consumed_at_token = Option(Box(Token)).Some(box(token.clone()));
       update_existing_variable(env, variable, new_var);
     }
   );
