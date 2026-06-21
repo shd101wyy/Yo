@@ -127,15 +127,26 @@ records a shallower/emptier env than its siblings, losing an in-scope outer
 binding. (Disabling the names check alone does NOT clear index_of — the layout
 inconsistency also affects the count check / per-column merge.)
 
-FIX (deep, soundness-sensitive — fresh task): make a trivial arm's recorded env
-carry the same outer-frame bindings as the base/other arms (match.yo arm-env
-recording / per-arm frame management), OR teach merge_and_check_envs to treat a
-case frame that is SHORTER than base as "arm did not touch those outer vars"
-(skip kk >= case.len in the name/count checks AND in the per-column merge at
-utils.yo:826+, so the merge tolerates partial presence). Prefer (a) — it matches
-TS and keeps the merge's soundness checks intact. Affects ALL
-`.index_of`/`.contains`/`.find` users — high value. Related: the now-compiling
-`target.yo` and OPEN `issues/yo-codegen-block-rhs-drops-statements.md`.
+ATTEMPTED (reverted): giving the names-check the same `frame_i !=
+max_frame_level` innermost-frame exemption the value-count check already has
+(at the innermost frame, arms legitimately bind different locals). This is a
+correct consistency improvement BUT insufficient — index_of stays at 1, because
+`self_al`/`search_al` is NOT an arm-local here: it is an ENCLOSING-destructure
+binding that happens to sit at the inner match's innermost frame (the inner
+match is nested inside the outer `.Some(self_al)` arm). So the per-column merge
+(utils.yo:826+) still processes it as a shared var and the missing-in-`.None`-arm
+inconsistency resurfaces. The innermost exemption can't cleanly cover it.
+
+FIX (deep, soundness-sensitive — fresh task): the right fix is (a) — make a
+TRIVIAL arm's recorded env carry the same enclosing-frame bindings (`self_al`)
+that its sibling arms and the base retain (match.yo arm-env recording / per-arm
+frame management). That makes ALL the merge checks (depth/count/names/per-column)
+see a consistent layout at once, matching TS (where arm envs sit at the outer
+level with enclosing bindings intact). Relaxing the individual checks is
+whack-a-mole (each fix exposes the next) and risks the consume/init merge
+soundness. Affects ALL `.index_of`/`.contains`/`.find` users — high value.
+Related: the now-compiling `target.yo` and OPEN
+`issues/yo-codegen-block-rhs-drops-statements.md`.
 
 ## Method
 
