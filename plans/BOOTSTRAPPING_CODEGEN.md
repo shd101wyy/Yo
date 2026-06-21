@@ -176,10 +176,28 @@ double-frees. See `issues/fixed/yo-self-codegen-intermittent-sigtrap.md`.
 ### P1 (LEAD) — executing-mode evaluator/codegen tail (per-module transpile errors)
 
 Compiling individual modules surfaces `// Failed to transpile …` markers — each
-a real executing-mode gap. Small/medium modules are clean or near-clean
-(single-digit: `value.yo` ~9, `parser.yo` ~8, `expr.yo` ~2); foundational
-modules (`error.yo`, `lexer.yo`, `token.yo`, `utils.yo`) are at 0. The drain
-methodology is proven and steady:
+a *candidate* executing-mode gap. Small/medium modules are clean or near-clean;
+foundational modules (`error.yo`, `lexer.yo`, `token.yo`, `utils.yo`) are at 0.
+As of 2026-06-21: the dominant family — `Self`-not-found in specialized
+HashMap/HashSet method bodies (×4) — is FIXED (commit 378914804); `value.yo` is
+down to 2 (a clone/`with_capacity` nested-specialization cast artifact + a
+sibling), `parser.yo` 3 (all `array_list` macro-expansion, gated MACRO_DISPATCH).
+
+> ⚠️ **Standalone per-module surveys OVERCOUNT.** Some markers are
+> warm-up/ordering artifacts, NOT real fixpoint blockers: a method first
+> specialized via a NESTED path (e.g. `xs.clone()` → `Self.with_capacity` →
+> `(*(T))(_ptr)` cast) can fail to bind the impl forall `T` and degenerate to
+> `Type(1)`, but the SAME method specialized DIRECTLY first (as happens
+> throughout the full self-compile) binds `T`, succeeds, and caches a good entry
+> the nested call reuses. So `value.yo`'s remaining `field_labels` error
+> disappears once `ArrayList(String).with_capacity` is warmed by any direct call
+> — it is substantially a per-module-compile artifact. The genuine remaining
+> tail can only be measured by the REAL stage-2 self-compile (P2-gated: OOMs on
+> 16 GB). Treat single-module marker counts as an upper bound, and confirm a
+> candidate is real (not warm-up-masked) before investing in a deep fix.
+> (Details + repro ladder: `issues/yo-self-p1-transpile-tail.md`.)
+
+The drain methodology is proven and steady:
 
 > survey per-module (`compile <m>.yo --emit-c --skip-c-compiler`,
 > `grep -c "Failed to transpile"`) → pick a tractable family → reproduce

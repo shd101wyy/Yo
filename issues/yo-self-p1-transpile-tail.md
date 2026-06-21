@@ -149,6 +149,22 @@ TWO root families:
    - CONFIRMED PRE-EXISTING: repro8 fails IDENTICALLY (2 markers) under the
      pre-Self-fix baseline binary — the 378914804 Self fix introduced NO
      regression here.
+   - CAPSTONE (warm-up): adding a DIRECT `with_capacity` call
+     (`m_wc(n) -> ArrayList(String).with_capacity(n)`) BEFORE `m_clone`, both
+     CALLED from main, makes BOTH pass (0 markers). So it is a NESTED-SPECIALIZATION
+     bug: when `with_capacity` is first specialized via the NESTED path (inside
+     `clone`'s specialization), the impl forall `T` is NOT bound → `sizeof(T)` /
+     the `(*(T))(_ptr)` cast degenerate to `Type(1)`. When `with_capacity` is first
+     specialized DIRECTLY, `T` binds, it caches a GOOD entry, and the later nested
+     call reuses it. IMPLICATION: this error is LARGELY MASKED in the full
+     self-compile (where `with_capacity`/`clone` get warmed by direct calls
+     throughout std), so it is substantially a STANDALONE-per-module-survey
+     ARTIFACT — the per-module `--emit-c` survey OVERCOUNTS errors that warm-up
+     hides in the real fixpoint build. Real fix (deep, deferred): bind the
+     callee's impl forall (`T`) from the receiver/Self type in the NESTED
+     specialization path (create_specialized_function_inline / the call dispatch),
+     not only on the direct path. Lower priority than first thought (likely not a
+     real fixpoint blocker).
    The `name.starts_with()` (`and` ×1) error is a sibling — same "method call in an
    emitted body during specialization mis-resolves" class; re-confirm its exact
    throw the same way. LOWER-VALUE than the Self family (2 errors, 1 module);
