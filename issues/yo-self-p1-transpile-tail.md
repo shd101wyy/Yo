@@ -44,22 +44,30 @@ builds the trial arg list (receiver prepend + `&(...)` ptr-conv).
    the inline-FuncVal arm (function.yo ~2424) for DIRECT calls** (`add(i32(3))`
    still C-fails "too few arguments") — same pattern, push the default expr after
    the supplied-args loop; the side-table is already there.
-2. **str-vs-String overload codegen** — after fix #1, `a.starts_with("-")` now emits
-   all 3 args but C-fails `passing '__yo_str' to parameter of incompatible type
-   '__yo_struct_…' (String)`: codegen emits a call to the INHERENT `starts_with(self
-   : String, prefix : String, position)` (`yo_id_4572`, confirmed C sig) but passes
-   the `str` literal. Codegen uses the EVAL-recorded method value
-   (`lookup_method_callee_value`, other_fn_call.yo:936), so the eval RECORDED the
-   inherent overload — yet the eval had 0 markers (no "Cannot unify" throw). That is
-   INCONSISTENT with the overload fix selecting the `StrPattern` `str` overload, and
-   needs instrumentation to resolve: print, for `a.starts_with("-")`, (a) which hit
-   `_select_matching_overload` picks (is its trial too lenient — does
-   `_trial_call_overload_candidate`'s skip_specialization bypass the str/String
-   unify so the inherent "matches"?), and (b) the func_id recorded vs the C function
-   codegen emits. Likely fix = make the overload trial strict enough to reject
-   str-for-String (so StrPattern is selected), OR the StrPattern impl's `prefix : str`
-   is mis-lowering to String in codegen. Surfaced only by the fixpoint (corpus has
-   no str-literal overloaded-method call that omits a default).
+2. **str-vs-String = the central Self-resolution gap (THE hard blocker).** After
+   fix #1, `a.starts_with("-")` emits all 3 args but C-fails `passing '__yo_str' to
+   parameter of incompatible type '…' (String)`. ROOT (traced, no instrumentation):
+   codegen emits the INHERENT `starts_with(self : String, prefix : String, position)`
+   (`yo_id_4572` — confirmed by its body matching `prefix._bytes`) called with the
+   `str` literal. The eval RECORDED the inherent (codegen uses it via
+   `lookup_method_callee_value`, other_fn_call.yo:936) because the inherent
+   SPURIOUSLY MATCHES: during instance-method arg-binding `ctx.self_type` is NOT the
+   receiver, so `prefix : Self` is an unbound SomeT and `prefix` binds `Self = str`
+   (from `"-"`→str) — no "Cannot unify" throw — so `_select_matching_overload`'s
+   inherent trial succeeds and it's picked (first hit). But `self` ALSO binds
+   `Self = String` (the receiver `a`), and codegen resolves `Self = String`, so the
+   String-param C function gets the str arg. The overload fix (try-all-candidates)
+   is a NECESSARY prerequisite but INSUFFICIENT alone: it can't reject the inherent
+   while `Self` floats. The real fix is the **central, regression-prone**
+   "thread the deref'd receiver type into instance-method arg-binding as `Self`"
+   (so `prefix : Self` resolves to String, `"-"`→str fails to fill it, inherent is
+   rejected, `StrPattern` `prefix : str` is selected) — the SAME fix the older
+   sections of this doc flag (12 build-validated attempts ruled out peripheral
+   approaches: ctx.self_type from the self arg REGRESSED expr/target/parser via
+   `*(Self)` ref-self corruption; env-resolution no-op'd as Self isn't in
+   callee_env). Validate incrementally vs expr/target/`check ./std`. Surfaced only
+   by the fixpoint (corpus has no str-literal overloaded-method call omitting a
+   default).
 3. **`dyn(<template string>)` codegen** — `exn.throw(dyn(\`compile: missing input
    file…\`))` (run_compile's first stmt) emits `/* Error: dyn() requires an object
    type (use box() for value types) */` (a broken `Type x = ;` decl). TS compiles it
