@@ -266,6 +266,48 @@ get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue))
     .None => ArrayList(Option(EvalValue)).new()
   )
 );
+// Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
+// AST). The value table above suffices for the call-site count check and the
+// def-time binding, but CODEGEN must EMIT an omitted default as a C argument —
+// TS evaluates `parameter.exprs.defaultValueExpr` and pushes it to
+// `runtimeArgExprsInOrder` (helper.ts:328-344). yo-self keeps the exprs here so
+// the omitted-parameter branch can clone+evaluate+emit them. Keyed/copied like
+// the values (fn-type-expr id → FuncVal id).
+(g_func_param_default_exprs : HashMap(String, ArrayList(Option(AstExpr)))) =
+  HashMap(String, ArrayList(Option(AstExpr))).new();
+register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Option(AstExpr))) -> unit)({
+  (any_default : bool) = false;
+  (i : usize) = usize(0);
+  while((i < exprs.len()) && !(any_default), {
+    match(
+      exprs.get(i),
+      .Some(e) => if(e.is_some(), {
+        any_default = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any_default, {
+    ___ := g_func_param_default_exprs.set(func_id.clone(), exprs);
+  });
+});
+copy_func_param_default_exprs :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_default_exprs.get(from_id.clone()),
+    .Some(exprs) => {
+      ___ := g_func_param_default_exprs.set(to_id.clone(), exprs);
+    },
+    .None => ()
+  );
+});
+get_func_param_default_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExpr)))(
+  match(
+    g_func_param_default_exprs.get(func_id.clone()),
+    .Some(exprs) => exprs,
+    .None => ArrayList(Option(AstExpr)).new()
+  )
+);
 /// Where-clause constraint side table: `fn(...)`-type-expression id (then the
 /// FuncVal id via the same two-step as the defaults) → the function's
 /// where-clause constraints as (LHS param label, trait type, negated) triples.
@@ -368,9 +410,14 @@ FuncParam :: struct(
   default_value : Option(EvalValue),
   /// True when the parameter was declared `ref(name) : T` (a by-reference
   /// borrow). Recorded so the Func type's `param_is_ref` can be populated for
-  /// the `ref(T)`-flow soundness check (`is_flowable_expr`). Appended last so
-  /// existing positional constructions only need a trailing argument.
-  is_ref : bool
+  /// the `ref(T)`-flow soundness check (`is_flowable_expr`).
+  is_ref : bool,
+  /// The parameter's `?= default` value EXPRESSION (the raw AST), or `.None`
+  /// for a required parameter. Parallel to `default_value` (the evaluated
+  /// value): codegen must EMIT an omitted default as a C argument, so the
+  /// expr is carried into the default-expr side-table at registration. Appended
+  /// last so existing positional constructions only need a trailing argument.
+  default_value_expr : Option(AstExpr)
 );
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
@@ -1204,7 +1251,8 @@ use_id :: (fn(forall(T : Type),
           false,
           false,
           captured_default_value,
-          is_param_ref
+          is_param_ref,
+          default_value_expr
         )
       )
     );
@@ -1388,7 +1436,8 @@ use_id :: (fn(forall(T : Type),
     false,
     false,
     captured_default_value,
-    is_param_ref
+    is_param_ref,
+    default_value_expr
   )
 });
 // ---------------------------------------------------------------------------
@@ -2213,7 +2262,8 @@ evaluate_function_parameters :: (
     false,
     false,
     Option(EvalValue).None,
-    false
+    false,
+    Option(AstExpr).None
   );
   (find_variadic : bool) = false;
   // --------------------------------------------------------------------------
@@ -2302,7 +2352,8 @@ evaluate_function_parameters :: (
               false,
               false,
               Option(EvalValue).None,
-              false
+              false,
+              Option(AstExpr).None
             )
           );
           is_eff_row_forall = true;
@@ -2436,7 +2487,8 @@ evaluate_function_parameters :: (
                               true,
                               false,
                               Option(EvalValue).None,
-                              false
+                              false,
+                              Option(AstExpr).None
                             )
                           );
                           ki = (ki + usize(1));
@@ -2475,7 +2527,8 @@ evaluate_function_parameters :: (
                         true,
                         true,
                         Option(EvalValue).None,
-                        false
+                        false,
+                        Option(AstExpr).None
                       )
                     );
                     eff_row_handled = true;
@@ -2502,7 +2555,8 @@ evaluate_function_parameters :: (
                               true,
                               false,
                               Option(EvalValue).None,
-                              false
+                              false,
+                              Option(AstExpr).None
                             )
                           );
                           ki2 = (ki2 + usize(1));
@@ -2539,7 +2593,8 @@ evaluate_function_parameters :: (
                         true,
                         true,
                         Option(EvalValue).None,
-                        false
+                        false,
+                        Option(AstExpr).None
                       )
                     );
                     eff_row_handled = true;
@@ -2666,7 +2721,8 @@ evaluate_function_parameters :: (
         true,
         false,
         Option(EvalValue).None,
-        false
+        false,
+        Option(AstExpr).None
       );
       implicit_params.push(impl_param);
       // Mark variable as implicit in env top frame
@@ -2969,7 +3025,8 @@ evaluate_function_parameters :: (
         false,
         false,
         Option(EvalValue).None,
-        false
+        false,
+        Option(AstExpr).None
       );
       // Add to env if named
       if(!(vparam_name == String.from("...")), {
@@ -3591,6 +3648,7 @@ evaluate_function_type :: (
   });
   (ppi : usize) = usize(0);
   param_defaults := ArrayList(Option(EvalValue)).new();
+  param_default_exprs := ArrayList(Option(AstExpr)).new();
   quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
     pp := match(
@@ -3606,6 +3664,7 @@ evaluate_function_type :: (
     param_is_ref.push(pp.is_ref);
     param_is_owning.push(pp.is_owning_rc_value);
     param_defaults.push(pp.default_value);
+    param_default_exprs.push(pp.default_value_expr);
     if(pp.is_quote, {
       quoted_param_indices.push(ppi);
     });
@@ -3616,6 +3675,9 @@ evaluate_function_type :: (
   // re-keys them under the FuncVal id so call-site arg matching can treat
   // trailing defaulted params as optional. (See the side-table above.)
   register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
+  // Register the per-parameter default-value EXPRESSIONS (parallel to the
+  // values above) so codegen can EMIT an omitted default as a C argument.
+  register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
   // Register the where-clause constraints (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // call site can validate bound concrete types against them.
@@ -3861,6 +3923,9 @@ export(
   register_func_param_defaults,
   copy_func_param_defaults,
   get_func_param_defaults,
+  register_func_param_default_exprs,
+  copy_func_param_default_exprs,
+  get_func_param_default_exprs,
   register_func_variadic_param,
   copy_func_variadic_param,
   get_func_variadic_param,

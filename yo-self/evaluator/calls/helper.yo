@@ -107,6 +107,7 @@ open(import("std/string"));
   evaluate_function_parameter_type_again,
   evaluate_function_return_type_again,
   get_func_param_defaults,
+  get_func_param_default_exprs,
   get_func_where_constraints,
   WhereConstraintEntry
 } :: import("../types/function.yo");
@@ -2190,6 +2191,18 @@ try_to_call_function_with_arguments :: (
         ),
         .None => ArrayList(Option(EvalValue)).new()
       );
+      // Parallel to call_param_defaults: the omitted-parameter default-value
+      // EXPRESSIONS, so the omitted branch (Step 7) can emit the default as a
+      // C argument (codegen renders `runtime_arg_exprs_in_order`).
+      call_param_default_exprs := match(
+        func_val,
+        .Some(fvv2) => match(
+          fvv2,
+          .FuncVal(__fvd12, _) => get_func_param_default_exprs(__fvd12.*.func_id.clone()),
+          _ => ArrayList(Option(AstExpr)).new()
+        ),
+        .None => ArrayList(Option(AstExpr)).new()
+      );
       (n_required : usize) = n_params;
       if(call_param_defaults.len() == n_params, {
         (nr : usize) = usize(0);
@@ -2445,6 +2458,29 @@ try_to_call_function_with_arguments :: (
               parameter_type : ptype,
               arg_type : ptype
             )
+          );
+          // Emit the omitted default as a C argument: clone + evaluate the
+          // default VALUE EXPRESSION (param type as the expected hint) and push
+          // the evaluated expr to the runtime arg list so codegen renders it.
+          // Without this, codegen emits FEWER args than the C function declares
+          // ("too few arguments to function call"). Mirrors TS helper.ts:328-344
+          // (evaluate `parameter.exprs.defaultValueExpr`, push to
+          // `runtimeArgExprsInOrder`). No-op when no default expr is recorded.
+          match(
+            call_param_default_exprs.get(pi),
+            .Some(de_opt) => match(
+              de_opt,
+              .Some(de) => {
+                cloned_de := clone_expr_fresh_ids(de);
+                def_saved_exp := ctx.expected_type;
+                ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : ptype, env : callee_env_m));
+                evaled_de := evaluate_expression_raw(cloned_de, callee_env_m, ctx, exn);
+                ctx.expected_type = def_saved_exp;
+                _ := rt_args.push(evaled_de);
+              },
+              .None => ()
+            ),
+            .None => ()
           );
           pi = (pi + usize(1));
           continue;
