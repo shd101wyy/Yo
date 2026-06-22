@@ -1,40 +1,58 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
-## 2026-06-22 (cont.) — str-vs-String root traced to the END (8 diagnostic cycles)
+## 2026-06-22 (cont. 2) — ✅ ROOT FOUND + FIXED: codegen method-dispatch first-hit (NOT registration)
 
-The `a.starts_with("-")` str-vs-String gap is a DEEP multi-part chain, pinned by
-panic-instrumentation (results, each from a clean -O0 build):
-1. `get_receiver_methods_by_name` returns **hits=1** for `starts_with` — only the
-   inherent `prefix:String`; the `StrPattern` `prefix:str` overload is NOT collected.
-2. Registry diagnostic (`g_dbg_sw_ids` count in `register_type_trait_method`):
-   **1 individual registration** — only the inherent. The StrPattern `starts_with`
-   is never registered as an individual method (lives only in the trait-VALUE via
-   `register_type_trait_value`, which stores a TraitT with field TYPES but NO
-   FuncVals — definitions.yo TraitT has no field-values slot).
-3. impl-processing diagnostics (panics in impl.yo's method-exprs loop): the
-   StrPattern `starts_with` DOES reach the loop (panic at impl.yo:~1995 fired), but
-   a panic placed just before the body eval (impl.yo:~2019) did NOT fire — so the
-   **throw is in the expected-type computation (impl.yo ~2000-2018)**:
-   `_trait_field_type_by_label(current_trait_ty,"starts_with")` →
-   `_substitute_self_in_method_ty(t, receiver_ty)` → `substitute(...)`. That throw
-   propagates, ABORTS the `impl(String, StrPattern(...))` statement's def-time eval,
-   and is swallowed at std/string's module-level — so NONE of StrPattern's methods
-   register individually.
-4. Separately: the inherent `prefix:String` overload LENIENTLY accepts the str arg
-   (eval had 0 markers — `synthesize`/`are_types_compatible(String, str)` doesn't
-   throw here), and `_select_matching_overload` picks the FIRST match (hits[0] =
-   inherent). So even after fixing #1-3 (registering StrPattern → hits=2), the
-   inherent (hits[0]) would still be picked unless selection PREFERS the exact match.
+The 8-cycle "registration throws" diagnosis (below, now SUPERSEDED) was WRONG. A
+definitive 3-way probe — a panic distinguishing THREW / NO-EXPRINFO / HAS-EXPRINFO,
+placed at the body eval in impl.yo's method-exprs loop, guarded to
+`method_name=="starts_with" && current_trait_ty.is_some() && receiver_name=="String"`
+— printed **HAS ExprInfo**. So StrPattern's `starts_with` body eval SUCCEEDS and
+registration COMPLETES (`register_type_trait_method`, impl.yo:2108). Therefore
+`get_receiver_methods_by_name` returns hits=2, and the evaluator's
+`_select_matching_overload` (b4788d38e) DOES pick the `str` overload and records it
+via `record_method_callee_value`. (The earlier "hits=1 / 1 individual registration"
+readings were instrumentation artifacts — empirically false: the fix below works
+*because* eval recorded the StrPattern value.)
 
-THE FIX is multi-part + regression-prone: (a) make the StrPattern impl-method
-registration robust to the expected-type-computation throw (catch+fallback to no
-expected type so the method still registers WITH its FuncVal) OR fix the underlying
-`substitute`/`_substitute_self_in_method_ty` throw; AND (b) make
-`_select_matching_overload` prefer the exact-type overload (StrPattern `str` over the
-inherent `String` for a str arg). Validate vs expr/target/`check ./std`+corpus.
-Diagnostic technique that worked: panic (not throw — survives the def-time swallow)
-with STATIC messages, or `.contains` on a captured `err.to_string()` (works in the
-TS-built binary); the def-time swallow + module-level swallow eat thrown diagnostics.
+**The real bug is in CODEGEN.** `other_fn_call.yo`'s concrete method-call dispatch
+re-resolved the method by NAME via `get_type_trait_methods_by_name(tid, mname)` and
+took the FIRST FuncVal entry (the `while ... mc_name.is_none()` loop stops at hit[0]).
+The inherent `starts_with(prefix:String)` registers before (std/string.yo:842 < 1567)
+the StrPattern `starts_with(prefix:str)`, so codegen emitted a call to the INHERENT
+(`yo_id_4572(self, prefix:String, position)`) while passing the `__yo_str` literal →
+C error "passing '__yo_str' to parameter of incompatible type 'String'". The
+evaluator-resolved value (`lookup_method_callee_value`) was only a FALLBACK, used
+when the registry MISSED — so the priority was inverted.
+
+TS never re-resolves by name: codegen reads the resolved FunctionValue straight from
+the call's callee ExprInfo (`expr.func.$.value`, other-fn-call.ts:453). yo-self's
+dot-callee has no ExprInfo (comment other_fn_call.yo:898), so the method-callee
+side-table IS its faithful equivalent.
+
+**THE FIX** (other_fn_call.yo): prefer the evaluator-resolved method
+(`lookup_method_callee_value(ast_expr_id(expr))`) FIRST; fall back to the registry
+first-hit only when no value was recorded. This also subsumes the prior generic-impl
+fallback (the registry misses the concrete id for generic-impl methods). VALIDATED:
+the repro `s.starts_with("-")` now emits `yo_id_4909(self, prefix:__yo_str, position)`
+(the StrPattern overload) and compiles+runs clean (was a hard C type error). Corpus
+regression-gate: IN PROGRESS (clean so far) — to be confirmed 83/83 + `check ./std`.
+
+Lesson: when a method resolves correctly in the EVALUATOR but C-fails on arg types,
+suspect codegen RE-RESOLUTION, not the evaluator. The decisive moves were (1)
+inspecting the emitted C — *which* C function does `main` call? — and (2) the 3-way
+HAS/NO/THREW probe; both beat the 8-cycle panic binary-search that chased a phantom
+registration throw. (The `_substitute_self_in_method_ty` step in impl.yo is real and
+fine; it does not throw for this case.)
+
+### SUPERSEDED (kept for the lesson) — the disproven 8-cycle "registration throws" chain
+
+The earlier reading claimed: hits=1; StrPattern never registered individually;
+the impl.yo method-exprs loop throws in the expected-type computation
+(`_trait_field_type_by_label` → `_substitute_self_in_method_ty` → `substitute`),
+aborting `impl(String, StrPattern(...))`. The 3-way probe DISPROVED this (HAS
+ExprInfo → registration completes). Cause of the mis-diagnosis: panic binary-search
+landed between two probe points and was read as "throws in 2000-2018", but the body
+eval at ~2019 actually succeeds; the real divergence was downstream in codegen.
 
 ## 2026-06-22 — GENUINE TAIL MEASURED + `starts_with` overload-resolution FIXED
 

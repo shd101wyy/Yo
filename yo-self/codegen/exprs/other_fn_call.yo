@@ -895,52 +895,63 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       );
     });
     // Concrete (non-dyn) method-call dispatch: `recv.method(args)`. The callee
-    // dot-access has no ExprInfo of its own, so resolve the method via the
-    // type_trait_methods registry (receiver type + method name → impl FuncVal →
-    // C name) and emit a static call `<method_c_name>(recv, args...)`. The
-    // recorded runtime args lead with the receiver (pre-wrapped `&(..)` by the
-    // evaluator when self is by-pointer). Falls through if unresolved/uncollected.
+    // dot-access has no ExprInfo of its own, so resolve the method from the
+    // evaluator's method-callee side-table (its resolved FuncVal → C name),
+    // falling back to the type_trait_methods registry (receiver type + method
+    // name → impl FuncVal), and emit a static call `<method_c_name>(recv,
+    // args...)`. The recorded runtime args lead with the receiver (pre-wrapped
+    // `&(..)` by the evaluator when self is by-pointer). Falls through if
+    // unresolved/uncollected.
     if(method_atom_ok && !(recv_is_dyn), {
       mname := ast_expr_token(match(dmethod_args.get(usize(1)),.Some(ma) => ma,.None => make_err_expr())).value;
       recv_ty := match(dm_runtime.get(usize(0)),.Some(rv) => match(context.base.get_expr_info(rv),.Some(rvi) => rvi.ty,.None => TypeValue.Unit),.None => TypeValue.Unit);
       tid := type_id_or_empty(recv_ty);
       if(tid.len() > usize(0), {
-        entries := get_type_trait_methods_by_name(tid, mname.clone());
+        // Prefer the evaluator's RESOLVED method over a registry re-lookup. The
+        // evaluator did overload resolution + specialization and stashed the
+        // chosen FuncVal in the method-callee VALUE side-table (keyed by this
+        // call's expr id). The `type_trait_methods` registry, by contrast, is
+        // keyed only by (type id, method name) and returns the FIRST same-named
+        // entry — wrong for OVERLOADED methods (String's inherent
+        // `starts_with(prefix : String)` is registered before, and so shadows,
+        // the `StrPattern` `starts_with(prefix : str)` the evaluator selected for
+        // `s.starts_with("-")`) and for GENERIC-impl methods (registered under the
+        // generic `C(T)` id, so this concrete-id lookup misses). Mirrors TS, where
+        // a method call is lowered to a direct call to the resolved FunctionValue
+        // and codegen never re-resolves by name. Falls back to the registry
+        // first-hit only when no value was recorded (method resolved via a path
+        // that doesn't populate the side-table).
         (mc_name : Option(String)) = Option(String).None;
         (method_fv : Option(EvalValue)) = Option(EvalValue).None;
-        nme := entries.len();
-        (mei : usize) = usize(0);
-        while((mei < nme) && mc_name.is_none(), {
-          match(
-            entries.get(mei),
-            .Some(entry) => match(
-              entry.value,
-              .Some(mv) => if(is_func_val(mv), {
-                mfid := match(mv,.FuncVal(__fvd4, _) => __fvd4.*.func_id, _ => String.from(""));
-                mc_name = _c_func_name(mfid, context);
-                method_fv = Option(EvalValue).Some(mv);
-              }),
-              .None => ()
-            ),
-            .None => ()
-          );
-          mei = (mei + usize(1));
-        });
-        // Generic-impl fallback: the type_trait_methods registry is keyed by the
-        // CONCRETE type id and misses generic-impl methods (registered under the
-        // generic `C(T)` id). The evaluator resolved + specialized the method and
-        // stashed the specialized FuncVal in the method-callee VALUE side-table
-        // keyed by this call's expr id; use it to recover the C name.
+        match(
+          lookup_method_callee_value(ast_expr_id(expr)),
+          .Some(mcv) => if(is_func_val(mcv), {
+            mfid2 := match(mcv,.FuncVal(__fvd5, _) => __fvd5.*.func_id, _ => String.from(""));
+            mc_name = _c_func_name(mfid2, context);
+            method_fv = Option(EvalValue).Some(mcv);
+          }),
+          .None => ()
+        );
         if(mc_name.is_none(), {
-          match(
-            lookup_method_callee_value(ast_expr_id(expr)),
-            .Some(mcv) => if(is_func_val(mcv), {
-              mfid2 := match(mcv,.FuncVal(__fvd5, _) => __fvd5.*.func_id, _ => String.from(""));
-              mc_name = _c_func_name(mfid2, context);
-              method_fv = Option(EvalValue).Some(mcv);
-            }),
-            .None => ()
-          );
+          entries := get_type_trait_methods_by_name(tid, mname.clone());
+          nme := entries.len();
+          (mei : usize) = usize(0);
+          while((mei < nme) && mc_name.is_none(), {
+            match(
+              entries.get(mei),
+              .Some(entry) => match(
+                entry.value,
+                .Some(mv) => if(is_func_val(mv), {
+                  mfid := match(mv,.FuncVal(__fvd4, _) => __fvd4.*.func_id, _ => String.from(""));
+                  mc_name = _c_func_name(mfid, context);
+                  method_fv = Option(EvalValue).Some(mv);
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            mei = (mei + usize(1));
+          });
         });
         // Inline a method whose body is a single builtin yo-inline call (e.g.
         // `str.len`'s `__yo_str_len(self)`): such functions are deliberately
