@@ -111,8 +111,8 @@ This follows Rust's "object-safety" rules (dyn-compatibility). The reasons:
 
 ```typescript
 TestDyn :: trait(
-  return_i32 : fn(ref(self) : Self) -> i32,  // Takes ref(Self), returns concrete type - OK!
-  print : fn(ref(self) : Self) -> unit        // Takes ref(Self), returns unit - OK!
+  return_i32 : (fn(ref(self) : Self) -> i32),  // Takes ref(Self), returns concrete type - OK!
+  print : (fn(ref(self) : Self) -> unit)        // Takes ref(Self), returns unit - OK!
 );
 ```
 
@@ -120,8 +120,8 @@ TestDyn :: trait(
 
 ```typescript
 TestDyn :: trait(
-  by_value : fn(self : Self) -> unit,        // Takes Self by value - NOT object-safe!
-  id : fn(ref(self) : Self) -> Self           // Returns Self - NOT object-safe!
+  by_value : (fn(self : Self) -> unit),        // Takes Self by value - NOT object-safe!
+  id : (fn(ref(self) : Self) -> Self)           // Returns Self - NOT object-safe!
 );
 ```
 

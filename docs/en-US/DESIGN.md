@@ -174,7 +174,7 @@ is visible at the call site, so what you see is what runs.
 
 **A few NO design choices:**
 
-- **No operator precedence** (explicit parentheses or newline-based associativity)
+- **No operator precedence** (same-operator chains left-associate; adjacent different operators require explicit parentheses)
 - **No variable shadowing** (similar to Zig)
 - **No stop-the-world GC** (optional thread-local cycle collector for object types)
 
@@ -287,25 +287,21 @@ y :: 14;
 // Except for the "." which is not treated as an operator, but it has the highest precedence.
 // "." has its own parsing rules, for example a.b + c.d is parsed as .(a, b) + .(c, d)
 
-// Every infix operator takes two arguments on its left and right
-// so the expression below is invalid
+// Every infix operator takes two arguments on its left and right.
 //
-//   3 + 4 - 5;
+// Yo has NO operator precedence. A chain of the SAME operator is
+// left-associative, so no parentheses are needed:
+3 + 4 + 5; // parsed as (3 + 4) + 5
+
+// But adjacent DIFFERENT operators are ambiguous and must be
+// disambiguated with explicit parentheses:
 //
-// needs to be written as
+//   3 + 4 - 5; // error: "+" and "-" are different operators
 //
+// must be written as
 3 + (4 - 5);
-//
 // or
 (3 + 4) - 5;
-// or you can use ; to separate the expressions
-3 + 4; - 5; // but apparently this is not what we meant :)
-// same for
-//
-//   3 + 4 + 5;
-//
-// needs to be written as
-(3 + 4) + 5;
 
 // Operators in Yo are combination of the following characters:
 // = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
@@ -313,24 +309,6 @@ y :: 14;
 // But they will be translated as dot method call:
 (3 + 4) * 5; // is the same as
 3.(+)(4).(*)(5);
-
-// But there is a trick with newlines and operator positioning
-// to control associativity without parentheses!
-
-// RIGHT ASSOCIATIVITY: Put operator at the end of line
-3 + // Newline after the operator enforces right associativity!
-  4 + 5
-;
-// This is equivalent to
-3 + (4 + 5);
-
-// LEFT ASSOCIATIVITY: Put operator at the start of line
-  1
-+ 2
-+ 3
-;
-// This is equivalent to
-(1 + 2) + 3;
 
 {
   // Content within {...} with separator `;` is a begin block
@@ -1404,7 +1382,7 @@ while(i < usize(3), {
 // arr is now [10, 20, 30].
 ```
 
-Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
+Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
 The old borrow form `for(coll, ref(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 

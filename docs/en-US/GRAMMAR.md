@@ -147,8 +147,8 @@ FieldAccess ::= '.' Identifier
               | '.' Operator
 
 ;; Infix Operator
-;; Whitespace-sensitive parsing for operator precedence
-;; Operators at line start are treated with left associativity
+;; Yo has no operator precedence. A chain of the SAME operator is
+;; left-associative; adjacent DIFFERENT operators require explicit parentheses.
 InfixOperator ::=
   | Whitespace* Operator Whitespace* Expression       ;; Regular infix: a + b
   | Whitespace* BacktickIdentifier Whitespace* Expression  ;; Backtick infix: a `add` b
@@ -222,8 +222,9 @@ Separator ::= ',' | ';'
    - Invalid: `func (arg1, arg2)` or `func arg1, arg2`
    - Prefix operators are calls too: write `&(x)`, `!(ready)`, `return(value)`, `return()`, `unwind(value)`, or `unwind()`
 
-3. **Infix operators**: Whitespace affects precedence
-   - Operators at line start have left associativity
+3. **Infix operators**: no precedence
+   - A chain of the same operator is left-associative: `a + b + c` ⇒ `(a + b) + c`
+   - Adjacent different operators require explicit parentheses: `a + b * c` is an error; write `(a + b) * c` or `a + (b * c)`
    - Standard infix: `a + b`
    - Backtick infix: ``a `add` b``
 

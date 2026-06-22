@@ -212,7 +212,7 @@ The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by
 
 ### Effect member return types
 
-Handler functions marked `isModuleEffectMember = true` with SomeType return types (e.g., `Raise :: fn(forall(T), ...) -> T`) use `void` as their C return type consistently in both forward declarations AND definitions. The flag name is legacy; read it as "effect member function":
+Handler functions marked `isModuleEffectMember = true` with SomeType return types (e.g., `Raise :: (fn(forall(T), ...) -> T)`) use `void` as their C return type consistently in both forward declarations AND definitions. The flag name is legacy; read it as "effect member function":
 
 - **Declaration** (`declarations.ts`): passes `undefined` for body → no body-type override → `getTypeString(SomeType)` → `void`
 - **Definition** (`generation.ts`): skips SomeType body override when `isModuleEffectMember` is true
@@ -223,7 +223,7 @@ The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actu
 
 ### Evidence function pointer casts must use void for forall handlers
 
-When calling an evidence handler through a function pointer cast in `generateEvidenceFnPtrCall`, the cast return type **must** match the handler's actual C return type. For forall handlers (e.g., `Exception.throw :: fn(forall(T), error: AnyError) -> T`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
+When calling an evidence handler through a function pointer cast in `generateEvidenceFnPtrCall`, the cast return type **must** match the handler's actual C return type. For forall handlers (e.g., `Exception.throw :: (fn(forall(T), error: AnyError) -> T)`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
 
 The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates unwind. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
 

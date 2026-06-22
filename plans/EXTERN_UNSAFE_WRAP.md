@@ -9,7 +9,7 @@ Currently a file declaring `pragma(Pragma.AllowUnsafe);` can call any
 
 ```rust
 pragma(Pragma.AllowUnsafe);
-c_include("<stdlib.h>", malloc : fn(size : usize) -> ?*(void), ...);
+c_include("<stdlib.h>", malloc : (fn(size : usize) -> ?*(void)), ...);
 
 allocate :: (fn(n : usize) -> ?*(void))(malloc(n));  // no marker
 ```

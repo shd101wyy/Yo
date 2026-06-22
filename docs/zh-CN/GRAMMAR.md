@@ -147,8 +147,8 @@ FieldAccess ::= '.' Identifier
               | '.' Operator
 
 ;; 中缀运算符
-;; 空格敏感的解析规则影响运算符优先级
-;; 行首的运算符按左结合处理
+;; Yo 没有运算符优先级。相同运算符的链是左结合的；
+;; 相邻的不同运算符需要显式括号。
 InfixOperator ::=
   | Whitespace* Operator Whitespace* Expression       ;; 常规中缀：a + b
   | Whitespace* BacktickIdentifier Whitespace* Expression  ;; 反引号中缀：a `add` b
@@ -220,8 +220,9 @@ Separator ::= ',' | ';'
    - 无效：`func (arg1, arg2)` 或 `func arg1, arg2`
    - 前缀运算符也是调用：请写 `&(x)`、`!(ready)`、`return(value)`、`return()`、`unwind(value)` 或 `unwind()`
 
-3. **中缀运算符**：空格影响优先级
-   - 行首的运算符具有左结合性
+3. **中缀运算符**：无优先级
+   - 相同运算符的链是左结合的：`a + b + c` ⇒ `(a + b) + c`
+   - 相邻的不同运算符需要显式括号：`a + b * c` 是错误的；应写成 `(a + b) * c` 或 `a + (b * c)`
    - 标准中缀：`a + b`
    - 反引号中缀：``a `add` b``
 

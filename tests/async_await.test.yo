@@ -1755,10 +1755,12 @@ test("Test unwind in async closure", {
   {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> unit)({
       (raise : Raise) =
-        (msg) -> {
-          println(msg);
-          unwind(());
-        };
+        (
+          (msg) -> {
+            println(msg);
+            unwind(());
+          }
+        );
       ctx := Ctx(io : my_io, raise : raise);
       my_io.await(task, ctx);
       assert(false, "expected task to unwind already");
@@ -1775,10 +1777,12 @@ test("Test unwind in async closure", {
   {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> i32)({
       (raise : Raise) =
-        (msg) -> {
-          println(msg);
-          unwind(666);
-        };
+        (
+          (msg) -> {
+            println(msg);
+            unwind(666);
+          }
+        );
       ctx := Ctx(io : my_io, raise : raise);
       result := my_io.await(task, ctx);
       assert(false, "expected task to unwind already");
@@ -1823,9 +1827,11 @@ test("Test JoinHandle await returns None on unwind", {
     return(i32(99));
   });
   (raise : Raise) =
-    (msg) -> {
-      unwind(());
-    };
+    (
+      (msg) -> {
+        unwind(());
+      }
+    );
   handle := io.spawn(task, { io, raise });
   result := handle.await(io);
   assert(result.is_none(), "escaped task should return None");
@@ -1846,9 +1852,11 @@ test("Test JoinHandle two tasks one escapes", {
     return(i32(42));
   });
   (raise : Raise) =
-    (msg) -> {
-      unwind(());
-    };
+    (
+      (msg) -> {
+        unwind(());
+      }
+    );
   handle1 := io.spawn(task1, { io, raise });
   handle2 := io.spawn(task2, { io, raise });
   result1 := handle1.await(io);
@@ -1871,10 +1879,12 @@ test("Test effect injection via io.await on sync future", {
     ctx.log(`effect injected`);
   });
   (log1 : Log) =
-    (msg) -> {
-      print("Log1: ");
-      println(msg);
-    };
+    (
+      (msg) -> {
+        print("Log1: ");
+        println(msg);
+      }
+    );
   io.await(task, { io, log : log1 });
   unsafe(printf("effect injection via await OK\n"));
 });
@@ -1889,14 +1899,18 @@ test("Test effect injection set-once via io.spawn then io.await", {
     ctx.log(`spawn first`);
   });
   (log1 : Log) =
-    (msg) -> {
-      print("SpawnLog: ");
-      println(msg);
-    };
+    (
+      (msg) -> {
+        print("SpawnLog: ");
+        println(msg);
+      }
+    );
   (log2 : Log) =
-    (msg) -> {
-      assert(false, "log2 should not be called (set-once semantics)");
-    };
+    (
+      (msg) -> {
+        assert(false, "log2 should not be called (set-once semantics)");
+      }
+    );
   handle := io.spawn(task, { io, log : log1 });
   handle.await(io);
   unsafe(printf("set-once via spawn OK\n"));
@@ -1913,10 +1927,12 @@ test("Test effect injection via io.await on SM future", {
     ctx.log(`after yield`);
   });
   (log1 : Log) =
-    (msg) -> {
-      print("SMLog: ");
-      println(msg);
-    };
+    (
+      (msg) -> {
+        print("SMLog: ");
+        println(msg);
+      }
+    );
   io.await(task, { io, log : log1 });
   unsafe(printf("effect injection SM path OK\n"));
 });
@@ -2196,9 +2212,11 @@ test("Test unwind via injected effect aborts future", {
       return(i32(999));
     });
     (raise : Raise) =
-      (msg) -> {
-        unwind(i32(77));
-      };
+      (
+        (msg) -> {
+          unwind(i32(77));
+        }
+      );
     my_io.await(task, { io : my_io, raise });
     // should not reach here
     i32(0)
@@ -2219,9 +2237,11 @@ test("Test JoinHandle unwind via spawn-injected effect", {
     return(i32(0));
   });
   (raise : Raise) =
-    (msg) -> {
-      unwind(());
-    };
+    (
+      (msg) -> {
+        unwind(());
+      }
+    );
   handle := io.spawn(task, { io, raise });
   result := handle.await(io);
   assert(result.is_none(), "escaped task should return None");
@@ -2313,9 +2333,11 @@ test("Regression: async unwind RC no double-decrement UAF", {
       return(i32(999));
     });
     (raise : Raise) =
-      (msg) -> {
-        unwind(i32(77));
-      };
+      (
+        (msg) -> {
+          unwind(i32(77));
+        }
+      );
     result := my_io.await(task, { io : my_io, raise });
     // If we reach here, the unwind didn't work
     result

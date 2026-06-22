@@ -215,7 +215,7 @@ __yo_type_join_fields(
 - **1 field** → returns mapper result directly (no combiner applied)
 - **n fields** → returns `((f1 op f2) op f3)` (left-associative fold)
 
-Signature: `fn(comptime(T) : Type, comptime(mapper) : fn(comptime(FieldInfo)) -> comptime(Expr), comptime(combiner) : Expr) -> comptime(Expr)`
+Signature: `fn(comptime(T) : Type, comptime(mapper) : (fn(comptime(FieldInfo)) -> comptime(Expr)), comptime(combiner) : Expr) -> comptime(Expr)`
 
 #### `__yo_type_join_variants(T, mapper, combiner)` — Expr-based
 
@@ -376,7 +376,7 @@ The parser recognizes operator tokens inside `quote(...)` and creates Expr nodes
 
 The derive rule is stored directly on the trait value:
 
-- **Parameterized traits** (e.g., `MyEq :: fn(...) -> Trait`): stored on the `FunctionValue` as `deriveRule?: FunctionValue`
+- **Parameterized traits** (e.g., `MyEq :: (fn(...) -> Trait)`): stored on the `FunctionValue` as `deriveRule?: FunctionValue`
 - **Parameterless traits** (e.g., `Hash :: trait(...)`): stored on the `TraitType` as `deriveRule?: FunctionValue`
 
 This means **derive rules travel with imports**. When a module exports `MyEq`, any derive_rule registered on it comes along — no global registry needed.

@@ -1,6 +1,12 @@
 # Stricter Operator Grouping
 
-Status: **proposed** (design agreed; not yet implemented)
+Status: **implemented** (`src/parser.ts` + `yo-self/parser.yo`; std/tests/yo-self
+migrated; corpus 83/83). The infix branch now: same operator → left-associative
+(`parseLeftAssociativeOperator`); adjacent different operators → parentheses-
+required error; the newline-associativity logic is removed. Tests:
+`tests/operator_grouping.test.yo` (same-op left-assoc, mixed grouping, comparison-
+chaining rejection). Note: bare unary operands remain a separate, pre-existing
+rule — `!x` must be `!(x)` (paren-less calls are unsupported).
 
 ## Summary
 

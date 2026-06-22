@@ -118,10 +118,9 @@ masked := ((A | B) | C);
 
 - Calls require immediate parentheses: `func(arg1, arg2)`
 - `func arg1, arg2` and `func (arg1, arg2)` are invalid
-- Yo has no operator precedence; fully parenthesize binary expressions
-- Preserve grouping around infix expressions on operator RHS positions: `true => (x / y)`, `value := (x + y)`, `(ptr &+ 1).*`
-- Line breaks can disambiguate operator chains; keep line-leading operators like `(4\n| 5\n| 6)` and newlines after `:` before a lambda unless you add equivalent grouping
-- When an operator ends a line, indent its RHS one level as a continuation: `(x : T) =\n  (v) -> { ... }`
+- Yo has no operator precedence: a chain of the SAME operator left-associates (`a + b + c` ⇒ `(a + b) + c`, no parens needed); adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`)
+- An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
+- Source layout does NOT affect grouping — there is no newline-based associativity
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
@@ -140,8 +139,7 @@ masked := ((A | B) | C);
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
-- **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
-- **Nested `&&` / `||` in a single compound condition causes "Ambiguous operator precedence"** even with explicit parentheses: `((A && B) && (C && D))` on one line triggers the error. Fix: extract sub-conditions into named booleans first: `_c1 := (A && B); _c2 := (C && D); if((_c1 && _c2), ...)`.
+- **`!x && y` is invalid** — `!x` is a paren-less unary. Unary and infix are different operators (no precedence), so parenthesize by intent: `!(x) && y` (= `(NOT x) AND y`) or `!(x && y)` (= `NOT (x AND y)`).
 
 ## Functions and methods
 
@@ -817,14 +815,14 @@ match(r,
 );
 ```
 
-The `!` operator is greedy and consumes all following args including the block. Always parenthesize:
+Unary `!` requires parentheses around its operand — a bare `!cond` is a paren-less error:
 
 ```rust
-// WRONG — ! consumes "cond, block" as one arg:
+// WRONG — paren-less unary operand:
 if(!cond, { do_thing(); });
 
-// CORRECT — ! only consumes (cond):
-if((!cond), { do_thing(); });
+// CORRECT — wrap the operand:
+if(!(cond), { do_thing(); });
 ```
 
 ### `unwind` requires a nested-function context

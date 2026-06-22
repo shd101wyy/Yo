@@ -55,15 +55,17 @@ Allocator :: Dyn(CustomAllocator);
 extern(
   "Yo",
   __yo_malloc :
-    fn(size : usize) -> ?*(void),
+    (fn(size : usize) -> ?*(void)),
   __yo_calloc :
-    fn(nmemb : usize, size : usize) -> ?*(void),
+    (fn(nmemb : usize, size : usize) -> ?*(void)),
   __yo_realloc :
-    fn(ptr : ?*(void), size : usize) -> ?*(void),
+    (fn(ptr : ?*(void), size : usize) -> ?*(void)),
   __yo_free :
-    fn(ptr : ?*(void)) -> unit,
+    (fn(ptr : ?*(void)) -> unit),
   __yo_aligned_alloc :
-    fn(alignment : usize, size : usize) -> ?*(void)
+    (
+      fn(alignment : usize, size : usize) -> ?*(void)
+    )
 );
 /// The process-wide global allocator (mimalloc by default, falls back to libc).
 GlobalAllocator :: impl({

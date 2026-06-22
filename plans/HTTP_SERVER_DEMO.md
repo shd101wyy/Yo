@@ -59,7 +59,7 @@ http_status_text(code: i32) → String
 ### Error Handling (`std/error`)
 
 ```rust
-Exception :: module(throw : fn(err: AnyError) -> unit)
+Exception :: module(throw : (fn(err: AnyError) -> unit))
 // Usage:
 given(exn) := Exception(throw : ((err) -> { escape (); }));
 ```

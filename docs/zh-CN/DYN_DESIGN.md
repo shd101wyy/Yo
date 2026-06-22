@@ -111,8 +111,8 @@ typedef struct {
 
 ```typescript
 TestDyn :: trait(
-  return_i32 : fn(ref(self) : Self) -> i32,  // 接收 ref(Self)，返回具体类型 — OK！
-  print : fn(ref(self) : Self) -> unit        // 接收 ref(Self)，返回 unit — OK！
+  return_i32 : (fn(ref(self) : Self) -> i32),  // 接收 ref(Self)，返回具体类型 — OK！
+  print : (fn(ref(self) : Self) -> unit)        // 接收 ref(Self)，返回 unit — OK！
 );
 ```
 
@@ -120,8 +120,8 @@ TestDyn :: trait(
 
 ```typescript
 TestDyn :: trait(
-  by_value : fn(self : Self) -> unit,        // 按值接收 Self — 不满足对象安全！
-  id : fn(ref(self) : Self) -> Self           // 返回 Self — 不满足对象安全！
+  by_value : (fn(self : Self) -> unit),        // 按值接收 Self — 不满足对象安全！
+  id : (fn(ref(self) : Self) -> Self)           // 返回 Self — 不满足对象安全！
 );
 ```
 

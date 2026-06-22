@@ -129,35 +129,35 @@ extern(
   __yo_op_bit_right_shift : (fn(forall(T : Type), x : T, y : T) -> T),
   // Ptr related functions
   __yo_ptr_add :
-    fn(forall(T : Type), ptr : T, offset : usize) -> T,
+    (fn(forall(T : Type), ptr : T, offset : usize) -> T),
   __yo_ptr_sub :
-    fn(forall(T : Type), ptr : T, offset : usize) -> T,
+    (fn(forall(T : Type), ptr : T, offset : usize) -> T),
   __yo_ptr_diff :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> isize,
+    (fn(forall(T : Type), ptr1 : T, ptr2 : T) -> isize),
   __yo_ptr_eq :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_neq :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_lt :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_lte :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_gt :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_gte :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool),
   // str (builtin static string view) intrinsics
   __yo_str_from_raw_parts :
-    fn(ptr : *(u8), length : usize) -> str,
+    (fn(ptr : *(u8), length : usize) -> str),
   __yo_str_len :
-    fn(s : str) -> usize,
+    (fn(s : str) -> usize),
   __yo_str_ptr :
-    fn(s : str) -> *(u8),
+    (fn(s : str) -> *(u8)),
   __yo_str_byte :
-    fn(s : str, idx : usize) -> u8,
+    (fn(s : str, idx : usize) -> u8),
   // array indexing builtin (used by Index trait impls)
   __yo_array_index :
-    fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T),
+    (fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T)),
   // C macro related
   __yo_c_macro_defined : (fn(comptime(name) : comptime_str) -> comptime(bool)),
   __yo_c_macro_value : (fn(comptime(name) : comptime_str) -> comptime(comptime_str)),
@@ -639,13 +639,13 @@ Ord :: (
 )(
   trait(
     (<) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     (<=) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     (>) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     (>=) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     where(Self <: Eq(Rhs))
   )
 );
@@ -658,13 +658,13 @@ ComptimeOrd :: (
 )(
   trait(
     (<) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     (<=) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     (>) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     (>=) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     where(Self <: (Comptime, ComptimeEq(Rhs)))
   )
 );
@@ -693,7 +693,9 @@ export(Hash);
 Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
-    fn(ref(self) : Self) -> Self
+    (
+      fn(ref(self) : Self) -> Self
+    )
 );
 export(Clone);
 /// Isolation trait — runtime check whether a value can be safely transferred.
@@ -7518,7 +7520,9 @@ Iterator :: trait(
   Item : Type,
   /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
-    fn(ref(self) : Self) -> Option(Self.Item)
+    (
+      fn(ref(self) : Self) -> Option(Self.Item)
+    )
 );
 export(Iterator);
 /// IntoIterator trait — convert a collection into an iterator.
@@ -7526,7 +7530,7 @@ IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
   into_iter :
-    fn(self : Self) -> Self.IntoIter,
+    (fn(self : Self) -> Self.IntoIter),
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);

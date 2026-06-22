@@ -216,44 +216,44 @@ if((arch == Arch.Wasm32), {
 
 ## No operator precedence
 
-Always use parentheses to group operations: `((a + b) * c)` not `a + b * c`
+Yo has **no operator precedence**. Two rules:
 
-Every binary operation must be explicitly parenthesized. When chaining the same operator 3+ times, nest parentheses left-to-right:
+1. **A chain of the SAME operator is left-associative** — no parentheses needed.
+   `a + b + c` parses as `(a + b) + c`; `(A | B | C | D)` is fine as-is.
+2. **Adjacent DIFFERENT operators require explicit parentheses** — otherwise a
+   parse error: *"Adjacent different operators need parentheses to clarify
+   grouping."*
 
 ```rust
-// WRONG — 3+ operands without nesting:
-(A | B | C)
+// CORRECT — same operator, no nesting needed:
 (A | B | C | D)
+1 + 2 + 3        // ⇒ (1 + 2) + 3
 
-// CORRECT — nest left-to-right:
-((A | B) | C)
-(((A | B) | C) | D)
+// WRONG — different operators with no parentheses:
+a + b * c
+// CORRECT — choose the grouping explicitly:
+(a + b) * c      // or: a + (b * c)
 ```
 
-Newlines around operators can also be semantically significant because they disambiguate right-associative parses. Do not collapse line-leading operators or a newline after `:` into a single line unless you add equivalent parentheses:
+**Source layout no longer affects grouping.** There is NO newline-based
+associativity (an earlier rule let a leading/trailing newline pick
+associativity; it has been removed — see `plans/OPERATOR_ASSOCIATIVITY.md`).
+
+`:`, `:=`, `=`, `::`, and `->` are ordinary operators with no precedence, so a
+type/value containing a *different* top-level operator must be parenthesized:
 
 ```rust
-// Valid because each `|` stays line-leading:
-(4
-| 5
-| 6)
+// `:` vs `->` — wrap the fn type:
+next : (fn(ref(self) : Self) -> Option(Self.Item))
 
-// Valid because newline after `:` confirms the RHS:
-raise :
-  (msg) -> {
-    unwind(());
-  }
+// `::` vs `->` — wrap a fn-type alias:
+FuncType :: (fn() -> void)
 
-// Formatter style: indent the RHS one level under the line-ending operator:
-(yield : Yield) =
-  (v) -> {
-    return(v * i32(3));
-  };
+// `:` vs `=` — wrap the typed binding:
+(err1 : AnyErr) = dyn(ErrA(`error A`));
 
-// Also valid: explicit grouping on the RHS.
-raise : ((msg) -> {
-  unwind(());
-})
+// `:=` vs `&&` — wrap the operator RHS:
+is_neg := ((a == "-") && (b == 1));
 ```
 
 Formatter-specific syntax preservation:
@@ -261,74 +261,37 @@ Formatter-specific syntax preservation:
 - Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
 - Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
 
-This also applies to `fn` type annotations on the same line — always wrap in parentheses to avoid ambiguity with `->`:
-
-```rust
-// WRONG — bare fn type on same line as `:`:
-next : fn(ref(self) : Self) -> Option(Self.Item)
-
-// CORRECT — parenthesized fn type:
-next : (fn(ref(self) : Self) -> Option(Self.Item))
-
-// ALSO CORRECT — newline after `:` triggers right associativity:
-next :
-  fn(ref(self) : Self) -> Option(Self.Item)
-```
-
 Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <: !(Runtime)`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
-```
-// WRONG — ambiguous parsing without parentheses:
-err1 : AnyErr = dyn(ErrA(`error A`));
-
-// WRONG — parsed as `err1 : (AnyErr = dyn(...))`:
-err1 :
-  AnyErr = dyn(ErrA(`error A`));
-
-// CORRECT — parentheses around the declaration:
-(err1 : AnyErr) = dyn(ErrA(`error A`));
-```
-
 ## Unary operators need parentheses around their operand
 
-Unary operators like `!`, `&`, and `-` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.
+Unary operators (`!`, `&`, `-`, `~`) are prefix calls, so they **require parentheses around their operand**. A bare `!x` / `&s` / `-n` is a *"Paren-less function and operator calls are not supported"* error (the same rule that rejects `func arg`).
 
 ```rust
-// WRONG — `!` captures `d.is_empty(), "msg"` as one expression:
+// WRONG — paren-less unary operand:
 assert(!d.is_empty(), "should not be empty");
+func(&s, label, extra);
 
-// CORRECT — parentheses limit the operand:
+// CORRECT — wrap the operand:
 assert(!(d.is_empty()), "should not be empty");
-
-// WRONG — `&` captures `s, label, extra` as a TUPLE argument:
-func(&s, label, extra);  // parsed as func(&(s, label, extra)) — one tuple arg!
-
-// CORRECT — take address first, then pass separately:
-p := &s;
-func(p, label, extra);
-// OR — wrap the operand only (preferred — matches how the parser thinks about it):
 func(&(s), label, extra);
-// Equivalent — outer parens around the whole unary expression:
-func((&s), label, extra);
 ```
 
-This applies to **all** unary operators: `!`, `&`, `-`, `~`. Any of them placed before a comma-separated list will greedily absorb the entire list as a tuple.
+This applies to **all** unary operators: `!`, `&`, `-`, `~`.
 
-**Critical: `!x && y` is parsed as `!(x && y)`**, not `(!x) && y`.
-
-Because prefix `!` is treated as a function call that consumes the entire following expression (parsed by `parseExpression`, which includes all infix operators), `!x && match(...)` is equivalent to `!(x && match(...))`. Always parenthesize the negated operand separately when it must be the left operand of `&&`:
+**`!x && y` is invalid** because `!x` is a paren-less unary. Since unary and infix
+are *different operators with no precedence*, you must parenthesize — and the two
+groupings mean different things, so choose by intent:
 
 ```rust
-// WRONG — `!x && match(...)` parses as `!(x && match(...))`:
-(!is_infix && match(opt, .None => false, .Some(x) => pred(x))) => handle()
+// (NOT x) AND y:
+!(x) && y
 
-// CORRECT — parentheses around `!is_infix` make it a sub-expression:
-((!is_infix) && match(opt, .None => false, .Some(x) => pred(x))) => handle()
+// NOT (x AND y):
+!(x && y)
 ```
-
-This applies at any nesting depth: whenever you write `!expr && rhs`, add an extra layer of parentheses: `((!expr) && rhs)`.
 
 **Special note for `object` types**: passing by value already propagates mutations (RC fields are shared), so `*(MyObject)` pointers are rarely needed. Prefer passing by value and avoid `&obj` in most cases.
 

@@ -47,7 +47,9 @@ comptime_expect_error(
   extern(
     "c",
     bad_strlen :
-      fn(s : *(u8)) -> usize
+      (
+        fn(s : *(u8)) -> usize
+      )
   )
 );
 // `c_include(...)` header imports are rejected in safe code (same
@@ -56,7 +58,9 @@ comptime_expect_error(
   c_include(
     "<string.h>",
     bad_strlen :
-      fn(s : *(u8)) -> usize
+      (
+        fn(s : *(u8)) -> usize
+      )
   )
 );
 // Pointer arithmetic `&+` is rejected in safe code.

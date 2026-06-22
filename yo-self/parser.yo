@@ -320,20 +320,6 @@ impl(
     );
     match_idx == e
   }),
-  range_after_op_has_newline : (fn(ref(self) : Self, op_idx : usize, rhs_start : usize) -> bool)(
-    self.range_has_newline(op_idx + usize(1), rhs_start)
-  ),
-  is_op_alone_on_line : (fn(ref(self) : Self, op_idx : usize, rhs_start : usize) -> bool)({
-    if(self.is_op_at_line_start(op_idx) == false, {
-      return(false);
-    });
-    nl_str := String.from("\n");
-    match(
-      self.tokens.get(op_idx + usize(1)),
-      .None => false,
-      .Some(t) => ((t.kind == TokenKind.Whitespace) && t.value.contains(nl_str))
-    )
-  }),
   parse_template_string : (fn(ref(self) : Self, tok : Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value;
@@ -1273,35 +1259,31 @@ impl(
         );
         rhs_is_parenthesized := self.is_parenthesized_expr(rhs_start, rhs_end - usize(1));
         if((rhs_is_infix && (rhs_is_dot == false)) && (rhs_is_parenthesized == false), {
-          has_nl_after_op := self.range_after_op_has_newline(idx, rhs_start);
-          op_at_line_start := self.is_op_at_line_start(idx);
-          op_alone := self.is_op_alone_on_line(idx, rhs_start);
+          // Stricter operator grouping (plans/OPERATOR_ASSOCIATIVITY.md): a chain
+          // of the SAME operator left-associates; adjacent DIFFERENT operators
+          // require explicit parentheses. No precedence, no newline rule (source
+          // layout no longer affects grouping).
+          rhs_op_value := match(
+            rhs,
+            .FnCall(_, rfb2, _, _, _) => match(
+              rfb2.*,
+              .Atom(_, ft2) => ft2.value,
+              .FnCall(_, _, _, _, _) => String.from("")
+            ),
+            .Atom(_, _) => String.from("")
+          );
           cond(
-            (has_nl_after_op && (op_at_line_start == false)) => {
-              rhs_args := ArrayList(AstExpr).new();
-              rhs_args.push(primary_expr);
-              rhs_args.push(rhs);
-              recur(
-                self,
-                .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
-                rhs_end,
-                exn
-              )
-            },
-            op_alone => {
-              rhs_args := ArrayList(AstExpr).new();
-              rhs_args.push(primary_expr);
-              rhs_args.push(rhs);
-              recur(
-                self,
-                .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
-                rhs_end,
-                exn
-              )
-            },
-            op_at_line_start =>
+            (tok.value == rhs_op_value) =>
               self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_end, exn),
-            true => exn.throw(dyn(make_parse_error(tok, `ambiguous operator precedence near ${tok.value} — use parentheses`)))
+            true =>
+              exn.throw(
+                dyn(
+                  make_parse_error(
+                    tok,
+                    `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`
+                  )
+                )
+              )
           )
         }, {
           rhs_args := ArrayList(AstExpr).new();

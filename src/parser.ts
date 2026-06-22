@@ -1087,64 +1087,13 @@ export default class Parser {
         rhs.func.token.type !== TokenType.Dot && // Allow dot operator to chain
         !this.isParenthesizedExpression(tokens, startIndex, _nextIndex - 1) // Check if the RHS is already parenthesized
       ) {
-        const ambiguityErrorMessage = `Ambiguous operator precedence. 
-Please use parentheses to clarify:
-
-${exprToString(primaryExpr)} ${token.value} (${exprToString(rhs)})
-// or
-(${exprToString(primaryExpr)} ${token.value} ${exprToString(
-          rhs.args[0]!
-        )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1]!)}
-
-Or use newline after "${token.value}" to confirm the right-associativity.
-`;
-        // We allow to use newline indentation to implicitly
-        // skip the parenthese check.
-        //
-        // Right associativity (operator at end of line):
-        // 1 +
-        //   2 + 3
-        // will be parsed as: 1 + (2 + 3)
-        //
-        // Left associativity (operator at start of line):
-        //   1
-        // + 2
-        // + 3
-        // will be parsed as: (1 + 2) + 3
-        const tokensInBetween = tokens.slice(index + 1, startIndex);
-        const hasNewLineAfterOperator = tokensInBetween.some(
-          (_token) =>
-            _token.type === TokenType.Whitespace && _token.value.includes("\n")
-        );
-
-        // Check if current operator is at the start of a line (left associativity)
-        const tokensBeforeOperator = tokens.slice(0, index);
-        const isOperatorAtLineStart = this.isOperatorAtLineStart(
-          tokensBeforeOperator,
-          index
-        );
-
-        // Check if operator is alone on its own line
-        const tokensAfterOperator = tokens.slice(index + 1, startIndex);
-        const isOperatorAloneOnLine =
-          isOperatorAtLineStart &&
-          tokensAfterOperator.length > 0 &&
-          tokensAfterOperator[0]?.type === TokenType.Whitespace &&
-          tokensAfterOperator[0]?.value.includes("\n");
-
-        if (hasNewLineAfterOperator && !isOperatorAtLineStart) {
-          // Right associativity: operator at end of line
-          // Allow: 1 + (2 + 3)
-        } else if (isOperatorAloneOnLine) {
-          // Special case: operator alone on its own line - prefer right associativity
-          // This handles cases like:
-          // a
-          // =
-          //   b -> c
-          // Should parse as: a = (b -> c), not (a = b) -> c
-        } else if (isOperatorAtLineStart) {
-          // Left associativity: operator at start of line (but not alone)
-          // Force left grouping by restructuring the expression
+        // Stricter operator grouping (plans/OPERATOR_ASSOCIATIVITY.md). Yo has no
+        // operator precedence. A chain of the SAME operator left-associates;
+        // adjacent DIFFERENT operators require explicit parentheses. The former
+        // newline-based associativity rule is removed — source layout no longer
+        // affects grouping (so `yo fmt` can reflow freely).
+        if (token.value === rhs.func.token.value) {
+          // Same operator → left associative: `a op b op c` ⇒ `(a op b) op c`.
           return this.parseLeftAssociativeOperator({
             primaryExpr,
             operatorToken: token,
@@ -1153,9 +1102,18 @@ Or use newline after "${token.value}" to confirm the right-associativity.
             index: _nextIndex,
           });
         } else {
+          // Different adjacent operators → require parentheses to clarify grouping.
+          const groupingErrorMessage = `Adjacent different operators need parentheses to clarify grouping.
+
+Write one of:
+  ${exprToString(primaryExpr)} ${token.value} (${exprToString(rhs)})
+  (${exprToString(primaryExpr)} ${token.value} ${exprToString(
+            rhs.args[0]!
+          )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1]!)}
+`;
           throw formatErrorMessage({
             token: token,
-            errorMessage: ambiguityErrorMessage,
+            errorMessage: groupingErrorMessage,
           });
         }
       }

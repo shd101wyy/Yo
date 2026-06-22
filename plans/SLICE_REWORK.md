@@ -311,7 +311,7 @@ needs either (a) evaluator support in calls/index-trait.ts: on Range args
 over Array/ArrayList/String receivers, dispatch to an ordinary owned-return
 method (e.g. `slice_copy(range) -> Output`) instead of the ptr-protocol
 Index trait, or (b) a new `IndexCopy(Idx)` trait with
-`index_copy : fn(ref(self), idx) -> Self.Output` tried by the index-call
+`index_copy : (fn(ref(self), idx) -> Self.Output)` tried by the index-call
 machinery before/instead of Index for range types. (a) is recommended —
 zero new trait surface; the evaluator already special-cases ranges.
 

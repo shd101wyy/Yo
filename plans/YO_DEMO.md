@@ -17,7 +17,7 @@ I suggest we follow these steps to achieve the goal:
   c_include "<raylib.h>",
     (Color : Type) = struct(r: u8, g: u8, b: u8, a: u8),
     (Vector2 : Type) = struct(x: f32, y: f32),
-    InitWindow : fn(width: i32, height: i32, title: *(char)) -> unit,
+    InitWindow : (fn(width: i32, height: i32, title: *(char)) -> unit),
     ...
   ;
   ```

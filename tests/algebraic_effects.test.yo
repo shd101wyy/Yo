@@ -536,10 +536,12 @@ test("Test struct-record effect with unwind", {
   );
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        unwind(());
-      }
+      (
+        (msg) -> {
+          println(msg);
+          unwind(());
+        }
+      )
   );
   result := safe_divide(10, 0, raise_mod);
   assert(false, "Should not reach here after unwind");
@@ -556,10 +558,12 @@ test("Test struct-record effect with resume", {
   );
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        return(i32(0));
-      }
+      (
+        (msg) -> {
+          println(msg);
+          return(i32(0));
+        }
+      )
   );
   result := safe_divide(10, 0, raise_mod);
   assert(result == 0, "struct-record effect with resume: should be 0");
@@ -582,10 +586,12 @@ test("Test nested struct-record effect with unwind", {
   (fx : Effects) = Effects(
     errors : Errors(
       raise :
-        (msg) -> {
-          println(msg);
-          unwind(());
-        }
+        (
+          (msg) -> {
+            println(msg);
+            unwind(());
+          }
+        )
     )
   );
   result := safe_divide(10, 0, fx);
@@ -607,10 +613,12 @@ test("Test nested struct-record effect with resume", {
   (fx : Effects) = Effects(
     errors : Errors(
       raise :
-        (msg) -> {
-          println(msg);
-          return(i32(0));
-        }
+        (
+          (msg) -> {
+            println(msg);
+            return(i32(0));
+          }
+        )
     )
   );
   result := safe_divide(10, 0, fx);
@@ -630,10 +638,12 @@ test("Test struct record labeled name : Type with unwind", {
   );
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        unwind(());
-      }
+      (
+        (msg) -> {
+          println(msg);
+          unwind(());
+        }
+      )
   );
   result := safe_divide(10, 0, raise_mod);
   assert(false, "Should not reach here after unwind");
@@ -650,10 +660,12 @@ test("Test struct record labeled name : Type with resume", {
   );
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        return(i32(0));
-      }
+      (
+        (msg) -> {
+          println(msg);
+          return(i32(0));
+        }
+      )
   );
   result := safe_divide(10, 0, raise_mod);
   assert(result == 0, "struct record labeled with resume: should be 0");
@@ -742,11 +754,13 @@ test("Test closure with using() effect - resume", {
     }
   );
   (closure : Impl(Fn(v : i32, msg : String) -> i32)) =
-    (v, msg) => {
-      log(msg);
-      x.* = (x.* + v);
-      return(x.*);
-    };
+    (
+      (v, msg) => {
+        log(msg);
+        x.* = (x.* + v);
+        return(x.*);
+      }
+    );
   result1 := closure(1, `hello`);
   assert(result1 == 1, "closure+effect resume: expected result1 to be 1");
   assert(x.* == 1, "closure+effect resume: expected x to be 1");
@@ -795,13 +809,17 @@ test("Effect row polymorphism with E : Type.Struct spread", {
     });
   });
   (yield : Yield) =
-    (v) -> {
-      return(v);
-    };
+    (
+      (v) -> {
+        return(v);
+      }
+    );
   (log : Log) =
-    (v) -> {
-      println(v);
-    };
+    (
+      (v) -> {
+        println(v);
+      }
+    );
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
   Eff :: struct(yield : Yield, log : Log);
@@ -830,13 +848,17 @@ test("Effect row inline typed declaration name : Type", {
     });
   });
   (yield : Yield) =
-    (v) -> {
-      return(v);
-    };
+    (
+      (v) -> {
+        return(v);
+      }
+    );
   (log : Log) =
-    (v) -> {
-      println(v);
-    };
+    (
+      (v) -> {
+        println(v);
+      }
+    );
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
   // Closure declares effect row inline with types — no call-site using() needed
@@ -866,19 +888,23 @@ test("Mixed unwind and return in effect handler", {
     });
   });
   (yield : Yield) =
-    (v) ->
-      cond(
-        (v > 2) => {
-          unwind(());
-        },
-        true => {
-          return(v);
-        }
-      );
+    (
+      (v) ->
+        cond(
+          (v > 2) => {
+            unwind(());
+          },
+          true => {
+            return(v);
+          }
+        )
+    );
   (log : Log) =
-    (v) -> {
-      println(v);
-    };
+    (
+      (v) -> {
+        println(v);
+      }
+    );
   sum := Box(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
   Eff :: struct(yield : Yield, log : Log);
@@ -918,9 +944,11 @@ test("Transitive SM while loop with break", {
     return(sum.*);
   });
   (yield : Yield) =
-    (v) -> {
-      return(v * i32(2));
-    };
+    (
+      (v) -> {
+        return(v * i32(2));
+      }
+    );
   result := count_until(i32(4), { yield });
   // e.yield(0)*2=0, e.yield(1)*2=2, e.yield(2)*2=4, e.yield(3)*2=6 => sum = 12
   assert(result == i32(12), "transitive break: sum should be 0+2+4+6 = 12");
@@ -950,9 +978,11 @@ test("Transitive SM while loop with continue", {
     return(sum.*);
   });
   (yield : Yield) =
-    (v) -> {
-      return(v);
-    };
+    (
+      (v) -> {
+        return(v);
+      }
+    );
   result := sum_even({ yield });
   // e.yield(0)=0, e.yield(1)=1(skip), e.yield(2)=2, e.yield(3)=3(skip),
   // e.yield(4)=4, e.yield(5)=5(skip), e.yield(6)=6, e.yield(7)=7(skip) => 0+2+4+6 = 12
@@ -989,9 +1019,11 @@ test("Transitive SM while loop with mixed continue and break", {
     return(sum.*);
   });
   (yield : Yield) =
-    (v) -> {
-      return(v);
-    };
+    (
+      (v) -> {
+        return(v);
+      }
+    );
   result := mixed_loop({ yield });
   // counter 1: continue, 2: continue, 3: sum+=3, 4: sum+=4, 5: break
   assert(result == i32(7), "transitive mixed: sum should be 3+4 = 7");
@@ -1019,9 +1051,11 @@ test("Transitive SM while loop with step expr and continue", {
     return(sum.*);
   });
   (yield : Yield) =
-    (v) -> {
-      return(v);
-    };
+    (
+      (v) -> {
+        return(v);
+      }
+    );
   result := sum_with_step({ yield });
   // e.yield(0)=0, e.yield(1)=1(skip), e.yield(2)=2, e.yield(3)=3(skip), e.yield(4)=4, e.yield(5)=5(skip) => 0+2+4 = 6
   assert(result == i32(6), "transitive step+continue: sum of even should be 6");
@@ -1048,9 +1082,11 @@ test("Transitive SM while loop with early return", {
     return(i32(-(1)));
   });
   (yield : Yield) =
-    (v) -> {
-      return(v * i32(3));
-    };
+    (
+      (v) -> {
+        return(v * i32(3));
+      }
+    );
   result := find_first(i32(12), { yield });
   // yield(0)=0, yield(1)=3, yield(2)=6, yield(3)=9, yield(4)=12 >= 12 => return 12
   assert(result == i32(12), "transitive early return: should find 12");
@@ -1430,9 +1466,11 @@ test("Test struct-record effect unwind with non-unit value", {
   run_test :: (fn() -> i32)({
     (raise_mod : Raise) = Raise(
       raise :
-        (msg) -> {
-          unwind(i32(-(1)));
-        }
+        (
+          (msg) -> {
+            unwind(i32(-(1)));
+          }
+        )
     );
     safe_divide(10, 0, raise_mod)
   });
@@ -1457,19 +1495,25 @@ test("Test struct-record effect with multiple function members", {
   });
   (logger : Logger) = Logger(
     info :
-      (msg) -> {
-        println(msg);
-        return(i32(1));
-      },
+      (
+        (msg) -> {
+          println(msg);
+          return(i32(1));
+        }
+      ),
     warn :
-      (msg) -> {
-        println(msg);
-        return(i32(1));
-      },
+      (
+        (msg) -> {
+          println(msg);
+          return(i32(1));
+        }
+      ),
     count :
-      (current) -> {
-        return(current);
-      }
+      (
+        (current) -> {
+          return(current);
+        }
+      )
   );
   result := log_messages(logger);
   assert(result == 3, "multi-member struct record: count(3) should return 3");
@@ -1494,17 +1538,21 @@ test("Test multiple struct-record effects in same scope", {
   });
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        return(i32(0));
-      }
+      (
+        (msg) -> {
+          println(msg);
+          return(i32(0));
+        }
+      )
   );
   (log_mod : Log) = Log(
     log :
-      (msg) -> {
-        println(msg);
-        return(i32(1));
-      }
+      (
+        (msg) -> {
+          println(msg);
+          return(i32(1));
+        }
+      )
   );
   result := compute(10, 2, raise_mod, log_mod);
   assert(result == 5, "multi-struct-record: 10/2 = 5");
@@ -1642,9 +1690,11 @@ test("Test effect polymorphism with struct-record effect spread", {
   )(f(e));
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        return(i32(77));
-      }
+      (
+        (msg) -> {
+          return(i32(77));
+        }
+      )
   );
   result := run(might_fail, raise_mod);
   assert(result == i32(77), "struct-record effect polymorphism: should be 77");
@@ -1676,9 +1726,11 @@ test("Test transitive SM with struct-record effect in while loop", {
   });
   (counter : Counter) = Counter(
     increment :
-      (current) -> {
-        return(current + i32(1));
-      }
+      (
+        (current) -> {
+          return(current + i32(1));
+        }
+      )
   );
   result := loop_with_effect(i32(4), counter, {});
   assert(result == i32(10), "transitive SM struct record: 1+2+3+4 = 10");
@@ -1708,10 +1760,12 @@ test("Test struct-based effect with unwind", {
   );
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        unwind(());
-      }
+      (
+        (msg) -> {
+          println(msg);
+          unwind(());
+        }
+      )
   );
   result := safe_divide(10, 0, raise_mod);
   assert(false, "Should not reach here after unwind");
@@ -1728,10 +1782,12 @@ test("Test struct-based effect with resume", {
   );
   (raise_mod : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        return(i32(0));
-      }
+      (
+        (msg) -> {
+          println(msg);
+          return(i32(0));
+        }
+      )
   );
   result := safe_divide(10, 0, raise_mod);
   assert(result == 0, "struct-based effect with resume: should be 0");

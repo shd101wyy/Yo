@@ -53,79 +53,79 @@ c_include(
   ATOMIC_FLAG_INIT : atomic_flag,
   // Generic atomic operations
   atomic_init :
-    fn(obj : *(atomic_bool), value : bool) -> unit,
+    (fn(obj : *(atomic_bool), value : bool) -> unit),
   atomic_load :
-    fn(obj : *(atomic_bool)) -> bool,
+    (fn(obj : *(atomic_bool)) -> bool),
   atomic_load_explicit :
-    fn(obj : *(atomic_bool), order : memory_order) -> bool,
+    (fn(obj : *(atomic_bool), order : memory_order) -> bool),
   atomic_store :
-    fn(obj : *(atomic_bool), desired : bool) -> unit,
+    (fn(obj : *(atomic_bool), desired : bool) -> unit),
   atomic_store_explicit :
-    fn(obj : *(atomic_bool), desired : bool, order : memory_order) -> unit,
+    (fn(obj : *(atomic_bool), desired : bool, order : memory_order) -> unit),
   atomic_exchange :
-    fn(obj : *(atomic_bool), desired : bool) -> bool,
+    (fn(obj : *(atomic_bool), desired : bool) -> bool),
   atomic_exchange_explicit :
-    fn(obj : *(atomic_bool), desired : bool, order : memory_order) -> bool,
+    (fn(obj : *(atomic_bool), desired : bool, order : memory_order) -> bool),
   atomic_compare_exchange_strong :
-    fn(obj : *(atomic_bool), expected : *(bool), desired : bool) -> bool,
+    (fn(obj : *(atomic_bool), expected : *(bool), desired : bool) -> bool),
   atomic_compare_exchange_strong_explicit :
-    fn(obj : *(atomic_bool), expected : *(bool), desired : bool, success : memory_order, failure : memory_order) -> bool,
+    (fn(obj : *(atomic_bool), expected : *(bool), desired : bool, success : memory_order, failure : memory_order) -> bool),
   atomic_compare_exchange_weak :
-    fn(obj : *(atomic_bool), expected : *(bool), desired : bool) -> bool,
+    (fn(obj : *(atomic_bool), expected : *(bool), desired : bool) -> bool),
   atomic_compare_exchange_weak_explicit :
-    fn(obj : *(atomic_bool), expected : *(bool), desired : bool, success : memory_order, failure : memory_order) -> bool,
+    (fn(obj : *(atomic_bool), expected : *(bool), desired : bool, success : memory_order, failure : memory_order) -> bool),
   // Integer atomic operations
   atomic_fetch_add :
-    fn(obj : *(atomic_int), arg : int) -> int,
+    (fn(obj : *(atomic_int), arg : int) -> int),
   atomic_fetch_add_explicit :
-    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+    (fn(obj : *(atomic_int), arg : int, order : memory_order) -> int),
   atomic_fetch_sub :
-    fn(obj : *(atomic_int), arg : int) -> int,
+    (fn(obj : *(atomic_int), arg : int) -> int),
   atomic_fetch_sub_explicit :
-    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+    (fn(obj : *(atomic_int), arg : int, order : memory_order) -> int),
   atomic_fetch_or :
-    fn(obj : *(atomic_int), arg : int) -> int,
+    (fn(obj : *(atomic_int), arg : int) -> int),
   atomic_fetch_or_explicit :
-    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+    (fn(obj : *(atomic_int), arg : int, order : memory_order) -> int),
   atomic_fetch_xor :
-    fn(obj : *(atomic_int), arg : int) -> int,
+    (fn(obj : *(atomic_int), arg : int) -> int),
   atomic_fetch_xor_explicit :
-    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+    (fn(obj : *(atomic_int), arg : int, order : memory_order) -> int),
   atomic_fetch_and :
-    fn(obj : *(atomic_int), arg : int) -> int,
+    (fn(obj : *(atomic_int), arg : int) -> int),
   atomic_fetch_and_explicit :
-    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+    (fn(obj : *(atomic_int), arg : int, order : memory_order) -> int),
   // Pointer atomic operations
   atomic_load_ptr :
-    fn(obj : *(*(void))) -> *(void),
+    (fn(obj : *(*(void))) -> *(void)),
   atomic_store_ptr :
-    fn(obj : *(*(void)), desired : *(void)) -> unit,
+    (fn(obj : *(*(void)), desired : *(void)) -> unit),
   atomic_exchange_ptr :
-    fn(obj : *(*(void)), desired : *(void)) -> *(void),
+    (fn(obj : *(*(void)), desired : *(void)) -> *(void)),
   atomic_compare_exchange_strong_ptr :
-    fn(obj : *(*(void)), expected : *(*(void)), desired : *(void)) -> bool,
+    (fn(obj : *(*(void)), expected : *(*(void)), desired : *(void)) -> bool),
   atomic_compare_exchange_weak_ptr :
-    fn(obj : *(*(void)), expected : *(*(void)), desired : *(void)) -> bool,
+    (fn(obj : *(*(void)), expected : *(*(void)), desired : *(void)) -> bool),
   // Atomic flag operations
   atomic_flag_test_and_set :
-    fn(obj : *(atomic_flag)) -> bool,
+    (fn(obj : *(atomic_flag)) -> bool),
   atomic_flag_test_and_set_explicit :
-    fn(obj : *(atomic_flag), order : memory_order) -> bool,
+    (fn(obj : *(atomic_flag), order : memory_order) -> bool),
   atomic_flag_clear :
-    fn(obj : *(atomic_flag)) -> unit,
+    (fn(obj : *(atomic_flag)) -> unit),
   atomic_flag_clear_explicit :
-    fn(obj : *(atomic_flag), order : memory_order) -> unit,
+    (fn(obj : *(atomic_flag), order : memory_order) -> unit),
   // Memory fences
   atomic_thread_fence :
-    fn(order : memory_order) -> unit,
+    (fn(order : memory_order) -> unit),
   atomic_signal_fence :
-    fn(order : memory_order) -> unit,
+    (fn(order : memory_order) -> unit),
   // Lock-free property query
   atomic_is_lock_free :
-    fn(obj : *(atomic_bool)) -> bool,
+    (fn(obj : *(atomic_bool)) -> bool),
   // Kill dependency
   kill_dependency :
-    fn(y : i32) -> i32,
+    (fn(y : i32) -> i32),
   // Lock-free constants
   ATOMIC_BOOL_LOCK_FREE : i32,
   ATOMIC_CHAR_LOCK_FREE : i32,
@@ -224,157 +224,177 @@ impl(atomic_uintmax_t, Acyclic());
 extern(
   "Yo",
   __yo_atomic_load_int :
-    fn(obj : *(atomic_int), order : memory_order) -> i32,
+    (fn(obj : *(atomic_int), order : memory_order) -> i32),
   __yo_atomic_store_int :
-    fn(obj : *(atomic_int), desired : i32, order : memory_order) -> unit,
+    (fn(obj : *(atomic_int), desired : i32, order : memory_order) -> unit),
   __yo_atomic_exchange_int :
-    fn(obj : *(atomic_int), desired : i32, order : memory_order) -> i32,
+    (fn(obj : *(atomic_int), desired : i32, order : memory_order) -> i32),
   __yo_atomic_compare_exchange_int :
-    fn(
-      obj : *(atomic_int),
-      expected : *(i32),
-      desired : i32,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool
+    (
+      fn(
+        obj : *(atomic_int),
+        expected : *(i32),
+        desired : i32,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    )
 );
 // Phase C: size_t-specific atomic operations (for AtomicUsize)
 extern(
   "Yo",
   __yo_atomic_load_size_t :
-    fn(obj : *(atomic_size_t), order : memory_order) -> usize,
+    (fn(obj : *(atomic_size_t), order : memory_order) -> usize),
   __yo_atomic_store_size_t :
-    fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> unit,
+    (fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> unit),
   __yo_atomic_exchange_size_t :
-    fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> usize,
+    (fn(obj : *(atomic_size_t), desired : usize, order : memory_order) -> usize),
   __yo_atomic_compare_exchange_size_t :
-    fn(
-      obj : *(atomic_size_t),
-      expected : *(usize),
-      desired : usize,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool
+    (
+      fn(
+        obj : *(atomic_size_t),
+        expected : *(usize),
+        desired : usize,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    )
 );
 // Phase C: long-long-specific atomic operations (for AtomicI64)
 extern(
   "Yo",
   __yo_atomic_load_llong :
-    fn(obj : *(atomic_llong), order : memory_order) -> i64,
+    (fn(obj : *(atomic_llong), order : memory_order) -> i64),
   __yo_atomic_store_llong :
-    fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> unit,
+    (fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> unit),
   __yo_atomic_exchange_llong :
-    fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> i64,
+    (fn(obj : *(atomic_llong), desired : i64, order : memory_order) -> i64),
   __yo_atomic_compare_exchange_llong :
-    fn(
-      obj : *(atomic_llong),
-      expected : *(i64),
-      desired : i64,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool
+    (
+      fn(
+        obj : *(atomic_llong),
+        expected : *(i64),
+        desired : i64,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    )
 );
 // Phase C: remaining atomic type wrappers
 extern(
   "Yo",
   __yo_atomic_load_schar :
-    fn(obj : *(atomic_schar), order : memory_order) -> i8,
+    (fn(obj : *(atomic_schar), order : memory_order) -> i8),
   __yo_atomic_store_schar :
-    fn(obj : *(atomic_schar), desired : i8, order : memory_order) -> unit,
+    (fn(obj : *(atomic_schar), desired : i8, order : memory_order) -> unit),
   __yo_atomic_exchange_schar :
-    fn(obj : *(atomic_schar), desired : i8, order : memory_order) -> i8,
+    (fn(obj : *(atomic_schar), desired : i8, order : memory_order) -> i8),
   __yo_atomic_compare_exchange_schar :
-    fn(
-      obj : *(atomic_schar),
-      expected : *(i8),
-      desired : i8,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool,
+    (
+      fn(
+        obj : *(atomic_schar),
+        expected : *(i8),
+        desired : i8,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    ),
   __yo_atomic_load_short :
-    fn(obj : *(atomic_short), order : memory_order) -> i16,
+    (fn(obj : *(atomic_short), order : memory_order) -> i16),
   __yo_atomic_store_short :
-    fn(obj : *(atomic_short), desired : i16, order : memory_order) -> unit,
+    (fn(obj : *(atomic_short), desired : i16, order : memory_order) -> unit),
   __yo_atomic_exchange_short :
-    fn(obj : *(atomic_short), desired : i16, order : memory_order) -> i16,
+    (fn(obj : *(atomic_short), desired : i16, order : memory_order) -> i16),
   __yo_atomic_compare_exchange_short :
-    fn(
-      obj : *(atomic_short),
-      expected : *(i16),
-      desired : i16,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool,
+    (
+      fn(
+        obj : *(atomic_short),
+        expected : *(i16),
+        desired : i16,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    ),
   __yo_atomic_load_uchar :
-    fn(obj : *(atomic_uchar), order : memory_order) -> u8,
+    (fn(obj : *(atomic_uchar), order : memory_order) -> u8),
   __yo_atomic_store_uchar :
-    fn(obj : *(atomic_uchar), desired : u8, order : memory_order) -> unit,
+    (fn(obj : *(atomic_uchar), desired : u8, order : memory_order) -> unit),
   __yo_atomic_exchange_uchar :
-    fn(obj : *(atomic_uchar), desired : u8, order : memory_order) -> u8,
+    (fn(obj : *(atomic_uchar), desired : u8, order : memory_order) -> u8),
   __yo_atomic_compare_exchange_uchar :
-    fn(
-      obj : *(atomic_uchar),
-      expected : *(u8),
-      desired : u8,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool,
+    (
+      fn(
+        obj : *(atomic_uchar),
+        expected : *(u8),
+        desired : u8,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    ),
   __yo_atomic_load_ushort :
-    fn(obj : *(atomic_ushort), order : memory_order) -> u16,
+    (fn(obj : *(atomic_ushort), order : memory_order) -> u16),
   __yo_atomic_store_ushort :
-    fn(obj : *(atomic_ushort), desired : u16, order : memory_order) -> unit,
+    (fn(obj : *(atomic_ushort), desired : u16, order : memory_order) -> unit),
   __yo_atomic_exchange_ushort :
-    fn(obj : *(atomic_ushort), desired : u16, order : memory_order) -> u16,
+    (fn(obj : *(atomic_ushort), desired : u16, order : memory_order) -> u16),
   __yo_atomic_compare_exchange_ushort :
-    fn(
-      obj : *(atomic_ushort),
-      expected : *(u16),
-      desired : u16,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool,
+    (
+      fn(
+        obj : *(atomic_ushort),
+        expected : *(u16),
+        desired : u16,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    ),
   __yo_atomic_load_uint :
-    fn(obj : *(atomic_uint), order : memory_order) -> u32,
+    (fn(obj : *(atomic_uint), order : memory_order) -> u32),
   __yo_atomic_store_uint :
-    fn(obj : *(atomic_uint), desired : u32, order : memory_order) -> unit,
+    (fn(obj : *(atomic_uint), desired : u32, order : memory_order) -> unit),
   __yo_atomic_exchange_uint :
-    fn(obj : *(atomic_uint), desired : u32, order : memory_order) -> u32,
+    (fn(obj : *(atomic_uint), desired : u32, order : memory_order) -> u32),
   __yo_atomic_compare_exchange_uint :
-    fn(
-      obj : *(atomic_uint),
-      expected : *(u32),
-      desired : u32,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool,
+    (
+      fn(
+        obj : *(atomic_uint),
+        expected : *(u32),
+        desired : u32,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    ),
   __yo_atomic_load_ullong :
-    fn(obj : *(atomic_ullong), order : memory_order) -> u64,
+    (fn(obj : *(atomic_ullong), order : memory_order) -> u64),
   __yo_atomic_store_ullong :
-    fn(obj : *(atomic_ullong), desired : u64, order : memory_order) -> unit,
+    (fn(obj : *(atomic_ullong), desired : u64, order : memory_order) -> unit),
   __yo_atomic_exchange_ullong :
-    fn(obj : *(atomic_ullong), desired : u64, order : memory_order) -> u64,
+    (fn(obj : *(atomic_ullong), desired : u64, order : memory_order) -> u64),
   __yo_atomic_compare_exchange_ullong :
-    fn(
-      obj : *(atomic_ullong),
-      expected : *(u64),
-      desired : u64,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool,
+    (
+      fn(
+        obj : *(atomic_ullong),
+        expected : *(u64),
+        desired : u64,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    ),
   __yo_atomic_load_ptrdiff :
-    fn(obj : *(atomic_ptrdiff_t), order : memory_order) -> isize,
+    (fn(obj : *(atomic_ptrdiff_t), order : memory_order) -> isize),
   __yo_atomic_store_ptrdiff :
-    fn(obj : *(atomic_ptrdiff_t), desired : isize, order : memory_order) -> unit,
+    (fn(obj : *(atomic_ptrdiff_t), desired : isize, order : memory_order) -> unit),
   __yo_atomic_exchange_ptrdiff :
-    fn(obj : *(atomic_ptrdiff_t), desired : isize, order : memory_order) -> isize,
+    (fn(obj : *(atomic_ptrdiff_t), desired : isize, order : memory_order) -> isize),
   __yo_atomic_compare_exchange_ptrdiff :
-    fn(
-      obj : *(atomic_ptrdiff_t),
-      expected : *(isize),
-      desired : isize,
-      success : memory_order,
-      failure : memory_order
-    ) -> bool
+    (
+      fn(
+        obj : *(atomic_ptrdiff_t),
+        expected : *(isize),
+        desired : isize,
+        success : memory_order,
+        failure : memory_order
+      ) -> bool
+    )
 );
 export(
   // Atomic types

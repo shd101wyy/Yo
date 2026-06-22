@@ -18,7 +18,7 @@ The current `Iterator` trait yields raw pointers:
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : fn(ref(self) : Self) -> Option(Self.Item)
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 
 // In practice every collection iterator binds `Item := *(T)`:
@@ -85,7 +85,7 @@ The `ref(name) :=` form is new syntax — added to the parser alongside the exis
 A collection exposes a single projection method:
 
 ```rust
-project : fn(ref(self) : Self, pos : Position) -> ref(Element);
+project : (fn(ref(self) : Self, pos : Position) -> ref(Element));
 ```
 
 `project` yields a writable borrow of the element at `pos`. Unlike Hylo and Rust, Yo doesn't carry read-only-vs-mutable at the binding level — every binding is read-write by default and `inout` is the only borrow flavor — so there's no `let` / `inout` variant pair to define. A read-only projection in user code is just a `project`-returned `inout`-binding that the body happens not to write through; the compiler doesn't enforce read-only-ness because the underlying value model doesn't either.
@@ -105,14 +105,14 @@ The borrow side is the **`Indexable(Position)` impl** already landed in Phase C 
 // Trait stays exactly as today.
 Iterator :: trait(
   Item : Type,
-  next : fn(ref(self) : Self) -> Option(Self.Item)
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 
 // From Phase C — unchanged.
 Indexable :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Element : Type,
-    project : fn(ref(self) : Self, pos : Idx) -> ref(Self.Element)
+    project : (fn(ref(self) : Self, pos : Idx) -> ref(Self.Element))
   )
 );
 ```
@@ -153,7 +153,7 @@ The value form `for(coll, (x) => body)` lowers identically except it calls `coll
 }
 ```
 
-The lambda's binding shape (`ref(x)` vs `(x)`) is what tells the macro which expansion to use; everything else is the same. A blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) makes `for(combinator_chain, (x) => body)` work uniformly with `for(coll, (x) => body)`.
+The lambda's binding shape (`ref(x)` vs `(x)`) is what tells the macro which expansion to use; everything else is the same. A blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) makes `for(combinator_chain, (x) => body)` work uniformly with `for(coll, (x) => body)`.
 
 ### Worked example — `ArrayList(T)`
 
@@ -557,7 +557,7 @@ Considered. Make `&(T)` a real type but enforce that any value whose type transi
 Considered (Hylo-style). Make `next()` itself yield a borrow inline:
 
 ```rust
-next : fn(ref(self) : Self) yields ref(Item)
+next : (fn(ref(self) : Self) yields ref(Item))
 ```
 
 with a `yield expr` form in the body that pauses and returns control to the caller. Rejected because it requires the codegen to lower `next` into a coroutine — either CPS-transform the body or generate a state machine. Yo already has the state-machine machinery (async/await uses it), so this is technically achievable, but the implementation cost dwarfs the projection approach for marginal additional ergonomics.
