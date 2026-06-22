@@ -29,7 +29,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type } :: import("../../types/creators.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
+{ EvalValue, FuncValData, create_unknown_val_with_name } :: import("../../value.yo");
 { EvalContext, FuncOrAsyncBlockCtx } :: import("../context.yo");
 {
   ExprInfo,
@@ -124,17 +124,14 @@ call_registered_derive_rule :: (
   // Now replicate the FuncVal call pattern from function.yo.
   result_env := match(
     derive_rule_val,
-    .FuncVal(
-      forall_names,
-      param_names,
-      param_type_names,
-      evidence_names,
-      body_box,
-      cap_names,
-      cap_tys,
-      cap_vals,
-      _func_id
-    ) => {
+    .FuncVal(__fvm10, cap_vals) => {
+      forall_names := __fvm10.*.forall_names;
+      param_names := __fvm10.*.params;
+      param_type_names := __fvm10.*.param_type_names;
+      evidence_names := __fvm10.*.evidence_params;
+      body_box := __fvm10.*.body;
+      cap_names := __fvm10.*.cap_names;
+      cap_tys := __fvm10.*.cap_tys;
       n_p := param_names.len();
       n_ev := evidence_names.len();
       // Build evaled_arg_infos with 3 pre-constructed entries.
@@ -196,15 +193,19 @@ call_registered_derive_rule :: (
       // Push frame and bind __recur_fn.
       _fr := fresh_env.push_frame(false);
       fv_for_recur := EvalValue.FuncVal(
-        forall_names,
-        param_names,
-        param_type_names,
-        evidence_names,
-        body_box,
-        cap_names,
-        cap_tys,
-        cap_vals,
-        random_id(caller_env.module_path)
+        box(
+          FuncValData(
+            forall_names : forall_names,
+            params : param_names,
+            param_type_names : param_type_names,
+            evidence_params : evidence_names,
+            body : body_box,
+            cap_names : cap_names,
+            cap_tys : cap_tys,
+            func_id : random_id(caller_env.module_path)
+          )
+        ),
+        cap_vals
       );
       _add_recur := add_variable_to_env(
         fresh_env,

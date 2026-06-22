@@ -290,7 +290,7 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
   match(
     ei.value,
     .Some(v) => if(is_func_val(v), {
-      fid := match(v,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+      fid := match(v,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
       return(_c_function_name(context, fid));
     }),
     .None => ()

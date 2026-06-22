@@ -150,8 +150,8 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context 
                 .Some(fv) => if(is_func_val(fv), {
                   match(
                     fv,
-                    .FuncVal(_, _, _, _, _, _, _, _, fid) => match(
-                      context.base.get_function_entry(fid),
+                    .FuncVal(__fvd1, _) => match(
+                      context.base.get_function_entry(__fvd1.*.func_id),
                       .Some(e) => return(Option(String).Some(e.c_name)),
                       .None => ()
                     ),

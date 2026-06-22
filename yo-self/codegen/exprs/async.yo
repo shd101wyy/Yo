@@ -1400,7 +1400,7 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
   );
   match(
     fv,
-    .Some(f) => match(f,.FuncVal(_, _, _, _, _, _, _, _, fid) => get_closure_await_analysis(fid), _ => Option(AwaitAnalysisResult).None),
+    .Some(f) => match(f,.FuncVal(__fvd1, _) => get_closure_await_analysis(__fvd1.*.func_id), _ => Option(AwaitAnalysisResult).None),
     .None => Option(AwaitAnalysisResult).None
   )
 });
@@ -1423,7 +1423,7 @@ generate_async_block :: (fn(expr : AstExpr, indent : String, context : FunctionG
           context.base.get_expr_info(carg),
           .Some(cei) => match(
             cei.closure_function_value,
-            .Some(fv) => match(fv,.FuncVal(_, _, _, _, body, _, _, _, _) => Option(AstExpr).Some(body.*), _ => Option(AstExpr).None),
+            .Some(fv) => match(fv,.FuncVal(__fvd2, _) => Option(AstExpr).Some(__fvd2.*.body.*), _ => Option(AstExpr).None),
             .None => Option(AstExpr).None
           ),
           .None => Option(AstExpr).None
@@ -1945,7 +1945,7 @@ preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> uni
       vals.next(),
       .Some(entry) => match(
         entry.value,
-        .FuncVal(_, _, _, _, body, _, _, _, _) => preregister_async_blocks_in_expr(body.*, context),
+        .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(__fvd3.*.body.*, context),
         _ => ()
       ),
       .None => {
@@ -2007,8 +2007,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         result_closure_fv,
         .Some(fv) => match(
           fv,
-          .FuncVal(_, _, _, _, body, _, _, _, _) => match(
-            context.base.get_expr_info(body.*),
+          .FuncVal(__fvd4, _) => match(
+            context.base.get_expr_info(__fvd4.*.body.*),
             .Some(bei) => {
               bt := bei.ty;
               if(is_some_type(bt), {
@@ -2043,8 +2043,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       result_closure_fv,
       .Some(fv) => match(
         fv,
-        .FuncVal(_, _, _, _, _, _, _, _, fid) => match(
-          get_func_type(fid),
+        .FuncVal(__fvd5, _) => match(
+          get_func_type(__fvd5.*.func_id),
           .Func({ result : rb }) => if(!(is_some_type(rb.*)), {
             result_type = rb.*.clone();
           }),
@@ -2082,7 +2082,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   );
   closure_function_c_name := match(
     closure_fn_val,
-    .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => match(context.base.get_function_entry(fid),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv,.FuncVal(__fvd6, _) => match(context.base.get_function_entry(__fvd6.*.func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   );
   eff_capture_type := match(

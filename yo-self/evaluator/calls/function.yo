@@ -51,7 +51,7 @@ open(import("std/string"));
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
-{ EvalValue, type_of_eval_value, is_type_val, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 {
@@ -1031,7 +1031,7 @@ _evaluate_funcval_runtime_call :: (
       variadic_args : ArrayList(VarArgEntry).new()
     );
     spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
-    spec_fid := match(spec_fv,.FuncVal(_, _, _, _, _, _, _, _, sid) => sid, _ => String.from(""));
+    spec_fid := match(spec_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
     // helper.yo's create_specialized registers the specialized type but
     // resolves its RETURN type via evaluate_function_return_type_again,
     // which does NOT resolve a forall-result SomeT (frame-level mismatch)
@@ -1391,7 +1391,10 @@ evaluate_function_call :: (
         op_env := Environment.new(call_result_op.callee_env.module_path);
         match(
           op_fv,
-          .FuncVal(_, op_pnames, _, _, _, op_cnames, op_ctys, op_cvals, _) => {
+          .FuncVal(__fvm4, op_cvals) => {
+            op_pnames := __fvm4.*.params;
+            op_cnames := __fvm4.*.cap_names;
+            op_ctys := __fvm4.*.cap_tys;
             (oci : usize) = usize(0);
             while(oci < op_cnames.len(), {
               ocn := match(op_cnames.get(oci),.Some(n) => n,.None => String.from(""));
@@ -2171,17 +2174,15 @@ Fix: wrap the call:
             })
         )
       },
-      .FuncVal(
-        forall_names,
-        param_names,
-        param_type_names,
-        evidence_names,
-        body_box,
-        cap_names,
-        cap_tys,
-        cap_vals,
-        func_id_fv
-      ) => {
+      .FuncVal(__fvm7, cap_vals) => {
+        forall_names := __fvm7.*.forall_names;
+        param_names := __fvm7.*.params;
+        param_type_names := __fvm7.*.param_type_names;
+        evidence_names := __fvm7.*.evidence_params;
+        body_box := __fvm7.*.body;
+        cap_names := __fvm7.*.cap_names;
+        cap_tys := __fvm7.*.cap_tys;
+        func_id_fv := __fvm7.*.func_id;
         n_p := param_names.len();
         n_ev := evidence_names.len();
         n_a := args.len();
@@ -2424,15 +2425,19 @@ Fix: wrap the call:
         // Push a frame and bind `__recur_fn`.
         _fr := fresh_env.push_frame(false);
         fv_for_recur := EvalValue.FuncVal(
-          forall_names,
-          param_names,
-          param_type_names,
-          evidence_names,
-          body_box,
-          cap_names,
-          cap_tys,
-          cap_vals,
-          random_id(env.module_path)
+          box(
+            FuncValData(
+              forall_names : forall_names,
+              params : param_names,
+              param_type_names : param_type_names,
+              evidence_params : evidence_names,
+              body : body_box,
+              cap_names : cap_names,
+              cap_tys : cap_tys,
+              func_id : random_id(env.module_path)
+            )
+          ),
+          cap_vals
         );
         _add_recur := add_variable_to_env(
           fresh_env,
@@ -3036,8 +3041,8 @@ Fix: wrap the call:
                   cinfo.value,
                   .Some(cfv) => match(
                     cfv,
-                    .FuncVal(_, _, _, _, _, _, _, _, cfid) => match(
-                      get_func_type(cfid),
+                    .FuncVal(__fvd2, _) => match(
+                      get_func_type(__fvd2.*.func_id),
                       .Func({ result : rr }) => if(!(is_some_type(rr.*)), {
                         register_some_resolved_concrete(oid.clone(), rr.*.clone());
                       }),
@@ -3208,7 +3213,10 @@ Fix: wrap the call:
             m_env := Environment.new(call_result_m.callee_env.module_path);
             match(
               m_fv,
-              .FuncVal(_, m_pnames, _, _, _, m_cnames, m_ctys, m_cvals, _) => {
+              .FuncVal(__fvm5, m_cvals) => {
+                m_pnames := __fvm5.*.params;
+                m_cnames := __fvm5.*.cap_names;
+                m_ctys := __fvm5.*.cap_tys;
                 (mci : usize) = usize(0);
                 while(mci < m_cnames.len(), {
                   mcn := match(m_cnames.get(mci),.Some(n) => n,.None => String.from(""));

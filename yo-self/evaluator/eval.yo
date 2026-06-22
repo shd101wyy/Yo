@@ -103,6 +103,7 @@ open(import("std/fmt"));
 { Environment } :: import("../env.yo");
 {
   EvalValue,
+  FuncValData,
   EvalResult,
   eval_result,
   is_unit_val,
@@ -250,7 +251,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .StrLit(_) => true,
     .VarRef(_) => false,
     .EnumVal(_, _) => true,
-    .FuncVal(_, _, _, _, _, _, _, _, _) => true,
+    .FuncVal(_, _) => true,
     .ReturnVal(_, _) => true,
     .BreakVal => true,
     .ContinueVal => true,
@@ -369,7 +370,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .StrLit(_) => t_comptime_string(),
     .VarRef(_) => t_unit(),
     .EnumVal(_, _) => t_unit(),
-    .FuncVal(_, _, _, _, _, _, _, _, _) => t_unit(),
+    .FuncVal(_, _) => t_unit(),
     .ReturnVal(_, _) => t_unit(),
     .BreakVal => t_unit(),
     .ContinueVal => t_unit(),
@@ -606,7 +607,14 @@ call_funcval_with_args :: (
     .Some(ef) =>
       match(
         fv,
-        .FuncVal(forall_names_h, params, param_type_names_h, evidence_params_h, body, cap_names, cap_tys, cap_vals, _func_id_h) => {
+        .FuncVal(__fvm11, cap_vals) => {
+          forall_names_h := __fvm11.*.forall_names;
+          params := __fvm11.*.params;
+          param_type_names_h := __fvm11.*.param_type_names;
+          evidence_params_h := __fvm11.*.evidence_params;
+          body := __fvm11.*.body;
+          cap_names := __fvm11.*.cap_names;
+          cap_tys := __fvm11.*.cap_tys;
           n_p := params.len();
           n_ev := evidence_params_h.len();
           n_a := already_evaled.len();
@@ -2996,7 +3004,7 @@ handle_method_dispatch :: (
                 match(g_eval_fn,.Some(ef) => ef(fn_expr_fi, env),.None => Option(EvalResult).None),
                 .Some(r) => match(
                   r.value,
-                  .FuncVal(_, _, _, _, _, _, _, _, _) => r.value,
+                  .FuncVal(_, _) => r.value,
                   _ => {
                     return(Option(EvalResult).None);
                   }
@@ -3300,7 +3308,7 @@ handle_method_dispatch :: (
                 match(g_eval_fn,.Some(ef_fm) => ef_fm(fn_expr_fm, env),.None => Option(EvalResult).None),
                 .Some(r) => match(
                   r.value,
-                  .FuncVal(_, _, _, _, _, _, _, _, _) => r.value,
+                  .FuncVal(_, _) => r.value,
                   _ => {
                     return(Option(EvalResult).None);
                   }
@@ -5573,15 +5581,19 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                       .Some(
                                         eval_result(
                                           .FuncVal(
-                                            forall_names_f,
-                                            params_f,
-                                            param_type_names_f,
-                                            evidence_params_f,
-                                            box(body_expr),
-                                            cap_names_f,
-                                            cap_tys_f,
-                                            cap_vals_f,
-                                            func_id_f
+                                            box(
+                                              FuncValData(
+                                                forall_names : forall_names_f,
+                                                params : params_f,
+                                                param_type_names : param_type_names_f,
+                                                evidence_params : evidence_params_f,
+                                                body : box(body_expr),
+                                                cap_names : cap_names_f,
+                                                cap_tys : cap_tys_f,
+                                                func_id : func_id_f
+                                              )
+                                            ),
+                                            cap_vals_f
                                           ),
                                           t_unit()
                                         )
@@ -7085,7 +7097,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     .Some(func_val_r) =>
                       match(
                         func_val_r,
-                        .FuncVal(_, _, _, _, _, _, _, _, _) => {
+                        .FuncVal(_, _) => {
                           evaled_r := ArrayList(EvalResult).new();
                           n_recur_args := args.len();
                           (ri : usize) = usize(0);
@@ -7800,15 +7812,19 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .Some(
                           eval_result(
                             .FuncVal(
-                              ArrayList(String).new(),
-                              params_f,
-                              param_type_names_f,
-                              ArrayList(String).new(),
-                              box(body_expr),
-                              cap_names_f,
-                              cap_tys_f,
-                              cap_vals_f,
-                              random_id(String.from("lambda"))
+                              box(
+                                FuncValData(
+                                  forall_names : ArrayList(String).new(),
+                                  params : params_f,
+                                  param_type_names : param_type_names_f,
+                                  evidence_params : ArrayList(String).new(),
+                                  body : box(body_expr),
+                                  cap_names : cap_names_f,
+                                  cap_tys : cap_tys_f,
+                                  func_id : random_id(String.from("lambda"))
+                                )
+                              ),
+                              cap_vals_f
                             ),
                             t_unit()
                           )
@@ -7930,15 +7946,19 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .Some(
                           eval_result(
                             .FuncVal(
-                              ArrayList(String).new(),
-                              params_m,
-                              ptnames_m,
-                              ArrayList(String).new(),
-                              box(b_expr),
-                              cn_m,
-                              ct_m,
-                              cv_m,
-                              random_id(String.from("lambda_mut"))
+                              box(
+                                FuncValData(
+                                  forall_names : ArrayList(String).new(),
+                                  params : params_m,
+                                  param_type_names : ptnames_m,
+                                  evidence_params : ArrayList(String).new(),
+                                  body : box(b_expr),
+                                  cap_names : cn_m,
+                                  cap_tys : ct_m,
+                                  func_id : random_id(String.from("lambda_mut"))
+                                )
+                              ),
+                              cv_m
                             ),
                             t_unit()
                           )
@@ -8088,14 +8108,14 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .Some(func_val) =>
                           match(
                             func_val,
-                            .FuncVal(_, _, _, _, _, _, _, _, fv_id) => {
+                            .FuncVal(__fvd1, _) => {
                               // Phase 6c: macro-aware call dispatch.
                               // For quoted params, bind the raw arg AST as
                               // ExprVal instead of evaluating; if the function
                               // returns `unquote(...)`, re-evaluate the returned
                               // ExprVal in the caller's env to get the
                               // expanded expression's value.
-                              fv_is_macro := is_macro_fn(fv_id.clone());
+                              fv_is_macro := is_macro_fn(__fvd1.*.func_id.clone());
                               evaled_g := ArrayList(EvalResult).new();
                               n_gargs := args.len();
                               (gi : usize) = usize(0);
@@ -8105,7 +8125,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   args.get(gi),
                                   .Some(arg_expr) =>
                                     cond(
-                                      (fv_is_macro && is_param_quoted(fv_id.clone(), gi)) => {
+                                      (fv_is_macro && is_param_quoted(__fvd1.*.func_id.clone(), gi)) => {
                                         evaled_g.push(eval_result(.ExprVal(box(arg_expr.clone())), t_expr_t()));
                                       },
                                       true =>
@@ -8130,7 +8150,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                 true => {
                                   call_res := call_funcval_with_args(func_val, evaled_g);
                                   cond(
-                                    macro_return_is_unquote(fv_id.clone()) =>
+                                    macro_return_is_unquote(__fvd1.*.func_id.clone()) =>
                                       match(
                                         call_res,
                                         .None => Option(EvalResult).None,

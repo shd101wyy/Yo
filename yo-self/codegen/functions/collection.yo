@@ -187,11 +187,11 @@ collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, i
           field_values.get(i),
           .Some(fv) => cond(
             is_func_val(fv) => {
-              func_id := match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from(""));
+              func_id := match(fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
               if(!(context.has_function(func_id.clone())), {
                 mark_as_effect_record_member(func_id.clone());
                 context.register_function(func_id.clone(), fv, sanitize_for_c_identifier(func_id.clone(), false));
-                body := match(fv,.FuncVal(_, _, _, _, b, _, _, _, _) => b.*, _ => make_err_expr());
+                body := match(fv,.FuncVal(__fvd2, _) => __fvd2.*.body.*, _ => make_err_expr());
                 _call_find_function_calls_in_expr(body, context, info);
               });
               // specializedFunctionCaches: deferred (Phase 3).
@@ -219,11 +219,11 @@ _callee_token_value :: (fn(expr : AstExpr) -> String)(
 );
 /// func_id of a FuncVal EvalValue, or "".
 _func_val_id :: (fn(v : EvalValue) -> String)(
-  match(v,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from(""))
+  match(v,.FuncVal(__fvd3, _) => __fvd3.*.func_id, _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _func_val_body :: (fn(v : EvalValue) -> AstExpr)(
-  match(v,.FuncVal(_, _, _, _, b, _, _, _, _) => b.*, _ => make_err_expr())
+  match(v,.FuncVal(__fvd4, _) => __fvd4.*.body.*, _ => make_err_expr())
 );
 /// True if any type in the list is the `Expr` type (a quoted-AST param) — the
 /// signature of a MACRO (e.g. `if`, `try`: `fn(quote(x) : Expr, …) ->

@@ -105,8 +105,8 @@ collect_unwind_value_ctypes :: (fn(context : FunctionGenerationContext) -> unit)
       vals.next(),
       .Some(entry) => match(
         entry.value,
-        .FuncVal(_, _, _, _, body_box, _, _, _, _) => {
-          found := _collect_unwind_value_ctypes_from_expr(body_box.*, context);
+        .FuncVal(__fvd1, _) => {
+          found := _collect_unwind_value_ctypes_from_expr(__fvd1.*.body.*, context);
           fnlen := found.len();
           (fj : usize) = usize(0);
           while(fj < fnlen, {

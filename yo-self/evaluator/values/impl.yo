@@ -65,7 +65,7 @@ open(import("std/string"));
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
-{ EvalValue, create_type_value } :: import("../../value.yo");
+{ EvalValue, FuncValData, create_type_value } :: import("../../value.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
@@ -129,10 +129,10 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
     v,
     match(
       v,
-      .FuncVal(existing_fn, params, ptns, evp, body, cn, ct, cv, fid) => if(
-        existing_fn.len() > usize(0),
+      .FuncVal(__fvm8, cv) => if(
+        __fvm8.*.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(names.clone(), params, ptns, evp, body, cn, ct, cv, fid)
+        EvalValue.FuncVal(box(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id)), cv)
       ),
       _ => v
     )
@@ -766,7 +766,15 @@ _inject_forall_captures :: (
     .None => method_val,
     .Some(mv) => match(
       mv,
-      .FuncVal(fns, ps, ptns, evs, body, cns, cts, cvs, fid) => {
+      .FuncVal(__fvm9, cvs) => {
+        fns := __fvm9.*.forall_names;
+        ps := __fvm9.*.params;
+        ptns := __fvm9.*.param_type_names;
+        evs := __fvm9.*.evidence_params;
+        body := __fvm9.*.body;
+        cns := __fvm9.*.cap_names;
+        cts := __fvm9.*.cap_tys;
+        fid := __fvm9.*.func_id;
         new_cns := ArrayList(String).new();
         new_cts := ArrayList(TypeValue).new();
         new_cvs := ArrayList(EvalValue).new();
@@ -790,7 +798,7 @@ _inject_forall_captures :: (
           fi2 = (fi2 + usize(1));
         });
         Option(EvalValue).Some(
-          EvalValue.FuncVal(fns, ps, ptns, evs, body, new_cns, new_cts, new_cvs, fid)
+          EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid)), new_cvs)
         )
       },
       _ => method_val
@@ -1241,15 +1249,19 @@ _try_create_forward_shell :: (
       // whole method emits malformed C.
       register_func_type(shell_fid.clone(), fn_ty.clone());
       shell := EvalValue.FuncVal(
-        sh_foralls,
-        sh_params,
-        ArrayList(String).new(),
-        sh_implicits,
-        box(body_e),
-        ArrayList(String).new(),
-        ArrayList(TypeValue).new(),
-        ArrayList(EvalValue).new(),
-        shell_fid
+        box(
+          FuncValData(
+            forall_names : sh_foralls,
+            params : sh_params,
+            param_type_names : ArrayList(String).new(),
+            evidence_params : sh_implicits,
+            body : box(body_e),
+            cap_names : ArrayList(String).new(),
+            cap_tys : ArrayList(TypeValue).new(),
+            func_id : shell_fid
+          )
+        ),
+        ArrayList(EvalValue).new()
       );
       Option(MethodEntry).Some(
         MethodEntry(
@@ -2077,8 +2089,8 @@ evaluate_module_value :: (
                             // as a thunk forwarding to the real method — both ids
                             // then resolve to the real evaluated body. See
                             // type_trait_methods.register_shell_redirect.
-                            shell_fid := match(ex_entry.value,.Some(sv) => match(sv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.new()),.None => String.new());
-                            real_fid := match(method_val,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.new());
+                            shell_fid := match(ex_entry.value,.Some(sv) => match(sv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.new()),.None => String.new());
+                            real_fid := match(method_val,.FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new());
                             if((shell_fid.len() > usize(0)) && (real_fid.len() > usize(0)), {
                               register_shell_redirect(shell_fid, real_fid);
                             });

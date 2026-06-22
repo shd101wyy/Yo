@@ -385,10 +385,10 @@ evaluate_comptime_fn :: (
     )
   );
   // Extract body_box and captures from the FuncVal.
-  body_box := match(arg_val,.FuncVal(_, _, _, _, bb, _, _, _, _) => bb, _ => box(make_err_expr()));
-  cap_names := match(arg_val,.FuncVal(_, _, _, _, _, cn, _, _, _) => cn, _ => ArrayList(String).new());
-  cap_tys := match(arg_val,.FuncVal(_, _, _, _, _, _, ct, _, _) => ct, _ => ArrayList(TypeValue).new());
-  cap_vals := match(arg_val,.FuncVal(_, _, _, _, _, _, _, cv, _) => cv, _ => ArrayList(EvalValue).new());
+  body_box := match(arg_val,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => box(make_err_expr()));
+  cap_names := match(arg_val,.FuncVal(__fvd2, _) => __fvd2.*.cap_names, _ => ArrayList(String).new());
+  cap_tys := match(arg_val,.FuncVal(__fvd3, _) => __fvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
+  cap_vals := match(arg_val,.FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
   // Attempt CTFE capability analysis.
   ctfe_result := _analyze_ctfe_capability(
     arg_val,

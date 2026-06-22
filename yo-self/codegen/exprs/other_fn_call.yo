@@ -333,7 +333,7 @@ _c_func_name :: (fn(func_id : String, context : FunctionGenerationContext) -> Op
 _arg_fn_value_c_name :: (fn(env : Environment, name : String, context : FunctionGenerationContext) -> Option(String))({
   vars := get_variables_from_env(env, name);
   m := vars.len();
-  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)),.Some(v) => match(v.value,.Some(val) => if(is_func_val(val), match(val,.FuncVal(_, _, _, _, _, _, _, _, fid) => _c_func_name(fid, context), _ => Option(String).None), Option(String).None),.None => Option(String).None),.None => Option(String).None))
+  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)),.Some(v) => match(v.value,.Some(val) => if(is_func_val(val), match(val,.FuncVal(__fvd1, _) => _c_func_name(__fvd1.*.func_id, context), _ => Option(String).None), Option(String).None),.None => Option(String).None),.None => Option(String).None))
 });
 /// Whether the last binding for `name` is compile-time-only.
 _last_is_comptime_only :: (fn(env : Environment, name : String) -> bool)({
@@ -664,7 +664,7 @@ _generate_runtime_enum_construct :: (
   )
 });
 /// FuncVal func_id, or empty if not a FuncVal.
-_func_val_id :: (fn(v : EvalValue) -> String)(match(v,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.new()));
+_func_val_id :: (fn(v : EvalValue) -> String)(match(v,.FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()));
 /// Whether a call to this callee might trigger an effect escape (it directly is
 /// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
 /// fn-typed / ctl-bound param a handler may be threaded through, or its body has
@@ -675,7 +675,7 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
   ft_is_control := match(function_type,.Func({ meta : __fm2 }) => __fm2.*.is_control, _ => false);
   body_has_effects := match(
     func_ei_value,
-    .Some(v) => match(v,.FuncVal(_, _, _, _, b, _, _, _, _) => match(context.base.get_expr_info(b.*),.Some(bei) => match(bei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
+    .Some(v) => match(v,.FuncVal(__fvd3, _) => match(context.base.get_expr_info(__fvd3.*.body.*),.Some(bei) => match(bei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
     .None => false
   );
   (param_fn_or_ctl : bool) = false;
@@ -916,7 +916,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             .Some(entry) => match(
               entry.value,
               .Some(mv) => if(is_func_val(mv), {
-                mfid := match(mv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+                mfid := match(mv,.FuncVal(__fvd4, _) => __fvd4.*.func_id, _ => String.from(""));
                 mc_name = _c_func_name(mfid, context);
                 method_fv = Option(EvalValue).Some(mv);
               }),
@@ -935,7 +935,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           match(
             lookup_method_callee_value(ast_expr_id(expr)),
             .Some(mcv) => if(is_func_val(mcv), {
-              mfid2 := match(mcv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+              mfid2 := match(mcv,.FuncVal(__fvd5, _) => __fvd5.*.func_id, _ => String.from(""));
               mc_name = _c_func_name(mfid2, context);
               method_fv = Option(EvalValue).Some(mcv);
             }),
@@ -975,7 +975,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               // primitive STRUCT FIELD (`self.row.clone()`) emitted
               // `(*((*self).row))` and failed to compile. Mirrors the param.isRef
               // `&` in the main arg loop (other-fn-call.ts).
-              m_fid_amp := match(mfv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+              m_fid_amp := match(mfv,.FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
               m_pir := match(get_func_type(m_fid_amp),.Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
               inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
               return(Option(String).Some(generate_yo_inline_function_call(op, inline_args_amped, expr, context, indent.clone())));
@@ -996,7 +996,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             cm_param_is_ref := match(
               method_fv,
               .Some(mfv2) => match(
-                get_func_type(match(mfv2,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""))),
+                get_func_type(match(mfv2,.FuncVal(__fvd7, _) => __fvd7.*.func_id, _ => String.from(""))),
                 .Func({ meta : __fm4 }) => __fm4.*.param_is_ref,
                 _ => ArrayList(bool).new()
               ),
@@ -1317,7 +1317,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     .Some(fv) => if(is_func_val(fv), {
       // Inline if the function body is a single builtin operator.
       match(is_function_value_with_only_builtin_yo_inline_function_call(fv),.Some(op) => return(Option(String).Some(generate_yo_inline_function_call(op, args2, expr, context, indent.clone()))),.None => ());
-      fid := match(fv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+      fid := match(fv,.FuncVal(__fvd8, _) => __fvd8.*.func_id, _ => String.from(""));
       match(
         _c_func_name(fid, context),
         .Some(c_func_name) => {

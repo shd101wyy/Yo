@@ -326,11 +326,11 @@ collect_types_from_function_type :: (fn(function_type : TypeValue, context : Cod
 );
 /// func_id of a FuncVal EvalValue, or "".
 _fv_id :: (fn(v : EvalValue) -> String)(
-  match(v,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from(""))
+  match(v,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _fv_body :: (fn(v : EvalValue) -> AstExpr)(
-  match(v,.FuncVal(_, _, _, _, b, _, _, _, _) => b.*, _ => make_err_expr())
+  match(v,.FuncVal(__fvd2, _) => __fvd2.*.body.*, _ => make_err_expr())
 );
 /// Collect types referenced by an expression (its evaluated type, any function
 /// value it resolves to, deferred drops, macro expansion, runtime

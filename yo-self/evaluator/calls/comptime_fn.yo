@@ -361,12 +361,12 @@ evaluate_comptime_fn_call :: (
   // Extract func_id and body from the FuncVal.
   func_id_str := match(
     function_value,
-    .FuncVal(_, _, _, _, _, _, _, _, fid) => fid,
+    .FuncVal(__fvd1, _) => __fvd1.*.func_id,
     _ => String.from("")
   );
   body_box := match(
     function_value,
-    .FuncVal(_, _, _, _, body_b, _, _, _, _) => body_b,
+    .FuncVal(__fvd2, _) => __fvd2.*.body,
     _ => {
       exn.throw(
         dyn(

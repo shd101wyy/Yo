@@ -108,7 +108,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
                     .None => match(
                       get_trait_default(trait_id.clone(), fname.clone()),
                       .Some(default_fv) => if(is_func_val(default_fv), {
-                        default_fid := match(default_fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.new());
+                        default_fid := match(default_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.new());
                         default_ft := get_func_type(default_fid.clone());
                         self_args := ArrayList(ArgEntry).new();
                         _sa := self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));

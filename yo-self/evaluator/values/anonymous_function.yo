@@ -56,6 +56,7 @@ open(import("std/string"));
 { t_unit, t_some_t, t_func_simple } :: import("../../types/creators.yo");
 {
   EvalValue,
+  FuncValData,
   create_unknown_val
 } :: import("../../value.yo");
 {
@@ -786,15 +787,19 @@ evaluate_anonymous_function_implementation :: (
   // FuncVal; the definition-time body evaluation further down needs it.
   body_for_def_eval := body_expr.clone();
   func_val := EvalValue.FuncVal(
-    forall_labels,
-    actual_param_labels,
-    param_type_names,
-    implicit_labels,
-    box(body_expr),
-    cap_names,
-    cap_tys,
-    cap_vals,
-    func_id.clone()
+    box(
+      FuncValData(
+        forall_names : forall_labels,
+        params : actual_param_labels,
+        param_type_names : param_type_names,
+        evidence_params : implicit_labels,
+        body : box(body_expr),
+        cap_names : cap_names,
+        cap_tys : cap_tys,
+        func_id : func_id.clone()
+      )
+    ),
+    cap_vals
   );
   // Record this function's own resolved Func type by func_id so codegen can
   // emit its C prototype (Gap 10 — FuncVal carries only param-name strings).
@@ -897,15 +902,19 @@ evaluate_anonymous_function_implementation :: (
     // not Clone; `func_val` above is consumed by the ExprInfo below). Same
     // pattern as closure_type.yo's `func_val_pre`.
     body_ctx_func_val := EvalValue.FuncVal(
-      ArrayList(String).new(),
-      ArrayList(String).new(),
-      ArrayList(String).new(),
-      ArrayList(String).new(),
-      box(body_for_def_eval.clone()),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(EvalValue).new(),
-      func_id.clone()
+      box(
+        FuncValData(
+          forall_names : ArrayList(String).new(),
+          params : ArrayList(String).new(),
+          param_type_names : ArrayList(String).new(),
+          evidence_params : ArrayList(String).new(),
+          body : box(body_for_def_eval.clone()),
+          cap_names : ArrayList(String).new(),
+          cap_tys : ArrayList(TypeValue).new(),
+          func_id : func_id.clone()
+        )
+      ),
+      ArrayList(EvalValue).new()
     );
     // The body evaluates against a SNAPSHOT of the live env (the param frame
     // is in scope; frame-list mutations during body eval cannot corrupt the

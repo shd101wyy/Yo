@@ -12,6 +12,21 @@ open(import("std/string"));
 { is_type_0 } :: import("./types/guards.yo");
 { AstExpr } :: import("./expr.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
+/// Non-`Self`-referencing fields of `EvalValue.FuncVal`, factored out and stored
+/// behind a `Box` (P2 memory). These reference only `String`/`AstExpr`/`TypeValue`
+/// (NOT `Self`/`EvalValue`), so the struct is defined BEFORE `EvalValue` (no
+/// forward-reference dance). Only `cap_vals : ArrayList(Self)` stays inline.
+FuncValData :: struct(
+  forall_names : ArrayList(String),
+  params : ArrayList(String),
+  param_type_names : ArrayList(String),
+  evidence_params : ArrayList(String),
+  body : Box(AstExpr),
+  cap_names : ArrayList(String),
+  cap_tys : ArrayList(TypeValue),
+  func_id : String
+);
+derive(FuncValData, Clone);
 /// The compile-time representation of an evaluated expression.
 ///
 /// - Literal variants (`BoolVal`, `IntLit`, `FloatLit`, `StrLit`) hold the
@@ -66,16 +81,13 @@ EvalValue :: enum(
   /// Phase 3o: `evidence_params` holds the names of `name : Type`
   /// parameters. At call time these are bound from explicit `name` args
   /// (which evaluate to the named value from the caller's env).
+  /// `cap_vals` (closure capture VALUES) stays inline — it is `ArrayList(Self)`
+  /// (recursive). All other fields live in `data : Box(FuncValData)` (P2: the
+  /// inline 9-handle variant set sizeof(EvalValue) ~80 B, wasted in every inline
+  /// Option(EvalValue) / nested ArrayList(EvalValue) copy).
   FuncVal(
-    forall_names : ArrayList(String),
-    params : ArrayList(String),
-    param_type_names : ArrayList(String),
-    evidence_params : ArrayList(String),
-    body : Box(AstExpr),
-    cap_names : ArrayList(String),
-    cap_tys : ArrayList(TypeValue),
-    cap_vals : ArrayList(Self),
-    func_id : String
+    data : Box(FuncValData),
+    cap_vals : ArrayList(Self)
   ),
   /// Control-flow signal emitted by a `return(expr)` statement.
   ///
@@ -243,7 +255,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-    .FuncVal(_, _, _, _, _, _, _, _, _) => false,
+    .FuncVal(_, _) => false,
     .ReturnVal(_, _) => false,
     .BreakVal => match(b,.BreakVal => true, _ => false),
     .ContinueVal => match(b,.ContinueVal => true, _ => false),
@@ -552,10 +564,10 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           `${variant}(${parts})`
         }
       ),
-    .FuncVal(_, params, _, _, _, _, _, _, _) => {
+    .FuncVal(__fvd1, _) => {
       param_str := String.from("");
       (pi : usize) = usize(0);
-      n_p := params.len();
+      n_p := __fvd1.*.params.len();
       while(pi < n_p, {
         cond(
           (pi > usize(0)) => {
@@ -564,7 +576,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           true => ()
         );
         match(
-          params.get(pi),
+          __fvd1.*.params.get(pi),
           .Some(p) => {
             param_str = `${param_str}${p}`;
           },
@@ -764,7 +776,7 @@ is_float_lit :: (fn(v : EvalValue) -> bool)(match(v,.FloatLit(_) => true, _ => f
 is_str_lit :: (fn(v : EvalValue) -> bool)(match(v,.StrLit(_) => true, _ => false));
 is_var_ref :: (fn(v : EvalValue) -> bool)(match(v,.VarRef(_) => true, _ => false));
 is_enum_val :: (fn(v : EvalValue) -> bool)(match(v,.EnumVal(_, _) => true, _ => false));
-is_func_val :: (fn(v : EvalValue) -> bool)(match(v,.FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false));
+is_func_val :: (fn(v : EvalValue) -> bool)(match(v,.FuncVal(_, _) => true, _ => false));
 is_return_val :: (fn(v : EvalValue) -> bool)(match(v,.ReturnVal(_, _) => true, _ => false));
 is_break_val :: (fn(v : EvalValue) -> bool)(match(v,.BreakVal => true, _ => false));
 is_continue_val :: (fn(v : EvalValue) -> bool)(match(v,.ContinueVal => true, _ => false));
@@ -904,7 +916,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     _ => t_unit()
   )
 );
-export(EvalValue, EvalResult, eval_result, create_type_value, type_of_eval_value);
+export(EvalValue, FuncValData, EvalResult, eval_result, create_type_value, type_of_eval_value);
 export(value_to_string);
 export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref);
 export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);

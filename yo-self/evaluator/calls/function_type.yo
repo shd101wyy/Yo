@@ -33,7 +33,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr } :: import("../../types/creators.yo");
 { is_type_0 } :: import("../../types/guards.yo");
-{ EvalValue, create_unknown_val, create_type_value } :: import("../../value.yo");
+{ EvalValue, FuncValData, create_unknown_val, create_type_value } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 {
   is_flowable_expr,
@@ -521,15 +521,19 @@ try_to_implement_function_by_function_type :: (
         Option(AstExpr).None
       );
       func_val := EvalValue.FuncVal(
-        forall_labels.clone(),
-        param_labels.clone(),
-        param_type_names,
-        implicit_labels,
-        box(body_expr),
-        cap_names,
-        cap_tys,
-        cap_vals,
-        fn_val_id.clone()
+        box(
+          FuncValData(
+            forall_names : forall_labels.clone(),
+            params : param_labels.clone(),
+            param_type_names : param_type_names,
+            evidence_params : implicit_labels,
+            body : box(body_expr),
+            cap_names : cap_names,
+            cap_tys : cap_tys,
+            func_id : fn_val_id.clone()
+          )
+        ),
+        cap_vals
       );
       // Record this function's own resolved Func type by its FuncVal id so
       // codegen can emit its C prototype (Gap 10). This path (a `fn(...)` type
@@ -593,15 +597,19 @@ try_to_implement_function_by_function_type :: (
             .Atom(_, _) => ()
           );
           flow_fv := EvalValue.FuncVal(
-            ArrayList(String).new(),
-            ArrayList(String).new(),
-            ArrayList(String).new(),
-            ArrayList(String).new(),
-            box(make_err_expr()),
-            ArrayList(String).new(),
-            ArrayList(TypeValue).new(),
-            ArrayList(EvalValue).new(),
-            random_id(caller_env.module_path)
+            box(
+              FuncValData(
+                forall_names : ArrayList(String).new(),
+                params : ArrayList(String).new(),
+                param_type_names : ArrayList(String).new(),
+                evidence_params : ArrayList(String).new(),
+                body : box(make_err_expr()),
+                cap_names : ArrayList(String).new(),
+                cap_tys : ArrayList(TypeValue).new(),
+                func_id : random_id(caller_env.module_path)
+              )
+            ),
+            ArrayList(EvalValue).new()
           );
           flow_ctx := create_function_body_evaluation_context(function_type, flow_fv, flow_env, ctx);
           flow_out := ArrayList(AstExpr).new();

@@ -212,7 +212,7 @@ evaluate_open :: (
               // `.type`. Named imports already bind via the real Func type.
               field_ty := match(
                 field_val,
-                .FuncVal(_, _, _, _, _, _, _, _, fid) => get_func_type(fid),
+                .FuncVal(__fvd1, _) => get_func_type(__fvd1.*.func_id),
                 _ => type_of_eval_value(field_val)
               );
               _added := add_variable_to_env(

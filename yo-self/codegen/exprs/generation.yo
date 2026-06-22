@@ -319,7 +319,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
 /// FuncVal's func_id up in the codegen function registry (populated by
 /// collection.yo's index_method_value pass).
 _index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, index_code : String, context : FunctionGenerationContext) -> String)({
-  fid := match(method_value,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => return(String.from("/* Error: Index method not a FuncVal */")));
+  fid := match(method_value,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => return(String.from("/* Error: Index method not a FuncVal */")));
   match(
     context.base.get_function_entry(fid),
     .Some(e) => `${e.c_name}(${recv_arg}, ${index_code})`,

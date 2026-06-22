@@ -365,12 +365,12 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
     // i.e. a function pointer. Mirrors `comptime-value.ts:266-283`
     // (`isFunctionValue(value)` → `context.functions[value.funcId].cName`). The
     // function must have been collected for codegen; if not, emit a diagnostic.
-    .FuncVal(_, _, _, _, _, _, _, _, fid) => match(
-      context.get_function_entry(fid),
+    .FuncVal(__fvd1, _) => match(
+      context.get_function_entry(__fvd1.*.func_id),
       .Some(e) => e.c_name,
       .None => {
         c := String.from("/* Error: no C function name for func value ");
-        c.push_string(fid);
+        c.push_string(__fvd1.*.func_id);
         c.push_str(" */");
         c
       }

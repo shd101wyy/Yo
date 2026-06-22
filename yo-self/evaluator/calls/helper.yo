@@ -61,6 +61,7 @@ open(import("std/string"));
 } :: import("../trait_checking.yo");
 {
   EvalValue,
+  FuncValData,
   eval_value_eq,
   value_to_string,
   create_type_value,
@@ -133,7 +134,7 @@ extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
     .None => Option(EvalValue).None,
     .Some(v) => match(
       v,
-      .FuncVal(_, _, _, _, _, _, _, _, _) => Option(EvalValue).Some(v),
+      .FuncVal(_, _) => Option(EvalValue).Some(v),
       _ => Option(EvalValue).None
     )
   )
@@ -182,8 +183,8 @@ _module_type_contains_ctl_field :: (
               field_val_opt,
               .Some(fv) => match(
                 fv,
-                .FuncVal(_, _, _, _, _, _, _, _, fid) => {
-                  if(is_control_fn(fid.clone()), {
+                .FuncVal(__fvd1, _) => {
+                  if(is_control_fn(__fvd1.*.func_id.clone()), {
                     found = true;
                   });
                 },
@@ -628,7 +629,7 @@ value_to_signature_string :: (fn(value : EvalValue) -> String)(
   match(
     value,
     .TypeVal(t) => type_to_string(t.*),
-    .FuncVal(_, _, _, _, _, _, _, _, fid) => `fn_${fid}`,
+    .FuncVal(__fvd2, _) => `fn_${__fvd2.*.func_id}`,
     _ => value_to_string(value)
   )
 );
@@ -955,16 +956,20 @@ _build_forward_ref_funcval :: (
     func_val,
     .Some(fv) => match(
       fv,
-      .FuncVal(fn_labels, p, ptn, ep, _, _, _, _, _) => EvalValue.FuncVal(
-        fn_labels.clone(),
-        p.clone(),
-        ptn.clone(),
-        ep.clone(),
-        box(make_err_expr()),
-        ArrayList(String).new(),
-        ArrayList(TypeValue).new(),
-        ArrayList(EvalValue).new(),
-        specialized_func_id
+      .FuncVal(__fvm1, _) => EvalValue.FuncVal(
+        box(
+          FuncValData(
+            forall_names : __fvm1.*.forall_names.clone(),
+            params : __fvm1.*.params.clone(),
+            param_type_names : __fvm1.*.param_type_names.clone(),
+            evidence_params : __fvm1.*.evidence_params.clone(),
+            body : box(make_err_expr()),
+            cap_names : ArrayList(String).new(),
+            cap_tys : ArrayList(TypeValue).new(),
+            func_id : specialized_func_id
+          )
+        ),
+        ArrayList(EvalValue).new()
       ),
       _ => EvalValue.UnitVal
     ),
@@ -1004,7 +1009,15 @@ create_specialized_function_inline :: (
 )({
   result := match(
     original_func_val,
-    .FuncVal(forall_names, params, param_type_names, evidence_params, body, cap_names, cap_tys, cap_vals, func_id) => {
+    .FuncVal(__fvm2, cap_vals) => {
+      forall_names := __fvm2.*.forall_names;
+      params := __fvm2.*.params;
+      param_type_names := __fvm2.*.param_type_names;
+      evidence_params := __fvm2.*.evidence_params;
+      body := __fvm2.*.body;
+      cap_names := __fvm2.*.cap_names;
+      cap_tys := __fvm2.*.cap_tys;
+      func_id := __fvm2.*.func_id;
       // ------------------------------------------------------------------
       // Collect compile-time arg values and runtime parameter types
       // ------------------------------------------------------------------
@@ -1442,15 +1455,19 @@ create_specialized_function_inline :: (
           // (not the shared original body) so codegen walks this specialization's
           // own nodes and reads its own per-node ExprInfo / method-callee entries.
           specialized_func_val := EvalValue.FuncVal(
-            forall_names,
-            params,
-            param_type_names,
-            evidence_params,
-            Box(AstExpr)(cloned_body),
-            new_cap_names,
-            new_cap_tys,
-            new_cap_vals,
-            specialized_func_id
+            box(
+              FuncValData(
+                forall_names : forall_names,
+                params : params,
+                param_type_names : param_type_names,
+                evidence_params : evidence_params,
+                body : Box(AstExpr)(cloned_body),
+                cap_names : new_cap_names,
+                cap_tys : new_cap_tys,
+                func_id : specialized_func_id
+              )
+            ),
+            new_cap_vals
           );
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
@@ -1563,15 +1580,15 @@ evaluate_ctl_function_body_inline :: (
   ) -> EvalValue
 )({
   // Extract FuncVal fields individually to avoid tuple destructuring.
-  orig_forall_labels := match(original_func_val,.FuncVal(fl, _, _, _, _, _, _, _, _) => fl, _ => ArrayList(String).new());
-  orig_params := match(original_func_val,.FuncVal(_, p, _, _, _, _, _, _, _) => p, _ => ArrayList(String).new());
-  orig_param_type_names := match(original_func_val,.FuncVal(_, _, ptn, _, _, _, _, _, _) => ptn, _ => ArrayList(String).new());
-  orig_evidence_params := match(original_func_val,.FuncVal(_, _, _, ep, _, _, _, _, _) => ep, _ => ArrayList(String).new());
-  orig_body := match(original_func_val,.FuncVal(_, _, _, _, b, _, _, _, _) => b, _ => Box(AstExpr)(make_err_expr()));
-  orig_cap_names := match(original_func_val,.FuncVal(_, _, _, _, _, cn, _, _, _) => cn, _ => ArrayList(String).new());
-  orig_cap_tys := match(original_func_val,.FuncVal(_, _, _, _, _, _, ct, _, _) => ct, _ => ArrayList(TypeValue).new());
-  orig_cap_vals := match(original_func_val,.FuncVal(_, _, _, _, _, _, _, cv, _) => cv, _ => ArrayList(EvalValue).new());
-  orig_func_id := match(original_func_val,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from("__err_ctl"));
+  orig_forall_labels := match(original_func_val,.FuncVal(__fvd3, _) => __fvd3.*.forall_names, _ => ArrayList(String).new());
+  orig_params := match(original_func_val,.FuncVal(__fvd4, _) => __fvd4.*.params, _ => ArrayList(String).new());
+  orig_param_type_names := match(original_func_val,.FuncVal(__fvd5, _) => __fvd5.*.param_type_names, _ => ArrayList(String).new());
+  orig_evidence_params := match(original_func_val,.FuncVal(__fvd6, _) => __fvd6.*.evidence_params, _ => ArrayList(String).new());
+  orig_body := match(original_func_val,.FuncVal(__fvd7, _) => __fvd7.*.body, _ => Box(AstExpr)(make_err_expr()));
+  orig_cap_names := match(original_func_val,.FuncVal(__fvd8, _) => __fvd8.*.cap_names, _ => ArrayList(String).new());
+  orig_cap_tys := match(original_func_val,.FuncVal(__fvd9, _) => __fvd9.*.cap_tys, _ => ArrayList(TypeValue).new());
+  orig_cap_vals := match(original_func_val,.FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
+  orig_func_id := match(original_func_val,.FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
   // For function-body contexts, it's the enclosing function's return type.
@@ -1666,7 +1683,7 @@ evaluate_ctl_function_body_inline :: (
                 // Skip plain function values (only types, modules, traits need to cross).
                 is_fn_val := match(
                   caller_var.value,
-                  .Some(cv3) => match(cv3,.FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
+                  .Some(cv3) => match(cv3,.FuncVal(_, _) => true, _ => false),
                   .None => false
                 );
                 if(!(is_fn_val), {
@@ -1802,15 +1819,19 @@ evaluate_ctl_function_body_inline :: (
     fi3 = (fi3 + usize(1));
   });
   ctl_func_val := EvalValue.FuncVal(
-    orig_forall_labels,
-    orig_params,
-    orig_param_type_names,
-    orig_evidence_params,
-    Box(AstExpr)(orig_body.*),
-    ctl_cap_names,
-    ctl_cap_tys,
-    ctl_cap_vals,
-    ctl_func_id.clone()
+    box(
+      FuncValData(
+        forall_names : orig_forall_labels,
+        params : orig_params,
+        param_type_names : orig_param_type_names,
+        evidence_params : orig_evidence_params,
+        body : Box(AstExpr)(orig_body.*),
+        cap_names : ctl_cap_names,
+        cap_tys : ctl_cap_tys,
+        func_id : ctl_func_id.clone()
+      )
+    ),
+    ctl_cap_vals
   );
   // -------------------------------------------------------------------------
   // Cache the result.
@@ -2164,7 +2185,7 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(fvv) => match(
           fvv,
-          .FuncVal(_, _, _, _, _, _, _, _, fvid) => get_func_param_defaults(fvid.clone()),
+          .FuncVal(__fvd11, _) => get_func_param_defaults(__fvd11.*.func_id.clone()),
           _ => ArrayList(Option(EvalValue)).new()
         ),
         .None => ArrayList(Option(EvalValue)).new()
@@ -2211,7 +2232,9 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(fv) => match(
           fv,
-          .FuncVal(_, _, _, _, _, cn, ct, cv, _) => {
+          .FuncVal(__fvm3, cv) => {
+            cn := __fvm3.*.cap_names;
+            ct := __fvm3.*.cap_tys;
             fenv := Environment.new(caller_env.module_path);
             (ci : usize) = usize(0);
             n_cap := cn.len();
@@ -2550,7 +2573,7 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(wfv) => match(
           wfv,
-          .FuncVal(_, _, _, _, _, _, _, _, wfvid) => validate_where_constraints_for_call(wfvid.clone(), callee_env_m, tok, exn),
+          .FuncVal(__fvd12, _) => validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, exn),
           _ => ()
         ),
         .None => ()
@@ -2761,7 +2784,7 @@ try_to_call_function_with_arguments :: (
       // function value's type.
       fv_has_forall := match(
         func_val,
-        .Some(fvp) => match(fvp,.FuncVal(ffl, _, _, _, _, _, _, _, _) => (ffl.len() > usize(0)), _ => false),
+        .Some(fvp) => match(fvp,.FuncVal(__fvd13, _) => (__fvd13.*.forall_names.len() > usize(0)), _ => false),
         .None => false
       );
       is_func_generic := (((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall);
@@ -2769,7 +2792,7 @@ try_to_call_function_with_arguments :: (
       if(!(skip_specialization) && is_func_generic, {
         callee_fid_g := match(
           func_val,
-          .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from("")),
+          .Some(fv) => match(fv,.FuncVal(__fvd14, _) => __fvd14.*.func_id, _ => String.from("")),
           .None => String.from("")
         );
         // Direct self-recursion (callee is the innermost specialization): left to the
@@ -2787,7 +2810,7 @@ try_to_call_function_with_arguments :: (
         mutual_is_some := mutual_info.is_some();
         is_concrete_fv := match(
           func_val,
-          .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
+          .Some(fv) => match(fv,.FuncVal(_, _) => true, _ => false),
           .None => false
         );
         match(
@@ -2808,7 +2831,7 @@ try_to_call_function_with_arguments :: (
           // ----------------------------------------------------------------
           fv2_func_id := match(
             fv2,
-            .FuncVal(_, _, _, _, _, _, _, _, fid2) => fid2,
+            .FuncVal(__fvd15, _) => __fvd15.*.func_id,
             _ => String.from("")
           );
           is_ctl := is_control_fn(fv2_func_id.clone());

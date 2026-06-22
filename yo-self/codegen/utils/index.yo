@@ -511,7 +511,7 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : EvalValue) -> Option(String)
 )({
-  body_box := match(fv,.FuncVal(_, _, _, _, b, _, _, _, _) => b, _ => return(.None));
+  body_box := match(fv,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
   body := _unwrap_unsafe(body_box.*);
   operator_name := match(
     body,

@@ -110,7 +110,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
   // type as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
   call_type_opt := extract_fn_trait_from_type(ei.ty);
-  fid := match(closure_fv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
+  fid := match(closure_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
   function_c_name := match(context.base.functions.get(fid),.Some(fe) => fe.c_name,.None => return(String.from("// Error: Closure implementation function not found in context")));
   if(is_dyn_type(ei.ty), {
     return(String.from("// Error: Dyn(Fn(...)) closure construction not yet ported"));

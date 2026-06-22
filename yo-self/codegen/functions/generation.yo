@@ -166,7 +166,9 @@ _thunk_forward_args :: (fn(function_type : TypeValue) -> String)(
 generate_function :: (fn(function_value : EvalValue, c_function_name : String, context : FunctionGenerationContext) -> unit)(
   match(
     function_value,
-    .FuncVal(_, _, _, _, body_box, _, _, _, func_id) => {
+    .FuncVal(__fvm6, _) => {
+      body_box := __fvm6.*.body;
+      func_id := __fvm6.*.func_id;
       em := context.base.emitter;
       function_type := get_func_type(func_id.clone());
       prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, Option(String).None, is_closure_fn(func_id.clone()));
@@ -347,8 +349,8 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext) -> unit)({
         .Some(entry) => if(entry.c_name == String.from("__yo_user_main"), {
           match(
             entry.value,
-            .FuncVal(_, _, _, _, _, _, _, _, f) => {
-              main_func_id = f;
+            .FuncVal(__fvd1, _) => {
+              main_func_id = __fvd1.*.func_id;
               found = true;
               go = false;
             },
