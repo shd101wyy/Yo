@@ -1,21 +1,26 @@
 # Inherent method does not shadow a same-name trait method (inherent-first violation)
 
-**Status:** ✅ FIXED on TS (2026-06-22); yo-self port pending. Inherent-first resolution
-is implemented in `src/env.ts` (`getReceiverMethodsByNameFromEnv`: impl'd-trait methods
-are collected **only when no direct/inherent method of the name exists** — both the
-`receiverType` and `dereferencedReceiverType` blocks). The acceptance test
-`tests/inherent_first_resolution.test.yo` is **GREEN** (the resolution error is now
-reported: `f.m(true)` → "Cannot unify i32/bool"; `s.starts_with(i32(5))` → where-bound
-error); `check ./std` 152/152. The §4 std cluster migration is done + validated on both
-compilers. **Remaining:** port inherent-first to yo-self's
-`get_receiver_methods_by_name_from_env` (env.yo:2378) + revalidate (corpus/fixpoint) —
-step 4 of `plans/OVERLOADING_REDESIGN.md`. WRINKLE: yo-self registers BOTH the inherent
-method (`impl(Foo, m : …)`) and trait-impl methods (`impl(Foo, Bar(m : …))`) into the
-type-trait registry with `source_trait_id == ""` (impl.yo:2120) — so they're currently
-indistinguishable. The port must FIRST tag trait-impl methods with their trait id at
-registration, THEN make `get_receiver_methods_by_name_from_env` drop trait-sourced
-entries when an inherent (`source_trait_id == ""`) entry for the name exists. (The
-acceptance test on yo-self also needs the `assert(cond)` default-arg gap fixed.)
+**Status:** ✅ FIXED on BOTH compilers (TS 2026-06-22, yo-self 2026-06-23).
+
+TS (`src/env.ts` `getReceiverMethodsByNameFromEnv`): impl'd-trait methods are collected
+**only when no direct/inherent method of the name exists** (both the `receiverType` and
+`dereferencedReceiverType` blocks). The acceptance test
+`tests/inherent_first_resolution.test.yo` is **GREEN** (the resolution error is reported:
+`f.m(true)` → "Cannot unify i32/bool"; `s.starts_with(i32(5))` → where-bound error);
+`check ./std` 152/152; full `./yo-cli test` 2606/2606; corpus 83/83.
+
+yo-self (commit `2a7cdee3f`): `impl.yo` tags trait-impl methods (`impl(T, Trait(...))`,
+`current_trait_ty` Some) with their trait id as `source_trait_id` (was `""` — they were
+indistinguishable from inherent methods); `env.yo`
+`get_receiver_methods_by_name_from_env` drops trait-sourced candidates when an inherent
+(`source_trait_id == ""`) candidate for the name exists. Validated: `check ./std`
+152/152, corpus 83/83, and the `Foo.m` repro no longer dispatches to the trait
+(`f.m(true)` resolves to the inherent and is rejected — yo-self emits a "Failed to
+transpile" marker where TS reports a clean error, a pre-existing def-eval-wall
+error-reporting limitation, not a resolution difference).
+
+The §4 std cluster migration (the six String pattern methods → generic over `Pattern`)
+is also done + validated on both compilers.
 
 ## The bug
 

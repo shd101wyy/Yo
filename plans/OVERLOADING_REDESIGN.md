@@ -289,9 +289,12 @@ and Yo already has the specialization machinery for it. Confirm it in the Phase-
    (inherent-first error + §4 where-bound error both reported); `check ./std` 152/152; full
    `./yo-cli test` 2606/2606 — the one affected test (`impl.test.yo`'s former
    "delegating-to-inherent-overload" case) was updated to assert the inherent-first error,
-   as it encoded exactly the removed overload behavior. REMAINING: port to yo-self
-   (`env.yo:2378` + the registration `source_trait_id` distinction — see
-   `issues/yo-inherent-first-resolution.md`) and revalidate corpus/fixpoint (step 4).
+   as it encoded exactly the removed overload behavior. **✅ ALSO ported to yo-self**
+   (commit `2a7cdee3f`): `impl.yo` tags trait-impl methods with their trait id;
+   `env.yo` `get_receiver_methods_by_name_from_env` drops trait candidates when an
+   inherent one exists. yo-self `check ./std` 152/152, corpus 83/83; the repro resolves
+   inherent-first (yo-self emits a "Failed to transpile" marker where TS reports a clean
+   error — a pre-existing def-eval-wall limitation, not a resolution difference).
 4. **Verify both compilers resolve via generics, not overloading.** Call sites should
    need *no* overload resolution. Run the differential corpus + `check ./std`.
 5. **Delete the overload-resolution machinery** once std + tests are green on both
