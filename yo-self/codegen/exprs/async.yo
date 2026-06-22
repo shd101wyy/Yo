@@ -1526,7 +1526,8 @@ generate_async_block :: (fn(expr : AstExpr, indent : String, context : FunctionG
           context.base.get_expr_info(carg),
           .Some(cei) => match(
             cei.ty,
-            .Func({ param_labels : pls, param_types : pts }) => {
+            .Func({ param_types : pts, meta : __fm1 }) => {
+              pls := __fm1.*.param_labels;
               (i : usize) = usize(0);
               while(i < pts.len(), {
                 pt := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
@@ -1830,9 +1831,9 @@ _called_extern_name :: (fn(expr : AstExpr, context : FunctionGenerationContext) 
   ft := match(context.base.get_expr_info(func_expr),.Some(ei) => ei.ty,.None => return(Option(String).None));
   match(
     ft,
-    .Func({ is_extern : ie, extern_name : en }) => match(
-      ie,
-      .Some(lang) => if(lang == "yo", en, Option(String).None),
+    .Func({ meta : __fm2 }) => match(
+      __fm2.*.is_extern,
+      .Some(lang) => if(lang == "yo", __fm2.*.extern_name, Option(String).None),
       .None => Option(String).None
     ),
     _ => Option(String).None

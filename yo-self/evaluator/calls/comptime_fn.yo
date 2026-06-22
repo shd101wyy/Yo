@@ -416,12 +416,12 @@ evaluate_comptime_fn_call :: (
   // exponential in nested operator chains (std/glob.yo never finished).
   ctfe_gate_result_is_comptime := match(
     function_type,
-    .Func({ result_is_comptime_only : g_rico }) => g_rico,
+    .Func({ meta : __fm1 }) => __fm1.*.result_is_comptime_only,
     _ => false
   );
   ctfe_gate_forall_n := match(
     function_type,
-    .Func({ forall_labels : g_fls }) => g_fls.len(),
+    .Func({ meta : __fm2 }) => __fm2.*.forall_labels.len(),
     _ => usize(0)
   );
   if((
@@ -565,7 +565,7 @@ evaluate_comptime_fn_call :: (
   // catches comptime constructors whose return resolved to a concrete struct.
   func_result_is_comptime := match(
     function_type,
-    .Func({ result_is_comptime_only : rico }) => rico,
+    .Func({ meta : __fm3 }) => __fm3.*.result_is_comptime_only,
     _ => false
   );
   // A call whose arguments are ALL compile-time type VALUES is a

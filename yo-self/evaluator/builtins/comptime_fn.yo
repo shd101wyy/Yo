@@ -30,7 +30,7 @@ open(import("std/string"));
   FuncOrAsyncBlockKind
 } :: import("../context.yo");
 { EvalValue, is_func_val, create_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
@@ -285,13 +285,13 @@ evaluate_comptime_fn :: (
     return(expr);
   });
   // Extract TypeValue.Func fields.
-  forall_labels := match(func_type,.Func({ forall_labels : fl }) => fl, _ => ArrayList(String).new());
+  forall_labels := match(func_type,.Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
   forall_types := match(func_type,.Func({ forall_types : ft }) => ft, _ => ArrayList(TypeValue).new());
-  param_labels := match(func_type,.Func({ param_labels : pl }) => pl, _ => ArrayList(String).new());
+  param_labels := match(func_type,.Func({ meta : __fm2 }) => __fm2.*.param_labels, _ => ArrayList(String).new());
   param_types := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  implicit_labels := match(func_type,.Func({ implicit_labels : il }) => il, _ => ArrayList(String).new());
+  implicit_labels := match(func_type,.Func({ meta : __fm3 }) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
   implicit_types := match(func_type,.Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
-  implicit_spreads := match(func_type,.Func({ implicit_spreads : is }) => is, _ => ArrayList(bool).new());
+  implicit_spreads := match(func_type,.Func({ meta : __fm4 }) => __fm4.*.implicit_spreads, _ => ArrayList(bool).new());
   where_types := match(func_type,.Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
   result_box := match(func_type,.Func({ result : rb }) => rb, _ => box(t_unit()));
   // Skip functions with forall parameters — they need specialisation first.
@@ -359,29 +359,30 @@ evaluate_comptime_fn :: (
   );
   // Build the comptime TypeValue.Func (same as original but with comptime result).
   comptime_func_type := TypeValue.Func(
-    forall_labels,
     forall_types,
-    param_labels,
     param_types,
-    implicit_labels,
     implicit_types,
-    implicit_spreads,
     where_types,
     box(comptime_result_ty),
-    true,
-    // result_is_comptime_only — this builds the comptime-result form
-    ArrayList(bool).new(),
-    // param_is_ref
-    match(func_type,.Func({ param_is_owning : po }) => po, _ => ArrayList(bool).new()),
-    // param_is_owning — preserve the original's
-    false,
-    // result_is_ref
-    // has_variadic — preserve the original's flag.
-    match(func_type,.Func({ has_variadic : hv }) => hv, _ => false),
-    // is_extern / extern_name / is_control — preserve the original's metadata.
-    match(func_type,.Func({ is_extern : ie }) => ie, _ => Option(String).None),
-    match(func_type,.Func({ extern_name : en }) => en, _ => Option(String).None),
-    match(func_type,.Func({ is_control : ic }) => ic, _ => false)
+    box(
+      FuncMeta(
+        forall_labels : forall_labels,
+        param_labels : param_labels,
+        implicit_labels : implicit_labels,
+        implicit_spreads : implicit_spreads,
+        result_is_comptime_only : true,
+        // this builds the comptime-result form
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : match(func_type,.Func({ meta : m }) => m.*.param_is_owning, _ => ArrayList(bool).new()),
+        // preserve the original's
+        result_is_ref : false,
+        // has_variadic / is_extern / extern_name / is_control — preserve the original's metadata.
+        has_variadic : match(func_type,.Func({ meta : m }) => m.*.has_variadic, _ => false),
+        is_extern : match(func_type,.Func({ meta : m }) => m.*.is_extern, _ => Option(String).None),
+        extern_name : match(func_type,.Func({ meta : m }) => m.*.extern_name, _ => Option(String).None),
+        is_control : match(func_type,.Func({ meta : m }) => m.*.is_control, _ => false)
+      )
+    )
   );
   // Extract body_box and captures from the FuncVal.
   body_box := match(arg_val,.FuncVal(_, _, _, _, bb, _, _, _, _) => bb, _ => box(make_err_expr()));

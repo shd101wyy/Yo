@@ -938,7 +938,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
           // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
           // tracked in the g_extern_c_globals registry). Either way, keep the REAL
           // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-          is_extern_c_fn := match(variable.ty,.Func({ is_extern }) => match(is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
+          is_extern_c_fn := match(variable.ty,.Func({ meta : __fm1 }) => match(__fm1.*.is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
           is_extern_c_glob := is_extern_c_global(variable.name.clone());
           is_extern_c := ((is_extern_c_fn) || (is_extern_c_glob));
           var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);

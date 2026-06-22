@@ -42,7 +42,7 @@ open(import("std/string"));
   synthetic_token,
   clone_env
 } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { t_unit, t_type } :: import("../../types/creators.yo");
@@ -659,7 +659,8 @@ compute_compile_time_signature :: (
   // Forall type arguments — extract from forall_labels vs arg_values.forall_args
   match(
     func_type,
-    .Func({ forall_labels : fl }) => {
+    .Func({ meta : __fm1 }) => {
+      fl := __fm1.*.forall_labels;
       n_fl := fl.len();
       n_fa := arg_values.forall_args.len();
       (fpi : usize) = usize(0);
@@ -1137,40 +1138,18 @@ create_specialized_function_inline :: (
           fb_func_type := match(
             func_type,
             .Func({
-              forall_labels : ft_fl,
               forall_types : ft_ft,
-              param_labels : ft_pl,
               param_types : ft_pt,
-              implicit_labels : ft_il,
               implicit_types : ft_it,
-              implicit_spreads : ft_isp,
               where_types : ft_wt,
-              result_is_comptime_only : ft_rico,
-              param_is_ref : ft_pir,
-              param_is_owning : ft_pio,
-              result_is_ref : ft_rir,
-              has_variadic : ft_hv,
-              is_extern : ft_ie,
-              extern_name : ft_en,
-              is_control : ft_ic
+              meta : ft_meta
             }) => TypeValue.Func(
-              ft_fl,
               ft_ft,
-              ft_pl,
               ft_pt,
-              ft_il,
               ft_it,
-              ft_isp,
               ft_wt,
               box(spec_ret_ty.clone()),
-              ft_rico,
-              ft_pir,
-              ft_pio,
-              ft_rir,
-              ft_hv,
-              ft_ie,
-              ft_en,
-              ft_ic
+              ft_meta
             ),
             _ => func_type
           );
@@ -1313,7 +1292,7 @@ create_specialized_function_inline :: (
           // handle) and failed to transpile. Scoped to specialization, so the hot
           // normal-call binding path is untouched; non-specialized bodies already
           // get is_ref from the def-time eval. Variable is an object (mutable).
-          spec_param_is_ref := match(func_type,.Func({ param_is_ref : spir }) => spir, _ => ArrayList(bool).new());
+          spec_param_is_ref := match(func_type,.Func({ meta : __fm2 }) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
           (mref_i : usize) = usize(0);
           while(mref_i < params.len(), {
             is_ref_param := match(spec_param_is_ref.get(mref_i),.Some(b) => b,.None => false);
@@ -1425,11 +1404,12 @@ create_specialized_function_inline :: (
           });
           // Add compile-time args as additional captures (forall type bindings)
           (fai2 : usize) = usize(0);
-          n_fl := match(func_type,.Func({ forall_labels : fl }) => fl.len(), _ => usize(0));
+          n_fl := match(func_type,.Func({ meta : __fm3 }) => __fm3.*.forall_labels.len(), _ => usize(0));
           while(fai2 < n_fl, {
             label := match(
               func_type,
-              .Func({ forall_labels : fl }) => {
+              .Func({ meta : __fm4 }) => {
+                fl := __fm4.*.forall_labels;
                 r := match(fl.get(fai2),.Some(s) => s,.None => String.new());
                 r
               },
@@ -1480,21 +1460,22 @@ create_specialized_function_inline :: (
           match(
             func_type,
             .Func({
-              param_labels : sp_pl,
-              implicit_labels : sp_il,
               implicit_types : sp_it,
-              implicit_spreads : sp_isp,
               where_types : sp_wt,
               result : sp_res_b,
-              result_is_comptime_only : sp_rico,
-              param_is_ref : sp_pir,
-              param_is_owning : sp_pio,
-              result_is_ref : sp_rir,
-              has_variadic : sp_hv,
-              is_extern : sp_ie,
-              extern_name : sp_en,
-              is_control : sp_ic
+              meta : __fm5
             }) => {
+              sp_pl := __fm5.*.param_labels;
+              sp_il := __fm5.*.implicit_labels;
+              sp_isp := __fm5.*.implicit_spreads;
+              sp_rico := __fm5.*.result_is_comptime_only;
+              sp_pir := __fm5.*.param_is_ref;
+              sp_pio := __fm5.*.param_is_owning;
+              sp_rir := __fm5.*.result_is_ref;
+              sp_hv := __fm5.*.has_variadic;
+              sp_ie := __fm5.*.is_extern;
+              sp_en := __fm5.*.extern_name;
+              sp_ic := __fm5.*.is_control;
               spec_param_types := ArrayList(TypeValue).new();
               (spi : usize) = usize(0);
               while(spi < runtime_param_tys.len(), {
@@ -1506,23 +1487,27 @@ create_specialized_function_inline :: (
               });
               spec_result := evaluate_function_return_type_again(sp_res_b.*, callee_env, ctx);
               spec_type := TypeValue.Func(
-                ArrayList(String).new(),
                 ArrayList(TypeValue).new(),
-                sp_pl,
                 spec_param_types,
-                sp_il,
                 sp_it,
-                sp_isp,
                 sp_wt,
                 box(spec_result),
-                sp_rico,
-                sp_pir,
-                sp_pio,
-                sp_rir,
-                sp_hv,
-                sp_ie,
-                sp_en,
-                sp_ic
+                box(
+                  FuncMeta(
+                    forall_labels : ArrayList(String).new(),
+                    param_labels : sp_pl,
+                    implicit_labels : sp_il,
+                    implicit_spreads : sp_isp,
+                    result_is_comptime_only : sp_rico,
+                    param_is_ref : sp_pir,
+                    param_is_owning : sp_pio,
+                    result_is_ref : sp_rir,
+                    has_variadic : sp_hv,
+                    is_extern : sp_ie,
+                    extern_name : sp_en,
+                    is_control : sp_ic
+                  )
+                )
               );
               register_func_type(specialized_func_id.clone(), spec_type);
             },
@@ -1717,7 +1702,7 @@ evaluate_ctl_function_body_inline :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     func_type,
-    .Func({ forall_labels : fl }) => fl,
+    .Func({ meta : __fm6 }) => __fm6.*.forall_labels,
     _ => ArrayList(String).new()
   );
   forall_types_list := match(
@@ -2004,7 +1989,7 @@ resolve_param_types_from_expected :: (
   ) -> unit
 )({
   default_pts := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  forall_lbls := match(func_type,.Func({ forall_labels : fl }) => fl, _ => ArrayList(String).new());
+  forall_lbls := match(func_type,.Func({ meta : __fm7 }) => __fm7.*.forall_labels, _ => ArrayList(String).new());
   ret_b := match(func_type,.Func({ result : rb }) => rb, _ => box(t_unit()));
   if(forall_lbls.len() == usize(0), {
     return(());
@@ -2082,23 +2067,27 @@ try_to_call_function_with_arguments :: (
       .Some(ftt) => match(
         ftt,
         .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
-          ArrayList(String).new(),
           ArrayList(TypeValue).new(),
-          cpl,
           cpt,
-          ArrayList(String).new(),
           ArrayList(TypeValue).new(),
-          ArrayList(bool).new(),
           ArrayList(TypeValue).new(),
           cr_box,
-          false,
-          ArrayList(bool).new(),
-          ArrayList(bool).new(),
-          false,
-          false,
-          Option(String).None,
-          Option(String).None,
-          false
+          box(
+            FuncMeta(
+              forall_labels : ArrayList(String).new(),
+              param_labels : cpl,
+              implicit_labels : ArrayList(String).new(),
+              implicit_spreads : ArrayList(bool).new(),
+              result_is_comptime_only : false,
+              param_is_ref : ArrayList(bool).new(),
+              param_is_owning : ArrayList(bool).new(),
+              result_is_ref : false,
+              has_variadic : false,
+              is_extern : Option(String).None,
+              extern_name : Option(String).None,
+              is_control : false
+            )
+          )
         ),
         _ => func_type
       ),
@@ -2107,7 +2096,12 @@ try_to_call_function_with_arguments :: (
   );
   match(
     norm_func_type,
-    .Func({ forall_labels : fl, forall_types : ft, param_labels : pl, param_types : pt, implicit_labels : il, implicit_types : it, implicit_spreads : ispr, where_types : wt, result : ret_b, has_variadic : fn_has_variadic }) => {
+    .Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b, meta : __fm8 }) => {
+      fl := __fm8.*.forall_labels;
+      pl := __fm8.*.param_labels;
+      il := __fm8.*.implicit_labels;
+      ispr := __fm8.*.implicit_spreads;
+      fn_has_variadic := __fm8.*.has_variadic;
       _ := ispr;
       _ := wt;
       // ----------------------------------------------------------------
@@ -2489,17 +2483,17 @@ try_to_call_function_with_arguments :: (
       // requireValidRefArgumentPlaces in tryToCallFunctionWithArguments.
       vrf_param_labels := match(
         func_type,
-        .Func({ param_labels : vrf_pl }) => vrf_pl,
+        .Func({ meta : __fm9 }) => __fm9.*.param_labels,
         _ => ArrayList(String).new()
       );
       vrf_param_is_ref := match(
         func_type,
-        .Func({ param_is_ref : vrf_pir }) => vrf_pir,
+        .Func({ meta : __fm10 }) => __fm10.*.param_is_ref,
         _ => ArrayList(bool).new()
       );
       vrf_param_is_owning := match(
         func_type,
-        .Func({ param_is_owning : vrf_pio }) => vrf_pio,
+        .Func({ meta : __fm11 }) => __fm11.*.param_is_owning,
         _ => ArrayList(bool).new()
       );
       require_ref_own_argument_exclusivity(

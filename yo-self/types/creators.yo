@@ -16,7 +16,7 @@
 //! TypeValue enum) and `creators.ts` (constructors).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, FuncMeta } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
@@ -90,30 +90,31 @@ t_func_simple :: (
   ) -> TypeValue
 )(
   .Func(
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    param_labels,
     param_types,
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    ArrayList(bool).new(),
     ArrayList(TypeValue).new(),
     box(result),
-    false,
-    // result_is_comptime_only — simple (runtime) function type
-    ArrayList(bool).new(),
-    // param_is_ref — no ref params in a synthesized type
-    ArrayList(bool).new(),
-    // param_is_owning — no own params in a synthesized type
-    false,
-    // result_is_ref
-    false,
-    // has_variadic
-    Option(String).None,
-    // is_extern — synthesized types are never FFI
-    Option(String).None,
-    // extern_name
-    false // is_control — synthesized `fn` type, not `ctl`
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        // simple (runtime) function type
+        param_is_ref : ArrayList(bool).new(),
+        // no ref params in a synthesized type
+        param_is_owning : ArrayList(bool).new(),
+        // no own params in a synthesized type
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        // synthesized types are never FFI
+        extern_name : Option(String).None,
+        is_control : false // synthesized `fn` type, not `ctl`
+      )
+    )
   )
 );
 /// Create a trait type with associated-type names and method/field lists.

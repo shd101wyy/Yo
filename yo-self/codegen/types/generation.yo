@@ -852,7 +852,8 @@ _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed :
     _p := processed.add(label.clone());
     match(
       field_ty,
-      .Func({ param_labels, param_types, result }) => {
+      .Func({ param_types, result, meta : __fm1 }) => {
+        param_labels := __fm1.*.param_labels;
         // Only methods whose first param is `self` go in the vtable.
         if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)),.Some(l) => (l == String.from("self")),.None => false), {
           ret_str := get_type_string(result.*, context);

@@ -45,7 +45,7 @@ open(import("std/string"));
   get_receiver_methods_by_name_from_env,
   get_type_trait_methods_by_name_from_env
 } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -1043,40 +1043,18 @@ _evaluate_funcval_runtime_call :: (
     spec_ty_fixed := match(
       base_spec_ty,
       .Func({
-        forall_labels : fx_fl,
         forall_types : fx_ft,
-        param_labels : fx_pl,
         param_types : fx_pt,
-        implicit_labels : fx_il,
         implicit_types : fx_it,
-        implicit_spreads : fx_isp,
         where_types : fx_wt,
-        result_is_comptime_only : fx_rico,
-        param_is_ref : fx_pir,
-        param_is_owning : fx_pio,
-        result_is_ref : fx_rir,
-        has_variadic : fx_hv,
-        is_extern : fx_ie,
-        extern_name : fx_en,
-        is_control : fx_ic
+        meta : fx_meta
       }) => TypeValue.Func(
-        fx_fl,
         fx_ft,
-        fx_pl,
         fx_pt,
-        fx_il,
         fx_it,
-        fx_isp,
         fx_wt,
         box(resolved_ret.clone()),
-        fx_rico,
-        fx_pir,
-        fx_pio,
-        fx_rir,
-        fx_hv,
-        fx_ie,
-        fx_en,
-        fx_ic
+        fx_meta
       ),
       _ => base_spec_ty
     );
@@ -1365,7 +1343,7 @@ evaluate_function_call :: (
         while((ocm_i < op_methods.len()) && op_comptime_m.is_none(), {
           match(
             op_methods.get(ocm_i),
-            .Some(ocm) => if(match(ocm.ty,.Func({ result_is_comptime_only : _r }) => _r, _ => false), {
+            .Some(ocm) => if(match(ocm.ty,.Func({ meta : __fm1 }) => __fm1.*.result_is_comptime_only, _ => false), {
               op_comptime_m = Option(MethodEntry).Some(ocm);
             }),
             .None => ()
@@ -1374,7 +1352,7 @@ evaluate_function_call :: (
         });
       };
       op_eff_m := match(op_comptime_m,.Some(m) => m,.None => first_m);
-      op_is_comptime := match(op_eff_m.ty,.Func({ result_is_comptime_only : _orico }) => _orico, _ => false);
+      op_is_comptime := match(op_eff_m.ty,.Func({ meta : __fm2 }) => __fm2.*.result_is_comptime_only, _ => false);
       // Only FOLD the operator at comptime when EVERY operand is a concrete
       // value (present and not an `UnknownVal`). With a runtime-unknown operand
       // (e.g. `idx < len` inside a runtime-return method body being evaluated at
@@ -1575,14 +1553,14 @@ evaluate_function_call :: (
   callee_ty_for_gate := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
   gate_is_extern_c := match(
     callee_ty_for_gate,
-    .Func({ is_extern : ie }) => match(ie,.Some(lang) => (lang == "c"),.None => false),
+    .Func({ meta : __fm3 }) => match(__fm3.*.is_extern,.Some(lang) => (lang == "c"),.None => false),
     _ => false
   );
   gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
   if((gate_is_extern_c && !(ctx.unsafe_context)) && !(gate_in_autogen), {
     callee_name := match(
       callee_ty_for_gate,
-      .Func({ extern_name : en }) => match(en,.Some(n) => n,.None => ast_expr_to_string(func_expr)),
+      .Func({ meta : __fm4 }) => match(__fm4.*.extern_name,.Some(n) => n,.None => ast_expr_to_string(func_expr)),
       _ => ast_expr_to_string(func_expr)
     );
     exn.throw(
@@ -2234,7 +2212,7 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            .Func({ param_labels : pl }) => pl,
+            .Func({ meta : __fm5 }) => __fm5.*.param_labels,
             _ => ArrayList(String).new()
           ),
           .None => ArrayList(String).new()
@@ -2243,7 +2221,7 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            .Func({ param_is_ref : pir }) => pir,
+            .Func({ meta : __fm6 }) => __fm6.*.param_is_ref,
             _ => ArrayList(bool).new()
           ),
           .None => ArrayList(bool).new()
@@ -2252,7 +2230,7 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            .Func({ param_is_owning : pio }) => pio,
+            .Func({ meta : __fm7 }) => __fm7.*.param_is_owning,
             _ => ArrayList(bool).new()
           ),
           .None => ArrayList(bool).new()
@@ -2682,7 +2660,7 @@ Fix: wrap the call:
         // otherwise wrongly take the non-memoized inline path.
         callee_result_is_comptime := match(
           callee_func_type_opt,
-          .Some(cft) => match(cft,.Func({ result_is_comptime_only : rico }) => rico, _ => false),
+          .Some(cft) => match(cft,.Func({ meta : __fm8 }) => __fm8.*.result_is_comptime_only, _ => false),
           .None => false
         );
         // A FuncVal call whose arguments are ALL compile-time type VALUES is a
@@ -3210,7 +3188,7 @@ Fix: wrap the call:
           // an UnknownVal (without executing) when any arg is unknown, so a
           // runtime receiver is handled safely.
           m_ret_ty := match(method_info.method_ty,.Func({ result : _mrb }) => _mrb.*, _ => t_unit());
-          m_is_comptime := match(method_info.method_ty,.Func({ result_is_comptime_only : _mrico }) => _mrico, _ => false);
+          m_is_comptime := match(method_info.method_ty,.Func({ meta : __fm9 }) => __fm9.*.result_is_comptime_only, _ => false);
           (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(m_ret_ty) || m_is_comptime, {
             m_self_ty_saved := ctx.self_type;
             match(

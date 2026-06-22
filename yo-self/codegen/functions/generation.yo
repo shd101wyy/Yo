@@ -133,7 +133,8 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
 _thunk_forward_args :: (fn(function_type : TypeValue) -> String)(
   match(
     function_type,
-    .Func({ param_labels, param_types }) => {
+    .Func({ param_types, meta : __fm1 }) => {
+      param_labels := __fm1.*.param_labels;
       out := String.from("");
       n := param_types.len();
       (i : usize) = usize(0);

@@ -26,7 +26,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../types/definitions.yo");
 { is_function_type, is_some_type, is_pointer_type, is_struct_type, is_extern_type_name } :: import("../types/guards.yo");
 {
   is_fn_trait_type,
@@ -558,30 +558,29 @@ type_implements_trait :: (
     fn_trait_call_ty := match(
       trait_type,
       .FnTraitT(_, param_labels, param_types, result, _, _, _) => TypeValue.Func(
-        ArrayList(String).new(),
         ArrayList(TypeValue).new(),
-        param_labels,
         param_types,
-        ArrayList(String).new(),
         ArrayList(TypeValue).new(),
-        ArrayList(bool).new(),
         ArrayList(TypeValue).new(),
         result,
-        false,
-        // result_is_comptime_only — Fn-trait call type (runtime)
-        ArrayList(bool).new(),
-        // param_is_ref
-        ArrayList(bool).new(),
-        // param_is_owning
-        false,
-        // result_is_ref
-        false,
-        // has_variadic
-        Option(String).None,
-        // is_extern — Fn-trait call type is not FFI
-        Option(String).None,
-        // extern_name
-        false // is_control — Fn-trait call type is `fn`, not `ctl`
+        box(
+          FuncMeta(
+            forall_labels : ArrayList(String).new(),
+            param_labels : param_labels,
+            implicit_labels : ArrayList(String).new(),
+            implicit_spreads : ArrayList(bool).new(),
+            result_is_comptime_only : false,
+            // Fn-trait call type (runtime)
+            param_is_ref : ArrayList(bool).new(),
+            param_is_owning : ArrayList(bool).new(),
+            result_is_ref : false,
+            has_variadic : false,
+            is_extern : Option(String).None,
+            // Fn-trait call type is not FFI
+            extern_name : Option(String).None,
+            is_control : false // Fn-trait call type is `fn`, not `ctl`
+          )
+        )
       ),
       _ => {
         return(TraitCheckResult(implemented : false, env : env));
@@ -1360,7 +1359,8 @@ type_contains_some_type_for_codegen_param :: (
       });
       found
     },
-    .Func({ forall_labels : forall_labels, param_types : param_types, result : result_box }) => {
+    .Func({ param_types : param_types, result : result_box, meta : __fm1 }) => {
+      forall_labels := __fm1.*.forall_labels;
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !(found), {

@@ -236,7 +236,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
   value_type := ei.ty;
   is_unit := is_unit_type(value_type);
   temp_var_opt := ei.variable_name;
-  ret_is_ref := match(context.current_function_type,.Some(t) => match(t,.Func({ result_is_ref : r }) => r, _ => false),.None => false);
+  ret_is_ref := match(context.current_function_type,.Some(t) => match(t,.Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false),.None => false);
   cond_outer_is_ptr := (ret_is_ref && is_pointer_type(value_type));
   em := context.base.emitter;
   args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());

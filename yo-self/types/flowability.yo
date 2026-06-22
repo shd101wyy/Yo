@@ -441,7 +441,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     return(false);
   });
   // Extract the Func's return/ref/param info.
-  is_ref_return := match(callee_ty,.Func({ result_is_ref : r }) => r, _ => false);
+  is_ref_return := match(callee_ty,.Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false);
   ret_ty := match(callee_ty,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit);
   _slice_pre := (opts.allow_parameter_source && !(is_ref_return));
   is_slice_return := (_slice_pre && type_representation_contains_raw_ptr(ret_ty));
@@ -449,7 +449,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     return(false);
   });
   param_types := match(callee_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(callee_ty,.Func({ param_is_ref : pir }) => pir, _ => ArrayList(bool).new());
+  param_is_ref := match(callee_ty,.Func({ meta : __fm2 }) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {

@@ -67,7 +67,8 @@ resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue,
   var_name := ast_expr_token(value_arg).value;
   match(
     ft,
-    .Func({ param_labels : pls, param_types : pts }) => {
+    .Func({ param_types : pts, meta : __fm1 }) => {
+      pls := __fm1.*.param_labels;
       n := pls.len();
       (i : usize) = usize(0);
       while(i < n, {

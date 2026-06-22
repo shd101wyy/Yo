@@ -56,7 +56,7 @@ _call_find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContex
 );
 /// True if `t` is an extern function type (any language).
 _type_is_extern :: (fn(t : TypeValue) -> bool)(
-  match(t,.Func({ is_extern }) => is_extern.is_some(), _ => false)
+  match(t,.Func({ meta : __fm1 }) => __fm1.*.is_extern.is_some(), _ => false)
 );
 /// Whether an expression's evaluated value is an UnknownValue (not fully
 /// evaluated), recursing through calls / macro expansions / deferred drops.
@@ -255,7 +255,7 @@ _any_expr_param :: (fn(tys : ArrayList(TypeValue)) -> bool)({
 _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)(
   match(
     get_func_type(_func_val_id(v)),
-    .Func({ forall_labels, param_types }) => ((forall_labels.len() > usize(0)) || _any_expr_param(param_types)),
+    .Func({ param_types, meta : __fm2 }) => ((__fm2.*.forall_labels.len() > usize(0)) || _any_expr_param(param_types)),
     _ => false
   )
 );
@@ -512,7 +512,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
       match(
         expr_info_table_get(info, ast_expr_id(callee)),
         .Some(cei) => if(is_function_type(cei.ty), {
-          is_comptime_only := match(cei.ty,.Func({ result_is_comptime_only }) => result_is_comptime_only, _ => false);
+          is_comptime_only := match(cei.ty,.Func({ meta : __fm3 }) => __fm3.*.result_is_comptime_only, _ => false);
           match(
             cei.value,
             .Some(fv) => cond(
@@ -536,13 +536,13 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
             // No callee value → extern "c"/"yo": register as an extern function.
             .None => match(
               cei.ty,
-              .Func({ is_extern, extern_name }) => match(
-                is_extern,
+              .Func({ meta : __fm4 }) => match(
+                __fm4.*.is_extern,
                 .Some(lang) => {
-                  is_internal := match(extern_name,.Some(en) => en.clone().starts_with(String.from("__yo_")),.None => false);
+                  is_internal := match(__fm4.*.extern_name,.Some(en) => en.clone().starts_with(String.from("__yo_")),.None => false);
                   if((lang == "c") || (!(is_internal)), {
                     c_name := match(
-                      extern_name,
+                      __fm4.*.extern_name,
                       .Some(en) => if(lang == "c", en.clone(), sanitize_for_c_identifier(en.clone(), false)),
                       .None => {
                         tok := _callee_token_value(expr);
@@ -586,8 +586,8 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         v_is_control := (
           is_control_fn(_func_val_id(v)) ||
             (
-              match(get_func_type(_func_val_id(v)),.Func({ is_control : c }) => c, _ => false) ||
-                match(ei.ty,.Func({ is_control : c }) => c, _ => false)
+              match(get_func_type(_func_val_id(v)),.Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
+                match(ei.ty,.Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
             )
         );
         cond(

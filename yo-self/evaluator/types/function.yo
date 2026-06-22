@@ -38,7 +38,7 @@ open(import("std/fmt"));
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -1087,7 +1087,7 @@ evaluate_function_parameter :: (
   if(!(is_compile_time_only) && is_function_type(final_param_type), {
     has_forall := match(
       final_param_type,
-      .Func({ forall_labels }) => (forall_labels.len() > usize(0)),
+      .Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -1329,7 +1329,7 @@ use_id :: (fn(forall(T : Type),
                   if(
                     match(
                       final_param_type,
-                      .Func({ result, result_is_comptime_only }) => (result_is_comptime_only && is_type_0(result.*)),
+                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(result.*)),
                       _ => false
                     ),
                     Option(EvalValue).Some(create_type_value(t_some_t_with_kind(label_str, param_frame_level, final_param_type))),
@@ -3687,33 +3687,37 @@ evaluate_function_type :: (
     wci = (wci + usize(1));
   });
   func_type := TypeValue.Func(
-    forall_labels,
     forall_types,
-    param_labels,
     param_types,
-    implicit_labels,
     implicit_types,
-    implicit_spreads,
     where_types,
     Box(TypeValue)(return_type),
-    // result_is_comptime_only — mirrors TS `return.isCompileTimeOnly`,
-    // set from the `comptime(...)` wrapper on the declared return.
-    is_return_comptime_only,
-    // param_is_ref / param_is_owning / result_is_ref — mirrors TS
-    // `FunctionParameter.isRef`, `isOwningTheRcValue`, and `return.isRef`.
-    param_is_ref,
-    param_is_owning,
-    is_return_type_ref,
-    // has_variadic — mirrors TS `FunctionType.variadicParameter` presence,
-    // set from the trailing `...` marker (C-style variadic externs).
-    params_result.has_variadic,
-    // is_extern / extern_name — None here; a bare `fn(...)` type carries no
-    // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
-    // type with `Some(language)`/`Some(label)` (mirrors extern.ts:138-161).
-    Option(String).None,
-    Option(String).None,
-    // is_control — true when the head was `ctl(...)` (mirrors isControl).
-    is_ctl_fn_type
+    box(
+      FuncMeta(
+        forall_labels : forall_labels,
+        param_labels : param_labels,
+        implicit_labels : implicit_labels,
+        implicit_spreads : implicit_spreads,
+        // result_is_comptime_only — mirrors TS `return.isCompileTimeOnly`,
+        // set from the `comptime(...)` wrapper on the declared return.
+        result_is_comptime_only : is_return_comptime_only,
+        // param_is_ref / param_is_owning / result_is_ref — mirrors TS
+        // `FunctionParameter.isRef`, `isOwningTheRcValue`, and `return.isRef`.
+        param_is_ref : param_is_ref,
+        param_is_owning : param_is_owning,
+        result_is_ref : is_return_type_ref,
+        // has_variadic — mirrors TS `FunctionType.variadicParameter` presence,
+        // set from the trailing `...` marker (C-style variadic externs).
+        has_variadic : params_result.has_variadic,
+        // is_extern / extern_name — None here; a bare `fn(...)` type carries no
+        // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
+        // type with `Some(language)`/`Some(label)` (mirrors extern.ts:138-161).
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        // is_control — true when the head was `ctl(...)` (mirrors isControl).
+        is_control : is_ctl_fn_type
+      )
+    )
   );
   // Set expr info on the expr
   out_info := new_expr_info(env_mut, type_of_type(func_type));

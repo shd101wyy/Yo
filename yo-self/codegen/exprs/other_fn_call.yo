@@ -20,7 +20,7 @@ open(import("std/string"));
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member } :: import("../../function_value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_object_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { type_is_control_bound } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
@@ -313,7 +313,7 @@ _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, co
 /// Whether the current function is a method of an RC-managed object type
 /// (`self` parameter of object type). Mirrors `isInsideObjectMethod`.
 _is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
-  match(context.current_function_type,.Some(ft) => match(ft,.Func({ param_labels : pls, param_types : pts }) => if(pls.len() == usize(0), false, match(pls.get(usize(0)),.Some(l) => if(l == String.from("self"), match(pts.get(usize(0)),.Some(t) => is_object_type(t),.None => false), false),.None => false)), _ => false),.None => false)
+  match(context.current_function_type,.Some(ft) => match(ft,.Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)),.Some(l) => if(l == String.from("self"), match(pts.get(usize(0)),.Some(t) => is_object_type(t),.None => false), false),.None => false)), _ => false),.None => false)
 );
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
@@ -672,7 +672,7 @@ _func_val_id :: (fn(v : EvalValue) -> String)(match(v,.FuncVal(_, _, _, _, _, _,
 _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeValue, param_types : ArrayList(TypeValue), context : FunctionGenerationContext) -> bool)({
   fid_is_control := match(func_ei_value,.Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)), false),.None => false);
   fid_is_effect_member := match(func_ei_value,.Some(v) => if(is_func_val(v), is_effect_record_member(_func_val_id(v)), false),.None => false);
-  ft_is_control := match(function_type,.Func({ is_control : c }) => c, _ => false);
+  ft_is_control := match(function_type,.Func({ meta : __fm2 }) => __fm2.*.is_control, _ => false);
   body_has_effects := match(
     func_ei_value,
     .Some(v) => match(v,.FuncVal(_, _, _, _, b, _, _, _, _) => match(context.base.get_expr_info(b.*),.Some(bei) => match(bei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
@@ -976,7 +976,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               // `(*((*self).row))` and failed to compile. Mirrors the param.isRef
               // `&` in the main arg loop (other-fn-call.ts).
               m_fid_amp := match(mfv,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""));
-              m_pir := match(get_func_type(m_fid_amp),.Func({ param_is_ref : pr }) => pr, _ => ArrayList(bool).new());
+              m_pir := match(get_func_type(m_fid_amp),.Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
               inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
               return(Option(String).Some(generate_yo_inline_function_call(op, inline_args_amped, expr, context, indent.clone())));
             },
@@ -997,7 +997,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               method_fv,
               .Some(mfv2) => match(
                 get_func_type(match(mfv2,.FuncVal(_, _, _, _, _, _, _, _, f) => f, _ => String.from(""))),
-                .Func({ param_is_ref : pir }) => pir,
+                .Func({ meta : __fm4 }) => __fm4.*.param_is_ref,
                 _ => ArrayList(bool).new()
               ),
               .None => ArrayList(bool).new()
@@ -1064,23 +1064,27 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       .Some(ftt) => match(
         ftt,
         .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
-          ArrayList(String).new(),
           ArrayList(TypeValue).new(),
-          cpl,
           cpt,
-          ArrayList(String).new(),
           ArrayList(TypeValue).new(),
-          ArrayList(bool).new(),
           ArrayList(TypeValue).new(),
           cr_box,
-          false,
-          ArrayList(bool).new(),
-          ArrayList(bool).new(),
-          false,
-          false,
-          Option(String).None,
-          Option(String).None,
-          false
+          box(
+            FuncMeta(
+              forall_labels : ArrayList(String).new(),
+              param_labels : cpl,
+              implicit_labels : ArrayList(String).new(),
+              implicit_spreads : ArrayList(bool).new(),
+              result_is_comptime_only : false,
+              param_is_ref : ArrayList(bool).new(),
+              param_is_owning : ArrayList(bool).new(),
+              result_is_ref : false,
+              has_variadic : false,
+              is_extern : Option(String).None,
+              extern_name : Option(String).None,
+              is_control : false
+            )
+          )
         ),
         _ => func_ei.ty
       ),
@@ -1226,7 +1230,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   });
   runtime_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => return(Option(String).None));
   param_types := match(function_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(function_type,.Func({ param_is_ref : pr }) => pr, _ => ArrayList(bool).new());
+  param_is_ref := match(function_type,.Func({ meta : __fm5 }) => __fm5.*.param_is_ref, _ => ArrayList(bool).new());
   // Materialize args, then auto-`&` ref params.
   args := ArrayList(String).new();
   na := runtime_args.len();
@@ -1250,7 +1254,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // match to a `:=` temp made codegen emit an illegal `void temp = ;`.)
   match(
     function_type,
-    .Func({ is_extern : ie, extern_name : en, result : r }) => {
+    .Func({ result : r, meta : __fm6 }) => {
+      ie := __fm6.*.is_extern;
+      en := __fm6.*.extern_name;
       // extern "yo" AND extern "c" both lower to a direct `<extern_name>(<args>)`
       // C call (no per-arg cast). For extern "c" the symbol is a C library
       // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the

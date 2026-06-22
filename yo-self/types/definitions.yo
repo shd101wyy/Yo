@@ -22,6 +22,59 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+/// Non-recursive ("meta") fields of a function type, factored out of the
+/// `TypeValue.Func` variant and stored behind a `Box` (P2 memory: the inline
+/// Func variant set `sizeof(TypeValue)` to ~150 B — wasted in every small-type
+/// inline copy across millions of `Variable.ty` / `ExprInfo` fields). These
+/// fields reference only `String`/`bool`/`Option(String)` — NOT `Self` — so the
+/// struct can be defined BEFORE `TypeValue` without the forward-reference dance
+/// (see the parallel-array note above). The Self-typed Func fields
+/// (`*_types`/`result`) stay inline on the variant.
+FuncMeta :: struct(
+  forall_labels : ArrayList(String),
+  // forall type-var names (parallel to Func.forall_types)
+  param_labels : ArrayList(String),
+  // normal parameter labels (parallel to Func.param_types)
+  implicit_labels : ArrayList(String),
+  // implicit (`using`) parameter labels (parallel to Func.implicit_types)
+  implicit_spreads : ArrayList(bool),
+  // isEffectRowSpread flags
+  /// Mirrors `FunctionType.return.isCompileTimeOnly` (src/types/definitions.ts):
+  /// true when the declared return is `comptime(...)`. `helper.ts:1731` gates
+  /// CTFE on this; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
+  /// `should_cache` use it to route type-constructor calls through memoization.
+  result_is_comptime_only : bool,
+  /// Per-parameter `ref` flags (parallel to param labels/types). `ref(name):T`
+  /// = by-reference borrow. Mirrors `FunctionParameter.isRef`. Used by
+  /// `is_flowable_expr` (the `ref(T)`-flow soundness check).
+  param_is_ref : ArrayList(bool),
+  /// Per-parameter `own` flags. `own(name):T` = callee takes ownership of the
+  /// Rc value. Mirrors `FunctionParameter.isOwningTheRcValue`. Used by
+  /// `require_ref_own_argument_exclusivity`.
+  param_is_owning : ArrayList(bool),
+  /// True when the return was declared `-> ref(T)`. Mirrors
+  /// `FunctionType.return.isRef`. `is_flowable_expr` requires a flowable return.
+  result_is_ref : bool,
+  /// True when the param list ends with a `...` variadic marker (C-style
+  /// variadic externs). Mirrors `FunctionType.variadicParameter` presence; the
+  /// call-site arg-count check is skipped when set (helper.ts:965).
+  has_variadic : bool,
+  /// FFI language tag (`extern "c"`/`"yo"` / `c_include`). `Some("c")` etc. for
+  /// FFI symbols, `None` for ordinary Yo functions. Mirrors
+  /// `FunctionType.isExtern`. Read by the extern-call `unsafe(...)` gate in
+  /// `calls/function.yo` (a call to an `is_extern == Some("c")` function outside
+  /// `unsafe(...)`/an auto-generated expansion is rejected).
+  is_extern : Option(String),
+  /// The FFI symbol name to bind, when known (mirrors `FunctionType.externName`).
+  /// Used only for the gate's diagnostic message.
+  extern_name : Option(String),
+  /// True for a `ctl(...) -> ret` control-function type. Mirrors
+  /// `FunctionType.isControl`. A `ctl` value is FRAME-BOUND (its body may
+  /// `unwind` out of the enclosing install frame) so it must not escape. Read
+  /// by `type_is_control_bound` + the §4 escape-boundary checks.
+  is_control : bool
+);
+derive(FuncMeta, Clone);
 /// The Yo type universe.
 TypeValue :: enum(
   // Primitive value types ---------------------------------------------------
@@ -73,91 +126,18 @@ TypeValue :: enum(
   Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
   /// Function type. Phase 2b: forall type-vars, implicit (using) params,
   /// effect-row-spread flags, and where-clause constraint types.
+  /// Self-typed (recursive) fields stay inline; the non-recursive metadata
+  /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
+  /// (`Box(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
+  /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
+  /// parallel to the label arrays in `meta`; `result` is the return type.
   Func(
-    forall_labels : ArrayList(String),
-    // forall type-var names
     forall_types : ArrayList(Self),
-    // forall type-var kinds (usually TypeUni)
-    param_labels : ArrayList(String),
-    // normal parameter labels
     param_types : ArrayList(Self),
-    // normal parameter types
-    implicit_labels : ArrayList(String),
-    // ... parameter labels
     implicit_types : ArrayList(Self),
-    // ... parameter types
-    implicit_spreads : ArrayList(bool),
-    // isEffectRowSpread flags
     where_types : ArrayList(Self),
-    // where-clause constraint types
     result : Box(Self),
-    // return type
-    /// Mirrors `FunctionType.return.isCompileTimeOnly` in
-    /// `src/types/definitions.ts` (TS models the return as a
-    /// `FunctionParameter { type, isCompileTimeOnly, … }`; yo-self flattened
-    /// that to a bare `result`, so this restores the one bit the CTFE gate
-    /// needs). True when the declared return is `comptime(...)` — i.e. the
-    /// function is a compile-time-only function (a type constructor, macro,
-    /// or comptime-value producer). `helper.ts:1731` gates CTFE on this; the
-    /// FuncVal-call delegation + `evaluate_comptime_fn_call`'s `should_cache`
-    /// use it so type-constructor calls whose return RESOLVED to a concrete
-    /// struct (not bare `Type`) are still routed through memoization.
-    result_is_comptime_only : bool,
-    /// Per-parameter `ref` flags, parallel to `param_labels`/`param_types`.
-    /// `param_is_ref(i)` is true when the i-th parameter was declared
-    /// `ref(name) : T` (a by-reference borrow). Mirrors
-    /// `FunctionParameter.isRef` in `src/types/definitions.ts` (yo-self
-    /// flattened FunctionParameter to parallel arrays, so this restores the
-    /// `isRef` bit). Used by `is_flowable_expr` (the `ref(T)`-flow soundness
-    /// check). Empty/all-false for functions with no `ref` parameters.
-    param_is_ref : ArrayList(bool),
-    /// Per-parameter `own` flags, parallel to param_labels/param_types.
-    /// `param_is_owning(i)` is true when the i-th parameter was declared
-    /// `own(name) : T` (the callee takes ownership of the Rc value). Mirrors
-    /// `FunctionParameter.isOwningTheRcValue`. Used by
-    /// `require_ref_own_argument_exclusivity` to reject calls that pass the
-    /// same object as both a ref-rooted and an own argument.
-    param_is_owning : ArrayList(bool),
-    /// True when the return type was declared `-> ref(T)` (a by-reference
-    /// return borrow). Mirrors `FunctionType.return.isRef`. Used by
-    /// `is_flowable_expr` to require the return expression be flowable.
-    result_is_ref : bool,
-    /// True when the parameter list ends with a `...` variadic marker
-    /// (C-style variadic externs like `snprintf`). Mirrors
-    /// `FunctionType.variadicParameter` in `src/types/definitions.ts`
-    /// (yo-self restores just the presence bit; the variadic parameter's
-    /// optional type annotation is not yet carried). The call-site
-    /// argument-count check is skipped when set (TS helper.ts:965
-    /// `if (!functionType.variadicParameter)`).
-    has_variadic : bool,
-    /// FFI language tag when this function was declared inside an
-    /// `extern "c"`/`extern "yo"` block or a `c_include(...)` (mirrors
-    /// `FunctionType.isExtern: ExternLanguage` in `src/types/definitions.ts`).
-    /// `Some("c")`/`Some("yo")` for FFI symbols, `None` for ordinary Yo
-    /// functions. Set by `evaluate_extern`/`evaluate_c_include` on the field
-    /// type (mirrors `extern.ts:138-161`). Read by the extern-call
-    /// `unsafe(...)` gate in `calls/function.yo` (plans/EXTERN_UNSAFE_WRAP.md):
-    /// a call to an `is_extern == Some("c")` function outside `unsafe(...)`
-    /// and outside an auto-generated expansion is rejected. (The original
-    /// port dropped this as "codegen-only" — wrong: the gate lives in the
-    /// evaluator call path, not codegen.)
-    is_extern : Option(String),
-    /// The FFI symbol name to bind, when known (mirrors
-    /// `FunctionType.externName`). `Some(field.label)` for extern function
-    /// declarations, `None` otherwise. Used only for the gate's diagnostic
-    /// message (the call-site falls back to the printed callee expression
-    /// when this is `None`).
-    extern_name : Option(String),
-    /// True when this is a `ctl(...) -> ret` control-function type (declared
-    /// with the `ctl` constructor instead of `fn`). Mirrors
-    /// `FunctionType.isControl` in `src/types/definitions.ts`. A `ctl` value
-    /// is FRAME-BOUND — its body may `unwind` out of the enclosing install
-    /// frame — so it must not escape (be stored at module level, captured by a
-    /// closure, or have a pointer formed to it). Read by `type_is_control_bound`
-    /// (types/utils.yo) and the §4 escape-boundary checks (the algebraic-effect
-    /// ctl rules). A plain `fn(...)` whose params/return merely reference `ctl`
-    /// is NOT control-bound — only the `ctl` value itself carries the CF.
-    is_control : bool
+    meta : Box(FuncMeta)
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition (mirrors `StructType.id`
@@ -380,7 +360,7 @@ impl(
         .Pointer(inner) => TypeValue.Pointer(inner.clone()),
         .Array(el, len, lvar) => TypeValue.Array(el.clone(), len, lvar.clone()),
         .Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone()),
-        .Func({ forall_labels : fls, forall_types : fts, param_labels : pls, param_types : pts, implicit_labels : ils, implicit_types : its, implicit_spreads : isp, where_types : wts, result : ret, result_is_comptime_only : rico, param_is_ref : pir, param_is_owning : pio, result_is_ref : rir, has_variadic : hv, is_extern : ie, extern_name : en, is_control : ic }) => TypeValue.Func(fls.clone(), fts.clone(), pls.clone(), pts.clone(), ils.clone(), its.clone(), isp.clone(), wts.clone(), ret.clone(), rico, pir.clone(), pio.clone(), rir, hv, ie.clone(), en.clone(), ic),
+        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : m }) => TypeValue.Func(fts.clone(), pts.clone(), its.clone(), wts.clone(), ret.clone(), box(m.*.clone())),
         // SHARE (RC-bump) `field_types` + `type_arguments` — the recursive
         // nested-type collections — instead of deep-cloning. (See the rationale
         // on the impl above; `ArrayList` is RC, so sharing is a refcount bump and
@@ -442,4 +422,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, FuncMeta, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

@@ -174,7 +174,13 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < fields.len()) && !(found), {
-        match(fields.get(i),.Some(f) => if(recur(f), { found = true; }),.None => ());
+        match(
+          fields.get(i),
+          .Some(f) => if(recur(f), {
+            found = true;
+          }),
+          .None => ()
+        );
         i = (i + usize(1));
       });
       found
@@ -183,7 +189,13 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < field_values.len()) && !(found), {
-        match(field_values.get(i),.Some(f) => if(recur(f), { found = true; }),.None => ());
+        match(
+          field_values.get(i),
+          .Some(f) => if(recur(f), {
+            found = true;
+          }),
+          .None => ()
+        );
         i = (i + usize(1));
       });
       found
@@ -392,7 +404,8 @@ evaluate_begin_expression :: (
                 rfb_ctx.func_type,
                 .Some(rft) => match(
                   rft,
-                  .Func({ result : rfb, result_is_comptime_only : rfco }) => {
+                  .Func({ result : rfb, meta : __fm1 }) => {
+                    rfco := __fm1.*.result_is_comptime_only;
                     if((!(rfco) && type_representation_contains_raw_ptr(rfb.*))
                     && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone()))), {
                       ret_slice_opts := FlowOptions(

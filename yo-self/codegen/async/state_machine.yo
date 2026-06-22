@@ -1246,7 +1246,7 @@ emit_effect_injection_for_sm :: (
               elabel := match(eff_labels.get(i),.Some(l) => l,.None => String.from(""));
               etype := match(eff_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
               if(is_function_type(etype), {
-                has_forall := match(etype,.Func({ forall_labels : fl }) => (fl.len() > usize(0)), _ => false);
+                has_forall := match(etype,.Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
                 if(!(has_forall), {
                   match(
                     resolve_effect_field_from_sm_scope(elabel, context, await_expr),

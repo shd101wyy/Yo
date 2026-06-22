@@ -105,7 +105,7 @@ open(import("std/string"));
 _method_ty_skip_stamp :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .Func({ param_types : pts, result_is_comptime_only : rico }) => if(rico, true, {
+    .Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.result_is_comptime_only, true, {
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < pts.len()) && !(found), {
@@ -1226,9 +1226,9 @@ _try_create_forward_shell :: (
       // Func type + the UNEVALUATED body attached (TS shell carries
       // `body: bodyExpr`, impl.ts:560-569).
       body_e := match(val_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
-      sh_foralls := match(fn_ty,.Func({ forall_labels : fl }) => fl.clone(), _ => ArrayList(String).new());
-      sh_params := match(fn_ty,.Func({ param_labels : pl }) => pl.clone(), _ => ArrayList(String).new());
-      sh_implicits := match(fn_ty,.Func({ implicit_labels : il }) => il.clone(), _ => ArrayList(String).new());
+      sh_foralls := match(fn_ty,.Func({ meta : __fm2 }) => __fm2.*.forall_labels.clone(), _ => ArrayList(String).new());
+      sh_params := match(fn_ty,.Func({ meta : __fm3 }) => __fm3.*.param_labels.clone(), _ => ArrayList(String).new());
+      sh_implicits := match(fn_ty,.Func({ meta : __fm4 }) => __fm4.*.implicit_labels.clone(), _ => ArrayList(String).new());
       shell_fid := `fn_${random_id(env.module_path)}_${label}`;
       // Register the shell's func TYPE under its func_id. Codegen's
       // generate_function reads get_func_type(func_id) for the C signature; an

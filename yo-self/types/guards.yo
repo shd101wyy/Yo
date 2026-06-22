@@ -464,10 +464,10 @@ is_c_compatible_type :: (fn(t : TypeValue) -> bool)(
 is_function_type_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ forall_labels : fl, implicit_labels : il, param_types : pts }) =>
+    .Func({ param_types : pts, meta : __fm1 }) =>
       cond(
-        (fl.len() > usize(0)) => true,
-        (il.len() > usize(0)) => true,
+        (__fm1.*.forall_labels.len() > usize(0)) => true,
+        (__fm1.*.implicit_labels.len() > usize(0)) => true,
         // Partial: check if any param is SomeT (Phase 2b: exclude Future SomeType)
         true => {
           found := false;
@@ -507,9 +507,9 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
 is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ forall_labels : fl, param_types : pts }) =>
+    .Func({ param_types : pts, meta : __fm2 }) =>
       cond(
-        (fl.len() > usize(0)) => true,
+        (__fm2.*.forall_labels.len() > usize(0)) => true,
         // A SomeType param makes the unspecialized form hard-generic — UNLESS it
         // has a resolved concrete type, in which case codegen can lower it via the
         // concrete (e.g. a closure-typed param `cb : Impl(Fn(...))` resolved to its

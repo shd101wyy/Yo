@@ -413,7 +413,8 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
     .IsoT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
-    .Func({ forall_labels, param_types, implicit_types, result }) => {
+    .Func({ param_types, implicit_types, result, meta : __fm1 }) => {
+      forall_labels := __fm1.*.forall_labels;
       // A forall declared by this Func's OWN signature SHADOWS the
       // searched variable: occurrences inside its params/return are
       // bound (alpha-renameable), not free occurrences. TS gets this
@@ -1640,12 +1641,12 @@ _synthesize_types_impl :: (
     giv_fa := match(given_ty,.Func({ forall_types : fats }) => fats, _ => ArrayList(TypeValue).new());
     exp_pt := match(expected_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
     giv_pt := match(given_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-    exp_il := match(expected_ty,.Func({ implicit_labels : ils }) => ils, _ => ArrayList(String).new());
+    exp_il := match(expected_ty,.Func({ meta : __fm2 }) => __fm2.*.implicit_labels, _ => ArrayList(String).new());
     exp_it := match(expected_ty,.Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    exp_is := match(expected_ty,.Func({ implicit_spreads : iss }) => iss, _ => ArrayList(bool).new());
-    giv_il := match(given_ty,.Func({ implicit_labels : ils }) => ils, _ => ArrayList(String).new());
+    exp_is := match(expected_ty,.Func({ meta : __fm3 }) => __fm3.*.implicit_spreads, _ => ArrayList(bool).new());
+    giv_il := match(given_ty,.Func({ meta : __fm4 }) => __fm4.*.implicit_labels, _ => ArrayList(String).new());
     giv_it := match(given_ty,.Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    giv_is := match(given_ty,.Func({ implicit_spreads : iss }) => iss, _ => ArrayList(bool).new());
+    giv_is := match(given_ty,.Func({ meta : __fm5 }) => __fm5.*.implicit_spreads, _ => ArrayList(bool).new());
     exp_ret := match(expected_ty,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
     giv_ret := match(given_ty,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {

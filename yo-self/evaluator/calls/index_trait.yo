@@ -265,7 +265,8 @@ _find_index_method :: (
       .Some(m) => {
         match(
           m.method_type,
-          .Func({ param_types, result : result_box, param_is_ref }) => {
+          .Func({ param_types, result : result_box, meta : __fm1 }) => {
+            param_is_ref := __fm1.*.param_is_ref;
             if(param_types.len() == usize(2), {
               p0_opt := param_types.get(usize(0));
               p1_opt := param_types.get(usize(1));

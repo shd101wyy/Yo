@@ -52,7 +52,7 @@ open(import("std/string"));
   snapshot_env
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -231,36 +231,33 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
   match(
     ftt,
     .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
-      ArrayList(String).new(),
-      // no forall labels
       ArrayList(TypeValue).new(),
       // no forall types
-      cpl,
       cpt,
-      ArrayList(String).new(),
-      // no implicit labels
       ArrayList(TypeValue).new(),
       // no implicit types
-      ArrayList(bool).new(),
-      // no effect row spreads
       ArrayList(TypeValue).new(),
       // no where types
       cr_box,
-      false,
-      // result_is_comptime_only — Fn-trait-derived closure type (runtime)
-      ArrayList(bool).new(),
-      // param_is_ref
-      ArrayList(bool).new(),
-      // param_is_owning — no `own` params in Fn-trait closure type
-      false,
-      // result_is_ref
-      false,
-      // has_variadic
-      Option(String).None,
-      // is_extern — Fn-trait-derived closure type is not FFI
-      Option(String).None,
-      // extern_name
-      false // is_control — Fn-trait-derived closure type is `fn`, not `ctl`
+      box(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : cpl,
+          implicit_labels : ArrayList(String).new(),
+          implicit_spreads : ArrayList(bool).new(),
+          result_is_comptime_only : false,
+          // Fn-trait-derived closure type (runtime)
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          // no `own` params in Fn-trait closure type
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          // Fn-trait-derived closure type is not FFI
+          extern_name : Option(String).None,
+          is_control : false // Fn-trait-derived closure type is `fn`, not `ctl`
+        )
+      )
     ),
     _ => TypeValue.Unit
   )
@@ -503,12 +500,12 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     function_type,
-    .Func({ forall_labels : fl }) => fl,
+    .Func({ meta : __fm1 }) => __fm1.*.forall_labels,
     _ => ArrayList(String).new()
   );
   param_labels := match(
     function_type,
-    .Func({ param_labels : pl }) => pl,
+    .Func({ meta : __fm2 }) => __fm2.*.param_labels,
     _ => ArrayList(String).new()
   );
   param_types := match(
@@ -525,12 +522,12 @@ evaluate_anonymous_function_implementation :: (
   // (create_specialized_function_inline) body-eval paths.
   param_is_ref := match(
     function_type,
-    .Func({ param_is_ref : pir }) => pir,
+    .Func({ meta : __fm3 }) => __fm3.*.param_is_ref,
     _ => ArrayList(bool).new()
   );
   implicit_labels := match(
     function_type,
-    .Func({ implicit_labels : il }) => il,
+    .Func({ meta : __fm4 }) => __fm4.*.implicit_labels,
     _ => ArrayList(String).new()
   );
   implicit_types := match(
@@ -961,7 +958,7 @@ evaluate_anonymous_function_implementation :: (
     // `unwind` is a type error. Closures are exempt (TS checks isClosure).
     fn_type_is_control := match(
       function_type,
-      .Func({ is_control : ic }) => ic,
+      .Func({ meta : __fm5 }) => __fm5.*.is_control,
       _ => false
     );
     match(

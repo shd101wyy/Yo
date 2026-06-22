@@ -325,7 +325,8 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                               context.base.get_function_entry(func_id.clone()),
                               .Some(entry) => match(
                                 get_func_type(func_id.clone()),
-                                .Func({ param_types, param_is_ref, result }) => {
+                                .Func({ param_types, result, meta : __fm1 }) => {
+                                  param_is_ref := __fm1.*.param_is_ref;
                                   impl_cname := entry.c_name;
                                   wrapper := `__yo_wrap_${impl_key}_${label}`;
                                   return_str := get_type_string(result.*, context.base);
@@ -457,7 +458,7 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                       // Only emit a slot for a method whose first param is `self`.
                       has_self := match(
                         field_types.get(fi),
-                        .Some(ft) => if(is_function_type(ft.clone()), match(ft,.Func({ param_labels }) => match(param_labels.get(usize(0)),.Some(pl) => (pl == "self"),.None => false), _ => false), false),
+                        .Some(ft) => if(is_function_type(ft.clone()), match(ft,.Func({ meta : __fm2 }) => match(__fm2.*.param_labels.get(usize(0)),.Some(pl) => (pl == "self"),.None => false), _ => false), false),
                         .None => false
                       );
                       if(has_self, {

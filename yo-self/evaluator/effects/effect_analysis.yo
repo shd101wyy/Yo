@@ -439,7 +439,9 @@ is_transitive_effect_call_ :: (
   if(is_function_type(func_type.clone()), {
     result := match(
       func_type,
-      .Func({ implicit_labels, implicit_types, implicit_spreads }) => {
+      .Func({ implicit_types, meta : __fm1 }) => {
+        implicit_labels := __fm1.*.implicit_labels;
+        implicit_spreads := __fm1.*.implicit_spreads;
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
