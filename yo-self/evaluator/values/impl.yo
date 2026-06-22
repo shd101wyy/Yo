@@ -2111,13 +2111,18 @@ evaluate_module_value :: (
                           label : method_name.clone(),
                           ty : fi.ty,
                           value : Option(EvalValue).Some(method_val),
-                          // No source-trait-id for non-generic
-                          // impls yet — direct-on-type methods
-                          // don't carry a source-trait link in TS
-                          // either (TS uses the trait field's own
-                          // label === "" marker for impl-trait
-                          // values, not for direct methods).
-                          source_trait_id : String.from(""),
+                          // INHERENT-FIRST: tag trait-impl methods (current_trait_ty
+                          // is Some — `impl(T, Trait(...))`) with their trait id, so
+                          // resolution can SHADOW them behind a same-name direct/
+                          // inherent method (`impl(T, m : ...)`, current_trait_ty None
+                          // -> ""). Mirrors TS's direct-field vs label-"" TraitValue
+                          // distinction. See plans/OVERLOADING_REDESIGN.md §6 +
+                          // issues/yo-inherent-first-resolution.md.
+                          source_trait_id : match(
+                            current_trait_ty,
+                            .Some(__ct) => type_id_or_empty(__ct),
+                            .None => String.from("")
+                          ),
                           needs_pointer_conversion : false,
                           // Direct-on-type methods don't carry a
                           // SelfType either (TS doesn't set it on
