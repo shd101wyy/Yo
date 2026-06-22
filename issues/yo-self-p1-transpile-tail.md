@@ -1,5 +1,41 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-22 (cont.) — str-vs-String root traced to the END (8 diagnostic cycles)
+
+The `a.starts_with("-")` str-vs-String gap is a DEEP multi-part chain, pinned by
+panic-instrumentation (results, each from a clean -O0 build):
+1. `get_receiver_methods_by_name` returns **hits=1** for `starts_with` — only the
+   inherent `prefix:String`; the `StrPattern` `prefix:str` overload is NOT collected.
+2. Registry diagnostic (`g_dbg_sw_ids` count in `register_type_trait_method`):
+   **1 individual registration** — only the inherent. The StrPattern `starts_with`
+   is never registered as an individual method (lives only in the trait-VALUE via
+   `register_type_trait_value`, which stores a TraitT with field TYPES but NO
+   FuncVals — definitions.yo TraitT has no field-values slot).
+3. impl-processing diagnostics (panics in impl.yo's method-exprs loop): the
+   StrPattern `starts_with` DOES reach the loop (panic at impl.yo:~1995 fired), but
+   a panic placed just before the body eval (impl.yo:~2019) did NOT fire — so the
+   **throw is in the expected-type computation (impl.yo ~2000-2018)**:
+   `_trait_field_type_by_label(current_trait_ty,"starts_with")` →
+   `_substitute_self_in_method_ty(t, receiver_ty)` → `substitute(...)`. That throw
+   propagates, ABORTS the `impl(String, StrPattern(...))` statement's def-time eval,
+   and is swallowed at std/string's module-level — so NONE of StrPattern's methods
+   register individually.
+4. Separately: the inherent `prefix:String` overload LENIENTLY accepts the str arg
+   (eval had 0 markers — `synthesize`/`are_types_compatible(String, str)` doesn't
+   throw here), and `_select_matching_overload` picks the FIRST match (hits[0] =
+   inherent). So even after fixing #1-3 (registering StrPattern → hits=2), the
+   inherent (hits[0]) would still be picked unless selection PREFERS the exact match.
+
+THE FIX is multi-part + regression-prone: (a) make the StrPattern impl-method
+registration robust to the expected-type-computation throw (catch+fallback to no
+expected type so the method still registers WITH its FuncVal) OR fix the underlying
+`substitute`/`_substitute_self_in_method_ty` throw; AND (b) make
+`_select_matching_overload` prefer the exact-type overload (StrPattern `str` over the
+inherent `String` for a str arg). Validate vs expr/target/`check ./std`+corpus.
+Diagnostic technique that worked: panic (not throw — survives the def-time swallow)
+with STATIC messages, or `.contains` on a captured `err.to_string()` (works in the
+TS-built binary); the def-time swallow + module-level swallow eat thrown diagnostics.
+
 ## 2026-06-22 — GENUINE TAIL MEASURED + `starts_with` overload-resolution FIXED
 
 Rebuilt stage-1 from HEAD at `--optimize 1` and ran the REAL full self-compile
