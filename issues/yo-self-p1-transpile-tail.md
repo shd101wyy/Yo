@@ -32,30 +32,35 @@ picks the FIRST that type-checks, falling back to hits[0]. Single-hit (the commo
 case) skips trials → no behavior change. New helper `_build_receiver_call_args`
 builds the trial arg list (receiver prepend + `&(...)` ptr-conv).
 
-### `run_compile` still needs TWO MORE codegen fixes (the eval now succeeds):
+### `run_compile` codegen gaps (the eval now succeeds):
 
-1. **Default-arg codegen (omitted optionals not emitted).** `a.starts_with("-")`
-   omits `(position : usize) ?= 0`; the eval binds the default VALUE (helper.yo
-   Step 7, `arg_vals`) but never pushes it to `rt_args` / `runtime_arg_exprs_in_order`
-   (what codegen emits) → C error `too few arguments to function call, expected 3,
-   have 2`. BOTH call paths are affected (helper.yo `try_to_call` Step 7 line ~2418
-   for METHOD calls; function.yo inline-FuncVal arm ~2424 for DIRECT calls — confirmed
-   with a standalone `add(i32(3))` repro, C-fails identically). TS fills it: emits
-   `add((int32_t)(3), (int32_t)(5))` (helper.ts:328-344 evaluates
-   `parameter.exprs.defaultValueExpr` and pushes it to `runtimeArgExprsInOrder`).
-   This was NEVER exercised by the corpus (no fixture omits a default at a runtime
-   call), so it's a pre-existing gap surfaced by the fixpoint. FIX OPTIONS:
-   (A faithful) store the default-value EXPRS in a parallel func-id side-table
-   (`FuncParam` only keeps the evaluated `default_value`; add `default_value_expr`
-   field — 10 positional constructions to update — register at function.yo:3618,
-   copy at function_type.yo:552, then in the omitted branch clone+evaluate+push the
-   expr); (C localized) codegen pads missing trailing args from `get_func_param_defaults`
-   rendered via `generate_comptime_value`. NOTE: a SYNTHESIZED atom does NOT work —
-   `generate_atom` renders `ei.value` only for a NAMED comptime-only env var, not an
-   arbitrary value-bearing atom; `generate_func_call` line ~485 renders a plain-comptime
-   `ei.value` but atoms route to `generate_atom` (generation.yo:563), so push the
-   ORIGINAL default expr (codegen renders it as the literal it is).
-2. **`dyn(<template string>)` codegen** — `exn.throw(dyn(\`compile: missing input
+1. **Default-arg codegen (omitted optionals not emitted) — ✅ FIXED (commit
+   98b95a9dd), method-call path.** `a.starts_with("-")` omits `(position : usize)
+   ?= 0`; the eval bound the default VALUE but never pushed it to
+   `runtime_arg_exprs_in_order` → C `too few arguments`. Fix (faithful, mirrors
+   helper.ts:328-344): added `FuncParam.default_value_expr` + a func-id side-table
+   (`g_func_param_default_exprs`), and in `try_to_call`'s Step 7 omitted branch
+   clone+evaluate+push the default expr to `rt_args`. Corpus 83/83. **Remaining:
+   the inline-FuncVal arm (function.yo ~2424) for DIRECT calls** (`add(i32(3))`
+   still C-fails "too few arguments") — same pattern, push the default expr after
+   the supplied-args loop; the side-table is already there.
+2. **str-vs-String overload codegen** — after fix #1, `a.starts_with("-")` now emits
+   all 3 args but C-fails `passing '__yo_str' to parameter of incompatible type
+   '__yo_struct_…' (String)`: codegen emits a call to the INHERENT `starts_with(self
+   : String, prefix : String, position)` (`yo_id_4572`, confirmed C sig) but passes
+   the `str` literal. Codegen uses the EVAL-recorded method value
+   (`lookup_method_callee_value`, other_fn_call.yo:936), so the eval RECORDED the
+   inherent overload — yet the eval had 0 markers (no "Cannot unify" throw). That is
+   INCONSISTENT with the overload fix selecting the `StrPattern` `str` overload, and
+   needs instrumentation to resolve: print, for `a.starts_with("-")`, (a) which hit
+   `_select_matching_overload` picks (is its trial too lenient — does
+   `_trial_call_overload_candidate`'s skip_specialization bypass the str/String
+   unify so the inherent "matches"?), and (b) the func_id recorded vs the C function
+   codegen emits. Likely fix = make the overload trial strict enough to reject
+   str-for-String (so StrPattern is selected), OR the StrPattern impl's `prefix : str`
+   is mis-lowering to String in codegen. Surfaced only by the fixpoint (corpus has
+   no str-literal overloaded-method call that omits a default).
+3. **`dyn(<template string>)` codegen** — `exn.throw(dyn(\`compile: missing input
    file…\`))` (run_compile's first stmt) emits `/* Error: dyn() requires an object
    type (use box() for value types) */` (a broken `Type x = ;` decl). TS compiles it
    (its only such hit is the source string literal). The recorded arg type for the
