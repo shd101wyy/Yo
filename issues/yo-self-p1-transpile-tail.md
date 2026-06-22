@@ -44,30 +44,36 @@ builds the trial arg list (receiver prepend + `&(...)` ptr-conv).
    the inline-FuncVal arm (function.yo ~2424) for DIRECT calls** (`add(i32(3))`
    still C-fails "too few arguments") — same pattern, push the default expr after
    the supplied-args loop; the side-table is already there.
-2. **str-vs-String = the central Self-resolution gap (THE hard blocker).** After
-   fix #1, `a.starts_with("-")` emits all 3 args but C-fails `passing '__yo_str' to
-   parameter of incompatible type '…' (String)`. ROOT (traced, no instrumentation):
-   codegen emits the INHERENT `starts_with(self : String, prefix : String, position)`
-   (`yo_id_4572` — confirmed by its body matching `prefix._bytes`) called with the
-   `str` literal. The eval RECORDED the inherent (codegen uses it via
-   `lookup_method_callee_value`, other_fn_call.yo:936) because the inherent
-   SPURIOUSLY MATCHES: during instance-method arg-binding `ctx.self_type` is NOT the
-   receiver, so `prefix : Self` is an unbound SomeT and `prefix` binds `Self = str`
-   (from `"-"`→str) — no "Cannot unify" throw — so `_select_matching_overload`'s
-   inherent trial succeeds and it's picked (first hit). But `self` ALSO binds
-   `Self = String` (the receiver `a`), and codegen resolves `Self = String`, so the
-   String-param C function gets the str arg. The overload fix (try-all-candidates)
-   is a NECESSARY prerequisite but INSUFFICIENT alone: it can't reject the inherent
-   while `Self` floats. The real fix is the **central, regression-prone**
-   "thread the deref'd receiver type into instance-method arg-binding as `Self`"
-   (so `prefix : Self` resolves to String, `"-"`→str fails to fill it, inherent is
-   rejected, `StrPattern` `prefix : str` is selected) — the SAME fix the older
-   sections of this doc flag (12 build-validated attempts ruled out peripheral
-   approaches: ctx.self_type from the self arg REGRESSED expr/target/parser via
-   `*(Self)` ref-self corruption; env-resolution no-op'd as Self isn't in
-   callee_env). Validate incrementally vs expr/target/`check ./std`. Surfaced only
-   by the fixpoint (corpus has no str-literal overloaded-method call omitting a
-   default).
+2. **str-vs-String = trait-impl overload NOT COLLECTED (diagnostic-confirmed root).**
+   After fix #1, `a.starts_with("-")` emits all 3 args but C-fails `passing
+   '__yo_str' to parameter of incompatible type '…' (String)`: codegen emits the
+   INHERENT `starts_with(self : String, prefix : String, position)` (`yo_id_4572` —
+   body matches `prefix._bytes`) with the str literal. DIAGNOSTIC (panic-instrumented
+   `_try_find_receiver_method`): for `a.starts_with`, **`get_receiver_methods_by_name`
+   returns hits=1 — only the inherent**; the `StrPattern` trait `starts_with(prefix
+   : str)` (std/string.yo:1567 `impl(String, StrPattern(...))`) is NOT collected. So
+   `_select_matching_overload` (fix b4788d38e) is a no-op here (1 hit) and the
+   inherent is used; the comptime_string `"-"` then matches the inherent's `String`
+   prefix LENIENTLY (no "Cannot unify" throw — confirmed: `prefix`'s resolved_pt is
+   CONCRETE, not a SomeT, and 0 eval markers), so the eval records the inherent and
+   codegen emits the String-param fn with a str arg. ROOT: `impl(Type, Trait(...))`
+   registers its methods as a trait-VALUE (via `register_trait_value_fn`), NOT as
+   individual `register_type_trait_method(Type_id, …)` entries (only the
+   method-exprs loop at impl.yo:1982/2108 does that, for direct `label : fn` fields).
+   `get_receiver_methods_by_name_from_env` (env.yo:2378) only does the registry
+   lookup, NOT the TS `.trait.fields` walk over the type's impl'd-trait values (the
+   comment at env.yo:2434 acknowledges this divergence). FIX (faithful, mirrors TS
+   getReceiverMethodsByNameFromEnv): make `get_receiver_methods_by_name_from_env`
+   ALSO collect methods from the receiver type's impl'd-trait values, OR register
+   trait-impl methods individually under the receiver id at impl time. THEN
+   `_select_matching_overload` must PREFER the exact match (`StrPattern` `str` over
+   the inherent `String`, since the inherent leniently matches str too — likely an
+   are_types_compatible(String, str) leniency to also tighten). Regression-prone
+   (adding candidates changes dispatch); validate vs expr/target/`check ./std` +
+   corpus. NOTE: my earlier "Self floats as SomeT" hypothesis was DISPROVEN by the
+   diagnostic — `prefix` is concrete; the issue is collection, not Self-resolution.
+   Surfaced only by the fixpoint (corpus has no str-literal overloaded-method call
+   omitting a default).
 3. **`dyn(<template string>)` codegen** — `exn.throw(dyn(\`compile: missing input
    file…\`))` (run_compile's first stmt) emits `/* Error: dyn() requires an object
    type (use box() for value types) */` (a broken `Type x = ;` decl). TS compiles it
