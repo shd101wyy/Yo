@@ -1,5 +1,72 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-22 — GENUINE TAIL MEASURED + `starts_with` overload-resolution FIXED
+
+Rebuilt stage-1 from HEAD at `--optimize 1` and ran the REAL full self-compile
+(`yo-self-bin compile yo-self/main.yo --emit-c --skip-c-compiler`, peak **4.58 GB**,
+matches the P2 commit series). The genuine tail is **30 markers, ALL in ONE
+function**: `run_compile` (`yo-self/main.yo:877`, the `compile` CLI driver). The
+function header + initial `:=` bindings transpile; the break starts exactly at the
+arg-parsing `while` loop (every subsequent statement loses ExprInfo because the
+def-time body eval threw and unwound there). So **30 markers = 1 failing function**,
+not 30 bugs. (TS reference: 0 real markers — its 2 "Failed to transpile" / 1 "dyn()
+requires object type" hits are yo-self's OWN source string literals, filter with
+`grep -v 'const uint8_t' | grep -v '\.ptr'`.)
+
+The `while` throws at **`a.starts_with("-")`**. Root (DBG'd via the swallow):
+**"Cannot unify incompatible types: String and str"**. `starts_with` is OVERLOADED —
+inherent `impl(String)` `starts_with(prefix : Self=String)` (string.yo:842) + the
+`StrPattern` trait `starts_with(prefix : str)` (string.yo:1560). A comptime_string
+LITERAL coerces to `str`, which only the `str` overload accepts; but yo-self's
+`_try_find_receiver_method` (function.yo:234) took `hits.get(0)` (the inherent
+`String` one) and the call-site unify THREW instead of falling over to the `str`
+overload. (`s.starts_with(p)` with a String VARIABLE worked because hits[0] matched.)
+
+**FIX (committed-ready, corpus 83/83, repro 0 markers, TS check OK):** mirror TS
+overload resolution (function.ts:330 keeps ALL candidates as `functions`; :1691
+filters to type-matching). Added `all_hits : ArrayList(MethodEntry)` to
+`ReceiverMethodResult`; the call-site (`.None` arm at function.yo:~3101) now calls a
+new `_select_matching_overload` that trial-calls each candidate (via the existing
+`_trial_call_overload_candidate` — swallowing, fresh-id-cloned, side-effect-free) and
+picks the FIRST that type-checks, falling back to hits[0]. Single-hit (the common
+case) skips trials → no behavior change. New helper `_build_receiver_call_args`
+builds the trial arg list (receiver prepend + `&(...)` ptr-conv).
+
+### `run_compile` still needs TWO MORE codegen fixes (the eval now succeeds):
+
+1. **Default-arg codegen (omitted optionals not emitted).** `a.starts_with("-")`
+   omits `(position : usize) ?= 0`; the eval binds the default VALUE (helper.yo
+   Step 7, `arg_vals`) but never pushes it to `rt_args` / `runtime_arg_exprs_in_order`
+   (what codegen emits) → C error `too few arguments to function call, expected 3,
+   have 2`. BOTH call paths are affected (helper.yo `try_to_call` Step 7 line ~2418
+   for METHOD calls; function.yo inline-FuncVal arm ~2424 for DIRECT calls — confirmed
+   with a standalone `add(i32(3))` repro, C-fails identically). TS fills it: emits
+   `add((int32_t)(3), (int32_t)(5))` (helper.ts:328-344 evaluates
+   `parameter.exprs.defaultValueExpr` and pushes it to `runtimeArgExprsInOrder`).
+   This was NEVER exercised by the corpus (no fixture omits a default at a runtime
+   call), so it's a pre-existing gap surfaced by the fixpoint. FIX OPTIONS:
+   (A faithful) store the default-value EXPRS in a parallel func-id side-table
+   (`FuncParam` only keeps the evaluated `default_value`; add `default_value_expr`
+   field — 10 positional constructions to update — register at function.yo:3618,
+   copy at function_type.yo:552, then in the omitted branch clone+evaluate+push the
+   expr); (C localized) codegen pads missing trailing args from `get_func_param_defaults`
+   rendered via `generate_comptime_value`. NOTE: a SYNTHESIZED atom does NOT work —
+   `generate_atom` renders `ei.value` only for a NAMED comptime-only env var, not an
+   arbitrary value-bearing atom; `generate_func_call` line ~485 renders a plain-comptime
+   `ei.value` but atoms route to `generate_atom` (generation.yo:563), so push the
+   ORIGINAL default expr (codegen renders it as the literal it is).
+2. **`dyn(<template string>)` codegen** — `exn.throw(dyn(\`compile: missing input
+   file…\`))` (run_compile's first stmt) emits `/* Error: dyn() requires an object
+   type (use box() for value types) */` (a broken `Type x = ;` decl). TS compiles it
+   (its only such hit is the source string literal). The recorded arg type for the
+   `dyn(\`…\`)` arg is a value-type String in yo-self vs an object/Box type in TS.
+   2 instances in the self-compiled C (run_compile + one other fn).
+
+Beyond these, the statements AFTER the `while` (std_path / io.await / compile_module /
+the template `dyn()`s) were never reached by the eval (it threw at the while), so they
+may surface their OWN gaps once the while compiles. The fixpoint needs ALL of
+run_compile's tail drained, then `stage2.c` → stage2 binary → stage3 (≡ check).
+
 ## Status: OPEN — the P1 drain (lead, now that P0/corpus is deterministic)
 
 Per-module `// Failed to transpile` markers, each a real executing-mode

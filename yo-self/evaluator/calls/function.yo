@@ -137,7 +137,14 @@ ReceiverMethodResult :: struct(
   // The method entry's first parameter is `*(T)` and the receiver is a
   // compatible value — the call site must wrap the receiver in `&(...)`.
   // Mirrors TS function.ts:335 `method.needsPointerConversion`.
-  needs_pointer_conversion : bool
+  needs_pointer_conversion : bool,
+  // ALL candidate method entries with this name (in registration order), for
+  // overload resolution at the call site. `method_val_opt`/`method_ty`/
+  // `needs_pointer_conversion` above are the FIRST hit (the common single-hit
+  // case); when `all_hits.len() > 1` the call site trial-calls each and picks
+  // the one whose parameters match the arguments. Mirrors TS keeping the full
+  // `functions` candidate array (function.ts:330) for overload resolution.
+  all_hits : ArrayList(MethodEntry)
 );
 // ---------------------------------------------------------------------------
 // _try_find_receiver_method — when the callee is a property-access expression
@@ -246,7 +253,8 @@ _try_find_receiver_method :: (
       method_ty : first.ty,
       receiver_expr : receiver_expr,
       is_static : is_static,
-      needs_pointer_conversion : first.needs_pointer_conversion
+      needs_pointer_conversion : first.needs_pointer_conversion,
+      all_hits : hits
     )
   )
 });
@@ -373,6 +381,95 @@ _trial_call_overload_candidate :: (
     trial_exn
   );
   ___ := ok_out.push(true);
+});
+/// Build the C-call argument list for a receiver method candidate: prepend the
+/// receiver (wrapped in `&(...)` when the method's self param is `*(T)`) for
+/// instance methods; static methods take no receiver. Mirrors the all-args
+/// construction in the property-access dispatch's `.Some(method_info)` arm and
+/// is used to TRIAL each overload candidate. All exprs are cloned so the
+/// caller's originals stay intact for the real call.
+_build_receiver_call_args :: (
+  fn(is_static : bool, needs_ptr_conv : bool, receiver_expr : AstExpr, args : ArrayList(AstExpr)) -> ArrayList(AstExpr)
+)({
+  all_args := ArrayList(AstExpr).new();
+  if(!(is_static), {
+    if(needs_ptr_conv, {
+      recv_tok := ast_expr_token(receiver_expr);
+      amp_atom := AstExpr.Atom(
+        alloc_global_expr_id(),
+        Token(
+          kind : TokenKind.Identifier,
+          value : String.from("&"),
+          row : recv_tok.row,
+          column : recv_tok.column,
+          character : recv_tok.character,
+          module_path : recv_tok.module_path.clone(),
+          input : recv_tok.input.clone()
+        )
+      );
+      amp_args := ArrayList(AstExpr).new();
+      _ := amp_args.push(receiver_expr.clone());
+      _ := all_args.push(AstExpr.FnCall(alloc_global_expr_id(), box(amp_atom), amp_args, false, recv_tok));
+    }, {
+      _ := all_args.push(receiver_expr.clone());
+    });
+  });
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    match(
+      args.get(ai),
+      .Some(a) => {
+        _ := all_args.push(a.clone());
+      },
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  all_args
+});
+/// When a receiver method name has MULTIPLE candidate overloads (e.g. String's
+/// inherent `starts_with(prefix : Self)` + the `StrPattern` trait's
+/// `starts_with(prefix : str)`), trial-call each (swallowing errors,
+/// side-effect-free) and return a result for the FIRST whose parameters match
+/// the arguments. Falls back to `base` (the first hit) when none match, so the
+/// real call surfaces the genuine error. Mirrors TS overload resolution
+/// (function.ts:1691 filters `functionsToCall` to type-matching candidates);
+/// yo-self's prior "first hit wins" threw "Cannot unify String and str" on
+/// `s.starts_with("-")` because it committed to the inherent `Self`=String hit.
+_select_matching_overload :: (
+  fn(base : ReceiverMethodResult, args : ArrayList(AstExpr), func_expr : AstExpr, env : Environment, ctx : EvalContext) -> ReceiverMethodResult
+)({
+  (sel : Option(ReceiverMethodResult)) = Option(ReceiverMethodResult).None;
+  (hi : usize) = usize(0);
+  while((hi < base.all_hits.len()) && sel.is_none(), {
+    match(
+      base.all_hits.get(hi),
+      .Some(cand) => match(
+        cand.value,
+        .Some(cv) => {
+          trial_args := _build_receiver_call_args(base.is_static, cand.needs_pointer_conversion, base.receiver_expr.clone(), args);
+          ok := ArrayList(bool).new();
+          _trial_call_overload_candidate(cv, cand.ty, func_expr.clone(), func_expr.clone(), trial_args, env, ctx, ok);
+          if(ok.len() > usize(0), {
+            sel = Option(ReceiverMethodResult).Some(
+              ReceiverMethodResult(
+                method_val_opt : cand.value,
+                method_ty : cand.ty,
+                receiver_expr : base.receiver_expr.clone(),
+                is_static : base.is_static,
+                needs_pointer_conversion : cand.needs_pointer_conversion,
+                all_hits : base.all_hits
+              )
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    hi = (hi + usize(1));
+  });
+  match(sel,.Some(s) => s,.None => base)
 });
 /// ModuleT/Call overload dispatch — mirrors TS `function.ts:527-573` (the
 /// `isSourceNamespaceType` candidate expansion) + the checking phase at
@@ -3098,7 +3195,19 @@ Fix: wrap the call:
     // Mirrors the `if (!functionToCall.$?.type)` block in TypeScript's
     // `evaluateFunctionCall` (function.ts lines 265-362).
     .None => {
-      method_info_opt := _try_find_receiver_method(evaluated_callee, callee_env, ctx);
+      method_info_opt0 := _try_find_receiver_method(evaluated_callee, callee_env, ctx);
+      // Overload resolution: when the method name has multiple candidate
+      // overloads, pick the one whose parameters match the arguments (the first
+      // hit may not — e.g. `s.starts_with("-")` must select the `StrPattern`
+      // `prefix : str` overload, not the inherent `prefix : Self`=String one).
+      method_info_opt := match(
+        method_info_opt0,
+        .Some(mi0) => cond(
+          (mi0.all_hits.len() > usize(1)) => Option(ReceiverMethodResult).Some(_select_matching_overload(mi0, args, evaluated_callee, callee_env, ctx)),
+          true => Option(ReceiverMethodResult).Some(mi0)
+        ),
+        .None => Option(ReceiverMethodResult).None
+      );
       match(
         method_info_opt,
         // Method found: build the arg list and call it. Instance methods
