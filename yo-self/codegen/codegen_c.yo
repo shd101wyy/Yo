@@ -27,7 +27,7 @@ open(import("std/string"));
 { CodeGenContext } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
 { collect_required_functions, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
-{ collect_required_types, register_collect_type } :: import("./types/collection.yo");
+{ collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
 { generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
 { fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
@@ -202,6 +202,11 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // First pass: collect functions and types reachable from the module exports.
   collect_required_functions(module_value, base, info, true);
   collect_required_types(module_value, base, info);
+  // Pointer-field pointees missed by the dup/drop walk (e.g. HashMap/ArrayList
+  // element types behind `data : ?*(T)`); a separate pass so the main collection
+  // order — which the lazy array-struct registration depends on — is untouched.
+  // See issues/yo-self-p1-uncollected-pointee.md.
+  collect_pointer_pointees(base);
   collect_c_includes(base);
   emit_c_includes(base);
   // Future state enum (needed before type declarations reference it).

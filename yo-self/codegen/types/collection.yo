@@ -301,6 +301,99 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
     );
   });
 });
+/// Collect any pointer POINTEE found directly in `ft` or one level inside an
+/// enum variant of `ft`. Covers `*(T)` and the nullable-pointer `?*(T)` (=
+/// `Option(*(T))`) shapes used by container `data` fields. One level only (no
+/// deep enum recursion) — sufficient for `data : ?*(Bucket)` / `?*(T)` and
+/// guaranteed terminating; `collect_type`'s already-collected guard handles the
+/// rest. (Defined before collect_pointer_pointees — Yo has no forward refs.)
+_collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit)(
+  match(
+    ft,
+    .Pointer(p) => collect_type(p.*, context),
+    .EnumT({ variant_fields }) => {
+      nv := variant_fields.len();
+      (vi : usize) = usize(0);
+      while(vi < nv, {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        nfi := fields.len();
+        (fj : usize) = usize(0);
+        while(fj < nfi, {
+          match(
+            fields.get(fj),
+            .Some(vf) => match(vf,.Pointer(p) => collect_type(p.*, context), _ => ()),
+            .None => ()
+          );
+          fj = (fj + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      ()
+    },
+    _ => ()
+  )
+);
+/// SECOND PASS (run after collect_required_types, before generate_type_
+/// declarations): register the pointee types behind pointer FIELDS of
+/// already-registered structs. A container like `HashMap.data : ?*(Bucket(K,V))`
+/// or `ArrayList.data : ?*(T)` lowers to `T*`, so emitting the OWNER struct's
+/// typedef calls get_type_string(T) and REQUIRES `T` registered. The main
+/// collection reaches `T` only via the container's generated dup/drop bodies; for
+/// the async/effect-codegen value types whose dup/drop involve recursive members
+/// (AstExpr / Box(Self) self-shells), that path does NOT fire in the self-compile,
+/// leaving e.g. `Bucket(usize, WhileLoopInfo)` unregistered → "type not collected
+/// before lowering" panic. Running as a SEPARATE pass (not inline in collect_type)
+/// leaves the MAIN collection ORDER untouched, so it cannot perturb the
+/// order-sensitive lazy array-struct registration. Fixpoint loop handles
+/// transitive container nesting. DIVERGENCE from collection.ts (no such pass) —
+/// see issues/yo-self-p1-uncollected-pointee.md.
+collect_pointer_pointees :: (fn(context : CodeGenContext) -> unit)({
+  (changed : bool) = true;
+  while(changed, {
+    changed = false;
+    before := context.types.len();
+    // Snapshot registered struct TypeValues FIRST (collect_type mutates the map;
+    // do not call it while iterating context.types.values()).
+    snapshot := ArrayList(TypeValue).new();
+    vit := context.types.values();
+    (done : bool) = false;
+    while(!(done), {
+      match(
+        vit.next(),
+        .Some(entry) => {
+          if(is_struct_type(entry.ty), {
+            _p := snapshot.push(entry.ty);
+          });
+        },
+        .None => {
+          done = true;
+        }
+      );
+    });
+    n := snapshot.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      match(
+        snapshot.get(i),
+        .Some(t) => {
+          rfs := get_runtime_struct_fields(t);
+          nf := rfs.len();
+          (fi : usize) = usize(0);
+          while(fi < nf, {
+            match(rfs.get(fi),.Some(rf) => _collect_field_pointees(rf.ty, context),.None => ());
+            fi = (fi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    after := context.types.len();
+    if(after > before, {
+      changed = true;
+    });
+  });
+});
 /// Collect types from a function type signature (parameters, forall params,
 /// return). Mirrors `collectTypesFromFunctionType`.
 collect_types_from_function_type :: (fn(function_type : TypeValue, context : CodeGenContext) -> unit)(
@@ -511,4 +604,4 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
 register_collect_type :: (fn() -> unit)(
   set_collect_type_fn(collect_type)
 );
-export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, register_collect_type);
+export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_pointer_pointees, register_collect_type);

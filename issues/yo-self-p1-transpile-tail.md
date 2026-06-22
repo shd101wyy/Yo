@@ -1,5 +1,68 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-23 — post-redesign tail RE-MEASURED: codegen SIGABRT FIXED, real tail = 564 markers / 102 throws (recursive-type family)
+
+After the overloading redesign (commits dd44dae0a..5742e7b66) landed, the full
+self-compile no longer COMPLETES — it **SIGABRTs in codegen** (not OOM): a
+`panic` in `_lookup_named_c_type` (codegen/utils/index.yo) on **12 uncollected
+types** — HashMap `Bucket(K,V)` entries + their recursive value types
+(`CapturedVariable`, `WhileLoopInfo`, `EffectCallPoint`, `CondBranch`,
+`ClosureParamSlot`, `EvidenceParameter`, …), all `Option(HashMap/ArrayList)`
+fields of `FunctionGenerationContext`. **FIXED** via a new
+`collect_pointer_pointees` pass (collection.yo + codegen_c.yo wiring; validated
+corpus 83/83, panic gone). Self-compile-only (only a compiler uses that context
+at runtime; TS compiles main.yo cleanly in ~1 min). Details +
+rejected-inline-attempt: `issues/yo-self-p1-uncollected-pointee.md`.
+
+**NOT a redesign regression — the panic + tail are PRE-EXISTING.** A pre-redesign
+build (`cead3db9f`, the commit just before the overloading redesign) SIGABRTs
+**identically** (`no C type name found for <struct:struct_yo_id_NNNNN>`). So the
+uncollected-pointee panic was introduced earlier (most plausibly `98b95a9dd`, the
+default-arg codegen fix, which emits more code reaching these container types),
+NOT by the redesign. The doc's earlier "30 markers, run_compile-only" baseline
+predates that — at that point run_compile broke early AND fewer codegen functions
+were emitted, so the self-shell tail was masked.
+
+**With the panic gone, the genuine (previously-masked) tail is 564 `Failed to
+transpile` markers across ~214 codegen functions**, revealed progressively as
+codegen unblocked more functions (run_compile early-break → 30 visible →
+default-arg fix → uncollected-pointee panic → collect_pointer_pointees fix → 564
+revealed). Instrumenting the
+def-time body-eval swallow (`_trial_eval_fn_body`, function_type.yo) shows the
+564 markers come from only **102 distinct def-time eval throws** (each failing
+fn → its whole tail loses ExprInfo → many markers). Throw-category breakdown:
+
+| count | category | nature |
+|---|---|---|
+| 21 | `Expected enum...got unit` (match scrutinee) | recv resolved to unit |
+| 20 | `Type mismatch for type member "value"` | Bucket/recursive value field |
+| 17 | `Return type...got fn(T : Type) -> Type` | **clone-resolves-to-TypeVal** (documented self-shell) |
+| 14 | `Incompatible types` | generic mismatch (downstream) |
+| 5 | `Failed to infer enum variant type` | |
+| 5 | `<enum:..._self_shell> and unit` | **explicit recursive-enum self-shell** |
+| 4 | `Case env is missing outer frames` | branch-merge (documented) |
+| ~6 | member mismatches `id`/`args`/`param_types`/`field_types` | recursive value fields |
+| 2 | `Cannot unify "String" and "str"` | redesign-adjacent residue |
+| 2 | `Expected bool for "and"` | comptime `and` |
+| misc | argcount, begin-tail, struct-name unify | |
+
+The DOMINANT cluster (clone→TypeVal, member-`value`, `_self_shell`-and-unit,
+member-`field_types`/`args`/`id`) is the **recursive-enum-SELF-SHELL family** —
+the documented-hardest unsolved P1 issue (8+ ruled-out fix attempts below). The
+enum-got-unit / member-value / incompatible-types categories are most likely
+DOWNSTREAM of the same root (a recursive-type method resolving to unit/typefn
+breaks the enclosing match/construction/unification). So the fixpoint is now
+gated primarily on cracking recursive-type method resolution in executing-mode
+eval — a deep, focused effort. Smaller tractable categories: String/str (2),
+case-env frames (4), `and` (2), argcount (1).
+
+**Validation artifacts (this session, uncommitted — fix in working tree):**
+collect_pointer_pointees in `yo-self/codegen/types/collection.yo` +
+`codegen_c.yo`. Corpus 83/83, std unaffected (path is a no-op for fully-collected
+types). Re-measure command: `yo-self-bin compile yo-self/main.yo --emit-c
+--skip-c-compiler` then `grep 'Failed to transpile' stage2.c | grep -v 'const
+uint8_t' | grep -v '\.ptr' | wc -l`.
+
 ## 2026-06-22 (cont. 2) — ✅ ROOT FOUND + FIXED: codegen method-dispatch first-hit (NOT registration)
 
 The 8-cycle "registration throws" diagnosis (below, now SUPERSEDED) was WRONG. A
