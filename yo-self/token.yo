@@ -29,7 +29,7 @@ TokenKind :: enum(
   Whitespace
 );
 derive(TokenKind, Eq(TokenKind), Hash, Clone, ToString);
-Token :: struct(
+Token :: object(
   kind : TokenKind,
   value : String,
   row : usize,
@@ -39,33 +39,20 @@ Token :: struct(
   input : String
 );
 derive(Token, Eq(Token));
-// Manual Clone that SHARES the immutable `input` (the full module source text)
-// and `module_path` instead of deep-copying them. Every `AstExpr` embeds a
-// `Token`, and AST clones (def-time body trial eval, `clone_expr_fresh_ids`,
-// macro/quote expansion) are pervasive during the self-compile — `derive(Clone)`
-// called `String.clone` on `input`, deep-copying the entire ~100–200 KB source
-// string PER token clone. That single deep copy was ~1.6 GB (≈76%) of peak
-// memory in the unified `main.yo` self-compile. `String` is
-// `newtype(Option(ArrayList(u8)))` and `ArrayList` is RC, so a plain field copy
-// (`input : self.input`) bumps the buffer's refcount rather than reallocating +
-// copying its bytes (the same share that makes `snapshot_env` cheap). Sound
-// because `input`/`module_path` are immutable after lexing, and faithful to TS,
-// where a Token's source is a shared by-reference string. `value` (the per-token
-// lexeme) and `kind` stay cloned — small and unconditionally safe.
+// `Token` is an `object` (Rc), not a value `struct` (P2 memory). Every `AstExpr`
+// embeds a `Token` and `Variable` embeds two, and AST/variable clones are
+// pervasive during the self-compile. As a value struct, each holder inlined the
+// ~104-byte Token, and each clone copied it — once ~1.6 GB of peak when
+// `derive(Clone)` also deep-copied the ~100–200 KB `input` source string. As an
+// Rc object every holder stores an 8-byte pointer to ONE shared token, and
+// `.clone()` is a refcount bump (the body returns `self`) that shares the whole
+// token — positions, lexeme, and the immutable `input`/`module_path` source
+// strings. Sound because tokens are immutable after lexing (no field is ever
+// reassigned), and faithful to TS, where `Token` is a by-reference `interface`.
 impl(
   Token,
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)(
-      Token(
-        kind : self.kind.clone(),
-        value : self.value.clone(),
-        row : self.row,
-        column : self.column,
-        character : self.character,
-        module_path : self.module_path,
-        input : self.input
-      )
-    )
+    clone : (fn(ref(self) : Self) -> Self)(self)
   )
 );
 is_operator_char :: (fn(c : rune) -> bool)(
