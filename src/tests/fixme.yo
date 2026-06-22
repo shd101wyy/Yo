@@ -1,9 +1,15 @@
-pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
-sink :: (fn(s : String) -> String)(String.from("r"));
-f :: (fn(o : Option(String), indent : String) -> String)({
-  local := String.from("L");
-  match(o, .Some(mx) => return(sink(indent.clone())), .None => String.from("none"))
+Foo :: newtype(n : i32);
+
+Bar :: trait(m : (fn(self : Self, x : bool) -> i32));
+
+impl(Foo, m : (fn(self : Self, x : i32) -> i32)(x));
+
+impl(Foo, Bar(m : (fn(self : Self, x : bool) -> i32)(cond(x => i32(1), true => i32(0)))));
+
+main :: (fn() -> unit)({
+  f := Foo(n : i32(1));
+  r := f.m(true);
+  ()
 });
-main :: (fn() -> unit)({ b := f(Option(String).Some(String.from("m")), String.from("  ")); () });
+
 export(main);

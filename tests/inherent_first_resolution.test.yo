@@ -1,0 +1,40 @@
+open(import("std/string"));
+
+/// Inherent-first method resolution (plans/OVERLOADING_REDESIGN.md §6,
+/// issues/yo-inherent-first-resolution.md): a type's inherent method shadows a
+/// same-name trait method. A call matching ONLY the trait must ERROR — the inherent
+/// method is selected and there is no silent fall-through to the trait.
+Foo :: newtype(n : i32);
+
+Bar :: trait(m : (fn(self : Self, x : bool) -> i32));
+
+impl(Foo, m : (fn(self : Self, x : i32) -> i32)(x));
+
+impl(Foo, Bar(m : (fn(self : Self, x : bool) -> i32)(cond(x => i32(1), true => i32(0)))));
+
+test("inherent method shadows same-name trait method — resolution error reported", {
+  // `f.m(true)`: the inherent `m(i32)` is selected (inherent-first); `bool` does not
+  // match `i32`, and resolution must NOT fall through to `Bar::m(bool)`. Type error.
+  comptime_expect_error({
+    f := Foo(n : i32(1));
+    f.m(true)
+  });
+  // The inherent method IS callable with a matching argument.
+  f := Foo(n : i32(1));
+  assert(f.m(i32(5)) == i32(5));
+});
+
+test("String pattern methods reject a non-Pattern argument (where-bound)", {
+  // `starts_with<P : Pattern>` — an `i32` does not implement `Pattern`, so this must
+  // be a type error (the §4 generic-method resolution error).
+  comptime_expect_error({
+    s := String.from("hi");
+    s.starts_with(i32(5))
+  });
+  // `str` and `String` patterns both work through the one generic method.
+  s := String.from("hello");
+  assert(s.starts_with("he"));
+  assert(s.starts_with(String.from("he")));
+  assert(s.contains("ll"));
+  assert(!(s.contains("zz")));
+});

@@ -240,11 +240,14 @@ test("Test heterogeneous trait-method overload dispatch (Eq(str) beside Eq(Self)
   assert(a == "xyz", "heterogeneous (==) overload at a direct call site");
   assert(a != "abcd", "heterogeneous (!=) via the trait ?= default");
 });
-// Regression: during trait-impl registration the in-progress trait's fields
-// are spliced into the receiver's trait field list ahead of the existing
-// ones; method lookup must collect ALL same-name fields (not first-match)
-// or the overload being defined shadows the inherent one and a delegating
-// body like `self.pick(self)` fails to dispatch.
+// Inherent-first resolution (plans/OVERLOADING_REDESIGN.md §6,
+// issues/yo-inherent-first-resolution.md): `DelegateV` has an inherent
+// `pick(DelegateV)` AND a `DelegatePickStr.pick(str)`. A type (inherent) method
+// SHADOWS a same-name trait method, so `v.pick("s")` (str matches only the trait)
+// must ERROR — resolution does NOT fall through to the trait. The trait body
+// `self.pick(self)` still delegates fine (its `DelegateV` arg matches the inherent).
+// (This replaces the old overload-resolution behavior that the §4 redesign removed —
+// the same pattern std's former `StrPattern` impl relied on.)
 DelegateV :: struct(n : i32);
 DelegatePickStr :: trait(
   pick : (fn(self : Self, x : str) -> i32)
@@ -261,8 +264,10 @@ impl(
     pick : (fn(self : Self, x : str) -> i32)(self.pick(self) + i32(1))
   )
 );
-test("Test trait-impl body delegating to a same-name inherent overload", {
+test("Test inherent method shadows a same-name trait method (inherent-first)", {
   v := DelegateV(n : i32(0));
-  assert(v.pick(v) == i32(1), "inherent overload");
-  assert(v.pick("s") == i32(2), "trait str overload delegating to inherent");
+  assert(v.pick(v) == i32(1), "inherent overload selected for a matching arg");
+  // Inherent-first: `v.pick("s")` selects the inherent `pick(DelegateV)`; `str` does
+  // not match it, and resolution must NOT fall through to `DelegatePickStr.pick(str)`.
+  comptime_expect_error(v.pick("s"));
 });

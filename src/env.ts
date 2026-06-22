@@ -1523,30 +1523,31 @@ export function getReceiverMethodsByNameFromEnv({
       checkTraitForMethod(receiverType.trait, methodName);
     }
 
-    // Also check for impl'd traits (stored with empty label as StructValue)
-    // NOTE: We check impl'd traits regardless of whether direct methods were found,
-    // because both compile-time and runtime versions of a method might exist,
-    // and we need to let the function call resolution pick the right one.
-    for (const field of receiverType.trait.fields) {
-      if (
-        field.label === "" &&
-        field.assignedValue &&
-        isTraitValue(field.assignedValue)
-      ) {
-        const implTraitValue = field.assignedValue;
-        const implTraitType = implTraitValue.type;
-        const methodIndex = implTraitType.fields.findIndex(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (methodIndex >= 0) {
-          const method = implTraitType.fields[methodIndex]!;
-          if (isFunctionType(method.type)) {
-            const value = implTraitValue.fields[methodIndex];
-            let methodType = method.type;
-            if (isFunctionValue(value) && value.specializedType) {
-              methodType = value.specializedType;
+    // Impl'd traits (empty-label TraitValue). INHERENT-FIRST: collect only when no
+    // direct/inherent method of this name exists (a type method shadows a same-name
+    // trait method — see the dereferencedReceiverType block below + §6 of the redesign).
+    if (directMethods.length === 0) {
+      for (const field of receiverType.trait.fields) {
+        if (
+          field.label === "" &&
+          field.assignedValue &&
+          isTraitValue(field.assignedValue)
+        ) {
+          const implTraitValue = field.assignedValue;
+          const implTraitType = implTraitValue.type;
+          const methodIndex = implTraitType.fields.findIndex(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (methodIndex >= 0) {
+            const method = implTraitType.fields[methodIndex]!;
+            if (isFunctionType(method.type)) {
+              const value = implTraitValue.fields[methodIndex];
+              let methodType = method.type;
+              if (isFunctionValue(value) && value.specializedType) {
+                methodType = value.specializedType;
+              }
+              methods.push({ type: methodType, value });
             }
-            methods.push({ type: methodType, value });
           }
         }
       }
@@ -1611,34 +1612,40 @@ export function getReceiverMethodsByNameFromEnv({
       checkTraitForMethod(dereferencedReceiverType.trait, methodName);
     }
 
-    // Also check for impl'd traits (stored with empty label as StructValue)
-    // NOTE: We check impl'd traits regardless of whether direct methods were found,
-    // because both compile-time and runtime versions of a method might exist,
-    // and we need to let the function call resolution pick the right one.
-    for (const field of dereferencedReceiverType.trait.fields) {
-      if (
-        field.label === "" &&
-        field.assignedValue &&
-        isTraitValue(field.assignedValue)
-      ) {
-        const implTraitValue = field.assignedValue;
-        const implTraitType = implTraitValue.type;
-        // Search for the method in the impl'd trait
-        const methodIndex = implTraitType.fields.findIndex(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (methodIndex >= 0) {
-          const method = implTraitType.fields[methodIndex]!;
-          if (isFunctionType(method.type)) {
-            // Get the actual function value from the trait value
-            const value = implTraitValue.fields[methodIndex];
-            // Use the function value's specialized type if available,
-            // as it has Self replaced with the concrete receiver type
-            let methodType = method.type;
-            if (isFunctionValue(value) && value.specializedType) {
-              methodType = value.specializedType;
+    // Impl'd traits (stored with empty label as TraitValue). INHERENT-FIRST: only
+    // collect impl'd-trait methods when NO direct/inherent method of this name exists.
+    // A type (inherent) method shadows a same-name trait method (Rust's rule); a call
+    // matching only the trait must error, not silently fall through to it. See
+    // plans/OVERLOADING_REDESIGN.md §6 + issues/yo-inherent-first-resolution.md.
+    // (Methods provided purely by trait impls — e.g. `==` via `Eq(String)`/`Eq(str)` —
+    // have no direct field, so directMethods is empty and they are still collected and
+    // argument-type-dispatched among themselves.)
+    if (directMethods.length === 0) {
+      for (const field of dereferencedReceiverType.trait.fields) {
+        if (
+          field.label === "" &&
+          field.assignedValue &&
+          isTraitValue(field.assignedValue)
+        ) {
+          const implTraitValue = field.assignedValue;
+          const implTraitType = implTraitValue.type;
+          // Search for the method in the impl'd trait
+          const methodIndex = implTraitType.fields.findIndex(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (methodIndex >= 0) {
+            const method = implTraitType.fields[methodIndex]!;
+            if (isFunctionType(method.type)) {
+              // Get the actual function value from the trait value
+              const value = implTraitValue.fields[methodIndex];
+              // Use the function value's specialized type if available,
+              // as it has Self replaced with the concrete receiver type
+              let methodType = method.type;
+              if (isFunctionValue(value) && value.specializedType) {
+                methodType = value.specializedType;
+              }
+              methods.push({ type: methodType, value });
             }
-            methods.push({ type: methodType, value });
           }
         }
       }

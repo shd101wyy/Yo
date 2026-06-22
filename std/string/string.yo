@@ -513,7 +513,7 @@ impl(
   * Returns the character index of the first match, or None if not found
   * from_index specifies the character index to start searching from
   */
-  index_of : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> Option(usize))(
+  _index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
       substr.is_empty() =>.Some(from_index),
       true => {
@@ -609,9 +609,9 @@ impl(
   /**
   * Check if the string contains a substring
   */
-  contains : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> bool)(
+  _contains_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> bool)(
     match(
-      self.index_of(substr, from_index),
+      self._index_of_impl(substr, from_index),
       .Some(_) => true,
       .None => false
     )
@@ -620,7 +620,7 @@ impl(
   * Split the string by a separator into an array of strings (like JavaScript split)
   * Returns an ArrayList of String
   */
-  split : (fn(self : Self, separator : Self) -> ArrayList(Self))({
+  _split_impl : (fn(self : Self, separator : Self) -> ArrayList(Self))({
     result := ArrayList(Self).new();
     cond(
       separator.is_empty() => {
@@ -727,7 +727,7 @@ impl(
   * Returns the character index of the last match, or None if not found
   * from_index specifies the character index to start searching backwards from
   */
-  last_index_of : (fn(self : Self, substr : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
+  _last_index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() =>.Some(self.len()),
       true => match(
@@ -836,10 +836,12 @@ impl(
     )
   ),
   /**
-  * Check if the string starts with the specified substring (like JavaScript startsWith)
-  * position: The character index to start checking from (default 0)
+  * Private: does this string have `prefix` (a String) starting at `position`?
+  * The UTF-8-aware byte-compare reused by the `Pattern` impls behind the generic
+  * `starts_with<P : Pattern>` (see plans/OVERLOADING_REDESIGN.md §4). Not called
+  * directly — go through `starts_with`.
   */
-  starts_with : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)({
+  _has_prefix : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)({
     (prefix_bytes : usize) = match(prefix._bytes,.Some(b) => b.len(),.None => usize(0));
     (self_bytes : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
     cond(
@@ -922,7 +924,7 @@ impl(
   * Check if the string ends with the specified substring (like JavaScript endsWith)
   * end_position: The character length to consider (default is string length)
   */
-  ends_with : (fn(self : Self, suffix : Self, (end_position : usize) ?= usize.MAX) -> bool)({
+  _ends_with_impl : (fn(self : Self, suffix : Self, (end_position : usize) ?= usize.MAX) -> bool)({
     (suffix_bytes : usize) = match(suffix._bytes,.Some(b) => b.len(),.None => usize(0));
     (self_bytes : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
     cond(
@@ -1550,40 +1552,89 @@ impl(
     })
   )
 );
-/// Search/pattern operations accepting a static `str` argument
-/// (plans/SLICE_REWORK.md step 1). Inherent methods cannot be overloaded
-/// in Yo, so the `str`-pattern variants of `contains`/`starts_with`/… are
-/// provided through this trait; method dispatch picks the overload by
-/// argument type (`x.contains("lit")` vs `x.contains(other_string)`).
-StrPattern :: trait(
-  contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool),
-  starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool),
-  ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool),
-  index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize)),
-  last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize)),
-  split : (fn(self : Self, separator : str) -> ArrayList(Self))
+/// `Pattern` — a value usable as a search pattern against a `String` haystack
+/// (mirrors Rust's `core::str::pattern::Pattern`). The PATTERN type implements the
+/// match, so a single generic method per operation accepts any pattern type with no
+/// overload resolution. Implemented by `str` and `String` (and, later, `char`).
+/// See plans/OVERLOADING_REDESIGN.md §4.
+Pattern :: trait(
+  is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool),
+  is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool),
+  is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool),
+  index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
+  last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
+  split_of : (fn(self : Self, haystack : String) -> ArrayList(String))
 );
 impl(
   String,
-  StrPattern(
-    contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool)(
-      self.contains(String.from(substr), from_index)
+  Pattern(
+    is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool)(
+      haystack._has_prefix(self, position)
     ),
-    starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool)(
-      self.starts_with(String.from(prefix), position)
+    is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool)(
+      haystack._ends_with_impl(self, end_position)
     ),
-    ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool)(
-      self.ends_with(String.from(suffix), end_position)
+    is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool)(
+      haystack._contains_impl(self, from_index)
     ),
-    index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize))(
-      self.index_of(String.from(substr), from_index)
+    index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._index_of_impl(self, from_index)
     ),
-    last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize))(
-      self.last_index_of(String.from(substr), from_index)
+    last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._last_index_of_impl(self, from_index)
     ),
-    split : (fn(self : Self, separator : str) -> ArrayList(Self))(
-      self.split(String.from(separator))
+    split_of : (fn(self : Self, haystack : String) -> ArrayList(String))(
+      haystack._split_impl(self)
     )
+  )
+);
+impl(
+  str,
+  Pattern(
+    is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool)(
+      haystack._has_prefix(String.from(self), position)
+    ),
+    is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool)(
+      haystack._ends_with_impl(String.from(self), end_position)
+    ),
+    is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool)(
+      haystack._contains_impl(String.from(self), from_index)
+    ),
+    index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._index_of_impl(String.from(self), from_index)
+    ),
+    last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._last_index_of_impl(String.from(self), from_index)
+    ),
+    split_of : (fn(self : Self, haystack : String) -> ArrayList(String))(
+      haystack._split_impl(String.from(self))
+    )
+  )
+);
+/// The pattern-search methods — ONE generic method each over `Pattern` (Rust's
+/// `str::starts_with<P : Pattern>` family). These replace the old inherent
+/// `X(arg : String)` + `StrPattern.X(arg : str)` overload pairs: `s.X("lit")`
+/// (P = str) and `s.X(other)` (P = String) both resolve to the one generic method via
+/// trait dispatch — no overload resolution. See plans/OVERLOADING_REDESIGN.md §4.
+impl(
+  String,
+  starts_with : (fn(forall(P : Type), self : Self, prefix : P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
+    prefix.is_prefix_of(self, position)
+  ),
+  ends_with : (fn(forall(P : Type), self : Self, suffix : P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
+    suffix.is_suffix_of(self, end_position)
+  ),
+  contains : (fn(forall(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
+    substr.is_contained_in(self, from_index)
+  ),
+  index_of : (fn(forall(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
+    substr.index_in(self, from_index)
+  ),
+  last_index_of : (fn(forall(P : Type), self : Self, substr : P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
+    substr.last_index_in(self, from_index)
+  ),
+  split : (fn(forall(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))(
+    separator.split_of(self)
   )
 );
 /// Hash trait implementation — FNV-1a hash over the string's bytes.
@@ -2354,7 +2405,7 @@ export(
   StringChars,
   StringBytes,
   StringLines,
-  StrPattern,
+  Pattern,
   assert_dyn,
   panic_dyn
 );
