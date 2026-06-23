@@ -295,6 +295,22 @@ evaluate_begin_expression :: (
     is_return_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, BK_RETURN));
     is_return_call := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN,.None);
     is_return_expr := (is_return_atom || is_return_call);
+    // `return` (atom) AND `return()` (zero-arg call) are BOTH unit returns.
+    // Mirrors TS begin.ts:1122-1124 (`exprIsAtom(e) || (exprIsFunctionCall(e)
+    // && e.args.length === 0)`). Without the zero-arg case, `return()` fell to
+    // the `return(val)` branch, where `args.get(0)` is `.None` → `make_err_expr()`
+    // → evaluating that error expr poisons the def-time return-type inference
+    // ("Return type mismatch ... got fn(T : Type) -> Type"), the dominant
+    // codegen-async transpile-marker cluster.
+    is_return_unit := (
+      is_return_atom || (
+        is_return_call && match(
+          expr_to_eval,
+          .FnCall(_, _, ret_call_args, _, _) => (ret_call_args.len() == usize(0)),
+          .Atom(_, _) => false
+        )
+      )
+    );
     is_break_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "break"));
     is_continue_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "continue"));
     is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_UNWIND,.None);
@@ -317,8 +333,8 @@ evaluate_begin_expression :: (
           );
         });
         return_expr = Option(AstExpr).Some(expr_to_eval);
-        if(is_return_atom, {
-          // `return` with no argument → unit return.
+        if(is_return_unit, {
+          // `return` / `return()` with no argument → unit return.
           out := new_expr_info(env, TypeValue.Unit);
           out.value = Option(EvalValue).Some(EvalValue.UnitVal);
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
