@@ -257,7 +257,20 @@ evaluate_primitive_match :: (
       );
       old_executing_wc := ctx.is_executing;
       ctx.is_executing = is_arm_executing_wc;
+      // Pass the running unified result type as the arm body's expected type so a
+      // bare `.None` / `.Variant` (shorthand enum construction) in this arm can
+      // infer its enum type from earlier arms. Mirrors TS match.ts:471
+      // (`expectedType: resultType ?? context.expectedType`).
+      old_expected_wc := ctx.expected_type;
+      match(
+        result_type_pm,
+        .Some(rt_wc) => {
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_wc, env : env));
+        },
+        .None => ()
+      );
       evaluated_body_wc := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
+      ctx.expected_type = old_expected_wc;
       ctx.is_executing = old_executing_wc;
       env.pop_frame();
       body_info_wc_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wc));
@@ -527,7 +540,18 @@ evaluate_primitive_match :: (
       ___ := env.push_frame(false);
       old_executing_lit := ctx.is_executing;
       ctx.is_executing = matches_at_ct;
+      // Running-result-type as expected type (bare `.None`/`.Variant` inference);
+      // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+      old_expected_lit := ctx.expected_type;
+      match(
+        result_type_pm,
+        .Some(rt_lit) => {
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_lit, env : env));
+        },
+        .None => ()
+      );
       evaluated_body_lit := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
+      ctx.expected_type = old_expected_lit;
       ctx.is_executing = old_executing_lit;
       env.pop_frame();
       body_info_lit_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_lit));
@@ -1344,7 +1368,18 @@ evaluate_match :: (
         );
         old_executing_fl := ctx.is_executing;
         ctx.is_executing = is_arm_executing_fl;
+        // Running-result-type as expected type (bare `.None`/`.Variant` inference);
+        // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+        old_expected_fl := ctx.expected_type;
+        match(
+          result_type_em,
+          .Some(rt_fl) => {
+            ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_fl, env : env));
+          },
+          .None => ()
+        );
         evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
+        ctx.expected_type = old_expected_fl;
         ctx.is_executing = old_executing_fl;
         env.pop_frame();
         body_info_fl_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_fl));
@@ -1894,7 +1929,18 @@ evaluate_match :: (
           );
           old_executing_wf := ctx.is_executing;
           ctx.is_executing = is_arm_executing_wf;
+          // Running-result-type as expected type (bare `.None`/`.Variant` inference);
+          // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+          old_expected_wf := ctx.expected_type;
+          match(
+            result_type_em,
+            .Some(rt_wf) => {
+              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_wf, env : env));
+            },
+            .None => ()
+          );
           evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
+          ctx.expected_type = old_expected_wf;
           ctx.is_executing = old_executing_wf;
           env.pop_frame();
           body_info_wf_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wf));
