@@ -1,5 +1,88 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-24 — diagnostic-driven drain: 527 → 522 → 485 → … (instrumentation + parallel root-cause workflow)
+
+**Marker progression (committed):** 527 →(where-clause, b45ee91e7)→ 522
+→(return() unit, a0a45270e)→ 485 →(match.yo expected_type, 7ab2e6183)→ **445**.
+All three validated: check ./std 152/152, differential corpus 83/83 (DIFF 0),
+self-compile EXIT=0 at each step.
+
+**Cycle 3 (recur-at-def-time) — TWO fixes tried, BOTH inert (+0), REVERTED.**
+`recur(...)` genuinely fails at def-time body eval (confirmed: `_value_contains_unknown`'s
+`if(recur(f), …)` is a marker; `__recur_fn` is bound only at call time, function.yo:2548,
+and `_build_def_time_body_env` drops the caller's capture). Tried: (a) bind `__recur_fn`
+to `func_val` in the def-time body env — inert (recur is NOT resolved via env lookup at
+def-time); (b) pass the real `func_val` (not the empty `flow_fv` placeholder) to
+`create_function_body_evaluation_context` so `evaluate_recur`'s
+`is_validating_function_definition` short-circuit reads it from `func_body_ctx.func_value`
+(faithful to TS function-type.ts:491-494) — ALSO inert. Root: the recur short-circuit
+(recur.yo:164) calls `try_to_call_function_with_arguments(func_val, …, skipSpecialization,
+skipCtfeExecution)` which STILL fails at def-time — the blocker is the def-time call
+machinery, not the func value. Both safe (std 152/152, corpus 83/83) but 0-marker, so
+reverted (no speculative code). NOTE: the `flow_fv` empty-placeholder IS a real divergence
+from TS (TS passes the real functionValue) — worth fixing TOGETHER with the recur
+short-circuit when that's tackled.
+
+**Top remaining targets (445-base, by marker count; yo_id shifts per build — match by
+expr):** #1 ~126 = a `type_key(entry.ty) == target_key` reverse-lookup scan whose throw
+is "Cannot unify incompatible STRUCT types" (synthetic token → codegen/utils/index.yo:1),
+i.e. a recursive-enum/struct-unification failure inside `_type_key_at`'s `resolve_enum_shell`
++ EnumT/Struct id handling — the documented self-shell family, NOT recur (the workflow
+mis-diagnosed it as recur; the error category disproves that). #2 ~83 = an `_unwrap_unsafe`-
+shaped body (`.FnCall(_,_,args,_,_) => … args.len() …`) — a recursive-enum DESTRUCTURE
+whose bound field resolves to a TypeVal/unit. These two = 47% of the tail and both reduce
+to the recursive-enum field-type / self-shell cluster (the hardest unsolved area). Smaller
+solid wins from the workflow (verifier-adopt, faithful, low-risk): `_apply_ref_amp`
+(other_fn_call.yo) nested-cond `c.len() - usize(1)` → extract to a typed binding (mirrors
+line 98); `generate_type_declarations` (types/generation.yo) add explicit `()` to the
+queue.push if-blocks.
+
+**Method that worked (reusable):**
+1. Instrument the def-time-eval swallow `_trial_eval_fn_body` (function_type.yo) with
+   a capture-free handler `((_err) -> { _tt_eprint(\`[TTERR] ${_err.to_string()}\n\`); unwind(()) })`
+   (`_err.to_string()` embeds file:row via format_error_message; `_tt_eprint` = a
+   non-aborting libc fwrite, mirror panic_dyn). The handler CANNOT reference module
+   variables — only its local `_err` + module fns. Build `--optimize 1`, run the
+   self-compile capturing `2>stderr`, then cluster `[TTERR]` blocks by (error, file:row).
+   REVERT the instrumentation before committing fixes.
+2. Cluster the actual stage2.c markers by enclosing C function
+   (`awk '/^static .*yo_id_[0-9]+\(/{...}'`) — this is the GROUND TRUTH for which
+   functions block the fixpoint (vs the [TTERR] map, which OVERCOUNTS warm-up-masked
+   std specializations like hash_map/hash_set with_capacity `(*(T))(ptr)→Type(1)`).
+3. Fan out a parallel root-cause Workflow (one Explore agent per distinct throw site →
+   adversarial-verify each proposed fix vs the TS reference + regression risk → group by
+   shared_root_key). The verify stage correctly REJECTED several wrong root-causes
+   (trait-default `!=` band-aid [known std 152→104 regression], flowability Box,
+   await String/str, env.yo `boxed.*.name`, future-trait label-type).
+
+**The two dominant CONVERGENT compiler roots (both TS-faithful porting bugs):**
+- ✅ **`return()` (zero-arg call) not treated as unit** (begin.yo, FIXED a0a45270e, −37).
+  Routed to the `return(val)` branch → `args.get(0)`=None → `make_err_expr()` → poisons
+  return-type inference ("got fn(T:Type)->Type"). TS begin.ts:1122-1124 treats
+  atom-OR-zero-arg-call as unit. This was the dominant async/await/state-machine cluster.
+- ⏳ **match arm bodies don't get `expected_type` propagated** (match.yo, IN VALIDATION).
+  TS match.ts:471 sets `expectedType: resultType ?? context.expectedType` per arm so a
+  bare `.None`/`.Variant` (shorthand enum) infers its type from earlier arms. yo-self
+  tracked `result_type_pm`/`result_type_em` but never threaded it. Fix = set
+  ctx.expected_type at all 4 arm-body eval sites (260/530/1357/1912). Targets the
+  "Failed to infer enum variant type" cluster (while_loop, panic, typeid, open,
+  utils/index) — the principled root vs the per-site `Option(T).None` band-aids.
+
+**Remaining clusters (from the 46-agent workflow, ranked):**
+- "Case env is missing outer frames" — branch-merge, 7 sites (return.yo, function.yo:1698,
+  await.yo:125, trait_checking.yo:1143/1391, suspension_analysis.yo:134, var_fns.yo:156).
+  Documented [[yo-self-branch-merge-trivial-arm]]; merge_and_check_envs too strict. The
+  workflow did NOT confidently solve these — needs the documented relaxation.
+- "Type mismatch for type member ... got Type(1)" in yo-self files (NOT std): definitions.yo:362
+  (`types.clone()` recursive-enum), suspension_analysis.yo:227, await_analysis.yo:248,
+  comptime_index_fns.yo:235 — recursive-enum field / clone-resolves-to-TypeVal family.
+- numeric-type-constructor dispatch (comptime_index_fns.yo:235 → fix in function.yo ~2230):
+  ensure TypeVal-context numeric converter sets ExprInfo to the target type.
+- evaluator/builtins "Incompatible types" (alignof.yo:103 — fill `.None` arm with
+  `create_unknown_val(t_usize())` mirroring sizeof.yo; and_or, va_start, gensym, …).
+- parser.yo array_list macro (982/1205/1392) — MACRO_DISPATCH-gated, DEFER.
+- String-vs-str residue (function.yo:1, await.yo:1) — slice/overloading-redesign tail.
+
 ## 2026-06-23 (✅ FIX LANDED) — where-clause check in `try_match_generic_impl` (blanket-scoped): 527 → 522
 
 Implemented the TS-faithful where-clause check (impl.ts:2425-2432) in yo-self's
