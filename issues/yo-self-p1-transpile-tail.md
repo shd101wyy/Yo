@@ -46,6 +46,29 @@ fn → its whole tail loses ExprInfo → many markers). Throw-category breakdown
 | 2 | `Expected bool for "and"` | comptime `and` |
 | misc | argcount, begin-tail, struct-name unify | |
 
+### 2026-06-23 (cont.) — shell-receiver-resolve fix: 564 → 527 (partial)
+
+Fast repro built (`src/tests/fixme.yo`: a recursive enum `RecT` with
+`Tuple(types : ArrayList(Self))` + a `clone` over a match arm — reproduces the
+failure in ~10s). Instrumenting `_try_find_receiver_method` (a `[CLONE_DBG]`
+print of receiver-type / is_static / hits) pinned the mechanism EXACTLY:
+`ArrayList(Self).clone()` resolves fine (hits=1) and clones its elements via
+`element.clone()`, whose receiver is the bare **top-level `__self_shell`** enum —
+`hits=0` (the empty shell has no methods) → the call degenerates to `Type(1)` →
+"Type mismatch for type member" at the enclosing construction.
+
+FIX (`function.yo` `_try_find_receiver_method`): `receiver_type :=
+resolve_enum_shell(receiver_info.ty)` — resolve a top-level shell receiver to its
+finalized enum before method lookup (no-op for non-shell receivers; unlike the
+prior no-op attempt #8 which resolved the OUTER `ArrayList(shell)` receiver, here
+the element receiver IS a top-level shell). Validated: **corpus 83/83**, full
+self-compile **564 → 527** markers, 0 regression. It is CORRECT + safe but only
+one facet — most failures don't fail on the element clone; they hit other
+shell-propagation paths (member-`value` mismatch from a different path, etc.).
+Confirms the doc's "whack-a-mole does NOT converge" — the real fix is the
+systematic shell-free recursive-enum representation (a multi-session refactor;
+value-type enums can't mutate `Self` in place like TS's shared object).
+
 The DOMINANT cluster (clone→TypeVal, member-`value`, `_self_shell`-and-unit,
 member-`field_types`/`args`/`id`) is the **recursive-enum-SELF-SHELL family** —
 the documented-hardest unsolved P1 issue (8+ ruled-out fix attempts below). The

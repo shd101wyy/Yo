@@ -49,7 +49,7 @@ open(import("std/string"));
 { get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
-{ t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
@@ -203,7 +203,14 @@ _try_find_receiver_method :: (
       return(Option(ReceiverMethodResult).None);
     }
   );
-  receiver_type := receiver_info.ty;
+  // A self-shell receiver (the empty `${enum}__self_shell` placeholder used as
+  // `Self` while a recursive enum's variant fields were evaluated) carries NO
+  // methods — `clone` on it returns hits=0 and the call degenerates to a type
+  // value (`Type(1)`), so e.g. `ArrayList(Self).clone()` fails to clone its
+  // elements ("Type mismatch for type member"). Resolve the shell to the
+  // finalized enum (registered by register_enum_final) so the derived clone is
+  // found. No-op for non-shell receivers. issues/yo-self-p1-transpile-tail.md.
+  receiver_type := resolve_enum_shell(receiver_info.ty);
   receiver_value := receiver_info.value;
   // 3. Method name token.
   method_tok := ast_expr_token(method_name_expr);
