@@ -1,5 +1,42 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-23 (✅ FIX LANDED) — where-clause check in `try_match_generic_impl` (blanket-scoped): 527 → 522
+
+Implemented the TS-faithful where-clause check (impl.ts:2425-2432) in yo-self's
+`try_match_generic_impl` (`evaluator/values/impl.yo`). For a BLANKET impl
+(`impl(forall(I), where(I <: Iterator), I, …)` — receiver pattern is a bare type
+variable), a concrete type bound to a where-constrained forall param must implement
+the constraint trait via `g_type_implements_trait_fn`, else the impl does NOT match.
+
+**Mechanism delivered:**
+- `GenericImplEntry` gained two parallel arrays `where_constraint_some_types` /
+  `where_constraint_traits` (mirrors TS `GenericImpl.whereConstraints`).
+- `_collect_impl_where_constraints` parses the `where(...)` clause at BOTH positions
+  (before the receiver `forall(I), where(…), I, …` and after it
+  `forall(T), Channel(T), where(…), …`); splits a tuple RHS `(Send, Acyclic)` into
+  per-trait constraints (a tuple-as-type throws).
+- The check resolves the bound type via `_resolve_one_forall_binding` (same path as
+  the bindings loop, with the name fallback) — a plain env lookup leaves it abstract
+  and silently skips the check.
+
+**Blanket-scoping (the key safety adaptation):** the check runs ONLY for blanket
+impls (`is_some_type(entry.receiver_type_pattern)`). Specific-pattern impls
+(`ArrayList(T)`, `HashMap(K,V)`) already constrain via their pattern; enforcing THEIR
+where-clauses here wrongly excludes them when the trait-implements predicate is
+incomplete — e.g. the load-order false-negative on `String <: Hash` broke
+`HashMap(String, _).new()` (self-compile EXIT=1) under the unscoped check. TS enforces
+all where-clauses because its predicate is complete; scoping to blankets is the safe
+yo-self adaptation and still catches the Iterator-blanket shadowing (the actual bug).
+
+**Validated:** repro 0 markers (ArrayList + HashMap `into_iter().next()` both resolve);
+`check ./std` 152/152; differential corpus 83/83 (DIFF 0); full self-compile EXIT=0
+with **522 markers (was 527, −5)** and the `HashMap.new → unit` hard error gone.
+
+The 5-marker drain confirms the into_iter blanket-shadowing was a small facet of the
+527 (not the ~40-marker async cluster originally hypothesized). The remaining 522 have
+OTHER roots — re-measure the throw→function map (`scratchpad/diag.sh`) on this base and
+drain the next-biggest cluster.
+
 ## 2026-06-23 (DEFINITIVE ROOT) — yo-self `try_match_generic_impl` SKIPS where-clauses (a yo-self bug, NOT a TS bug)
 
 Traced `coll.into_iter().next()` → unit all the way down (smoking-gun trace below).
