@@ -1,6 +1,42 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
-## 2026-06-23 (LATEST) — 🎯 ROOT ISOLATED: `coll.into_iter().next()` → unit at def-time
+## 2026-06-23 (DEFINITIVE ROOT) — yo-self `try_match_generic_impl` SKIPS where-clauses (a yo-self bug, NOT a TS bug)
+
+Traced `coll.into_iter().next()` → unit all the way down (smoking-gun trace below).
+THE ROOT: yo-self's `try_match_generic_impl` (evaluator/values/impl.yo:324-331) is a
+documented **Phase-3.5 simplification that SKIPS where-clause constraints**
+(verbatim: "Where-clause constraints skipped (no `g_type_implements_trait_fn` check
+yet …)"). TS's `tryMatchGenericImpl` (src/evaluator/values/impl.ts:2337-2342) CHECKS
+all `impl.whereConstraints`. So the std blanket
+`impl(forall(I), where(I <: Iterator), I, into_iter : fn(self)->Self)` (prelude.yo:7939)
+matches EVERY type in yo-self (the `I <: Iterator` gate is ignored) but only real
+iterators in TS.
+
+**Smoking-gun trace** (instrumented `_try_find_receiver_method`): for `xs : ArrayList`,
+`into_iter` has **2 hits** — hit#0 = the blanket (`-> Self`, returns the receiver
+type) and hit#1 = ArrayList's own (`-> ArrayListIter`). `_select_matching_overload`
+(function.yo:462) trial-calls in order and picks the first arg-compatible one = hit#0
+(blanket), since the trial's Step-8b `validate_where_constraints_for_call` is scoped to
+MARKER traits (Send/Sync), not `Iterator`. So `it : ArrayList`, then `it.next()` finds
+no `next` on ArrayList (hits=0) → degenerates to `unit` → "match got unit". This
+mis-resolves iterator methods on EVERY collection — the ~40-marker async/iterator
+cluster (yo-self's build/fetch/version code iterates heavily, so it blocks the fixpoint).
+
+**It is a yo-self bug, not a TS bug** (TS self-compiles to 0 real markers; TS's
+where-check excludes the blanket for ArrayList).
+
+**FIX (TS-faithful):** port TS impl.ts:2337-2342 into yo-self's `try_match_generic_impl`
+— for each `where` constraint, if the concrete type does NOT implement the constraint
+trait, return `matched=false` (skip the impl). Use the `g_type_implements_trait_fn`
+hook (comment says it exists "beyond returning true if function pointer is set"). The
+earlier into_iter-return / get_all_some_types framings were SURFACE symptoms of this.
+**CAVEAT:** the trait-implements predicate must be complete — an incomplete
+`<: Iterator` check would wrongly exclude the blanket for REAL iterators (ArrayListIter
+etc.), breaking iterator chains (the same risk the Send/mutex where-validation work
+documented: unscoped enforcement regressed std→145). Validate with corpus + std +
+self-compile. The earlier-tested fixes (get_all_some_types type_args; +0) were reverted.
+
+## 2026-06-23 (earlier framing) — 🎯 ROOT ISOLATED: `coll.into_iter().next()` → unit at def-time
 
 Definitive throw→function map (instrumented `_trial_eval_fn_body`: `[TTERR]` error
 from the capture-free handler + `[TTLOC]` `module_path:row` from the caller, paired
