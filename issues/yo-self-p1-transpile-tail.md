@@ -69,6 +69,30 @@ Confirms the doc's "whack-a-mole does NOT converge" — the real fix is the
 systematic shell-free recursive-enum representation (a multi-session refactor;
 value-type enums can't mutate `Self` in place like TS's shared object).
 
+### 2026-06-23 (cont. 2) — type-args resolve: faithful repro FIXED, self-compile UNCHANGED (use-site does not converge — confirmed)
+
+Follow-on attempt: `resolve_enum_shell_in_args` (resolve shells in the receiver's
+direct type-arguments, so `ArrayList(shell).clone()` binds its element forall
+`T=final` for `with_capacity`'s `*(T)`). A FAITHFUL repro (`RecT` with a MANUAL
+`clone` over `ArrayList(Self)`, mirroring `TypeValue.clone`) went to **0 markers**
+with it; corpus 83/83. BUT the full self-compile stayed **527 → 527** — ZERO
+additional benefit over the committed `resolve_enum_shell(receiver)`. REVERTED
+(no measured gain; "no speculative code").
+
+**This empirically settles the direction.** The committed shell-receiver-resolve
+captured the clone-on-top-level-shell-receiver facet (~7 throws / 37 markers);
+the type-args refinement fixes the same pattern in the repro but adds nothing in
+the real self-compile (already covered). The remaining 527 are OTHER shell facets
+(the diag throws were dominated by member-`value` mismatch ×20 + enum-got-unit
+×21 — NOT clone-on-shell). Three distinct use-site shell-resolves this session
+(deep field-patch at register_enum_final; top-level receiver-resolve [committed,
++37]; type-arg receiver-resolve [+0]) confirm the P1 doc's verdict: **per-input
+shell-resolution does NOT converge.** The remaining tail requires the SYSTEMATIC
+shell-free recursive-enum representation — a multi-session refactor converting
+`Self` from a value-copied empty shell to a shared/handle reference (like TS's
+mutable object). It can't be done piecemeal without leaving the compiler broken
+mid-change; it needs a dedicated design + multi-session execution.
+
 The DOMINANT cluster (clone→TypeVal, member-`value`, `_self_shell`-and-unit,
 member-`field_types`/`args`/`id`) is the **recursive-enum-SELF-SHELL family** —
 the documented-hardest unsolved P1 issue (8+ ruled-out fix attempts below). The
