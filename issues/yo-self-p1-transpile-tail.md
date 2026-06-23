@@ -1,5 +1,116 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-23 (LATEST) — 🎯 ROOT ISOLATED: `coll.into_iter().next()` → unit at def-time
+
+Definitive throw→function map (instrumented `_trial_eval_fn_body`: `[TTERR]` error
+from the capture-free handler + `[TTLOC]` `module_path:row` from the caller, paired
+in log order; script `scratchpad/diag.sh`). 527 markers = **93 distinct functions**,
+each failing once. The single biggest cluster is **async/await** (~40 of 93:
+`codegen/async/{state_machine,state_code_gen}.yo`, `codegen/exprs/{async,await}.yo`,
+`evaluator/async/await_analysis.yo`, `evaluator/shared/suspension_analysis.yo`) — and
+yo-self's OWN source uses async heavily (`version_cache`/`fetch`/`build_runner`/
+`install_command`), so these **block the fixpoint**, they are not peripheral.
+
+**Isolated root (minimal repro, ~10 s):** `coll.into_iter().next()` returns **`unit`**
+during def-time body eval, for ANY collection (HashMap AND ArrayList), so
+`match(it.next(), .Some => …, .None => …)` throws "Expected enum … got unit" and
+downstream `e.value.field` throws "member value mismatch". Narrowing:
+- `match(xs.get(usize(0)), .Some/.None)` (`.get()` → `Option(T)`) — **works**.
+- `it := xs.into_iter(); n := it.next()` (no match) — **works** (binding `unit` is silent).
+- `match(it.next(), …)` — **throws got-unit**.
+
+So `.get()` (returns `Option(T)`) binds `T` fine, but the iterator chain does not:
+`into_iter()` returns the user generic struct `ArrayListIter(T)`/`HashMapIter(K,V)`
+(std; `next : fn(ref(self)) -> Option(T)`, a CONCRETE Option — no associated type),
+and at def-time the iterator's element type is NOT bound to the concrete element, so
+`it.next()` degenerates to `unit`. Likely a **generic-method-return-type substitution
+gap for user generic structs at def-time** (Option works because it is special-cased;
+`ArrayListIter(T)` is not). This is MASKED everywhere — the trial wrapper swallows it
+and `check` never surfaces swallowed body-eval throws (std 152/152 despite this) — and
+only becomes markers in the self-compile where codegen needs the ExprInfo.
+
+**PINNED:** annotating `(it : ArrayListIter(EP)) = xs.into_iter()` makes the match
+WORK. So the gap is precisely in binding `into_iter()`'s declared return
+`ArrayListIter(T)` to `ArrayListIter(EP)` at the call site during def-time eval — the
+user generic struct return type isn't being re-instantiated with the bound `T`
+(Option works because it's special-cased).
+
+**Fix attempt 1 (get_all_some_types type_arguments) — TESTED, +0 on repro, REVERTED.**
+Hypothesis: `_collect_some_types_into`'s `.Struct` arm walks `field_types` but NOT
+`type_arguments`, so `get_all_some_types(ArrayListIter(T))` misses `T`, and
+`_resolve_some_types_deep` returns the type unchanged. Added a `type_arguments` walk
+(test-safe; faithful to TS, which finds these via `StructType.fields`). Rebuilt +
+ran the repro (`main` iterating ArrayList + HashMap so it codegens): **still 4 markers**
+(cascading from `match(it.next(), …)`). Then instrumented `_resolve_some_types_deep`
+itself with an `[RSD-IN]`/`[RSD-OUT]` print gated on `"Iter"`: **it NEVER fired** for
+the repro. So `into_iter`'s return-type resolution does NOT go through
+`_resolve_some_types_deep` (nor `_evaluate_funcval_runtime_call` — the `[RT]` print
+there also never fired). The return type is degenerate BEFORE those resolution points.
+Reverted (unvalidated, +0 on repro). The `.Struct` type_arguments gap may still be a
+real latent bug worth a separate validated fix, but it is NOT this one.
+
+**Narrowed for next session:** method calls route through
+`try_to_call_function_with_arguments` (function.yo:3271, from the
+`_try_find_receiver_method` site at 3205). For `xs.into_iter()` the result type is
+computed somewhere in THAT path that bypasses both `_resolve_some_types_deep` and
+`_evaluate_funcval_runtime_call`. NEXT: instrument inside
+`try_to_call_function_with_arguments` (and its sub-dispatch) to see where
+`ArrayListIter(T)`'s return type is produced and why `T` is left unbound (vs `.get()`'s
+`Option(T)`, which resolves). The `.get()` vs `into_iter` discriminator + the
+explicit-annotation-fixes-it fact (the value channel binds it, the inference channel
+does not) both still hold.
+
+**Code region traced (where the fix goes):** the runtime-call return-type
+resolution is `_evaluate_funcval_runtime_call` (calls/function.yo:966) — it (a) binds
+forall SomeTs in the return type by NAME from the call's forall bindings
+(`fa_bound_names`, lines 998-1028), then (b) `evaluate_function_return_type_again`
+(types/function.yo:3894 → `_resolve_some_types_deep(return_type, callee_env)`) resolves
+REMAINING SomeTs from the callee env. `into_iter`'s `T` is the IMPL's param (bound via
+`Self=ArrayList(EP)`), NOT its own forall, so it depends on step (b). For `.get()`
+(`-> Option(T)`) step (b) resolves `T`→`EP`; for `into_iter` (`-> ArrayListIter(T)`)
+it does not. The divergence to pin next: either (i) `ArrayListIter(T)`'s `T` is NOT a
+resolvable SomeT in the declared return (baked in at `into_iter`'s signature eval, so
+`_resolve_some_types_deep` skips it), or (ii) `into_iter` takes the OTHER call path
+(helper.yo, not this inline FuncVal arm) which resolves differently. Diagnostic: print
+`resolved_ret` / `get_all_some_types(ret_type)` for `into_iter` vs `get` at
+function.yo:1040. Compare to TS `evaluateFunctionReturnTypeAgain` (helper.ts:1282) —
+TS produces 0 markers, so it resolves this; mirror it. Fixing this one gap should
+drain a large fraction of the 93 (all manual-iteration call sites). Minimal repro in
+`src/tests/fixme.yo`; re-measure by re-adding the `[TTERR]`/`[TTLOC]` instrumentation
+per `scratchpad/diag.sh`.
+Repro lives in `src/tests/fixme.yo`. Validate with `yo-self-bin compile … --emit-c`
+and the `[TTERR]`/`[TTLOC]` instrumentation (currently uncommitted in
+`calls/function_type.yo` — revert before committing real fixes).
+
+## 2026-06-23 (LATE) — ⚠️ SHELL THEORY DISPROVEN; real root = def-time body-eval TYPING
+
+**The recursive-enum self-shell is NOT the P1 bottleneck.** Implemented "approach D"
+(`plans/RECURSIVE_ENUM_SHELL_REFACTOR.md`) — eliminate the shell entirely via
+in-place enum finalization (the `Self` placeholder shares the variant accumulator
+arrays, populated in place; clone RC-shares all four arrays; substitute gets an
+`visited_enum_ids` cycle guard). It is fully validated green (fast repro 0 markers,
+corpus 83/83, `check ./std` 152/152, self-compile COMPLETES) — and the marker count
+is **527 → 527 (+0)**. A throw-point diff of the two `stage2.c`s (committed shell base
+vs. approach D) is **295/296 byte-identical**. So the shell accounted for only the
+~37 markers already captured by `3996b5982`; the other ~490 are shell-orthogonal.
+Approach D was REVERTED (zero benefit + RC-share/cycle-guard risk). **This
+invalidates the premise of `RECURSIVE_ENUM_SHELL_REFACTOR.md` and the 8+ prior
+use-site attempts below — stop chasing the shell.**
+
+**The real root (from the 527 marker source expressions, NOT the throw messages):**
+527 markers collapse to ~93 throws / **296 throw-points** (first marker of each run);
+**246/296 (83%) are plain `if(...)` statements** like `if(s == e.type_id, …)`,
+`if(d == usize(0), …)` — statements that cannot fail on their own. So the def-time
+body-eval trial wrapper (`_trial_eval_fn_body`, calls/function_type.yo) is evaluating
+~93 of yo-self's OWN function bodies with **mistyped parameters/locals** — `e.type_id`,
+`.len()`, `==` then throw "got unit"/"incompatible types"/"member mismatch" because the
+binding's type is wrong, not because the construct is wrong. NEXT: instrumented
+`_trial_eval_fn_body` to print `module_path:row :: error` per swallowed throw →
+self-compile → throw→function map (run `diag.sh`), to find WHY def-time eval mistypes
+these params (likely a small number of high-leverage bugs in def-time param/local type
+setup; fixing the root should drain many markers — the convergent P1 fix the shell was
+not).
+
 ## 2026-06-23 — post-redesign tail RE-MEASURED: codegen SIGABRT FIXED, real tail = 564 markers / 102 throws (recursive-type family)
 
 After the overloading redesign (commits dd44dae0a..5742e7b66) landed, the full

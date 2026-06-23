@@ -15,10 +15,19 @@ source; share the def-time body env) make the unified stage-2 self-compile
 **complete on this 16 GB box** (peak ~7.5 GB; commit `e9d7bfde3`, corpus 83/83).
 It is now an optimization target: get under the measured **TS baseline of 3.8 GB**
 (yo-self codegen < TS). And **P1** — a long tail of executing-mode
-evaluator/codegen gaps, now **measurable** (the completing self-compile emits
-`stage2.c` with **30** `Failed to transpile` markers = the genuine tail);
-substantially drained already (Self-not-found family + field_labels FIXED).
-Prioritized in **Remaining work** below.
+evaluator/codegen gaps in the completing self-compile's `stage2.c` (currently
+**527** `Failed to transpile` markers).
+
+> **P1 ROOT CORRECTED (2026-06-23):** the tail is **NOT** the recursive-enum
+> self-shell. Eliminating the shell entirely (approach D,
+> `plans/RECURSIVE_ENUM_SHELL_REFACTOR.md`) leaves 527→527 markers (295/296
+> throw-points byte-identical) — the shell was orthogonal (only ~37 markers,
+> already fixed). The real root is **def-time body-eval typing**: the trial
+> wrapper `_trial_eval_fn_body` (calls/function_type.yo) evaluates ~93 of
+> yo-self's own function bodies with mistyped params/locals, so ordinary
+> `if`/`match` statements (246/296 throw-points are plain `if(...)`) throw "got
+> unit"/"incompatible types"/"member mismatch". Diagnosis in progress (instrument
+> the trial wrapper → throw→function map). See `issues/yo-self-p1-transpile-tail.md`.
 
 ---
 

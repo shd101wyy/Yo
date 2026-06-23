@@ -131,6 +131,73 @@ Compile with `yo-self-bin compile <file> --emit-c --skip-c-compiler`; a
 technique: a `[CLONE_DBG]` `eprintln` of receiver-type / is_static / hits in
 `_try_find_receiver_method` pins which dispatch sees a `__self_shell` receiver.
 
+## Approach D — in-place ArrayList population (IMPLEMENTED + REVERTED 2026-06-23) ❌ shell is NOT the P1 bottleneck
+
+> **DECISIVE NEGATIVE RESULT.** Approach D fully eliminates the shell and is
+> validated green (fast repro 0 markers, corpus 83/83, `check ./std` 152/152,
+> self-compile COMPLETES). But the self-compile marker count is **527 → 527 (+0)**,
+> and a throw-point diff vs. the committed (shell) base is **295/296 byte-identical**.
+> The recursive-enum shell is therefore **orthogonal to the 527-marker P1 tail** —
+> it accounted for only the ~37 markers already captured by the committed
+> shell-receiver-resolve fix (`3996b5982`). This **invalidates the premise of this
+> entire document and the 8+ prior use-site attempts.** Approach D was REVERTED
+> (zero measured benefit + added RC-share/cycle-guard risk). The real P1 root is
+> **def-time body-eval typing** (the trial wrapper `_trial_eval_fn_body` evaluates
+> ~93 of yo-self's own function bodies with mistyped params/locals, so ordinary
+> `if`/`match` statements throw "got unit"/"incompatible types"/"member mismatch").
+> 246/296 throw-points are plain `if(...)`. See `issues/yo-self-p1-transpile-tail.md`.
+> The mechanism below is kept as a correct, revivable cleanup (it removes a
+> yo-self-only divergence from TS's mutable `EnumType`) should the shell ever need
+> eliminating for faithfulness — but it is NOT a P1 fix.
+
+The mechanism implemented — neither A's full handle rewrite nor B's use-site
+resolution, but a **faithful value-type mirror of TS's in-place mutation**.
+
+**Mechanism.** `evaluate_enum_type` (evaluator/types/enum.yo) now builds the
+variant accumulator arrays FIRST and constructs the `Self` placeholder
+(`prelim_ty`) **sharing those same arrays**, with the SAME id as the final (no
+`__self_shell`). Populating the accumulators during field evaluation therefore
+populates `Self` itself — because `TypeValue`'s `Clone` RC-shares every variant
+array (a `Self` captured mid-definition — a method sig, a cached `ArrayList(Self)`
+— sees the variants pushed afterwards). This required extending the `EnumT` clone
+(types/definitions.yo) to RC-share ALL four parallel variant arrays
+(`variant_names`/`variant_fields`/`variant_field_labels`/`variant_discriminants`),
+not just `variant_fields`. The empty shell, `_patch_self_shell`, the distinct
+shell id, and `register_enum_final`'s role all GO AWAY. By the time any method
+runs, `Self` IS the populated enum — exactly as TS.
+
+**Why no cache conflation** (the constraint that killed shared-id before): the
+prior distinct-id workaround existed only because the shell's OWN arrays stayed
+empty, so a def-time `Option(shell)` could be returned (stale, 0-variant) for a
+post-definition `Option(final)` lookup. Here the placeholder's arrays ARE the
+populated ones — no separate empty value is ever cached. Validated: `check ./std`
+152/152 (json.yo clean), corpus 83/83.
+
+**The catch — the shell was silently a CYCLE TERMINATOR.** Pre-D, a recursive
+enum's variant fields held `ArrayList(shell)` and the empty shell ended recursion,
+making the type graph a finite DAG. Post-D, they hold `ArrayList(final)` = the enum
+itself: a genuine cycle (`EnumT → Struct.type_arguments → same EnumT`). Every
+traversal that recurses into `variant_fields` must now be cycle-guarded. AUDIT
+(2026-06-23): most already are — `are_types_compatible` has its own `visited` set,
+codegen `collection.yo`/`generation.yo` track a collected-set, `type_to_string`
+doesn't recurse into fields, `auto_derive`/`type_of_type` (run at finalization,
+exercised by the fast repro) only walk one level. The LONE gap was `substitute`
+(types/substitution.yo), which had only the `visited_trait_ids` guard — the
+self-compile's heavily-generic methods drove `_substitute_self_in_method_ty →
+substitute` into an infinite loop (SIGBUS, stack-guard overflow at ~16 s). FIX:
+added `visited_enum_ids` + a **path-based** (push-on-enter / pop-on-exit) EnumT
+guard — push/pop, NOT the push-only trait guard, so sibling occurrences of the
+same enum (two `List(T)` params) each substitute while only true back-edges cut.
+Diagnose this class: SIGBUS "Could not determine thread index for stack guard
+region" + a backtrace of one function calling itself = unguarded recursion on a
+now-cyclic type.
+
+**Status:** IMPLEMENTED + REVERTED. Self-compile completed at 527 markers (+0;
+295/296 throw-points identical to the shell base) → shell is orthogonal to the P1
+tail (see the decisive-negative-result box at the top). The mechanism is correct
+and revivable as a standalone faithfulness cleanup; it is not a P1 fix. All P1
+effort now redirects to the def-time body-eval typing root.
+
 ## References
 - `issues/yo-self-p1-transpile-tail.md` — full evidence, throw distribution,
   the 8+ ruled-out use-site attempts, this session's 3 attempts.
