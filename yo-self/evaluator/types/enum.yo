@@ -36,7 +36,7 @@ open(import("std/fmt"));
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, register_enum_final } :: import("../../types/creators.yo");
+{ t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
 { is_comptime_int_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
@@ -172,43 +172,6 @@ _evaluate_discriminant :: (
 // ---------------------------------------------------------------------------
 // evaluate_enum_type
 // ---------------------------------------------------------------------------
-/// Replace the empty-variant `Self` shell (matched by enum id + 0
-/// variants) with `final_ty` anywhere inside `t`. One-level rebuild over
-/// the standard type containers; the inserted `final_ty` itself still
-/// carries shells one level deeper — those resolve via the enum-final
-/// registry at use sites (types/creators.yo resolve_enum_shell).
-_patch_self_shell :: (
-  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
-)(
-  match(
-    t,
-    .EnumT(eid, _, vns, _, _, _, _) => cond(
-      ((eid == shell_id) && (vns.len() == usize(0))) => final_ty,
-      true => t
-    ),
-    .Pointer(inner) =>.Pointer(box(recur(inner.*, shell_id, final_ty))),
-    .Array(el, n, lv) =>.Array(box(recur(el.*, shell_id, final_ty)), n, lv),
-    .ComptimeListT(el) =>.ComptimeListT(box(recur(el.*, shell_id, final_ty))),
-    .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => {
-      new_fts := ArrayList(TypeValue).new();
-      (i : usize) = usize(0);
-      while(i < field_types.len(), {
-        ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
-        new_fts.push(recur(ft, shell_id, final_ty));
-        i = (i + usize(1));
-      });
-      new_tas := ArrayList(TypeValue).new();
-      (j : usize) = usize(0);
-      while(j < type_arguments.len(), {
-        ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
-        new_tas.push(recur(ta, shell_id, final_ty));
-        j = (j + usize(1));
-      });
-      .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
-    },
-    _ => t
-  )
-);
 evaluate_enum_type :: (
   fn(
     expr : AstExpr,

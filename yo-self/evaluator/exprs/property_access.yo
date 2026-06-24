@@ -43,7 +43,7 @@ open(import("std/string"));
   is_type_value
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type, t_some_t, resolve_enum_shell } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0 } :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1111,6 +1111,13 @@ Raw pointer operations may dereference invalid memory.`,
       _ => ()
     );
   });
+  // A recursive struct's `Self` field (e.g. `Variable.is_owning_..._as :
+  // Option(Box(Variable))`) captured the empty-field self-shell during the
+  // struct's own definition; `box.*.field` then derefs to that 0-field shell
+  // and the field lookup degenerates to unit. Resolve the shell to its final
+  // populated form so `fields_labels`/`fields_types` come from the real struct
+  // (no-op for non-structs and populated structs — see resolve_struct_shell).
+  base_ty = resolve_struct_shell(base_ty);
   obj_val_main := match(obj_info_opt,.Some(oi) => oi.value,.None => Option(EvalValue).None);
   // -------------------------------------------------------------------------
   // Struct / Tuple / Union field access

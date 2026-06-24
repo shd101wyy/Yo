@@ -41,6 +41,7 @@ open(import("std/fmt"));
   register_struct_fields
 } :: import("./field.yo");
 { random_id } :: import("../../utils.yo");
+{ register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type } :: import("./utils.yo");
 { is_iso_type } :: import("../../types/guards.yo");
@@ -74,6 +75,12 @@ evaluate_struct_type :: (
   struct_id := `struct_${random_id(env.module_path)}`;
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.
   // This allows self-referential types like `struct(val: Option(Self))`.
+  // The shell shares the final's `struct_id` (UNLIKE enum.yo's distinct
+  // `__self_shell` id): id-based comparisons (compatibility `aid==eid`,
+  // codegen C-keying, method dispatch) then treat the shell and final as the
+  // same type for free, so only FIELD-reading sites need resolution. The shell
+  // is distinguished from the final purely by its EMPTY field list, which is
+  // exactly how `resolve_struct_shell`/`_patch_self_shell` detect it.
   prelim_ty := TypeValue.Struct(
     struct_id.clone(),
     String.from(""),
@@ -198,13 +205,37 @@ evaluate_struct_type :: (
       )
     );
   });
-  // Build final struct TypeValue with all fields populated.
+  // Build the final struct in two steps (mirrors enum.yo:663-707): an UNPATCHED
+  // pre-final used as the replacement target, then the real final with the
+  // self-shell patched out of the field types one level. Deeper self-nesting
+  // resolves through the struct-final registry (resolve_struct_shell) at use
+  // sites. TS needs no patch — its Self IS the same mutable object.
+  pre_final_ty := TypeValue.Struct(
+    struct_id.clone(),
+    String.from(""),
+    field_labels,
+    field_types,
+    is_reference_semantics,
+    is_atomic_rc,
+    is_newtype,
+    String.from(""),
+    ArrayList(TypeValue).new(),
+    false
+  );
+  patched_types := ArrayList(TypeValue).new();
+  (pt_i : usize) = usize(0);
+  while(pt_i < field_types.len(), {
+    ft := match(field_types.get(pt_i),.Some(t) => t,.None => TypeValue.Unit);
+    patched_types.push(_patch_self_shell(ft, struct_id.clone(), pre_final_ty));
+    pt_i = (pt_i + usize(1));
+  });
+  // Build final struct TypeValue with all fields populated (shell-patched).
   // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
   struct_ty := TypeValue.Struct(
     struct_id.clone(),
     String.from(""),
     field_labels,
-    field_types,
+    patched_types,
     is_reference_semantics,
     is_atomic_rc,
     is_newtype,
@@ -214,6 +245,9 @@ evaluate_struct_type :: (
     // type_arguments — set later at the comptime-fn call site
     false // is_source_namespace
   );
+  // Record the finalized form under the struct id so leaked empty-field shells
+  // resolve at field-read use sites — see resolve_struct_shell (creators.yo).
+  register_struct_final(struct_id.clone(), struct_ty);
   // Record the per-field comptime-only flags so codegen's
   // get_runtime_struct_fields can filter comptime-only fields (Gap 1).
   register_struct_field_comptime_flags(struct_id.clone(), field_comptime_flags);

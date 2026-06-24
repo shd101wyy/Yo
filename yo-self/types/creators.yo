@@ -312,6 +312,49 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .FutureTraitT(base_name : _) => TypeTag.TTrait
   )
 );
+/// Replace an empty-variant/empty-field `Self` shell (matched by id +
+/// emptiness) with `final_ty` anywhere inside `t`. One-level rebuild over
+/// the standard type containers; the inserted `final_ty` itself still
+/// carries shells one level deeper — those resolve via the enum/struct-final
+/// registries at use sites (resolve_enum_shell / resolve_struct_shell).
+/// Shared by enum.yo (recursive enums) and struct.yo (recursive structs);
+/// the `shell_id` passed at the call site is unique per type, so the
+/// enum and struct arms never cross-fire.
+_patch_self_shell :: (
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
+)(
+  match(
+    t,
+    .EnumT(eid, _, vns, _, _, _, _) => cond(
+      ((eid == shell_id) && (vns.len() == usize(0))) => final_ty,
+      true => t
+    ),
+    .Pointer(inner) =>.Pointer(box(recur(inner.*, shell_id, final_ty))),
+    .Array(el, n, lv) =>.Array(box(recur(el.*, shell_id, final_ty)), n, lv),
+    .ComptimeListT(el) =>.ComptimeListT(box(recur(el.*, shell_id, final_ty))),
+    .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
+      ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
+      true => {
+        new_fts := ArrayList(TypeValue).new();
+        (i : usize) = usize(0);
+        while(i < field_types.len(), {
+          ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
+          new_fts.push(recur(ft, shell_id, final_ty));
+          i = (i + usize(1));
+        });
+        new_tas := ArrayList(TypeValue).new();
+        (j : usize) = usize(0);
+        while(j < type_arguments.len(), {
+          ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
+          new_tas.push(recur(ta, shell_id, final_ty));
+          j = (j + usize(1));
+        });
+        .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
+      }
+    ),
+    _ => t
+  )
+);
 // Enum finalization side-table: `enum_id -> finalized EnumT`. During an
 // enum's own definition, `Self` is bound to a PRELIMINARY empty-variant
 // shell (enum.yo). TS mutates one object in place, so anything that
@@ -356,8 +399,54 @@ resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
     _ => t
   )
 );
+// Struct finalization side-table: `struct_id -> finalized Struct`. During a
+// struct's own definition `Self` is bound to a PRELIMINARY empty-field shell
+// (struct.yo) carrying the SAME `struct_id` as the final (UNLIKE enum.yo,
+// which uses a distinct `__self_shell` id). The shell is distinguished from
+// the final purely by its EMPTY field list, so id-based comparisons treat
+// shell and final as one type for free and only FIELD-reading sites must
+// resolve. yo-self TypeValues are value-typed snapshots, so a leaked shell
+// keeps 0 fields forever (`box.*.field` on recursive structs like Variable
+// degenerates to unit); the registry lets field-read sites swap a 0-field
+// shell for its final form BY ID — the value-semantics mirror of TS's
+// in-place object mutation.
+StructFinalEntry :: struct(struct_id : String, ty : TypeValue);
+(g_struct_finals : ArrayList(StructFinalEntry)) = ArrayList(StructFinalEntry).new();
+register_struct_final :: (fn(struct_id : String, ty : TypeValue) -> unit)({
+  if(struct_id.len() > usize(0), {
+    _ := g_struct_finals.push(StructFinalEntry(struct_id : struct_id, ty : ty));
+  });
+});
+/// Resolve an empty-field Struct shell to its finalized form (no-op for
+/// non-structs, populated structs, and unknown ids).
+resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .Struct({ id : sid, field_types : fts }) => {
+      if(fts.len() > usize(0), {
+        return(t);
+      });
+      (i : usize) = usize(0);
+      n := g_struct_finals.len();
+      (r : Option(TypeValue)) = Option(TypeValue).None;
+      while((i < n) && r.is_none(), {
+        match(
+          g_struct_finals.get(i),
+          .Some(e) => if(e.struct_id == sid, {
+            r = Option(TypeValue).Some(e.ty);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(r,.Some(f) => f,.None => t)
+    },
+    _ => t
+  )
+);
 
-export(register_enum_final, resolve_enum_shell);
+export(register_enum_final, resolve_enum_shell, _patch_self_shell);
+export(register_struct_final, resolve_struct_shell);
 export(
   generate_some_type_id,
   t_unit,
