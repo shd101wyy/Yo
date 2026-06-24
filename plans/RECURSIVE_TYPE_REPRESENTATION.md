@@ -3,6 +3,16 @@
 Status: DESIGN (execution-ready). Supersedes `RECURSIVE_ENUM_SHELL_REFACTOR.md`
 (which proposed approach D — disproven below).
 
+**DESIGN DECISION (2026-06-24): `TypeValue` STAYS a value-semantics enum.** Do NOT refactor it
+to an `object`/`Rc` (reference semantics) to dodge recursive `Self`. An enum is the correct
+SHAPE for a type (a closed sum of cases); IDENTITY is an orthogonal concern carried by the `id`
+field and resolved through a central registry = **interning** — exactly the rustc model
+(`TyKind` is an `enum`, interned as `Ty`). Yo is no-GC, so reference-by-default ADTs (GC'd
+MoonBit's choice) would force RC/GC on every type. Consequence for the directions below: ALL of
+them operate WITHIN the value-enum model — frame every fix as "carry/resolve the `id` through the
+registry," never as a shape change. Direction D (id-indirect `Self`) is the principled end-state
+of this model, not an alternative to it.
+
 ## 0. Goal
 
 Drain the dominant remaining P1 self-host-fixpoint markers (~445 `Failed to
