@@ -1,5 +1,39 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-24 (cont. 2) — TS↔yo-self divergence comparison: real divergences found, +0 on dominant markers
+
+A 6-pair parallel TS↔yo-self comparison (adversarially verified) of the def-time-eval /
+type-check modules found CONCRETE VERIFIED porting divergences — confirming the hypothesis
+that divergences cause the bugs. But the ones found are EDGE-CASE divergences: implementing
+two was **+0 markers** in the full self-compile (std 152/152, corpus 83/83), because the
+DOMINANT markers come from a deeper recursive-type behavioral gap, not these line-diffs.
+
+**Verified divergences (real porting bugs; worth fixing for faithfulness, NOT the dominant root):**
+1. `types/compatibility.yo:331-335` — compares TUPLE element LABELS; TS (compatibility.ts:262-263)
+   explicitly does NOT ("Tuple is structural, not nominal"). Removing the check → +0. REVERTED.
+2. `evaluator/exprs/property_access.yo` (533, 1280/1301/1312/1317, 1403/1412/1417) — field/deref
+   access on an unknown receiver calls `create_unknown_val(ft)`, but TS `createUnknownValue` wraps
+   a `Type(0)` (type-level) field in a SomeType (yo-self's own SomeT branch ~1075 already does it).
+   4 struct-field sites via a helper → +0. REVERTED. (Targets type-level assoc fields.)
+3. `evaluator/calls/type.yo:272` — construction validation drops the expected-type context to
+   `convert_comptime_type_to_runtime_type` (comptime_str field expecting `*(u8)` → `str`). NOT TESTED.
+4. `evaluator/calls/helper.yo:1465` — specialized FuncVal carries `cloned_body` (unevaluated) vs
+   TS `specializedBody` (evaluated). DELIBERATE yo-self comment → risky/uncertain. NOT TESTED.
+5. `evaluator/exprs/match.yo` — doesn't refresh `evaluatedBody.$.env` after pop_frame before
+   consume_case_body_temp_var (TS does). Medium. NOT TESTED.
+6. `evaluator/calls/function_type.yo:600-614` — empty placeholder FuncVal to the body-eval ctx vs
+   TS's real functionValue (known; tied to the inert recur work).
+
+**KEY RESULT:** the comparison METHOD is sound — it's how the 3 LANDED fixes were found
+(return()-unit ← begin.ts:1122, match-expected_type ← match.ts:471, where-clause ← impl.ts:2425;
+each a divergence on the SPECIFIC failing construct). But the remaining dominant markers are NOT a
+localized line-divergence — they are a DEEP behavioral gap in recursive-type def-time handling
+(`(*(T))(ptr)`→Type(1) in HashMap/HashSet `with_capacity`; clone→TypeVal; box-deref-field→unit on
+recursive structs; the self-shell). SIX fix attempts (recur×2, _apply_ref_amp, cfid, tuple,
+property_access-Type0) were +0 in the full compile — the markers are warm-up/context-dependent and
+resist instrumentation-guessing AND edge-case-divergence-fixing. The dominant root is the
+recursive-type behavioral work (multi-session). [[yo-self-recursive-enum-self-shell]]
+
 ## 2026-06-24 (cont.) — ⚡ FAST LOOP + remaining frontier precisely scoped (multi-session)
 
 **FAST ITERATION LOOP (the process win).** Full `main.yo` self-compile is ~45-50 min and
