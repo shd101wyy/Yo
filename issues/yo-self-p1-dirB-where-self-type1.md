@@ -125,3 +125,85 @@ type-arg (NOT `arg_values.forall_args`, which is empty for inferred-forall calls
 
 Related: [[yo-self-fixpoint-tail-run-compile]], [[yo-self-specialization-self-type]],
 [[yo-self-parametric-trait-impl-self-subst]], [[yo-self-phase3-generic-impl-funcid]].
+
+## UPDATE 2 (2026-06-24) — the degenerate value is `TypeVal(Comptime)`; 6 attempts exhausted
+
+Round-5 probe at the throw (type.yo:275, dumping `arg_info.value`) revealed the **exact
+degenerate value**: all three failing calls produce **`TypeVal(Comptime)`** (a type-value
+wrapping the auto-derived `Comptime` marker trait; its `.ty` is `Type(1)`):
+```
+member=head  argexpr=((self.head).clone)()  argval=TypeVal(Comptime)
+member=items argexpr=(items.clone_list)()   argval=TypeVal(Comptime)
+member=types argexpr=(types.clone)()        argval=TypeVal(Comptime)
+```
+So the mechanism is: **a `.clone()`-family CALL on a recursive-type receiver returns
+`TypeVal(Comptime)`** instead of a runtime clone. `Comptime` is the marker auto-derived for
+types whose fields all implement Comptime (evaluator/types/utils.yo:144/204; pushed at
+trait_checking.yo:220).
+
+**Ruled out (now 6 attempts):**
+- Return-type resolution: a chokepoint probe at `evaluate_function_return_type_again`
+  ([P-EFRTA]) was **completely silent** for the repro — the result type is NOT computed via
+  the return-type machinery at all.
+- Receiver shell-resolution: added `resolve_shells_deep` (depth-bounded deep enum+struct shell
+  resolve) at function.yo:213. Result: **did NOT fix D, and REGRESSED variant C** (Box(Self).clone(),
+  previously clean — the deep walk rebuilds the receiver type even when nothing resolves,
+  corrupting a working case). Reverted. So the receiver-resolve path is NOT where the
+  `TypeVal(Comptime)` is born (and deep-rebuilding receiver types is harmful).
+- `hits=0`: NOT the cause — `clone_list` IS found (variant F dispatches it fine); `hits>0`,
+  so `TypeVal(Comptime)` is the **result of CALLING** the method, not a lookup miss.
+
+**Narrowed to:** the `TypeVal(Comptime)` is the **call RESULT** of a `.clone()`-family method
+on a recursive-type receiver, set on a path that is neither return-type-resolution nor the
+hits=0 fallback. Strong hypothesis: either (a) the method LOOKUP
+(`get_type_trait_methods_by_name`/generic-impl fallback) returns the `Comptime` marker member
+instead of `clone` when the receiver/element is a shell, or (b) the call is CTFE'd and the
+comptime path yields the marker.
+
+**SHARPEST LEAD — it's the where + Self-return COMBINATION (not the lookup).** The bisection
+is decisive: D (where(T<:Clone) + `-> Self`) FAILS; E (D minus the where clause) CLEAN; F (D with
+where but `-> usize`) CLEAN. And the method IS found (hits>0; F dispatches the same method fine).
+So `TypeVal(Comptime)` is produced ONLY when a **where-constrained** method returning **Self**
+(the recursive container) is called on a recursive-shell receiver. All three real failing calls
+(Option.clone, ArrayList.clone, the custom clone_list) are where-constrained `-> Self`-family
+clones. So the production site is the **where-bearing call/specialization path**, where the
+combination of (where-clause evaluation for T=recursive-shell) + (Self return) yields the marker.
+
+**SHARPEST HYPOTHESIS (test FIRST in a fresh pass):** since `evaluate_function_return_type_again`
+was SILENT, `items.clone_list()` is likely **not evaluated as a normal method call at all** —
+instead `items.clone_list` (the callee sub-expr) probably evaluates to a `TypeVal`, so `(...)` is
+handled as a **TYPE APPLICATION**, whose result is `TypeVal(<applied type>)` = `TypeVal(Comptime)`.
+That single hypothesis explains ALL the evidence: the value is a `TypeVal` (P-THROW), the
+return-type machinery is bypassed (P-EFRTA silent), and resolving the receiver shells changed
+nothing (the callee, not the receiver, is the TypeVal). **PROBE the property-access evaluation of
+`items.clone_list` / `(self.head).clone` (the FnCall's func sub-expr): log its result value-kind
+when the method name is clone/clone_list and the receiver type carries a recursive shell. If it's
+a `TypeVal` → confirmed: property-access mis-resolves a where-constrained `-> Self` method on a
+shell-bearing receiver to a type-value (instead of a callable method), making the call a
+type-application.** Likely fix: in property-access method resolution, when the method's return is
+`Self`/a recursive container and the receiver carries a shell, return the method as a callable (not
+a TypeVal) — or resolve the shell so the method resolves to its real (callable) form.
+(Alternative, if the callee is callable: probe the where-bearing dispatch
+`validate_where_constraints_for_call` helper.yo:1891.)
+
+**STATUS: 6 build attempts + ~14 code-dives did not locate the production site statically.** The
+chain is now precisely traced: `items.clone_list` (the CALLEE) evaluates to `TypeVal(Comptime)` →
+`()` is handled NOT as a normal method call (efrta silent) → the result is that `TypeVal(Comptime)`
+(its `.ty` is `Type(1)` because a type-value's type is `TypeUni`). `Comptime` is the auto-derived
+marker TraitT; the Comptime-trait-FETCH sites (trait_checking.yo:485/952/1512) are trait CHECKS
+(return bool/Option), NOT value producers — so the `TypeVal(Comptime)` is born at some
+`create_type_value(<Comptime TraitT>)` that static reading can't pinpoint, and the property-access
+branches that set a TypeVal value (399 enum-variant; 672 working-trait, scoped to literal `Self` —
+neither matches `items.clone_list`) don't obviously cover it either.
+
+**DEFINITIVE NEXT STEP (runtime probe, best done fresh with full context budget):** instrument
+`create_type_value` (value.yo) to log when its argument is a `TraitT` named "Comptime" (i.e. a
+`TypeVal(Comptime)` is being constructed), with a coarse phase hint set as a module global at the
+major dispatch entry points (property_access entry, the method-dispatch in function.yo, the
+where-clause check). Run ONLY the minimal repro (few hits). That GUARANTEES catching the
+production site (wherever the marker TypeVal is born), which 6 print-probes on the
+return-type/receiver/hits paths missed. Then fix at that site: a where-constrained `-> Self`
+clone-family method on a recursive-shell receiver must resolve to a CALLABLE method, not a
+`TypeVal` of an auto-derived marker. **Cracking this keystone likely drains ~40 of the 48 remaining
+throws (the Type(1) cluster + the Frame-level/Incompatible clusters that trace to the same
+recursive-type def-time-eval root) — it is the gating fix for finishing P1's marker tail.**
