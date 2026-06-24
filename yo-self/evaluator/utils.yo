@@ -709,13 +709,25 @@ merge_and_check_envs :: (
   // naming_checker's `index_of`: `cond(… => .Some(i), true => begin(…))`. The
   // transient per-arm / begin frames sit ABOVE max_frame_level and are NOT
   // scanned by the ownership loop; the real inter-arm consistency guard is the
-  // per-frame variable-count comparison there. So require only that the outer
-  // frames are present.
+  // per-frame variable-count comparison there.
+  //
+  // FURTHER RELAXED: even the "outer frames all present" pre-check
+  // (`frames.len() < required_depth`) is too strict — an arm whose ONLY missing
+  // frame is the innermost (== max_frame_level) is handled safely by the merge
+  // loop below (it reads the base frame at :735, falls back to `new_frame(false)`
+  // for a missing case frame at :747, and SKIPS the count check at
+  // `frame_i == max_frame_level` at :750). And a case env genuinely missing a
+  // NON-innermost frame the base has is still rejected by that loop's count
+  // check (:789) / name check (:817). So the pre-check is redundant with the
+  // loop's own validation; keep only a floor against a fully-uninitialized
+  // (0-frame) case env. This drains the "has N, need N+1" def-time-eval throws
+  // (await/return/var_fns/function/suspension_analysis/trait_checking) whose
+  // arms legitimately differ by one transient frame.
   required_depth := (max_frame_level + usize(1));
   (ci : usize) = usize(0);
   while(ci < case_envs.len(), {
     case_env := match(case_envs.get(ci),.Some(e) => e,.None => env);
-    if(case_env.frames.len() < required_depth, {
+    if(case_env.frames.len() == usize(0), {
       exn.throw(
         dyn(
           format_error_message(
