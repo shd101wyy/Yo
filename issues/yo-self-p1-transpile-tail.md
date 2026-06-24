@@ -1,5 +1,44 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-24 (cont.) — ⚡ FAST LOOP + remaining frontier precisely scoped (multi-session)
+
+**FAST ITERATION LOOP (the process win).** Full `main.yo` self-compile is ~45-50 min and
+was the bottleneck. Def-time throws are PER-MODULE + deterministic → validate a fix by
+standalone-compiling ONLY the target module:
+`YO_MAIN_STACK_MB=4096 yo-self-bin compile yo-self/<path>/M.yo --emit-c --skip-c-compiler -o /tmp/mod`
+(other_fn_call.yo = 2m20s/53 markers; async.yo = 3m44s/108 markers). Per-fix cycle ~55m→~20m;
+an INERT fix is caught at ~13m. CAVEAT: standalone OVERCOUNTS warm-up-masked errors
+(hash_map/hash_set `with_capacity` `Self(…*(Bucket(K,V))…)` → "value: Type(1)" — ~0 markers
+in the full compile; filter them). Full self-compile = periodic checkpoint only.
+
+**Precise async.yo error map (19 def-time throws, instrumented standalone compile)** — after
+filtering warm-up-masked hash_map/hash_set noise, the REAL remaining clusters are all
+recursive-type / structural-identity / branch-merge (NO quick convergent wins left):
+1. **`box.*.field` → unit** (env.yo:925 `boxed.*.name`; await_analysis.yo:248 `owner_box.*.id`;
+   suspension_analysis.yo:227 `owner_var.id`). `Variable` is a recursive struct
+   (`is_owning_the_same_rc_value_as : Option(Box(Variable))`). **EMPIRICAL: a minimal repro
+   (`RecS :: object(name, other : Option(Box(RecS)))` + `b.*.name`, called from main)
+   compiles to 0 markers** — so it is NOT a generic recursive-struct-deref gap; it is
+   CONTEXT-DEPENDENT (forms only with Variable's full definition / env.yo's type-definition
+   order — a shell that only materializes in the real compile context). Resists isolation.
+2. **Structurally-identical struct collision** — "Cannot unify CodegenTypeEntry and
+   CodegenExternFnEntry" (both `object(ty, c_name, c_include)`, index.yo:75-76).
+   `_find_capture_type_c_name` (async.yo:437, the full-compile #1 ≈126-marker fn) iterates
+   `context.base.types.values()` (HashMap V=CodegenTypeEntry); the generic `.values()/.next()`
+   instantiation collides with the CodegenExternFnEntry one in the comptime-fn/struct-identity
+   cache ([[yo-self-phase3-hashmap-new-blocker]] "name-only struct comparison is unsound").
+   Fix direction: cache key must distinguish same-fielded structs by NAME.
+3. **Branch-merge "Case env is missing outer frames"** (trait_checking.yo:1143/1391,
+   suspension_analysis.yo:134) — [[yo-self-branch-merge-trivial-arm]], merge_and_check_envs
+   too strict; workflow did not confidently solve.
+
+**Conclusion:** convergent quick wins (527→445) EXHAUSTED. The remaining bulk = recursive-type
+self-shell (enum + struct) + structural-struct identity + branch-merge — context-dependent,
+resists isolation (#1 repro proves it), a focused MULTI-SESSION refactor. Best executed fresh
+with the fast loop (module-by-module), NOT mid-session. The enum-shell elimination (approach D)
+gave +0 markers, so a struct-shell fix may be orthogonal too — validate on the real compile
+context before investing.
+
 ## 2026-06-24 — diagnostic-driven drain: 527 → 522 → 485 → … (instrumentation + parallel root-cause workflow)
 
 **Marker progression (committed):** 527 →(where-clause, b45ee91e7)→ 522
