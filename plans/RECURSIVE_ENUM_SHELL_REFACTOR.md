@@ -1,5 +1,12 @@
 # Recursive-enum self-shell — systematic elimination (design)
 
+> ⚠️ **SUPERSEDED (2026-06-24) by `plans/RECURSIVE_TYPE_REPRESENTATION.md`.** This doc's
+> central proposal (approach D — eliminate the enum shell via in-place finalization) was
+> IMPLEMENTED and gave **+0 markers** (527→527; throw-points 295/296 byte-identical), then
+> reverted: the enum-shell representation is NOT the dominant-marker root. The successor plan
+> covers the un-addressed struct side, the operation-degeneration root, and warm-up-dependence.
+> Kept for the ruled-out-attempts history.
+
 **Status:** DESIGN (2026-06-23). This is the gate to the self-host fixpoint
 (`plans/BOOTSTRAPPING_CODEGEN.md` Phase 6 / P1). Use-site resolution has been
 proven non-convergent (below); this doc designs the systematic fix.
