@@ -186,7 +186,40 @@ a TypeVal) — or resolve the shell so the method resolves to its real (callable
 (Alternative, if the callee is callable: probe the where-bearing dispatch
 `validate_where_constraints_for_call` helper.yo:1891.)
 
-**STATUS: 6 build attempts + ~14 code-dives did not locate the production site statically.** The
+## UPDATE 3 (2026-06-24) — ROOT FOUND (verified): `F(recursive-shell)` type-constructor instantiation degenerates to a type-value
+
+VERIFIED via [P-CLASS] (minimal, -O1, stack=4096): the failing FnCall's **callee** resolves to
+`func_resolved=TypeVal` for all three (member=head/items/types). property-access returns a TypeVal
+ONLY when the **receiver is a TypeVal** (property_access.yo:565 "TypeVal cases" path) — so the
+receiver (`items`, a destructured recursive-enum field of type `MyList(MyTypeD-shell)`) is itself a
+`TypeVal`. That means **instantiating the type-constructor `MyList(<MyTypeD self-shell>)` degenerated
+to a type-value** instead of the concrete `object(head: Option(...))`. This is the SAME mechanism as
+the Stage-0 `Bucket(K,V) → Type(1)` finding in `with_capacity`. So the WHOLE keystone reduces to ONE
+root:
+
+> **A type-constructor application `F(arg)` (a `fn(comptime T:Type) -> comptime(Type)` call) where
+> `arg` contains a recursive self-shell degenerates to a type-value (`Type(1)`/`Comptime`) instead of
+> the concrete `F(resolved)`.** Downstream chain: field value → `TypeVal` → method callee → `TypeVal`
+> → call routed as type-application → `TypeVal(Comptime)` → type-member mismatch at type.yo:275.
+
+GOTCHAS that cost rounds: (a) `-O0` SIGSEGVs on this repro (deep eval recursion — see
+[[no-release-during-porting]]); must use `-O1`. (b) Probes that `ast_expr_to_string`/`type_to_string`
+the recursive expr/type at the DEEP throw point overflow the `-O1` stack too — keep throw-site probes
+MINIMAL (variant tag only) + run at `YO_MAIN_STACK_MB=4096`. (c) The repro recurses ~2000 levels for a
+trivial value — the degeneration happens deep in the recursive-type comptime-fn evaluation.
+
+**FIX DIRECTION:** at the comptime-fn / type-constructor-application evaluation (where `F(args)` is
+computed — evaluator/calls/comptime_fn.yo `evaluate_comptime_fn_call` + the type-constructor call
+path), resolve a recursive self-shell type-argument to its registered final
+(`resolve_enum_shell`/`resolve_struct_shell`) BEFORE instantiating, so `F(shell)` evaluates as
+`F(final)` → the concrete object type, not a degenerate type-value. This is the interning model
+([[yo-self-typevalue-enum-interning]]) applied at the type-application boundary (the plan's
+"Direction C — central resolve at the operation boundary"). Likely also needs the
+registration-timing guarantee (the shell's final must be registered before the instantiation runs).
+
+---
+
+**EARLIER STATUS (superseded by UPDATE 3): 6 build attempts + ~14 code-dives did not locate the production site statically.** The
 chain is now precisely traced: `items.clone_list` (the CALLEE) evaluates to `TypeVal(Comptime)` →
 `()` is handled NOT as a normal method call (efrta silent) → the result is that `TypeVal(Comptime)`
 (its `.ty` is `Type(1)` because a type-value's type is `TypeUni`). `Comptime` is the auto-derived
