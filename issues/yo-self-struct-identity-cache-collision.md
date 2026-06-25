@@ -120,14 +120,28 @@ error: assigning to '__yo_enum_yo_id_5989_struct_yo_id_6072' from incompatible t
 error: assigning to '__yo_struct_yo_id_5815' from incompatible type '__yo_struct_yo_id_6080'
 ```
 
-`_type_key_at` (`codegen/utils/index.yo:646`) keys structs by `id` when present, so
-StA/StB DO get distinct C types — the failure is a **type-flow inconsistency**:
-`Option(StA)` (enum 5989) and `Option(StB)` (enum 6328) wrap the SAME payload struct
-id 6072, i.e. codegen's generic-instantiation type identity **churns inconsistently**
-(the deeper no-stable-funcId problem, [[yo-self-phase3-generic-impl-funcid]]). This is
-a distinct, deeper issue (stable type identity for generic instantiations in codegen),
-NOT a quick analogous name-check. The P1 transpile-marker metric (440→422) measures
-only layer 1, which the evaluator fix correctly drains.
+**ROOT-CAUSED (probe-confirmed, see task #30):** generic type instantiations are never
+interned to a stable id. `HashMapValues` is an anonymous `struct(...)` (hash_map.yo:631)
+returned by a comptime fn. An instrumented `comptime_fn.yo` probe showed the constructor
+appears under **7 different func_ids** (funcId churn across specialization contexts) AND
+the comptime-fn cache **misses every time within each func_id** (HIT=0); `yo_id_5968`
+missed 3× → struct ids 5981/6001/6199 = the exact conflicting C ids. So each instantiation
+re-runs `handle_struct_def` → fresh `struct_${random_id}` → codegen emits distinct
+incompatible C types → clang fails. The clang conflicts span **both** within-func_id
+(5981/6001/6199) and across func_ids (`Option` enums 5989 vs 6206), so the 7 func_ids
+must collapse to ONE stable id.
+
+**CONFIRMED pre-existing and general** (NOT caused by the layer-1 fix): the *base* binary
+(no compat fix) fails the *single-struct* repro identically (5 clang errors, 0 transpile
+markers). `HashMap.values()/.next()` returning any struct value is simply broken in
+yo-self codegen; the corpus never exercises it and `check ./std` is evaluator-only.
+
+The fix is the deep **funcId-stability refactor** (give generic fns/type-constructors
+their definition funcId, à la TS `functionValue.funcId`, so the cache interns
+instantiations) — [[yo-self-phase3-generic-impl-funcid]], attempted + reverted once
+("may need a Struct funcId field"). Core type-identity machinery, broad regression risk,
+multi-session — NOT a quick fix, and NOT resolvable by a within-func_id sub-fix. The P1
+transpile-marker metric (440→422) measures only layer 1, which the evaluator fix drains.
 
 A runnable corpus regression test (`samefielded_value_structs.yo`) was therefore
 **removed** — it SELF-FAILs on layer 2 even after the layer-1 fix. Re-add it once
