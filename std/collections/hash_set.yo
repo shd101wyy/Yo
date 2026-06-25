@@ -22,8 +22,22 @@ MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 /// Extract H2 hash (lower 7 bits) from full hash.
 h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
+/// Avalanche-mix a 64-bit hash (murmur3 fmix64 finalizer) so weakly-distributed
+/// hashes — notably the IDENTITY hash of integer keys — spread uniformly across
+/// slots. Without it, sequential integer keys collapse 128 consecutive keys into
+/// one h1 slot under `(hash >> 7) % capacity`, giving O(n) linear-probe chains.
+/// `*` wraps on u64 overflow (as FNV-1a relies on).
+mix_u64 :: (fn(hash : u64) -> u64)({
+  h := hash;
+  h = (h ^ (h >> u64(33)));
+  h = (h * u64(0xff51afd7ed558ccd));
+  h = (h ^ (h >> u64(33)));
+  h = (h * u64(0xc4ceb9fe1a85ec53));
+  h = (h ^ (h >> u64(33)));
+  return(h);
+});
 /// Extract H1 hash (upper bits) for slot index.
-h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(hash >> u64(7)) % capacity);
+h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(mix_u64(hash) >> u64(7)) % capacity);
 /// High-performance hash set using SwissTable algorithm.
 /// Elements must implement `Eq` and `Hash`. Provides O(1) average lookup and insert.
 HashSet :: (
