@@ -797,18 +797,27 @@ merge_and_check_envs :: (
                   );
                 });
               },
-              true => {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(match(bodies.get(cj),.Some(b) => b,.None => make_err_expr())),
-                      `Frame level ${frame_i} has different number of values for different cases.`,
-                      false,
-                      .None
-                    )
-                  )
-                );
-              }
+              // case_vars_len < base_vars_len: this case env is SHORTER than the
+              // base at a non-innermost frame. This is NOT an inconsistency to
+              // reject — it has two legitimate causes, both already handled by
+              // the names check + per-column merge below (which read a missing
+              // case var as the base var, lines 827/866):
+              //   (1) the base frame GREW earlier in THIS cj loop via temp
+              //       adoption (line 783), so a later case env compared against
+              //       the grown base appears short (the missing vars are exactly
+              //       the adopted, non-owning temps);
+              //   (2) a trivial arm (`.None => .None`) records no copy of an
+              //       enclosing binding the base + destructuring siblings carry
+              //       — a yo-self recorded-env divergence from TS (TS arm envs
+              //       sit at the outer level with enclosing bindings intact).
+              // A genuine inconsistency (an arm missing a NON-temp binding the
+              // others bound, or a consume/init split) is still caught by the
+              // names check (:828) and the per-column consume/init merge (:889+).
+              // So defer to them rather than throwing here — symmetric with the
+              // case>base all-temps branch above. See
+              // issues/yo-self-p1-transpile-tail.md (branch-merge) +
+              // [[yo-self-branch-merge-trivial-arm]].
+              true => ()
             );
           });
           // Check variable name consistency.

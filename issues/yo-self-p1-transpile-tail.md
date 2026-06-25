@@ -1,5 +1,30 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-25 (cont.) — ✅ branch-merge `case<base` fix: 422 → 416 (−6), clean
+
+**Committed.** The largest REAL cluster in the 422 [TTERR] map (the 9 "Frame level N has
+different number of values" throws — `merge_and_check_envs`, `yo-self/evaluator/utils.yo`)
+is now drained net −6.
+
+**Root:** the per-frame **value-count check** (utils.yo:762-813) threw whenever a case env
+was SHORTER than the base at a non-innermost frame (`case_vars_len < base_vars_len`, the
+`true =>` arm at :800). But that is NOT an inconsistency: (1) the base frame GROWS during
+this very `cj` loop via temp-adoption (:783 pushes adopted temps into the base frame), so a
+LATER case env is compared against the grown base and spuriously looks short; (2) a trivial
+arm (`.None => .None`) records no copy of an enclosing binding its siblings carry (the
+yo-self per-arm recorded-env divergence from TS). The downstream **names check** (:815-841,
+reads a missing case var as base at :827) and **per-column consume/init merge** (:847+, at
+:866) were ALREADY made `case<base`-tolerant; the value-count check just never matched them.
+
+**Fix:** the `case_vars_len < base_vars_len` branch now defers to those downstream checks
+(`true => ()`) instead of throwing — symmetric with the `case>base` all-temps branch above.
+A genuine inconsistency (a missing NON-temp binding, or a consume/init split) is still caught
+by the names check + the per-column merge, so soundness is preserved (cf.
+[[yo-self-branch-merge-trivial-arm]] SOUNDNESS note). Validated: full self-compile 422→416
+EXIT=0, `check ./std` 152/152, A/B corpus 83/83 CHANGED=0. The −6 (vs 9 targeted throws) is
+the documented un-masking: draining a guard-throw early in a fn body surfaces the next throw
+unless the whole body is clean.
+
 ## 2026-06-25 — markers 440→422 (struct-identity fix); [TTERR] map of the remaining 422
 
 **Committed:** `9a160f286` nominal struct-distinctness in `are_types_compatible_exact`
