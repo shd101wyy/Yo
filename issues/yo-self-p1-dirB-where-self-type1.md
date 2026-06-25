@@ -1,11 +1,28 @@
 # P1 dominant cluster — `where(T<:Trait)` + `-> Self` generic method → `Type(1)`
 
-Status: **ROOT FIXED but NET +3 ON THE METRIC — NOT COMMITTED (see UPDATE 7).** The
-recursive-clone root was correctly identified and fixed (UPDATE 6), and the fix
-demonstrably removes its targeted markers in the full compile — but removing them
-**un-masks 6 previously-warm-up-masked sites**, so the full-compile count goes 440→443.
-This empirically confirms the doc-wide hypothesis that the marker count is
-warm-up-masked and non-monotonic under individual recursive-type fixes.
+Status: **ROOT FIXED but NET +3 ON THE METRIC — NOT COMMITTED; re-confirmed +3 on the
+416 base (see UPDATE 8).** The recursive-clone root was correctly identified and fixed
+(UPDATE 6), and the fix demonstrably removes its targeted markers in the full compile — but
+removing them **un-masks 6 previously-warm-up-masked sites**, so the full-compile count goes
+up by 3. This empirically confirms the doc-wide hypothesis that the marker count is
+warm-up-masked and non-monotonic under individual recursive-type fixes. **The un-masking is
+ROBUST to warm-up-stabilizing fixes** (UPDATE 8): the masking root is the codegen
+funcId-stability layer-2 (task #30), NOT the evaluator-layer cache instability the
+struct-identity + branch-merge fixes addressed. KEEP PARKED until task #30 lands.
+
+## UPDATE 8 (2026-06-26) — re-measured on the 416 base: STILL +3 (hypothesis disproven)
+
+UPDATE 7 hypothesized that fixing warm-up-stabilizing roots (the struct-identity cache
+collision + branch-merge) might let this fix land net-negative. Both landed since (440→422
+struct-identity `9a160f286`; 422→416 branch-merge `72dd10dde`), so I re-applied
+`clone-fix-plus3.patch` cleanly to the 416 base, rebuilt (`--optimize 1`), and re-ran the
+full self-compile: **416 → 419 (still +3)**, EXIT=0. So the +3 un-masking is **robust** to
+those two evaluator-layer fixes — it is NOT caused by the evaluator cache instability they
+addressed. This strengthens the conclusion that the warm-up masking root is the **codegen
+funcId-stability layer-2** (generic instantiations never interned to a stable id; task #30 /
+[[yo-self-phase3-generic-impl-funcid]]). The recursive-clone fix is CORRECT (UPDATE 6) but
+must stay PARKED until layer-2 is fixed — only then can its un-masked sites transpile and the
+fix land net-negative. Reverted; HEAD (416) is the correct state.
 
 ## UPDATE 7 (2026-06-25) — ⚖️ MEASURED: fix is CORRECT but NET +3 (warm-up un-masking) — NOT committed
 
