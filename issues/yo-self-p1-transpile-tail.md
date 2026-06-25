@@ -1,5 +1,33 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## 2026-06-25 — markers 440→422 (struct-identity fix); [TTERR] map of the remaining 422
+
+**Committed:** `9a160f286` nominal struct-distinctness in `are_types_compatible_exact`
+(same-fielded-struct comptime-fn cache collision) → **440→422, clean −18, 0 un-masked**.
+std 152/152, corpus 83/83. See `issues/yo-self-struct-identity-cache-collision.md`.
+
+**[TTERR] swallowed-throw map of the 422** (instrumented `_trial_eval_fn_body` swallow
+handler with `println(\`[TTERR] ${_err.to_string()}\`)`, full self-compile EXIT=0):
+only **43 distinct swallowed throws** produce all 422 markers (~10 cascaded marker-lines
+per root throw; 309 of the 422 are enclosing `if(`). Clustered + cross-referenced vs the
+actual stage2 markers:
+
+| swallows | category | location | → markers? |
+| --- | --- | --- | --- |
+| **19** | `Type mismatch member "value"` Got `Type(1)` | hash_map.yo:82 / hash_set.yo:74 (`with_capacity` `Self(…)`) | **0 — WARM-UP-MASKED noise** (confirmed: 0 stage2 markers) |
+| **9** | `Frame level N … different number of values for different cases` | suspension_analysis.yo:479(3)/:134(2), trait_checking.yo:1143/:1391, function.yo:1698, await.yo:125 | **YES — largest real cluster** (branch-merge) |
+| 7 | `Incompatible types` | flowability:674, import:214, va_start:88, gensym:116, comptime_assert:81, and_or:77 | scattered (≈6 distinct) |
+| 3 | `Type mismatch member "args"/"field_types"` | definitions.yo:362 (recursive `TypeValue.clone`), parser.yo:982/:1392 | recursive-clone + array_list args |
+| 2 | `Expected bool` | formatter.yo:174, utils.yo:934 | |
+| 2 | `Cannot unify` | function.yo, await.yo | |
+| 1 | `Argument count mismatch` | parser.yo:1205 | |
+
+**KEY: the dominant [TTERR] cluster (19 `"value"`) is masked NOISE (0 markers)** — exactly
+the doc-wide overcount warning. The real next target = **branch-merge "Frame level" (9
+swallows)**: `merge_and_check_envs` too strict vs per-arm frame divergence
+([[yo-self-branch-merge-trivial-arm]], partial fix already landed for target.yo/naming_checker).
+Codegen layer-2 (funcId churn) is the deeper, deferred refactor (task #30) — not these.
+
 ## 2026-06-24 (cont. 2) — TS↔yo-self divergence comparison: real divergences found, +0 on dominant markers
 
 A 6-pair parallel TS↔yo-self comparison (adversarially verified) of the def-time-eval /
