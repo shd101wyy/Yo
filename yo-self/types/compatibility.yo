@@ -16,6 +16,7 @@ open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
+{ type_contains_some_type } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -401,6 +402,17 @@ _compat_impl :: (
         // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
         // entry, so the second query returns the first's result.
         (((aref != eref) || (aatomic != eatomic)) || (anew != enew)) => false,
+        // NOMINAL distinctness (mirrors TS compatibility.ts:288-306): two structs
+        // with DIFFERENT non-empty names are DISTINCT types under exact match,
+        // UNLESS either contains a SomeT (a specialization placeholder). yo-self's
+        // struct `id` churns across generic instantiations (no stable funcId), so
+        // the stamped NAME is the nominal identity here — same-named instantiations
+        // (Box(i32) vs Box(String)) and ""-named reconstructions still fall through
+        // to the structural field comparison below. Without this, CodegenTypeEntry
+        // vs CodegenExternFnEntry (identical fields, distinct names) collided in the
+        // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
+        // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
+        ((((aname.len() != usize(0)) && (ename.len() != usize(0))) && (aname != ename)) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           vkey := ((aid.clone() + String.from("=>")) + eid);
