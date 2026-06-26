@@ -1275,3 +1275,45 @@ cast (or `.Some(...)`). Then instrument the eval of a `*(T)(arg)` FnCall (pointe
 callee with a value arg) in `is_executing=false` mode and find why it returns the type
 rather than a cast value. Forall machinery AND callee dispatch are both now confirmed
 OUT of scope.
+
+#### TRUE ROOT (2026-06-26, +1 build — corrects the `*(T)`-cast guess): the struct FIELD TYPES retain unsubstituted `T`
+
+Probe at the `try_to_call_type_with_arguments` field-check throw (type.yo, printing
+`member_element.label` + `arg_type` + `ast_expr_to_string(actual_arg_expr)`, guarded to
+`member=="value"`) gave TWO mismatches on the 8-line repro:
+```
+[ARGEXPR] member=value got=*(String) expr=data_ptr
+[ARGEXPR] member=value got=Type(1)  expr=Self(ctrl :.Some(ctrl_ptr), data :.Some(data_ptr), capacity : capacity, size : usize(0))
+```
+- Line 1: the inner `.Some(data_ptr)` (the `data : ?*(T)` field). **`data_ptr` is correctly
+  `*(String)`** — so the `*(T)(data_void_ptr)` cast is FINE (my prior "the cast yields
+  Type(1)" guess is WRONG). The mismatch is that the Option's `value` field EXPECTS
+  `*(T)` with **`T` still unsubstituted** (a SomeT/`Type(1)`), while the value is the
+  concrete `*(String)` → `are_types_compatible(*(String), *(unsubstituted-T))` = false.
+- Line 2: that throw drops the whole `Self(...)` construction to `Type(1)`, which is then
+  the arg to the outer `.Ok(Self(...))` (Result.Ok's `value` field) → the marker.
+
+**So the root is a SUBSTITUTION gap, not a cast.** The struct type used to construct
+`Self(...)` has field types `data : ?*(T)` / `ctrl : ?*(u8)` where **`T` was NOT
+substituted to `String`**, even though the struct's `type_arguments=[String]` (confirmed
+earlier: `targ0=String`). i.e. `ctx.self_type` for `_alloc` reached via the add-chain
+(`h.add` → `Self._resize` → `Self._alloc`) is a `HashSet(String)` whose `type_arguments`
+are populated but whose **`field_types` still reference the impl forall `T`**. Via
+`HashSet(String).new()` the same construction WORKS — so that path's `Self` carries
+field types already substituted to `String`. There are effectively two `HashSet(String)`
+representations: the `.new()` one (fields substituted) and the add-chain/Self-dispatch
+one (fields = `?*(T)`).
+
+**CORRECT FIX DIRECTION (core eval — for a deliberate session, NOT autonomous grind):**
+substitute the struct's `type_arguments` into its `field_types` for the receiver
+`Self` on the Self-dispatch path — either (a) at the Struct-construction arm
+(`function.yo:1892`, substitute `forall→type_arguments` into the `get_struct_fields`
+result before `try_to_call_type_with_arguments`), or (b) make the add-chain `Self`
+(`ctx.self_type`) carry substituted field types at the point it is set
+(`create_specialized` self_type / the method-dispatch that resolves `Self` from the
+receiver). The `type_arguments` band-aid is populated but never pushed INTO the field
+types on this path — that is the gap. (Needs the struct's forall param NAMES to build
+the substitution; check whether the struct value or registry carries them.) This is
+the recursive-type / self-shell substitution layer
+([[yo-self-recursive-enum-self-shell]] / Direction-B), now pinned to the exact
+field-type-substitution gap.
