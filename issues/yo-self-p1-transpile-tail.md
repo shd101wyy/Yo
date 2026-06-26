@@ -1247,3 +1247,31 @@ If it is already a Struct there → the degeneration is inside
 `try_to_call_type_with_arguments`'s per-field eval of `.Some(*(T)(..))` and the trace
 above is wrong. Either way this is the FIRST build of the next active session — the
 forall machinery is confirmed out of scope.
+
+#### REFUTED (2026-06-26, +1 build): `Self(...)` DOES reach the Struct arm — degeneration is in the per-field eval
+
+Ran the probe (function.yo `.SomeT`/HKT arm vs `.Struct` arm, guarded to
+`tok.module_path.contains("hash_set")`, printing `ast_expr_to_string(func_expr)`).
+Result on the 8-line repro: **`[STRUCTARM] Self` ×2, and ZERO `[SOMETARM-HKT]`.**
+So the SomeT-resolution hypothesis above is WRONG — `Self` resolves to the concrete
+`.Struct` and `Self(...)` enters the **Struct construction arm** (function.yo:1881)
+correctly. The `[STRUCTARM] Self` print is at the TOP of the arm; the throw fires
+AFTER it, inside `try_to_call_type_with_arguments` (the arm's body, function.yo:1917).
+
+So the `Type(1)` is produced by the **per-field evaluation of one of `Self(...)`'s
+field args**, NOT by callee dispatch. The throw's member `"value"` = a nested
+`Option.Some` construction (the `ctrl :.Some(ctrl_ptr)` / `data :.Some(data_ptr)`
+fields, `?*(u8)` / `?*(T)`), so the degenerating sub-expression is the `.Some(<ptr>)`
+payload — most likely **`data_ptr := *(T)(data_void_ptr)`** (the `*(T)(...)` pointer
+cast) evaluating to `TypeUni(1)` at def-time instead of a `*(T)` value. (`*(T)` is a
+pointer-type expression; called with an arg `(data_void_ptr)` it should be a runtime
+cast → a `*(String)` VALUE, but at `is_executing=false` it appears to yield the TYPE.)
+
+**CORRECT NEXT PROBE (next active build):** inside `try_to_call_type_with_arguments`
+(type.yo) just before the `are_types_compatible` throw (type.yo:275), the failing arg
+is already evaluated — print `ast_expr_to_string(actual_arg_expr)` (guarded to
+`member_element.label=="value"` + hash_set module) to confirm it is the `*(T)(...)`
+cast (or `.Some(...)`). Then instrument the eval of a `*(T)(arg)` FnCall (pointer-type
+callee with a value arg) in `is_executing=false` mode and find why it returns the type
+rather than a cast value. Forall machinery AND callee dispatch are both now confirmed
+OUT of scope.
