@@ -546,6 +546,30 @@ register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit
 lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
   g_some_resolved_concrete.get(some_id)
 );
+// Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
+// its `cond(...)`), keyed by the call's expr id. yo-self codegen lowers a macro
+// call ONLY via `ExprInfo.macro_expansion` (generation.yo) — but that per-pass
+// ExprInfo gets OVERWRITTEN across eval passes: a later eval of the same call id
+// re-sets its table entry WITHOUT macro_expansion, so codegen then reads `None`
+// and emits "Failed to transpile" (this is exactly why every `if(...recur...)`
+// fails — confirmed: same id is macro-set once, then read with no expansion).
+// TS never loses it because its ExprInfo lives ON the node (`expr.$`), a stable
+// per-node property; yo-self's side-table is per-pass churnable. This durable,
+// id-keyed table is the faithful equivalent — written once by the macro path,
+// read by codegen as a FALLBACK when the per-pass ExprInfo lost it. A macro
+// call's expansion is a stable syntactic property of its id, so the record stays
+// correct regardless of which pass last touched the ExprInfo. (Same pattern as
+// g_method_callee_values / g_some_resolved_concrete above.)
+(g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
+/// Record the expanded form for a macro-call expr id.
+record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
+  g_macro_expansions.set(call_id, expanded);
+  ()
+});
+/// Look up the expanded form for a macro-call expr id, if recorded.
+lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
+  g_macro_expansions.get(call_id)
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
@@ -560,3 +584,4 @@ export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
+export(record_macro_expansion, lookup_macro_expansion);

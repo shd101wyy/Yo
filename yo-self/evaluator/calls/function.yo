@@ -35,7 +35,8 @@ open(import("std/string"));
   record_method_callee_type,
   record_method_callee_value,
   register_some_resolved_concrete,
-  lookup_some_resolved_concrete
+  lookup_some_resolved_concrete,
+  record_macro_expansion
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -2913,6 +2914,11 @@ Fix: wrap the call:
                 call_macro_info.variable_name = exp_info.variable_name;
                 call_macro_info.macro_expansion = Option(AstExpr).Some(expanded_expr);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), call_macro_info);
+                // Durably record the expansion keyed by call id: the per-pass
+                // ExprInfo above can be overwritten by a later eval of the same
+                // call WITHOUT macro_expansion (e.g. `if(...recur...)`), leaving
+                // codegen with `None`. Codegen falls back to this side-table.
+                record_macro_expansion(ast_expr_id(expr), expanded_expr);
                 _ := param_vars;
                 return(expr);
               },

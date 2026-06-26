@@ -106,7 +106,7 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_is_atom
 } :: import("../../expr.yo");
-{ has_any_control_flow, ExprInfo } :: import("../../expr_info.yo");
+{ has_any_control_flow, ExprInfo, lookup_macro_expansion } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -410,8 +410,19 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       return(out);
     }
   );
-  // Macro expansion: generate the already-expanded form.
-  match(ei.macro_expansion,.Some(mx) => return(_call_generate_expr(mx, indent.clone(), context)),.None => ());
+  // Macro expansion: generate the already-expanded form. Prefer the per-expr
+  // ExprInfo; fall back to the durable id-keyed side-table when a later eval
+  // pass overwrote this call's ExprInfo without `macro_expansion` (e.g. a macro
+  // call like `if(...recur...)` — see record_macro_expansion in expr_info.yo).
+  match(
+    ei.macro_expansion,
+    .Some(mx) => return(_call_generate_expr(mx, indent.clone(), context)),
+    .None => match(
+      lookup_macro_expansion(ast_expr_id(expr)),
+      .Some(mx) => return(_call_generate_expr(mx, indent.clone(), context)),
+      .None => ()
+    )
+  );
   // (SomeType-Future ___drop/___dup fast path — Phase 5, omitted.)
   // Closure construction: `(x) => body` used as a value/arg — emit the capture
   // struct construction + register the impl-closure-call mapping. Mirrors the

@@ -22,7 +22,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
-{ ExprInfoTable, expr_info_table_get } :: import("../../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
 { is_control_fn, get_func_type } :: import("../../function_value.yo");
 {
@@ -473,8 +473,21 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
         },
         .None => ()
       );
-      // Macro expansion.
-      match(ei.macro_expansion,.Some(me) => recur(me, context, info),.None => ());
+      // Macro expansion. Fall back to the durable side-table when this call's
+      // per-pass ExprInfo lost its macro_expansion (same overwrite that the
+      // codegen dispatch handles — keep collection consistent with codegen so a
+      // macro call like `if(...recur...)` has its expansion's types collected;
+      // otherwise codegen emits the expansion but its capture/closure structs
+      // were never collected → get_type_string panic).
+      match(
+        ei.macro_expansion,
+        .Some(me) => recur(me, context, info),
+        .None => match(
+          lookup_macro_expansion(ast_expr_id(expr)),
+          .Some(me) => recur(me, context, info),
+          .None => ()
+        )
+      );
       // Runtime destructurings (comptime→runtime conversions).
       match(
         ei.runtime_destructurings,
