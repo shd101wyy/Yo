@@ -508,11 +508,11 @@ export function getTypeString(
         );
       }
 
-      // For reference semantics structs/enums, return pointer type
+      // For reference-semantics structs (objects) and enums (ref(enum(…))),
+      // return a pointer type — the value is a heap-allocated RC handle.
       if (
-        (type.tag === TypeTag.Struct || type.tag === TypeTag.Enum) &&
-        isStructType(type) &&
-        type.isReferenceSemantics
+        (isStructType(type) && type.isReferenceSemantics) ||
+        (isEnumType(type) && type.isReferenceSemantics)
       ) {
         return `${cTypeName}*`;
       } else {

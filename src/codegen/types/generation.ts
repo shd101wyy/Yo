@@ -1496,7 +1496,26 @@ export function generateEnumDeclaration(
   emitter.emitDeclarationLine(`} ${variantUnionName};`);
   emitter.emitDeclarationLine("");
 
-  // Generate the main tagged union struct
+  // Generate the main tagged union struct. A reference-semantics enum
+  // (`ref(enum(…))`) is a heap-allocated, RC-managed handle (like an object):
+  // prepend the reference-count header, and the `${cName}` typedef is a pointer
+  // to this struct (see the forward-declaration site). Mirrors the struct
+  // reference-semantics layout. plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+  if (enumType.isReferenceSemantics) {
+    const atomicTag = enumType.isAtomicRc ? "atomic " : "";
+    emitter.emitDeclarationLine(
+      `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)} (${atomicTag}reference counted)`
+    );
+    emitter.emitDeclarationLine(
+      `  __yo_ref_header_t header; // ${enumType.isAtomicRc ? "Atomic r" : "R"}eference count header`
+    );
+    emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
+    emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
+    emitter.emitDeclarationLine(`};`);
+    emitter.emitDeclarationLine("");
+    return;
+  }
+
   emitter.emitDeclarationLine(
     `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)}`
   );
