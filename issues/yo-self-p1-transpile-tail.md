@@ -1370,4 +1370,40 @@ markers, distinct roots — NOT the now-fixed construction):
 So further P1 draining is now per-root and smaller-yield (no more −63 wins). NOTE:
 the per-C-fn clustering (`awk '/^static/{fn=$0}…'` + `grep -oE yo_id_NNNNN`) is
 UNRELIABLE here — a `static <ret-struct-id> <fn-id>(…)` line carries 2+ yo_ids, so
-counts are inflated; cluster by marker EXPRESSION instead.
+counts are inflated; cluster by marker EXPRESSION instead. (Per-function via the
+fn name = last identifier before `(` on the `static` line DOES work: top fns are
+comptime_assert handler ~9, a gensym-like Expr-atom builtin ~8, an implicit-vars
+walker ~6, the comptime-`and` fold ~5, an async-result codegen emitter ~5.)
+
+#### 78-tail [TTERR] throw-map (2026-06-26) + the Incompatible-types root
+
+Built a [TTERR]-instrumented binary from the FIXED source and ran the full
+self-compile capturing the swallowed def-time throws. Categories:
+- **7 `Incompatible types: Previous X / Current unit`** (the biggest) — at
+  **cond.yo:543** (the `cond` arm-type unification; `if`/`match` route here).
+  Sites: comptime_assert.yo:81 `.None => {}`, gensym.yo:116 `_ => {}`, and_or.yo:77,
+  import.yo:214 `}, {`, the `if`-macro default `?= quote(())` (prelude:7602),
+  flowability.yo:674 (`Previous: ResumeType`). Pattern = a STATEMENT-position
+  `match`/`cond`/`if` where one arm is a value-producing block and another is an
+  empty `{}` / `()` (unit).
+- 3 `Frame level N — different number of values` + 1 `… different variable names`
+  (branch-merge family, [[yo-self-branch-merge-trivial-arm]]).
+- 2 `Type mismatch for type member "args"` + 1 `"field_types"` — struct/enum
+  construction field check (same FAMILY as the just-fixed Type(1) "value" member;
+  candidate residual — check whether the ENUM-variant construction arm
+  function.yo:1977 needs the same value-field-type sourcing the Struct arm got).
+- 2 `Expected bool type for "and" argument` (the comptime-`and` builtin, and_or.yo).
+- 2 `Cannot unify incompatible types`, 1 `Argument count mismatch`.
+
+**KEY (the Incompatible-types fix is NOT "relax the check"):** TS `cond.ts:417-422`
+has the BYTE-IDENTICAL unification + throw — so cond.yo:543 is a faithful port.
+TS compiles yo-self fine, so in TS these arms unify (both `unit`, or the
+value-arm is divergent/skipped). The divergence is therefore **UPSTREAM in yo-self's
+ARM-TYPE COMPUTATION** — it computes a value/struct type for an arm that TS types as
+`unit` (likely the value-arm-vs-empty-`{}` block, or an effect `exn.throw(...)` call
+not flagged divergent by `has_any_control_flow` so its arm-type unifies against the
+unit sibling). **NEXT (fresh instrumented diagnosis): print `body_einfo.ty` +
+`has_any_control_flow(body_cf2)` per arm at cond.yo:526-553 for one of these sites
+(e.g. comptime_assert) — find why an arm that should be `unit` is typed as a struct.
+Do NOT relax the cond.yo:543 check (it matches TS).** This is the branch-merge /
+arm-type family — soundness-sensitive; verify against TS before any change.
