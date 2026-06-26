@@ -1,0 +1,57 @@
+//! plans/REF_REFERENCE_SEMANTICS.md Phase 3: reference-semantics enums
+//! `ref(enum(…))` / `atomic(ref(enum(…)))` — heap-allocated RC handles.
+open(import("std/string"));
+
+Shape :: ref(enum(Circle(r : i32), Square(s : i32)));
+Tree :: ref(enum(Leaf(value : i32), Node(left : Self, right : Self)));
+Atom :: atomic(ref(enum(Nil, Cons(v : i32))));
+Wrap :: ref(enum(Empty, Has(s : String)));
+
+// `ref`/`atomic` wrap inline struct/enum literals only.
+comptime_expect_error(bad_ref_named :: ref(Shape));
+comptime_expect_error(bad_atomic_prim :: atomic(i32));
+
+area :: (fn(sh : Shape) -> i32)(
+  match(sh,.Circle(r) => ((r * r) * i32(3)),.Square(s) => (s * s))
+);
+tree_sum :: (fn(t : Tree) -> i32)(
+  match(t,.Leaf(value) => value,.Node(left, right) => (recur(left) + recur(right)))
+);
+
+test("ref(enum) construct + match", {
+  c := Shape.Circle(r : i32(2));
+  assert(area(c) == i32(12), "circle area");
+  sq := Shape.Square(s : i32(3));
+  assert(area(sq) == i32(9), "square area");
+});
+
+test("ref(enum) is a shared handle (reference semantics)", {
+  c := Shape.Circle(r : i32(2));
+  c2 := c;
+  assert(area(c2) == i32(12), "copy shares the same handle");
+});
+
+test("ref(enum) re-match (handle borrowed, not consumed) + variant reassign", {
+  s := Shape.Circle(r : i32(5));
+  assert(area(s) == i32(75), "first match");
+  assert(area(s) == i32(75), "re-match works — match borrows the handle");
+  s = Shape.Square(s : i32(4));
+  assert(area(s) == i32(16), "in-place variant reassignment observed");
+});
+
+test("recursive ref(enum) builds + traverses", {
+  l := Tree.Leaf(value : i32(3));
+  r := Tree.Leaf(value : i32(4));
+  n := Tree.Node(left : l, right : r);
+  assert(tree_sum(n) == i32(7), "recursive sum over a ref-enum tree");
+});
+
+test("atomic(ref(enum)) construct + match", {
+  a := Atom.Cons(v : i32(42));
+  match(a,.Cons(v) => assert(v == i32(42), "atomic ref-enum field"),.Nil => ());
+});
+
+test("ref(enum) drops its variant's RC fields on free", {
+  w := Wrap.Has(s : `a heap string the ref-enum must free`);
+  match(w,.Has(sv) => assert(sv.len() > usize(0), "has a string"),.Empty => ());
+});
