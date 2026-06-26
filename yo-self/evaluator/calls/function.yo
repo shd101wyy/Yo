@@ -2348,12 +2348,12 @@ Fix: wrap the call:
           .None => ArrayList(TypeValue).new()
         );
         // Per-parameter `ref` flags, parallel to `fv_param_types`. A
-        // `comptime(ref(n))` / `inout(n)` parameter must be bound as
+        // `comptime(inout(n))` / `inout(n)` parameter must be bound as
         // REASSIGNABLE so the callee body's `n = ...` mutation is accepted
         // (and, for comptime refs, propagates back via the binding-update
         // path). Mirrors TS `helper.ts:581` (`isReassignable: parameter.isRef`).
         // Previously hardcoded `false`, which made `n = ...` inside a
-        // `comptime(ref(n))` body throw "Cannot reassign n".
+        // `comptime(inout(n))` body throw "Cannot reassign n".
         fv_param_labels := match(
           callee_info_opt,
           .Some(ci) => match(

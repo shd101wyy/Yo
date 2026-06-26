@@ -135,7 +135,7 @@ impl(
   BTreeMapIter(K, V),
   Iterator(
     Item : BTreeEntry(K, V),
-    next : (fn(ref(self) : Self) -> Option(BTreeEntry(K, V)))(
+    next : (fn(inout(self) : Self) -> Option(BTreeEntry(K, V)))(
       cond(
         (self._index >= self._entries.len()) =>.None,
         true => {
@@ -168,7 +168,7 @@ impl(
   BTreeMapIterPtr(K, V),
   Iterator(
     Item : *(BTreeEntry(K, V)),
-    next : (fn(ref(self) : Self) -> Option(*(BTreeEntry(K, V))))(
+    next : (fn(inout(self) : Self) -> Option(*(BTreeEntry(K, V))))(
       cond(
         (self._index >= self._entries.len()) =>.None,
         true =>
@@ -205,7 +205,7 @@ impl(
   BTreeMapKeys(K, V),
   Iterator(
     Item : K,
-    next : (fn(ref(self) : Self) -> Option(K))(
+    next : (fn(inout(self) : Self) -> Option(K))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -234,7 +234,7 @@ impl(
   BTreeMapValues(K, V),
   Iterator(
     Item : V,
-    next : (fn(ref(self) : Self) -> Option(V))(
+    next : (fn(inout(self) : Self) -> Option(V))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -255,7 +255,7 @@ impl(
   BTreeMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(ref(self) : Self, idx : K, where(K <: Ord(K))) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : K, where(K <: Ord(K))) -> *(Self.Output))({
       r := self._find(idx);
       assert(r.found, "BTreeMap: key not found");
       entry_ptr := &(self._entries(r.idx));

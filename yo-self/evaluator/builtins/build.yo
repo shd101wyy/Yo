@@ -171,7 +171,7 @@ impl(
       cli_options : HashMap(String, String).new()
     )
   ),
-  register_executable : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_executable : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
@@ -197,7 +197,7 @@ impl(
       )
     );
   }),
-  register_static_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_static_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
@@ -223,7 +223,7 @@ impl(
       )
     );
   }),
-  register_shared_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_shared_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
@@ -249,10 +249,10 @@ impl(
       )
     );
   }),
-  register_test : (fn(ref(self) : Self, suite : BuildTestSuite) -> unit)({
+  register_test : (fn(inout(self) : Self, suite : BuildTestSuite) -> unit)({
     self.test_suites.push(suite);
   }),
-  register_run : (fn(ref(self) : Self, artifact_name : String, args : ArrayList(String)) -> unit)({
+  register_run : (fn(inout(self) : Self, artifact_name : String, args : ArrayList(String)) -> unit)({
     synth_name := `run:${artifact_name}`;
     self.run_steps.push(
       BuildRunStep(
@@ -262,7 +262,7 @@ impl(
       )
     );
   }),
-  register_step : (fn(ref(self) : Self, name : String, description : String) -> unit)({
+  register_step : (fn(inout(self) : Self, name : String, description : String) -> unit)({
     self.steps.push(
       BuildStep(
         name : name,
@@ -271,7 +271,7 @@ impl(
       )
     );
   }),
-  add_step_dependency : (fn(ref(self) : Self, step_name : String, dep_name : String) -> unit)({
+  add_step_dependency : (fn(inout(self) : Self, step_name : String, dep_name : String) -> unit)({
     new_steps := ArrayList(BuildStep).new();
     i := usize(0);
     n := self.steps.len();
@@ -299,16 +299,16 @@ impl(
     });
     self.steps = new_steps;
   }),
-  register_dependency : (fn(ref(self) : Self, dep : BuildGitDependency) -> unit)({
+  register_dependency : (fn(inout(self) : Self, dep : BuildGitDependency) -> unit)({
     self.dependencies.push(dep);
   }),
-  register_path_dependency : (fn(ref(self) : Self, dep : BuildPathDependency) -> unit)({
+  register_path_dependency : (fn(inout(self) : Self, dep : BuildPathDependency) -> unit)({
     self.path_dependencies.push(dep);
   }),
-  register_system_library : (fn(ref(self) : Self, lib : BuildSystemLibrary) -> unit)({
+  register_system_library : (fn(inout(self) : Self, lib : BuildSystemLibrary) -> unit)({
     self.system_libraries.push(lib);
   }),
-  register_dependency_artifact : (fn(ref(self) : Self, ref : DependencyArtifactRef) -> unit)({
+  register_dependency_artifact : (fn(inout(self) : Self, ref : DependencyArtifactRef) -> unit)({
     already := false;
     i := usize(0);
     n := self.dependency_artifacts.len();
@@ -326,7 +326,7 @@ impl(
       }
     );
   }),
-  register_module : (fn(ref(self) : Self, entry : BuildModuleEntry) -> unit)({
+  register_module : (fn(inout(self) : Self, entry : BuildModuleEntry) -> unit)({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
@@ -336,7 +336,7 @@ impl(
     self.modules.push(entry);
     ()
   }),
-  register_link : (fn(ref(self) : Self, artifact_name : String, library_name : String) -> unit)({
+  register_link : (fn(inout(self) : Self, artifact_name : String, library_name : String) -> unit)({
     new_artifacts := ArrayList(BuildArtifact).new();
     i := usize(0);
     n := self.artifacts.len();
@@ -364,10 +364,10 @@ impl(
     });
     self.artifacts = new_artifacts;
   }),
-  register_doc : (fn(ref(self) : Self, config : BuildDocConfig) -> unit)({
+  register_doc : (fn(inout(self) : Self, config : BuildDocConfig) -> unit)({
     self.doc_configs.push(config);
   }),
-  find_artifact : (fn(ref(self) : Self, name : String) -> Option(BuildArtifact))({
+  find_artifact : (fn(inout(self) : Self, name : String) -> Option(BuildArtifact))({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
@@ -377,7 +377,7 @@ impl(
     });
     Option(BuildArtifact).None
   }),
-  find_test : (fn(ref(self) : Self, name : String) -> Option(BuildTestSuite))({
+  find_test : (fn(inout(self) : Self, name : String) -> Option(BuildTestSuite))({
     i := usize(0);
     n := self.test_suites.len();
     while(i < n, {
@@ -387,7 +387,7 @@ impl(
     });
     Option(BuildTestSuite).None
   }),
-  find_run_step : (fn(ref(self) : Self, name : String) -> Option(BuildRunStep))({
+  find_run_step : (fn(inout(self) : Self, name : String) -> Option(BuildRunStep))({
     i := usize(0);
     n := self.run_steps.len();
     while(i < n, {
@@ -397,7 +397,7 @@ impl(
     });
     Option(BuildRunStep).None
   }),
-  find_step : (fn(ref(self) : Self, name : String) -> Option(BuildStep))({
+  find_step : (fn(inout(self) : Self, name : String) -> Option(BuildStep))({
     i := usize(0);
     n := self.steps.len();
     while(i < n, {
@@ -407,7 +407,7 @@ impl(
     });
     Option(BuildStep).None
   }),
-  find_documentation : (fn(ref(self) : Self, name : String) -> Option(BuildDocConfig))({
+  find_documentation : (fn(inout(self) : Self, name : String) -> Option(BuildDocConfig))({
     i := usize(0);
     n := self.doc_configs.len();
     while(i < n, {
@@ -417,7 +417,7 @@ impl(
     });
     Option(BuildDocConfig).None
   }),
-  find_module : (fn(ref(self) : Self, name : String) -> Option(BuildModuleEntry))({
+  find_module : (fn(inout(self) : Self, name : String) -> Option(BuildModuleEntry))({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
@@ -427,7 +427,7 @@ impl(
     });
     Option(BuildModuleEntry).None
   }),
-  find_dependency : (fn(ref(self) : Self, name : String) -> Option(BuildGitDependency))({
+  find_dependency : (fn(inout(self) : Self, name : String) -> Option(BuildGitDependency))({
     i := usize(0);
     n := self.dependencies.len();
     while(i < n, {
@@ -437,7 +437,7 @@ impl(
     });
     Option(BuildGitDependency).None
   }),
-  find_path_dependency : (fn(ref(self) : Self, name : String) -> Option(BuildPathDependency))({
+  find_path_dependency : (fn(inout(self) : Self, name : String) -> Option(BuildPathDependency))({
     i := usize(0);
     n := self.path_dependencies.len();
     while(i < n, {
@@ -447,7 +447,7 @@ impl(
     });
     Option(BuildPathDependency).None
   }),
-  find_system_library : (fn(ref(self) : Self, name : String) -> Option(BuildSystemLibrary))({
+  find_system_library : (fn(inout(self) : Self, name : String) -> Option(BuildSystemLibrary))({
     i := usize(0);
     n := self.system_libraries.len();
     while(i < n, {
@@ -457,7 +457,7 @@ impl(
     });
     Option(BuildSystemLibrary).None
   }),
-  get_step_names : (fn(ref(self) : Self) -> ArrayList(String))({
+  get_step_names : (fn(inout(self) : Self) -> ArrayList(String))({
     names := ArrayList(String).new();
     i := usize(0);
     n := self.steps.len();
@@ -467,7 +467,7 @@ impl(
     });
     names
   }),
-  resolve_dependency : (fn(ref(self) : Self, name : String) -> Option(ResolvedDep))({
+  resolve_dependency : (fn(inout(self) : Self, name : String) -> Option(ResolvedDep))({
     match(
       self.find_artifact(name),
       .Some(a) => {
@@ -505,7 +505,7 @@ impl(
     );
     Option(ResolvedDep).None
   }),
-  clear : (fn(ref(self) : Self) -> unit)({
+  clear : (fn(inout(self) : Self) -> unit)({
     self.artifacts = ArrayList(BuildArtifact).new();
     self.test_suites = ArrayList(BuildTestSuite).new();
     self.run_steps = ArrayList(BuildRunStep).new();
@@ -518,7 +518,7 @@ impl(
     self.doc_configs = ArrayList(BuildDocConfig).new();
     self.cli_options = HashMap(String, String).new();
   }),
-  _check_duplicate_artifact_name : (fn(ref(self) : Self, name : String, exn : Exception) -> unit)({
+  _check_duplicate_artifact_name : (fn(inout(self) : Self, name : String, exn : Exception) -> unit)({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {

@@ -864,7 +864,7 @@ evaluate_assignment :: (
     if(!(is_flowable_expr(rhs_evaled, ctx, assign_flow_opts)), {
       viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(variable.ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}`;
       // Flag the violation so a def-time trial-eval swallow re-raises it via the
-      // real `exn` (function_type.yo), mirroring the `ref(name) :=` binding-site.
+      // real `exn` (function_type.yo), mirroring the `inout(name) :=` binding-site.
       flag_flow_violation(viol_msg);
       exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
     });

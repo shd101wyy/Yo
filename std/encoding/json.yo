@@ -164,7 +164,7 @@ impl(
   JsonValue,
   Index(String)(
     Output : JsonValue,
-    index : (fn(ref(self) : Self, key : String) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, key : String) -> *(Self.Output))(
       match(
         self,
         .Object(keys, values) => {
@@ -191,14 +191,14 @@ impl(
   JsonValue,
   Index(usize)(
     Output : JsonValue,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       match(
         self,
         .Array(items) => {
           assert(idx < items.len(), "JsonValue: Array index out of bounds");
           // SAFETY: assert above bounds `idx`; `items` is the
           // Rc-managed Array list whose storage outlives this call
-          // (ref(self) keeps `self` and therefore `items` alive);
+          // (inout(self) keeps `self` and therefore `items` alive);
           // `&(items(idx))` (Index trait) yields the element pointer.
           return(unsafe(&(items(idx))));
         },

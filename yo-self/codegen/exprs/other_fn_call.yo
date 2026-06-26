@@ -978,7 +978,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 ia_i = (ia_i + usize(1));
               });
               // Apply the method's per-param ref-amp (`&`) to the inline args, as
-              // the registered-call path does for `args2`. A `ref(self)` inline
+              // the registered-call path does for `args2`. A `inout(self)` inline
               // method — e.g. a primitive's derived `clone :
               // ((self) -> __yo_return_self(self))` — must receive its receiver
               // BY ADDRESS so `__yo_return_self` emits `(*(&recv))`, not `(*recv)`
@@ -998,7 +998,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         match(
           mc_name,
           .Some(cn) => {
-            // Materialize args, then auto-`&` ref params (e.g. a `ref(self)`
+            // Materialize args, then auto-`&` ref params (e.g. a `inout(self)`
             // receiver on a VALUE type — `String`/newtype — needs `&recv`; an
             // object receiver is NOT a ref param so it's left as the pointer it
             // already is). Mirrors the FuncVal-call path's _apply_ref_amp; without

@@ -371,7 +371,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
                             dyn(
                               format_error_message(
                                 ci.token,
-                                `Cannot capture ref binding '${k}' in a closure. \`ref(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+                                `Cannot capture inout binding '${k}' in a closure. \`inout(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
                                 false,
                                 .None
                               )
@@ -514,8 +514,8 @@ evaluate_anonymous_function_implementation :: (
     .Func({ param_types : pt }) => pt,
     _ => ArrayList(TypeValue).new()
   );
-  // The expected type's per-param ref-ness. A `ref(self) : Self` trait-method
-  // param (e.g. Clone's `clone : fn(ref(self) : Self) -> Self`) makes `self` a
+  // The expected type's per-param ref-ness. A `inout(self) : Self` trait-method
+  // param (e.g. Clone's `clone : fn(inout(self) : Self) -> Self`) makes `self` a
   // C pointer; the body's `self.field` read must dereference it (`(*self).field`,
   // emitted by generate_atom on an is_ref binding). add_variable_to_env can't set
   // is_ref, so we stamp it onto the bound variable below — matching the
@@ -762,7 +762,7 @@ evaluate_anonymous_function_implementation :: (
       false,
       rp_tok
     );
-    // Stamp is_ref from the expected type so a `ref(...)` param's body reads
+    // Stamp is_ref from the expected type so a `inout(...)` param's body reads
     // dereference the C pointer (see param_is_ref note above).
     if(match(param_is_ref.get(rp_i),.Some(b) => b,.None => false), {
       match(

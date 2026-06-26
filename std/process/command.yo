@@ -97,12 +97,12 @@ impl(
     )
   ),
   /// Append a single argument to the argv list.
-  arg : (fn(ref(self) : Self, a : String) -> unit)({
+  arg : (fn(inout(self) : Self, a : String) -> unit)({
     self._args.push(a);
     ()
   }),
   /// Append multiple arguments to the argv list.
-  args : (fn(ref(self) : Self, more : ArrayList(String)) -> unit)({
+  args : (fn(inout(self) : Self, more : ArrayList(String)) -> unit)({
     n := more.len();
     i := usize(0);
     while(runtime(i < n), {
@@ -231,7 +231,7 @@ impl(
   /// exit, and return its `ExitStatus`.
   status : (fn(self : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object, so the
-    // closure can freely capture it. (Was `ref(self)` previously, which is a
+    // closure can freely capture it. (Was `inout(self)` previously, which is a
     // second-class reference and can't be captured across an async boundary.)
     io.async((e) => {
       pid := e.io.await(
@@ -247,7 +247,7 @@ impl(
   /// the child to exit and returns the exit status plus the captured bytes.
   output : (fn(self : Self, io : Io) -> Impl(Future(Output, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object; the
-    // closure can freely capture it instead of needing `ref(self)`.
+    // closure can freely capture it instead of needing `inout(self)`.
     io.async((e) => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();

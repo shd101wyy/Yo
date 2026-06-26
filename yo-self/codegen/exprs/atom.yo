@@ -84,7 +84,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
   )
 );
 /// Resolve a plain identifier read to its C code: the variable's C name, wrapped
-/// in `(*name)` when the binding is a by-`ref` borrow (`ref(name) : T` param — at
+/// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
 /// the C level `name` is `T*`, so a read dereferences). Mirrors TS generateAtom
 /// (atom.ts:583). The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
@@ -248,7 +248,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             // temp yields an undeclared identifier. The token resolves via env
             // lookup to the current binding's C name, so SSA/shadowing still work
             // (for a normal reference token == variable_name, so this is a no-op).
-            // `_var_read_code` also derefs a by-ref (`ref(...)`) binding to `(*name)`.
+            // `_var_read_code` also derefs a by-ref (`inout(...)`) binding to `(*name)`.
             return(_var_read_code(tv.clone(), env_opt));
           });
         },

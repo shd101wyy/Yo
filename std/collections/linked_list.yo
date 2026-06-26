@@ -410,7 +410,7 @@ impl(
   LinkedListIter(T),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       match(
         self._current,
         .None =>.None,
@@ -444,7 +444,7 @@ impl(
   LinkedListIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
       match(
         self._current,
         .None =>.None,
@@ -472,7 +472,7 @@ impl(
   LinkedList(T),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
       assert(idx < self.length, "LinkedList: index out of bounds");
       (current : Option(Node(T))) = self.head;
       i := usize(0);
@@ -482,7 +482,7 @@ impl(
           .Some(node) => {
             if(i == idx, {
               // SAFETY: `node` is held in an Rc-managed chain rooted
-              // at `self.head`; while `self` is borrowed (ref(self))
+              // at `self.head`; while `self` is borrowed (inout(self))
               // every node we've walked stays alive, so `&node.value`
               // is a valid borrow into Rc storage.
               return(unsafe(&(node.value)));

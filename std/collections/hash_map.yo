@@ -507,7 +507,7 @@ impl(
   HashMapIter(K, V),
   Iterator(
     Item : Bucket(K, V),
-    next : (fn(ref(self) : Self) -> Option(Bucket(K, V)))(
+    next : (fn(inout(self) : Self) -> Option(Bucket(K, V)))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -553,7 +553,7 @@ impl(
   HashMapIterPtr(K, V),
   Iterator(
     Item : *(Bucket(K, V)),
-    next : (fn(ref(self) : Self) -> Option(*(Bucket(K, V))))(
+    next : (fn(inout(self) : Self) -> Option(*(Bucket(K, V))))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -590,7 +590,7 @@ impl(
 * Keys iterator - scans ctrl bytes directly and yields only the keys.
 *
 * NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
-* `self._inner.next()` — but a method call on a struct FIELD of `ref(self)`
+* `self._inner.next()` — but a method call on a struct FIELD of `inout(self)`
 * advances a COPY of the field, so `_index` never moved and manual
 * `it.next()` loops yielded the first key forever (`for(...)` masked it).
 * Scan directly instead, mirroring `HashMapIterPtr`.
@@ -607,7 +607,7 @@ impl(
   HashMapKeys(K, V),
   Iterator(
     Item : K,
-    next : (fn(ref(self) : Self) -> Option(K))(
+    next : (fn(inout(self) : Self) -> Option(K))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -655,7 +655,7 @@ impl(
   HashMapValues(K, V),
   Iterator(
     Item : V,
-    next : (fn(ref(self) : Self) -> Option(V))(
+    next : (fn(inout(self) : Self) -> Option(V))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -690,7 +690,7 @@ impl(
   HashMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(ref(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
       hash := idx.hash();
       bucket_opt := Self._find_bucket(self, idx, hash);
       match(
@@ -710,7 +710,7 @@ impl(
   where(K <: (Clone, Eq(K), Hash), V <: Clone),
   HashMap(K, V),
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)({
+    clone : (fn(inout(self) : Self) -> Self)({
       result := Self.new();
       it := self.iter_ptr();
       running := true;
@@ -725,7 +725,7 @@ impl(
             // SAFETY: iter_ptr().next() returns .Some(p) only when p
             // points at an occupied bucket within the Rc-managed
             // _data buffer; the buffer is alive while `self` holds
-            // the Rc (we received `ref(self)` so the caller still
+            // the Rc (we received `inout(self)` so the caller still
             // owns it across this call).
             k := unsafe(bucket_ptr.*.key.clone());
             v := unsafe(bucket_ptr.*.value.clone());

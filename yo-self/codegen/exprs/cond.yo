@@ -6,7 +6,7 @@
 //! generation (no branch). Arms that are `begin` blocks are inlined so the
 //! block's final expression assigns to the cond temp. Control-flow arm values
 //! (continue/break/goto/return) are emitted as statements instead of assigned.
-//! For `-> ref(T)` enclosing functions whose cond temp is a `T*`, non-pointer
+//! For `-> inout(T)` enclosing functions whose cond temp is a `T*`, non-pointer
 //! arm values are address-of wrapped (`&(...)`) — sound because flowability
 //! already verified the arm roots back to a ref-bound parameter.
 //!
@@ -66,7 +66,7 @@ _cond_bool :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(bo
     .None => Option(bool).None
   )
 );
-/// Wrap `code` in `&(...)` when the enclosing function returns `-> ref(T)` and
+/// Wrap `code` in `&(...)` when the enclosing function returns `-> inout(T)` and
 /// this arm value is not already a pointer. Mirrors the `maybeAddressOf` helper.
 _maybe_address_of :: (fn(value_expr : AstExpr, code : String, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> String)(
   if(!(cond_outer_is_ptr), code, {

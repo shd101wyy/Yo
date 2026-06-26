@@ -1,5 +1,5 @@
 //! v4.1 (plans/BORROW_EXCLUSIVITY.md): the borrow-invalidation gates were
-//! REMOVED together with `ref(name) := …` local bindings — with no local
+//! REMOVED together with `inout(name) := …` local bindings — with no local
 //! borrows left, there is nothing to invalidate. These tests pin the
 //! element-access model that replaced them: `get` returns the element (a
 //! HANDLE for object types) that no container operation can invalidate,
@@ -14,7 +14,7 @@ comptime_expect_error(
   borrow_binding_removed :: (fn() -> unit)({
     xs := ArrayList(String).new();
     xs.push(String.from("element-zero"));
-    ref(r) := xs;
+    inout(r) := xs;
     consume(r);
   })
 );

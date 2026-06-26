@@ -30,7 +30,7 @@ open(import("std/string"));
   BK_CONST,
   BK_INIT_ASSIGN,
   BK_GIVEN,
-  BK_REF
+  BK_INOUT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -152,15 +152,15 @@ evaluate_initialization_assignment :: (
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
-  // v4.1 (plans/BORROW_EXCLUSIVITY.md): local `ref(name) := …` bindings
+  // v4.1 (plans/BORROW_EXCLUSIVITY.md): local `inout(name) := …` bindings
   // were REMOVED — `ref` exists only in parameter position. Mirrors the
   // TS rejection in initialization-assignment.ts.
-  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_REF,.None), {
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_INOUT,.None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(lhs),
-          String.from("'ref(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive."),
+          String.from("'inout(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive."),
           false,
           .None
         )

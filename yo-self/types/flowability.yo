@@ -1,4 +1,4 @@
-//! Flowability check for `ref(T)`-yielding expressions.
+//! Flowability check for `inout(T)`-yielding expressions.
 //!
 //! 1:1 port of `src/types/flowability.ts`. Implements the structural soundness
 //! rule from `plans/ITERATOR_REDESIGN.md`: an expression is "flowable" iff it
@@ -8,7 +8,7 @@
 //! Rules (numbered to match the plan):
 //!   R1.  A name reference is flowable iff its binding `is_ref`.
 //!   R2.  `expr.field` is flowable iff `expr` is flowable.
-//!   R3.  `expr(args)` is flowable iff the callee's return slot is `ref(T)`
+//!   R3.  `expr(args)` is flowable iff the callee's return slot is `inout(T)`
 //!        AND every `ref`-typed argument it receives is itself flowable.
 //!   R4.  `cond` / `match` arms each return-flow independently.
 //!
@@ -50,7 +50,7 @@ open(import("std/string"));
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
 /// def-time body eval is a deliberate flow-soundness REJECTION (a
-/// `ref(name) := …` non-flowable RHS), not an unported-feature eval error.
+/// `inout(name) := …` non-flowable RHS), not an unported-feature eval error.
 /// `_trial_eval_fn_body`'s handler cannot capture the real outer `exn` (effect
 /// handlers are capture-free `->` functions), so instead: the binding-site
 /// flags the violation before throwing; the throw is swallowed as usual; then
@@ -115,7 +115,7 @@ propagate_def_time_errors :: (fn() -> bool)(
 );
 /// Options refining the base R1–R4 rule. Mirrors the TS options bag.
 FlowOptions :: object(
-  /// Accept a same-frame (non-module) local — the `ref(name) := …` binding
+  /// Accept a same-frame (non-module) local — the `inout(name) := …` binding
   /// site. Bounded by `max_local_frame_level` when that is `.Some`.
   allow_same_frame_local : bool,
   /// Accept a parameter of the enclosing function (slice-flowability).
@@ -555,8 +555,8 @@ _place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
 });
 /// Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
 /// within ONE call, an argument bound to an `own(...)` parameter must
-/// not be (or alias) the root of another argument bound to a `ref(...)`
-/// parameter. `f(h.s, h)` with `f :: fn(ref(x) : String, own(victim) :
+/// not be (or alias) the root of another argument bound to a `inout(...)`
+/// parameter. `f(h.s, h)` with `f :: fn(inout(x) : String, own(victim) :
 /// Holder)` moves the caller's count into the callee, which can release
 /// it while `x` still points into the object — a use-after-free no
 /// same-scope gate can see. Non-`own` (by-value) overlap is safe.

@@ -236,7 +236,7 @@ export(Dispose);
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
+    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 export(Index);
@@ -244,7 +244,7 @@ export(Index);
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -686,7 +686,7 @@ Hash :: trait(
   * Compute the hash of a value
   * Returns a u64 hash value
   */
-  (hash) : (fn(ref(self) : Self) -> u64)
+  (hash) : (fn(inout(self) : Self) -> u64)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
@@ -694,7 +694,7 @@ Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
     (
-      fn(ref(self) : Self) -> Self
+      fn(inout(self) : Self) -> Self
     )
 );
 export(Clone);
@@ -5535,7 +5535,7 @@ impl(forall(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
 impl(
   forall(T : Type, U : usize),
   Array(T, U),
-  len : (fn(ref(self) : Self) -> usize)({
+  len : (fn(inout(self) : Self) -> usize)({
     return(U);
   })
   /*
@@ -5558,7 +5558,7 @@ impl(
 );
 /// Array Index impls
 /// Bodies take `&(self)` so the `*(Array(T, N))`-expecting builtin
-/// receives the right C-ABI shape — `ref(self) : Self` gives the body
+/// receives the right C-ABI shape — `inout(self) : Self` gives the body
 /// a value-typed view of `self` even though the runtime passes a
 /// pointer. See plans/ITERATOR_REDESIGN.md.
 impl(
@@ -5566,7 +5566,7 @@ impl(
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       __yo_array_index(&(self), idx)
     )
   )
@@ -5591,7 +5591,7 @@ impl(
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -5769,7 +5769,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index(self, idx)
     )
   )
@@ -5780,7 +5780,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
@@ -5791,7 +5791,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
@@ -7505,7 +7505,7 @@ impl(
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
-  as_ptr : (fn(ref(self) : Self) -> *(BaseType))(
+  as_ptr : (fn(inout(self) : Self) -> *(BaseType))(
     __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if not initialized.**
@@ -7521,7 +7521,7 @@ Iterator :: trait(
   /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
     (
-      fn(ref(self) : Self) -> Option(Self.Item)
+      fn(inout(self) : Self) -> Option(Self.Item)
     )
 );
 export(Iterator);
@@ -7548,7 +7548,7 @@ impl(
   _ArrayIter(T, N),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       cond(
         (self._index >= N) =>.None,
         true => {
@@ -7637,7 +7637,7 @@ export(try);
 ///     iterator; object elements are handles, so mutating `x` in the
 ///     body mutates the element in place.
 ///
-/// The old borrow form `for(coll, ref(x) => body)` was REMOVED: it
+/// The old borrow form `for(coll, inout(x) => body)` was REMOVED: it
 /// required `ref`s into reallocatable storage, which is no longer
 /// expressible. Object elements mutate in place through the value
 /// handle; struct elements use an index loop with `get`/`set`.
@@ -7673,12 +7673,12 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            // Detect `ref(name) => body` — borrow form. Otherwise
+            // Detect `inout(name) => body` — borrow form. Otherwise
             // it's the value form `(name) => body`.
             is_ref_form :: cond(
               variable.is_fn_call() => {
                 v_callee :: variable.get_callee();
-                v_callee.is_atom() && (v_callee == quote(ref))
+                v_callee.is_atom() && (v_callee == quote(inout))
               },
               true => false
             );
@@ -7689,7 +7689,7 @@ for :: (
                 // of failing with a resolution error.
                 comptime_assert(
                   false,
-                  "'for(coll, ref(x) => ...)' was removed - use the value form 'for(coll, (x) => ...)'. Object elements are handles and mutate in place; for struct elements use an index loop with get/set."
+                  "'for(coll, inout(x) => ...)' was removed - use the value form 'for(coll, (x) => ...)'. Object elements are handles and mutate in place; for struct elements use an index loop with get/set."
                 );
                 quote(())
               },
@@ -7751,7 +7751,7 @@ impl(
   IterMap(I, B, F),
   Iterator(
     Item : B,
-    next : (fn(ref(self) : Self) -> Option(B))(
+    next : (fn(inout(self) : Self) -> Option(B))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -7778,7 +7778,7 @@ impl(
   IterFilter(I, F),
   Iterator(
     Item : A,
-    next : (fn(ref(self) : Self) -> Option(A))({
+    next : (fn(inout(self) : Self) -> Option(A))({
       (loop_result : Option(A)) =.None;
       while(runtime(true), {
         candidate := self._inner.next();
@@ -7818,7 +7818,7 @@ impl(
   IterTake(I),
   Iterator(
     Item : A,
-    next : (fn(ref(self) : Self) -> Option(A))(
+    next : (fn(inout(self) : Self) -> Option(A))(
       cond(
         (self._remaining == usize(0)) =>.None,
         true => {
@@ -7846,7 +7846,7 @@ impl(
   IterSkip(I),
   Iterator(
     Item : A,
-    next : (fn(ref(self) : Self) -> Option(A))({
+    next : (fn(inout(self) : Self) -> Option(A))({
       while(self._to_skip > usize(0), {
         result := self._inner.next();
         match(
@@ -7882,7 +7882,7 @@ impl(
   IterEnumerate(I),
   Iterator(
     Item : IterPair(usize, A),
-    next : (fn(ref(self) : Self) -> Option(IterPair(usize, A)))(
+    next : (fn(inout(self) : Self) -> Option(IterPair(usize, A)))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -7913,7 +7913,7 @@ impl(
   IterZip(I, J),
   Iterator(
     Item : IterPair(A, B),
-    next : (fn(ref(self) : Self) -> Option(IterPair(A, B)))(
+    next : (fn(inout(self) : Self) -> Option(IterPair(A, B)))(
       match(
         self._left.next(),
         .None =>.None,

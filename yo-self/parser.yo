@@ -50,7 +50,7 @@ ParseError :: object(
 impl(
   ParseError,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       sb := StringBuilder.new();
       sb.write_str("error: ");
       sb.write_string(self.message);
@@ -144,12 +144,12 @@ impl(
     )
   }),
   get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
-  alloc_id : (fn(ref(self) : Self) -> ExprId)({
+  alloc_id : (fn(inout(self) : Self) -> ExprId)({
     id := alloc_global_expr_id();
     self.next_expr_id = (self.next_expr_id + usize(1));
     id
   }),
-  make_syn_tok : (fn(ref(self) : Self, kind : TokenKind, value : String) -> Token)(
+  make_syn_tok : (fn(inout(self) : Self, kind : TokenKind, value : String) -> Token)(
     Token(
       kind : kind,
       value : value,
@@ -160,7 +160,7 @@ impl(
       input : self.input_string
     )
   ),
-  make_unit_call : (fn(ref(self) : Self, ref_tok : Token) -> AstExpr)({
+  make_unit_call : (fn(inout(self) : Self, ref_tok : Token) -> AstExpr)({
     unit_tok := Token(
       kind : TokenKind.Identifier,
       value : String.from(BK_TUPLE),
@@ -172,7 +172,7 @@ impl(
     );
     .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok)
   }),
-  skip_ws_fwd : (fn(ref(self) : Self, index : usize) -> usize)({
+  skip_ws_fwd : (fn(inout(self) : Self, index : usize) -> usize)({
     i := index;
     n := self.tokens.len();
     while(i < n, {
@@ -192,7 +192,7 @@ impl(
     });
     i
   }),
-  skip_ws_bwd : (fn(ref(self) : Self, index : usize) -> usize)({
+  skip_ws_bwd : (fn(inout(self) : Self, index : usize) -> usize)({
     i := index;
     while(true, {
       match(
@@ -214,7 +214,7 @@ impl(
     });
     i
   }),
-  range_has_newline : (fn(ref(self) : Self, start : usize, end : usize) -> bool)({
+  range_has_newline : (fn(inout(self) : Self, start : usize, end : usize) -> bool)({
     nl_str := String.from("\n");
     i := start;
     result := false;
@@ -235,7 +235,7 @@ impl(
     });
     result
   }),
-  is_op_at_line_start : (fn(ref(self) : Self, op_idx : usize) -> bool)({
+  is_op_at_line_start : (fn(inout(self) : Self, op_idx : usize) -> bool)({
     if(op_idx == usize(0), {
       return(true);
     });
@@ -288,7 +288,7 @@ impl(
     });
     result
   }),
-  is_parenthesized_expr : (fn(ref(self) : Self, start : usize, end : usize) -> bool)({
+  is_parenthesized_expr : (fn(inout(self) : Self, start : usize, end : usize) -> bool)({
     s := self.skip_ws_fwd(start);
     e := self.skip_ws_bwd(end);
     s_tok := match(
@@ -320,7 +320,7 @@ impl(
     );
     match_idx == e
   }),
-  parse_template_string : (fn(ref(self) : Self, tok : Token, index : usize, exn : Exception) -> ParseResult)({
+  parse_template_string : (fn(inout(self) : Self, tok : Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value;
     // Collect chars of the template string into an ArrayList(rune)
@@ -514,7 +514,7 @@ impl(
   }),
   parse_fn_args : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       index : usize,
       has_whitespace : bool,
       exn : Exception
@@ -591,7 +591,7 @@ impl(
   }),
   parse_fn_call : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       func : AstExpr,
       index : usize,
       has_whitespace : bool,
@@ -605,7 +605,7 @@ impl(
       index : fa.index
     )
   }),
-  parse_paren_expr : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_paren_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -724,7 +724,7 @@ impl(
       index : (idx + usize(1))
     )
   }),
-  parse_array_expr : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_array_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -816,7 +816,7 @@ impl(
       index : (idx + usize(1))
     )
   }),
-  is_valid_struct_field_arg : (fn(ref(self) : Self, expr : AstExpr) -> bool)(
+  is_valid_struct_field_arg : (fn(inout(self) : Self, expr : AstExpr) -> bool)(
     match(
       expr,
       .Atom(_, _) => true,
@@ -834,7 +834,7 @@ impl(
       )
     )
   ),
-  parse_curly_bracket_expr : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_curly_bracket_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -1022,7 +1022,7 @@ impl(
   }),
   parse_left_assoc_op : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       primary : AstExpr,
       op_tok : Token,
       rhs : AstExpr,
@@ -1096,7 +1096,7 @@ impl(
       self.parse_primary_end(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), op_tok)), simple_args, true, op_tok), index, exn)
     })
   }),
-  parse_primary : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_primary : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(
       self.tokens.get(idx),
@@ -1117,7 +1117,7 @@ impl(
   }),
   parse_primary_end : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       primary_expr : AstExpr,
       index : usize,
       exn : Exception
@@ -1312,12 +1312,12 @@ impl(
       }
     )
   }),
-  parse_expression : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_expression : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
     self.parse_primary_end(pr.expr, pr.index, exn)
   }),
-  do_parse : (fn(ref(self) : Self, exn : Exception) -> unit)({
+  do_parse : (fn(inout(self) : Self, exn : Exception) -> unit)({
     idx := usize(0);
     n := self.tokens.len();
     exprs := ArrayList(AstExpr).new();
@@ -1363,7 +1363,7 @@ impl(
     });
     self.program = exprs;
   }),
-  get_program : (fn(ref(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
+  get_program : (fn(inout(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
     if(self.has_template_string, {
       import_tok := Token(

@@ -1060,7 +1060,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
       if (variable?.isRef) {
         throw formatErrorMessage({
           token: captureInfo.token ?? expr.token,
-          errorMessage: `Cannot capture ref binding '${varName}' in a closure. \`ref(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+          errorMessage: `Cannot capture inout binding '${varName}' in a closure. \`inout(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
         });
       }
       // §4 typing rule 4: closures cannot capture a value of

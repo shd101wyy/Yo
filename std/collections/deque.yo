@@ -189,7 +189,7 @@ impl(
   DequeIter(T),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       cond(
         (self._remaining == usize(0)) =>.None,
         true => {
@@ -228,7 +228,7 @@ impl(
   DequeIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
         (self._remaining == usize(0)) =>.None,
         true => {
@@ -255,7 +255,7 @@ impl(
   Deque(T),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
       assert(idx < self._len, "Deque: index out of bounds");
       buf := self._buf.unwrap();
       physical_idx := ((self._head + idx) % self._capacity);

@@ -337,7 +337,7 @@ impl(
     return(Self(_bytes :.Some(new_bytes)));
   }),
   /// Append another `String` to this string in-place (mutates `self`).
-  push_string : (fn(ref(self) : Self, other : Self) -> unit)({
+  push_string : (fn(inout(self) : Self, other : Self) -> unit)({
     (olen : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
     if(olen > usize(0), {
       match(
@@ -364,7 +364,7 @@ impl(
     });
   }),
   /// Append a `str` slice to this string in-place (mutates `self`).
-  push_str : (fn(ref(self) : Self, s : str) -> unit)({
+  push_str : (fn(inout(self) : Self, s : str) -> unit)({
     (slen : usize) = s.len();
     if(slen > usize(0), {
       match(
@@ -382,7 +382,7 @@ impl(
   }),
   /// Append a single byte to this string in-place (mutates `self`).
   /// The caller must ensure the byte maintains valid UTF-8.
-  push_byte : (fn(ref(self) : Self, b : u8) -> unit)({
+  push_byte : (fn(inout(self) : Self, b : u8) -> unit)({
     match(
       self._bytes,
       .None => {
@@ -397,7 +397,7 @@ impl(
   }),
   /// Reserve capacity for at least `additional` more bytes.
   /// If the string is empty, creates a new buffer with the given capacity.
-  reserve : (fn(ref(self) : Self, additional : usize) -> unit)({
+  reserve : (fn(inout(self) : Self, additional : usize) -> unit)({
     match(
       self._bytes,
       .None => {
@@ -410,7 +410,7 @@ impl(
     );
   }),
   /// Clear the string content but keep the allocated buffer for reuse.
-  clear : (fn(ref(self) : Self) -> unit)(
+  clear : (fn(inout(self) : Self) -> unit)(
     match(
       self._bytes,
       .Some(al) => al.clear(),
@@ -418,7 +418,7 @@ impl(
     )
   ),
   // (Inherent `clone` removed; the Clone trait impl below provides
-  // the same semantics via ref(self) : Self after the Phase D
+  // the same semantics via inout(self) : Self after the Phase D
   // migration. Calling `s.clone()` resolves to the trait method.)
   /// Get the number of bytes in the string (not Unicode characters).
   /// Use `len()` for Unicode character count.
@@ -1641,7 +1641,7 @@ impl(
 impl(
   String,
   Hash(
-    (hash) : (fn(ref(self) : Self) -> u64)({
+    (hash) : (fn(inout(self) : Self) -> u64)({
       h := u64(14695981039346656037);
       match(
         self._bytes,
@@ -1678,7 +1678,7 @@ impl(
   StringChars,
   Iterator(
     Item : rune,
-    next : (fn(ref(self) : Self) -> Option(rune))(
+    next : (fn(inout(self) : Self) -> Option(rune))(
       match(
         self._string._bytes,
         .None =>.None,
@@ -1720,7 +1720,7 @@ impl(
   StringBytes,
   Iterator(
     Item : u8,
-    next : (fn(ref(self) : Self) -> Option(u8))(
+    next : (fn(inout(self) : Self) -> Option(u8))(
       match(
         self._string._bytes,
         .None =>.None,
@@ -1771,7 +1771,7 @@ impl(
   StringLines,
   Iterator(
     Item : String,
-    next : (fn(ref(self) : Self) -> Option(String))(
+    next : (fn(inout(self) : Self) -> Option(String))(
       match(
         self._string._bytes,
         .None =>.None,
@@ -2335,7 +2335,7 @@ impl(
   String,
   Index(usize)(
     Output : u8,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       match(
         self._bytes,
         .Some(bytes) => &(bytes(idx)),
@@ -2348,7 +2348,7 @@ impl(
 impl(
   String,
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)(
+    clone : (fn(inout(self) : Self) -> Self)(
       match(
         self._bytes,
         .None => Self(_bytes :.None),

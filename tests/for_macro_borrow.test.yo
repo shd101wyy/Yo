@@ -1,6 +1,6 @@
 /// `for` macro runtime coverage — value form `for(coll, (x) => body)`
 /// across `Array(T, N)`, `ArrayList(T)`, `String`, and range copies.
-/// The borrow form `for(coll, ref(x) => body)` was REMOVED (v4 of
+/// The borrow form `for(coll, inout(x) => body)` was REMOVED (v4 of
 /// plans/BORROW_EXCLUSIVITY.md): interior refs into reallocatable
 /// storage are no longer expressible. In-place element mutation uses
 /// index writes (`coll(i) = v`); object elements mutate in place
@@ -160,7 +160,7 @@ comptime_expect_error(
   borrow_form_is_removed :: (fn() -> unit)({
     arr := [i32(1), i32(2)];
     total := i32(0);
-    for(arr, ref(x) => {
+    for(arr, inout(x) => {
       total = (total + x);
     });
     consume(total);

@@ -179,7 +179,7 @@ test("canonical clause order forall/params/where/requires/ensures is accepted", 
 });
 
 test("nested old(old(...)) in ensures resolves to the entry value", {
-  bump :: (fn(ref(n) : i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
+  bump :: (fn(inout(n) : i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
     n = (n + i32(1));
   });
   x := i32(7);
@@ -223,7 +223,7 @@ test("ensures(...) with multiple postconditions in a single call", {
 });
 
 test("ensures(...) with old(...) captures the entry value of a ref param", {
-  increment :: (fn(ref(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
+  increment :: (fn(inout(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
     n = (n + i32(1));
   });
   x := i32(5);
@@ -274,7 +274,7 @@ test("ensures(...) on a unit-returning function with a side effect", {
   // No meaningful return value; the postcondition is about the
   // mutated ref param. Exercises the unit-return lowering path
   // (no `result` binding — would otherwise emit invalid `void result`).
-  set :: (fn(ref(n) : i32, x : i32, ensures(n == x)) -> unit)({
+  set :: (fn(inout(n) : i32, x : i32, ensures(n == x)) -> unit)({
     n = x;
   });
   n := i32(0);
@@ -289,7 +289,7 @@ test("requires + ensures + old() together on a non-unit return", {
   // entry value of the mutated ref param, in the same ensures clause.
   bump_and_report :: (
     fn(
-      ref(n) : i32,
+      inout(n) : i32,
       requires(n >= i32(0)),
       ensures(n == (old(n) + i32(1)), result == old(n))
     ) -> i32
@@ -307,7 +307,7 @@ test("requires + ensures + old() together on a non-unit return", {
 test("ensures(...) with multiple old(...) snapshots", {
   // Two distinct old() expressions in one ensures clause — both must
   // be hoisted to separate entry snapshots.
-  swap_check :: (fn(ref(a) : i32, ref(b) : i32, ensures(a == old(b), b == old(a))) -> unit)({
+  swap_check :: (fn(inout(a) : i32, inout(b) : i32, ensures(a == old(b), b == old(a))) -> unit)({
     tmp := a;
     a = b;
     b = tmp;

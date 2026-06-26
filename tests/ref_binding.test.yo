@@ -1,4 +1,4 @@
-/// `ref(name) : T` parameter semantics — reads and writes through the
+/// `inout(name) : T` parameter semantics — reads and writes through the
 /// parameter access the caller's storage. v4.1
 /// (plans/BORROW_EXCLUSIVITY.md): `ref` exists ONLY in parameter
 /// position, so every test here goes through a ref param.
@@ -7,12 +7,12 @@ Point :: struct(x : i32, y : i32);
 RefBindEnum :: enum(A(v : i32), B(w : i32));
 EnumHolder :: object(e : RefBindEnum);
 test("read through a ref param", {
-  get_x :: (fn(ref(p) : Point) -> i32)(p.x);
+  get_x :: (fn(inout(p) : Point) -> i32)(p.x);
   pt := Point(x : i32(10), y : i32(20));
   assert(get_x(pt) == i32(10), "read via ref param");
 });
 test("write through a ref param propagates to the caller", {
-  set_x :: (fn(ref(p) : Point, value : i32) -> unit)({
+  set_x :: (fn(inout(p) : Point, value : i32) -> unit)({
     p.x = value;
   });
   pt := Point(x : i32(10), y : i32(20));
@@ -21,10 +21,10 @@ test("write through a ref param propagates to the caller", {
   assert(pt.y == i32(20), "unrelated field is untouched");
 });
 test("ref params chain through nested calls", {
-  inner :: (fn(ref(q) : Point) -> unit)({
+  inner :: (fn(inout(q) : Point) -> unit)({
     q.x = (q.x + i32(1));
   });
-  outer :: (fn(ref(p) : Point) -> unit)({
+  outer :: (fn(inout(p) : Point) -> unit)({
     inner(p);
     inner(p);
   });

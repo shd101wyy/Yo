@@ -656,7 +656,8 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 export const BuiltinKeywords = {
   comptime: ["comptime" /*"@"*/],
   runtime: ["runtime"], // Force runtime evaluation, prevents CTFE
-  ref: ["ref"], // Second-class reference: `ref(name) : T` parameter modifier, `-> ref(T)` return slot, `ref(name) := expr;` local binding. See plans/ITERATOR_REDESIGN.md.
+  ref: ["ref"], // Reference-semantics TYPE constructor: `ref(struct(…))` / `ref(enum(…))` (see plans/REF_REFERENCE_SEMANTICS.md). The old second-class-reference PARAMETER modifier moved to `inout` (below).
+  inout: ["inout"], // Second-class reference PARAMETER modifier: `inout(name) : T`. In-out parameter (caller's storage, mutate in place). Cannot be returned; no local-binding form. (Renamed from `ref` — see plans/REF_REFERENCE_SEMANTICS.md.)
 
   forall: ["forall", "∀"],
   where: ["where"],

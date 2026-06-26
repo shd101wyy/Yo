@@ -25,16 +25,16 @@ impl(
   new : (fn() -> Self)({
     return(Self(__yo_cond_create()));
   }),
-  wait : (fn(ref(self) : Self, ref(mutex) : mutex_t) -> unit)({
+  wait : (fn(inout(self) : Self, inout(mutex) : mutex_t) -> unit)({
     return(__yo_cond_wait(&(self.cv), &(mutex.mutex)));
   }),
-  signal : (fn(ref(self) : Self) -> unit)({
+  signal : (fn(inout(self) : Self) -> unit)({
     return(__yo_cond_signal(&(self.cv)));
   }),
-  broadcast : (fn(ref(self) : Self) -> unit)({
+  broadcast : (fn(inout(self) : Self) -> unit)({
     return(__yo_cond_broadcast(&(self.cv)));
   }),
-  destroy : (fn(ref(self) : Self) -> unit)({
+  destroy : (fn(inout(self) : Self) -> unit)({
     return(__yo_cond_destroy(&(self.cv)));
   })
 );

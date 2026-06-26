@@ -130,7 +130,7 @@ create_function_body_evaluation_context :: (
     )
   );
   // Extract the return type from function_type for expected_type.
-  // For `-> ref(T)` functions the body produces a place expression
+  // For `-> inout(T)` functions the body produces a place expression
   // (`*(T)` at the C ABI) — set the body's expected type to `*(T)` so
   // unification across `match`/`cond` arms agrees on the pointer shape
   // (e.g. `match(opt, .Some(b) => &(b(i)), .None => panic(...))`).
@@ -616,7 +616,7 @@ try_to_implement_function_by_function_type :: (
           flow_out := ArrayList(AstExpr).new();
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
           // Re-raise a flow-soundness rejection that the trial-eval swallowed
-          // (a `ref(name) := <non-flowable>` binding anywhere in the body). The
+          // (a `inout(name) := <non-flowable>` binding anywhere in the body). The
           // handler is capture-free so it could not propagate it directly; the
           // binding-site flagged it instead, and we re-throw it here via the
           // real `exn`. Unconditional (NOT under `result_is_ref`) because the

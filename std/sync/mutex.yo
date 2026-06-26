@@ -2,7 +2,7 @@
 //!
 //! Phase D (THREAD_SAFETY): Mutex parameterized over the protected data.
 //! Access is granted via `with_lock(closure)` — the closure receives a
-//! `ref(v): T` that is second-class (cannot escape the closure scope).
+//! `inout(v): T` that is second-class (cannot escape the closure scope).
 //! The private `__MutexUnlocker` handles unlock on both normal return
 //! and unwind via its `Drop`.
 pragma(Pragma.AllowUnsafe);
@@ -31,13 +31,13 @@ impl(
   new : (fn() -> Self)({
     return(Self(__yo_mutex_create()));
   }),
-  lock : (fn(ref(self) : Self) -> unit)({
+  lock : (fn(inout(self) : Self) -> unit)({
     return(__yo_mutex_lock(&(self.mutex)));
   }),
-  unlock : (fn(ref(self) : Self) -> unit)({
+  unlock : (fn(inout(self) : Self) -> unit)({
     return(__yo_mutex_unlock(&(self.mutex)));
   }),
-  destroy : (fn(ref(self) : Self) -> unit)({
+  destroy : (fn(inout(self) : Self) -> unit)({
     return(__yo_mutex_destroy(&(self.mutex)));
   })
 );
@@ -85,7 +85,7 @@ impl(
     fn(
       forall(R : Type),
       self : Self,
-      body : Impl(Fn(ref(v) : T) -> R)
+      body : Impl(Fn(inout(v) : T) -> R)
     ) -> R
   )({
     self._raw_lock();
@@ -100,7 +100,7 @@ impl(
   _raw_unlock : (fn(self : Self) -> unit)(
     __yo_mutex_unlock(&(self._handle))
   ),
-  _raw_handle_ptr : (fn(ref(self) : Self) -> *(__YO_THREAD_SYNC_TYPE))(
+  _raw_handle_ptr : (fn(inout(self) : Self) -> *(__YO_THREAD_SYNC_TYPE))(
     &(self._handle)
   )
 );

@@ -26,7 +26,7 @@ open(import("std/fmt"));
   BK_WHERE,
   BK_COMPTIME,
   BK_QUOTE,
-  BK_REF,
+  BK_INOUT,
   BK_COLON,
   BK_FN,
   BK_UNSAFE_FN,
@@ -408,9 +408,9 @@ FuncParam :: struct(
   // matching can treat trailing defaulted params as optional AND bind an
   // omitted argument to the recorded default value.
   default_value : Option(EvalValue),
-  /// True when the parameter was declared `ref(name) : T` (a by-reference
+  /// True when the parameter was declared `inout(name) : T` (a by-reference
   /// borrow). Recorded so the Func type's `param_is_ref` can be populated for
-  /// the `ref(T)`-flow soundness check (`is_flowable_expr`).
+  /// the `inout(T)`-flow soundness check (`is_flowable_expr`).
   is_ref : bool,
   /// The parameter's `?= default` value EXPRESSION (the raw AST), or `.None`
   /// for a required parameter. Parallel to `default_value` (the evaluated
@@ -810,7 +810,7 @@ evaluate_function_parameter :: (
       });
       // ref modifier — strip the wrapper and record the `ref` flag (consumed
       // into the Func type's `param_is_ref` for the flow-soundness check).
-      if(ast_expr_is_fn_call_of(lhs_mut, BK_REF, Option(usize).None), {
+      if(ast_expr_is_fn_call_of(lhs_mut, BK_INOUT, Option(usize).None), {
         r_args := _fn_call_args(lhs_mut);
         if(!(r_args.len() == usize(1)), {
           exn.throw(
@@ -1096,7 +1096,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'ref(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'inout(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
           false,
           .None
         )
@@ -3249,17 +3249,17 @@ evaluate_function_type :: (
     ret_args := _fn_call_args(return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     return_type_expr = match(ret_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-    // `(ref(name) : T)` / `(name : ref(T))` — ref-return forms are
+    // `(inout(name) : T)` / `(name : inout(T))` — ref-return forms are
     // BANNED: refs are second-class and may appear only in parameter
     // position and local lvalue borrows. (Mirrors the TS ban in
     // evaluateFunctionType.)
-    if(ast_expr_is_fn_call_of(rl_expr, BK_REF, Option(usize).None) ||
-      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None)), {
+    if(ast_expr_is_fn_call_of(rl_expr, BK_INOUT, Option(usize).None) ||
+      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None)), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(rl_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
             false,
             .None
           )
@@ -3334,16 +3334,16 @@ evaluate_function_type :: (
       );
     });
     // In a labeled return slot, a `ref`/`comptime` modifier goes on the LABEL,
-    // never on the TYPE. Reject `-> (name : ref(T))` / `-> (name : comptime(T))`;
-    // use `-> (ref(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
-    // `-> ref(T)` / `-> comptime(T)`). The `(ref(name) : ref(T))` double-ref
+    // never on the TYPE. Reject `-> (name : inout(T))` / `-> (name : comptime(T))`;
+    // use `-> (inout(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
+    // `-> inout(T)` / `-> comptime(T)`). The `(inout(name) : inout(T))` double-ref
     // case is caught above with a more specific message. Mirrors function.ts.
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (ref(name) : T)' (or unlabeled '-> ref(T)'), not '-> (name : ref(T))'."),
+            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (inout(name) : T)' (or unlabeled '-> inout(T)'), not '-> (name : inout(T))'."),
             false,
             .None
           )
@@ -3377,15 +3377,15 @@ evaluate_function_type :: (
     return_label =.Some(ast_expr_token(rl_expr).value);
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
-    // `-> ref(T)` is BANNED: refs are second-class and may appear only
+    // `-> inout(T)` is BANNED: refs are second-class and may appear only
     // in parameter position and local lvalue borrows. (Mirrors the TS
     // ban in evaluateFunctionType.)
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
             false,
             .None
           )
@@ -3456,15 +3456,15 @@ evaluate_function_type :: (
       );
     });
   });
-  // `-> ref(T)` in the return slot is BANNED: refs are second-class and
+  // `-> inout(T)` in the return slot is BANNED: refs are second-class and
   // may appear only in parameter position and local lvalue borrows.
   // (Mirrors the TS ban in evaluateFunctionType.)
-  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(return_type_expr),
-          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
           false,
           .None
         )

@@ -44,15 +44,15 @@ FuncMeta :: struct(
   /// CTFE on this; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
   result_is_comptime_only : bool,
-  /// Per-parameter `ref` flags (parallel to param labels/types). `ref(name):T`
+  /// Per-parameter `ref` flags (parallel to param labels/types). `inout(name):T`
   /// = by-reference borrow. Mirrors `FunctionParameter.isRef`. Used by
-  /// `is_flowable_expr` (the `ref(T)`-flow soundness check).
+  /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
   param_is_ref : ArrayList(bool),
   /// Per-parameter `own` flags. `own(name):T` = callee takes ownership of the
   /// Rc value. Mirrors `FunctionParameter.isOwningTheRcValue`. Used by
   /// `require_ref_own_argument_exclusivity`.
   param_is_owning : ArrayList(bool),
-  /// True when the return was declared `-> ref(T)`. Mirrors
+  /// True when the return was declared `-> inout(T)`. Mirrors
   /// `FunctionType.return.isRef`. `is_flowable_expr` requires a flowable return.
   result_is_ref : bool,
   /// True when the param list ends with a `...` variadic marker (C-style
@@ -331,7 +331,7 @@ TypeValue :: enum(
 impl(
   TypeValue,
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)(
+    clone : (fn(inout(self) : Self) -> Self)(
       match(
         self,
         .Unit => TypeValue.Unit,

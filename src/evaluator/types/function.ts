@@ -268,28 +268,28 @@ export function evaluateFunctionParameter({
 
     if (
       exprIsFunctionCall(lhsExpr) &&
-      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.ref)
+      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.inout)
     ) {
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Expected one argument for "ref", got ${lhsExpr.args.length}`,
+          errorMessage: `Expected one argument for "inout", got ${lhsExpr.args.length}`,
         });
       }
       if (isOwningTheRcValue) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Cannot combine 'own' and 'ref' on the same parameter — they have opposite calling conventions.`,
+          errorMessage: `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`,
         });
       }
       if (isParameterComptimeByDefault) {
         // forall/using params are erased at runtime; they have no callee-
-        // side binding for ref to refer to. comptime(ref(...)) is
-        // permitted (sets isCompileTimeOnly here), but forall(ref(...))
+        // side binding for inout to refer to. comptime(inout(...)) is
+        // permitted (sets isCompileTimeOnly here), but forall(inout(...))
         // makes no sense.
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `'ref' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
+          errorMessage: `'inout' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
         });
       }
       isRef = true;
@@ -2397,19 +2397,20 @@ export function evaluateFunctionType({
         errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
       });
     }
-    // `(ref(name) : T)` / `(name : ref(T))` — ref-return forms are
-    // BANNED: refs are second-class and may appear only in parameter
-    // position and local lvalue borrows. A returned ref would be a
-    // pointer into storage the caller can reallocate or free.
+    // `(inout(name) : T)` / `(name : inout(T))` — inout-return forms are
+    // BANNED: inout params are second-class and may appear only in parameter
+    // position. A returned inout would be a pointer into storage the caller
+    // can reallocate or free. (`ref(struct(…))`/`ref(enum(…))` reference-
+    // semantics types CAN be returned — that is a value, not an inout.)
     if (
       (exprIsFunctionCall(returnLabelExpr) &&
-        exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.ref)) ||
+        exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.inout)) ||
       (exprIsFunctionCall(returnTypeExpr) &&
-        exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref))
+        exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.inout))
     ) {
       throw formatErrorMessage({
         token: returnLabelExpr.token,
-        errorMessage: `Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'.`,
+        errorMessage: `Functions cannot return 'inout' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.`,
       });
     }
     if (
@@ -2481,20 +2482,19 @@ export function evaluateFunctionType({
     }
   }
 
-  // `-> ref(T)` — ref-return form is BANNED: refs are second-class and
-  // may appear only in parameter position and local lvalue borrows. A
-  // returned ref would be a pointer into storage the caller can
-  // reallocate or free. (Inside `Option(...)`, generic args, struct
-  // fields, etc., `ref(...)` is structurally impossible already: the
-  // type evaluator does not recognize it there and fails with
-  // "Variable not found".)
+  // `-> inout(T)` — inout-return form is BANNED: inout params are
+  // second-class and may appear only in parameter position. A returned
+  // inout would be a pointer into storage the caller can reallocate or
+  // free. (Inside `Option(...)`, generic args, struct fields, etc.,
+  // `inout(...)` is structurally impossible already: the type evaluator
+  // does not recognize it there and fails with "Variable not found".)
   if (
     exprIsFunctionCall(returnTypeExpr) &&
-    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
+    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.inout)
   ) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'.`,
+      errorMessage: `Functions cannot return 'inout' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.`,
     });
   }
 

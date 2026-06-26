@@ -533,7 +533,7 @@ impl(
     /// The output type is the element type `T`.
     Output : T,
     /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
       assert(idx < self._length, "ArrayList: index out of bounds");
       match(
         self._ptr,
@@ -581,7 +581,7 @@ impl(
   ArrayListIter(T),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       cond(
         (self._index >= self._list._length) =>.None,
         true => {
@@ -763,7 +763,7 @@ impl(
   where(T <: Clone),
   ArrayList(T),
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)({
+    clone : (fn(inout(self) : Self) -> Self)({
       n := self.len();
       result := Self.with_capacity(n);
       i := usize(0);

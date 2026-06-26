@@ -28,57 +28,57 @@ impl(
     )
   ),
   /// Append text to the code section (no trailing newline).
-  emit : (fn(ref(self) : Self, c : str) -> unit)(
+  emit : (fn(inout(self) : Self, c : str) -> unit)(
     self.code.push_str(c)
   ),
   /// Append text + newline to the code section.
-  emit_line : (fn(ref(self) : Self, c : str) -> unit)({
+  emit_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
   }),
   /// Append text + newline to the headers section.
-  emit_header_line : (fn(ref(self) : Self, c : str) -> unit)({
+  emit_header_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.headers.push_str(c);
     self.headers.push_str("\n");
   }),
   /// Append a raw `String` value to the headers section.
-  emit_header_string : (fn(ref(self) : Self, c : String) -> unit)(
+  emit_header_string : (fn(inout(self) : Self, c : String) -> unit)(
     self.headers.push_string(c)
   ),
   /// Append a raw `String` value + newline to the headers section.
-  emit_header_string_line : (fn(ref(self) : Self, c : String) -> unit)({
+  emit_header_string_line : (fn(inout(self) : Self, c : String) -> unit)({
     self.headers.push_string(c);
     self.headers.push_str("\n");
   }),
   /// Append text + newline to the declarations section.
-  emit_declaration_line : (fn(ref(self) : Self, c : str) -> unit)({
+  emit_declaration_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.declarations.push_str(c);
     self.declarations.push_str("\n");
   }),
   /// Append text (no newline) to the declarations section.
-  emit_declaration : (fn(ref(self) : Self, c : str) -> unit)(
+  emit_declaration : (fn(inout(self) : Self, c : str) -> unit)(
     self.declarations.push_str(c)
   ),
   /// Append a raw `String` value (no newline) to the declarations section.
-  emit_declaration_string : (fn(ref(self) : Self, c : String) -> unit)(
+  emit_declaration_string : (fn(inout(self) : Self, c : String) -> unit)(
     self.declarations.push_string(c)
   ),
   /// Append a raw `String` value + newline to the declarations section.
-  emit_declaration_string_line : (fn(ref(self) : Self, c : String) -> unit)({
+  emit_declaration_string_line : (fn(inout(self) : Self, c : String) -> unit)({
     self.declarations.push_string(c);
     self.declarations.push_str("\n");
   }),
   /// Append a raw `String` value to the code section.
-  emit_string : (fn(ref(self) : Self, c : String) -> unit)(
+  emit_string : (fn(inout(self) : Self, c : String) -> unit)(
     self.code.push_string(c)
   ),
   /// Append a raw `String` value + newline to the code section.
-  emit_string_line : (fn(ref(self) : Self, c : String) -> unit)({
+  emit_string_line : (fn(inout(self) : Self, c : String) -> unit)({
     self.code.push_string(c);
     self.code.push_str("\n");
   }),
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
-  print : (fn(ref(self) : Self) -> String)({
+  print : (fn(inout(self) : Self) -> String)({
     result := String.new();
     result.push_string(self.headers);
     result.push_str("\n");
