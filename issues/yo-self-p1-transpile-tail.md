@@ -1398,6 +1398,28 @@ self-compile capturing the swallowed def-time throws. Categories:
   builtin's (and `ArrayList.clone`'s) RESULT type degenerates to `TypeUni` at
   def-time. Distinct from the struct-field-type fix; needs its own diagnosis of
   the `array_list` builtin / ArrayList-clone result-type computation.
+  **Read-only refinement (2026-06-26): `array_list` is a VARIADIC MACRO**
+  (`array_list.yo:827`, `fn(...(quote(elems))) -> unquote(Expr)`) expanding to
+  `{ tmp := ArrayList(typeof(first)).new(); tmp.push(first); unquote_splicing(rest_pushes); tmp }`.
+  So the expansion's TYPE should be `ArrayList(typeof(first))` but is computed as
+  `Type(1)` at def-time — a MACRO-EXPANSION type-computation gap (the
+  expanded-block value type, involving `typeof(first)` + the `ArrayList(...)`
+  application + `unquote_splicing`), NOT a plain builtin. Likely related to how the
+  macro path records the expansion's `.ty` (cf. the recur macro_expansion side-table
+  [[yo-self-recur-codegen-macro-expansion]], but here it's the EVAL-time type not
+  codegen). Diagnose by instrumenting the macro-unquote path's `exp_info.ty` for an
+  `array_list` call.
+
+#### Status checkpoint (2026-06-26): all 78-tail clusters are distinct non-trivial investigations
+
+After the dominant Type(1) struct-field fix (141→78), the remaining tail has NO
+dominant lever — every cluster (arm-type unification upstream-typing; `array_list`
+macro-expansion typing; branch-merge Frame-level; comptime-`and` bool) is a
+separate, soundness- or type-system-sensitive multi-build diagnosis with its
+next step documented above. None is a quick extension of a prior fix. Highest
+marker-count target = the arm-type/Incompatible-types cluster (~22 markers across
+comptime_assert/gensym/and_or) but it is the most delicate (must not relax the
+TS-faithful cond.yo:543 check — fix the upstream arm-typing).
 - 2 `Expected bool type for "and" argument` (the comptime-`and` builtin, and_or.yo).
 - 2 `Cannot unify incompatible types`, 1 `Argument count mismatch`.
 
