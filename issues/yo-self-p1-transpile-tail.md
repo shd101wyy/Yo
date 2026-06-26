@@ -1388,10 +1388,16 @@ self-compile capturing the swallowed def-time throws. Categories:
   empty `{}` / `()` (unit).
 - 3 `Frame level N — different number of values` + 1 `… different variable names`
   (branch-merge family, [[yo-self-branch-merge-trivial-arm]]).
-- 2 `Type mismatch for type member "args"` + 1 `"field_types"` — struct/enum
-  construction field check (same FAMILY as the just-fixed Type(1) "value" member;
-  candidate residual — check whether the ENUM-variant construction arm
-  function.yo:1977 needs the same value-field-type sourcing the Struct arm got).
+- 2 `Type mismatch for type member "args"` + 1 `"field_types"` — **NOT the enum
+  arm; it is `array_list(...)` / `.clone()` on an `ArrayList` evaluating to
+  `Type(1)`** where `ArrayList(T)` is expected. Sites: parser.yo:982/1392
+  `array_list(arg, arg_copy)` / `array_list(str_atom)` (the `args` field of an
+  `AstExpr.FnCall` construction, `Got Type(1)`); definitions.yo:362
+  `.Tuple(labels.clone(), types.clone())` (`types.clone()` → `Type(1)`, the
+  `field_types` member). So a SEPARATE Type(1) degeneration — the `array_list`
+  builtin's (and `ArrayList.clone`'s) RESULT type degenerates to `TypeUni` at
+  def-time. Distinct from the struct-field-type fix; needs its own diagnosis of
+  the `array_list` builtin / ArrayList-clone result-type computation.
 - 2 `Expected bool type for "and" argument` (the comptime-`and` builtin, and_or.yo).
 - 2 `Cannot unify incompatible types`, 1 `Argument count mismatch`.
 
