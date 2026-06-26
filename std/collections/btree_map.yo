@@ -23,8 +23,10 @@ _FindResult :: struct(idx : usize, found : bool);
 /// Sorted map maintaining entries in key order.
 /// Provides ordered iteration and O(log n) lookup via binary search. Insert is O(n).
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  object(
-    _entries : ArrayList(BTreeEntry(K, V))
+  ref(
+    struct(
+      _entries : ArrayList(BTreeEntry(K, V))
+    )
   )
 );
 impl(

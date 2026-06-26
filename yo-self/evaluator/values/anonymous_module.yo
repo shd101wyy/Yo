@@ -52,11 +52,13 @@ open(import("std/string"));
 ///
 /// Mirrors the return value of `evaluateAnonymousModuleBeginExprs` in
 /// `src/evaluator/values/anonymous-module.ts`.
-AnonModuleResult :: object(
-  module_value : EvalValue,
-  module_type : TypeValue,
-  env : Environment,
-  partial_module_error : Option(String)
+AnonModuleResult :: ref(
+  struct(
+    module_value : EvalValue,
+    module_type : TypeValue,
+    env : Environment,
+    partial_module_error : Option(String)
+  )
 );
 /// Helper: find the first index of `label` in `field_labels`, or `.None`.
 _find_field_label_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({

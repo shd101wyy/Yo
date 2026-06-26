@@ -38,21 +38,23 @@ open(import("std/string"));
 /// Embeds `SuspensionPoint` as a `base` field (TypeScript: extends SuspensionPoint).
 ///
 /// Mirrors `EffectCallPoint` in `src/evaluator/effects/effect-analysis-types.ts`.
-EffectCallPoint :: object(
-  /// Shared suspension-point fields (index, expr, target_variable_id, …).
-  base : SuspensionPoint,
-  /// The types of the arguments passed to the ctl operation.
-  operation_arg_types : ArrayList(TypeValue),
-  /// The return type of the ctl operation at the call site.
-  operation_result_type : TypeValue,
-  /// Whether this is a transitive effect call (call to a function with a
-  /// matching `using` ctl parameter, rather than a direct ctl call).
-  is_transitive_effect_call : Option(bool),
-  /// Whether this transitive call is to a closure (Impl(Fn(...))).
-  is_transitive_closure_call : Option(bool),
-  /// For multi-effect functions, identifies which effect this call point belongs to.
-  /// Index into EffectAnalysisResult.effect_handler_infos.
-  effect_index : Option(usize)
+EffectCallPoint :: ref(
+  struct(
+    /// Shared suspension-point fields (index, expr, target_variable_id, …).
+    base : SuspensionPoint,
+    /// The types of the arguments passed to the ctl operation.
+    operation_arg_types : ArrayList(TypeValue),
+    /// The return type of the ctl operation at the call site.
+    operation_result_type : TypeValue,
+    /// Whether this is a transitive effect call (call to a function with a
+    /// matching `using` ctl parameter, rather than a direct ctl call).
+    is_transitive_effect_call : Option(bool),
+    /// Whether this transitive call is to a closure (Impl(Fn(...))).
+    is_transitive_closure_call : Option(bool),
+    /// For multi-effect functions, identifies which effect this call point belongs to.
+    /// Index into EffectAnalysisResult.effect_handler_infos.
+    effect_index : Option(usize)
+  )
 );
 // ---------------------------------------------------------------------------
 // EffectCapturedVariable
@@ -66,12 +68,14 @@ EffectCallPoint :: object(
 /// *effect-typed* self-referential override as a separate field. The `base` field's
 /// `is_owning_the_same_rc_value_as` is set to `None` and ignored; callers should
 /// use `is_owning_the_same_rc_value_as_eff` for the typed reference.
-EffectCapturedVariable :: object(
-  /// Shared captured-variable fields (id, name, ty).
-  base : SuspensionCapturedVariable,
-  /// Effect-typed self-referential override for `isOwningTheSameRcValueAs`.
-  /// Uses `Box(Self)` to break the recursive value-type cycle.
-  is_owning_the_same_rc_value_as : Option(Box(Self))
+EffectCapturedVariable :: ref(
+  struct(
+    /// Shared captured-variable fields (id, name, ty).
+    base : SuspensionCapturedVariable,
+    /// Effect-typed self-referential override for `isOwningTheSameRcValueAs`.
+    /// Uses `Box(Self)` to break the recursive value-type cycle.
+    is_owning_the_same_rc_value_as : Option(Box(Self))
+  )
 );
 // ---------------------------------------------------------------------------
 // EffectHandlerInfo
@@ -79,13 +83,15 @@ EffectCapturedVariable :: object(
 /// Per-effect handler information for multi-effect functions.
 ///
 /// Mirrors `EffectHandlerInfo` in `src/evaluator/effects/effect-analysis-types.ts`.
-EffectHandlerInfo :: object(
-  effect_parameter_name : String,
-  effect_parameter_type : TypeValue,
-  effect_field_path : Option(ArrayList(String)),
-  handler_value : Option(EvalValue),
-  operation_arg_types : ArrayList(TypeValue),
-  operation_result_type : TypeValue
+EffectHandlerInfo :: ref(
+  struct(
+    effect_parameter_name : String,
+    effect_parameter_type : TypeValue,
+    effect_field_path : Option(ArrayList(String)),
+    handler_value : Option(EvalValue),
+    operation_arg_types : ArrayList(TypeValue),
+    operation_result_type : TypeValue
+  )
 );
 // ---------------------------------------------------------------------------
 // EffectAnalysisResult
@@ -94,28 +100,30 @@ EffectHandlerInfo :: object(
 /// Analogous to AwaitAnalysisResult for async/await.
 ///
 /// Mirrors `EffectAnalysisResult` in `src/evaluator/effects/effect-analysis-types.ts`.
-EffectAnalysisResult :: object(
-  /// All effect call points found in the function, in order of appearance.
-  effect_call_points : ArrayList(EffectCallPoint),
-  /// All local variables that need to be captured in the state machine.
-  captured_variables : ArrayList(EffectCapturedVariable),
-  /// Whether this function contains any ctl effect calls.
-  has_effects : bool,
-  /// Maps SSA-renamed variable IDs to their original/canonical IDs.
-  variable_id_remapping : HashMap(String, String),
-  /// The name of the ctl parameter being called (e.g. "raise").
-  effect_parameter_name : String,
-  /// The type of the ctl parameter (the handler's full function type).
-  effect_parameter_type : TypeValue,
-  /// For module-based effects, the path of field names from the module parameter
-  /// to the ctl field. None means a direct ctl parameter (not module-nested).
-  effect_field_path : Option(ArrayList(String)),
-  /// The handler function value resolved from the given(...) variable at the call site.
-  /// None until specialization resolves it.
-  handler_value : Option(EvalValue),
-  /// For multi-effect functions, per-effect handler info.
-  /// When present, effect_call_points have effect_index pointing into this list.
-  effect_handler_infos : Option(ArrayList(EffectHandlerInfo))
+EffectAnalysisResult :: ref(
+  struct(
+    /// All effect call points found in the function, in order of appearance.
+    effect_call_points : ArrayList(EffectCallPoint),
+    /// All local variables that need to be captured in the state machine.
+    captured_variables : ArrayList(EffectCapturedVariable),
+    /// Whether this function contains any ctl effect calls.
+    has_effects : bool,
+    /// Maps SSA-renamed variable IDs to their original/canonical IDs.
+    variable_id_remapping : HashMap(String, String),
+    /// The name of the ctl parameter being called (e.g. "raise").
+    effect_parameter_name : String,
+    /// The type of the ctl parameter (the handler's full function type).
+    effect_parameter_type : TypeValue,
+    /// For module-based effects, the path of field names from the module parameter
+    /// to the ctl field. None means a direct ctl parameter (not module-nested).
+    effect_field_path : Option(ArrayList(String)),
+    /// The handler function value resolved from the given(...) variable at the call site.
+    /// None until specialization resolves it.
+    handler_value : Option(EvalValue),
+    /// For multi-effect functions, per-effect handler info.
+    /// When present, effect_call_points have effect_index pointing into this list.
+    effect_handler_infos : Option(ArrayList(EffectHandlerInfo))
+  )
 );
 // ---------------------------------------------------------------------------
 // Constructor helpers

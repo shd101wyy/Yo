@@ -13,13 +13,15 @@ open(import("std/string"));
 { AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_atom_of, ast_expr_is_fn_call_of } :: import("../../expr.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 /// A code segment between suspension points. (TS `SuspensionSegment<P>`.)
-SuspensionSegment :: object(
-  /// The state number this segment represents (0-based).
-  state_number : usize,
-  /// Expressions to execute in this state (before the suspension/return).
-  expressions : ArrayList(AstExpr),
-  /// The suspension point at the end of this segment (`.None` for final segment).
-  suspension_point : Option(SuspensionPoint)
+SuspensionSegment :: ref(
+  struct(
+    /// The state number this segment represents (0-based).
+    state_number : usize,
+    /// Expressions to execute in this state (before the suspension/return).
+    expressions : ArrayList(AstExpr),
+    /// The suspension point at the end of this segment (`.None` for final segment).
+    suspension_point : Option(SuspensionPoint)
+  )
 );
 /// Checks if an expression tree contains a specific target expression (by
 /// reference identity — yo-self compares `ast_expr_id`). `should_skip_body`

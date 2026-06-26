@@ -27,29 +27,31 @@ open(import("std/string"));
 ///
 /// Mirrors `SuspensionPoint` in `src/evaluator/shared/suspension-analysis-types.ts`.
 /// System-specific fields live in `AwaitPoint` / `EffectCallPoint` which embed this.
-SuspensionPoint :: object(
-  /// 0-based index of this suspension point in the analysis result.
-  index : usize,
-  /// The suspension expression.
-  /// TypeScript uses `unknown` to avoid circular import with expr.ts.
-  expr : AstExpr,
-  /// The variable that should receive the result of resuming (if assigned via `:=`).
-  target_variable_id : Option(String),
-  /// Whether this suspension is inside a `cond` expression.
-  is_inside_cond : Option(bool),
-  /// Whether this suspension is inside a `while` loop.
-  is_inside_while : Option(bool),
-  /// The number of nested `while` loops this suspension is inside.
-  while_nesting_depth : Option(usize),
-  /// For sequential suspensions within the same cond/match branch,
-  /// references the index of the first suspension in that cond/match.
-  cond_branch_source_index : Option(usize),
-  /// Whether this suspension needs its own `cond_branch_X` field in the
-  /// state machine struct.
-  needs_own_cond_branch_field : Option(bool),
-  /// The enclosing while loop expression.
-  /// TypeScript uses `unknown` to avoid circular import; we use `AstExpr`.
-  enclosing_while_expr : Option(AstExpr)
+SuspensionPoint :: ref(
+  struct(
+    /// 0-based index of this suspension point in the analysis result.
+    index : usize,
+    /// The suspension expression.
+    /// TypeScript uses `unknown` to avoid circular import with expr.ts.
+    expr : AstExpr,
+    /// The variable that should receive the result of resuming (if assigned via `:=`).
+    target_variable_id : Option(String),
+    /// Whether this suspension is inside a `cond` expression.
+    is_inside_cond : Option(bool),
+    /// Whether this suspension is inside a `while` loop.
+    is_inside_while : Option(bool),
+    /// The number of nested `while` loops this suspension is inside.
+    while_nesting_depth : Option(usize),
+    /// For sequential suspensions within the same cond/match branch,
+    /// references the index of the first suspension in that cond/match.
+    cond_branch_source_index : Option(usize),
+    /// Whether this suspension needs its own `cond_branch_X` field in the
+    /// state machine struct.
+    needs_own_cond_branch_field : Option(bool),
+    /// The enclosing while loop expression.
+    /// TypeScript uses `unknown` to avoid circular import; we use `AstExpr`.
+    enclosing_while_expr : Option(AstExpr)
+  )
 );
 // ---------------------------------------------------------------------------
 // SuspensionCapturedVariable
@@ -61,11 +63,13 @@ SuspensionPoint :: object(
 ///
 /// Note: The self-referential field `isOwningTheSameRcValueAs: SuspensionCapturedVariable | undefined`
 /// uses `Box(Self)` to break the recursive object-type cycle.
-SuspensionCapturedVariable :: object(
-  id : String,
-  name : String,
-  ty : TypeValue,
-  is_owning_the_same_rc_value_as : Option(Box(Self))
+SuspensionCapturedVariable :: ref(
+  struct(
+    id : String,
+    name : String,
+    ty : TypeValue,
+    is_owning_the_same_rc_value_as : Option(Box(Self))
+  )
 );
 // ---------------------------------------------------------------------------
 // SuspensionAnalysisResult
@@ -78,11 +82,13 @@ SuspensionCapturedVariable :: object(
 /// will do), we store `SuspensionPoint` directly.
 ///
 /// Mirrors `SuspensionAnalysisResult<SuspensionPoint>`.
-SuspensionAnalysisResult :: object(
-  suspension_points : ArrayList(SuspensionPoint),
-  captured_variables : ArrayList(SuspensionCapturedVariable),
-  has_suspensions : bool,
-  variable_id_remapping : HashMap(String, String)
+SuspensionAnalysisResult :: ref(
+  struct(
+    suspension_points : ArrayList(SuspensionPoint),
+    captured_variables : ArrayList(SuspensionCapturedVariable),
+    has_suspensions : bool,
+    variable_id_remapping : HashMap(String, String)
+  )
 );
 // ---------------------------------------------------------------------------
 // Constructor helpers

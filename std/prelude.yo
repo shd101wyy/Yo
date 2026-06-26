@@ -7327,8 +7327,10 @@ export(Result);
 /// assert((b.* == i32(42)), "inner value is 42");
 /// ```
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  object(
-    (*) : V
+  ref(
+    struct(
+      (*) : V
+    )
   )
 );
 /// Allocate a value on the heap, returning a `Box(V)`.
@@ -7455,8 +7457,10 @@ export(^);
 /// ```
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
-    object(
-      (*) : V
+    ref(
+      struct(
+        (*) : V
+      )
     )
   )
 );

@@ -47,9 +47,11 @@ impl(
 // ============================================================================
 Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
-    object(
-      _handle : __YO_THREAD_SYNC_TYPE,
-      _value : T
+    ref(
+      struct(
+        _handle : __YO_THREAD_SYNC_TYPE,
+        _value : T
+      )
     )
   )
 );
@@ -59,8 +61,10 @@ Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 // drop-on-unwind machinery guarantees unlock under both normal return
 // and unwind(...).
 __MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  object(
-    _mutex : Mutex(T)
+  ref(
+    struct(
+      _mutex : Mutex(T)
+    )
   )
 );
 impl(

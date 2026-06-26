@@ -11,18 +11,20 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
 // ---------------------------------------------------------------------------
-Substitution :: object(
-  names : ArrayList(String),
-  levels : ArrayList(usize),
-  types : ArrayList(TypeValue),
-  // Trait `id`s currently being recursed into by `substitute`. Guards against
-  // infinite recursion on self-referential trait types — e.g. `Error`, whose
-  // `source` method returns `Option(Dyn(SelfTrait))`, forms a cyclic
-  // `DynT → TraitT → … → DynT` TypeValue graph. The set is fresh per
-  // top-level `substitute` (created by `subst_new`); once a trait id is
-  // recorded, `substitute` returns that TraitT unchanged rather than
-  // re-descending into its (already-bound) method types.
-  visited_trait_ids : ArrayList(String)
+Substitution :: ref(
+  struct(
+    names : ArrayList(String),
+    levels : ArrayList(usize),
+    types : ArrayList(TypeValue),
+    // Trait `id`s currently being recursed into by `substitute`. Guards against
+    // infinite recursion on self-referential trait types — e.g. `Error`, whose
+    // `source` method returns `Option(Dyn(SelfTrait))`, forms a cyclic
+    // `DynT → TraitT → … → DynT` TypeValue graph. The set is fresh per
+    // top-level `substitute` (created by `subst_new`); once a trait id is
+    // recorded, `substitute` returns that TraitT unchanged rather than
+    // re-descending into its (already-bound) method types.
+    visited_trait_ids : ArrayList(String)
+  )
 );
 /// Create an empty substitution.
 subst_new :: (fn() -> Substitution)(

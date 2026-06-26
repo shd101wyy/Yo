@@ -44,89 +44,111 @@ open(import("std/string"));
 // Data types  (mirrors TypeScript interfaces in build.ts)
 // ---------------------------------------------------------------------------
 ArtifactKind :: enum(Executable, StaticLibrary, SharedLibrary);
-ImportedModule :: object(
-  import_name : String,
-  module_name : String,
-  dependency_name : String,
-  resolved_root : Option(String),
-  propagated_system_libs : ArrayList(String)
+ImportedModule :: ref(
+  struct(
+    import_name : String,
+    module_name : String,
+    dependency_name : String,
+    resolved_root : Option(String),
+    propagated_system_libs : ArrayList(String)
+  )
 );
-BuildArtifact :: object(
-  kind : ArtifactKind,
-  name : String,
-  root : String,
-  target : String,
-  optimize : String,
-  allocator : String,
-  sanitize : String,
-  link_libraries : ArrayList(String),
-  include_paths : ArrayList(String),
-  library_paths : ArrayList(String),
-  c_sources : ArrayList(String),
-  c_flags : ArrayList(String),
-  defines : ArrayList(String),
-  strip : bool,
-  static_link : bool,
-  runtime_files : ArrayList(String),
-  linked_artifacts : ArrayList(String),
-  linked_system_libs : ArrayList(String),
-  imported_modules : ArrayList(ImportedModule)
+BuildArtifact :: ref(
+  struct(
+    kind : ArtifactKind,
+    name : String,
+    root : String,
+    target : String,
+    optimize : String,
+    allocator : String,
+    sanitize : String,
+    link_libraries : ArrayList(String),
+    include_paths : ArrayList(String),
+    library_paths : ArrayList(String),
+    c_sources : ArrayList(String),
+    c_flags : ArrayList(String),
+    defines : ArrayList(String),
+    strip : bool,
+    static_link : bool,
+    runtime_files : ArrayList(String),
+    linked_artifacts : ArrayList(String),
+    linked_system_libs : ArrayList(String),
+    imported_modules : ArrayList(ImportedModule)
+  )
 );
-BuildTestSuite :: object(
-  name : String,
-  root : String,
-  target : String,
-  verbose : bool,
-  bail : bool,
-  parallel : i32
+BuildTestSuite :: ref(
+  struct(
+    name : String,
+    root : String,
+    target : String,
+    verbose : bool,
+    bail : bool,
+    parallel : i32
+  )
 );
-BuildRunStep :: object(
-  name : String,
-  artifact_name : String,
-  args : ArrayList(String)
+BuildRunStep :: ref(
+  struct(
+    name : String,
+    artifact_name : String,
+    args : ArrayList(String)
+  )
 );
-BuildStep :: object(
-  name : String,
-  description : String,
-  dependency_names : ArrayList(String)
+BuildStep :: ref(
+  struct(
+    name : String,
+    description : String,
+    dependency_names : ArrayList(String)
+  )
 );
-BuildGitDependency :: object(
-  name : String,
-  url : String,
-  ref : String,
-  path : String
+BuildGitDependency :: ref(
+  struct(
+    name : String,
+    url : String,
+    ref : String,
+    path : String
+  )
 );
-BuildPathDependency :: object(
-  name : String,
-  path : String
+BuildPathDependency :: ref(
+  struct(
+    name : String,
+    path : String
+  )
 );
-BuildSystemLibrary :: object(
-  name : String,
-  fallback_include : String,
-  fallback_lib : String,
-  fallback_link : String,
-  defines : ArrayList(String)
+BuildSystemLibrary :: ref(
+  struct(
+    name : String,
+    fallback_include : String,
+    fallback_lib : String,
+    fallback_link : String,
+    defines : ArrayList(String)
+  )
 );
-DependencyArtifactRef :: object(
-  dependency_name : String,
-  artifact_name : String
+DependencyArtifactRef :: ref(
+  struct(
+    dependency_name : String,
+    artifact_name : String
+  )
 );
-BuildModuleEntry :: object(
-  name : String,
-  root : String,
-  linked_system_libraries : ArrayList(String)
+BuildModuleEntry :: ref(
+  struct(
+    name : String,
+    root : String,
+    linked_system_libraries : ArrayList(String)
+  )
 );
-BuildDocConfig :: object(
-  name : String,
-  root : String,
-  output_dir : String,
-  format : String,
-  include_private : bool,
-  include_deps : bool,
-  title : String,
-  logo : String,
-  favicon : String,
-  version : String
+BuildDocConfig :: ref(
+  struct(
+    name : String,
+    root : String,
+    output_dir : String,
+    format : String,
+    include_private : bool,
+    include_deps : bool,
+    title : String,
+    logo : String,
+    favicon : String,
+    version : String
+  )
 );
 /// Result of resolving a dependency name to its concrete type.
 ResolvedDep :: enum(
@@ -141,18 +163,20 @@ ResolvedDep :: enum(
 // ---------------------------------------------------------------------------
 /// Central registry populated by `build.yo` evaluation.
 /// Mirrors the `BuildRegistry` class in `src/evaluator/builtins/build.ts`.
-BuildRegistry :: object(
-  artifacts : ArrayList(BuildArtifact),
-  test_suites : ArrayList(BuildTestSuite),
-  run_steps : ArrayList(BuildRunStep),
-  steps : ArrayList(BuildStep),
-  dependencies : ArrayList(BuildGitDependency),
-  path_dependencies : ArrayList(BuildPathDependency),
-  system_libraries : ArrayList(BuildSystemLibrary),
-  dependency_artifacts : ArrayList(DependencyArtifactRef),
-  modules : ArrayList(BuildModuleEntry),
-  doc_configs : ArrayList(BuildDocConfig),
-  cli_options : HashMap(String, String)
+BuildRegistry :: ref(
+  struct(
+    artifacts : ArrayList(BuildArtifact),
+    test_suites : ArrayList(BuildTestSuite),
+    run_steps : ArrayList(BuildRunStep),
+    steps : ArrayList(BuildStep),
+    dependencies : ArrayList(BuildGitDependency),
+    path_dependencies : ArrayList(BuildPathDependency),
+    system_libraries : ArrayList(BuildSystemLibrary),
+    dependency_artifacts : ArrayList(DependencyArtifactRef),
+    modules : ArrayList(BuildModuleEntry),
+    doc_configs : ArrayList(BuildDocConfig),
+    cli_options : HashMap(String, String)
+  )
 );
 impl(
   BuildRegistry,

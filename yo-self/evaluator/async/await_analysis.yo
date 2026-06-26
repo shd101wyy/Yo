@@ -64,10 +64,12 @@ open(import("std/string"));
 /// Async-specific fields for a single await expression.
 /// Stored in a side-channel HashMap keyed by `expr.token.character`
 /// because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects.
-AwaitPointExtra :: object(
-  result_type : TypeValue,
-  future_type : Option(TypeValue),
-  future_variable_id : Option(String)
+AwaitPointExtra :: ref(
+  struct(
+    result_type : TypeValue,
+    future_type : Option(TypeValue),
+    future_variable_id : Option(String)
+  )
 );
 // ---------------------------------------------------------------------------
 // _is_dot_access — structural AST check for `obj.method(...)` calls

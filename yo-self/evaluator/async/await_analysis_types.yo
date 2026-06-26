@@ -43,18 +43,20 @@ CapturedVariableKind :: enum(
 /// Embeds `SuspensionPoint` as a `base` field (TypeScript: extends SuspensionPoint).
 ///
 /// Mirrors `AwaitPoint` in `src/evaluator/async/await-analysis-types.ts`.
-AwaitPoint :: object(
-  /// Shared suspension-point fields (index, expr, target_variable_id, …).
-  base : SuspensionPoint,
-  /// The type of the value being awaited (the T in Future(T)).
-  result_type : TypeValue,
-  /// The full Future type being awaited (Impl Future(T) or similar).
-  /// Stored to help codegen determine the correct C type for `await_future_X` fields.
-  future_type : Option(TypeValue),
-  /// The variable ID of the Future being awaited.
-  /// Used to reference the captured Future variable instead of creating a separate
-  /// `await_future_X` field.
-  future_variable_id : Option(String)
+AwaitPoint :: ref(
+  struct(
+    /// Shared suspension-point fields (index, expr, target_variable_id, …).
+    base : SuspensionPoint,
+    /// The type of the value being awaited (the T in Future(T)).
+    result_type : TypeValue,
+    /// The full Future type being awaited (Impl Future(T) or similar).
+    /// Stored to help codegen determine the correct C type for `await_future_X` fields.
+    future_type : Option(TypeValue),
+    /// The variable ID of the Future being awaited.
+    /// Used to reference the captured Future variable instead of creating a separate
+    /// `await_future_X` field.
+    future_variable_id : Option(String)
+  )
 );
 // ---------------------------------------------------------------------------
 // CapturedVariable
@@ -65,14 +67,16 @@ AwaitPoint :: object(
 /// Yo: embeds the base fields in `base` and adds async-specific fields.
 /// The self-referential `isOwningTheSameRcValueAs: CapturedVariable | undefined`
 /// is overridden with the async-typed version.
-CapturedVariable :: object(
-  /// Shared captured-variable fields (id, name, ty).
-  base : SuspensionCapturedVariable,
-  /// The kind of variable being captured (local or outer-scope).
-  kind : CapturedVariableKind,
-  /// Async-typed self-referential override for `isOwningTheSameRcValueAs`.
-  /// Uses `Box(Self)` to break the recursive value-type cycle.
-  is_owning_the_same_rc_value_as : Option(Box(Self))
+CapturedVariable :: ref(
+  struct(
+    /// Shared captured-variable fields (id, name, ty).
+    base : SuspensionCapturedVariable,
+    /// The kind of variable being captured (local or outer-scope).
+    kind : CapturedVariableKind,
+    /// Async-typed self-referential override for `isOwningTheSameRcValueAs`.
+    /// Uses `Box(Self)` to break the recursive value-type cycle.
+    is_owning_the_same_rc_value_as : Option(Box(Self))
+  )
 );
 // ---------------------------------------------------------------------------
 // AwaitAnalysisResult
@@ -80,16 +84,18 @@ CapturedVariable :: object(
 /// Result of analyzing an async function for await points.
 ///
 /// Mirrors `AwaitAnalysisResult` in `src/evaluator/async/await-analysis-types.ts`.
-AwaitAnalysisResult :: object(
-  /// All await points found in the function, in order of appearance.
-  await_points : ArrayList(AwaitPoint),
-  /// All local variables that need to be captured in the state machine.
-  captured_variables : ArrayList(CapturedVariable),
-  /// Whether this function contains any await expressions.
-  has_awaits : bool,
-  /// Maps SSA-renamed variable IDs to their original/canonical IDs.
-  /// Allows codegen to resolve all versions of a variable to the same state machine field.
-  variable_id_remapping : HashMap(String, String)
+AwaitAnalysisResult :: ref(
+  struct(
+    /// All await points found in the function, in order of appearance.
+    await_points : ArrayList(AwaitPoint),
+    /// All local variables that need to be captured in the state machine.
+    captured_variables : ArrayList(CapturedVariable),
+    /// Whether this function contains any await expressions.
+    has_awaits : bool,
+    /// Maps SSA-renamed variable IDs to their original/canonical IDs.
+    /// Allows codegen to resolve all versions of a variable to the same state machine field.
+    variable_id_remapping : HashMap(String, String)
+  )
 );
 // ---------------------------------------------------------------------------
 // Constructor helpers

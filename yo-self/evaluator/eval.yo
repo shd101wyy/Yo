@@ -92,6 +92,7 @@ open(import("std/fmt"));
   BK_ENUM,
   BK_STRUCT,
   BK_OBJECT,
+  BK_REF,
   BK_NEWTYPE,
   BK_UNION,
   BK_TRAIT,
@@ -7359,6 +7360,26 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             (fval == BK_ENUM) => handle_enum_def(args, env),
             (fval == BK_STRUCT) => handle_struct_def(args, false, false, env),
             (fval == BK_OBJECT) => handle_struct_def(args, true, false, env),
+            // ref(struct(...)) — reference-semantics struct (the non-deprecated
+            // spelling of object). Unwrap the inner struct(...) and define it
+            // with reference semantics. (ref(enum(...)) is Phase 3.)
+            (fval == BK_REF) =>
+              match(
+                args.get(usize(0)),
+                .Some(__ref_inner) => match(
+                  __ref_inner,
+                  .FnCall(_, __rib, __ria, _, _) => match(
+                    __rib.*,
+                    .Atom(_, __rit) => cond(
+                      (__rit.value == BK_STRUCT) => handle_struct_def(__ria, true, false, env),
+                      true => Option(EvalResult).None
+                    ),
+                    .FnCall(_, _, _, _, _) => Option(EvalResult).None
+                  ),
+                  .Atom(_, _) => Option(EvalResult).None
+                ),
+                .None => Option(EvalResult).None
+              ),
             (fval == BK_NEWTYPE) => handle_struct_def(args, false, true, env),
             (fval == BK_UNION) => handle_union_def(args, env),
             (fval == BK_TRAIT) => handle_trait_def(args, env),

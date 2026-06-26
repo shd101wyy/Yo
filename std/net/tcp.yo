@@ -53,19 +53,23 @@ _throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
 // TcpStream (declared before TcpListener so accept can reference it)
 // ============================================================================
 /// A connected TCP stream for bidirectional data transfer.
-TcpStream :: object(
-  _fd : i32,
-  _peer_addr : SocketAddr,
-  _is_closed : bool
+TcpStream :: ref(
+  struct(
+    _fd : i32,
+    _peer_addr : SocketAddr,
+    _is_closed : bool
+  )
 );
 // ============================================================================
 // TcpListener
 // ============================================================================
 /// A TCP socket that listens for incoming connections.
-TcpListener :: object(
-  _fd : i32,
-  _local_addr : SocketAddr,
-  _is_closed : bool
+TcpListener :: ref(
+  struct(
+    _fd : i32,
+    _local_addr : SocketAddr,
+    _is_closed : bool
+  )
 );
 impl(
   TcpListener,

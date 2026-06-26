@@ -47,9 +47,11 @@ _default_tmp_dir :: (fn() -> String)(
   )
 );
 /// Temporary directory that can be cleaned up with `remove`.
-TempDir :: object(
-  _path : Path,
-  _removed : bool
+TempDir :: ref(
+  struct(
+    _path : Path,
+    _removed : bool
+  )
 );
 impl(
   TempDir,
@@ -109,10 +111,12 @@ impl(
 );
 export(TempDir);
 /// Temporary file backed by a `File` handle.
-TempFile :: object(
-  _file : _file_mod.File,
-  _path : Path,
-  _removed : bool
+TempFile :: ref(
+  struct(
+    _file : _file_mod.File,
+    _path : Path,
+    _removed : bool
+  )
 );
 impl(
   TempFile,

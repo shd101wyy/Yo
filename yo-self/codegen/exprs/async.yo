@@ -87,7 +87,7 @@ open(import("std/string"));
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
 /// Mirrors the `{ effectLabel, accessPath }` records in `async.ts`.
-EffectFieldMapping :: object(effect_label : String, access_path : String);
+EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 /// True if the extern name is defined in the async runtime (poll / fs_event /
 /// async prefixes). Mirrors `isAsyncRuntimeExternName` (async.ts:1659).
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
@@ -282,7 +282,7 @@ get_injectable_future_effect_field_mappings :: (
 /// The synthetic closure-param slot for a SYNC future: io.await/io.spawn passes
 /// the effect bundle via `set_effect("__bundle", &value)`, copied into this
 /// dedicated `__yo_param_<i>` field. Mirrors the `syncParamSlot` shape.
-SyncParamSlot :: object(field_name : String, c_type : String);
+SyncParamSlot :: ref(struct(field_name : String, c_type : String));
 /// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
 /// `.None`. Mirrors TS's single `isFuture.effect.type` for the bundle case.
 _first_struct_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeValue))({
@@ -405,18 +405,20 @@ generate_future_effect_setter :: (
 /// literal of `emitAsyncBlockStructDefinition` (async.ts:637). Optional TS fields
 /// become `Option(...)`; `Set<string>` → `HashSet(String)`, `Map<string,string>`
 /// → `HashMap(String, String)`.
-AsyncBlockStructInfo :: object(
-  async_block_id : String,
-  struct_name : String,
-  result_type : TypeValue,
-  result_type_c_name : String,
-  capture_type : Option(TypeValue),
-  analysis : AwaitAnalysisResult,
-  cross_boundary_ids : Option(HashSet(String)),
-  await_future_temp_var_aliases : Option(HashMap(String, String)),
-  overlapping_slot_aliases : Option(HashMap(String, String)),
-  overlapping_slots : Option(ArrayList(OverlappingSlot)),
-  closure_param_slots : Option(ArrayList(ClosureParamSlot))
+AsyncBlockStructInfo :: ref(
+  struct(
+    async_block_id : String,
+    struct_name : String,
+    result_type : TypeValue,
+    result_type_c_name : String,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    cross_boundary_ids : Option(HashSet(String)),
+    await_future_temp_var_aliases : Option(HashMap(String, String)),
+    overlapping_slot_aliases : Option(HashMap(String, String)),
+    overlapping_slots : Option(ArrayList(OverlappingSlot)),
+    closure_param_slots : Option(ArrayList(ClosureParamSlot))
+  )
 );
 /// True if an await point's result type is effectively unit (real unit, or an
 /// unresolved SomeType whose concrete type couldn't be resolved). Mirrors the

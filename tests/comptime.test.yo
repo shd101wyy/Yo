@@ -2944,10 +2944,12 @@ test("Test mutation", {
   };
   // Refernce semantics are not allowed to be used in compile-time context
   {
-    Point :: object(
-      // Point now uses reference semantics
-      x : i32,
-      y : i32
+    Point :: ref(
+      struct(
+        // Point now uses reference semantics
+        x : i32,
+        y : i32
+      )
     );
     comptime_expect_error(p1 :: Point(3, 4));
   };

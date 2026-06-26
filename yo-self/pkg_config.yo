@@ -10,22 +10,26 @@ open(import("std/string"));
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 /// Resolved compiler and linker flags for a system library.
-PkgConfigResult :: object(
-  c_flags : ArrayList(String),
-  ld_flags : ArrayList(String),
-  include_paths : ArrayList(String),
-  library_paths : ArrayList(String),
-  link_libraries : ArrayList(String),
-  defines : ArrayList(String),
-  runtime_files : ArrayList(String)
+PkgConfigResult :: ref(
+  struct(
+    c_flags : ArrayList(String),
+    ld_flags : ArrayList(String),
+    include_paths : ArrayList(String),
+    library_paths : ArrayList(String),
+    link_libraries : ArrayList(String),
+    defines : ArrayList(String),
+    runtime_files : ArrayList(String)
+  )
 );
 /// Runtime representation of a system library entry from build.yo.
-BuildSystemLibrary :: object(
-  name : String,
-  fallback_include : String,
-  fallback_lib : String,
-  fallback_link : String,
-  defines : ArrayList(String)
+BuildSystemLibrary :: ref(
+  struct(
+    name : String,
+    fallback_include : String,
+    fallback_lib : String,
+    fallback_link : String,
+    defines : ArrayList(String)
+  )
 );
 /// ASCII whitespace test (mirrors std String._is_whitespace_byte, which is private).
 _is_ws_byte :: (fn(byte : u8) -> bool)(

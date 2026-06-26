@@ -59,25 +59,27 @@ open(import("std/string"));
 ///
 /// Design note: `Impl(Fn)` is rejected in object/struct/enum fields in Yo;
 /// `Dyn(Fn)` is the correct approach. Construct with `dyn(closure_expr)`.
-SuspensionPointDetector :: object(
-  /// Detect suspension point(s) in a FnCall expression and push them to `points`.
-  /// The detector is responsible for constructing the full SuspensionPoint including
-  /// system-specific fields. Use `extract_target_variable_id` for the common
-  /// parent `:=` assignment pattern.
-  ///
-  /// Typed side-channel lists (e.g. ArrayList(AwaitPoint)) are typically maintained
-  /// inside this closure by the caller; see the Phase 2m/2n implementation notes.
-  detect : Dyn(
-    Fn(
-      expr : AstExpr,
-      parent_expr : Option(AstExpr),
-      points : ArrayList(SuspensionPoint)
-    ) -> unit
-  ),
-  /// Return true if this FnCall expression's body should be skipped
-  /// (no recursion into func/args). Used for nested async blocks that
-  /// have their own analysis. Deferred dup expressions are still walked.
-  should_skip_body : Dyn(Fn(expr : AstExpr) -> bool)
+SuspensionPointDetector :: ref(
+  struct(
+    /// Detect suspension point(s) in a FnCall expression and push them to `points`.
+    /// The detector is responsible for constructing the full SuspensionPoint including
+    /// system-specific fields. Use `extract_target_variable_id` for the common
+    /// parent `:=` assignment pattern.
+    ///
+    /// Typed side-channel lists (e.g. ArrayList(AwaitPoint)) are typically maintained
+    /// inside this closure by the caller; see the Phase 2m/2n implementation notes.
+    detect : Dyn(
+      Fn(
+        expr : AstExpr,
+        parent_expr : Option(AstExpr),
+        points : ArrayList(SuspensionPoint)
+      ) -> unit
+    ),
+    /// Return true if this FnCall expression's body should be skipped
+    /// (no recursion into func/args). Used for nested async blocks that
+    /// have their own analysis. Deferred dup expressions are still walked.
+    should_skip_body : Dyn(Fn(expr : AstExpr) -> bool)
+  )
 );
 // ---------------------------------------------------------------------------
 // extract_target_variable_id

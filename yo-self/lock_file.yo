@@ -20,16 +20,20 @@ open(import("std/string"));
 // Data types
 // ---------------------------------------------------------------------------
 /// One entry in the lock file — records the resolved state of a dependency.
-LockEntry :: object(
-  name : String,
-  url : String,
-  ref : String,
-  commit : String,
-  hash : String
+LockEntry :: ref(
+  struct(
+    name : String,
+    url : String,
+    ref : String,
+    commit : String,
+    hash : String
+  )
 );
 /// In-memory representation of a `yo.lock` file.
-LockFile :: object(
-  dependencies : ArrayList(LockEntry)
+LockFile :: ref(
+  struct(
+    dependencies : ArrayList(LockEntry)
+  )
 );
 impl(
   LockFile,

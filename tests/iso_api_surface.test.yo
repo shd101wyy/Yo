@@ -12,7 +12,7 @@
 /// claim becomes unsound and must be revoked.
 test("Iso API surface — unconditionally Send even for non-Send T", {
   // Object types are NOT Send by construction
-  NonSendObj :: object(x : i32);
+  NonSendObj :: ref(struct(x : i32));
   // But Iso(NonSendObj) IS Send — that's the unconditional claim
   comptime_assert(
     Type.impls(Iso(NonSendObj), Send),

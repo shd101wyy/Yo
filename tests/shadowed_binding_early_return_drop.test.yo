@@ -13,7 +13,7 @@ open(import("std/fmt"));
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 
-Holder :: object(v : String);
+Holder :: ref(struct(v : String));
 
 // Early return inside a match arm whose binding shadows a later local.
 take_early :: (fn(o : Option(Holder), flag : bool) -> i32)({
@@ -98,7 +98,7 @@ take_nested :: (
 // the scope end then received an early-return-only drop of `items` — freeing
 // the buffer `w` still owns (this was the residual dispatch-on SIGTRAP:
 // ct_arg_entries moved into ArgValues in yo-self's evaluate_function_call).
-Sack :: object(items : ArrayList(Holder));
+Sack :: ref(struct(items : ArrayList(Holder)));
 
 take_after_move :: (fn(o : Option(i32)) -> i32)({
   items := ArrayList(Holder).new();

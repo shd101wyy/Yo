@@ -15,12 +15,14 @@ pragma(Pragma.AllowUnsafe);
 { malloc, realloc, free } :: GlobalAllocator;
 /// Circular buffer supporting efficient push/pop at both front and back.
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    _buf : ?*(T),
-    _head : usize,
-    _tail : usize,
-    _len : usize,
-    _capacity : usize
+  ref(
+    struct(
+      _buf : ?*(T),
+      _head : usize,
+      _tail : usize,
+      _len : usize,
+      _capacity : usize
+    )
   )
 );
 impl(

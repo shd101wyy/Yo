@@ -12,9 +12,11 @@ open(import("std/string"));
 // Max number of capture slots (group 0 + up to 99 groups = 200 slots)
 MAX_SLOTS :: 200;
 // A single NFA thread: an instruction pointer + capture slots
-NfaThread :: object(
-  pc : usize,
-  slots : ArrayList(usize)
+NfaThread :: ref(
+  struct(
+    pc : usize,
+    slots : ArrayList(usize)
+  )
 );
 impl(
   NfaThread,
@@ -51,14 +53,16 @@ DeferredThread :: struct(
   thread : NfaThread
 );
 // The NFA virtual machine
-NfaVm :: object(
-  _program : NfaProgram,
-  _flags : RegexFlags,
-  _input : String,
-  _bytes : ArrayList(u8),
-  _n_slots : usize,
-  _seen : ArrayList(bool),
-  _next_seen : ArrayList(bool)
+NfaVm :: ref(
+  struct(
+    _program : NfaProgram,
+    _flags : RegexFlags,
+    _input : String,
+    _bytes : ArrayList(u8),
+    _n_slots : usize,
+    _seen : ArrayList(bool),
+    _next_seen : ArrayList(bool)
+  )
 );
 // Block 1: Constructor and leaf helpers (no method dependencies)
 impl(

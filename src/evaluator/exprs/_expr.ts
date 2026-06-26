@@ -409,30 +409,97 @@ ${exprToString(expr)}`,
       // dyn
       return evaluateDynValue({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.atomic)) {
-      // atomic object(...) — atomic reference counted object
+      // atomic(ref(struct(...))) — atomic reference-counted reference type
+      // (thread-safe RC, cycles disallowed). `atomic(object(...))` is the
+      // deprecated spelling. plans/REF_REFERENCE_SEMANTICS.md Phase 2.
       if (expr.args.length !== 1) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `"atomic" expects exactly one argument: atomic object(...)`,
+          errorMessage: `"atomic" expects exactly one argument: atomic(ref(struct(...)))`,
         });
       }
       const innerExpr = expr.args[0]!;
+      let result: FnCallExpr;
       if (
-        !exprIsFunctionCall(innerExpr) ||
-        !exprIsFunctionCallOf(innerExpr, BuiltinKeywords.object)
+        exprIsFunctionCall(innerExpr) &&
+        exprIsFunctionCallOf(innerExpr, BuiltinKeywords.ref)
       ) {
+        // atomic(ref(struct(...))) — the canonical form. `ref` wraps an inline
+        // `struct(...)` literal (enum support is Phase 3).
+        if (innerExpr.args.length !== 1) {
+          throw formatErrorMessage({
+            token: innerExpr.token,
+            errorMessage: `"ref" expects exactly one argument: ref(struct(...))`,
+          });
+        }
+        const refInner = innerExpr.args[0]!;
+        if (
+          !exprIsFunctionCall(refInner) ||
+          !exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
+        ) {
+          throw formatErrorMessage({
+            token: refInner.token,
+            errorMessage: `"atomic(ref(...))" wraps an inline "struct(...)" literal. Got:\n${exprToString(refInner)}`,
+          });
+        }
+        result = evaluateStructType({
+          expr: refInner,
+          env,
+          context: { ...context },
+          isAtomicRc: true,
+          forceReferenceSemantics: true,
+        });
+        // Stamp both the ref(...) node and the outer atomic(...) node.
+        innerExpr.$ = result.$;
+        innerExpr.func.$ = result.$;
+      } else if (
+        exprIsFunctionCall(innerExpr) &&
+        exprIsFunctionCallOf(innerExpr, BuiltinKeywords.object)
+      ) {
+        // Deprecated: atomic(object(...)).
+        result = evaluateObjectType({
+          expr: innerExpr,
+          env,
+          context: { ...context },
+          isAtomicRc: true,
+        });
+      } else {
         throw formatErrorMessage({
           token: innerExpr.token,
-          errorMessage: `"atomic" modifier is only valid before "object(...)". Got:\n${exprToString(innerExpr)}`,
+          errorMessage: `"atomic" modifier is only valid before "ref(struct(...))" (or the deprecated "object(...)"). Got:\n${exprToString(innerExpr)}`,
         });
       }
-      const result = evaluateObjectType({
-        expr: innerExpr,
+      // Propagate the evaluated result back to the atomic expr
+      expr.$ = result.$;
+      expr.func.$ = result.$;
+      return expr;
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ref)) {
+      // ref(struct(...)) — reference-semantics type constructor (Phase 2;
+      // ref(enum(...)) is Phase 3). `ref` wraps an inline struct/enum literal
+      // only. plans/REF_REFERENCE_SEMANTICS.md.
+      if (expr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `"ref" expects exactly one argument: ref(struct(...))`,
+        });
+      }
+      const refInner = expr.args[0]!;
+      if (
+        !exprIsFunctionCall(refInner) ||
+        !exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
+      ) {
+        throw formatErrorMessage({
+          token: refInner.token,
+          errorMessage: `"ref(...)" wraps an inline "struct(...)" literal (reference-semantics enums are Phase 3). Got:\n${exprToString(refInner)}`,
+        });
+      }
+      const result = evaluateStructType({
+        expr: refInner,
         env,
         context: { ...context },
-        isAtomicRc: true,
+        forceReferenceSemantics: true,
       });
-      // Propagate the evaluated result back to the atomic expr
+      // Propagate the inner struct's evaluated info to the ref(...) node.
       expr.$ = result.$;
       expr.func.$ = result.$;
       return expr;

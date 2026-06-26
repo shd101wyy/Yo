@@ -33,13 +33,15 @@ open(import("std/string"));
 /// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
 /// the TS generic to the concrete `SuspensionPoint` base, so the owning
 /// `AwaitPoint` is recovered by matching `base.index`.
-StateSegment :: object(
-  /// The state number this segment represents.
-  state_number : usize,
-  /// Expressions to execute in this state (before the await/return).
-  expressions : ArrayList(AstExpr),
-  /// The await point at the end of this segment (`.None` for the final segment).
-  await_point : Option(AwaitPoint)
+StateSegment :: ref(
+  struct(
+    /// The state number this segment represents.
+    state_number : usize,
+    /// Expressions to execute in this state (before the await/return).
+    expressions : ArrayList(AstExpr),
+    /// The await point at the end of this segment (`.None` for the final segment).
+    await_point : Option(AwaitPoint)
+  )
 );
 /// Find the `AwaitPoint` whose `base.index` equals `idx`. Used to recover the
 /// async-specific await point from a collapsed `SuspensionPoint`.
@@ -1688,9 +1690,13 @@ generate_match_with_await :: (
                             if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
                               ptr_case = Option(usize).Some(ni);
                               pargs := match(pattern,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-                              match(pargs.get(usize(0)),.Some(pv) => if(ast_expr_is_atom(pv), {
-                                ptr_var_name = Option(String).Some(ast_expr_token(pv).value);
-                              }),.None => ());
+                              match(
+                                pargs.get(usize(0)),
+                                .Some(pv) => if(ast_expr_is_atom(pv), {
+                                  ptr_var_name = Option(String).Some(ast_expr_token(pv).value);
+                                }),
+                                .None => ()
+                              );
                             });
                           });
                         });

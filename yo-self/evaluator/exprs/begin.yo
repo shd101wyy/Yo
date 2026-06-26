@@ -72,11 +72,13 @@ open(import("std/string"));
 // The full implementation traverses the AST for `___dup(...)` calls and is
 // deferred to Phase 3.  Both lists are always empty in Phase 2aa.
 // ---------------------------------------------------------------------------
-DupCallsResult :: object(
-  /// Maps base-variable id → list of `___dup(...)` call expressions.
-  dup_calls : HashMap(String, ArrayList(AstExpr)),
-  /// Variable ids that have dups in some branches but not all (conservative).
-  vars_with_partial_branch_dups : ArrayList(String)
+DupCallsResult :: ref(
+  struct(
+    /// Maps base-variable id → list of `___dup(...)` call expressions.
+    dup_calls : HashMap(String, ArrayList(AstExpr)),
+    /// Variable ids that have dups in some branches but not all (conservative).
+    vars_with_partial_branch_dups : ArrayList(String)
+  )
 );
 // ---------------------------------------------------------------------------
 // is_unit_value_expression

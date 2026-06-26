@@ -61,7 +61,7 @@ test("AllowUnsafe + unsafe(...) is transparent inside a begin-block", {
 // can manually declare Acyclic when it audit-establishes immutability.
 // ============================================================================
 test("AllowUnsafe + manual impl(T, Acyclic()) for self-referential atomic object", {
-  ImmNode :: atomic(object(_value : i32, _next : Option(Self)));
+  ImmNode :: atomic(ref(struct(_value : i32, _next : Option(Self))));
   // SAFETY: ImmNode is immutable — its fields are never mutated after
   // construction, so no cycles can form at runtime.
   impl(ImmNode, Acyclic());
@@ -82,7 +82,7 @@ test("AllowUnsafe + manual impl(T, Send()) for a wrapper type", {
 // ============================================================================
 test("Phase F: manual Send impl on valid atomic object passes re-verification", {
   // i32 and u32 are both Send, so this atomic object is valid
-  Pair :: atomic(object(a : i32, b : u32));
+  Pair :: atomic(ref(struct(a : i32, b : u32)));
   // SAFETY: Pair's fields (i32, u32) are trivially Send value types.
   impl(Pair, Send());
   comptime_assert(Type.impls(Pair, Send), "Pair should impl Send");

@@ -9,18 +9,22 @@ LinkedListError :: enum(
 );
 /// Internal node for the linked list. Reference-counted via `object`.
 Node :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    value : T,
-    next : Option(Self),
-    prev : Option(Self)
+  ref(
+    struct(
+      value : T,
+      next : Option(Self),
+      prev : Option(Self)
+    )
   )
 );
 /// Doubly-linked list with O(1) push/pop at both ends.
 LinkedList :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    head : Option(Node(T)),
-    tail : Option(Node(T)),
-    length : usize
+  ref(
+    struct(
+      head : Option(Node(T)),
+      tail : Option(Node(T)),
+      length : usize
+    )
   )
 );
 impl(

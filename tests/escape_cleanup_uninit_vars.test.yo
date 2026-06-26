@@ -13,7 +13,7 @@ open(import("std/fmt"));
 //    )
 //    The `break` inside the .Some arm must NOT try to drop `X`
 //    which is declared after the break in source order.
-ParseError :: object(message : String);
+ParseError :: ref(struct(message : String));
 impl(
   ParseError,
   ToString(
@@ -21,8 +21,8 @@ impl(
   )
 );
 impl(ParseError, Error());
-Token :: object(name : String);
-ParseResult :: object(label : String, index : usize);
+Token :: ref(struct(name : String));
+ParseResult :: ref(struct(label : String, index : usize));
 get_opt_token :: (fn(present : bool) -> Option(Token))(
   cond(present =>.Some(Token(name : `tok`)), true =>.None)
 );

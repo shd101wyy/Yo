@@ -72,100 +72,106 @@ open(import("std/string"));
 // yo-self's TypeValue carries no general `cInclude`, so the entry carries it
 // (supplied at registration) rather than being read off the type.
 // ===========================================================================
-CodegenTypeEntry :: object(ty : TypeValue, c_name : String, c_include : Option(String));
-CodegenExternFnEntry :: object(ty : TypeValue, c_name : String, c_include : Option(String));
+CodegenTypeEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
+CodegenExternFnEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
 /// A reachable function to be generated. `value` is the FuncVal EvalValue.
-CodegenFunctionEntry :: object(value : EvalValue, c_name : String);
+CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String));
 /// An entry in `impl_closure_call_map`: the resolved concrete capture-struct
 /// type id → the generated closure implementation function for that type.
 /// Mirrors the `implClosureCallMap` value type (utils/index.ts:139).
-ImplClosureCallInfo :: object(
-  function_c_name : String,
-  call_type_id : String,
-  call_type : Option(TypeValue),
-  consumed_captures : Option(ArrayList(String)),
-  /// The closure impl fn's func_id (for get_func_type → its runtime param types,
-  /// e.g. the spawn-wrapper's closure-arg zero-inits).
-  closure_fid : String
+ImplClosureCallInfo :: ref(
+  struct(
+    function_c_name : String,
+    call_type_id : String,
+    call_type : Option(TypeValue),
+    consumed_captures : Option(ArrayList(String)),
+    /// The closure impl fn's func_id (for get_func_type → its runtime param types,
+    /// e.g. the spawn-wrapper's closure-arg zero-inits).
+    closure_fid : String
+  )
 );
-ArrayStructInfo :: object(child_type : String, length : i64);
-IsoTypeInfo :: object(child_type_c_name : String, iso_type : TypeValue);
+ArrayStructInfo :: ref(struct(child_type : String, length : i64));
+IsoTypeInfo :: ref(struct(child_type_c_name : String, iso_type : TypeValue));
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
 /// stored in Dyn.data (object/Box); `trait_values` are the TraitVal evidence
 /// values in trait order. Mirrors the `dynImpls` map value.
-DynImplEntry :: object(
-  dyn_type : TypeValue,
-  concrete_type : TypeValue,
-  data_type : TypeValue,
-  trait_values : ArrayList(EvalValue)
+DynImplEntry :: ref(
+  struct(
+    dyn_type : TypeValue,
+    concrete_type : TypeValue,
+    data_type : TypeValue,
+    trait_values : ArrayList(EvalValue)
+  )
 );
 /// The base C code generation context. See header above.
-CodeGenContext :: object(
-  /// Collected types that need to be generated (keyed by TypeId string).
-  types : HashMap(String, CodegenTypeEntry),
-  /// Collected functions that need to be generated (keyed by func_id).
-  functions : HashMap(String, CodegenFunctionEntry),
-  /// Extern functions (keyed by TypeId string).
-  extern_functions : HashMap(String, CodegenExternFnEntry),
-  /// Array struct types that need to be generated (keyed by C name).
-  array_struct_types : HashMap(String, ArrayStructInfo),
-  /// Iso struct types that need to be generated (keyed by Iso C name).
-  iso_types : HashMap(String, IsoTypeInfo),
-  /// C header files that need to be included.
-  c_includes : HashSet(String),
-  /// Emitter for generating C code.
-  emitter : Emitter,
-  /// Per-expression evaluation metadata (TS reads `expr.$`; yo-self looks each
-  /// node up here by ExprId). Read by the emitters for type/value/control-flow.
-  info_table : ExprInfoTable,
-  /// Compilation target info (arch, os, abi).
-  target_info : TargetInfo,
-  /// Memory allocator: "mimalloc" (default) or "libc".
-  allocator : String,
-  /// The current function being generated (for `recur`).
-  current_function_name : String,
-  /// Debug logging flags.
-  debug_gc : bool,
-  debug_parallelism : bool,
-  debug_async_await : bool,
-  /// True when at least one object type can form RC cycles (GC tracking on).
-  needs_cycle_gc : bool,
-  /// True when compiling as a library (no main() wrapper).
-  is_library : bool,
-  /// True when any asm block uses intel_syntax (`-masm=intel` needed).
-  needs_intel_asm_syntax : bool,
-  /// Current loop label for break/continue in nested match (goto target);
-  /// `.None` outside a loop. Mirrors CodeGenContext.currentLoopLabel.
-  current_loop_label : Option(String),
-  /// Current continue label for 3-arg while loops (jump before the step);
-  /// `.None` outside such a loop. Mirrors CodeGenContext.currentContinueLabel.
-  current_continue_label : Option(String),
-  /// True while emitting inside a match (a C switch) — break needs goto, not
-  /// plain break. Mirrors CodeGenContext.insideMatch.
-  inside_match : bool,
-  /// typeid static declarations: type id → the C static variable name whose
-  /// address is the type's runtime id. Mirrors CodeGenContext.typeIdStatics.
-  type_id_statics : HashMap(String, String),
-  /// dyn() usages → box types / vtables / wrappers (keyed by a
-  /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
-  dyn_impls : HashMap(String, DynImplEntry),
-  /// Module id of the module being compiled (e.g. "yo3818ce2d"); `.None`
-  /// until set. Used in library mode to distinguish user exports from std.
-  current_module_id : Option(String),
-  /// Exported label names → func_id, for stable non-mangled C names in
-  /// library/executable mode.
-  exported_function_labels : HashMap(String, String),
-  /// Type-tag dispose dispatch: dispose-function C name → its unique type id
-  /// (1-based). The constructor stamps `header.type_id = id`; the dispose
-  /// dispatch switch (deferred) reads the same map. Mirrors
-  /// CodeGenContext.disposeTypeIds / nextDisposeTypeId.
-  dispose_type_ids : HashMap(String, usize),
-  next_dispose_type_id : usize,
-  /// Resolved concrete capture-struct type id → its generated closure impl fn.
-  /// Populated at closure construction; read at closure call sites to emit
-  /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap (utils/index.ts:139).
-  impl_closure_call_map : HashMap(String, ImplClosureCallInfo)
+CodeGenContext :: ref(
+  struct(
+    /// Collected types that need to be generated (keyed by TypeId string).
+    types : HashMap(String, CodegenTypeEntry),
+    /// Collected functions that need to be generated (keyed by func_id).
+    functions : HashMap(String, CodegenFunctionEntry),
+    /// Extern functions (keyed by TypeId string).
+    extern_functions : HashMap(String, CodegenExternFnEntry),
+    /// Array struct types that need to be generated (keyed by C name).
+    array_struct_types : HashMap(String, ArrayStructInfo),
+    /// Iso struct types that need to be generated (keyed by Iso C name).
+    iso_types : HashMap(String, IsoTypeInfo),
+    /// C header files that need to be included.
+    c_includes : HashSet(String),
+    /// Emitter for generating C code.
+    emitter : Emitter,
+    /// Per-expression evaluation metadata (TS reads `expr.$`; yo-self looks each
+    /// node up here by ExprId). Read by the emitters for type/value/control-flow.
+    info_table : ExprInfoTable,
+    /// Compilation target info (arch, os, abi).
+    target_info : TargetInfo,
+    /// Memory allocator: "mimalloc" (default) or "libc".
+    allocator : String,
+    /// The current function being generated (for `recur`).
+    current_function_name : String,
+    /// Debug logging flags.
+    debug_gc : bool,
+    debug_parallelism : bool,
+    debug_async_await : bool,
+    /// True when at least one object type can form RC cycles (GC tracking on).
+    needs_cycle_gc : bool,
+    /// True when compiling as a library (no main() wrapper).
+    is_library : bool,
+    /// True when any asm block uses intel_syntax (`-masm=intel` needed).
+    needs_intel_asm_syntax : bool,
+    /// Current loop label for break/continue in nested match (goto target);
+    /// `.None` outside a loop. Mirrors CodeGenContext.currentLoopLabel.
+    current_loop_label : Option(String),
+    /// Current continue label for 3-arg while loops (jump before the step);
+    /// `.None` outside such a loop. Mirrors CodeGenContext.currentContinueLabel.
+    current_continue_label : Option(String),
+    /// True while emitting inside a match (a C switch) — break needs goto, not
+    /// plain break. Mirrors CodeGenContext.insideMatch.
+    inside_match : bool,
+    /// typeid static declarations: type id → the C static variable name whose
+    /// address is the type's runtime id. Mirrors CodeGenContext.typeIdStatics.
+    type_id_statics : HashMap(String, String),
+    /// dyn() usages → box types / vtables / wrappers (keyed by a
+    /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
+    dyn_impls : HashMap(String, DynImplEntry),
+    /// Module id of the module being compiled (e.g. "yo3818ce2d"); `.None`
+    /// until set. Used in library mode to distinguish user exports from std.
+    current_module_id : Option(String),
+    /// Exported label names → func_id, for stable non-mangled C names in
+    /// library/executable mode.
+    exported_function_labels : HashMap(String, String),
+    /// Type-tag dispose dispatch: dispose-function C name → its unique type id
+    /// (1-based). The constructor stamps `header.type_id = id`; the dispose
+    /// dispatch switch (deferred) reads the same map. Mirrors
+    /// CodeGenContext.disposeTypeIds / nextDisposeTypeId.
+    dispose_type_ids : HashMap(String, usize),
+    next_dispose_type_id : usize,
+    /// Resolved concrete capture-struct type id → its generated closure impl fn.
+    /// Populated at closure construction; read at closure call sites to emit
+    /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap (utils/index.ts:139).
+    impl_closure_call_map : HashMap(String, ImplClosureCallInfo)
+  )
 );
 impl(
   CodeGenContext,
@@ -340,7 +346,7 @@ impl(
 /// A runtime (non-comptime-only) struct field: its label and type, in
 /// declaration order. The faithful stand-in for the subset of TS `TypeField`
 /// that codegen consumes (`.label` / `.type`).
-RuntimeStructField :: object(label : String, ty : TypeValue);
+RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
 /// The runtime (non-comptime-only) fields of a struct type, in declaration
 /// order. Mirrors `getRuntimeStructFields`. Non-struct types yield an empty
 /// list. A struct with no registered comptime-flags is treated as all-runtime.

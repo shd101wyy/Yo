@@ -1,9 +1,11 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio.yo"));
 Gc :: import("std/gc");
-List :: object(
-  value : i32,
-  next : Option(Self)
+List :: ref(
+  struct(
+    value : i32,
+    next : Option(Self)
+  )
 );
 impl(
   List,
@@ -48,9 +50,11 @@ test("Test freeing many objects", {
 });
 // --- New tests for Bug 1: Reachable objects through cycles ---
 // Node type with a child pointer (can form cycles)
-Node :: object(
-  value : i32,
-  child : Option(Self)
+Node :: ref(
+  struct(
+    value : i32,
+    child : Option(Self)
+  )
 );
 impl(
   Node,

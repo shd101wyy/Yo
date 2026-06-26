@@ -62,36 +62,44 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 /// Options controlling type synthesis behavior.
 /// Mirrors `SynthesizeTypesOptions` in TypeScript.
-SynthesizeOptions :: object(
-  /// When true, also sets `resolvedConcreteType` on SomeType objects
-  /// (skipped in yo-self — no such field on SomeT).
-  set_resolved_concrete_type : bool,
-  /// Optional source token for variable bindings created during synthesis.
-  token : Option(Token)
+SynthesizeOptions :: ref(
+  struct(
+    /// When true, also sets `resolvedConcreteType` on SomeType objects
+    /// (skipped in yo-self — no such field on SomeT).
+    set_resolved_concrete_type : bool,
+    /// Optional source token for variable bindings created during synthesis.
+    token : Option(Token)
+  )
 );
 /// Return type of `synthesize_types`.
 /// Mirrors `{ expectedEnv: Environment; givenEnv: Environment }` in TypeScript.
-SynthesizeResult :: object(
-  expected_env : Environment,
-  given_env : Environment
+SynthesizeResult :: ref(
+  struct(
+    expected_env : Environment,
+    given_env : Environment
+  )
 );
 // ---------------------------------------------------------------------------
 // Internal data type: one implicit/effect parameter entry
 // ---------------------------------------------------------------------------
 /// Mirrors `FunctionImplicitParameter` in TypeScript.
-ImplicitEntry :: object(
-  label : String,
-  ty : TypeValue,
-  is_spread : bool
+ImplicitEntry :: ref(
+  struct(
+    label : String,
+    ty : TypeValue,
+    is_spread : bool
+  )
 );
 // ---------------------------------------------------------------------------
 // Checked-pair anti-circularity state
 // ---------------------------------------------------------------------------
 /// A pair of type IDs used to detect circular synthesis.
 /// Mirrors `{ expected: Type; given: Type }[]` in TypeScript.
-TypePair :: object(
-  expected_id : String,
-  given_id : String
+TypePair :: ref(
+  struct(
+    expected_id : String,
+    given_id : String
+  )
 );
 // ---------------------------------------------------------------------------
 // synthesize_types — global function pointer (like evaluate_expression)

@@ -27,10 +27,12 @@ pragma(Pragma.AllowUnsafe);
 /// atomic reference counting when possible.
 Vec :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
-    object(
-      _ptr : *(T),
-      _len : usize,
-      _cap : usize
+    ref(
+      struct(
+        _ptr : *(T),
+        _len : usize,
+        _cap : usize
+      )
     )
   )
 );

@@ -17,17 +17,19 @@ open(import("std/string"));
 { CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
-EvidenceParameter :: object(
-  /// The label of the implicit parameter (e.g. "raise_mod").
-  implicit_label : String,
-  /// The field label within the module (e.g. "raise", or "errors__raise" for nested).
-  field_label : String,
-  /// Path of field labels for navigating nested evidence records.
-  field_path : ArrayList(String),
-  /// The function type (`Func` TypeValue) of the evidence field.
-  field_function_type : TypeValue,
-  /// The C parameter name: sanitized "{implicit_label}__{field_label}".
-  c_param_name : String
+EvidenceParameter :: ref(
+  struct(
+    /// The label of the implicit parameter (e.g. "raise_mod").
+    implicit_label : String,
+    /// The field label within the module (e.g. "raise", or "errors__raise" for nested).
+    field_label : String,
+    /// Path of field labels for navigating nested evidence records.
+    field_path : ArrayList(String),
+    /// The function type (`Func` TypeValue) of the evidence field.
+    field_function_type : TypeValue,
+    /// The C parameter name: sanitized "{implicit_label}__{field_label}".
+    c_param_name : String
+  )
 );
 /// Join a path of field labels with "__". Mirrors TS `fieldPath.join("__")`.
 _join_double_underscore :: (fn(parts : ArrayList(String)) -> String)({

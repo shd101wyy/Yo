@@ -23,9 +23,11 @@ pragma(Pragma.AllowUnsafe);
 /// Internal cons cell — atomic object for thread-safe structural sharing.
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
-    object(
-      _value : T,
-      _next : Option(Self)
+    ref(
+      struct(
+        _value : T,
+        _next : Option(Self)
+      )
     )
   )
 );

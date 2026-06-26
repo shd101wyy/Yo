@@ -25,6 +25,7 @@ open(import("std/fmt"));
   BK_ATOMIC,
   BK_OBJECT,
   BK_STRUCT,
+  BK_REF,
   BK_NEWTYPE,
   BK_ENUM,
   BK_UNION,
@@ -532,12 +533,87 @@ _evaluate_expression :: (
                   match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr())
               );
               cond(
-                !(ast_expr_is_fn_call_of(inner_expr, BK_OBJECT,.None)) => {
+                ast_expr_is_fn_call_of(inner_expr, BK_REF,.None) => {
+                  // atomic(ref(struct(...))) — canonical reference-semantics form.
+                  ref_inner := match(
+                    inner_expr,
+                    .Atom(_, _) => make_err_expr(),
+                    .FnCall(_, _, rargs, _, _) =>
+                      match(rargs.get(usize(0)),.Some(a) => a,.None => make_err_expr())
+                  );
+                  cond(
+                    !(ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None)) => {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(ref_inner),
+                            `"atomic(ref(...))" wraps an inline "struct(...)" literal. Got:\n${ast_expr_to_string(ref_inner)}`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
+                      make_err_expr()
+                    },
+                    true =>
+                      evaluate_struct_type(ref_inner, env, ctx, true, true, exn)
+                  )
+                },
+                ast_expr_is_fn_call_of(inner_expr, BK_OBJECT,.None) =>
+                  evaluate_object_type(inner_expr, env, ctx, true, exn),
+                true => {
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(inner_expr),
-                        `"atomic" modifier is only valid before "object(...)". Got:\n${ast_expr_to_string(inner_expr)}`,
+                        `"atomic" modifier is only valid before "ref(struct(...))" (or the deprecated "object(...)"). Got:\n${ast_expr_to_string(inner_expr)}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
+                  make_err_expr()
+                }
+              )
+            }
+          )
+        },
+        ast_expr_is_fn_call_of(expr, BK_REF,.None) => {
+          // ref(struct(...)) — reference-semantics type constructor (Phase 2;
+          // ref(enum(...)) is Phase 3). Wraps an inline struct literal only.
+          n_ref_args := match(
+            expr,
+            .Atom(_, _) => usize(0),
+            .FnCall(_, _, args, _, _) => args.len()
+          );
+          cond(
+            (n_ref_args != usize(1)) => {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(expr),
+                    `"ref" expects exactly one argument: ref(struct(...))`,
+                    false,
+                    .None
+                  )
+                )
+              );
+              make_err_expr()
+            },
+            true => {
+              ref_inner := match(
+                expr,
+                .Atom(_, _) => make_err_expr(),
+                .FnCall(_, _, args, _, _) =>
+                  match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr())
+              );
+              cond(
+                !(ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None)) => {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(ref_inner),
+                        `"ref(...)" wraps an inline "struct(...)" literal (reference-semantics enums are Phase 3). Got:\n${ast_expr_to_string(ref_inner)}`,
                         false,
                         .None
                       )
@@ -546,13 +622,13 @@ _evaluate_expression :: (
                   make_err_expr()
                 },
                 true =>
-                  evaluate_object_type(inner_expr, env, ctx, true, exn)
+                  evaluate_struct_type(ref_inner, env, ctx, false, true, exn)
               )
             }
           )
         },
         ast_expr_is_fn_call_of(expr, BK_STRUCT,.None) =>
-          evaluate_struct_type(expr, env, ctx, false, exn),
+          evaluate_struct_type(expr, env, ctx, false, false, exn),
         ast_expr_is_fn_call_of(expr, BK_OBJECT,.None) =>
           evaluate_object_type(expr, env, ctx, false, exn),
         ast_expr_is_fn_call_of(expr, BK_NEWTYPE,.None) =>

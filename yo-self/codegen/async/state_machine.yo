@@ -68,13 +68,15 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
 });
 /// Information about a generated state machine. Mirrors `StateMachineInfo`
 /// (state-machine.ts:516).
-StateMachineInfo :: object(
-  /// The C struct name for this state machine.
-  struct_name : String,
-  /// The C function name for the resume function.
-  resume_function_name : String,
-  /// Analysis result containing await points and captured variables.
-  analysis : AwaitAnalysisResult
+StateMachineInfo :: ref(
+  struct(
+    /// The C struct name for this state machine.
+    struct_name : String,
+    /// The C function name for the resume function.
+    resume_function_name : String,
+    /// Analysis result containing await points and captured variables.
+    analysis : AwaitAnalysisResult
+  )
 );
 /// Emit the forward declaration for the resume function. Mirrors
 /// `generateResumeFunctionDeclaration` (state-machine.ts:535).
@@ -276,13 +278,15 @@ collect_variable_refs_in_expr :: (
 /// Result of cross-boundary variable analysis. Mirrors `CrossBoundaryResult`
 /// (state-machine.ts:152). `variable_segments` maps each variable id to the set
 /// of segment indices it is referenced in (`CLEANUP_SEGMENT` = body-level drops).
-CrossBoundaryResult :: object(
-  /// Variable IDs that must be stored as struct fields (cross await boundaries).
-  cross_boundary_ids : HashSet(String),
-  /// Maps temp variable IDs to their `await_future_N` field name (Phase 1b dedup).
-  await_future_temp_var_aliases : HashMap(String, String),
-  /// Maps each captured variable id to the segment indices where it is referenced.
-  variable_segments : HashMap(String, HashSet(usize))
+CrossBoundaryResult :: ref(
+  struct(
+    /// Variable IDs that must be stored as struct fields (cross await boundaries).
+    cross_boundary_ids : HashSet(String),
+    /// Maps temp variable IDs to their `await_future_N` field name (Phase 1b dedup).
+    await_future_temp_var_aliases : HashMap(String, String),
+    /// Maps each captured variable id to the segment indices where it is referenced.
+    variable_segments : HashMap(String, HashSet(usize))
+  )
 );
 /// Add `seg` to the segment set of `var_id` in `variable_segments`
 /// (get-mutate-set-back: always stores the mutated set back so the map reflects
@@ -523,24 +527,28 @@ compute_cross_boundary_variables :: (
   )
 });
 /// A variable's live range `[min_segment, max_segment]` over numbered segments.
-_SlotRange :: object(min : usize, max : usize);
+_SlotRange :: ref(struct(min : usize, max : usize));
 /// An overlapping storage slot shared by ≥2 non-RC value vars with disjoint live
 /// ranges. Mirrors `OverlappingSlot` (state-machine.ts:310).
-OverlappingSlot :: object(
-  /// The struct field name, e.g. `slot_0`.
-  field_name : String,
-  /// The C type string for this slot.
-  c_type : String,
-  /// Variable names sharing this slot (for comments).
-  variable_names : ArrayList(String)
+OverlappingSlot :: ref(
+  struct(
+    /// The struct field name, e.g. `slot_0`.
+    field_name : String,
+    /// The C type string for this slot.
+    c_type : String,
+    /// Variable names sharing this slot (for comments).
+    variable_names : ArrayList(String)
+  )
 );
 /// Result of overlapping storage analysis. Mirrors `OverlappingStorageResult`
 /// (state-machine.ts:322).
-OverlappingStorageResult :: object(
-  /// Maps variable IDs to their aliased slot field name.
-  slot_aliases : HashMap(String, String),
-  /// Slot field definitions for the struct.
-  slots : ArrayList(OverlappingSlot)
+OverlappingStorageResult :: ref(
+  struct(
+    /// Maps variable IDs to their aliased slot field name.
+    slot_aliases : HashMap(String, String),
+    /// Slot field definitions for the struct.
+    slots : ArrayList(OverlappingSlot)
+  )
 );
 /// Find the eligible captured variable with the given id. Helper for slot naming.
 _find_captured_by_id :: (

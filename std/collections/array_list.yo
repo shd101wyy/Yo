@@ -15,10 +15,12 @@ ArrayListError :: enum(
 /// Generic growable array similar to Rust's `Vec<T>`.
 /// Heap-allocated with automatic resizing and reference-counted cleanup.
 ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    _ptr : ?*(T),
-    _length : usize,
-    _capacity : usize
+  ref(
+    struct(
+      _ptr : ?*(T),
+      _length : usize,
+      _capacity : usize
+    )
   )
 );
 impl(

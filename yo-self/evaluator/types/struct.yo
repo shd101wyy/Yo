@@ -51,6 +51,7 @@ evaluate_struct_type :: (
     env_in : Environment,
     ctx : EvalContext,
     is_atomic_rc : bool,
+    force_reference_semantics : bool,
     exn : Exception
   ) -> AstExpr
 )({
@@ -70,7 +71,7 @@ evaluate_struct_type :: (
       )
     );
   });
-  is_reference_semantics := is_object_keyword;
+  is_reference_semantics := (is_object_keyword || force_reference_semantics);
   is_newtype := is_newtype_keyword;
   struct_id := `struct_${random_id(env.module_path)}`;
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.

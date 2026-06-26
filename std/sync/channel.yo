@@ -30,15 +30,17 @@ pragma(Pragma.AllowUnsafe);
 /// T must implement `Send` to ensure values are safe to transfer between threads.
 Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
-    object(
-      _data : *(T),
-      _head : usize,
-      _len : AtomicUsize,
-      _capacity : usize,
-      _mutex : Mutex(bool),
-      _not_empty : Cond,
-      _not_full : Cond,
-      _closed : AtomicBool
+    ref(
+      struct(
+        _data : *(T),
+        _head : usize,
+        _len : AtomicUsize,
+        _capacity : usize,
+        _mutex : Mutex(bool),
+        _not_empty : Cond,
+        _not_full : Cond,
+        _closed : AtomicBool
+      )
     )
   )
 );

@@ -45,10 +45,12 @@ MapLeaf :: (
   ) -> comptime(Type)
 )(
   atomic(
-    object(
-      hash : u64,
-      key : K,
-      value : V
+    ref(
+      struct(
+        hash : u64,
+        key : K,
+        value : V
+      )
     )
   )
 );
@@ -61,10 +63,12 @@ MapCollision :: (
   ) -> comptime(Type)
 )(
   atomic(
-    object(
-      hash : u64,
-      _pairs_ptr : *(Pair(K, V)),
-      _pairs_len : usize
+    ref(
+      struct(
+        hash : u64,
+        _pairs_ptr : *(Pair(K, V)),
+        _pairs_len : usize
+      )
     )
   )
 );
@@ -94,10 +98,12 @@ MapBranch :: (
   ) -> comptime(Type)
 )(
   atomic(
-    object(
-      bitmap : u32,
-      _children_ptr : *(void),
-      _children_len : u8
+    ref(
+      struct(
+        bitmap : u32,
+        _children_ptr : *(void),
+        _children_len : u8
+      )
     )
   )
 );

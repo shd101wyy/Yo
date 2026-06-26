@@ -134,13 +134,15 @@ _ctfe_args_equal :: (
 // SomeT's unique id. `resolve_recursive_type_ref` (in `function.yo`) reads it.
 // Mutated via `push` (never reassigned), mirroring `impl.yo`'s registry.
 // ---------------------------------------------------------------------------
-RecursiveTypeRef :: object(
-  /// The placeholder `SomeT`'s `id` — the lookup key.
-  some_id : String,
-  /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
-  func_id : String,
-  /// The argument values of the in-progress instantiation (for exact match).
-  arg_values : ArrayList(EvalValue)
+RecursiveTypeRef :: ref(
+  struct(
+    /// The placeholder `SomeT`'s `id` — the lookup key.
+    some_id : String,
+    /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
+    func_id : String,
+    /// The argument values of the in-progress instantiation (for exact match).
+    arg_values : ArrayList(EvalValue)
+  )
 );
 (g_recursive_type_refs : ArrayList(RecursiveTypeRef)) = ArrayList(RecursiveTypeRef).new();
 /// Look up the recursive-type-ref for a placeholder SomeT id, if any.

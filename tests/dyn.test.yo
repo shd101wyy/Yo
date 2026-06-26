@@ -12,8 +12,10 @@ use_test_dyn :: (
   value.print();
   return(value.return_i32());
 });
-MyBox :: object(
-  x : i32
+MyBox :: ref(
+  struct(
+    x : i32
+  )
 );
 impl(
   MyBox,
@@ -104,7 +106,7 @@ test("Test Dyn with multiple traits", {
     run : (fn(self : Self) -> i32)
   );
   // Dog :: struct(); // This should give error working with `dyn`.
-  Dog :: object();
+  Dog :: ref(struct());
   DogSpeak :: impl(
     Dog,
     Speak(
@@ -136,7 +138,7 @@ test("Test Dyn with multiple traits", {
 open(import("std/string"));
 open(import("std/fmt"));
 test("Test downcast success", {
-  Cat :: object(name : String);
+  Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
@@ -152,9 +154,9 @@ test("Test downcast success", {
   );
 });
 test("Test downcast failure", {
-  Cat :: object(name : String);
+  Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : ((self) -> self.name)));
-  Dog :: object(name : String);
+  Dog :: ref(struct(name : String));
   impl(Dog, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
@@ -170,9 +172,9 @@ test("Test downcast failure", {
   );
 });
 test("Test downcast type check via is_some", {
-  Cat :: object(name : String);
+  Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : ((self) -> self.name)));
-  Dog :: object(name : String);
+  Dog :: ref(struct(name : String));
   impl(Dog, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
@@ -180,9 +182,9 @@ test("Test downcast type check via is_some", {
   assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
 });
 test("Test downcast with multiple concrete types", {
-  Cat :: object(name : String);
+  Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : ((self) -> self.name)));
-  Dog :: object(name : String);
+  Dog :: ref(struct(name : String));
   impl(Dog, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (cat_animal : Animal) = dyn(Cat(`kitty`));

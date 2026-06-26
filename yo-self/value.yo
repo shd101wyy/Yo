@@ -854,11 +854,13 @@ create_unknown_val_with_name :: (fn(ty : TypeValue, name : String) -> EvalValue)
   )
 );
 /// The result of evaluating a single `AstExpr` node.
-EvalResult :: object(
-  /// The evaluated value (or a runtime reference marker).
-  value : EvalValue,
-  /// The compile-time type of the expression.
-  ty : TypeValue
+EvalResult :: ref(
+  struct(
+    /// The evaluated value (or a runtime reference marker).
+    value : EvalValue,
+    /// The compile-time type of the expression.
+    ty : TypeValue
+  )
 );
 /// Construct an `EvalResult` with the given value and type.
 eval_result :: (fn(value : EvalValue, ty : TypeValue) -> EvalResult)(
@@ -941,7 +943,7 @@ export(eval_value_eq);
 // synthesizer import, no cycle). `substitute()` preserves enum id → key stays
 // valid across specialization. Mirrors `Struct.constructor_func_id`.
 // ---------------------------------------------------------------------------
-EnumCfidEntry :: object(enum_id : String, func_id : String);
+EnumCfidEntry :: ref(struct(enum_id : String, func_id : String));
 (g_enum_cfids : ArrayList(EnumCfidEntry)) = ArrayList(EnumCfidEntry).new();
 register_enum_cfid :: (fn(enum_id : String, func_id : String) -> unit)({
   if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)), {

@@ -63,10 +63,12 @@ get_line_at_position :: (fn(module_path : String, input_string : String, row : u
 /// Lexer error with character index, message, and row.
 ///
 /// Mirrors `YoLexerError` in `src/error.ts`.
-YoLexerError :: object(
-  character_index : usize,
-  message : String,
-  row : usize
+YoLexerError :: ref(
+  struct(
+    character_index : usize,
+    message : String,
+    row : usize
+  )
 );
 impl(
   YoLexerError,
@@ -81,10 +83,12 @@ impl(YoLexerError, Error());
 /// Compiler error with a list of token + error message pairs.
 ///
 /// Mirrors `YoError` in `src/error.ts`.
-YoError :: object(
-  token_and_error_list : ArrayList(TokenAndError),
-  is_assertion_error : bool,
-  kind : Option(ErrorKind)
+YoError :: ref(
+  struct(
+    token_and_error_list : ArrayList(TokenAndError),
+    is_assertion_error : bool,
+    kind : Option(ErrorKind)
+  )
 );
 impl(
   YoError,

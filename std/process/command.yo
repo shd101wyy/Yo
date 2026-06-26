@@ -63,10 +63,12 @@ impl(
 ///
 /// Returned by `Command.output`. Holds the exit status plus the bytes captured
 /// from the child's stdout and stderr.
-Output :: object(
-  status : ExitStatus,
-  stdout : ArrayList(u8),
-  stderr : ArrayList(u8)
+Output :: ref(
+  struct(
+    status : ExitStatus,
+    stdout : ArrayList(u8),
+    stderr : ArrayList(u8)
+  )
 );
 // ============================================================================
 // Command
@@ -75,12 +77,14 @@ Output :: object(
 ///
 /// Construct with `Command.new(program)`, then chain mutating builder methods
 /// (`arg`, `args`, `env_clear`) before invoking `status()` or `output()`.
-Command :: object(
-  _program : String,
-  _args : ArrayList(String),
-  _stdin_fd : i32,
-  _stdout_fd : i32,
-  _stderr_fd : i32
+Command :: ref(
+  struct(
+    _program : String,
+    _args : ArrayList(String),
+    _stdin_fd : i32,
+    _stdout_fd : i32,
+    _stderr_fd : i32
+  )
 );
 impl(
   Command,

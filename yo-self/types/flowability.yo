@@ -114,17 +114,19 @@ propagate_def_time_errors :: (fn() -> bool)(
   match(g_propagate_def_time_errors_box.get(usize(0)),.Some(v) => v,.None => false)
 );
 /// Options refining the base R1–R4 rule. Mirrors the TS options bag.
-FlowOptions :: object(
-  /// Accept a same-frame (non-module) local — the `inout(name) := …` binding
-  /// site. Bounded by `max_local_frame_level` when that is `.Some`.
-  allow_same_frame_local : bool,
-  /// Accept a parameter of the enclosing function (slice-flowability).
-  allow_parameter_source : bool,
-  /// Accept a `comptime`-bound name / string-ish literal (slice-flowability).
-  allow_comptime_source : bool,
-  /// Scope bound for `allow_same_frame_local` (the assignment target's frame
-  /// level); a same-frame local is accepted only if its level is no deeper.
-  max_local_frame_level : Option(usize)
+FlowOptions :: ref(
+  struct(
+    /// Accept a same-frame (non-module) local — the `inout(name) := …` binding
+    /// site. Bounded by `max_local_frame_level` when that is `.Some`.
+    allow_same_frame_local : bool,
+    /// Accept a parameter of the enclosing function (slice-flowability).
+    allow_parameter_source : bool,
+    /// Accept a `comptime`-bound name / string-ish literal (slice-flowability).
+    allow_comptime_source : bool,
+    /// Scope bound for `allow_same_frame_local` (the assignment target's frame
+    /// level); a same-frame local is accepted only if its level is no deeper.
+    max_local_frame_level : Option(usize)
+  )
 );
 /// Default options (strict R1–R4, the function-return enforcement form).
 flow_options_default :: (fn() -> FlowOptions)(

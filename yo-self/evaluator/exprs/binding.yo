@@ -52,13 +52,15 @@ open(import("std/fmt"));
 // Return type
 // ---------------------------------------------------------------------------
 /// The result of `evaluate_binding`. Mirrors the anonymous TS return type.
-BindingResult :: object(
-  /// The fully annotated `:` expression.
-  expr : AstExpr,
-  /// The lhs name expression (after stripping `comptime(...)` / `given(...)`).
-  variable_expr : AstExpr,
-  /// The plain string name of the variable being declared.
-  variable_name : String
+BindingResult :: ref(
+  struct(
+    /// The fully annotated `:` expression.
+    expr : AstExpr,
+    /// The lhs name expression (after stripping `comptime(...)` / `given(...)`).
+    variable_expr : AstExpr,
+    /// The plain string name of the variable being declared.
+    variable_name : String
+  )
 );
 // ---------------------------------------------------------------------------
 // evaluate_binding

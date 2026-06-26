@@ -29,14 +29,16 @@ TokenKind :: enum(
   Whitespace
 );
 derive(TokenKind, Eq(TokenKind), Hash, Clone, ToString);
-Token :: object(
-  kind : TokenKind,
-  value : String,
-  row : usize,
-  column : usize,
-  character : usize,
-  module_path : String,
-  input : String
+Token :: ref(
+  struct(
+    kind : TokenKind,
+    value : String,
+    row : usize,
+    column : usize,
+    character : usize,
+    module_path : String,
+    input : String
+  )
 );
 derive(Token, Eq(Token));
 // `Token` is an `object` (Rc), not a value `struct` (P2 memory). Every `AstExpr`

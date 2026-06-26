@@ -263,7 +263,7 @@ test("Test type auto derive Send", {
   comptime_assert(Type.impls(i32, Send));
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Send) == true);
-  MyBox :: object(v : i32);
+  MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Send) == false);
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
@@ -271,7 +271,7 @@ test("Test type auto derive Send", {
 });
 test("Test Send on pointer-bearing types is conditional on the pointee", {
   // Pre-condition: a non-Send carrier to use as a negative pointee.
-  NonSendCarrier :: object(v : i32);
+  NonSendCarrier :: ref(struct(v : i32));
   comptime_assert(Type.impls(NonSendCarrier, Send) == false);
   // *(T): Send iff T: Send.
   comptime_assert(Type.impls(*(i32), Send) == true);
@@ -323,10 +323,10 @@ test("Test type auto derive Acyclic", {
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Acyclic) == true);
   // Object types that don't form cycles are Acyclic
-  SimpleBox :: object(v : i32);
+  SimpleBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(SimpleBox, Acyclic) == true);
   // Self-referencing object (can form cycle) is NOT Acyclic
-  Node :: object(value : i32, next : Option(Self));
+  Node :: ref(struct(value : i32, next : Option(Self)));
   comptime_assert(Type.impls(Node, Acyclic) == false);
   //
   // Generic struct: Acyclic depends on type parameter
@@ -396,7 +396,7 @@ test("Test type auto derive Comptime", {
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Comptime) == true);
   // Object types are NOT Comptime (reference-counted, runtime-only)
-  MyBox :: object(v : i32);
+  MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Comptime) == false);
   // Generic struct: Comptime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
@@ -513,7 +513,7 @@ test("Test type auto derive Runtime", {
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Runtime) == true);
   // Object types are Runtime
-  MyBox :: object(v : i32);
+  MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Runtime) == true);
   // Generic struct: Runtime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));

@@ -23,9 +23,11 @@ open(import("std/string"));
 /// modules resolves to two distinct (non-canonical) type instances, which makes
 /// `Option(Impl(Fn(...)))` monomorphize to clashing C enums across the field
 /// declaration site and the construction site. `Some(id)` only when `!needs_cycle_gc`.
-AsyncRuntimeOptions :: object(
-  needs_cycle_gc : bool,
-  timer_dispose_type_id : Option(i64)
+AsyncRuntimeOptions :: ref(
+  struct(
+    needs_cycle_gc : bool,
+    timer_dispose_type_id : Option(i64)
+  )
 );
 /// Emit the shared POSIX sync runtime + dispatch to the platform sys-runtime.
 /// Mirrors `generateSysRuntime`.
