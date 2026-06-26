@@ -1317,3 +1317,34 @@ the substitution; check whether the struct value or registry carries them.) This
 the recursive-type / self-shell substitution layer
 ([[yo-self-recursive-enum-self-shell]] / Direction-B), now pinned to the exact
 field-type-substitution gap.
+
+#### ✅ FIXED (2026-06-26, commit 21c45878b): 141 → 78 markers (−63)
+
+Implemented option (a): at the Struct-construction arm (`function.yo:1892`), after
+building `fields` from `get_struct_fields(struct_id)` (the registry TEMPLATE, with
+`?*(T)`), override each field's `ty` with the struct VALUE's substituted
+`field_types` (matched by label), then pass the merged `fields_subst` to
+`try_to_call_type_with_arguments`. This is the faithful port of TS function.ts:1020
+(`typeFields: value.value.fields` — TS sources construction fields from the value,
+which is substituted; yo-self had diverged to the registry template). yo-self splits
+field METADATA (defaults, registry) from field TYPES (the `TypeValue.Struct` value),
+so the merge keeps registry metadata + value types. Moved the registry field into a
+mutable local and overrode only `.ty` (no `clone()` of the metadata — `Option(EvalValue)`
+has no `.clone`).
+
+**Validation (all green):**
+- minimal repro (HashSet.add on param + match-bound receiver): 1 → **0** markers
+- full stage-2 self-compile: 141 → **78** markers (−63, ~45% of the tail), EXIT=0
+- `check ./std`: 153 modules OK, no errors
+- `check ./yo-self`: all **166 source modules** OK, no errors (stopped before the
+  known-heavy `tests/` files, which `check` clean per README and are validated via sweeps)
+- runtime: a HashSet `add`+`contains` program compiled by the fixed binary produced
+  correct output (`has_apple=true`, `has_banana=true`, `has_cherry=false`) — confirms
+  the emitted C is correct, not merely marker-free.
+
+The remaining 78 markers are other clusters (re-measure + re-cluster the new
+stage2.c). One incidental gap surfaced while building the runtime test: calling a
+method INLINE inside a template-string interpolation (`${hs.contains(x)}`) emits a
+marker (routes through `import("std/fmt/to_string").to_string()` un-transpiled);
+binding to a local first transpiles. Likely part of the template-string/to_string
+cluster — a candidate next target.
