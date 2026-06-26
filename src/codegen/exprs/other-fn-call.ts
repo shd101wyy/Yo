@@ -2586,7 +2586,7 @@ export function generateOtherFunctionCall(
 
           const functionContext = context as FunctionGenerationContext;
 
-          const argsList = runtimeArgExprs
+          const argEntries = runtimeArgExprs
             .map((arg, index) => {
               if (variant.fields) {
                 const field = variant.fields[index];
@@ -2696,19 +2696,31 @@ export function generateOtherFunctionCall(
                     }
                   }
 
-                  return `.${sanitizedLabel} = ` + finalArgValue;
+                  return {
+                    designated: `.${sanitizedLabel} = ` + finalArgValue,
+                    positional: finalArgValue,
+                  };
                 }
-                return ""; // Skip if no field matches or if it's unit type
+                return null; // Skip if no field matches or if it's unit type
               } else {
-                return "";
+                return null;
               }
             })
-            .filter((s) => s) // Remove empty strings
+            .filter(
+              (e): e is { designated: string; positional: string } =>
+                e !== null
+            );
+          const argsList = argEntries.map((e) => e.designated).join(", ");
+          const positionalArgs = argEntries
+            .map((e) => e.positional)
             .join(", ");
 
-          // If there are no non-unit fields, we only need the tag
-          const enumValue =
-            nonUnitElements.length > 0
+          // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+          // per-variant constructor; value enums use a compound literal.
+          // If there are no non-unit fields, we only need the tag.
+          const enumValue = enumType.isReferenceSemantics
+            ? `__yo_new_${cName}_${variantName}(${positionalArgs})`
+            : nonUnitElements.length > 0
               ? `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`
               : `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)} }`;
           if (tempVar && expr.$?.type) {

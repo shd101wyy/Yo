@@ -403,6 +403,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
+  // Generate reference-semantics enum (ref(enum(…))) constructor functions
+  generateRefEnumConstructorFunctions(context);
+
   // Generate closure constructor and Rc functions
   generateClosureConstructorFunctions(context);
 
@@ -2669,6 +2672,127 @@ export function generateRefStructConstructorFunctions(
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 
+      emitter.emitLine(`  return obj;`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+    }
+  }
+}
+
+/**
+ * Generate per-variant constructor functions for reference-semantics enums
+ * (`ref(enum(…))`). Each `__yo_new_${cName}_${variant}(fields…)` heap-allocates
+ * the RC handle, initializes the reference-count header (and GC fields / dispose
+ * dispatch, mirroring the object path), sets the tag and the active variant's
+ * data, and returns the pointer. plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+ */
+export function generateRefEnumConstructorFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (!(isEnumType(type) && type.isReferenceSemantics)) {
+      continue;
+    }
+    // Skip generic enums that still contain SomeType parameters.
+    if (typeContainsSomeType(type)) {
+      continue;
+    }
+
+    // Dispose dispatch is shared across all variants of this enum (it depends
+    // on the type, not the variant). Mirrors the object constructor logic.
+    const disposeInternalFunctionElement = type.trait.fields.find(
+      (field) =>
+        field.label === BuiltinFunctions.___dispose[0]! &&
+        field.assignedValue &&
+        isFunctionValue(field.assignedValue)
+    );
+    let disposeId: number | undefined;
+    let disposeFunctionCName: string | undefined;
+    if (
+      disposeInternalFunctionElement &&
+      isFunctionValue(disposeInternalFunctionElement.assignedValue)
+    ) {
+      const disposeFunctionValue = disposeInternalFunctionElement.assignedValue;
+      disposeFunctionCName =
+        context.functions[disposeFunctionValue.funcId]?.cName ||
+        disposeFunctionValue.funcId;
+      if (!context.needsCycleGC) {
+        if (!context.disposeTypeIds) {
+          context.disposeTypeIds = new Map();
+          context.nextDisposeTypeId = 1;
+        }
+        disposeId = context.disposeTypeIds.get(disposeFunctionCName);
+        if (disposeId === undefined) {
+          disposeId = context.nextDisposeTypeId!;
+          context.nextDisposeTypeId = disposeId + 1;
+          context.disposeTypeIds.set(disposeFunctionCName, disposeId);
+        }
+      }
+    }
+
+    const registersWithGc =
+      context.needsCycleGC &&
+      !type.isAtomicRc &&
+      canTypeFormRcCycle(type, new Set(), type.env);
+
+    for (const variant of type.variants) {
+      const nonUnitFields = (variant.fields ?? []).filter(
+        (field) => !isUnitType(field.type)
+      );
+      const params = nonUnitFields
+        .map((field) => {
+          const fieldType = getTypeString(field.type, context);
+          const fieldName = sanitizeForCIdentifier(field.label);
+          return `${fieldType} ${fieldName}`;
+        })
+        .join(", ");
+      const constructorName = `__yo_new_${cName}_${variant.name}`;
+
+      emitter.emitLine(`static ${cName}* ${constructorName}(${params}) {`);
+      emitter.emitLine(
+        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
+      );
+      emitter.emitLine(`  obj->header.ref_count = 1;`);
+      emitter.emitLine(`  obj->header.borrow_count = 0;`);
+      if (context.needsCycleGC && !type.isAtomicRc) {
+        emitter.emitLine(`  obj->header.gc_flags = 0;`);
+        emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
+        emitter.emitLine(`  obj->header.gc_next = NULL;`);
+        emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+      }
+      if (disposeFunctionCName) {
+        if (context.needsCycleGC) {
+          emitter.emitLine(
+            `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`
+          );
+        } else {
+          emitter.emitLine(`  obj->header.type_id = ${disposeId};`);
+        }
+      } else {
+        if (context.needsCycleGC) {
+          emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+        } else {
+          emitter.emitLine(`  obj->header.type_id = 0;`);
+        }
+      }
+      if (context.needsCycleGC && !type.isAtomicRc) {
+        emitter.emitLine(
+          `  obj->header.traverse_fn = __yo_traverse_${cName};`
+        );
+      }
+      emitter.emitLine(
+        `  obj->tag = ${getEnumVariantCName(type, variant.name, context)};`
+      );
+      for (const field of nonUnitFields) {
+        const fieldName = sanitizeForCIdentifier(field.label);
+        emitter.emitLine(`  obj->data.${variant.name}.${fieldName} = ${fieldName};`);
+      }
+      if (registersWithGc) {
+        emitter.emitLine(`  __yo_gc_register(obj);`);
+      }
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);

@@ -14,6 +14,7 @@ import {
   isEnumType,
   isObjectType,
   isPtrType,
+  isReferenceEnumType,
   isUnitType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
@@ -271,7 +272,10 @@ export function generateMatchExpression(
     enumType = matchValueType.childType;
     ptrOrRefType = matchValueType.tag;
   } else if (isObjectType(matchValueType)) {
-    // ref enum types are represented as pointers in C
+    enumType = matchValueType;
+    ptrOrRefType = "ref_semantics";
+  } else if (isReferenceEnumType(matchValueType)) {
+    // ref(enum(…)) is a heap pointer in C — access tag/data via `->`.
     enumType = matchValueType;
     ptrOrRefType = "ref_semantics";
   } else {

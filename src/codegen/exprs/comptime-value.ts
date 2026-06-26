@@ -144,9 +144,14 @@ export function generateComptimeValue(
       context
     );
 
+    // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+    // per-variant constructor; value enums use a compound literal.
+    const isRefEnum = enumType.isReferenceSemantics === true;
     if (!value.fields || value.fields.length === 0) {
       // Variant with no data
-      return `(${cName}){ .tag = ${variantTag} }`;
+      return isRefEnum
+        ? `__yo_new_${cName}_${value.variantName}()`
+        : `(${cName}){ .tag = ${variantTag} }`;
     } else {
       // Variant with data
       const variant = enumType.variants.find(
@@ -156,25 +161,40 @@ export function generateComptimeValue(
         return `// Error: Variant ${value.variantName} not found or has no fields`;
       }
 
-      // Filter out unit type fields
-      const nonUnitFields = value.fields
+      // Filter out unit type fields; collect both designated (value enum) and
+      // positional (ref-enum constructor) forms.
+      const fieldEntries = value.fields
         .map((field, index) => {
           const variantElement = variant.fields![index];
           if (variantElement && !isUnitType(variantElement.type)) {
             const fieldName = sanitizeForCIdentifier(variantElement.label);
             const fieldCode = generateComptimeValue(field, context);
-            return `.${fieldName} = ${fieldCode}`;
+            return {
+              designated: `.${fieldName} = ${fieldCode}`,
+              positional: fieldCode,
+            };
           }
           return null;
         })
-        .filter((f) => f !== null);
+        .filter(
+          (f): f is { designated: string; positional: string } => f !== null
+        );
 
       // If all fields are unit types, just return the tag
-      if (nonUnitFields.length === 0) {
-        return `(${cName}){ .tag = ${variantTag} }`;
+      if (fieldEntries.length === 0) {
+        return isRefEnum
+          ? `__yo_new_${cName}_${value.variantName}()`
+          : `(${cName}){ .tag = ${variantTag} }`;
       }
 
-      return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${nonUnitFields.join(", ")} } } }`;
+      if (isRefEnum) {
+        const positionalArgs = fieldEntries
+          .map((e) => e.positional)
+          .join(", ");
+        return `__yo_new_${cName}_${value.variantName}(${positionalArgs})`;
+      }
+      const designatedArgs = fieldEntries.map((e) => e.designated).join(", ");
+      return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${designatedArgs} } } }`;
     }
   } else if (isTupleValue(value)) {
     // For tuple values, generate tuple struct initialization with numeric field names

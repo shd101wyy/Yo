@@ -13,11 +13,13 @@ import type {
 } from "../../types/definitions";
 import {
   isFunctionType,
+  isEnumType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
   isSourceNamespaceType,
   isSomeType,
   isStructType,
+  isUnitType,
 } from "../../types/guards";
 import {
   typeContainsSomeType,
@@ -668,6 +670,32 @@ export function generateObjectConstructorDeclarations(
       emitter.emitDeclarationLine(
         `static ${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
+    }
+  }
+
+  // Per-variant constructor declarations for reference-semantics enums
+  // (`ref(enum(…))`). plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (isEnumType(type) && type.isReferenceSemantics) {
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+      for (const variant of type.variants) {
+        const nonUnitFields = (variant.fields ?? []).filter(
+          (field) => !isUnitType(field.type)
+        );
+        const paramTypes = nonUnitFields
+          .map((field) => {
+            const fieldType = getTypeString(field.type, context);
+            const fieldName = sanitizeForCIdentifier(field.label);
+            return `${fieldType} ${fieldName}`;
+          })
+          .join(", ");
+        emitter.emitDeclarationLine(
+          `static ${cName}* __yo_new_${cName}_${variant.name}(${paramTypes}); // Constructor`
+        );
+      }
     }
   }
 }
