@@ -1,9 +1,38 @@
 # yo-self P1 — `recur(...)` markers are a CODEGEN macro-expansion gap (NOT eval/try_to_call)
 
-Status: **ROOT PINNED to the `if`-macro expansion path; fix is the clear next step.**
-A large slice of the 416-marker tail is `if(...recur...)` markers (every recur use in
+Status: **✅ FIXED (commit 4529a1b94): full self-compile 416 → 141 (−275, ~66% of the tail),
+EXIT=0, check ./std 152/152, A/B corpus 83/83 CHANGED=0.** The largest single P1 drop of the
+effort. 7 recur markers remain (recur OUTSIDE the if-macro path) — small residual, below.
+
+## The fix (durable macro-expansion side-table)
+
+Root: `if(c,t,e)` is a macro → `cond(c=>t,true=>e)`; yo-self codegen lowers a macro call ONLY
+via `ei.macro_expansion`. That per-pass ExprInfo lives in a SIDE-TABLE (vs TS's node-stored
+`expr.$`), so a later eval pass re-sets the same call id WITHOUT macro_expansion, dropping it.
+recur was the discriminator (its eval perturbs which pass last writes the entry); normal ifs
+survived. Confirmed via id correlation: the SAME id (e.g. 34745) was macro-set once, then read
+at codegen with `macro_expansion=None` (`[FALLTHROUGH]`).
+
+Fix (4 files): a durable id-keyed `g_macro_expansions` side-table (expr_info.yo,
+record_macro_expansion / lookup_macro_expansion) written once by the macro path
+(function.yo). BOTH codegen dispatch (generation.yo:414) AND type-collection (collection.yo:477)
+fall back to it when the per-pass `ei.macro_expansion` is None. **Collection needed the SAME
+fallback** — v1 (codegen-only) drained the recur markers but SIGABRT'd: codegen emitted the
+newly-unmasked closure code while the capture struct was never collected
+(`get_type_string: no C type name found for <struct:capture_…>`). The collection fallback
+collects the expansion's types, keeping the two passes consistent. A macro call's expansion is a
+stable syntactic property of its id, so the durable record is always correct (faithful
+equivalent of TS's node-stored ExprInfo; same pattern as g_method_callee_values).
+
+**Residual (7 markers):** recur used OUTSIDE the if-macro path (e.g. directly in some
+construct that doesn't route through the macro_expansion side-table). Separate sub-case;
+re-measure the [TTERR]/per-C-fn clustering on the 141 base to characterize.
+
+## Original diagnosis (how it was pinned)
+
+A large slice of the (then-416) tail was `if(...recur...)` markers (every recur use in
 yo-self's recursive type/value walkers — `_value_contains_unknown`, the `is_function_type`
-recursions, etc.). This doc records the full diagnosis so the fix is a direct next step.
+recursions, etc.).
 
 ## The headline: it is NOT an evaluator / try_to_call throw
 
