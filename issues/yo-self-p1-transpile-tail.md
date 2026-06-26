@@ -1515,3 +1515,20 @@ zero-size like unit), and matches TS's observed acceptance. But CONFIRM the fait
 mechanism first (trace `convertComptimeTypeToRuntimeType(empty_struct)` / add a TS test
 for `match(.Some=>(), .None=>{})`) so yo-self mirrors TS rather than over-permitting.
 Gate-validate (std 153, self-compile drop, corpus, no regression). Repro: test_c above.
+
+##### ✅ FIXED (2026-06-26, commit f33a7ab5f): 78 → 47 markers (−31)
+
+Confirmed the faithful mechanism first: `./yo-cli compile` (TS) accepts
+`match(.Some(x) => (), .None => {})` (EXIT=0, no error) — so TS treats unit-vs-empty-
+struct as compatible. Mirrored it: in `_compat_impl` (compatibility.yo), BEFORE the
+tag-mismatch guard, added a symmetric rule — a 0-field struct is compatible with
+`unit` — gated to `!require_exact` (exact cache-key comparisons stay strict, since
+the tags differ). Sound: empty struct and unit are both zero-size.
+
+Validation (all green): repro markers → 0 (unit-vs-`{}` arms drain; struct-value +
+both-`{}` controls unaffected); full self-compile **78 → 47** (−31, EXIT=0, markers
+fell not rose → codegen healthy); `check ./std` 153 OK no errors; `check ./yo-self`
+166 source modules OK no errors (stopped before the heavy `tests/`). The −31 (vs the
+~22 estimate) is because the rule also drained empty-`{}` sites beyond the
+comptime_assert/gensym/and_or trio. Both the Incompatible-types AND most of the
+Frame-level branch-merge throws were this same empty-`{}` pattern.
