@@ -1098,3 +1098,73 @@ the def-time trial-eval swallow (`_trial_eval_fn_body`,
 `evaluator/calls/function_type.yo`) to print the swallowed throw; root-cause →
 fix evaluator or emitter → re-measure → corpus-validate (now deterministic) →
 commit. The corpus differential is reliable again post-P0.
+
+## UPDATE (2026-06-26): the 141 control-flow cluster ROOT = generic-collection-method `Self._alloc_with_capacity` → `T = Type(1)` (the task #28 knot)
+
+Re-measured the post-recur-fix 141 tail. The dominant cluster is **45 control-flow
+markers (16 `if`, 16 `match`, 10 `while`, 3 `cond`)**. The `if`/`match` half traced
+to ONE root via [TTERR] swallow-instrumentation + binary search.
+
+**The swallowed throw** (def-time body eval, [TTERR]):
+```
+Error: Type mismatch for type member "value":
+Expected: <struct:struct_yo_id_5827>   (= String)
+Got:   Type(1)                          (= TypeUni(1), an unsubstituted type param)
+  at std/collections/hash_set.yo:88:15  ->  Self(... data : .Some(data_ptr) ...)
+```
+`Type(1)` is `TypeValue.TypeUni(1)` — the kind/placeholder for an **unsubstituted
+forall `T`**. The match/if marker is on the WHOLE construct (not the inner call)
+because the throw leaves it NOINFO (no ExprInfo) -> codegen falls to the marker.
+
+**Minimal repro (8 lines, NO object, NO match, NO cross-module — much simpler than
+the html.yo HashMap case in `issues/fixed/self-dispatch-loses-type-args.md`):**
+```rust
+open(import("std/string"));
+{ HashSet } :: import("std/collections/hash_set");
+emit :: (fn(h : HashSet(String), name : String) -> unit)({ _a := h.add(name.clone()); (); });
+main :: (fn() -> unit)({ /* ... construct + */ emit(hs, `x`); (); });
+```
+**Fails (1 marker).** But `s := HashSet(String).new(); _a := s.add(name.clone());`
+in the same fn **WORKS (0 markers).** The `.new()`-masking is the key tell.
+
+**Mechanism (confirmed by binary-search over repro variants):**
+- `add` (mutating) calls `Self._resize(self,...)` -> `Self._alloc_with_capacity(cap)`.
+  `_alloc_with_capacity : (fn(capacity : usize) -> Result(Self, ...))` has **NO `self`
+  and NO `T`-typed param** — its `T` lives ONLY in the body (`*(T)`, `sizeof(T)`,
+  `Self(...)`). So `T` cannot be synthesised from any call argument; it must be
+  recovered from the enclosing `Self` context.
+- `contains` (non-mutating) **works** on the same receiver — it never constructs
+  `Self`, so `Type(1)` is never checked. Only `Self`-constructing methods surface it.
+- **`.new()` masks the bug**: `HashSet(String).new()` specialises
+  `_alloc_with_capacity` with `T = String` FIRST (explicit type arg in the call),
+  cached. The param/match-bound receiver path has no prior `.new()`, so
+  `_alloc_with_capacity` is first specialised via the nested `Self.` chain where
+  `T` is NOT threaded -> `Type(1)`. So the receiver KIND (runtime param, match
+  binding, object field) is IRRELEVANT — all fail identically; the discriminator
+  is purely "was `_alloc_with_capacity` already specialised with concrete `T`".
+
+**This is the same knot as `issues/fixed/self-dispatch-loses-type-args.md` /
+`plans/GENERIC_METHOD_RESOLUTION_KNOT.md` (task #28, the dominant lever).** `check
+./yo-self` passes 227/227 because `check` does NOT eval fn bodies; the **codegen
+self-compile** def-time-body-eval path still hits it.
+
+**FIX ATTEMPT (reverted — did NOT fire):** added a "Step 7b" fallback to
+`try_to_call_function_with_arguments` (helper.yo) that, for any forall still
+`UnknownVal`/`SomeT` after synthesis, binds it positionally from the static-call
+RECEIVER's `type_arguments` (read via a local `_dot_receiver_concrete_type` mirror
+of function.yo's `_static_dot_receiver_self_type`). Built clean (no syntax/type
+errors), but the repro STILL threw `Type(1)` -> **the fallback never fired.** This
+**independently confirms the prior session's finding** (which tried the same via
+`ctx.self_type` and also never fired): no-arg `Self`-dispatched specialisations do
+**NOT** flow through `try_to_call`'s forall path (Steps 6–8). The failing
+specialisation happens elsewhere — almost certainly **def-time SIGNATURE eval where
+the declared `Self` is a freshly-MINTED shell** with `T = SomeT`/`Type(1)` (see the
+existing comment at `helper.yo:~1342` in `create_specialized_function_inline`,
+which prefers the receiver ARG type over the declared `self` precisely "during
+def-time signature eval the declared `Self` can be a ... shell ... whose nested
+specializations (`Self.with_capacity` -> `(*(T))(_ptr)`) fail"), OR via the
+`substitute()` method-resolution path. **NEXT: instrument
+`create_specialized_function_inline` / the method-resolution substitute path (NOT
+try_to_call) to find where `_alloc_with_capacity` is specialised with `T=Type(1)`,
+and thread `T` from the enclosing method's concrete `Self` there.** The 8-line
+repro above is the fast loop.
