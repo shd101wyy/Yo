@@ -1435,3 +1435,40 @@ unit sibling). **NEXT (fresh instrumented diagnosis): print `body_einfo.ty` +
 (e.g. comptime_assert) — find why an arm that should be `unit` is typed as a struct.
 Do NOT relax the cond.yo:543 check (it matches TS).** This is the branch-merge /
 arm-type family — soundness-sensitive; verify against TS before any change.
+
+#### array_list cluster — investigation update (2026-06-26): variadic-macro typing, NOT the unquote path
+
+Drove the `array_list`→`Type(1)` cluster (3 markers). 8-line repro: `Box(items :
+array_list(a, b))` where `Box :: struct(items : ArrayList(i32))` → 1 marker on the
+`Box(...)` (the `items` field sees `array_list`'s type as `Type(1)`).
+
+**Isolated (variant test, all in one file):** `ArrayList(i32).new()` ✓, and
+`ArrayList(typeof(a)).new()` ✓ both transpile — **only the `array_list` MACRO
+fails**. So it's NOT ArrayList construction or `typeof`; it's the variadic macro's
+expansion typing.
+
+**Ruled out the obvious path:** instrumented the macro-unquote handler
+(function.yo:2937, where `exp_info.ty` is recorded as the macro call's type) —
+the probe produced **ZERO output** for the repro, i.e. `array_list` never reaches
+that `if(macro_return_is_unquote(func_id_fv), .ExprVal => …)` block. So the macro
+call's type is NOT being set from its expansion. **Hypothesis: `is_macro_fn(func_id_fv)`
+and/or `macro_return_is_unquote(func_id_fv)` is FALSE at the call site for the
+variadic `array_list`** — a registration/re-keying gap. The registry is keyed by
+the fn-type-expr id at definition (function.yo:3699-3702) and RE-KEYED under the
+FuncVal `func_id` by `try_to_implement_function_by_function_type`
+(`copy_macro_registration`); if the variadic macro's re-key misses (or `func_id_fv`
+≠ the registered id), the macro is treated as a plain comptime fn and its result
+(an `Expr` value) is typed as the raw comptime/`Type(1)` instead of its expansion.
+**NEXT: probe `is_macro_fn` + `macro_return_is_unquote(func_id_fv)` for the
+`array_list` call** (and compare the registered id vs `func_id_fv`); fix the
+variadic re-keying / `is_return_unquote` detection.
+
+**INSTRUMENTATION CAVEAT (cost me ~3 builds):** adding a probe inside
+`evaluate_function_call` (deeply nested) trips the TS compiler's OWN branch-merge
+check (`Frame level N has different number of values`) — even as a module-level
+helper, even with an early-`return` guard — because the `if(cond, {…:=…})`
+value-arm-vs-unit pattern is exactly what that check rejects. Use an UNCONDITIONAL
+print helper (no `if`/`cond` introducing bindings in one arm; build the message +
+`fwrite` with no guard, grep the flood), or instrument the shallower registration
+site (function.yo:3699). (This trip is itself a live demo of the Incompatible-types
+/ Frame-level cluster root.)
