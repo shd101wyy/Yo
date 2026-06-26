@@ -1,0 +1,42 @@
+//! plans/REF_REFERENCE_SEMANTICS.md Phase 2: `ref(struct(…))` is the
+//! reference-semantics struct constructor (replacing the removed `object`),
+//! composed as `atomic(ref(struct(…)))`. `ref`/`atomic` wrap inline literals
+//! only.
+open(import("std/string"));
+
+P :: ref(struct(x : i32, y : i32));
+A :: atomic(ref(struct(v : i32)));
+
+// The `object` keyword was removed — `object(...)` is now an unbound identifier.
+comptime_expect_error(bad_object :: object(z : i32));
+
+// `ref` wraps an inline `struct(...)` literal only (not a named type or a
+// non-struct type).
+comptime_expect_error(bad_ref_named :: ref(P));
+comptime_expect_error(bad_ref_prim :: ref(i32));
+
+// `atomic` wraps `ref(struct(...))` only.
+comptime_expect_error(bad_atomic_struct :: atomic(struct(w : i32)));
+comptime_expect_error(bad_atomic_prim :: atomic(i32));
+
+set_x :: (fn(inout(p) : P, v : i32) -> unit)({
+  p.x = v;
+});
+
+test("ref(struct) has reference semantics: copies share one handle", {
+  p := P(x : i32(1), y : i32(2));
+  q := p;
+  q.x = i32(10);
+  assert(p.x == i32(10), "q and p share the same underlying object");
+});
+
+test("inout param mutates a ref(struct) in place", {
+  p := P(x : i32(1), y : i32(2));
+  set_x(p, i32(99));
+  assert(p.x == i32(99), "inout wrote through to the caller's handle");
+});
+
+test("atomic(ref(struct)) constructs and reads", {
+  a := A(v : i32(7));
+  assert(a.v == i32(7), "atomic ref-struct field round-trips");
+});

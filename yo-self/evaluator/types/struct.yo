@@ -23,7 +23,6 @@ open(import("std/fmt"));
   ast_expr_is_fn_call_of,
   make_err_expr,
   BK_STRUCT,
-  BK_OBJECT,
   BK_NEWTYPE
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
@@ -56,22 +55,21 @@ evaluate_struct_type :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  is_object_keyword := ast_expr_is_fn_call_of(expr, BK_OBJECT, Option(usize).None);
   is_struct_keyword := ast_expr_is_fn_call_of(expr, BK_STRUCT, Option(usize).None);
   is_newtype_keyword := ast_expr_is_fn_call_of(expr, BK_NEWTYPE, Option(usize).None);
-  if(!((is_struct_keyword || is_object_keyword) || is_newtype_keyword), {
+  if(!(is_struct_keyword || is_newtype_keyword), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "struct" or "object" or "newtype", got:\n${ast_expr_to_string(expr)}`,
+          `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`,
           false,
           .None
         )
       )
     );
   });
-  is_reference_semantics := (is_object_keyword || force_reference_semantics);
+  is_reference_semantics := force_reference_semantics;
   is_newtype := is_newtype_keyword;
   struct_id := `struct_${random_id(env.module_path)}`;
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.

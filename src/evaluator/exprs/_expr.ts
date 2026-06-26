@@ -121,7 +121,6 @@ import { evaluateFnTraitType } from "../types/fn-trait";
 import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future-trait";
 import { evaluateNewtypeType } from "../types/newtype";
-import { evaluateObjectType } from "../types/object";
 import { evaluateStructType } from "../types/struct";
 import { evaluateTraitType } from "../types/trait";
 import { evaluateTupleType } from "../types/tuple";
@@ -452,21 +451,10 @@ ${exprToString(expr)}`,
         // Stamp both the ref(...) node and the outer atomic(...) node.
         innerExpr.$ = result.$;
         innerExpr.func.$ = result.$;
-      } else if (
-        exprIsFunctionCall(innerExpr) &&
-        exprIsFunctionCallOf(innerExpr, BuiltinKeywords.object)
-      ) {
-        // Deprecated: atomic(object(...)).
-        result = evaluateObjectType({
-          expr: innerExpr,
-          env,
-          context: { ...context },
-          isAtomicRc: true,
-        });
       } else {
         throw formatErrorMessage({
           token: innerExpr.token,
-          errorMessage: `"atomic" modifier is only valid before "ref(struct(...))" (or the deprecated "object(...)"). Got:\n${exprToString(innerExpr)}`,
+          errorMessage: `"atomic" modifier is only valid before "ref(struct(...))". Got:\n${exprToString(innerExpr)}`,
         });
       }
       // Propagate the evaluated result back to the atomic expr
@@ -506,13 +494,6 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
       // struct
       return evaluateStructType({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.object)) {
-      // object (reference semantics struct)
-      return evaluateObjectType({
         expr,
         env,
         context: { ...context },

@@ -38,19 +38,18 @@ export function evaluateStructType({
   // reference semantics forced on (plans/REF_REFERENCE_SEMANTICS.md Phase 2).
   forceReferenceSemantics?: boolean;
 }): FnCallExpr {
-  const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
   const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
   const isNewtypeKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.newtype);
 
-  if (!isStructKeyword && !isObjectKeyword && !isNewtypeKeyword) {
+  if (!isStructKeyword && !isNewtypeKeyword) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "struct" or "object" or "newtype", got:\n${exprToString(expr)}`,
+      errorMessage: `Expected "struct" or "newtype", got:\n${exprToString(expr)}`,
     });
   }
 
-  // Reference semantics: the deprecated `object` keyword, or `ref(struct(…))`.
-  const isReferenceSemantics = isObjectKeyword || forceReferenceSemantics;
+  // Reference semantics comes from `ref(struct(…))` (forceReferenceSemantics).
+  const isReferenceSemantics = forceReferenceSemantics;
   const isNewtype = isNewtypeKeyword;
 
   // Create structType with empty fields

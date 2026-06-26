@@ -20,7 +20,7 @@ open(import("std/error"));
   BK_IMPORT,
   BK_ENUM,
   BK_STRUCT,
-  BK_OBJECT,
+  BK_REF,
   BK_NEWTYPE,
   BK_UNION,
   BK_TRAIT,
@@ -3086,14 +3086,17 @@ test("evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
     .None => ()
   );
 });
-test("evaluate: object(x: i32) creates Struct with is_reference_semantics=true", {
+test("evaluate: ref(struct(x: i32)) creates Struct with is_reference_semantics=true", {
   env := empty_env();
   env_ptr := env;
   type_args := ArrayList(AstExpr).new();
   type_args.push(make_labeled_field("x", make_ident(String.from("i32"))));
-  expr := make_typedef_call(BK_OBJECT, type_args);
+  struct_call := make_typedef_call(BK_STRUCT, type_args);
+  ref_args := ArrayList(AstExpr).new();
+  ref_args.push(struct_call);
+  expr := make_typedef_call(BK_REF, ref_args);
   result := evaluate(expr, env_ptr);
-  check_some(result, "object");
+  check_some(result, "ref(struct)");
   match(
     result,
     .Some(r) =>
@@ -3103,7 +3106,7 @@ test("evaluate: object(x: i32) creates Struct with is_reference_semantics=true",
           match(
             tyb.*,
             .Struct(_, _, _, _, is_ref_sem, _, is_newtype) => {
-              assert(is_ref_sem, "object has reference semantics");
+              assert(is_ref_sem, "ref(struct) has reference semantics");
               assert(!(is_newtype), "not newtype");
             },
             _ => assert(false, "not Struct")

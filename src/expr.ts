@@ -681,7 +681,6 @@ export const BuiltinKeywords = {
   test: ["test"], // Test declaration for test runner
   atomic: ["atomic"],
   struct: ["struct"],
-  object: ["object"],
   newtype: ["newtype"],
   enum: ["enum"],
   union: ["union"],

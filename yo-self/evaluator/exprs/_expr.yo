@@ -23,7 +23,6 @@ open(import("std/fmt"));
   BK_CTL,
   BK_FN_TRAIT,
   BK_ATOMIC,
-  BK_OBJECT,
   BK_STRUCT,
   BK_REF,
   BK_NEWTYPE,
@@ -243,7 +242,6 @@ open(import("std/fmt"));
 { evaluate_future_type } :: import("../types/future_trait.yo");
 { evaluate_module_type } :: import("../types/record.yo");
 { evaluate_newtype_type } :: import("../types/newtype.yo");
-{ evaluate_object_type } :: import("../types/object.yo");
 { evaluate_struct_type } :: import("../types/struct.yo");
 { evaluate_trait_type } :: import("../types/trait.yo");
 { evaluate_tuple_type } :: import("../types/tuple.yo");
@@ -559,14 +557,12 @@ _evaluate_expression :: (
                       evaluate_struct_type(ref_inner, env, ctx, true, true, exn)
                   )
                 },
-                ast_expr_is_fn_call_of(inner_expr, BK_OBJECT,.None) =>
-                  evaluate_object_type(inner_expr, env, ctx, true, exn),
                 true => {
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(inner_expr),
-                        `"atomic" modifier is only valid before "ref(struct(...))" (or the deprecated "object(...)"). Got:\n${ast_expr_to_string(inner_expr)}`,
+                        `"atomic" modifier is only valid before "ref(struct(...))". Got:\n${ast_expr_to_string(inner_expr)}`,
                         false,
                         .None
                       )
@@ -629,8 +625,6 @@ _evaluate_expression :: (
         },
         ast_expr_is_fn_call_of(expr, BK_STRUCT,.None) =>
           evaluate_struct_type(expr, env, ctx, false, false, exn),
-        ast_expr_is_fn_call_of(expr, BK_OBJECT,.None) =>
-          evaluate_object_type(expr, env, ctx, false, exn),
         ast_expr_is_fn_call_of(expr, BK_NEWTYPE,.None) =>
           evaluate_newtype_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_ENUM,.None) =>
