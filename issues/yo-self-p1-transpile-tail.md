@@ -1216,3 +1216,34 @@ type-valued callee's call as a type-application). The forall machinery
 do not touch it. Fast loop: the same 8-line `fn(h : HashSet(String), name){ _a :=
 h.add(name.clone()); () }` repro, [TTERR] on the swallow + an `is_executing` /
 result-tag probe at the struct-construction dispatch.
+
+#### Read-only dispatch trace (2026-06-26 — next-step HYPOTHESIS, not yet runtime-confirmed)
+
+Traced where `Self(...)` is evaluated (no build). `evaluate_function_call`'s
+TypeVal-callee dispatch (`function.yo:1691+`) has two relevant arms:
+- **`.Struct(...)` arm (`function.yo:1873`)** → `try_to_call_type_with_arguments`
+  + sets `out_s.ty = func_type` (the struct type). If `Self(...)` reached THIS arm
+  its result type would be `HashSet(String)` — NOT `Type(1)`.
+- **`.SomeT(... kind_fn ...)` arm (`function.yo:1749`)** → builds a *TypeApplication*
+  (a TYPE) → exactly the `Type(1)`/`TypeUni` degenerate.
+
+So the failing inner `Self(...)` callee is resolving to a **`SomeT`** (routing to the
+SomeT/HKT arm), NOT to the concrete `.Struct` — even though `[STSELF]` showed
+`ctx.self_type` concrete `HashSet(String)` at the OUTER `.Ok(...)` check. The `Self`
+identifier resolves at `identifer_and_operator.yo:106-117`: it reads `ctx.self_type`
+and, when that is a `SomeT`, calls `get_value_of_some_type_from_env`; if the env
+binding is ALSO a `SomeT` it returns the `SomeT` unchanged → `TypeVal(SomeT)` callee
+→ SomeT arm → `Type(1)`.
+
+**Hypothesis to confirm with one build:** at the moment the INNER `Self(...)`
+constructor's callee is resolved (inside `_alloc`'s body, before the `.Ok` wrap),
+`ctx.self_type` is a `SomeT` (the impl's `Self` placeholder), not the concrete
+`HashSet(String)` — it only becomes concrete by the time of the outer `.Ok` check.
+Probe: print `ctx.self_type`'s tag (SomeT vs Struct) at `identifer_and_operator.yo:107`
+guarded to `identifier=="Self"` AND module-path containing `hash_set`. If SomeT →
+the fix is to make `Self` resolve to the concrete receiver there (or ensure
+`ctx.self_type` is concrete throughout `_alloc`'s body, not just at the outer check).
+If it is already a Struct there → the degeneration is inside
+`try_to_call_type_with_arguments`'s per-field eval of `.Some(*(T)(..))` and the trace
+above is wrong. Either way this is the FIRST build of the next active session — the
+forall machinery is confirmed out of scope.
