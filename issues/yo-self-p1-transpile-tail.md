@@ -1348,3 +1348,26 @@ method INLINE inside a template-string interpolation (`${hs.contains(x)}`) emits
 marker (routes through `import("std/fmt/to_string").to_string()` un-transpiled);
 binding to a local first transpiles. Likely part of the template-string/to_string
 cluster — a candidate next target.
+
+#### 78-tail re-cluster (2026-06-26, read-only — no dominant cluster left)
+
+By leading construct: 8 `if`, 7 `while`, 6 `match`, 4 `usize`, 3 `cond`, 3
+`expr_info_table_set`, then a long singleton tail. Unlike the 141-tail (where the
+Type(1) construction dominated ~63), **the 78 are DIFFUSE — a long tail of distinct
+small roots, no single dominant lever.** Visible candidate sub-clusters (each ~1–3
+markers, distinct roots — NOT the now-fixed construction):
+- **Derived-clone big-enum matches**: `match(self, .Unit => TypeValue.Unit, .BoolT
+  => …)` (TypeValue clone) and `match(self, .Atom(__v_id,…) => .Atom(…clone…),
+  .FnCall(…) => …)` (AstExpr clone) — the derived `clone` over a many-variant enum.
+- **template-string inline method call** (`${hs.contains(x)}`) — see above.
+- **comptime_assert** (`if(!(is_bool_val(arg_val)), begin(exn.throw(…"Expected bool
+  value for \"comptime_assert\"")))`).
+- **async sync-await result** (`if(!(is_result_unit), begin(result_var := …))`),
+  template-string-import (`if(self.has_template_string, …BK_IMPORT…)`), variadic
+  param reg (`if(label != "...", …g_func_variadic_params.set…)`).
+- a few `while` arg-iteration loops (`while(i < args.len(), …evaluate_expression…)`).
+
+So further P1 draining is now per-root and smaller-yield (no more −63 wins). NOTE:
+the per-C-fn clustering (`awk '/^static/{fn=$0}…'` + `grep -oE yo_id_NNNNN`) is
+UNRELIABLE here — a `static <ret-struct-id> <fn-id>(…)` line carries 2+ yo_ids, so
+counts are inflated; cluster by marker EXPRESSION instead.
