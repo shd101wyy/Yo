@@ -1168,3 +1168,51 @@ specializations (`Self.with_capacity` -> `(*(T))(_ptr)`) fail"), OR via the
 try_to_call) to find where `_alloc_with_capacity` is specialised with `T=Type(1)`,
 and thread `T` from the enclosing method's concrete `Self` there.** The 8-line
 repro above is the fast loop.
+
+### FOLLOW-UP (2026-06-26, same day): the forall-binding hypothesis is DISPROVEN — `T` is already `String`; the degeneration is in the `Self(...)` construction eval
+
+Spent ~7 instrumented builds chasing the above "thread T from Self" fix in
+`create_specialized_function_inline`. **It is the WRONG site.** Hard runtime
+evidence (probes at `create_specialized`, guarded to the `params[0]=="capacity"`
+method = `_alloc_with_capacity`, on the 8-line repro):
+
+- `[CSPEC-RAN] forall>0 struct` — `_alloc` DOES reach `create_specialized` (cache
+  miss), `forall_names` is non-empty (contains `T`), and `ctx.self_type` IS a Struct.
+- `[STSELF] self_type=<struct_5827> targ0=String` — at the failing
+  `Self(...)` construction (type.yo:275), `ctx.self_type` = the concrete
+  `HashSet(String)` AND its `type_arguments[0]` = `String`. So the band-aid
+  `type_arguments` IS populated (contradicts the earlier guess that HashSet, like
+  html.yo's HashMap, leaves it empty).
+- `[CF0] name=T val=String` — **`T` is already bound to `String`** in `callee_env`
+  at the `create_specialized` body-eval site. NOT `Type(1)`, NOT a `SomeT`, NOT
+  `TypeUni`, NOT `UnknownVal`. So a forall-from-`Self` rebind is a NO-OP — there is
+  nothing to fix there (`cf_unresolved` is correctly `false`). Two fix variants
+  (rebind on `UnknownVal`/`SomeT`; widened to `TypeUni`; widened to any non-concrete)
+  ALL left the marker at 1, because `T` is genuinely `String` going in.
+- `[CF0] name=Self val=novar` — there is no `Self` *variable* in `callee_env`;
+  `Self` resolves via `ctx.self_type` (correct, `HashSet(String)`).
+
+**Conclusion:** with `T = String` and `Self = HashSet(String)` both correct at the
+start of `_alloc`'s body eval, the body STILL produces `Type(1)`. The `Type(1)`
+(`TypeUni(1)`) is the result type of the **`Self(...)` struct construction** itself
+(the arg to `.Ok(Self(...))`; member "value" = `Result.Ok`'s field, expected
+`Self`=struct_5827, got `Type(1)`) — i.e. evaluating `Self(ctrl:…, data:.Some(*(T)(…)), …)`
+during **def-time body eval (`is_executing=false`)** degenerates the struct
+construction to a type-value (`TypeUni`) instead of a value of type `HashSet(String)`.
+This is the SAME class as the Direction-B keystone
+([[yo-self-p1-dirB-where-self-type1]]) "`F(arg)` type-constructor application
+degenerates to a type-value", but here the inputs are fully concrete (no recursive
+self-shell) — so it is a cleaner instance: **a runtime struct construction `Self(…)`
+evaluated at def-time yields the type instead of a value.**
+
+**REAL NEXT STEP (correct site at last):** instrument the evaluation of a
+`Self(...)` / struct-constructor FnCall in def-time body-eval mode (the
+property-access / type-call path — `evaluator/calls/type.yo`
+`try_to_call_type_with_arguments`, or wherever `Self(fieldargs)` with
+`is_executing=false` is dispatched) and find why it returns `TypeUni(1)` rather
+than a struct value (likely a `is_executing`/comptime gate that treats a
+type-valued callee's call as a type-application). The forall machinery
+(`create_specialized`, `type_arguments`, `_funcval_bind_foralls`) is NOT involved —
+do not touch it. Fast loop: the same 8-line `fn(h : HashSet(String), name){ _a :=
+h.add(name.clone()); () }` repro, [TTERR] on the swallow + an `is_executing` /
+result-tag probe at the struct-construction dispatch.
