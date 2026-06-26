@@ -1472,3 +1472,46 @@ print helper (no `if`/`cond` introducing bindings in one arm; build the message 
 `fwrite` with no guard, grep the flood), or instrument the shallower registration
 site (function.yo:3699). (This trip is itself a live demo of the Incompatible-types
 / Frame-level cluster root.)
+
+#### arm-type / Incompatible-types cluster — ROOT PINNED (2026-06-26): empty `{}` (`_()`) arm vs unit
+
+Drove the highest-yield cluster (7 "Incompatible types" throws, ~22 markers via
+comptime_assert/gensym/and_or). Minimal repro + [TTERR]:
+```
+test_c :: (fn(o : Option(i32)) -> unit)({
+  match(o, .Some(x) => { _y := x; }, .None => {});  ();
+});
+```
+→ `[TTERR] Incompatible types: Previous: unit, Current: <struct:struct_yo_id_NNNN>`
+at the match. Variant matrix (fixed binary):
+- `.Some => (), .None => {}` → FAILS  | `.Some => {x;}, .None => {}` → FAILS |
+  `.Some => {_y := x;}, .None => {}` → FAILS
+- `.Some => {}, .None => {}` → OK     | `.Some => {_y:=mk(x);}, .None => {_w:=mk(0);}` → OK
+
+**Root:** `{}` (empty braces) parses to **`_()`** (the `_` anon-struct, BK_ANON_STRUCT),
+which `evaluate_anonymous_struct_value` types as a FRESH empty struct (struct_NNNN) —
+NOT unit. `()` types as unit. So `.None => {}` (empty struct) vs a `unit` sibling arm
+fails yo-self's match-arm type unification, because **compatibility.yo:278**
+(`.Unit => match(expected, .Unit => true, _ => false)`) makes `Unit` compatible ONLY
+with `Unit`. (`{}` vs `{}` works — empty-struct vs empty-struct unifies; both-bind works
+— both blocks are unit.) yo-self's OWN source uses `.None => {}` / `_ => {}` extensively
+expecting it to be unit-compatible.
+
+**Confirmed NOT a parser or anon-struct-eval divergence:** the TS parser
+(parser.ts:704-719) ALSO rewrites empty `{}` → `_()`, and TS's
+`evaluate_anonymous_struct` (anonymous-struct.ts:48) ALSO `createStructType`s it. So TS
+*creates* the same empty struct, yet `areTypesCompatible(unit, empty_struct)` is
+effectively TRUE in TS (it compiles yo-self's `.None => {}` arms). **OPEN: the exact TS
+acceptance path is unpinned** — compatibility.ts has NO explicit unit↔empty-struct rule
+(grepped), so it is likely `convertComptimeTypeToRuntimeType` widening (cond.ts:395-410 /
+the retry yo-self also has at cond.yo:533) normalizing one side, OR comptime arm-selection
+skipping the cross-arm unification, OR an empty-struct tag from `createStructType`.
+
+**FIX (focused next step — SOUNDNESS-SENSITIVE, verify TS first):** make
+`are_types_compatible` treat a 0-field struct as compatible with `unit` (BOTH
+directions — given=Unit/expected=empty-struct AND given=empty-struct/expected=Unit, at
+compatibility.yo:278 + the Struct arm). Narrow + semantically sound (empty struct is
+zero-size like unit), and matches TS's observed acceptance. But CONFIRM the faithful TS
+mechanism first (trace `convertComptimeTypeToRuntimeType(empty_struct)` / add a TS test
+for `match(.Some=>(), .None=>{})`) so yo-self mirrors TS rather than over-permitting.
+Gate-validate (std 153, self-compile drop, corpus, no regression). Repro: test_c above.
