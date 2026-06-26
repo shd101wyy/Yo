@@ -2680,6 +2680,61 @@ export function generateRefStructConstructorFunctions(
 }
 
 /**
+ * Generate cycle-GC traversal functions for reference-semantics enums.
+ * `__yo_traverse_${cName}` switches on the active variant's tag and `visit()`s
+ * each reference-counted field of that variant (mirrors the enum-field handling
+ * in generateRefStructTraversalFunctions, but for the ref-enum's own variants
+ * accessed through the handle pointer). plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+ */
+function generateRefEnumTraversalFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (!(isEnumType(type) && type.isReferenceSemantics)) {
+      continue;
+    }
+    // Atomic ref-enums never participate in cycle GC.
+    if (type.isAtomicRc) {
+      continue;
+    }
+    if (typeContainsSomeType(type)) {
+      continue;
+    }
+
+    emitter.emitLine(
+      `static void __yo_traverse_${cName}(void* ptr, void (*visit)(void*)) {`
+    );
+    emitter.emitLine(`  ${cName} obj = (${cName})ptr;`);
+    emitter.emitLine(`  switch (obj->tag) {`);
+    for (const variant of type.variants) {
+      const rcFields = (variant.fields ?? []).filter(
+        (f) =>
+          (isStructType(f.type) && f.type.isReferenceSemantics) ||
+          (isEnumType(f.type) && f.type.isReferenceSemantics)
+      );
+      if (rcFields.length > 0) {
+        emitter.emitLine(
+          `  case ${getEnumVariantCName(type, variant.name, context)}:`
+        );
+        for (const f of rcFields) {
+          const fieldName = sanitizeForCIdentifier(f.label);
+          emitter.emitLine(
+            `    if (obj->data.${variant.name}.${fieldName}) { visit(obj->data.${variant.name}.${fieldName}); }`
+          );
+        }
+        emitter.emitLine(`    break;`);
+      }
+    }
+    emitter.emitLine(`  }`);
+    emitter.emitLine(`}`);
+    emitter.emitLine(``);
+  }
+}
+
+/**
  * Generate per-variant constructor functions for reference-semantics enums
  * (`ref(enum(…))`). Each `__yo_new_${cName}_${variant}(fields…)` heap-allocates
  * the RC handle, initializes the reference-count header (and GC fields / dispose
@@ -2690,6 +2745,11 @@ export function generateRefEnumConstructorFunctions(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
+
+  // Cycle-GC traversal functions (only when cycle detection is needed).
+  if (context.needsCycleGC) {
+    generateRefEnumTraversalFunctions(context);
+  }
 
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
