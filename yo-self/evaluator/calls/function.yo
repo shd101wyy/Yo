@@ -1914,7 +1914,47 @@ Fix: wrap the call:
                 tf
               }
             );
-            call_result_s := try_to_call_type_with_arguments(fields, func_expr, args, callee_env, ctx, false, exn);
+            // Faithful port of TS function.ts:1020 (`typeFields: value.value.fields`):
+            // the struct VALUE's `field_types` carry the CONCRETE type arguments
+            // (e.g. `HashSet(String)` → `data : ?*(String)`), whereas the registry
+            // template from `get_struct_fields(struct_id)` keeps the generic `?*(T)`.
+            // yo-self splits field METADATA (defaults — in the registry) from field
+            // TYPES (on the `TypeValue.Struct` value), so take each registry field
+            // but OVERRIDE its `ty` with the value's substituted type (matched by
+            // label). Without this, a `Self(...)` construction reached via a
+            // generic-instantiation Self-dispatch path (e.g. `h.add` →
+            // `Self._resize` → `Self._alloc_with_capacity`'s `Self(...)`) checks the
+            // concrete field value (`*(String)`) against the UNSUBSTITUTED `*(T)`
+            // and degenerates the whole construction to `Type(1)`. See
+            // issues/yo-self-p1-transpile-tail.md (2026-06-26 "TRUE ROOT").
+            fields_subst := ArrayList(TypeField).new();
+            (fsi : usize) = usize(0);
+            while(fsi < fields.len(), {
+              match(
+                fields.get(fsi),
+                .Some(fld) => {
+                  // Move the registry field into a mutable local and override ONLY
+                  // its `ty` with the value's substituted type (metadata moves with
+                  // it — no clone of `default_value`/`assigned_value`/`doc_comment`).
+                  (fld_m : TypeField) = fld;
+                  (subst_ty : TypeValue) = fld_m.ty;
+                  (sl_i : usize) = usize(0);
+                  (found_sl : bool) = false;
+                  while((sl_i < struct_field_labels.len()) && !(found_sl), {
+                    if(match(struct_field_labels.get(sl_i),.Some(l) => (l == fld_m.label),.None => false), {
+                      subst_ty = match(struct_field_types.get(sl_i),.Some(t) => t,.None => subst_ty);
+                      found_sl = true;
+                    });
+                    sl_i = (sl_i + usize(1));
+                  });
+                  fld_m.ty = subst_ty;
+                  fields_subst.push(fld_m);
+                },
+                .None => ()
+              );
+              fsi = (fsi + usize(1));
+            });
+            call_result_s := try_to_call_type_with_arguments(fields_subst, func_expr, args, callee_env, ctx, false, exn);
             // Treat default UnknownVal fields as compile-time placeholders (mirrors
             // TS createUnknownValue's default `isRuntimeOnly: false/undefined`).
             // Only `.None` positions (no value at all) make the struct non-comptime.
