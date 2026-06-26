@@ -182,6 +182,27 @@ export function isAtomicObjectType(
   );
 }
 
+/** Reference-semantics enum: `ref(enum(…))`. */
+export function isReferenceEnumType(
+  type?: Type
+): type is EnumType & { isReferenceSemantics: true } {
+  return (
+    type?.tag === TypeTag.Enum &&
+    (type as EnumType).isReferenceSemantics === true
+  );
+}
+
+/** Atomic reference-semantics enum: `atomic(ref(enum(…)))`. */
+export function isAtomicReferenceEnumType(
+  type?: Type
+): type is EnumType & { isReferenceSemantics: true; isAtomicRc: true } {
+  return (
+    type?.tag === TypeTag.Enum &&
+    (type as EnumType).isReferenceSemantics === true &&
+    (type as EnumType).isAtomicRc === true
+  );
+}
+
 export function isNewtypeType(
   type?: Type
 ): type is StructType & { isNewtype: true } {
@@ -295,6 +316,8 @@ export function isRcType(type?: Type): boolean {
 
   return (
     isObjectType(type) ||
+    // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
+    isReferenceEnumType(type) ||
     // We assume all the SomeType is reference-counted
     // isSomeType(type) ||
     // The DynType is a struct that contains a pointer to data where the data must be an ObjectType

@@ -694,6 +694,19 @@ export interface EnumType extends Type {
   tag: TypeTag.Enum;
 
   /**
+   * Reference semantics (`ref(enum(…))`): the enum is a heap-allocated,
+   * RC-managed handle (like an object) rather than a value tagged-union.
+   * plans/REF_REFERENCE_SEMANTICS.md Phase 3. Defaults to value semantics.
+   */
+  isReferenceSemantics?: boolean;
+
+  /**
+   * Atomic reference counting (`atomic(ref(enum(…)))`): thread-safe RC, cycles
+   * disallowed. Only meaningful when `isReferenceSemantics` is true.
+   */
+  isAtomicRc?: boolean;
+
+  /**
    * The function that returns the enum.
    */
   functionValue?: FunctionValue;

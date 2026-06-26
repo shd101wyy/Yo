@@ -433,21 +433,33 @@ ${exprToString(expr)}`,
         }
         const refInner = innerExpr.args[0]!;
         if (
-          !exprIsFunctionCall(refInner) ||
-          !exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
+          exprIsFunctionCall(refInner) &&
+          exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
         ) {
+          result = evaluateStructType({
+            expr: refInner,
+            env,
+            context: { ...context },
+            isAtomicRc: true,
+            forceReferenceSemantics: true,
+          });
+        } else if (
+          exprIsFunctionCall(refInner) &&
+          exprIsFunctionCallOf(refInner, BuiltinKeywords.enum)
+        ) {
+          result = evaluateEnumType({
+            expr: refInner,
+            env,
+            context: { ...context },
+            isAtomicRc: true,
+            forceReferenceSemantics: true,
+          });
+        } else {
           throw formatErrorMessage({
             token: refInner.token,
-            errorMessage: `"atomic(ref(...))" wraps an inline "struct(...)" literal. Got:\n${exprToString(refInner)}`,
+            errorMessage: `"atomic(ref(...))" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${exprToString(refInner)}`,
           });
         }
-        result = evaluateStructType({
-          expr: refInner,
-          env,
-          context: { ...context },
-          isAtomicRc: true,
-          forceReferenceSemantics: true,
-        });
         // Stamp both the ref(...) node and the outer atomic(...) node.
         innerExpr.$ = result.$;
         innerExpr.func.$ = result.$;
@@ -462,32 +474,44 @@ ${exprToString(expr)}`,
       expr.func.$ = result.$;
       return expr;
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ref)) {
-      // ref(struct(...)) — reference-semantics type constructor (Phase 2;
-      // ref(enum(...)) is Phase 3). `ref` wraps an inline struct/enum literal
-      // only. plans/REF_REFERENCE_SEMANTICS.md.
+      // ref(struct(...)) / ref(enum(...)) — reference-semantics type
+      // constructor. `ref` wraps an inline struct/enum literal only.
+      // plans/REF_REFERENCE_SEMANTICS.md.
       if (expr.args.length !== 1) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `"ref" expects exactly one argument: ref(struct(...))`,
+          errorMessage: `"ref" expects exactly one argument: ref(struct(...)) or ref(enum(...))`,
         });
       }
       const refInner = expr.args[0]!;
+      let result: FnCallExpr;
       if (
-        !exprIsFunctionCall(refInner) ||
-        !exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
+        exprIsFunctionCall(refInner) &&
+        exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
       ) {
+        result = evaluateStructType({
+          expr: refInner,
+          env,
+          context: { ...context },
+          forceReferenceSemantics: true,
+        });
+      } else if (
+        exprIsFunctionCall(refInner) &&
+        exprIsFunctionCallOf(refInner, BuiltinKeywords.enum)
+      ) {
+        result = evaluateEnumType({
+          expr: refInner,
+          env,
+          context: { ...context },
+          forceReferenceSemantics: true,
+        });
+      } else {
         throw formatErrorMessage({
           token: refInner.token,
-          errorMessage: `"ref(...)" wraps an inline "struct(...)" literal (reference-semantics enums are Phase 3). Got:\n${exprToString(refInner)}`,
+          errorMessage: `"ref(...)" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${exprToString(refInner)}`,
         });
       }
-      const result = evaluateStructType({
-        expr: refInner,
-        env,
-        context: { ...context },
-        forceReferenceSemantics: true,
-      });
-      // Propagate the inner struct's evaluated info to the ref(...) node.
+      // Propagate the inner type's evaluated info to the ref(...) node.
       expr.$ = result.$;
       expr.func.$ = result.$;
       return expr;
