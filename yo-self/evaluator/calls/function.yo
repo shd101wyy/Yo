@@ -47,7 +47,7 @@ open(import("std/string"));
   get_type_trait_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again } :: import("../types/function.yo");
+{ get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -68,7 +68,7 @@ open(import("std/string"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type } :: import("../../types/guards.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -2397,7 +2397,32 @@ Fix: wrap the call:
           });
           n_required_reg = nrr;
         });
-        if((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev)), {
+        // Variadic-parameter info (`...(name)` / `...(quote(name))`), looked up
+        // from the side table keyed by this FuncVal's id. `is_quote` is detected
+        // from the recorded type: a quoted variadic carries `ComptimeList(Expr)`
+        // (types/function.yo). Used both to relax the arg-count check below and
+        // to bind the variadic as a `ComptimeList` of raw-AST `Expr`s for macro
+        // expansion. Mirrors TS `functionType.variadicParameter` (helper.ts).
+        fv_variadic_entry_opt := get_func_variadic_param(func_id_fv.clone());
+        fv_has_variadic := fv_variadic_entry_opt.is_some();
+        (fv_variadic_label : String) = String.from("...");
+        (fv_variadic_ty : TypeValue) = t_unit();
+        (fv_variadic_is_quote : bool) = false;
+        match(
+          fv_variadic_entry_opt,
+          .Some(vpe) => {
+            fv_variadic_label = vpe.label;
+            fv_variadic_ty = vpe.ty;
+            fv_variadic_is_quote = is_expr_list_type(fv_variadic_ty.clone());
+          },
+          .None => ()
+        );
+        // Skip the regular arg-count check when the callee has a variadic
+        // parameter: variadics accept any number of trailing args, so a strict
+        // `n_a > n_p` upper bound (n_p excludes the variadic) wrongly rejects
+        // e.g. `array_list(a, b)` (n_p=0). Mirrors TS
+        // `if (!functionType.variadicParameter) { ... }` (helper.ts:969).
+        if((!(fv_has_variadic)) && ((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev))), {
           (fv_count_msg : String) = `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`;
           if(n_required_reg != n_p, {
             fv_count_msg = `Argument count mismatch: expected ${(n_required_reg + n_ev)}..${(n_p + n_ev)}, got ${n_a}`;
@@ -2477,7 +2502,12 @@ Fix: wrap the call:
           // once bisected to no longer reproduces (0/52 on the original
           // 4-file protocol, post-slice-rework) — see
           // issues/codegen-continue-in-while-heap-corruption.md.
-          if(fv_is_macro && is_param_quoted(func_id_fv.clone(), ai), {
+          // A QUOTED VARIADIC (`...(quote(elems))`, e.g. `array_list`) treats
+          // every trailing arg (index >= n_p) as quoted: bind its raw AST as an
+          // `Expr` so the macro body's `elems` receives un-evaluated exprs (and
+          // the CTFE unknown-arg gate sees compile-time-known `ExprVal`s, not
+          // runtime unknowns). Mirrors TS `variadicParameter.isQuote`.
+          if(fv_is_macro && (is_param_quoted(func_id_fv.clone(), ai) || (fv_variadic_is_quote && (ai >= n_p))), {
             q_info := new_expr_info(env, t_expr_t());
             q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(box(clone_expr_fresh_ids(arg_expr))));
             _push_q := evaled_arg_infos.push(q_info);
@@ -2747,6 +2777,39 @@ Fix: wrap the call:
             .None => ()
           );
           pi = (pi + usize(1));
+        });
+        // Bind a QUOTED VARIADIC parameter (`...(quote(elems))`) for macro
+        // expansion: gather the trailing supplied args (regular-arg indices
+        // n_p..n_supplied_reg) as raw-AST `Expr` values into a `ComptimeList`
+        // and bind it under the variadic's name in `fresh_env`, so the macro
+        // body's `elems.len()/car()/cdr()` resolve when the body runs. Without
+        // this, the variadic name is unbound and the body throws. Mirrors TS
+        // variadic binding (helper.ts:1620-1709); the args were already
+        // captured as `Expr` in the arg loop above.
+        if(fv_variadic_is_quote, {
+          velems := ArrayList(EvalValue).new();
+          (vidx : usize) = n_p;
+          while(vidx < n_supplied_reg, {
+            match(
+              args.get(vidx),
+              .Some(varg) => {
+                _vp := velems.push(EvalValue.ExprVal(box(clone_expr_fresh_ids(varg))));
+              },
+              .None => ()
+            );
+            vidx = (vidx + usize(1));
+          });
+          _vbind := add_variable_to_env(
+            fresh_env,
+            fv_variadic_label.clone(),
+            fv_variadic_ty.clone(),
+            Option(EvalValue).Some(EvalValue.ComptimeListVal(velems)),
+            true,
+            false,
+            false,
+            false,
+            tok
+          );
         });
         // Bind evidence params (implicit args at indices n_p..n_p+n_ev).
         (evi : usize) = usize(0);

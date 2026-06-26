@@ -1473,6 +1473,43 @@ print helper (no `if`/`cond` introducing bindings in one arm; build the message 
 site (function.yo:3699). (This trip is itself a live demo of the Incompatible-types
 / Frame-level cluster root.)
 
+##### ✅ FIXED (2026-06-26, commit pending): 47 → 43 markers (−4) — variadic-macro dispatch was unimplemented
+
+The macro registration/re-keying was a RED HERRING (it works — `array_list` =
+AST id 52590 → re-keyed correctly to FuncVal `yo_id_3970`, `is_macro_fn` true).
+The actual root, pinned with gated `[CVTAG]`/`[DISP]` probes on the IMPORTED repro
+(the earlier repro omitted `{ array_list }` from the import, masking the real path):
+the `.FuncVal` dispatch arm (function.yo:2326) **rejected `array_list` BEFORE macro
+dispatch** at the regular arg-count check (`n_a > n_p`) — the variadic
+`...(quote(elems))` contributes `n_p=0`, so `array_list(a, b)` threw "Argument count
+mismatch: expected 0, got 2" (swallowed at def-time → `Type(1)` → marker). This also
+explains why the prior session's probe at the macro-unquote handler "never fired":
+the throw short-circuits ~90 lines before it. Even past the count check, the variadic
+`elems` was **never bound** into the comptime callee env (function.yo binds only the
+`n_p` regular params), so the macro body's `elems.car()/cdr()/len()` had no binding.
+
+yo-self had NO variadic-macro support in the type-checker dispatch (`variadic_args`
+was always empty; `is_param_quoted` excludes the variadic). The fix implements it,
+mirroring TS `helper.ts:969` + `1620-1709`, all GATED on quoted-variadic so
+non-variadic calls are byte-identical (regression confined to `array_list`):
+1. Skip the arg-count check when `get_func_variadic_param(func_id_fv).is_some()`.
+2. Detect a quoted variadic via its recorded type = `ComptimeList(Expr)`
+   (`is_expr_list_type`).
+3. In the arg loop, route trailing args (index ≥ `n_p`) of a quoted variadic as
+   raw-AST `ExprVal`s (so the CTFE unknown-arg gate sees compile-time-known values,
+   not runtime unknowns).
+4. After the regular-param loop, bind the variadic name (`elems`) to a
+   `ComptimeListVal` of those `Expr`s in `fresh_env`, so the macro body runs and
+   expands.
+
+Validated (all green): repro `array_list(a,b)` markers 2→**0**; full self-compile
+**47 → 43** (−4, EXIT=0); `check ./std` 152/152; differential corpus
+`tests/codegen-bootstrap` **83 PASS / 0 DIFF / 0 SELF-FAIL** (the heap-corruption
+gate for the macro-path change — clean). Method: the decisive move was fixing the
+repro's import to match the real `parser.yo` user (`{ ArrayList, array_list }`),
+which un-masked the true dispatch path; `[CVTAG]` then showed the FuncVal arrived
+with the right id but never reached the macro check.
+
 #### arm-type / Incompatible-types cluster — ROOT PINNED (2026-06-26): empty `{}` (`_()`) arm vs unit
 
 Drove the highest-yield cluster (7 "Incompatible types" throws, ~22 markers via
