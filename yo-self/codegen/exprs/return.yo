@@ -35,8 +35,8 @@ _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
     .FnCall(_, func, args, _, _) => if(
       args.len() == usize(0),
       match(
-        func.*,
-        .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(func.*, BF_DOT, Option(usize).Some(usize(2))), {
+        func,
+        .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(func, BF_DOT, Option(usize).Some(usize(2))), {
           a1_is_drop := match(fargs.get(usize(1)),.Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == String.from(BF_DROP), false),.None => false);
           if(a1_is_drop, match(fargs.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
@@ -79,7 +79,7 @@ _max_comparable_token :: (fn(node : AstExpr, reference : Token, best : Token) ->
   match(
     node,
     .FnCall(_, func, args, _, _) => {
-      (acc : Token) = recur(func.*, reference, best2);
+      (acc : Token) = recur(func, reference, best2);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {

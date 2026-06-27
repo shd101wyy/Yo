@@ -488,7 +488,7 @@ _fn_call_callee_name :: (fn(e : AstExpr) -> Option(String))(
     e,
     .Atom(_, _) =>.None,
     .FnCall(_, func_box, _, _, _) => match(
-      func_box.*,
+      func_box,
       .Atom(_, tok) =>.Some(tok.value),
       .FnCall(_, _, _, _, _) =>.None
     )
@@ -518,7 +518,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : EvalValue) -> Option(String)
 )({
   body_box := match(fv,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
-  body := _unwrap_unsafe(body_box.*);
+  body := _unwrap_unsafe(body_box);
   operator_name := match(
     body,
     .Atom(_, _) => Option(String).None,
@@ -1009,9 +1009,9 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
       // Form 2: (varName.___dup)() with zero args.
       if(args.len() == usize(0), {
         match(
-          func_box.*,
+          func_box,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box.*, BF_DOT,.Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(func_box, BF_DOT,.Some(usize(2))), {
               first_ok := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
               second_is_dup := match(
                 dot_args.get(usize(1)),
@@ -1042,9 +1042,9 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String)
       // Form A: (varName.___drop)() with zero args.
       if(args.len() == usize(0), {
         match(
-          func_box.*,
+          func_box,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box.*, BF_DOT,.Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(func_box, BF_DOT,.Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get(usize(1)),
                 .Some(a) => match(a,.Atom(_, tok) => (tok.value == String.from(BF_DROP)),.FnCall(_, _, _, _, _) => false),

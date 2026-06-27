@@ -240,7 +240,7 @@ _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool,
           match(
             arg_expr,
             .FnCall(_, func, _, _, _) => {
-              container := func.*;
+              container := func;
               if(ast_expr_is_atom(container) || ast_expr_is_fn_call_of(container, BF_DOT, Option(usize).Some(usize(2))), Option(String).Some(_call_generate_expr(container, indent.clone(), context)), Option(String).None)
             },
             .Atom(_, _) => Option(String).None
@@ -696,7 +696,7 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
   ft_is_control := match(function_type,.Func({ meta : __fm2 }) => __fm2.*.is_control, _ => false);
   body_has_effects := match(
     func_ei_value,
-    .Some(v) => match(v,.FuncVal(__fvd3, _) => match(context.base.get_expr_info(__fvd3.*.body.*),.Some(bei) => match(bei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
+    .Some(v) => match(v,.FuncVal(__fvd3, _) => match(context.base.get_expr_info(__fvd3.*.body),.Some(bei) => match(bei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
     .None => false
   );
   (param_fn_or_ctl : bool) = false;
@@ -809,7 +809,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   callee_is_enum_ctor := match(
     expr,
     .FnCall(_, ecf, _, _, _) => match(
-      context.base.get_expr_info(ecf.*),
+      context.base.get_expr_info(ecf),
       .Some(ecfei) => match(ecfei.value,.Some(ecfv) => match(ecfv,.TypeVal(ewb) => is_enum_type(ewb), _ => false),.None => false),
       .None => false
     ),
@@ -825,7 +825,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // leading `.`, which _generate_runtime_enum_construct strips.
     from_val := match(ei.value,.Some(ev) => match(ev,.EnumVal(vr, _) => vr, _ => String.new()),.None => String.new());
     from_ty := match(ei.ty,.EnumT({ selected_variant_name }) => match(selected_variant_name,.Some(v) => v,.None => String.new()), _ => String.new());
-    from_callee := match(expr,.FnCall(_, f, _, _, _) => ast_expr_to_string(f.*),.Atom(_, _) => String.new());
+    from_callee := match(expr,.FnCall(_, f, _, _, _) => ast_expr_to_string(f),.Atom(_, _) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
     if(variant_raw.len() > usize(0), {
       rt_e := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
@@ -847,7 +847,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       );
     });
   });
-  func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*,.Atom(_, _) => return(Option(String).None));
+  func_expr := match(expr,.FnCall(_, f, _, _, _) => f,.Atom(_, _) => return(Option(String).None));
   // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The callee
   // dot-access (`s.speak`) has NO ExprInfo of its own (the evaluator resolves the
   // method directly), so this MUST run before the func_ei early-return below.

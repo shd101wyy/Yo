@@ -277,11 +277,33 @@ ExprId :: usize;
 /// An AST expression node. There are exactly two kinds:
 ///  - Atom: a single token (identifier, literal, operator, dot, …)
 ///  - FnCall: a function call with a func expression, args list, infix flag, and token
-AstExpr :: enum(
-  Atom(id : ExprId, token : Token),
-  FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), is_infix : bool, token : Token)
+AstExpr :: ref(
+  enum(
+    Atom(id : ExprId, token : Token),
+    FnCall(id : ExprId, func : Self, args : ArrayList(Self), is_infix : bool, token : Token)
+  )
 );
-derive(AstExpr, Clone);
+// SHARE-on-recursion Clone (replaces `derive(AstExpr, Clone)`). `AstExpr` is now
+// a `ref(enum)`, so its `func` (a `Self` handle) and `args` (`ArrayList(Self)`)
+// fields are RC handles — cloning SHARES them (RC-bump) rather than deep-copying.
+// This is O(1), preserves node ids (matching the derived clone's id-keeping
+// semantics that the ExprInfo table relies on), and avoids the def-time
+// body-eval infinite recursion a deep clone hits on a shell-less recursive
+// ref-enum (`ArrayList(Self).clone` → `elem.clone` → here). Same rationale as the
+// manual `TypeValue` clone in `types/definitions.yo`. Use `clone_expr_fresh_ids`
+// (below) when fresh ids are needed.
+impl(
+  AstExpr,
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)(
+      match(
+        self,
+        .Atom(aid, atok) => AstExpr.Atom(aid, atok.clone()),
+        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs, finfix, ftok.clone())
+      )
+    )
+  )
+);
 /// Global expression-id counter — moved here from parser.yo so SYNTHESIZED
 /// nodes (gensym, quote expansions, fresh-id clones below) can mint ids
 /// from the SAME sequence as parsed nodes. In TS, per-node eval data lives
@@ -320,7 +342,7 @@ clone_expr_fresh_ids :: (fn(e : AstExpr) -> AstExpr)(
         );
         ci = (ci + usize(1));
       });
-      AstExpr.FnCall(alloc_global_expr_id(), box(recur(func_box.*)), new_args, is_infix, tok.clone())
+      AstExpr.FnCall(alloc_global_expr_id(), recur(func_box), new_args, is_infix, tok.clone())
     }
   )
 );
@@ -388,7 +410,7 @@ ast_expr_is_infix_op_fn_call :: (fn(e : AstExpr) -> bool)(
       (is_infix == false) => false,
       (args.len() != usize(2)) => false,
       true => match(
-        func_box.*,
+        func_box,
         .Atom(_, ftok) => (ftok.kind == TokenKind.Operator),
         .FnCall(_, _, _, _, _) => false
       )
@@ -403,19 +425,19 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
     .FnCall(_, func_box, args, is_infix, _) => {
       n := args.len();
       func_is_op_or_dot := match(
-        func_box.*,
+        func_box,
         .Atom(_, ftok) => ((ftok.kind == TokenKind.Operator) || (ftok.kind == TokenKind.Dot)),
         .FnCall(_, _, _, _, _) => false
       );
       func_is_tuple_kw := match(
-        func_box.*,
+        func_box,
         .Atom(_, ftok) => (ftok.value == BK_TUPLE),
         .FnCall(_, _, _, _, _) => false
       );
       cond(
         func_is_op_or_dot => {
           func_tok_val := match(
-            func_box.*,
+            func_box,
             .Atom(_, ftok) => ftok.value,
             .FnCall(_, _, _, _, _) => String.from("?")
           );
@@ -454,7 +476,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               )
             },
             true => {
-              func_str := recur(func_box.*);
+              func_str := recur(func_box);
               sb := StringBuilder.new();
               i := usize(0);
               while(i < n, {
@@ -488,9 +510,9 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
         },
         true => {
           // General function call
-          func_str0 := recur(func_box.*);
+          func_str0 := recur(func_box);
           func_str := cond(
-            (ast_expr_is_infix_op_fn_call(func_box.*) || ast_expr_is_atom_and_operator(func_box.*)) => `(${func_str0})`,
+            (ast_expr_is_infix_op_fn_call(func_box) || ast_expr_is_atom_and_operator(func_box)) => `(${func_str0})`,
             true => func_str0
           );
           sb := StringBuilder.new();
@@ -556,7 +578,7 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
     .Atom(_, _) => false,
     .FnCall(_, func_box, args, _, _) => {
       func_name_matches := match(
-        func_box.*,
+        func_box,
         .Atom(_, tok) => (tok.value == String.from(func_name)),
         .FnCall(_, _, _, _, _) => false
       );
@@ -581,7 +603,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
     .Atom(_, _) => false,
     .FnCall(_, func_box, args, _, _) => {
       func_name_in_list := match(
-        func_box.*,
+        func_box,
         .Atom(_, tok) => {
           n := func_names.len();
           i := usize(0);
@@ -627,7 +649,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
       e2,
       .Atom(_, _) => false,
       .FnCall(_, func2, args2, _, _) => {
-        if(!(recur(func1.*, func2.*)), {
+        if(!(recur(func1, func2)), {
           return(false);
         });
         n1 := args1.len();
@@ -663,13 +685,13 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
     e,
     .Atom(_, _) => false,
     .FnCall(_, func_box, _, _, _) => match(
-      func_box.*,
+      func_box,
       .Atom(_, tok) => {
         v := tok.value.clone();
         (v == "->") || ((v == "=>") || (v == "=>>"))
       },
       .FnCall(_, inner_func_box, _, _, _) => match(
-        inner_func_box.*,
+        inner_func_box,
         .Atom(_, inner_tok) => {
           iv := inner_tok.value.clone();
           (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))

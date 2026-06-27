@@ -5,7 +5,7 @@
 //! Phase 3 implementation:
 //!   - Handles `SomeT` (Impl) and `DynT` value types.
 //!   - Infers the DynType from the evaluated value type or from context.
-//!   - Auto-boxes non-object values by synthesising a `box(inner)` call.
+//!   - Auto-boxes non-object values by synthesising a `inner` call.
 //!   - Concrete `.trait` field access is NOT available in yo-self; only
 //!     SomeT, DynT, and expected-DynType-from-context are supported.
 pragma(Pragma.AllowUnsafe);
@@ -295,14 +295,14 @@ evaluate_dyn_value :: (
     box_atom := AstExpr.Atom(usize(0), box_tok);
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
-    box_call := AstExpr.FnCall(usize(0), box(box_atom), box_args, false, expr_tok);
+    box_call := AstExpr.FnCall(usize(0), box_atom, box_args, false, expr_tok);
     boxed_expr := evaluate_expression(box_call, cur_env, ctx);
     boxed_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(boxed_expr));
     match(
       boxed_info_opt,
       .Some(bi) => {
         // Update the dyn(...) call's first arg to point at the boxed expression,
-        // so that C codegen sees box(inner) rather than the bare inner expression.
+        // so that C codegen sees inner rather than the bare inner expression.
         args(usize(0)) = boxed_expr;
         final_value_type = bi.ty;
         cur_env = bi.env;

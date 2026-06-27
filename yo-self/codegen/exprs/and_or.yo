@@ -65,7 +65,7 @@ _expr_may_have_side_effects :: (fn(expr : AstExpr, context : FunctionGenerationC
         );
         i = (i + usize(1));
       });
-      recur(func.*, context)
+      recur(func, context)
     },
     .Atom(_, _) => false
   )
@@ -100,7 +100,7 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
           match(args.get(i),.Some(arg) => recur(arg, result, context),.None => ());
           i = (i + usize(1));
         });
-        recur(func.*, result, context);
+        recur(func, result, context);
       });
     },
     .Atom(_, _) => ()

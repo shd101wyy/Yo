@@ -222,7 +222,7 @@ _make_yo_as_node :: (
   args := ArrayList(AstExpr).new();
   args.push(evaluated);
   args.push(type_expr);
-  AstExpr.FnCall(orig_id, box(func_atom), args, false, orig_tok)
+  AstExpr.FnCall(orig_id, func_atom, args, false, orig_tok)
 });
 /// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
 /// Returns `.None` if `target_type` is not a convertible numeric type.
@@ -414,7 +414,7 @@ try_to_convert_to_numeric_type :: (
   if(is_c_compatible_type(target_type) || comptime_raw.is_none(), {
     type_expr := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => func_box.*,
+      .FnCall(_, func_box, _, _, _) => func_box,
       .Atom(_, _) => make_err_expr()
     );
     // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL

@@ -1012,7 +1012,7 @@ _try_lookup_trait_type :: (
   while(!(ast_expr_is_atom(head_expr)) && (steps < usize(32)), {
     head_expr = match(
       head_expr,
-      .FnCall(_, fb, _, _, _) => fb.*,
+      .FnCall(_, fb, _, _, _) => fb,
       .Atom(_, _) => head_expr
     );
     steps = (steps + usize(1));
@@ -1256,7 +1256,7 @@ _try_create_forward_shell :: (
   });
   fn_type_e := match(
     val_e,
-    .FnCall(_, fb, _, _, _) => fb.*,
+    .FnCall(_, fb, _, _, _) => fb,
     .Atom(_, _) => make_err_expr()
   );
   if(!(ast_expr_is_fn_call(fn_type_e) && ast_expr_is_fn_call_of(fn_type_e, "->",.Some(usize(2)))), {
@@ -1308,7 +1308,7 @@ _try_create_forward_shell :: (
             params : sh_params,
             param_type_names : ArrayList(String).new(),
             evidence_params : sh_implicits,
-            body : box(body_e),
+            body : body_e,
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
             func_id : shell_fid
@@ -1618,7 +1618,7 @@ evaluate_module_value :: (
           .FnCall(_, _, na, _, _) => match(na.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
           .Atom(_, _) => make_err_expr()
         );
-        neg_head := match(neg_inner,.FnCall(_, fbn, _, _, _) => fbn.*,.Atom(_, _) => neg_inner);
+        neg_head := match(neg_inner,.FnCall(_, fbn, _, _, _) => fbn,.Atom(_, _) => neg_inner);
         match(
           _try_lookup_trait_type(neg_head, forall_env, ctx, exn),
           .Some(neg_trait_ty) => {
@@ -1712,7 +1712,7 @@ evaluate_module_value :: (
       if((ast_expr_is_fn_call(mf_expr) && !(ast_expr_is_fn_call_of(mf_expr, BK_COLON,.Some(usize(2))))) && !(ast_expr_is_fn_call_of(mf_expr, BK_WHERE,.None)), {
         trait_fn_expr2 := match(
           mf_expr,
-          .FnCall(_, tfb, _, _, _) => tfb.*,
+          .FnCall(_, tfb, _, _, _) => tfb,
           .Atom(_, _) => make_err_expr()
         );
         g_trait_ty_opt := _try_lookup_trait_type(trait_fn_expr2, forall_env, ctx, exn);
@@ -2013,7 +2013,7 @@ evaluate_module_value :: (
             .FnCall(_, _, na, _, _) => match(na.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
-          neg_head := match(neg_inner,.FnCall(_, fbn, _, _, _) => fbn.*,.Atom(_, _) => neg_inner);
+          neg_head := match(neg_inner,.FnCall(_, fbn, _, _, _) => fbn,.Atom(_, _) => neg_inner);
           match(
             _try_lookup_trait_type(neg_head, local_env, ctx, exn),
             .Some(neg_trait_ty) => {
@@ -2060,7 +2060,7 @@ evaluate_module_value :: (
         if((!(is_negative_field)) && (ast_expr_is_fn_call(field_expr) && !(ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2))))), {
           pos_trait_name := match(
             field_expr,
-            .FnCall(_, pfb, _, _, _) => ast_expr_token(pfb.*).value,
+            .FnCall(_, pfb, _, _, _) => ast_expr_token(pfb).value,
             .Atom(_, _) => String.new()
           );
           if((pos_trait_name == "Send") || (pos_trait_name == "Acyclic"), {
@@ -2099,7 +2099,7 @@ evaluate_module_value :: (
           // behavior.
           trait_fn_expr := match(
             field_expr,
-            .FnCall(_, fb, _, _, _) => fb.*,
+            .FnCall(_, fb, _, _, _) => fb,
             .Atom(_, _) => make_err_expr()
           );
           current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env, ctx, exn);

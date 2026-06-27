@@ -423,7 +423,7 @@ _fv_id :: (fn(v : EvalValue) -> String)(
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _fv_body :: (fn(v : EvalValue) -> AstExpr)(
-  match(v,.FuncVal(__fvd2, _) => __fvd2.*.body.*, _ => make_err_expr())
+  match(v,.FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr())
 );
 /// Collect types referenced by an expression (its evaluated type, any function
 /// value it resolves to, deferred drops, macro expansion, runtime
@@ -514,7 +514,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
       if(ast_expr_is_fn_call_of(expr, BK_TEST,.None), {
         return(());
       });
-      recur(func_box.*, context, info);
+      recur(func_box, context, info);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {

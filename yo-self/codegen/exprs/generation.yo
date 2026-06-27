@@ -161,7 +161,7 @@ open(import("std/string"));
 { is_io_future_type } :: import("../async/state_machine.yo");
 /// The callee name of a FnCall (empty for an Atom).
 _func_name :: (fn(expr : AstExpr) -> String)(
-  match(expr,.FnCall(_, func, _, _, _) => ast_expr_token(func.*).value,.Atom(_, _) => String.from(""))
+  match(expr,.FnCall(_, func, _, _, _) => ast_expr_token(func).value,.Atom(_, _) => String.from(""))
 );
 /// Map an infix operator SYMBOL (`+`, `==`, …) to the builtin-inline function
 /// name (`__yo_op_add`, `__yo_op_eq`, …) that generate_yo_inline_function_call
@@ -339,7 +339,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
     .None => return(String.from("/* Error: Index trait method value missing */"))
   );
   // callee = expr.func; the receiver whose address we take.
-  callee := match(expr,.FnCall(_, func, _, _, _) => func.*,.Atom(_, _) => return(String.from("/* Error: Index trait call on non-call */")));
+  callee := match(expr,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => return(String.from("/* Error: Index trait call on non-call */")));
   (callee_code : String) = _call_generate_expr(callee, indent.clone(), context);
   // rvalue spill: if the callee is a function call returning a temporary (not an
   // atom, not a `.` property access which yields an lvalue), store it into a temp

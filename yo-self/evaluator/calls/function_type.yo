@@ -527,7 +527,7 @@ try_to_implement_function_by_function_type :: (
             params : param_labels.clone(),
             param_type_names : param_type_names,
             evidence_params : implicit_labels,
-            body : box(body_expr),
+            body : body_expr,
             cap_names : cap_names,
             cap_tys : cap_tys,
             func_id : fn_val_id.clone()
@@ -549,11 +549,11 @@ try_to_implement_function_by_function_type :: (
       match(
         expr,
         .FnCall(_, fn_type_box, _, _, _) => {
-          copy_func_param_defaults(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
-          copy_func_param_default_exprs(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
-          copy_func_variadic_param(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
-          copy_func_where_constraints(ast_expr_id(fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_param_defaults(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_default_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_variadic_param(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+          copy_macro_registration(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_where_constraints(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );
@@ -579,7 +579,7 @@ try_to_implement_function_by_function_type :: (
           match(
             expr,
             .FnCall(_, vp_ft_box, _, _, _) => match(
-              get_func_variadic_param(ast_expr_id(vp_ft_box.*).to_string()),
+              get_func_variadic_param(ast_expr_id(vp_ft_box).to_string()),
               .Some(vp_entry) => {
                 ___vp := add_variable_to_env(
                   flow_env,
@@ -604,7 +604,7 @@ try_to_implement_function_by_function_type :: (
                 params : ArrayList(String).new(),
                 param_type_names : ArrayList(String).new(),
                 evidence_params : ArrayList(String).new(),
-                body : box(make_err_expr()),
+                body : make_err_expr(),
                 cap_names : ArrayList(String).new(),
                 cap_tys : ArrayList(TypeValue).new(),
                 func_id : random_id(caller_env.module_path)

@@ -86,7 +86,7 @@ expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool
   match(
     expr,
     .FnCall(_, func_box, args, _, _) => {
-      if(recur(func_box.*, info), {
+      if(recur(func_box, info), {
         return(true);
       });
       n := args.len();
@@ -191,7 +191,7 @@ collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, i
               if(!(context.has_function(func_id.clone())), {
                 mark_as_effect_record_member(func_id.clone());
                 context.register_function(func_id.clone(), fv, sanitize_for_c_identifier(func_id.clone(), false));
-                body := match(fv,.FuncVal(__fvd2, _) => __fvd2.*.body.*, _ => make_err_expr());
+                body := match(fv,.FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
                 _call_find_function_calls_in_expr(body, context, info);
               });
               // specializedFunctionCaches: deferred (Phase 3).
@@ -213,7 +213,7 @@ collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, i
 _callee_token_value :: (fn(expr : AstExpr) -> String)(
   match(
     expr,
-    .FnCall(_, func_box, _, _, _) => match(func_box.*,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),
+    .FnCall(_, func_box, _, _, _) => match(func_box,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),
     .Atom(_, _) => String.from("")
   )
 );
@@ -223,7 +223,7 @@ _func_val_id :: (fn(v : EvalValue) -> String)(
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _func_val_body :: (fn(v : EvalValue) -> AstExpr)(
-  match(v,.FuncVal(__fvd4, _) => __fvd4.*.body.*, _ => make_err_expr())
+  match(v,.FuncVal(__fvd4, _) => __fvd4.*.body, _ => make_err_expr())
 );
 /// True if any type in the list is the `Expr` type (a quoted-AST param) — the
 /// signature of a MACRO (e.g. `if`, `try`: `fn(quote(x) : Expr, …) ->
@@ -454,7 +454,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
   match(
     expr,
     .FnCall(_, func_box, args, _, _) => {
-      callee := func_box.*;
+      callee := func_box;
       // "?=" default-value assignment — skip.
       if(_callee_token_value(expr) == "?=", {
         return(());

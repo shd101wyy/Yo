@@ -277,7 +277,7 @@ walk_expr_ :: (
         // -------------------------------------------------------------------
         is_while => {
           initial_count := points.len();
-          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (ai : usize) = usize(0);
           n_args := args.len();
           while(ai < n_args, {
@@ -321,7 +321,7 @@ walk_expr_ :: (
         is_cond_or_match => {
           initial_count_b := points.len();
           // Walk the func expression (keyword + condition/matched value)
-          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           // Save nameFrameToOriginalId snapshot before walking branches so that
           // variables declared inside one branch don't leak into subsequent branches.
           saved_keys := ArrayList(String).new();
@@ -501,7 +501,7 @@ walk_expr_ :: (
             return(());
           });
           // Recurse into function and arguments
-          recur(func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (ai3 : usize) = usize(0);
           n_args3 := args.len();
           while(ai3 < n_args3, {

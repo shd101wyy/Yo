@@ -76,7 +76,7 @@ _analyze_ctfe_capability :: (
     func_value : EvalValue,
     param_labels : ArrayList(String),
     param_types : ArrayList(TypeValue),
-    body_box : Box(AstExpr),
+    body_box : AstExpr,
     cap_names : ArrayList(String),
     cap_tys : ArrayList(TypeValue),
     cap_vals : ArrayList(EvalValue),
@@ -165,7 +165,7 @@ _analyze_ctfe_capability :: (
       eval_env : ctfe_env
     )
   );
-  body_expr := body_box.*;
+  body_expr := body_box;
   evaled := evaluate_begin_expression(
     body_expr,
     ctfe_env,
@@ -385,7 +385,7 @@ evaluate_comptime_fn :: (
     )
   );
   // Extract body_box and captures from the FuncVal.
-  body_box := match(arg_val,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => box(make_err_expr()));
+  body_box := match(arg_val,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => make_err_expr());
   cap_names := match(arg_val,.FuncVal(__fvd2, _) => __fvd2.*.cap_names, _ => ArrayList(String).new());
   cap_tys := match(arg_val,.FuncVal(__fvd3, _) => __fvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
   cap_vals := match(arg_val,.FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());

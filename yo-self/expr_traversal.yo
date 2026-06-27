@@ -53,7 +53,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
         // Inline traverseCondMatchBranches: recurse into each arg.
         // Branch arrows `condition => body` are NOT function boundaries:
         // recurse into both the condition and the body parts.
-        if(recur(func_box.*), {
+        if(recur(func_box), {
           return(true);
         });
         na := args.len();
@@ -89,7 +89,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
       if(is_function_boundary_arrow(e), {
         return(false);
       });
-      if(recur(func_box.*), {
+      if(recur(func_box), {
         return(true);
       });
       n := args.len();
@@ -132,7 +132,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
       is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
       is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
       if(is_cond || is_match, {
-        if(recur(func_box.*), {
+        if(recur(func_box), {
           return(true);
         });
         na := args.len();
@@ -168,7 +168,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
       if(is_function_boundary_arrow(e), {
         return(false);
       });
-      if(recur(func_box.*), {
+      if(recur(func_box), {
         return(true);
       });
       n := args.len();
@@ -218,7 +218,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
           ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
       );
       if(is_cond_or_match, {
-        if(recur(fn_box.*), {
+        if(recur(fn_box), {
           return(true);
         });
         (n_cm : usize) = args.len();
@@ -252,7 +252,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
         return(false);
       });
       // General case: recurse into func and all args
-      if(recur(fn_box.*), {
+      if(recur(fn_box), {
         return(true);
       });
       (n : usize) = args.len();
@@ -294,7 +294,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
           ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
       );
       if(is_cond_or_match, {
-        if(recur(fn_box.*), {
+        if(recur(fn_box), {
           return(true);
         });
         (n_cm : usize) = args.len();
@@ -331,7 +331,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
         return(false);
       });
       // General case: recurse into func and all args.
-      if(recur(fn_box.*), {
+      if(recur(fn_box), {
         return(true);
       });
       (n : usize) = args.len();

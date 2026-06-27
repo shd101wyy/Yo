@@ -260,7 +260,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
   });
-  call_func := match(expr,.FnCall(_, f, _, _, _) => f.*, _ => expr);
+  call_func := match(expr,.FnCall(_, f, _, _, _) => f, _ => expr);
   call_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // R2: `expr.field` — a 2-arg `.` call. Flowable iff the base is flowable.
   if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), {
@@ -599,7 +599,7 @@ require_ref_own_argument_exclusivity :: (
               cond(
                 (is_idx && ast_expr_is_fn_call(arg)) => match(
                   arg,
-                  .FnCall(_, fc, _, _, _) => _place_root_atom(fc.*),
+                  .FnCall(_, fc, _, _, _) => _place_root_atom(fc),
                   _ => Option(AstExpr).None
                 ),
                 true => _place_root_atom(arg)
@@ -824,7 +824,7 @@ require_valid_ref_argument_places :: (
         if(arg_is_index_place && ast_expr_is_fn_call(arg), {
           container_atom := match(
             arg,
-            .FnCall(_, icallee, _, _, _) => _place_root_atom(icallee.*),
+            .FnCall(_, icallee, _, _, _) => _place_root_atom(icallee),
             .Atom(_, _) => Option(AstExpr).None
           );
           match(

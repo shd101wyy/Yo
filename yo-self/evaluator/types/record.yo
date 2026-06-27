@@ -273,7 +273,7 @@ evaluate_module_type :: (
   out_info.value = Option(EvalValue).Some(module_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Annotate callee with same info (mirrors TS: expr.func.$ = expr.$).
-  callee_expr := match(expr,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, _) => expr);
+  callee_expr := match(expr,.FnCall(_, fb, _, _, _) => fb,.Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
   expr
 });

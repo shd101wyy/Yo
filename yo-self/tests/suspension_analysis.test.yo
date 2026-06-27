@@ -34,7 +34,7 @@ make_ident_expr :: (fn(v : str) -> AstExpr)(
 make_fncall_expr :: (fn(func_name : str) -> AstExpr)(
   AstExpr.FnCall(
     usize(0),
-    Box(AstExpr)(make_ident_expr(func_name)),
+    make_ident_expr(func_name),
     ArrayList(AstExpr).new(),
     false,
     make_token(TokenKind.Identifier, func_name)
@@ -47,7 +47,7 @@ make_assign_expr :: (fn(var_name : str, rhs : AstExpr) -> AstExpr)({
   args.push(rhs);
   AstExpr.FnCall(
     usize(0),
-    Box(AstExpr)(make_ident_expr(":=")),
+    make_ident_expr(":="),
     args,
     false,
     make_token(TokenKind.Identifier, ":=")
@@ -147,7 +147,7 @@ test("analyze_suspension_points: nested fncall — detect_all detects outer + in
   args.push(inner);
   outer := AstExpr.FnCall(
     usize(0),
-    Box(AstExpr)(make_ident_expr("outer_call")),
+    make_ident_expr("outer_call"),
     args,
     false,
     make_token(TokenKind.Identifier, "outer_call")
@@ -163,7 +163,7 @@ test("analyze_suspension_points: suspension point index is sequential", {
   args.push(inner);
   outer := AstExpr.FnCall(
     usize(0),
-    Box(AstExpr)(make_ident_expr("b")),
+    make_ident_expr("b"),
     args,
     false,
     make_token(TokenKind.Identifier, "b")

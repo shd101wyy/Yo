@@ -87,13 +87,13 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
     expr,
     .Atom(_, _) => false,
     .FnCall(_, outer_func_box, _, _, _) => match(
-      outer_func_box.*,
+      outer_func_box,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
-          dot_func_box.*,
+          dot_func_box,
           .FnCall(_, _, _, _, _) => false,
           .Atom(_, dot_tok) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
@@ -169,13 +169,13 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
     expr,
     .Atom(_, _) => false,
     .FnCall(_, outer_func_box, _, _, _) => match(
-      outer_func_box.*,
+      outer_func_box,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
-          dot_func_box.*,
+          dot_func_box,
           .FnCall(_, _, _, _, _) => false,
           .Atom(_, dot_tok) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
@@ -453,7 +453,7 @@ collect_variable_bindings_ :: (
     .FnCall(_, func_box, args, _, _) => {
       // Check if this is a "let" or ":=" binding declaration
       func_is_binding := match(
-        func_box.*,
+        func_box,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, ftok) => (
           (ftok.value == "let") || (ftok.value == ":=")
@@ -536,7 +536,7 @@ collect_variable_bindings_ :: (
         );
       });
       // Always recurse into the function expression
-      recur(func_box.*, variables, seen, get_info);
+      recur(func_box, variables, seen, get_info);
       // Always recurse into each argument
       n_args := args.len();
       (ai : usize) = usize(0);

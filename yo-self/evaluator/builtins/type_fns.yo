@@ -1262,7 +1262,7 @@ evaluate_comptime_string_to_expr :: (
   );
   // Parse a single expression.
   parsed_expr := generate_expr_from_code(code_str.clone(), exn);
-  expr_val := EvalValue.ExprVal(box(parsed_expr));
+  expr_val := EvalValue.ExprVal(parsed_expr);
   out := new_expr_info(local_env, t_expr_t());
   out.value = Option(EvalValue).Some(expr_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
@@ -1421,7 +1421,7 @@ evaluate_type_join_fields :: (
     info2.value,
     .Some(v) => match(
       v,
-      .ExprVal(e_box) => e_box.*,
+      .ExprVal(e_box) => e_box,
       _ => {
         exn.throw(
           dyn(
@@ -1532,7 +1532,7 @@ evaluate_type_join_fields :: (
       call_info.value,
       .Some(v) => match(
         v,
-        .ExprVal(e_box) => e_box.*,
+        .ExprVal(e_box) => e_box,
         _ => {
           exn.throw(
             dyn(
@@ -1573,10 +1573,10 @@ evaluate_type_join_fields :: (
     combine_args := ArrayList(AstExpr).new();
     _p1 := combine_args.push(acc_expr);
     _p2 := combine_args.push(rhs);
-    acc_expr = AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tok)), combine_args, true, tok);
+    acc_expr = AstExpr.FnCall(usize(0), AstExpr.Atom(usize(0), tok), combine_args, true, tok);
     ri = (ri + usize(1));
   });
-  combined_val := EvalValue.ExprVal(box(acc_expr));
+  combined_val := EvalValue.ExprVal(acc_expr);
   out := new_expr_info(local_env, t_expr_t());
   out.value = Option(EvalValue).Some(combined_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);

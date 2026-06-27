@@ -1558,7 +1558,7 @@ _extract_variant_name :: (fn(pattern : AstExpr) -> Option(String))({
     return(match(pattern,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(at) => Option(String).Some(ast_expr_token(at).value),.None => Option(String).None), _ => Option(String).None));
   });
   if(ast_expr_is_fn_call(pattern), {
-    pf := match(pattern,.FnCall(_, fb, _, _, _) => fb.*, _ => pattern);
+    pf := match(pattern,.FnCall(_, fb, _, _, _) => fb, _ => pattern);
     if(ast_expr_is_fn_call_of(pf, ".", Option(usize).Some(usize(1))), {
       return(match(pf,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(at) => Option(String).Some(ast_expr_token(at).value),.None => Option(String).None), _ => Option(String).None));
     });
@@ -1686,7 +1686,7 @@ generate_match_with_await :: (
                           null_case = Option(usize).Some(ni);
                         }, {
                           if(ast_expr_is_fn_call(pattern), {
-                            pf := match(pattern,.FnCall(_, fb, _, _, _) => fb.*, _ => pattern);
+                            pf := match(pattern,.FnCall(_, fb, _, _, _) => fb, _ => pattern);
                             if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
                               ptr_case = Option(usize).Some(ni);
                               pargs := match(pattern,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
@@ -1800,7 +1800,7 @@ generate_match_with_await :: (
                       em.emit_string_line(`${indent}    sm->cond_branch_${idx_s} = ${gi.to_string()};`);
                       // Destructuring: bind variant fields.
                       if(ast_expr_is_fn_call(pattern), {
-                        pf := match(pattern,.FnCall(_, fb, _, _, _) => fb.*, _ => pattern);
+                        pf := match(pattern,.FnCall(_, fb, _, _, _) => fb, _ => pattern);
                         if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
                           pargs := match(pattern,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                           match(

@@ -84,7 +84,7 @@ generate_yo_iso_dispose :: (fn(expr : AstExpr, indent : String, context : Functi
 is_iso_type_call :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
   match(
     expr,
-    .FnCall(_, func, args, _, _) => if(args.len() == usize(1), match(context.base.get_expr_info(func.*),.Some(fei) => match(fei.value,.Some(v) => if(is_type_val(v), match(v,.TypeVal(t) => is_iso_type(t), _ => false), false),.None => false),.None => false), false),
+    .FnCall(_, func, args, _, _) => if(args.len() == usize(1), match(context.base.get_expr_info(func),.Some(fei) => match(fei.value,.Some(v) => if(is_type_val(v), match(v,.TypeVal(t) => is_iso_type(t), _ => false), false),.None => false),.None => false), false),
     .Atom(_, _) => false
   )
 );
@@ -93,7 +93,7 @@ generate_iso_type_call :: (fn(expr : AstExpr, indent : String, context : Functio
   if(!(is_iso_type_call(expr, context)), {
     return(String.from("/* Error: generateIsoTypeCall called on non-Iso type call */"));
   });
-  func := match(expr,.FnCall(_, f, _, _, _) => f.*,.Atom(_, _) => return(String.from("/* Error: non-Iso type call */")));
+  func := match(expr,.FnCall(_, f, _, _, _) => f,.Atom(_, _) => return(String.from("/* Error: non-Iso type call */")));
   iso_type := match(context.base.get_expr_info(func),.Some(fei) => match(fei.value,.Some(v) => match(v,.TypeVal(t) => t, _ => return(String.from("/* Error: non-Iso type call */"))),.None => return(String.from("/* Error: non-Iso type call */"))),.None => return(String.from("/* Error: non-Iso type call */")));
   child_type := _iso_child(iso_type);
   value_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("/* Error: Iso constructor requires 1 argument */")));

@@ -69,7 +69,7 @@ extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
       (
         !(
           match(
-            func_box.*,
+            func_box,
             .Atom(_, tok) => (tok.value == BK_IMPORT),
             .FnCall(_, _, _, _, _) => false
           )
@@ -105,7 +105,7 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
     .Atom(_, _) => Option(String).None,
     .FnCall(_, func_box, fn_imp_args, is_infix, _) => {
       fval := match(
-        func_box.*,
+        func_box,
         .Atom(_, tok) => tok.value.clone(),
         .FnCall(_, _, _, _, _) => String.new()
       );
@@ -157,7 +157,7 @@ collect_import_paths_recursive :: (
     expr,
     .Atom(_, _) => (),
     .FnCall(_, fb, walk_args, _, _) => {
-      recur(fb.*, out);
+      recur(fb, out);
       (i : usize) = usize(0);
       while(i < walk_args.len(), {
         match(
@@ -256,7 +256,7 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
       (
         !(
           match(
-            func_box.*,
+            func_box,
             .Atom(_, ftok) => (ftok.value == "test"),
             .FnCall(_, _, _, _, _) => false
           )

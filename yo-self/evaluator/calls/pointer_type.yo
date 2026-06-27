@@ -126,7 +126,7 @@ try_to_convert_to_pointer_type :: (
   orig_id := ast_expr_id(expr);
   type_expr := match(
     expr,
-    .FnCall(_, func_box, _, _, _) => func_box.*,
+    .FnCall(_, func_box, _, _, _) => func_box,
     .Atom(_, _) => make_err_expr()
   );
   // Lower the runtime pointer→pointer cast to a `__yo_as` node, attached to the
@@ -154,7 +154,7 @@ try_to_convert_to_pointer_type :: (
   call_args := ArrayList(AstExpr).new();
   call_args.push(evaluated);
   call_args.push(type_expr);
-  yo_as_node := AstExpr.FnCall(fresh_id, box(func_atom), call_args, false, orig_tok);
+  yo_as_node := AstExpr.FnCall(fresh_id, func_atom, call_args, false, orig_tok);
   yo_as_info := new_expr_info(env, target_type);
   yo_as_info.value =.None;
   // runtimeArgExprsInOrder: only the value arg (not the type) — mirrors TS

@@ -605,7 +605,7 @@ evaluate_destructuring_assignment :: (
     );
     field_labels := match(field_labels_opt,.Some(l) => l,.None => ArrayList(String).new());
     field_types := match(field_types_opt,.Some(t) => t,.None => ArrayList(TypeValue).new());
-    lhs_func := match(lhs,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_func := match(lhs,.FnCall(_, fb, _, _, _) => fb,.Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
     lhs_args := match(lhs,.FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -630,7 +630,7 @@ evaluate_destructuring_assignment :: (
   if((is_tuple_type(rhs_type) && ast_expr_is_fn_call(lhs)) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
     field_labels := match(rhs_type,.Tuple(fl, _) => fl, _ => ArrayList(String).new());
     field_types := match(rhs_type,.Tuple(_, ft) => ft, _ => ArrayList(TypeValue).new());
-    lhs_func := match(lhs,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_func := match(lhs,.FnCall(_, fb, _, _, _) => fb,.Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
     lhs_args := match(lhs,.FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -713,7 +713,7 @@ evaluate_destructuring_assignment :: (
       ___ := field_labels.push(fi.to_string());
       fi = (fi + usize(1));
     });
-    lhs_func := match(lhs,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_func := match(lhs,.FnCall(_, fb, _, _, _) => fb,.Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
     lhs_args := match(lhs,.FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(

@@ -417,7 +417,7 @@ _build_receiver_call_args :: (
       );
       amp_args := ArrayList(AstExpr).new();
       _ := amp_args.push(receiver_expr.clone());
-      _ := all_args.push(AstExpr.FnCall(alloc_global_expr_id(), box(amp_atom), amp_args, false, recv_tok));
+      _ := all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, amp_args, false, recv_tok));
     }, {
       _ := all_args.push(receiver_expr.clone());
     });
@@ -626,7 +626,7 @@ _try_expand_call_overload :: (
   if(cand_vals.len() != cand_tys.len(), {
     return(());
   });
-  func_expr := match(call_expr,.FnCall(_, fb, _, _, _) => fb.*, _ => evaluated_callee);
+  func_expr := match(call_expr,.FnCall(_, fb, _, _, _) => fb, _ => evaluated_callee);
   // Trial each candidate; collect the indices that type-check.
   // The trials run under is_in_function_call_checking_phase so NESTED
   // comptime/macro calls short-circuit to UnknownVal instead of executing
@@ -743,12 +743,12 @@ _try_rewrite_range_index_to_slice_copy :: (
   ma_args := ArrayList(AstExpr).new();
   ma_args.push(func_expr);
   ma_args.push(method_atom);
-  method_access := AstExpr.FnCall(alloc_global_expr_id(), box(dot_atom), ma_args, true, tok);
+  method_access := AstExpr.FnCall(alloc_global_expr_id(), dot_atom, ma_args, true, tok);
   new_args := ArrayList(AstExpr).new();
   new_args.push(arg0);
   // Keep the ORIGINAL call id so the result's ExprInfo lands on the same
   // node (TS mutates expr.func in place — same node identity).
-  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), box(method_access), new_args, false, tok))
+  Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(expr), method_access, new_args, false, tok))
 });
 /// The SomeType id of a Future type's OUTPUT, unwrapping an `Impl(Future(T,E))`
 /// constraint. `io.async`'s return type is `Impl(Future(T, E))`, represented as a
@@ -1206,7 +1206,7 @@ evaluate_function_call :: (
   // Decompose the call: func_expr = callee, args = argument list.
   func_expr := match(
     expr,
-    .FnCall(_, func_box, _, _, _) => func_box.*,
+    .FnCall(_, func_box, _, _, _) => func_box,
     .Atom(_, _) => make_err_expr()
   );
   args := match(
@@ -2452,7 +2452,7 @@ Fix: wrap the call:
         // resolve the parameter types from the expected type so that a
         // `.Variant`-shorthand argument whose declared parameter type is a
         // forall (e.g. `value : V` in `box`) can resolve its concrete enum type
-        // in the loop below. Without this, `box(.Atom(...))` with expected
+        // in the loop below. Without this, `(.Atom(...))` with expected
         // `Box(Tree)` left `.Atom` with no expected enum type → "Failed to
         // infer enum variant type".
         fv_func_type := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
@@ -2509,7 +2509,7 @@ Fix: wrap the call:
           // runtime unknowns). Mirrors TS `variadicParameter.isQuote`.
           if(fv_is_macro && (is_param_quoted(func_id_fv.clone(), ai) || (fv_variadic_is_quote && (ai >= n_p))), {
             q_info := new_expr_info(env, t_expr_t());
-            q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(box(clone_expr_fresh_ids(arg_expr))));
+            q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(clone_expr_fresh_ids(arg_expr)));
             _push_q := evaled_arg_infos.push(q_info);
             ai = (ai + usize(1));
             continue;
@@ -2793,7 +2793,7 @@ Fix: wrap the call:
             match(
               args.get(vidx),
               .Some(varg) => {
-                _vp := velems.push(EvalValue.ExprVal(box(clone_expr_fresh_ids(varg))));
+                _vp := velems.push(EvalValue.ExprVal(clone_expr_fresh_ids(varg)));
               },
               .None => ()
             );
@@ -2997,7 +2997,7 @@ Fix: wrap the call:
                 // CTFE result still references the tree, and id-preserving
                 // copies alias ExprInfo-table entries (see the
                 // template-clone comment in builtins/quote.yo).
-                expanded_expr := evaluate_expression_raw(clone_expr_fresh_ids(expanded_box.*), ct_result.caller_env, ctx, exn);
+                expanded_expr := evaluate_expression_raw(clone_expr_fresh_ids(expanded_box), ct_result.caller_env, ctx, exn);
                 exp_info := match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr)),
                   .Some(i) => i,
@@ -3132,7 +3132,7 @@ Fix: wrap the call:
         );
         // Evaluate the function body.
         evaled_body := evaluate_begin_expression(
-          body_box.*,
+          body_box,
           fresh_env,
           ctx,
           ArrayList(Variable).new(),
@@ -3361,7 +3361,7 @@ Fix: wrap the call:
               );
               amp_args := ArrayList(AstExpr).new();
               amp_args.push(method_info.receiver_expr);
-              all_args.push(AstExpr.FnCall(alloc_global_expr_id(), box(amp_atom), amp_args, false, recv_tok));
+              all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, amp_args, false, recv_tok));
             }, {
               all_args.push(method_info.receiver_expr);
             });

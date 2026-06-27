@@ -124,7 +124,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context 
     context.base.get_expr_info(expr),
     .Some(ei) => ei.env,
     .None => {
-      func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*, _ => return(Option(String).None));
+      func_expr := match(expr,.FnCall(_, f, _, _, _) => f, _ => return(Option(String).None));
       match(context.base.get_expr_info(func_expr),.Some(fei) => fei.env,.None => return(Option(String).None))
     }
   );
@@ -597,7 +597,7 @@ _option_some_field_type :: (fn(option_type : TypeValue) -> Option(TypeValue))(
 generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   em := context.base.emitter;
   // Method call: expr.func is `.`(handle, "await"); self (JoinHandle) is func.args[0].
-  func_expr := match(expr,.FnCall(_, f, _, _, _) => f.*, _ => return(String.from("// Error: JoinHandle.await requires a self argument")));
+  func_expr := match(expr,.FnCall(_, f, _, _, _) => f, _ => return(String.from("// Error: JoinHandle.await requires a self argument")));
   func_is_call := match(func_expr,.FnCall(_, _, _, _, _) => true, _ => false);
   handle_arg := if(func_is_call, {
     fargs := match(func_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());

@@ -790,7 +790,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 _arm_variant_and_params :: (fn(case_value : AstExpr) -> Option(String))(
-  match(case_value,.FnCall(_, func, args, _, _) => match(func.*,.Atom(_, tok) => if((tok.value == String.from(BF_DOT)) && (args.len() >= usize(1)), match(args.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None),.FnCall(_, ffunc, fargs, _, _) => if(match(ffunc.*,.Atom(_, ft) => (ft.value == String.from(BF_DOT)),.FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None)),.Atom(_, _) => Option(String).None)
+  match(case_value,.FnCall(_, func, args, _, _) => match(func,.Atom(_, tok) => if((tok.value == String.from(BF_DOT)) && (args.len() >= usize(1)), match(args.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None),.FnCall(_, ffunc, fargs, _, _) => if(match(ffunc,.Atom(_, ft) => (ft.value == String.from(BF_DOT)),.FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None)),.Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -798,7 +798,7 @@ _arm_params :: (fn(case_value : AstExpr) -> ArrayList(AstExpr))(
   match(
     case_value,
     .FnCall(_, func, args, _, _) => match(
-      func.*,
+      func,
       .Atom(_, _) => {
         out := ArrayList(AstExpr).new();
         n := args.len();

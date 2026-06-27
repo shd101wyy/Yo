@@ -105,7 +105,7 @@ _collect_anon_param_names :: (
       out.push(t.value.clone());
     },
     .FnCall(_, fb, args, _, _) => match(
-      fb.*,
+      fb,
       .Atom(_, ptok) => cond(
         (ptok.value == BK_TUPLE) => {
           (i : usize) = usize(0);
@@ -182,7 +182,7 @@ _get_anon_op :: (fn(expr : AstExpr) -> String)(
     expr,
     .Atom(_, t) => t.value,
     .FnCall(_, fb, _, _, _) => match(
-      fb.*,
+      fb,
       .Atom(_, t) => t.value,
       .FnCall(_, _, _, _, _) => String.from("<unknown>")
     )
@@ -208,7 +208,7 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
     param_expr,
     .Atom(_, ptok) => ptok.value,
     .FnCall(_, fb, args, _, _) => match(
-      fb.*,
+      fb,
       .Atom(_, fbtok) => cond(
         (fbtok.value == ":") => match(
           args.get(usize(0)),
@@ -548,7 +548,7 @@ evaluate_anonymous_function_implementation :: (
   raw_param_exprs := match(
     param_decl,
     .FnCall(_, fb2, decl_args, _, _) => match(
-      fb2.*,
+      fb2,
       .Atom(_, ptok) => cond(
         (ptok.value == BK_TUPLE) => decl_args,
         true => {
@@ -783,7 +783,7 @@ evaluate_anonymous_function_implementation :: (
     is_creating_closure => (String.from("closure_") + random_id(env.module_path)),
     true => (String.from("fn_") + random_id(env.module_path))
   );
-  // Clone taken BEFORE `box(body_expr)` below moves the body into the
+  // Clone taken BEFORE `body_expr` below moves the body into the
   // FuncVal; the definition-time body evaluation further down needs it.
   body_for_def_eval := body_expr.clone();
   func_val := EvalValue.FuncVal(
@@ -793,7 +793,7 @@ evaluate_anonymous_function_implementation :: (
         params : actual_param_labels,
         param_type_names : param_type_names,
         evidence_params : implicit_labels,
-        body : box(body_expr),
+        body : body_expr,
         cap_names : cap_names,
         cap_tys : cap_tys,
         func_id : func_id.clone()
@@ -908,7 +908,7 @@ evaluate_anonymous_function_implementation :: (
           params : ArrayList(String).new(),
           param_type_names : ArrayList(String).new(),
           evidence_params : ArrayList(String).new(),
-          body : box(body_for_def_eval.clone()),
+          body : body_for_def_eval.clone(),
           cap_names : ArrayList(String).new(),
           cap_tys : ArrayList(TypeValue).new(),
           func_id : func_id.clone()

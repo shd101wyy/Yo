@@ -21,7 +21,7 @@ FuncValData :: struct(
   params : ArrayList(String),
   param_type_names : ArrayList(String),
   evidence_params : ArrayList(String),
-  body : Box(AstExpr),
+  body : AstExpr,
   cap_names : ArrayList(String),
   cap_tys : ArrayList(TypeValue),
   func_id : String
@@ -182,7 +182,7 @@ EvalValue :: enum(
   /// `expr` holds the quoted `AstExpr` node.
   /// Equality is always `false` (no structural AST equality yet).
   /// Mirrors TypeScript's `ExprValue`.
-  ExprVal(expr : Box(AstExpr)),
+  ExprVal(expr : AstExpr),
   /// A compile-time placeholder for a variable whose value is not yet known.
   ///
   /// Used by `evaluateBinding` for `(x : T)` declarations before the
@@ -502,9 +502,9 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     .ExprVal(a_ex) => match(
       b,
       .ExprVal(b_ex) => match(
-        a_ex.*,
+        a_ex,
         .Atom(_, atok) => match(
-          b_ex.*,
+          b_ex,
           .Atom(_, btok) => (atok.value == btok.value),
           _ => false
         ),

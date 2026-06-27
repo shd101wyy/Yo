@@ -966,7 +966,7 @@ _build_forward_ref_funcval :: (
             params : __fvm1.*.params.clone(),
             param_type_names : __fvm1.*.param_type_names.clone(),
             evidence_params : __fvm1.*.evidence_params.clone(),
-            body : box(make_err_expr()),
+            body : make_err_expr(),
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
             func_id : specialized_func_id
@@ -1297,7 +1297,7 @@ create_specialized_function_inline :: (
           // A fresh-id clone gives each specialization independent nodes. Mirrors
           // TS specializeFunction (`cloneExpr` of the body). The specialized
           // FuncVal below carries this clone so codegen walks the right nodes.
-          cloned_body := clone_expr_fresh_ids(body.*);
+          cloned_body := clone_expr_fresh_ids(body);
           // Mark `ref`-parameter bindings as is_ref so the specialized body's
           // codegen dereferences them (`(*self)->field`), matching the def-time
           // body-eval path (_build_def_time_body_env). try_to_call binds params
@@ -1464,7 +1464,7 @@ create_specialized_function_inline :: (
                 params : params,
                 param_type_names : param_type_names,
                 evidence_params : evidence_params,
-                body : Box(AstExpr)(cloned_body),
+                body : cloned_body,
                 cap_names : new_cap_names,
                 cap_tys : new_cap_tys,
                 func_id : specialized_func_id
@@ -1587,7 +1587,7 @@ evaluate_ctl_function_body_inline :: (
   orig_params := match(original_func_val,.FuncVal(__fvd4, _) => __fvd4.*.params, _ => ArrayList(String).new());
   orig_param_type_names := match(original_func_val,.FuncVal(__fvd5, _) => __fvd5.*.param_type_names, _ => ArrayList(String).new());
   orig_evidence_params := match(original_func_val,.FuncVal(__fvd6, _) => __fvd6.*.evidence_params, _ => ArrayList(String).new());
-  orig_body := match(original_func_val,.FuncVal(__fvd7, _) => __fvd7.*.body, _ => Box(AstExpr)(make_err_expr()));
+  orig_body := match(original_func_val,.FuncVal(__fvd7, _) => __fvd7.*.body, _ => make_err_expr());
   orig_cap_names := match(original_func_val,.FuncVal(__fvd8, _) => __fvd8.*.cap_names, _ => ArrayList(String).new());
   orig_cap_tys := match(original_func_val,.FuncVal(__fvd9, _) => __fvd9.*.cap_tys, _ => ArrayList(TypeValue).new());
   orig_cap_vals := match(original_func_val,.FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
@@ -1778,7 +1778,7 @@ evaluate_ctl_function_body_inline :: (
   // Evaluate the body.
   // -------------------------------------------------------------------------
   ctl_body := evaluate_begin_expression(
-    orig_body.*,
+    orig_body,
     specialized_env,
     ctx,
     ArrayList(Variable).new(),
@@ -1828,7 +1828,7 @@ evaluate_ctl_function_body_inline :: (
         params : orig_params,
         param_type_names : orig_param_type_names,
         evidence_params : orig_evidence_params,
-        body : Box(AstExpr)(orig_body.*),
+        body : orig_body,
         cap_names : ctl_cap_names,
         cap_tys : ctl_cap_tys,
         func_id : ctl_func_id.clone()
@@ -1995,7 +1995,7 @@ validate_where_constraints_for_call :: (
 /// `.Variant`-shorthand argument cannot resolve its enum type. Mirrors TS
 /// `helper.ts:1283-1310`: synthesize the foralls from the expected type, then
 /// re-evaluate the parameter types so they become concrete (`V → Tree` for
-/// `box(.Atom(...))` with expected `Box(Tree)`).
+/// `(.Atom(...))` with expected `Box(Tree)`).
 ///
 /// The resolved types are pushed to `out` (which the caller pre-creates empty);
 /// on synthesis failure `out` stays empty and the caller keeps the declared

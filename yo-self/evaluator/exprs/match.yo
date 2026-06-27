@@ -1154,7 +1154,7 @@ evaluate_match :: (
   // Resolve a leaked recursive-enum SELF-SHELL (an empty-variant EnumT whose id
   // is registered in the enum-final registry) to its finalized form before
   // reading variants. The shell-patch in evaluate_enum_type replaces only ONE
-  // level of self-nesting, so a deeper deref — e.g. matching `inner_func_box.*`
+  // level of self-nesting, so a deeper deref — e.g. matching `inner_func_box`
   // where `func : Box(Self)` is two levels into AstExpr — surfaces the raw shell
   // here. Without this, the variant lookup throws "variant not found in
   // <enum:..._self_shell>" (the def-time body-eval of `is_function_boundary_arrow`
@@ -1235,7 +1235,7 @@ evaluate_match :: (
     );
     func_of_mae := match(
       match_arm_expr,
-      .FnCall(_, func_box, _, _, _) => Option(AstExpr).Some(func_box.*),
+      .FnCall(_, func_box, _, _, _) => Option(AstExpr).Some(func_box),
       .Atom(_, _) => Option(AstExpr).None
     );
     is_with_fields := cond(

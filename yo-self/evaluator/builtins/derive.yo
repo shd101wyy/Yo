@@ -70,13 +70,13 @@ call_registered_derive_rule :: (
   tok := ast_expr_token(trait_arg_expr);
   // Build the DeriveContext StructVal.
   // target field: ExprVal wrapping the target type expression.
-  target_ev := EvalValue.ExprVal(box(target_type_expr));
+  target_ev := EvalValue.ExprVal(target_type_expr);
   // forall_params field: Option(Expr) → EnumVal.
   forall_inner := ArrayList(EvalValue).new();
   forall_pms_ev := match(
     forall_arg_opt,
     .Some(forall_expr) => {
-      forall_inner.push(EvalValue.ExprVal(box(forall_expr)));
+      forall_inner.push(EvalValue.ExprVal(forall_expr));
       EvalValue.EnumVal(String.from(".Some"), forall_inner)
     },
     .None => EvalValue.EnumVal(String.from(".None"), ArrayList(EvalValue).new())
@@ -86,7 +86,7 @@ call_registered_derive_rule :: (
   where_pms_ev := match(
     where_arg_opt,
     .Some(where_expr) => {
-      where_inner.push(EvalValue.ExprVal(box(where_expr)));
+      where_inner.push(EvalValue.ExprVal(where_expr));
       EvalValue.EnumVal(String.from(".Some"), where_inner)
     },
     .None => EvalValue.EnumVal(String.from(".None"), ArrayList(EvalValue).new())
@@ -111,7 +111,7 @@ call_registered_derive_rule :: (
         match(
           ta_args.get(ti),
           .Some(ta) => {
-            trait_param_evs.push(EvalValue.ExprVal(box(ta)));
+            trait_param_evs.push(EvalValue.ExprVal(ta));
           },
           .None => ()
         );
@@ -302,7 +302,7 @@ call_registered_derive_rule :: (
       ctx.enclosing_function_return_type = Option(TypeValue).Some(t_unit());
       // Evaluate the function body.
       evaled_body := evaluate_begin_expression(
-        body_box.*,
+        body_box,
         fresh_env,
         ctx,
         ArrayList(Variable).new(),
@@ -336,7 +336,7 @@ call_registered_derive_rule :: (
       );
       result_expr := match(
         body_val,
-        .ExprVal(expr_box) => expr_box.*,
+        .ExprVal(expr_box) => expr_box,
         _ => {
           exn.throw(
             dyn(
@@ -517,7 +517,7 @@ evaluate_derive :: (
         fp,
         .Atom(_, ftok) => ftok.value,
         .FnCall(_, func_b, fa2, _, _) => match(
-          func_b.*,
+          func_b,
           .Atom(_, op_tok) => cond(
             (op_tok.value == ":") => match(
               fa2.get(usize(0)),

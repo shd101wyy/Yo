@@ -292,7 +292,7 @@ is_named_field_arg :: (fn(args : ArrayList(AstExpr)) -> bool)(
           cond(
             a0infix =>
               match(
-                a0f.*,
+                a0f,
                 .Atom(_, a0tok) => (a0tok.value == ":"),
                 .FnCall(_, _, _, _, _) => false
               ),
@@ -419,7 +419,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
     // -----------------------------------------------------------------------
     .FnCall(_, pat_func, pat_args, _, _) =>
       match(
-        pat_func.*,
+        pat_func,
         // Fieldless variant — TS format  : FnCall(Atom(Dot), [Atom("None")], infix=true)
         // Variant-with-args — self-hosted: FnCall(Atom(Dot), [FnCall(Atom("Some"), [x, …], false)], false)
         .Atom(_, dot_tok) =>
@@ -444,7 +444,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
                     // Variant-with-args — self-hosted format: .Some(x, …)
                     .FnCall(_, sh_vfunc, sh_vargs, _, _) => {
                       sh_vname := match(
-                        sh_vfunc.*,
+                        sh_vfunc,
                         .Atom(_, sh_vntok) => sh_vntok.value.clone(),
                         .FnCall(_, _, _, _, _) => {
                           return(false);
@@ -506,7 +506,7 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
         .FnCall(_, inner_dot_func, inner_dot_args, _, _) => {
           // Verify inner func is a dot
           (is_dot : bool) = match(
-            inner_dot_func.*,
+            inner_dot_func,
             .Atom(_, dt) => (dt.kind == TokenKind.Dot),
             .FnCall(_, _, _, _, _) => false
           );
@@ -743,7 +743,7 @@ call_funcval_with_args :: (
                 );
                 evi = (evi + usize(1));
               });
-              body_rh := ef(body.*, fresh_fn_env);
+              body_rh := ef(body, fresh_fn_env);
               match(
                 body_rh,
                 .None => Option(EvalResult).None,
@@ -778,7 +778,7 @@ handle_array_push_mutation :: (
     rhs_expr,
     .FnCall(_, mfunc_box_m, margs_m, _, _) =>
       match(
-        mfunc_box_m.*,
+        mfunc_box_m,
         .Atom(_, mtok_m) =>
           cond(
             ((mtok_m.value == "push") && (margs_m.len() == usize(1))) =>
@@ -1060,13 +1060,13 @@ eval_values_equal :: (fn(a : EvalValue, b : EvalValue) -> bool)(
 handle_method_dispatch :: (
   fn(
     recv_val : EvalValue,
-    method_func_box : Box(AstExpr),
+    method_func_box : AstExpr,
     method_call_args : ArrayList(AstExpr),
     env : Environment
   ) -> Option(EvalResult)
 )(
   match(
-    method_func_box.*,
+    method_func_box,
     .FnCall(_, _, _, _, _) => Option(EvalResult).None,
     .Atom(_, mtok) => {
       mname := mtok.value.clone();
@@ -1095,7 +1095,7 @@ handle_method_dispatch :: (
           match(
             recv_val,
             .ExprVal(e_box) => {
-              is_a := match(e_box.*,.Atom(_, _) => true,.FnCall(_, _, _, _, _) => false);
+              is_a := match(e_box,.Atom(_, _) => true,.FnCall(_, _, _, _, _) => false);
               return(Option(EvalResult).Some(eval_result(.BoolVal(is_a), t_bool())));
             },
             _ => ()
@@ -1104,7 +1104,7 @@ handle_method_dispatch :: (
           match(
             recv_val,
             .ExprVal(e_box2) => {
-              is_f := match(e_box2.*,.Atom(_, _) => false,.FnCall(_, _, _, _, _) => true);
+              is_f := match(e_box2,.Atom(_, _) => false,.FnCall(_, _, _, _, _) => true);
               return(Option(EvalResult).Some(eval_result(.BoolVal(is_f), t_bool())));
             },
             _ => ()
@@ -1113,7 +1113,7 @@ handle_method_dispatch :: (
           match(
             recv_val,
             .ExprVal(e_box3) => match(
-              e_box3.*,
+              e_box3,
               .FnCall(_, fbox, _, _, _) =>
                 {
                   return(Option(EvalResult).Some(eval_result(.ExprVal(fbox), t_expr_t())));
@@ -1128,7 +1128,7 @@ handle_method_dispatch :: (
           match(
             recv_val,
             .ExprVal(e_box4) => match(
-              e_box4.*,
+              e_box4,
               .FnCall(_, _, fargs, _, _) => {
                 (out : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
                 (k : usize) = usize(0);
@@ -1137,7 +1137,7 @@ handle_method_dispatch :: (
                   match(
                     fargs.get(k),
                     .Some(ae) => {
-                      out.push(.ExprVal(box(ae)));
+                      out.push(.ExprVal(ae));
                     },
                     .None => ()
                   );
@@ -3948,7 +3948,7 @@ handle_impl_form :: (
                     cond(
                       (colon_infix) =>
                         match(
-                          colon_func.*,
+                          colon_func,
                           .Atom(_, colon_tok) => {
                             cond(
                               (colon_tok.value == ":") => {
@@ -4009,7 +4009,7 @@ handle_impl_form :: (
                                   cond(
                                     (inner_infix) =>
                                       match(
-                                        inner_func.*,
+                                        inner_func,
                                         .Atom(_, inner_tok) => {
                                           cond(
                                             (inner_tok.value == ":") => {
@@ -4104,7 +4104,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Op
           // export(name1, name2, …) — collect exported bindings
           .FnCall(_, fb, fargs, _, _) =>
             match(
-              fb.*,
+              fb,
               .Atom(_, ftok) =>
                 cond(
                   (ftok.value == BK_EXPORT) => {
@@ -4252,7 +4252,7 @@ handle_anon_struct_form :: (
           // Could be a labeled field: label : value  (infix ":" call)
           .FnCall(_, as_f, as_na, as_infix, _) =>
             cond(
-              (as_infix && match(as_f.*,.Atom(_, as_ct) => (as_ct.value == ":"),.FnCall(_, _, _, _, _) => false)) =>
+              (as_infix && match(as_f,.Atom(_, as_ct) => (as_ct.value == ":"),.FnCall(_, _, _, _, _) => false)) =>
                 match(
                   as_na.get(usize(0)),
                   .Some(as_le) =>
@@ -4474,12 +4474,12 @@ eval_float_neg :: (fn(v : EvalResult) -> Option(EvalResult))({
 /// Returns `Some(name)` when the box is `comptime(Atom(name))`, else `None`.
 extract_comptime_param_name :: (
   fn(
-    ct_box : Box(AstExpr),
+    ct_box : AstExpr,
     ct_args : ArrayList(AstExpr)
   ) -> Option(String)
 )(
   match(
-    ct_box.*,
+    ct_box,
     .Atom(_, ct_tok) =>
       cond(
         (ct_tok.value == "comptime") =>
@@ -4506,12 +4506,12 @@ extract_comptime_param_name :: (
 /// `src/evaluator/types/function.ts` (the `quote(name) : T` syntax).
 extract_quote_param_name :: (
   fn(
-    ct_box : Box(AstExpr),
+    ct_box : AstExpr,
     ct_args : ArrayList(AstExpr)
   ) -> Option(String)
 )(
   match(
-    ct_box.*,
+    ct_box,
     .Atom(_, ct_tok) =>
       cond(
         (ct_tok.value == "quote") =>
@@ -4541,7 +4541,7 @@ extract_evidence_param_name :: (fn(ev_inner : AstExpr) -> Option(String))(
     ev_inner,
     .FnCall(_, ev_kw_box, ev_kw_args, _, _) =>
       match(
-        ev_kw_box.*,
+        ev_kw_box,
         .Atom(_, ev_kw_tok) =>
           cond(
             (ev_kw_tok.value == ":") =>
@@ -4625,7 +4625,7 @@ handle_enum_def :: (
             is_eq_wrap := match(
               variant_expr,
               .FnCall(_, fb, _, vis_infix, _) =>
-                match(fb.*,.Atom(_, tok) => ((tok.value == "=") && vis_infix),.FnCall(_, _, _, _, _) => false),
+                match(fb,.Atom(_, tok) => ((tok.value == "=") && vis_infix),.FnCall(_, _, _, _, _) => false),
               .Atom(_, _) => false
             );
             if(is_eq_wrap, {
@@ -4697,7 +4697,7 @@ handle_enum_def :: (
               },
               .FnCall(_, vfunc_box, vfield_args, _, _) => {
                 vname_s := match(
-                  vfunc_box.*,
+                  vfunc_box,
                   .Atom(_, vftok) => vftok.value.clone(),
                   .FnCall(_, _, _, _, _) => {
                     ok = false;
@@ -4720,7 +4720,7 @@ handle_enum_def :: (
                           is_colon_field := match(
                             field_e,
                             .FnCall(_, fc_box, _, fc_infix, _) =>
-                              match(fc_box.*,.Atom(_, fc_tok) => ((fc_tok.value == ":") && fc_infix),.FnCall(_, _, _, _, _) => false),
+                              match(fc_box,.Atom(_, fc_tok) => ((fc_tok.value == ":") && fc_infix),.FnCall(_, _, _, _, _) => false),
                             .Atom(_, _) => false
                           );
                           cond(
@@ -4841,7 +4841,7 @@ handle_struct_def :: (
             is_labeled := match(
               field_expr,
               .FnCall(_, fb, _, finfix, _) =>
-                match(fb.*,.Atom(_, tok) => ((tok.value == ":") && finfix),.FnCall(_, _, _, _, _) => false),
+                match(fb,.Atom(_, tok) => ((tok.value == ":") && finfix),.FnCall(_, _, _, _, _) => false),
               .Atom(_, _) => false
             );
             cond(
@@ -4947,7 +4947,7 @@ handle_union_def :: (
             is_labeled := match(
               field_expr,
               .FnCall(_, fb, _, finfix, _) =>
-                match(fb.*,.Atom(_, tok) => ((tok.value == ":") && finfix),.FnCall(_, _, _, _, _) => false),
+                match(fb,.Atom(_, tok) => ((tok.value == ":") && finfix),.FnCall(_, _, _, _, _) => false),
               .Atom(_, _) => false
             );
             cond(
@@ -5074,7 +5074,7 @@ splice_unquote :: (fn(e : AstExpr, env : Environment) -> AstExpr)(
       // Detect `unquote(name)` shape: head is Atom("unquote"), exactly 1 arg,
       // and the arg is an Atom identifier whose name is bound in env to ExprVal.
       is_unquote := match(
-        func_box.*,
+        func_box,
         .Atom(_, htok) => (htok.value == "unquote"),
         .FnCall(_, _, _, _, _) => false
       );
@@ -5096,14 +5096,14 @@ splice_unquote :: (fn(e : AstExpr, env : Environment) -> AstExpr)(
                 .Some(rv) =>
                   match(
                     rv.value,
-                    .ExprVal(inner_box) => inner_box.*,
+                    .ExprVal(inner_box) => inner_box,
                     _ => e
                   )
               )
           ),
         true => {
           // Generic walk: splice into func_box and each arg.
-          new_func := recur(func_box.*, env);
+          new_func := recur(func_box, env);
           new_args := ArrayList(AstExpr).new();
           n_su := args.len();
           (i_su : usize) = usize(0);
@@ -5117,7 +5117,7 @@ splice_unquote :: (fn(e : AstExpr, env : Environment) -> AstExpr)(
             );
             i_su = (i_su + usize(1));
           });
-          .FnCall(fid, box(new_func), new_args, is_infix, ftok)
+          .FnCall(fid, new_func, new_args, is_infix, ftok)
         }
       )
     }
@@ -5133,19 +5133,19 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
       eval_atom(tok, env),
     .FnCall(_, func_box, args, is_infix, _tok) =>
       match(
-        func_box.*,
+        func_box,
         // -----------------------------------------------------------------
         // Enum variant construction with args: .Some(42), .Ok(x), …
-        //   func_box.* = FnCall(Atom(Dot), [Atom("Some")], true)
+        //   func_box = FnCall(Atom(Dot), [Atom("Some")], true)
         //   outer args = [arg1, arg2, …]
         //
         // Function definition: (fn(params) -> RetType)(body)
-        //   func_box.* = FnCall(Atom("->"), [FnCall(Atom("fn"), [...]), RetType], true)
+        //   func_box = FnCall(Atom("->"), [FnCall(Atom("fn"), [...]), RetType], true)
         //   outer args = [body_expr]
         // -----------------------------------------------------------------
         .FnCall(_, inner_func, inner_args, _, _) =>
           match(
-            inner_func.*,
+            inner_func,
             .Atom(_, dt) =>
               cond(
                 // ---- Dot head: two cases ----
@@ -5274,7 +5274,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           );
                         });
                       });
-                      handle_method_dispatch(recv_res.value, box(method_expr), args, env)
+                      handle_method_dispatch(recv_res.value, method_expr, args, env)
                     },
                     // TS-format enum variant with args: inner_args has 1 element
                     true => {
@@ -5333,7 +5333,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .FnCall(_, fn_func_box, fn_params_list, _, _) => {
                           // Verify func_box is `fn` atom
                           ok_fn := match(
-                            fn_func_box.*,
+                            fn_func_box,
                             .Atom(_, fntok) => (fntok.value == "fn"),
                             .FnCall(_, _, _, _, _) => false
                           );
@@ -5369,7 +5369,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                       pd,
                                       .FnCall(_, kw_box, kw_args, _, _) =>
                                         match(
-                                          kw_box.*,
+                                          kw_box,
                                           .Atom(_, kw_tok) =>
                                             cond(
                                               (kw_tok.value == ":") =>
@@ -5436,7 +5436,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                                       // Constrained: forall(T: Constraint)
                                                       .FnCall(_, fa_c_box, fa_c_args, _, _) =>
                                                         match(
-                                                          fa_c_box.*,
+                                                          fa_c_box,
                                                           .Atom(_, fa_c_tok) =>
                                                             cond(
                                                               (fa_c_tok.value == ":") =>
@@ -5581,7 +5581,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                                 params : params_f,
                                                 param_type_names : param_type_names_f,
                                                 evidence_params : evidence_params_f,
-                                                body : box(body_expr),
+                                                body : body_expr,
                                                 cap_names : cap_names_f,
                                                 cap_tys : cap_tys_f,
                                                 func_id : func_id_f
@@ -5788,7 +5788,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                             // (a, b) := rhs — tuple destructuring
                             .FnCall(_, colon_box_a, colon_args_a, _, _) =>
                               match(
-                                colon_box_a.*,
+                                colon_box_a,
                                 .Atom(_, colon_tok_a) =>
                                   cond(
                                     // Tuple destructuring: (a, b, c) := rhs
@@ -5940,7 +5940,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                             // struct field mutation OR typed declaration
                             .FnCall(_, colon_box_b, colon_args_b, lhs_infix_b, _) =>
                               match(
-                                colon_box_b.*,
+                                colon_box_b,
                                 .Atom(_, colon_tok_b) =>
                                   cond(
                                     (colon_tok_b.value == ":") =>
@@ -6539,7 +6539,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               .EnumT(_, _, _, _, _, _, _, _, _) => {
                                 // Get variant name from method_func_box2
                                 vname_tv2 := match(
-                                  method_func_box2.*,
+                                  method_func_box2,
                                   .Atom(_, vntok2) => vntok2.value.clone(),
                                   _ => String.new()
                                 );
@@ -6605,7 +6605,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         // FnCall(Atom(Dot), [FnCall(Atom("Some"), [Atom("42")], false)], false)
                         .FnCall(_, vfunc, vargs, _, _) => {
                           vname := match(
-                            vfunc.*,
+                            vfunc,
                             .Atom(_, vntok) => vntok.value.clone(),
                             .FnCall(_, _, _, _, _) => {
                               return(Option(EvalResult).None);
@@ -6670,7 +6670,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               // Each arm: FnCall(Atom("=>"), [pattern, body], _)
                               .FnCall(_, arrow_func, arm_sub, _, _) =>
                                 match(
-                                  arrow_func.*,
+                                  arrow_func,
                                   .Atom(_, arrtok) =>
                                     cond(
                                       (!(arrtok.value == "=>")) => (),
@@ -6742,7 +6742,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         raw_cond,
                         .FnCall(_, rt_func, rt_args, _, _) =>
                           match(
-                            rt_func.*,
+                            rt_func,
                             .Atom(_, rttok) =>
                               cond(
                                 (rttok.value == "runtime") =>
@@ -6923,7 +6923,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     .None => Option(EvalResult).None,
                     .Some(quoted_expr) => {
                       spliced := splice_unquote(quoted_expr, env);
-                      .Some(eval_result(.ExprVal(box(spliced)), t_expr_t()))
+                      .Some(eval_result(.ExprVal(spliced), t_expr_t()))
                     }
                   )
               ),
@@ -6977,7 +6977,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               input : String.from("")
                             );
                             sym_expr := AstExpr.Atom(usize(0), sym_tok);
-                            .Some(eval_result(.ExprVal(box(sym_expr)), t_expr_t()))
+                            .Some(eval_result(.ExprVal(sym_expr), t_expr_t()))
                           },
                           _ => Option(EvalResult).None
                         )
@@ -7160,7 +7160,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                             // Destructuring: { A, B, … } :: rhs (anon-struct LHS)
                             .FnCall(_, lhs_fb, lhs_args, _, _) =>
                               match(
-                                lhs_fb.*,
+                                lhs_fb,
                                 .Atom(_, lhs_tok) =>
                                   cond(
                                     (lhs_tok.value == BK_ANON_STRUCT) =>
@@ -7361,7 +7361,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                 .Some(__ref_inner) => match(
                   __ref_inner,
                   .FnCall(_, __rib, __ria, _, _) => match(
-                    __rib.*,
+                    __rib,
                     .Atom(_, __rit) => cond(
                       (__rit.value == BK_STRUCT) => handle_struct_def(__ria, true, false, env),
                       true => Option(EvalResult).None
@@ -7434,7 +7434,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   )
               ),
             // -----------------------------------------------------------------
-            // Phase 3am: box(expr) — heap-boxing. At compile time, wraps the
+            // Phase 3am: expr — heap-boxing. At compile time, wraps the
             // value in PtrVal so that `box(x).*` round-trips correctly.
             // -----------------------------------------------------------------
             ((fval == "box") && (args.len() == usize(1))) =>
@@ -7677,7 +7677,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           },
                           .FnCall(_, pf, pargs, _, _) =>
                             match(
-                              pf.*,
+                              pf,
                               .Atom(_, pftok) =>
                                 cond(
                                   (pftok.value == BK_TUPLE) => {
@@ -7697,7 +7697,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                             .FnCall(_, pe_f, pe_args, pe_infix, _) =>
                                               cond(
                                                 // (x : T) — typed param
-                                                (pe_infix && match(pe_f.*,.Atom(_, ct) => (ct.value == ":"),.FnCall(_, _, _, _, _) => false)) =>
+                                                (pe_infix && match(pe_f,.Atom(_, ct) => (ct.value == ":"),.FnCall(_, _, _, _, _) => false)) =>
                                                   match(
                                                     pe_args.get(usize(0)),
                                                     .Some(name_e) => match(
@@ -7762,7 +7762,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                             .FnCall(_, fpe_f, fpe_args, fpe_infix, _) =>
                                               cond(
                                                 // (x : T) inside fn(...)
-                                                (fpe_infix && match(fpe_f.*,.Atom(_, fct) => (fct.value == ":"),.FnCall(_, _, _, _, _) => false)) =>
+                                                (fpe_infix && match(fpe_f,.Atom(_, fct) => (fct.value == ":"),.FnCall(_, _, _, _, _) => false)) =>
                                                   match(
                                                     fpe_args.get(usize(0)),
                                                     .Some(fn_e) => match(
@@ -7831,7 +7831,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   params : params_f,
                                   param_type_names : param_type_names_f,
                                   evidence_params : ArrayList(String).new(),
-                                  body : box(body_expr),
+                                  body : body_expr,
                                   cap_names : cap_names_f,
                                   cap_tys : cap_tys_f,
                                   func_id : random_id(String.from("lambda"))
@@ -7874,7 +7874,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           },
                           .FnCall(_, pfb, pfa, _, _) =>
                             match(
-                              pfb.*,
+                              pfb,
                               .Atom(_, pft) =>
                                 cond(
                                   (pft.value == BK_TUPLE) => {
@@ -7892,7 +7892,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                             },
                                             .FnCall(_, cff, cfa, _, _) =>
                                               match(
-                                                cff.*,
+                                                cff,
                                                 .Atom(_, cft) =>
                                                   cond(
                                                     (cft.value == ":") =>
@@ -7965,7 +7965,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   params : params_m,
                                   param_type_names : ptnames_m,
                                   evidence_params : ArrayList(String).new(),
-                                  body : box(b_expr),
+                                  body : b_expr,
                                   cap_names : cn_m,
                                   cap_tys : ct_m,
                                   func_id : random_id(String.from("lambda_mut"))
@@ -8040,7 +8040,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       cond(
                         a0infix =>
                           match(
-                            a0f.*,
+                            a0f,
                             .Atom(_, a0tok) => (a0tok.value == ":"),
                             .FnCall(_, _, _, _, _) => false
                           ),
@@ -8139,7 +8139,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   .Some(arg_expr) =>
                                     cond(
                                       (fv_is_macro && is_param_quoted(__fvd1.*.func_id.clone(), gi)) => {
-                                        evaled_g.push(eval_result(.ExprVal(box(arg_expr.clone())), t_expr_t()));
+                                        evaled_g.push(eval_result(.ExprVal(arg_expr.clone()), t_expr_t()));
                                       },
                                       true =>
                                         match(
@@ -8170,7 +8170,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                         .Some(cr) =>
                                           match(
                                             cr.value,
-                                            .ExprVal(expanded_box) => recur(expanded_box.*, env),
+                                            .ExprVal(expanded_box) => recur(expanded_box, env),
                                             _ => call_res
                                           )
                                       ),

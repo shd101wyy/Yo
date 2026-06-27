@@ -86,7 +86,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   // (`uint8_t t = arr.data[0]; &t`). snprintf then overflows the temp → SIGTRAP.
   // Emit the address INTO the array buffer directly: `(&((&arr)->data[i]))`.
   if(ast_expr_is_fn_call(arg) && match(arg_ei_opt,.Some(aei) => aei.index_method_value.is_none(),.None => true), {
-    callee_expr := match(arg,.FnCall(_, func, _, _, _) => func.*,.Atom(_, _) => arg);
+    callee_expr := match(arg,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => arg);
     callee_is_array := match(context.base.get_expr_info(callee_expr),.Some(cei) => is_array_type(cei.ty),.None => false);
     if(callee_is_array, {
       callee_code := _call_generate_expr(callee_expr, indent.clone(), context);
@@ -106,7 +106,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       .Some(arg_ei) => match(
         arg_ei.index_method_value,
         .Some(mv) => if(is_func_val(mv), {
-          callee_expr := match(arg,.FnCall(_, func, _, _, _) => func.*,.Atom(_, _) => arg);
+          callee_expr := match(arg,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => arg);
           (callee_code : String) = _call_generate_expr(callee_expr, indent.clone(), context);
           // Spill an rvalue callee into a temp (can't address an rvalue).
           if(ast_expr_is_fn_call(callee_expr) && (!(ast_expr_is_atom(callee_expr)) && !(ast_expr_is_fn_call_of(callee_expr, BF_DOT, Option(usize).None))), {
