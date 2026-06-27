@@ -24,8 +24,9 @@
 //! type_requires_comptime_modifier, type_prohibits_comptime_modifier,
 //! type_implements_runtime_builtin, type_implements_runtime,
 //! type_contains_rc_type (recursive, with depth-limit cycle guard),
-//! can_type_form_rc_cycle (conservative `false` stub —
-//! `type_implements_acyclic` lives in trait_checking.yo),
+//! can_type_form_rc_cycle (full structural DFS with an id-keyed visited set;
+//! omits only the env-gated `typeImplementsAcyclic` short-circuit — codegen
+//! call sites carry no env — which is conservative, not a stub),
 //! type_requires_inference (`false` — yo-self Array length is always
 //! concretely known), type_contains_some_type (top-level only;
 //! recursive descent in `_collect_some_types_into`), get_all_some_types,
@@ -514,10 +515,187 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
 type_is_control_bound :: (fn(ty : TypeValue) -> bool)(
   _type_is_control_bound_inner(ty, u32(0))
 );
-/// Return `true` if the type can form an RC reference cycle.
-/// Full implementation needs `typeImplementsAcyclic` (Phase 3).
-/// Stub: always returns `false` — conservative.
-can_type_form_rc_cycle :: (fn(_ty : TypeValue) -> bool)(false);
+/// True iff `id` is already in `visited` (linear scan; visited lists are tiny).
+_id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
+  (i : usize) = usize(0);
+  n := visited.len();
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      visited.get(i),
+      .Some(v) => if(v == id, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Walker for `can_type_form_rc_cycle`: does `ty` (a field type reached from the
+/// root ref-struct `original_id`) reference back to a cyclic RC object? Mirrors
+/// `typeCanFormCyclicRcReference` in `src/types/utils.ts`. `visited` holds the
+/// ids of the RC structs / enums already on the current path (id-keyed cycle
+/// guard — sound now that ref types carry stable ids). A different RC struct
+/// re-roots the search inline (recur with its id as the new `original_id` and
+/// itself pushed onto `visited`), so no separate mutually-recursive entry is
+/// needed. The enum branch carries the same visited guard the struct path has
+/// (a recursive `ref(enum(… Self …))` would otherwise loop forever).
+_type_refs_back_to_cyclic :: (
+  fn(ty : TypeValue, original_id : String, visited : ArrayList(String)) -> bool
+)(
+  match(
+    ty,
+    .Struct({ id : sid, field_types : sfields, is_reference_semantics : sref }) => cond(
+      // Direct self-reference back to the current root.
+      (sid == original_id) => true,
+      // A different RC object — re-root the search at it (TS:
+      // `canTypeFormRcCycle(type, new Set(visitedTypes))`).
+      sref => cond(
+        _id_already_visited(visited, sid) => true,
+        true => {
+          v2 := visited.clone();
+          _ := v2.push(sid);
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < sfields.len()) && !(found), {
+            match(
+              sfields.get(i),
+              .Some(ft) => if(recur(ft, sid, v2), {
+                found = true;
+              }),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          found
+        }
+      ),
+      // Value-type struct (struct / newtype): stored inline but may hold RC
+      // references that close a cycle. Keep the same root.
+      true => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < sfields.len()) && !(found), {
+          match(
+            sfields.get(i),
+            .Some(ft) => if(recur(ft, original_id, visited), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      }
+    ),
+    // Enum variants — guard with `visited` (by enum id) so a recursive ref-enum
+    // does not loop forever.
+    .EnumT({ id : eid, variant_fields : vfs }) => cond(
+      _id_already_visited(visited, eid) => false,
+      true => {
+        v2 := visited.clone();
+        _ := v2.push(eid);
+        (found : bool) = false;
+        (vi : usize) = usize(0);
+        while((vi < vfs.len()) && !(found), {
+          match(
+            vfs.get(vi),
+            .Some(vf) => {
+              (fi : usize) = usize(0);
+              while((fi < vf.len()) && !(found), {
+                match(
+                  vf.get(fi),
+                  .Some(ft) => if(recur(ft, original_id, v2), {
+                    found = true;
+                  }),
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        found
+      }
+    ),
+    // A SomeType could resolve to anything — be conservative (TS returns true
+    // when there is no `resolvedConcreteType`, which yo-self's `SomeT` lacks).
+    .SomeT(name : _) => true,
+    .Array({ element : el }) => recur(el, original_id, visited),
+    .Tuple({ field_types : tf }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < tf.len()) && !(found), {
+        match(
+          tf.get(i),
+          .Some(ft) => if(recur(ft, original_id, visited), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    .Union({ field_types : uf }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < uf.len()) && !(found), {
+        match(
+          uf.get(i),
+          .Some(ft) => if(recur(ft, original_id, visited), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    // Dynamic-dispatch types can hold object types — conservative.
+    .DynT(required_trait_types : _) => true,
+    // Raw pointers/references and primitives do not participate in ARC.
+    _ => false
+  )
+);
+/// Return `true` if `ty` can form an RC reference cycle — used to decide which
+/// reference-semantics types need cycle-collecting GC. Structural DFS with an
+/// id-keyed visited set. Mirrors `canTypeFormRcCycle` in `src/types/utils.ts`,
+/// EXCEPT the `typeImplementsAcyclic` short-circuit: that needs an `Environment`
+/// (to look up the `Acyclic` trait), which yo-self's codegen call sites do not
+/// carry — yo-self `TypeValue` stores no `env` like TS `type.env`. Omitting it
+/// is conservative (an explicitly-`Acyclic`-marked but structurally-cyclic type
+/// is still GC-tracked — safe, just not optimized away) and keeps the evaluator
+/// and codegen call sites consistent.
+can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
+  cond(
+    !(is_reference_struct_type(ty)) => false,
+    true => match(
+      ty,
+      .Struct({ id : sid, field_types : fields }) => {
+        visited := ArrayList(String).new();
+        _ := visited.push(sid);
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < fields.len()) && !(found), {
+          match(
+            fields.get(i),
+            .Some(ft) => if(_type_refs_back_to_cyclic(ft, sid, visited), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      _ => false
+    )
+  )
+);
 /// Return `true` if the type needs type-inference to resolve fully
 /// — specifically when an `Array(T, length)` carries an unknown
 /// `length` that the evaluator must compute. Mirrors
@@ -549,23 +727,7 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
 );
 /// Internal helper: recursively collect all SomeT instances from `ty` into `acc`.
 /// Phase 3: no cycle detection (safe for acyclic TypeValue trees).
-/// True iff `id` is already in `visited` (linear scan; visited lists are tiny).
-_id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
-  (i : usize) = usize(0);
-  n := visited.len();
-  (found : bool) = false;
-  while((i < n) && !(found), {
-    match(
-      visited.get(i),
-      .Some(v) => if(v == id, {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
+/// (`_id_already_visited` is defined earlier, before `_type_refs_back_to_cyclic`.)
 _collect_some_types_into :: (
   fn(
     ty : TypeValue,

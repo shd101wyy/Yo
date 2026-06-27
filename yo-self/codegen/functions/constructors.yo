@@ -8,19 +8,19 @@
 //! runtime field. Generic objects (any runtime field containing a SomeType) are
 //! skipped — only concrete instantiations get constructors.
 //!
-//! DEFERRED (documented): the cyclic-GC sub-branches (gc_flags/gc_mark/gc_next/
-//! gc_prev header init, the dispose_fn function-pointer form, the
-//! `__yo_traverse_<cName>` pointer, and `__yo_gc_register(obj)`) are emitted
-//! only when needs_cycle_gc is true. generateRefStructTraversalFunctions (the
-//! traversal-function bodies they reference) is a separate ~100-line emitter,
-//! deferred with the rest of the cyclic-GC path; the corpus is non-cyclic so the
-//! lightweight (type_id) path is exercised first.
+//! The cyclic-GC sub-branches (gc_flags/gc_mark/gc_next/gc_prev header init, the
+//! dispose_fn function-pointer form, the `__yo_traverse_<cName>` pointer, and
+//! `__yo_gc_register(obj)`) are emitted only when needs_cycle_gc is true (i.e.
+//! some reference-semantics type can form an RC cycle). The traversal-function
+//! bodies they reference are emitted by `generate_ref_struct_traversal_functions`
+//! (mirrors `generateRefStructTraversalFunctions`), called from
+//! `generate_ref_struct_constructor_functions` on the cyclic-GC path.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_some_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
-{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, RuntimeStructField } :: import("../utils/index.yo");
+{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
@@ -149,10 +149,132 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   em.emit_string_line(String.from("}"));
   em.emit_string_line(String.from(""));
 });
+/// Emit the cycle-GC traversal function for ONE reference-semantics struct
+/// (`object`/`ref(struct(…))`). `__yo_traverse_<cName>(ptr, visit)` casts the
+/// handle and `visit()`s every reference field: a direct reference-struct or
+/// reference-enum field is a heap RC handle (visit the pointer); an embedded
+/// value-enum field is switched on its active tag, visiting that variant's
+/// reference-struct fields (mirrors `generateRefStructTraversalFunctions` — the
+/// embedded value-enum case visits reference-STRUCT variant fields only).
+/// Nullable-pointer-optimized and simple (no-data) enum fields hold no traceable
+/// references and are skipped.
+_generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  runtime_fields := get_runtime_struct_fields(type);
+  // Generic structs (any runtime field carrying a SomeType) get no traversal —
+  // only concrete instantiations, matching the constructor path.
+  if(_has_generic_fields(runtime_fields), {
+    return();
+  });
+  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*)) {`);
+  em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
+  nf := runtime_fields.len();
+  (fi : usize) = usize(0);
+  while(fi < nf, {
+    match(
+      runtime_fields.get(fi),
+      .Some(field) => {
+        fname := sanitize_for_c_identifier(field.label.clone(), false);
+        ft := field.ty;
+        cond(
+          // Direct reference field (ref-struct or ref-enum handle): visit it.
+          (is_reference_struct_type(ft) || is_reference_enum_type(ft)) => {
+            em.emit_string_line(`  if (obj->${fname}) { visit(obj->${fname}); }`);
+          },
+          // Embedded value-enum field: switch on the active tag, visit the
+          // reference-struct fields of that variant.
+          is_enum_type(ft) => {
+            is_nullable := match(can_optimize_as_nullable_pointer(ft),.Some(_) => true,.None => false);
+            if(!(is_nullable) && !(can_optimize_as_simple_enum(ft)), {
+              match(
+                ft,
+                .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+                  em.emit_string_line(`  switch (obj->${fname}.tag) {`);
+                  nv := variant_names.len();
+                  (vi : usize) = usize(0);
+                  while(vi < nv, {
+                    vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+                    vfields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+                    vlabels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+                    nvf := vfields.len();
+                    // Does this variant carry any reference-struct field?
+                    (has_rc : bool) = false;
+                    (ci : usize) = usize(0);
+                    while(ci < nvf, {
+                      match(
+                        vfields.get(ci),
+                        .Some(vt) => if(is_reference_struct_type(vt), {
+                          has_rc = true;
+                        }),
+                        .None => ()
+                      );
+                      ci = (ci + usize(1));
+                    });
+                    if(has_rc, {
+                      tag_c := get_enum_variant_c_name(ft, vname.clone(), context.base);
+                      em.emit_string_line(`  case ${tag_c}:`);
+                      (vfi : usize) = usize(0);
+                      while(vfi < nvf, {
+                        match(
+                          vfields.get(vfi),
+                          .Some(vt) => if(is_reference_struct_type(vt), {
+                            vflabel := match(vlabels.get(vfi),.Some(l) => l,.None => String.from(""));
+                            vfname := sanitize_for_c_identifier(vflabel, false);
+                            em.emit_string_line(`    if (obj->${fname}.data.${vname}.${vfname}) { visit(obj->${fname}.data.${vname}.${vfname}); }`);
+                          }),
+                          .None => ()
+                        );
+                        vfi = (vfi + usize(1));
+                      });
+                      em.emit_string_line(`    break;`);
+                    });
+                    vi = (vi + usize(1));
+                  });
+                  em.emit_string_line(`  }`);
+                },
+                _ => ()
+              );
+            });
+          },
+          true => ()
+        );
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  em.emit_string_line(`}`);
+  em.emit_string_line(``);
+});
+/// Generate cycle-GC traversal functions for every concrete, non-atomic
+/// reference-semantics struct. Mirrors `generateRefStructTraversalFunctions`.
+generate_ref_struct_traversal_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  vals := context.base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => {
+        ty := entry.ty;
+        // Atomic objects don't participate in cycle GC — no traversal needed.
+        if(is_reference_struct_type(ty) && !(is_atomic_reference_struct_type(ty)), {
+          _generate_one_ref_struct_traversal(ty, entry.c_name.clone(), context);
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
 /// Generate constructor implementations for every concrete object type. Mirrors
-/// `generateRefStructConstructorFunctions` (the traversal-function emission for
-/// the cyclic-GC path is deferred — see file header).
+/// `generateRefStructConstructorFunctions`: emits the cycle-GC traversal
+/// functions first (when needed), then the constructors.
 generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  // Only generate traversal functions when cycle GC is needed.
+  if(context.base.needs_cycle_gc, {
+    generate_ref_struct_traversal_functions(context);
+  });
   vals := context.base.types.values();
   (go : bool) = true;
   while(go, {

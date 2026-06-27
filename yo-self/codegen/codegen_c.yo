@@ -67,9 +67,9 @@ _struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
 /// layout (with or without GC fields). Mirrors the needs-cycle-GC loop in
 /// `CodeGeneratorC.compileModule` (src/codegen/codegen-c.ts 162-176).
 ///
-/// NOTE: yo-self's can_type_form_rc_cycle is currently a conservative stub
-/// (returns false — the cyclic-GC subsystem is deferred), so this faithfully
-/// resolves to false; the lightweight RC header + GC stubs are emitted.
+/// Sets needs_cycle_gc when any reference-struct type can form an RC cycle
+/// (`can_type_form_rc_cycle`), which selects the FULL cyclic-GC runtime
+/// (`generate_full_gc_runtime_functions`) over the lightweight RC path.
 compute_needs_cycle_gc :: (fn(context : CodeGenContext) -> unit)({
   context.needs_cycle_gc = false;
   vals := context.types.values();

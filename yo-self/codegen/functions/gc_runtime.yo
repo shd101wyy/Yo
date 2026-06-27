@@ -4,15 +4,16 @@
 //!   * collectUnwindValueCTypes         (sizes the unwind-value buffer)
 //!   * emitUnwindValueBuffer            (thread-local unwind-value storage)
 //!   * generateLightweightRCFunctions   (non-cyclic RC path)
-//!   * generateAtomicGCRuntimeFunctions (dispatcher)
+//!   * generateFullGCRuntimeFunctions   (cyclic-GC path: QuickJS trial-deletion)
+//!   * generateAtomicGCRuntimeFunctions (dispatcher: full vs lightweight)
 //!
-//! This is the corpus-essential subset of the prelude that `generateAllFunctions`
-//! emits before the function loop — without it the emitted translation unit does
-//! not link (`__yo_incr_rc` / `__yo_decr_rc` / borrow primitives are referenced
-//! by every RC-managed value). The cyclic-GC path
-//! (`generateFullGCRuntimeFunctions`, ~487 lines, only reached when
-//! `needs_cycle_gc` is true) is the next prelude increment; the corpus is
-//! non-cyclic so the lightweight path is exercised first.
+//! This is the prelude that `generateAllFunctions` emits before the function loop —
+//! without it the emitted translation unit does not link (`__yo_incr_rc` /
+//! `__yo_decr_rc` / borrow primitives are referenced by every RC-managed value).
+//! The dispatcher emits the FULL cyclic-GC runtime when `needs_cycle_gc` (some
+//! reference-semantics type can form an RC cycle), else the lightweight (type-tag)
+//! path. The full runtime's traversal functions are emitted by the constructor
+//! emitters (generate_ref_struct/enum_traversal_functions).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -21,6 +22,7 @@ open(import("std/string"));
 { is_unit_type } :: import("../../types/guards.yo");
 { get_type_string } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
+{ TargetInfo, is_target_windows } :: import("../../target.yo");
 // ---------------------------------------------------------------------------
 // collectUnwindValueCTypes
 // ---------------------------------------------------------------------------
@@ -290,19 +292,536 @@ static void __yo_init_process_cleanup(void) {}`
   );
 });
 // ---------------------------------------------------------------------------
+// generateFullGCRuntimeFunctions
+// ---------------------------------------------------------------------------
+/// Emit the FULL cyclic-GC RC runtime: GC-aware non-atomic decr/incr, atomic
+/// incr/decr, thread-local GC state + adaptive thresholds, per-thread cleanup-key
+/// infrastructure, register/unregister, the QuickJS-style trial-deletion cycle
+/// collector, and thread/process cleanup. Emitted on the needs_cycle_gc path
+/// INSTEAD of generate_lightweight_rc_functions. Verbatim port of
+/// `generateFullGCRuntimeFunctions` (src/codegen/functions/generation.ts:1963);
+/// the `isTargetWindows ? … : …` template branches become `if(is_target_windows…)`.
+/// (GC_DEBUG is macro-defined to nothing in non-debug builds — see types/generation.yo.)
+generate_full_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  ti := context.base.target_info;
+  // Non-atomic (GC-aware) + atomic reference counting.
+  em.emit_string_line(
+    `// Non-atomic reference counting functions (thread-local)
+// Flag to prevent double RC decrements during GC collection.
+// When set, __yo_decr_rc skips all tracked objects because the GC
+// already accounts for their references via trial deletion.
+static _Thread_local int __yo_gc_collecting = 0;
+
+static inline void __yo_decr_rc(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  // During GC collection, skip all tracked objects.
+  // The GC handles their lifecycle via trial deletion — decrementing here
+  // would double-count the reference removal. Non-tracked RC children are
+  // still decremented normally (they weren't trial-deleted).
+  if (__yo_gc_collecting && (header->gc_flags & __YO_GC_TRACKED)) {
+    GC_DEBUG("Decr: Skipping ptr=%p (GC collecting, tracked)\\n", ptr);
+    return;
+  }
+
+  // Also skip objects marked as garbage by the GC (legacy guard for safety).
+  if ((header->gc_flags & __YO_GC_TRACKED) && header->gc_mark == __YO_GC_GARBAGE) {
+    GC_DEBUG("Decr: Skipping ptr=%p (marked as GC garbage)\\n", ptr);
+    return;
+  }
+
+  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, header->ref_count, header->ref_count - 1);
+
+  if (header->ref_count == 1) {
+    // Last reference - deallocate immediately without decrementing
+    GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+    __yo_gc_unregister(ptr);
+    if (header->dispose_fn) {
+      header->dispose_fn(ptr);
+    }
+    __yo_free(ptr);
+  } else {
+    // More than one reference - just decrement
+    header->ref_count--;
+  }
+}
+
+static inline void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  header->ref_count++;
+  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, header->ref_count);
+  return ptr;
+}
+
+// Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
+static void* __yo_incr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
+  return ptr;
+}
+
+static void __yo_decr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
+
+  if (old_count == 1) {
+    // Last reference - deallocate
+    // Note: No GC tracking needed for Iso types (they don't participate in cycles)
+    if (header->dispose_fn) {
+      header->dispose_fn(ptr);
+    }
+    __yo_free(ptr);
+  }
+}`
+  );
+  // Effect-unwind flag + value buffer (declaration section).
+  em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  emit_unwind_value_buffer(context);
+  // Per-thread GC tracking state + adaptive thresholds.
+  em.emit_string_line(
+    `// Per-thread GC tracking state for cycle collection
+static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(`static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex;`);
+  }, {
+    em.emit_string_line(`static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex = __YO_THREAD_SYNC_INIT;`);
+  });
+  em.emit_string_line(
+    `static size_t __yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
+static size_t __yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
+
+// Thread cleanup infrastructure`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
+static DWORD __yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+static volatile LONG __yo_thread_cleanup_init_started = 0;
+static volatile LONG __yo_thread_cleanup_init_done = 0;
+
+static void __yo_init_thread_cleanup_key(void) {
+  // Simple once-only initialization using interlocked operations
+  if (InterlockedCompareExchange(&__yo_thread_cleanup_init_started, 1, 0) == 0) {
+    __yo_thread_cleanup_key = TlsAlloc();
+    InterlockedExchange(&__yo_thread_cleanup_init_done, 1);
+  } else {
+    // Wait for initialization to complete
+    while (InterlockedCompareExchange(&__yo_thread_cleanup_init_done, 1, 1) == 0) {
+      Sleep(0);
+    }
+  }
+}`
+    );
+  }, {
+    em.emit_string_line(
+      `static pthread_key_t __yo_thread_cleanup_key = (pthread_key_t)(-1);
+static pthread_once_t __yo_thread_cleanup_once = PTHREAD_ONCE_INIT;
+
+static void __yo_pthread_cleanup(void* value) {
+  if (value != NULL) {
+    __yo_cleanup_thread_gc();
+  }
+}
+
+static void __yo_init_thread_cleanup_key(void) {
+  pthread_key_create(&__yo_thread_cleanup_key, __yo_pthread_cleanup);
+}`
+    );
+  });
+  // __yo_init_thread_gc (inner Windows/POSIX branch for the cleanup-key setup).
+  em.emit_string_line(
+    `// Initialize thread-local GC state
+static void __yo_init_thread_gc() {
+  if (__yo_current_thread_gc != NULL) return;
+`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `  __yo_init_thread_cleanup_key();
+  if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsSetValue(__yo_thread_cleanup_key, (void*)1);
+  }`
+    );
+  }, {
+    em.emit_string_line(
+      `  pthread_once(&__yo_thread_cleanup_once, __yo_init_thread_cleanup_key);
+  if (__yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_setspecific(__yo_thread_cleanup_key, (void*)1);
+  }`
+    );
+  });
+  em.emit_string_line(
+    `
+  __yo_init_process_cleanup();
+
+  __yo_current_thread_gc = (__yo_thread_gc_state_t*)__yo_malloc(sizeof(__yo_thread_gc_state_t));
+  __yo_current_thread_gc->tracked_objects = NULL;
+  __yo_current_thread_gc->tracked_count = 0;
+  __yo_current_thread_gc->thread_id = __yo_thread_self();
+  __yo_current_thread_gc->alloc_count = 0;
+
+  // Add to global thread list (for cleanup coordination)
+  __yo_mutex_lock(&__yo_thread_list_mutex);
+  __yo_current_thread_gc->next = __yo_all_thread_gcs;
+  __yo_current_thread_gc->prev = NULL;
+  if (__yo_all_thread_gcs != NULL) {
+    __yo_all_thread_gcs->prev = __yo_current_thread_gc;
+  }
+  __yo_all_thread_gcs = __yo_current_thread_gc;
+  __yo_mutex_unlock(&__yo_thread_list_mutex);
+}
+
+// Public function to initialize thread-local GC (for worker threads)
+static void __yo_gc_init_thread() {
+  __yo_init_thread_gc();
+}`
+  );
+  // Register / unregister.
+  em.emit_string_line(
+    `static void __yo_gc_register(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  if (__yo_current_thread_gc == NULL) {
+    __yo_init_thread_gc();
+  }
+
+  GC_DEBUG("GC Register: ptr=%p\\n", ptr);
+
+  // Check if already tracked
+  if (header->gc_flags & __YO_GC_TRACKED) {
+    return;
+  }
+
+  header->gc_flags |= __YO_GC_TRACKED;
+  header->gc_mark = __YO_GC_UNMARKED;
+
+  // Add to thread-local tracking list
+  header->gc_next = __yo_current_thread_gc->tracked_objects;
+  header->gc_prev = NULL;
+  if (__yo_current_thread_gc->tracked_objects != NULL) {
+    __yo_current_thread_gc->tracked_objects->gc_prev = header;
+  }
+  __yo_current_thread_gc->tracked_objects = header;
+  __yo_current_thread_gc->tracked_count++;
+
+  // Check if we should trigger GC (skip during active collection to prevent re-entrance)
+  if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_collect_threshold) {
+    __yo_gc_collect();
+  }
+}
+
+static void __yo_gc_unregister(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  if (__yo_current_thread_gc == NULL) {
+    return;
+  }
+
+  if (!(header->gc_flags & __YO_GC_TRACKED)) {
+    return;
+  }
+
+  // Remove from tracking list (O(1) with doubly-linked list)
+  if (header->gc_prev != NULL) {
+    header->gc_prev->gc_next = header->gc_next;
+  } else {
+    __yo_current_thread_gc->tracked_objects = header->gc_next;
+  }
+
+  if (header->gc_next != NULL) {
+    header->gc_next->gc_prev = header->gc_prev;
+  }
+
+  __yo_current_thread_gc->tracked_count--;
+  header->gc_flags &= ~__YO_GC_TRACKED;
+}`
+  );
+  // QuickJS-style trial-deletion collector (visitors + collect + tracked_count).
+  em.emit_string_line(
+    `// QuickJS-style trial deletion for cycle collection
+// Phase 1: Trial deletion - decrement ref counts for internal references
+static void __yo_gc_trial_delete_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  // Only process tracked objects
+  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
+
+  // Trial decrement
+  if (header->ref_count > 0) {
+    header->ref_count--;
+    GC_DEBUG("TrialDelete: ptr=%p, ref_count->%zu\\n", ptr, header->ref_count);
+  }
+}
+
+// Phase 3: Recursive scan/restore visitor.
+// Restores trial-deleted ref counts and propagates liveness from live roots
+// to all reachable objects. Objects promoted from GARBAGE to live (UNMARKED)
+// have their children recursively scanned.
+static void __yo_gc_scan_restore_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  // Skip non-tracked objects (their RC was never trial-deleted)
+  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
+
+  // Restore the trial-deleted reference
+  header->ref_count++;
+  GC_DEBUG("ScanRestore: ptr=%p, ref_count->%zu, mark=%d\\n", ptr, header->ref_count, header->gc_mark);
+
+  if (header->gc_mark == __YO_GC_GARBAGE) {
+    // This object was tentatively marked garbage but is reachable from a live root.
+    // Promote to live (mark UNMARKED = "scanned") and recursively scan children.
+    header->gc_mark = __YO_GC_UNMARKED;
+    if (header->traverse_fn) {
+      header->traverse_fn(ptr, __yo_gc_scan_restore_visitor);
+    }
+  }
+  // If already LIVE or UNMARKED (already scanned), just restore RC — don't recurse again.
+}
+
+static void __yo_gc_collect() {
+  if (__yo_current_thread_gc == NULL) return;
+
+  __yo_ref_header_t* head = __yo_current_thread_gc->tracked_objects;
+  if (head == NULL) return;
+
+  GC_DEBUG("GC: Starting collection, tracked_count=%zu\\n", __yo_current_thread_gc->tracked_count);
+
+  __yo_gc_collecting = 1;
+  size_t collected = 0;
+
+  // Phase 1: Mark all as candidates and trial-delete
+  __yo_ref_header_t* obj = head;
+  while (obj != NULL) {
+    obj->gc_mark = __YO_GC_CANDIDATE;
+    obj = obj->gc_next;
+  }
+
+  // Trial deletion: decrement RC for all internal (tracked→tracked) references
+  obj = head;
+  while (obj != NULL) {
+    if (obj->traverse_fn) {
+      obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
+    }
+    obj = obj->gc_next;
+  }
+
+  // Phase 2: Classify objects — RC > 0 means external references exist (live root),
+  // RC == 0 means only internal references (tentative garbage)
+  obj = head;
+  while (obj != NULL) {
+    if (obj->ref_count == 0) {
+      obj->gc_mark = __YO_GC_GARBAGE;
+      GC_DEBUG("GC: Marked as garbage: ptr=%p\\n", obj);
+    } else {
+      obj->gc_mark = __YO_GC_LIVE;
+      GC_DEBUG("GC: Marked as live root: ptr=%p (ref_count=%zu)\\n", obj, obj->ref_count);
+    }
+    obj = obj->gc_next;
+  }
+
+  // Phase 3: Scan from live roots — restore ref counts and propagate liveness.
+  // Live roots (__YO_GC_LIVE) are scanned; their reachable GARBAGE children are
+  // promoted to UNMARKED (live+scanned). After this phase, only truly unreachable
+  // objects remain marked __YO_GC_GARBAGE.
+  obj = head;
+  while (obj != NULL) {
+    if (obj->gc_mark == __YO_GC_LIVE) {
+      // Mark this root as scanned so the loop doesn't re-process it
+      // if the list order changes (defensive) and to distinguish from promoted objects
+      obj->gc_mark = __YO_GC_UNMARKED;
+      if (obj->traverse_fn) {
+        obj->traverse_fn(obj, __yo_gc_scan_restore_visitor);
+      }
+    }
+    obj = obj->gc_next;
+  }
+
+  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid).
+  // __yo_gc_collecting flag ensures __yo_decr_rc skips tracked objects, preventing
+  // double RC decrements (trial deletion already accounted for those references).
+  // Non-tracked RC children are still properly released by dispose.
+  obj = head;
+  while (obj != NULL) {
+    if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) {
+      GC_DEBUG("GC: Disposing garbage: ptr=%p\\n", obj);
+      obj->dispose_fn(obj);
+    }
+    obj = obj->gc_next;
+  }
+
+  // Phase 4b: Free all garbage objects and remove from tracking list
+  __yo_ref_header_t* current = head;
+  __yo_ref_header_t* prev = NULL;
+
+  while (current != NULL) {
+    __yo_ref_header_t* next = current->gc_next;
+
+    if (current->gc_mark == __YO_GC_GARBAGE) {
+      GC_DEBUG("GC: Freeing garbage: ptr=%p\\n", current);
+
+      // Remove from tracking list
+      if (prev == NULL) {
+        __yo_current_thread_gc->tracked_objects = next;
+      } else {
+        prev->gc_next = next;
+      }
+      if (next != NULL) {
+        next->gc_prev = prev;
+      }
+
+      __yo_current_thread_gc->tracked_count--;
+      collected++;
+
+      // Free the object (dispose was already called in Phase 4a)
+      __yo_free(current);
+
+      current = next;
+    } else {
+      // Reset mark for next collection
+      current->gc_mark = __YO_GC_UNMARKED;
+      prev = current;
+      current = next;
+    }
+  }
+
+  __yo_gc_collecting = 0;
+
+  // Adaptive threshold: set to max(min_threshold, 2 * remaining_objects)
+  size_t new_threshold = __yo_current_thread_gc->tracked_count * 2;
+  if (new_threshold < __yo_gc_min_threshold) {
+    new_threshold = __yo_gc_min_threshold;
+  }
+  __yo_gc_collect_threshold = new_threshold;
+
+  GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu, next_threshold=%zu\\n", collected, __yo_current_thread_gc->tracked_count, __yo_gc_collect_threshold);
+}
+
+static size_t __yo_gc_tracked_count() {
+  if (__yo_current_thread_gc == NULL) return 0;
+  return __yo_current_thread_gc->tracked_count;
+}`
+  );
+  // Thread cleanup.
+  em.emit_string_line(
+    `// Clean up thread-local GC state
+static void __yo_cleanup_thread_gc() {
+  __yo_mutex_lock(&__yo_thread_list_mutex);
+
+  __yo_thread_gc_state_t* my_gc_state = __yo_current_thread_gc;
+
+  if (my_gc_state == NULL) {
+    __yo_mutex_unlock(&__yo_thread_list_mutex);
+    return;
+  }
+
+  GC_DEBUG("CleanupThread: tracked_count=%zu\\n", my_gc_state->tracked_count);
+
+  // Force dispose all remaining tracked objects
+  __yo_ref_header_t* current = my_gc_state->tracked_objects;
+  while (current != NULL) {
+    __yo_ref_header_t* next = current->gc_next;
+
+    GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", current);
+    if (current->dispose_fn) {
+      current->dispose_fn(current);
+    }
+    __yo_free(current);
+
+    current = next;
+  }
+
+  // Remove from global list
+  if (my_gc_state->prev != NULL) {
+    my_gc_state->prev->next = my_gc_state->next;
+  } else {
+    __yo_all_thread_gcs = my_gc_state->next;
+  }
+
+  if (my_gc_state->next != NULL) {
+    my_gc_state->next->prev = my_gc_state->prev;
+  }
+
+  __yo_mutex_unlock(&__yo_thread_list_mutex);
+
+  __yo_free(my_gc_state);
+  __yo_current_thread_gc = NULL;
+}`
+  );
+  // Process cleanup (inner Windows/POSIX branch for the cleanup-key teardown).
+  em.emit_string_line(
+    `// Process cleanup
+static void __yo_process_cleanup(void) {
+  GC_DEBUG("ProcessCleanup: Called\\n");
+
+  if (__yo_current_thread_gc != NULL) {
+    __yo_gc_collect();
+    __yo_cleanup_thread_gc();
+  }
+`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `  if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsFree(__yo_thread_cleanup_key);
+    __yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+  }`
+    );
+  }, {
+    em.emit_string_line(
+      `  if (__yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_key_delete(__yo_thread_cleanup_key);
+  }`
+    );
+  });
+  em.emit_string_line(`}`);
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `static INIT_ONCE __yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK __yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
+  (void)InitOnce; (void)Parameter; (void)Context;
+  InitializeCriticalSection(&__yo_thread_list_mutex);
+  atexit(__yo_process_cleanup);
+  return TRUE;
+}
+
+static void __yo_init_process_cleanup(void) {
+  InitOnceExecuteOnce(&__yo_process_cleanup_once, __yo_process_cleanup_init_callback, NULL, NULL);
+}`
+    );
+  }, {
+    em.emit_string_line(
+      `static void __yo_init_process_cleanup(void) {
+  static bool cleanup_initialized = false;
+  if (cleanup_initialized) return;
+  cleanup_initialized = true;
+  atexit(__yo_process_cleanup);
+}`
+    );
+  });
+});
+// ---------------------------------------------------------------------------
 // generateAtomicGCRuntimeFunctions (dispatcher)
 // ---------------------------------------------------------------------------
-/// Emit the borrow primitives + the RC runtime. Dispatches to the lightweight
-/// path; the cyclic-GC path (`generateFullGCRuntimeFunctions`) is the next
-/// prelude increment. Mirrors `generateAtomicGCRuntimeFunctions`.
+/// Emit the borrow primitives + the RC runtime. Dispatches to the FULL cyclic-GC
+/// runtime when needs_cycle_gc, else the lightweight (type-tag) path. Mirrors
+/// `generateAtomicGCRuntimeFunctions`.
 generate_atomic_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   generate_borrow_runtime_primitives(context);
   if(context.base.needs_cycle_gc, {
-    // DEFERRED (next prelude increment): generateFullGCRuntimeFunctions — the
-    // QuickJS-style trial-deletion cycle collector (~487 lines). The corpus is
-    // non-cyclic (needs_cycle_gc is false), so the lightweight path is the one
-    // exercised by the first differential PASS.
-    generate_lightweight_rc_functions(context);
+    generate_full_gc_runtime_functions(context);
   }, {
     generate_lightweight_rc_functions(context);
   });
@@ -312,5 +831,6 @@ export(
   emit_unwind_value_buffer,
   generate_borrow_runtime_primitives,
   generate_lightweight_rc_functions,
+  generate_full_gc_runtime_functions,
   generate_atomic_gc_runtime_functions
 );
