@@ -283,8 +283,25 @@ WIP / remaining, with the concrete hooks:
   implements `Trace` (a container), also walk its element type(s) — for `ArrayList(E)`
   the single type-arg `E`; for `HashMap(K,V)` both. (The traversal itself is handled by
   the hand impl; detection just needs to see `E`.)
-- **container impls (item 6)**: `ArrayList` fields are `_ptr : ?*(T)`, `_length`,
-  `_capacity` (std/collections/array_list.yo); it has no unchecked getter — add a
-  `uget(i)` (raw `(self._ptr.unwrap() &+ i).*`-style) for the `Trace` impl to call.
-  `HashMap`: `data : ?*(Bucket(K,V))`, `ctrl`, `capacity`, `size`; iterate live ctrl
-  slots and trace `bucket.key` + `bucket.value`.
+- **container impls (item 6) — has an UNSOLVED no-RC-churn constraint (CRITICAL)**:
+  `ArrayList` fields are `_ptr : ?*(T)`, `_length`, `_capacity`
+  (std/collections/array_list.yo); `HashMap`: `data : ?*(Bucket(K,V))`, `ctrl`,
+  `capacity`, `size` (iterate live ctrl slots, trace key+value). THE TRAP: a naive
+  `tracer.visit(self.uget(i))` reads the buffer element through Yo VALUE semantics.
+  If `uget` dups the managed handle (RC++) and `visit`'s by-value `child` param is
+  dropped at scope end (RC--), then for an element at RC=1 the param-drop hits 0 and
+  FREES the still-referenced element MID-TRAVERSAL → use-after-free/double-free (the
+  collector is also trial-decrementing the same RC, so the accounting is wrong too).
+  The auto-derived path avoids this by reading `obj->field` as a RAW C lvalue (no
+  dup, no drop) — the container impl must do the same. So `tracer.visit(elem)` must
+  NOT take/own `elem` by value with a drop. Likely fix: the per-element tracer takes
+  the element's SLOT as a raw lvalue / pointer and `_traverse_value` reads through it
+  with no Yo value semantics (e.g. a `visit_slot(ptr : *(E))` form, or make `uget`
+  an inline raw-lvalue accessor whose result flows into `__yo_gc_trace_child`
+  WITHOUT a dup/drop). MUST be ASan-validated against an RC=1 element cycle. (Item-5
+  plumbing — findUserTraceMethodForType + collectTraceMethodsFromGenericImpls + the
+  `trace_<cName>(obj,(void*)visit)` delegation in both traverse generators — was
+  implemented on TS and BUILDS CLEAN; it was reverted to keep the tree at the clean
+  symmetric phase-2-foundation milestone until item 6's no-churn access is solved, so
+  the container path can land + be tested end-to-end as one unit. Re-derive item 5
+  from the anchors above.)
