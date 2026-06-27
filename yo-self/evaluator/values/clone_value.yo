@@ -42,12 +42,12 @@ clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     .UnknownVal(_) => v,
     // ReturnVal — recursively clone the wrapped value
     .ReturnVal(val : val_box, ty : ty) =>
-      EvalValue.ReturnVal(val : box(recur(val_box.*, preserve_pointer_refs)), ty : ty.clone()),
+      EvalValue.ReturnVal(val : recur(val_box, preserve_pointer_refs), ty : ty.clone()),
     // PtrVal — preserve or deep-clone depending on flag
     .PtrVal(target : tgt_box, index : idx) =>
       cond(
         (preserve_pointer_refs) => v,
-        true => EvalValue.PtrVal(target : box(recur(tgt_box.*, preserve_pointer_refs)), index : idx)
+        true => EvalValue.PtrVal(target : recur(tgt_box, preserve_pointer_refs), index : idx)
       ),
     // EnumVal — recursively clone each field
     .EnumVal(variant : vname, fields : flds) => {

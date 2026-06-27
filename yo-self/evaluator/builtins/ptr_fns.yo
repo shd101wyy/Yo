@@ -142,14 +142,14 @@ evaluate_address_call :: (
       match(
         cref,
         .ArrayRef(elements, index) =>
-          EvalValue.PtrVal(box(EvalValue.ArrayVal(elements)), index),
+          EvalValue.PtrVal(EvalValue.ArrayVal(elements), index),
         .ComptimeListRef(elements, index) =>
-          EvalValue.PtrVal(box(EvalValue.ComptimeListVal(elements)), index),
+          EvalValue.PtrVal(EvalValue.ComptimeListVal(elements), index),
         .StructRef(field_values, field_index) =>
           // Treat field_values as an array to enable indexed access.
-          EvalValue.PtrVal(box(EvalValue.ArrayVal(field_values)), field_index),
+          EvalValue.PtrVal(EvalValue.ArrayVal(field_values), field_index),
         .TupleRef(fields, field_index) =>
-          EvalValue.PtrVal(box(EvalValue.ArrayVal(fields)), field_index)
+          EvalValue.PtrVal(EvalValue.ArrayVal(fields), field_index)
       )
     ),
     .None => Option(EvalValue).None
@@ -163,7 +163,7 @@ evaluate_address_call :: (
         arg_info.source_variable,
         .Some(src_var) => match(
           src_var.value,
-          .Some(sv) => Option(EvalValue).Some(EvalValue.PtrVal(box(sv), usize(0))),
+          .Some(sv) => Option(EvalValue).Some(EvalValue.PtrVal(sv, usize(0))),
           .None => Option(EvalValue).None
         ),
         .None => Option(EvalValue).None

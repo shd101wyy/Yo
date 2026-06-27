@@ -750,7 +750,7 @@ call_funcval_with_args :: (
                 .Some(br) =>
                   match(
                     br.value,
-                    .ReturnVal(rv, rt) =>.Some(eval_result(rv.*, rt)),
+                    .ReturnVal(rv, rt) =>.Some(eval_result(rv, rt)),
                     _ =>.Some(br)
                   )
               )
@@ -6511,7 +6511,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               match(
                                 recv_res.value,
                                 .PtrVal(inner_box, _) =>
-                                  .Some(eval_result(inner_box.*, type_of_eval_value(inner_box.*))),
+                                  .Some(eval_result(inner_box, type_of_eval_value(inner_box))),
                                 _ => Option(EvalResult).None
                               ),
                             true =>
@@ -6840,7 +6840,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             (fval == "return") =>
               cond(
                 (args.len() == usize(0)) =>
-                  .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
+                  .Some(eval_result(.ReturnVal(.UnitVal, t_unit()), t_unit())),
                 true =>
                   match(
                     args.get(usize(0)),
@@ -6852,7 +6852,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .Some(ret_res) =>
                           .Some(
                             eval_result(
-                              .ReturnVal(box(ret_res.value), ret_res.ty),
+                              .ReturnVal(ret_res.value, ret_res.ty),
                               t_unit()
                             )
                           )
@@ -6865,7 +6865,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             (fval == "unwind") =>
               cond(
                 (args.len() == usize(0)) =>
-                  .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
+                  .Some(eval_result(.ReturnVal(.UnitVal, t_unit()), t_unit())),
                 true =>
                   match(
                     args.get(usize(0)),
@@ -6877,7 +6877,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .Some(esc_res) =>
                           .Some(
                             eval_result(
-                              .ReturnVal(box(esc_res.value), esc_res.ty),
+                              .ReturnVal(esc_res.value, esc_res.ty),
                               t_unit()
                             )
                           )
@@ -7446,7 +7446,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     recur(box_arg, env),
                     .None => Option(EvalResult).None,
                     .Some(box_res) =>
-                      .Some(eval_result(.PtrVal(box(box_res.value), usize(0)), box_res.ty))
+                      .Some(eval_result(.PtrVal(box_res.value, usize(0)), box_res.ty))
                   )
               ),
             // -----------------------------------------------------------------
