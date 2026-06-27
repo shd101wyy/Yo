@@ -1,6 +1,12 @@
 # `ref` reference semantics — unify `object`, extend to enums, free `ref`→`inout`
 
-Status: PLANNED (design agreed 2026-06-27). Large, multi-phase, both compilers.
+Status: IMPLEMENTED through Phase 4 (2026-06-27). Phases 1-3 (ref→inout rename,
+`ref(struct)` ≡ `object`, `ref(enum)` + `atomic`) landed in both compilers; Phase 4
+(bootstrap `TypeValue`/`AstExpr`/`EvalValue` → `ref(enum)`) committed
+(4283a3eca / 17f74224f / badbb28a7), corpus 83/83 each, self-compiled binary
+51 MB → 19 MB. §5 docs migrated (instructions, skills, docs/en-US + docs/zh-CN).
+Remaining: re-baseline the stage-2 P1 marker count; un-stub `can_type_form_rc_cycle`
+(needs the cycle-GC codegen, task #34).
 
 ## 1. Motivation
 
