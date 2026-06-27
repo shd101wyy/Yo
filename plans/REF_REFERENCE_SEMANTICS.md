@@ -5,8 +5,15 @@ Status: IMPLEMENTED through Phase 4 (2026-06-27). Phases 1-3 (ref→inout rename
 (bootstrap `TypeValue`/`AstExpr`/`EvalValue` → `ref(enum)`) committed
 (4283a3eca / 17f74224f / badbb28a7), corpus 83/83 each, self-compiled binary
 51 MB → 19 MB. §5 docs migrated (instructions, skills, docs/en-US + docs/zh-CN).
-Remaining: re-baseline the stage-2 P1 marker count; un-stub `can_type_form_rc_cycle`
-(needs the cycle-GC codegen, task #34).
+Phase 4 also introduced a self-compile regression (the `ref(enum)` dummy return is
+NULL where a value-enum's was a valid zero-struct) — a deterministic NULL-deref in
+`evaluate_and_or` via the non-raw `evaluate_expression` swallow — **fixed** in
+e895ec330 (`evaluate_and_or` → `evaluate_expression_raw`). Stage-2 marker re-baseline
+DONE: the full self-compile completes at **66 filtered markers** (control-flow
+def-time-eval tail). NOTE: that is UP from the pre-refactor 43 — the `ref(enum)`
+conversion did NOT net-drain the P1 tail (its confirmed win is binary size, not
+markers). Remaining: drain the 66-marker tail (task #8); un-stub
+`can_type_form_rc_cycle` (needs the cycle-GC codegen, task #34).
 
 ## 1. Motivation
 
