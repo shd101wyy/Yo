@@ -6,7 +6,7 @@ import {
   isFunctionType,
   isSourceNamespaceType,
   isNewtypeType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isStructType,
   isTupleType,
@@ -165,7 +165,7 @@ export function generateFieldAccess(
       }
       if (isStructType(underlyingType) || isEnumType(underlyingType)) {
         typeTrait = underlyingType.trait;
-      } else if (isObjectType(underlyingType)) {
+      } else if (isReferenceStructType(underlyingType)) {
         typeTrait = (underlyingType as { trait?: TraitType }).trait ?? null;
       }
       if (typeTrait) {
@@ -174,7 +174,7 @@ export function generateFieldAccess(
         const hasDataField =
           (isStructType(underlyingType) &&
             underlyingType.fields.some((f) => f.label === fieldName)) ||
-          (isObjectType(underlyingType) &&
+          (isReferenceStructType(underlyingType) &&
             (underlyingType as { fields?: { label: string }[] }).fields?.some(
               (f) => f.label === fieldName
             ));
@@ -432,7 +432,7 @@ export function generateFieldAccess(
     } else {
       // For C structs and unions, access fields directly
       // Check if this is a reference-counted type (object)
-      if (isObjectType(objectType)) {
+      if (isReferenceStructType(objectType)) {
         // For ref types (pointers), access field directly: ptr->field
         return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
       } else {

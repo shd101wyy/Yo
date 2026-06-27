@@ -3004,7 +3004,7 @@ test("evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
         .TypeVal(tyb) =>
           match(
             tyb.*,
-            .EnumT(_, _, vnames, vfields_all, _, _, _) => {
+            .EnumT(_, _, vnames, vfields_all, _, _, _, _, _) => {
               assert(vnames.len() == usize(2), "should have 2 variants");
               match(vnames.get(usize(0)),.Some(n) => assert(n == "None", "first variant is None"),.None => assert(false, "no variant 0"));
               match(vnames.get(usize(1)),.Some(n) => assert(n == "Some", "second variant is Some"),.None => assert(false, "no variant 1"));
@@ -3037,7 +3037,7 @@ test("evaluate: enum(Red, Green, Blue) plain fieldless variants", {
         .TypeVal(tyb) =>
           match(
             tyb.*,
-            .EnumT(_, _, vnames, _, _, _, vdiscs) => {
+            .EnumT(_, _, vnames, _, _, _, vdiscs, _, _) => {
               assert(vnames.len() == usize(3), "3 variants");
               assert(vdiscs.len() == usize(3), "3 discriminants");
               match(vdiscs.get(usize(0)),.Some(d) => assert(d == i64(0), "Red=0"),.None => assert(false, "no disc 0"));

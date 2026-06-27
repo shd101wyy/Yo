@@ -97,8 +97,17 @@ evaluate_struct_type :: (
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
-  // TODO (Phase 3): addRcFunctionSignaturesToStructType stub — no-op for now.
-  // TODO (Phase 3): beginSendDerivation stub — no-op for now.
+  // RC functions (___drop/___dup) for reference-semantics structs are lowered
+  // DIRECTLY in codegen (drop_dup.yo: `is_reference_struct_type` →
+  // `__yo_decr_rc`/`__yo_incr_rc`), exactly as the TS reference does for ref
+  // structs (drop-dup.ts). TS ALSO synthesizes evaluator-side ___drop/___dup
+  // methods (addRcFunctionSignaturesToStructType), but that mutates
+  // `SelfType.trait.fields` — yo-self's TypeValue is a value enum with NO
+  // per-type trait-field list (trait methods live in a side-registry, see
+  // [[yo-self-typevalue-enum-interning]]), so the method-synthesis approach
+  // does not apply; the direct codegen lowering has the identical effect.
+  // Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived AFTER field
+  // evaluation by `auto_derive_traits_for_struct_type` (below).
   // Evaluate fields
   args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();

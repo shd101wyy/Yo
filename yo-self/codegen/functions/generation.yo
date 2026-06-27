@@ -39,7 +39,7 @@ open(import("std/string"));
 { generate_sys_runtime, AsyncRuntimeOptions } :: import("../async/runtime_io_common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
-{ generate_ref_struct_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
+{ generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
@@ -274,6 +274,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   collect_unwind_value_ctypes(context);
   generate_atomic_gc_runtime_functions(context);
   generate_ref_struct_constructor_functions(context);
+  generate_ref_enum_constructor_functions(context);
   generate_closure_constructor_functions(context);
   it := context.base.functions.keys();
   (go : bool) = true;

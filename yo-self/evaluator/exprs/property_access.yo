@@ -353,7 +353,7 @@ evaluate_property_access :: (
           // the expected `T` came from an `ArrayList(Self)` instantiation,
           // std/encoding/toml.yo).
           resolve_enum_shell(exp_ctx_1.ty),
-          .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1) => {
+          .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1, en_irs_1, en_iar_1) => {
             // Find the variant.
             fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.clone());
             match(
@@ -379,7 +379,9 @@ evaluate_property_access :: (
                   en_vfields_1,
                   Option(String).Some(variant_name_1),
                   en_vflabels_1,
-                  en_discs_1
+                  en_discs_1,
+                  en_irs_1,
+                  en_iar_1
                 );
                 has_fields_1 := match(
                   en_vfields_1.get(vi_1),
@@ -700,7 +702,7 @@ Raw pointer operations may dereference invalid memory.`,
       match(
         // Same Self-shell resolution as the shorthand path above.
         resolve_enum_shell(type_val_inner),
-        .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs) => {
+        .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs, tv_en_irs, tv_en_iar) => {
           fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.clone());
           match(
             fidx_tv_en,
@@ -731,7 +733,9 @@ Raw pointer operations may dereference invalid memory.`,
                 tv_en_vfields,
                 Option(String).Some(variant_name_tv),
                 tv_en_vflabels,
-                tv_en_discs
+                tv_en_discs,
+                tv_en_irs,
+                tv_en_iar
               );
               has_fields_tv := match(
                 tv_en_vfields.get(tv_vi),
@@ -1454,7 +1458,7 @@ Raw pointer operations may dereference invalid memory.`,
       prop_name_ev := ast_expr_token(property_expr).value;
       match(
         base_ty,
-        .EnumT(_, _, ev_vnames, ev_vfields, ev_sel, ev_vflabels, _) => {
+        .EnumT(_, _, ev_vnames, ev_vfields, ev_sel, ev_vflabels, _, _, _) => {
           match(
             ev_sel,
             .Some(sel_vname) => {

@@ -4799,7 +4799,9 @@ handle_enum_def :: (
                     v_fields_all,
                     Option(String).None,
                     v_labels_all,
-                    v_discs
+                    v_discs,
+                    false,
+                    false
                   )
                 )
               ),
@@ -5242,7 +5244,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       // Phase 5ar: TypeVal.Variant(args) — self-hosted format
                       // Only treat as variant construction if the TypeVal wraps an EnumT.
                       // Other TypeVals (StructT, etc.) fall through to method dispatch.
-                      sh_is_enum_tv := match(recv_res.value,.TypeVal(tv_box) => match(tv_box.*,.EnumT(_, _, _, _, _, _, _) => true, _ => false), _ => false);
+                      sh_is_enum_tv := match(recv_res.value,.TypeVal(tv_box) => match(tv_box.*,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false), _ => false);
                       if(sh_is_enum_tv, {
                         sh_vn_name_sr := match((&(method_expr)).*,.Atom(_, sh_vtk) => sh_vtk.value.clone(),.FnCall(_, _, _, _, _) => String.new());
                         if(sh_vn_name_sr != "", {
@@ -6542,7 +6544,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                             recv_res.value,
                             .TypeVal(tv_box_fq) => match(
                               tv_box_fq.*,
-                              .EnumT(_, _, _, _, _, _, _) => {
+                              .EnumT(_, _, _, _, _, _, _, _, _) => {
                                 // Get variant name from method_func_box2
                                 vname_tv2 := match(
                                   method_func_box2.*,

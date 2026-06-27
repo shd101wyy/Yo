@@ -28,12 +28,12 @@ import type {
   Type,
 } from "../../types/definitions";
 import {
-  isAtomicObjectType,
+  isAtomicReferenceStructType,
   isDynType,
   isFunctionType,
   isIsoType,
   isSourceNamespaceType,
-  isObjectType,
+  isReferenceStructType,
   isRcType,
   isSomeType,
   isStructType,
@@ -1121,12 +1121,12 @@ function generateAsyncBlockStateDisposeFunction(
             emitter.emitLine(
               `  if ((${fieldRef}).data != NULL) { __yo_decr_rc((void*)(${fieldRef}).data); }`
             );
-          } else if (isIsoType(field.type) || isAtomicObjectType(field.type)) {
+          } else if (isIsoType(field.type) || isAtomicReferenceStructType(field.type)) {
             emitter.emitLine(
               `  if (${fieldRef} != NULL) { __yo_decr_rc_atomic((void*)${fieldRef}); }`
             );
           } else if (
-            isObjectType(field.type) ||
+            isReferenceStructType(field.type) ||
             (isSomeType(field.type) && isRcType(field.type))
           ) {
             const dropFn = getDropFunctionForType(field.type, context);
@@ -1204,13 +1204,13 @@ function generateAsyncBlockStateDisposeFunction(
         localDropLines.push(
           `    if ((${fieldRef}).data != NULL) { __yo_decr_rc((void*)(${fieldRef}).data); }`
         );
-      } else if (isIsoType(v.type) || isAtomicObjectType(v.type)) {
+      } else if (isIsoType(v.type) || isAtomicReferenceStructType(v.type)) {
         // Atomic RC pointer — needs NULL guard
         localDropLines.push(
           `    if (${fieldRef} != NULL) { __yo_decr_rc_atomic((void*)${fieldRef}); }`
         );
       } else if (
-        isObjectType(v.type) ||
+        isReferenceStructType(v.type) ||
         (isSomeType(v.type) && isRcType(v.type))
       ) {
         // Heap-allocated RC pointer — needs NULL guard

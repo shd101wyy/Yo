@@ -21,7 +21,7 @@ import {
   isFutureTraitType,
   isIsoType,
   isSourceNamespaceType,
-  isObjectType,
+  isReferenceStructType,
   isReferenceEnumType,
   isPrimitiveType,
   isPtrType,
@@ -77,7 +77,7 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
     // Reference-semantics types (`ref(struct(…))` objects and `ref(enum(…))`)
     // are pointer-sized handles, so a recursive `Self` field through them has
     // finite size — they break the cycle. (Value structs/enums do not.)
-    if (isObjectType(type) || isReferenceEnumType(type)) {
+    if (isReferenceStructType(type) || isReferenceEnumType(type)) {
       continue;
     }
 

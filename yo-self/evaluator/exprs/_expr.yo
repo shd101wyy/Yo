@@ -540,21 +540,23 @@ _evaluate_expression :: (
                       match(rargs.get(usize(0)),.Some(a) => a,.None => make_err_expr())
                   );
                   cond(
-                    !(ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None)) => {
+                    ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None) =>
+                      evaluate_struct_type(ref_inner, env, ctx, true, true, exn),
+                    ast_expr_is_fn_call_of(ref_inner, BK_ENUM,.None) =>
+                      evaluate_enum_type(ref_inner, env, ctx, true, true, exn),
+                    true => {
                       exn.throw(
                         dyn(
                           format_error_message(
                             ast_expr_token(ref_inner),
-                            `"atomic(ref(...))" wraps an inline "struct(...)" literal. Got:\n${ast_expr_to_string(ref_inner)}`,
+                            `"atomic(ref(...))" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(ref_inner)}`,
                             false,
                             .None
                           )
                         )
                       );
                       make_err_expr()
-                    },
-                    true =>
-                      evaluate_struct_type(ref_inner, env, ctx, true, true, exn)
+                    }
                   )
                 },
                 true => {
@@ -575,8 +577,8 @@ _evaluate_expression :: (
           )
         },
         ast_expr_is_fn_call_of(expr, BK_REF,.None) => {
-          // ref(struct(...)) — reference-semantics type constructor (Phase 2;
-          // ref(enum(...)) is Phase 3). Wraps an inline struct literal only.
+          // ref(struct(...)) / ref(enum(...)) — reference-semantics type
+          // constructor. Wraps an inline struct/enum literal only.
           n_ref_args := match(
             expr,
             .Atom(_, _) => usize(0),
@@ -604,21 +606,23 @@ _evaluate_expression :: (
                   match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr())
               );
               cond(
-                !(ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None)) => {
+                ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None) =>
+                  evaluate_struct_type(ref_inner, env, ctx, false, true, exn),
+                ast_expr_is_fn_call_of(ref_inner, BK_ENUM,.None) =>
+                  evaluate_enum_type(ref_inner, env, ctx, false, true, exn),
+                true => {
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(ref_inner),
-                        `"ref(...)" wraps an inline "struct(...)" literal (reference-semantics enums are Phase 3). Got:\n${ast_expr_to_string(ref_inner)}`,
+                        `"ref(...)" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(ref_inner)}`,
                         false,
                         .None
                       )
                     )
                   );
                   make_err_expr()
-                },
-                true =>
-                  evaluate_struct_type(ref_inner, env, ctx, false, true, exn)
+                }
               )
             }
           )
@@ -628,7 +632,7 @@ _evaluate_expression :: (
         ast_expr_is_fn_call_of(expr, BK_NEWTYPE,.None) =>
           evaluate_newtype_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_ENUM,.None) =>
-          evaluate_enum_type(expr, env, ctx, exn),
+          evaluate_enum_type(expr, env, ctx, false, false, exn),
         ast_expr_is_fn_call_of(expr, BK_UNION,.None) =>
           evaluate_union_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BF_DOT,.None) =>

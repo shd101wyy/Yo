@@ -48,9 +48,9 @@ import { formatErrorMessage } from "../../error";
 import { type Token, TokenType } from "../../token";
 import type { FunctionType } from "../../types/definitions";
 import {
-  isAtomicObjectType,
+  isAtomicReferenceStructType,
   isFunctionType,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
 } from "../../types/guards";
 import {
@@ -725,7 +725,7 @@ export function requireValidRefArgumentPlaces({
         rawType && isSomeType(rawType) && rawType.resolvedConcreteType
           ? rawType.resolvedConcreteType
           : rawType;
-      if (hopType && (isObjectType(hopType) || isAtomicObjectType(hopType))) {
+      if (hopType && (isReferenceStructType(hopType) || isAtomicReferenceStructType(hopType))) {
         hasObjectHop = true;
         break;
       }
@@ -753,7 +753,7 @@ export function requireValidRefArgumentPlaces({
       const rootType = rootVar?.type;
       const rootIsObject =
         rootType !== undefined &&
-        (isObjectType(rootType) || isAtomicObjectType(rootType));
+        (isReferenceStructType(rootType) || isAtomicReferenceStructType(rootType));
       const refArgType = argExprs[i]?.$?.type;
       const refTypeContainsRc =
         refArgType !== undefined && typeContainsRcType(refArgType);

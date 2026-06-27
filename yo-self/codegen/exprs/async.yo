@@ -34,8 +34,8 @@ open(import("std/string"));
   is_some_type,
   is_dyn_type,
   is_iso_type,
-  is_atomic_object_type,
-  is_object_type,
+  is_atomic_reference_struct_type,
+  is_reference_struct_type,
   is_rc_type
 } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -1035,8 +1035,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
 _rc_field_drop_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, context : FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}if ((${field_ref.clone()}).data != NULL) { __yo_decr_rc((void*)(${field_ref.clone()}).data); }`),
-    (is_iso_type(field_type) || is_atomic_object_type(field_type)) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc_atomic((void*)${field_ref.clone()}); }`),
-    (is_object_type(field_type) || (is_some_type(field_type) && is_rc_type(field_type))) => match(
+    (is_iso_type(field_type) || is_atomic_reference_struct_type(field_type)) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc_atomic((void*)${field_ref.clone()}); }`),
+    (is_reference_struct_type(field_type) || (is_some_type(field_type) && is_rc_type(field_type))) => match(
       get_drop_function_for_type(field_type, context),
       .Some(drop_fn) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { ${drop_fn}(${field_ref.clone()}); }`),
       .None => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc((void*)${field_ref.clone()}); }`)

@@ -13,7 +13,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_unit_type, is_str_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_str_type, is_reference_enum_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   CodeGenContext,
@@ -192,8 +192,14 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         true => {
           c_name := match(context.get_type_c_name(type_key(ty)),.Some(cn) => cn,.None => String.from("__yo_unknown_enum"));
           variant_tag := get_enum_variant_c_name(ty, variant.clone(), context);
+          // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+          // per-variant constructor `__yo_new_<cName>_<variant>(positional…)`;
+          // value enums use a designated compound literal. Mirrors the
+          // designated/positional split in `generateComptimeValue`.
+          is_ref := is_reference_enum_type(ty);
           vidx := _enum_variant_index(ty, variant.clone());
           inits := String.from("");
+          positional := String.from("");
           (any_field : bool) = false;
           match(
             ty,
@@ -207,15 +213,18 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                 while(fi < nf, {
                   fty := match(vftys.get(fi),.Some(t) => t,.None => TypeValue.Unit);
                   if(!(is_unit_type(fty)), {
+                    fcode := match(fields.get(fi),.Some(fv) => recur(fv, fty, context),.None => String.from(""));
                     if(any_field, {
                       inits.push_str(", ");
+                      positional.push_str(", ");
                     });
                     any_field = true;
                     flabel := match(vflabels.get(fi),.Some(l) => l,.None => String.from(""));
                     inits.push_str(".");
                     inits.push_string(sanitize_for_c_identifier(flabel, false));
                     inits.push_str(" = ");
-                    match(fields.get(fi),.Some(fv) => inits.push_string(recur(fv, fty, context)),.None => ());
+                    inits.push_string(fcode.clone());
+                    positional.push_string(fcode);
                   });
                   fi = (fi + usize(1));
                 });
@@ -224,19 +233,33 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
             ),
             _ => ()
           );
-          out := String.from("(");
-          out.push_string(c_name);
-          out.push_str("){ .tag = ");
-          out.push_string(variant_tag);
-          if(any_field, {
-            out.push_str(", .data = { .");
-            out.push_string(variant.clone());
-            out.push_str(" = { ");
-            out.push_string(inits);
-            out.push_str(" } }");
-          });
-          out.push_str(" }");
-          out
+          cond(
+            is_ref => {
+              out := String.from("__yo_new_");
+              out.push_string(c_name);
+              out.push_str("_");
+              out.push_string(variant.clone());
+              out.push_str("(");
+              out.push_string(positional);
+              out.push_str(")");
+              out
+            },
+            true => {
+              out := String.from("(");
+              out.push_string(c_name);
+              out.push_str("){ .tag = ");
+              out.push_string(variant_tag);
+              if(any_field, {
+                out.push_str(", .data = { .");
+                out.push_string(variant.clone());
+                out.push_str(" = { ");
+                out.push_string(inits);
+                out.push_str(" } }");
+              });
+              out.push_str(" }");
+              out
+            }
+          )
         }
       )
     },

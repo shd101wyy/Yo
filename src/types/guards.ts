@@ -164,7 +164,8 @@ export function isStructType(type?: Type): type is StructType {
   );
 }
 
-export function isObjectType(
+/** Reference-semantics struct: `ref(struct(…))`. */
+export function isReferenceStructType(
   type?: Type
 ): type is StructType & { isReferenceSemantics: true } {
   return (
@@ -172,7 +173,8 @@ export function isObjectType(
   );
 }
 
-export function isAtomicObjectType(
+/** Atomic reference-semantics struct: `atomic(ref(struct(…)))`. */
+export function isAtomicReferenceStructType(
   type?: Type
 ): type is StructType & { isReferenceSemantics: true; isAtomicRc: true } {
   return (
@@ -315,7 +317,7 @@ export function isRcType(type?: Type): boolean {
   }
 
   return (
-    isObjectType(type) ||
+    isReferenceStructType(type) ||
     // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
     isReferenceEnumType(type) ||
     // We assume all the SomeType is reference-counted
@@ -552,7 +554,7 @@ export function isFunctionSpecializable(functionValue: FunctionValue): boolean {
 export function isBoxedType(
   type: Type
 ): type is StructType & { isReferenceSemantics: true; __isBoxed: true } {
-  if (!isObjectType(type)) {
+  if (!isReferenceStructType(type)) {
     return false;
   } else {
     // Check if it's the Box(T) where Box is from the prelude.yo

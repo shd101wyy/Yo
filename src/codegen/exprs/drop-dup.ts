@@ -7,11 +7,11 @@ import {
 import type { Type } from "../../types/definitions";
 import {
   isArrayType,
-  isAtomicObjectType,
+  isAtomicReferenceStructType,
   isDynType,
   isEnumType,
   isIsoType,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -130,10 +130,10 @@ export function generateDropCodeForValue(
   if (isDynType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}).data)`;
   }
-  if (isAtomicObjectType(concreteType)) {
+  if (isAtomicReferenceStructType(concreteType)) {
     return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
   }
-  if (isObjectType(concreteType)) {
+  if (isReferenceStructType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}))`;
   }
   if (isIsoType(concreteType)) {
@@ -216,11 +216,11 @@ export function generateDupCodeForValue(
     const dynCName = getTypeString(concreteType, context);
     return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
   }
-  if (isAtomicObjectType(concreteType)) {
+  if (isAtomicReferenceStructType(concreteType)) {
     const objCName = getTypeString(concreteType, context);
     return `((${objCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
   }
-  if (isObjectType(concreteType)) {
+  if (isReferenceStructType(concreteType)) {
     const objCName = getTypeString(concreteType, context);
     return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
   }

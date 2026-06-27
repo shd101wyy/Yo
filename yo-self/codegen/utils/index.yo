@@ -29,7 +29,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 {
-  is_object_type,
+  is_reference_struct_type,
   is_pointer_type,
   is_struct_type,
   is_enum_type,
@@ -479,7 +479,7 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
 /// Object types need this so reference-counting operations remain legal.
 /// Mirrors `shouldAvoidConst`.
 should_avoid_const :: (fn(t : TypeValue) -> bool)(
-  is_object_type(t)
+  is_reference_struct_type(t)
 );
 /// Local helper: the callee atom's token value if `e` is a `FnCall` whose
 /// `func` is an `Atom`; `.None` otherwise.
@@ -675,7 +675,23 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
                   fields.get(fi),
                   .Some(ft) => {
                     key.push_str("_");
-                    key.push_string(recur(ft, depth + usize(1)));
+                    // A reference-semantics enum field (`ref(enum(…))`) is a
+                    // POINTER, so key it by its shell-resolved `id` ALONE. This
+                    // terminates self-referential `ref(enum(…))` recursion with
+                    // a STABLE key — identical across the shell / pre-final /
+                    // final layers — so the recursive field and the registered
+                    // type get the SAME C name (else they diverge into distinct
+                    // depth-expanded names → "field has incomplete type").
+                    // Value-enum fields still expand, distinguishing generic
+                    // instantiations (Option(Token) vs Option(u8)).
+                    rft := resolve_enum_shell(ft);
+                    fk := match(
+                      rft,
+                      .EnumT({ id : rid, is_reference_semantics : rrs }) =>
+                        if(rrs && (rid.len() > usize(0)), rid.clone(), recur(ft, depth + usize(1))),
+                      _ => recur(ft, depth + usize(1))
+                    );
+                    key.push_string(fk);
                   },
                   .None => ()
                 );
@@ -803,11 +819,21 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       base
     },
     // Nullable-pointer optimization: a 2-variant enum (one empty, one
-    // single-pointer) lowers to the bare pointer type.
-    .EnumT({}) => match(
+    // single-pointer) lowers to the bare pointer type. Otherwise a
+    // reference-semantics enum (`ref(enum(…))`) is a pointer to its
+    // heap-allocated RC handle, exactly like a reference-semantics struct.
+    .EnumT({ is_reference_semantics : is_ref }) => match(
       can_optimize_as_nullable_pointer(t),
       .Some(ptr_type) => recur(ptr_type, context),
-      .None => _lookup_named_c_type(t, context)
+      .None => {
+        base := _lookup_named_c_type(t, context);
+        if(is_ref, {
+          ptr := base.clone();
+          ptr.push_str("*");
+          return(ptr);
+        });
+        base
+      }
     ),
     // Function pointers use void* (resolved by the prototype generator).
     .Func({}) => String.from("void*"),

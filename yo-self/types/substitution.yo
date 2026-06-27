@@ -232,7 +232,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns)
     },
     // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
-    .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs) => {
+    .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar) => {
       new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
       i := usize(0);
       while(i < variant_fields.len(), {
@@ -251,7 +251,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         new_variant_fields.push(new_vf);
         i = (i + usize(1));
       });
-      .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs)
+      .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar)
     },
     .Union(name, labels, types) => {
       new_types := ArrayList(TypeValue).new();

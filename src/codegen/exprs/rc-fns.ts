@@ -2,7 +2,7 @@ import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { BuiltinFunctions, type FnCallExpr } from "../../expr";
 import {
   isArrayType,
-  isAtomicObjectType,
+  isAtomicReferenceStructType,
   isRcType,
   isSomeType,
   isTupleType,
@@ -544,7 +544,7 @@ export function generateRcCall(
 
   // For GC types (reference-counted objects), return the actual ref_count
   if (isRcType(argType)) {
-    if (isAtomicObjectType(argType)) {
+    if (isAtomicReferenceStructType(argType)) {
       // Atomic objects need atomic_load to avoid data races across threads
       return `atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(${argCode}))->ref_count, memory_order_acquire)`;
     }

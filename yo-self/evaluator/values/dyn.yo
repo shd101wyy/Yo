@@ -25,7 +25,7 @@ open(import("std/string"));
 { create_specialized_function_inline } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_object_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -290,7 +290,7 @@ evaluate_dyn_value :: (
   // Auto-box non-object, non-dyn values (mirrors TypeScript lines 251-310).
   // Note: Future-implementing SomeType check (typeImplementsFuture) is omitted
   // in Phase 3 — all non-object, non-dyn values are wrapped in box().
-  if(!(is_object_type(value_type)) && !(is_dyn_type(value_type)), {
+  if(!(is_reference_struct_type(value_type)) && !(is_dyn_type(value_type)), {
     box_tok := synthetic_token(String.from("box"), cur_env.module_path);
     box_atom := AstExpr.Atom(usize(0), box_tok);
     box_args := ArrayList(AstExpr).new();

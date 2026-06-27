@@ -190,6 +190,10 @@ TypeValue :: enum(
   /// `id` uniquely identifies this enum definition (mirrors `EnumType.id`).
   /// `variant_discriminants` holds one discriminant value per variant (in order).
   /// Mirrors `EnumVariant.discriminant` in `src/types/definitions.ts`.
+  /// `is_reference_semantics` = true for `ref(enum(...))`, false for `enum(...)`.
+  /// `is_atomic_rc` = true for `atomic(ref(enum(...)))`. Mirror
+  /// `EnumType.isReferenceSemantics` / `EnumType.isAtomicRc` in
+  /// `src/types/definitions.ts`. plans/REF_REFERENCE_SEMANTICS.md Phase 3.
   EnumT(
     id : String,
     name : String,
@@ -197,7 +201,9 @@ TypeValue :: enum(
     variant_fields : ArrayList(ArrayList(Self)),
     selected_variant_name : Option(String),
     variant_field_labels : ArrayList(ArrayList(String)),
-    variant_discriminants : ArrayList(i64)
+    variant_discriminants : ArrayList(i64),
+    is_reference_semantics : bool,
+    is_atomic_rc : bool
   ),
   Union(
     name : String,
@@ -373,8 +379,8 @@ impl(
         // `AstExpr` stored its ~40-variant enum type into ExprInfo thousands of
         // times, each formerly a deep clone of all variant field types. (Same
         // RC-share rationale + safety as the impl doc above.)
-        .EnumT(eid, enm, evns, evfs, esvn, evfl, edis) =>
-          TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs, esvn.clone(), evfl.clone(), edis.clone()),
+        .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) =>
+          TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs, esvn.clone(), evfl.clone(), edis.clone(), eirs, eiar),
         .Union(unm, ufl, uft) => TypeValue.Union(unm.clone(), ufl.clone(), uft.clone()),
         // SHARE (RC-bump) `tft` — the trait's method func types — instead of
         // deep-cloning. This also subsumes the former self-referential-trait cycle

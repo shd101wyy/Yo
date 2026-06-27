@@ -12,7 +12,7 @@ import {
 import type { Type } from "../../types/definitions";
 import {
   isEnumType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isReferenceEnumType,
   isUnitType,
@@ -271,7 +271,7 @@ export function generateMatchExpression(
   if (isPtrType(matchValueType)) {
     enumType = matchValueType.childType;
     ptrOrRefType = matchValueType.tag;
-  } else if (isObjectType(matchValueType)) {
+  } else if (isReferenceStructType(matchValueType)) {
     enumType = matchValueType;
     ptrOrRefType = "ref_semantics";
   } else if (isReferenceEnumType(matchValueType)) {

@@ -1180,11 +1180,11 @@ evaluate_match :: (
     return(expr);
   });
   // Extract enum type fields
-  en_id := match(matched_type,.EnumT(eid, _, _, _, _, _, _) => eid, _ => String.new());
-  en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _) => n, _ => String.new());
-  en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-  en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  en_vflabels := match(matched_type,.EnumT(_, _, _, _, _, vfl, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  en_id := match(matched_type,.EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _, _, _) => n, _ => String.new());
+  en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+  en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  en_vflabels := match(matched_type,.EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
   // Arm loop state
   bodies := ArrayList(AstExpr).new();
   (result_type_em : Option(TypeValue)) = Option(TypeValue).None;
@@ -1338,7 +1338,7 @@ evaluate_match :: (
         );
         new_enum_type_fl := match(
           matched_type,
-          .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, new_selected_fl, vfl, discs),
+          .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar) => TypeValue.EnumT(id, n, vn, vf, new_selected_fl, vfl, discs, eirs, eiar),
           _ => matched_type
         );
         variable_type_fl := cond(
@@ -1714,7 +1714,7 @@ evaluate_match :: (
           // Build new enum type with selected variant
           new_enum_type_wf := match(
             matched_type,
-            .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(variant_name_wf.clone()), vfl, discs),
+            .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(variant_name_wf.clone()), vfl, discs, eirs, eiar),
             _ => matched_type
           );
           variable_type_wf := cond(

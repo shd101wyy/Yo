@@ -16,7 +16,7 @@ import {
   isFunctionSpecializable,
   isFunctionType,
   isFunctionTypeHardGeneric,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
   isStructType,
   isUnitType,
@@ -341,7 +341,7 @@ export function findFunctionCallsInExpr(
 
       if (
         traitValues.length > 0 &&
-        (isObjectType(valueType) || isBoxedType(valueType))
+        (isReferenceStructType(valueType) || isBoxedType(valueType))
       ) {
         const concreteType: Type = isBoxedType(valueType)
           ? valueType.fields[0]!.type

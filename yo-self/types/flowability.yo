@@ -45,7 +45,7 @@ open(import("std/string"));
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
-{ is_function_type, is_object_type, is_atomic_object_type } :: import("./guards.yo");
+{ is_function_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./guards.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type }
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
@@ -869,7 +869,7 @@ require_valid_ref_argument_places :: (
                 match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(hop)),
                   .Some(hri) => {
-                    if(is_object_type(hri.ty) || is_atomic_object_type(hri.ty), {
+                    if(is_reference_struct_type(hri.ty) || is_atomic_reference_struct_type(hri.ty), {
                       has_object_hop = true;
                     });
                   },
@@ -891,7 +891,7 @@ require_valid_ref_argument_places :: (
                   match(
                     root_vars.get(root_vars.len() - usize(1)),
                     .Some(rv) => {
-                      root_is_object := (is_object_type(rv.ty) || is_atomic_object_type(rv.ty));
+                      root_is_object := (is_reference_struct_type(rv.ty) || is_atomic_reference_struct_type(rv.ty));
                       ref_type_contains_rc := match(
                         _info(ctx, arg),
                         .Some(inf) => type_contains_rc_type(inf.ty),

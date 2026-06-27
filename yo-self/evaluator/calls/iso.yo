@@ -20,7 +20,7 @@ open(import("std/string"));
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_iso, t_type } :: import("../../types/creators.yo");
-{ is_iso_type, is_atomic_object_type } :: import("../../types/guards.yo");
+{ is_iso_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { can_type_form_rc_cycle } :: import("../../types/utils.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -150,7 +150,7 @@ evaluate_iso_type_call :: (
   // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
   // rc, not the inner Arc cell. After extract() you get the Arc back; Iso adds
   // nothing over naked Arc + move-on-spawn. Mirrors iso.ts:62-73.
-  if(is_atomic_object_type(child_type) && _struct_has_deref_field(child_type), {
+  if(is_atomic_reference_struct_type(child_type) && _struct_has_deref_field(child_type), {
     exn.throw(
       dyn(
         format_error_message(

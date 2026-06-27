@@ -36,7 +36,7 @@ import type {
 } from "../../types/definitions";
 import {
   isEnumType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -386,7 +386,7 @@ export function sanitizeForCIdentifier(str: string, isExternC = false): string {
  * This is needed for object types that need to support reference counting operations
  */
 export function shouldAvoidConst(type: Type): boolean {
-  return isObjectType(type);
+  return isReferenceStructType(type);
 }
 
 /**
@@ -737,7 +737,7 @@ export function getTypeString(
       const baseTypeStr = getTypeString(childType, context);
 
       // Borrowing an object type should keep the same C type (already a pointer)
-      if (isObjectType(childType)) {
+      if (isReferenceStructType(childType)) {
         return `${baseTypeStr}*`;
       }
       // Borrowing an enum that is represented as a pointer (nullable pointer optimization)

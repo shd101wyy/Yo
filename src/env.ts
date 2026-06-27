@@ -19,7 +19,7 @@ import {
   isDynType,
   isFunctionType,
   isSourceNamespaceType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isSomeType,
   isTraitType,
@@ -1406,7 +1406,7 @@ export function getReceiverMethodsByNameFromEnv({
                 const selfParamType = selfParam.type;
                 // Self parameter must be a pointer type
                 if (
-                  !isObjectType(selfParamType) &&
+                  !isReferenceStructType(selfParamType) &&
                   !isDynType(selfParamType) &&
                   !isPtrType(selfParamType)
                 ) {

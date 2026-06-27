@@ -236,7 +236,7 @@ describe("typeRepresentationContainsRawPtr", () => {
   test("Dyn(Trait) is FALSE — RC-managed reference-semantics", () => {
     // Dyn(Trait) is a fat pointer (data + vtable) into Rc-managed
     // object storage. Returning a Dyn transfers / shares the Rc, so
-    // the data stays alive — same reasoning as `isObjectType`.
+    // the data stays alive — same reasoning as `isReferenceStructType`.
     const dynType = {
       id: "test_dyn",
       tag: TypeTag.Dyn,

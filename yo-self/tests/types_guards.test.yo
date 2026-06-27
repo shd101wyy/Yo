@@ -39,8 +39,8 @@ open(import("std/string"));
   is_trait_type,
   is_module_type,
   is_some_type,
-  is_object_type,
-  is_atomic_object_type,
+  is_reference_struct_type,
+  is_atomic_reference_struct_type,
   is_newtype_type,
   is_fn_trait_type,
   is_function_type_and_is_type_function,
@@ -196,7 +196,7 @@ test("is_union_type", {
 });
 test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_module_type / is_some_type", {
   s := TypeValue.Struct(id : String.from(""), name : String.from("S"), field_labels : ArrayList(String).new(), field_types : ArrayList(TypeValue).new(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false);
-  e := TypeValue.EnumT(String.from(""), String.from("E"), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
+  e := TypeValue.EnumT(String.from(""), String.from("E"), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new(), false, false);
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   tr := t_trait_simple(String.from("T"));
   m := t_module_simple(String.from("M"));
@@ -211,8 +211,8 @@ test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_modu
   assert(!(is_function_type(t_bool())), "bool not function");
 });
 test("Phase 2b stubs: object / atomic / newtype / fn_trait / iso / dyn / type_app / rc / specializable / boxed / effects_row", {
-  assert(!(is_object_type(t_i32())), "object stub");
-  assert(!(is_atomic_object_type(t_i32())), "atomic_object stub");
+  assert(!(is_reference_struct_type(t_i32())), "object stub");
+  assert(!(is_atomic_reference_struct_type(t_i32())), "atomic_object stub");
   assert(!(is_newtype_type(t_i32())), "newtype stub");
   assert(!(is_fn_trait_type(t_i32())), "fn_trait stub");
   assert(!(is_iso_type(t_i32())), "iso stub");

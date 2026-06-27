@@ -1,18 +1,22 @@
-// yo-self inherent-first check: `f.m(true)` must resolve to the inherent m(i32)
-// (shadowing Bar.m(bool)) and error, NOT silently dispatch to Bar.m. Compile with
-// the new yo-self bin and confirm it does NOT emit a call to Bar's m(bool).
-Foo :: newtype(n : i32);
+open(import("std/string"));
+open(import("std/fmt"));
 
-Bar :: trait(m : (fn(self : Self, x : bool) -> i32));
+P :: ref(struct(x : i32, y : i32));
+S :: atomic(ref(struct(v : i32)));
 
-impl(Foo, m : (fn(self : Self, x : i32) -> i32)(x));
-
-impl(Foo, Bar(m : (fn(self : Self, x : bool) -> i32)(cond(x => i32(1), true => i32(0)))));
-
-main :: (fn() -> unit)({
-  f := Foo(n : i32(1));
-  r := f.m(true);
-  ()
+mutate :: (fn(inout(p) : P) -> unit)({
+  p.x = i32(99);
 });
 
+main :: (fn() -> unit)({
+  p := P(x : i32(1), y : i32(2));
+  q := p; // reference semantics: q and p share the same handle
+  q.x = i32(10);
+  println(p.x.to_string()); // expect 10 (shared)
+  mutate(p);
+  println(p.x.to_string()); // expect 99 (inout mutates in place)
+  s := S(v : i32(7));
+  println(s.v.to_string()); // expect 7
+  ();
+});
 export(main);

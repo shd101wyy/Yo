@@ -653,7 +653,7 @@ evaluate_destructuring_assignment :: (
   // Enum variant destructuring
   // -------------------------------------------------------------------
   if(is_enum_type(rhs_type) && ast_expr_is_fn_call(lhs), {
-    svn_opt := match(rhs_type,.EnumT(_, _, _, _, svn, _, _) => svn, _ => Option(String).None);
+    svn_opt := match(rhs_type,.EnumT(_, _, _, _, svn, _, _, _, _) => svn, _ => Option(String).None);
     match(
       svn_opt,
       .None => {
@@ -672,8 +672,8 @@ evaluate_destructuring_assignment :: (
     );
     svn := match(svn_opt,.Some(s) => s,.None => String.from(""));
     // Find the variant index.
-    vnames := match(rhs_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-    vfields := match(rhs_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+    vnames := match(rhs_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+    vfields := match(rhs_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
     vi_opt := _find_field_index(vnames, svn.clone());
     match(
       vi_opt,

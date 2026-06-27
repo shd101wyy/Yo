@@ -11,7 +11,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_object_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
@@ -200,7 +200,7 @@ _emit_enum_tags :: (fn(enum_type : TypeValue, variant_names : ArrayList(String),
 generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
   match(
     enum_type,
-    .EnumT({ name, variant_names, variant_fields, variant_field_labels, variant_discriminants }) => {
+    .EnumT({ name, variant_names, variant_fields, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc }) => {
       // Nullable-pointer optimization.
       match(
         can_optimize_as_nullable_pointer(enum_type),
@@ -275,7 +275,22 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
       });
       context.emitter.emit_declaration_string_line(`} ${variant_union_name};`);
       context.emitter.emit_declaration_line("");
-      // Tagged-union struct.
+      // Tagged-union struct. A reference-semantics enum (`ref(enum(…))`) is a
+      // heap-allocated, RC-managed handle (like a reference-semantics struct):
+      // prepend the reference-count header, and the `${c_name}` typedef is a
+      // pointer to this struct (get_type_string returns `${c_name}*`). Mirrors
+      // the struct reference-semantics layout. plans/REF_REFERENCE_SEMANTICS.md.
+      if(is_reference_semantics, {
+        atomic_tag := if(is_atomic_rc, String.from("atomic "), String.from(""));
+        header_tag := if(is_atomic_rc, String.from("Atomic r"), String.from("R"));
+        context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)} (${atomic_tag}reference counted)`);
+        context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
+        context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
+        context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+        context.emitter.emit_declaration_line("};");
+        context.emitter.emit_declaration_line("");
+        return(());
+      });
       context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)}`);
       context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
       context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
@@ -775,7 +790,7 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
     is_newtype_type(ft) => {
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     },
-    (is_struct_type(ft) && (!(is_object_type(ft)) && !(is_newtype_type(ft)))) => {
+    (is_struct_type(ft) && (!(is_reference_struct_type(ft)) && !(is_newtype_type(ft)))) => {
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     },
     is_tuple_type(ft) => {

@@ -115,7 +115,7 @@ is_struct_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Struct({ is_source_namespace : sns }) => !(sns), _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)
+  match(t,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false)
 );
 is_unit_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Unit => true, _ => false)
@@ -215,17 +215,35 @@ is_tuple_type :: (fn(t : TypeValue) -> bool)(
 is_union_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Union(_, _, _) => true, _ => false)
 );
-is_object_type :: (fn(t : TypeValue) -> bool)(
+/// Reference-semantics struct: `ref(struct(...))`. Mirrors
+/// `isReferenceStructType` in `src/types/guards.ts`.
+is_reference_struct_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
-// Phase 2b : Type.Struct needs `isAtomicRc` flag.
-// Mirrors `isAtomicObjectType` in `src/types/guards.ts`, which requires
-// BOTH `is_reference_semantics` AND `is_atomic_rc`. A value-semantics
-// struct with `is_atomic_rc = true` is malformed but should not pass.
-is_atomic_object_type :: (fn(t : TypeValue) -> bool)(
+// Atomic reference-semantics struct: `atomic(ref(struct(...)))`.
+// Mirrors `isAtomicReferenceStructType` in `src/types/guards.ts`, which
+// requires BOTH `is_reference_semantics` AND `is_atomic_rc`. A
+// value-semantics struct with `is_atomic_rc = true` is malformed but should
+// not pass.
+is_atomic_reference_struct_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
     .Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
+      (is_ref && is_atomic),
+    _ => false
+  )
+);
+/// Reference-semantics enum: `ref(enum(...))`. Mirrors
+/// `isReferenceEnumType` in `src/types/guards.ts`.
+is_reference_enum_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.EnumT({ is_reference_semantics : is_ref }) => is_ref, _ => false)
+);
+/// Atomic reference-semantics enum: `atomic(ref(enum(...)))`. Mirrors
+/// `isAtomicReferenceEnumType` in `src/types/guards.ts`.
+is_atomic_reference_enum_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .EnumT({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
       (is_ref && is_atomic),
     _ => false
   )
@@ -402,7 +420,8 @@ is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(
 /// Return `true` if `t` itself is an RC-managed type (not recursively).
 ///
 /// An RC type is:
-///   - An `object(...)` struct (`is_reference_semantics = true`)
+///   - A `ref(struct(...))` struct (`is_reference_semantics = true`)
+///   - A `ref(enum(...))` enum (`is_reference_semantics = true`)
 ///   - A `DynT` trait-object (always heap-allocated)
 ///   - An `IsoT` (atomic reference-counted)
 ///   - A `SomeT` that has a Future trait constraint (Futures are always RC)
@@ -412,6 +431,8 @@ is_rc_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
     .Struct({ is_reference_semantics : is_ref }) => is_ref,
+    // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
+    .EnumT({ is_reference_semantics : is_ref }) => is_ref,
     .DynT(required_trait_types : _) => true,
     .IsoT(_) => true,
     .SomeT(required_trait_types : req_traits) => {
@@ -548,12 +569,12 @@ is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // ---------------------------------------------------------------------------
 // Box / effects-row guards
 // ---------------------------------------------------------------------------
-// Mirrors `isBoxedType` (src/types/guards.ts:529): an object (reference-
-// semantics) struct with exactly one field labeled `*` whose typeName starts
-// with "Box(" — i.e. the prelude `Box(T)` wrapper.
+// Mirrors `isBoxedType` (src/types/guards.ts:529): a reference-semantics
+// struct with exactly one field labeled `*` whose typeName starts with
+// "Box(" — i.e. the prelude `Box(T)` wrapper.
 is_boxed_type :: (fn(t : TypeValue) -> bool)(
   if(
-    !(is_object_type(t)),
+    !(is_reference_struct_type(t)),
     false,
     match(
       t,
@@ -608,8 +629,10 @@ export(
   // Compound type guards
   is_tuple_type,
   is_union_type,
-  is_object_type,
-  is_atomic_object_type,
+  is_reference_struct_type,
+  is_atomic_reference_struct_type,
+  is_reference_enum_type,
+  is_atomic_reference_enum_type,
   is_newtype_type,
   is_str_type,
   is_box_type,

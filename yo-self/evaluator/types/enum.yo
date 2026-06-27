@@ -10,10 +10,15 @@
 //!   - Variants with fields + discriminant:   `Some(T) = 5`
 //!   - Discriminants are auto-assigned (one more than previous, starting at 0)
 //!
-//! Stubs (deferred to later phases, mirrors `struct.yo`):
-//!   - `addRcFunctionSignaturesToEnumType`
-//!   - `autoDeriveTraitsAndAddRcFunctionsForEnumType`
-//!   - GADT enum support — throws "GADT enum not yet implemented"
+//! RC + trait derivation (mirrors `struct.yo`):
+//!   - Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived by
+//!     `auto_derive_traits_for_enum_type` after variant evaluation.
+//!   - RC functions (___drop/___dup) for reference-semantics enums
+//!     (`ref(enum(…))`) are lowered DIRECTLY in codegen (drop_dup.yo), like ref
+//!     structs — TS's evaluator-side ___drop/___dup method synthesis mutates
+//!     `SelfType.trait.fields`, which yo-self's value-enum TypeValue lacks (see
+//!     [[yo-self-typevalue-enum-interning]]); the direct lowering is equivalent.
+//!   - GADT enums are supported (see the GADT detection + gadt_registry below).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
@@ -177,6 +182,8 @@ evaluate_enum_type :: (
     expr : AstExpr,
     env_in : Environment,
     ctx : EvalContext,
+    is_atomic_rc : bool,
+    force_reference_semantics : bool,
     exn : Exception
   ) -> AstExpr
 )({
@@ -208,12 +215,15 @@ evaluate_enum_type :: (
     ArrayList(ArrayList(TypeValue)).new(),
     Option(String).None,
     ArrayList(ArrayList(String)).new(),
-    ArrayList(i64).new()
+    ArrayList(i64).new(),
+    force_reference_semantics,
+    is_atomic_rc
   );
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
-  // TODO (Phase 3): addRcFunctionSignaturesToEnumType stub — no-op for now.
+  // (No evaluator-side RC-method synthesis here — see the file header: RC
+  // drop/dup for reference-semantics enums is lowered directly in codegen.)
   // Accumulators for variants.
   variant_names := ArrayList(String).new();
   variant_fields := ArrayList(ArrayList(TypeValue)).new();
@@ -632,7 +642,9 @@ evaluate_enum_type :: (
     variant_fields,
     Option(String).None,
     variant_field_labels,
-    variant_discriminants
+    variant_discriminants,
+    force_reference_semantics,
+    is_atomic_rc
   );
   // Patch the SELF SHELL out of the variant fields: during field
   // evaluation `Self` was the empty prelim (same id), and instantiations
@@ -663,7 +675,9 @@ evaluate_enum_type :: (
     patched_fields,
     Option(String).None,
     variant_field_labels,
-    variant_discriminants
+    variant_discriminants,
+    force_reference_semantics,
+    is_atomic_rc
   );
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.

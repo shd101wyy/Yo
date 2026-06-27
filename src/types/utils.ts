@@ -53,7 +53,7 @@ import {
   isIntegerType,
   isIsizeType,
   isSourceNamespaceType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isRcType,
   isSomeType,
@@ -331,11 +331,11 @@ export function typeRepresentationContainsRawPtr(
   // pointer lifetime via Rc. They are safe to return at the value layer.
   // Check this BEFORE the generic Struct fall-through so a struct's
   // `isReferenceSemantics` short-circuits the field walk.
-  if (isObjectType(type)) {
+  if (isReferenceStructType(type)) {
     return false;
   }
   // `Dyn(Trait)` is a fat pointer (data + vtable) into RC-managed
-  // object storage. Same reasoning as `isObjectType`: returning a
+  // object storage. Same reasoning as `isReferenceStructType`: returning a
   // `Dyn` transfers (or shares) the Rc, so the data pointer stays
   // alive. Skip the field walk.
   if (isDynType(type)) {
@@ -424,7 +424,7 @@ export function typeMayProvideSliceSource(
   if (checkedTypes.includes(type)) return false;
   checkedTypes.push(type);
 
-  if (isObjectType(type)) return true;
+  if (isReferenceStructType(type)) return true;
   // `Dyn(Trait)` carries an RC-managed object behind a fat pointer.
   // A callee can project a slice into that object's heap data, so a
   // `Dyn` arg is just as much a source candidate as an `object` arg.
@@ -1912,7 +1912,7 @@ export function canTypeFormRcCycle(
   visitedTypes: Set<string>,
   env: Environment
 ): boolean {
-  if (!isObjectType(type)) {
+  if (!isReferenceStructType(type)) {
     return false; // Only objects can form cycles through reference counting
   }
 

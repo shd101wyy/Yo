@@ -51,7 +51,7 @@ import {
   isFunctionType,
   isIsoType,
   isSourceNamespaceType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -177,7 +177,7 @@ function resolveRecursiveTypeRef(
   }
 
   // Strategy 2: Use context.SelfType if available
-  if (context?.SelfType && isObjectType(context.SelfType)) {
+  if (context?.SelfType && isReferenceStructType(context.SelfType)) {
     return context.SelfType;
   }
   if (context?.SelfType && isStructType(context.SelfType)) {
@@ -2442,7 +2442,7 @@ Fix: wrap the call:
       )
         ? undefined
         : createStructValue(structType, memberValues as Value[]);
-      expr.$.value = isObjectType(structType)
+      expr.$.value = isReferenceStructType(structType)
         ? undefined // `object` type only supports runtime value
         : structValue;
       expr.$.pathCollection = pathCollection;

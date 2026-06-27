@@ -67,7 +67,7 @@ open(import("std/string"));
   is_comptime_int_type,
   is_comptime_float_type,
   is_comptime_string_type,
-  is_atomic_object_type,
+  is_atomic_reference_struct_type,
   is_some_type
 } :: import("../../types/guards.yo");
 {
@@ -254,7 +254,7 @@ get_atomic_object_root_type :: (
     root_type = get_value_of_some_type_from_env(env, root_type);
   });
   if(
-    is_atomic_object_type(root_type),
+    is_atomic_reference_struct_type(root_type),
     Option(TypeValue).Some(root_type),
     Option(TypeValue).None
   )
@@ -608,7 +608,7 @@ evaluate_assignment :: (
                     (ev_fi : i64) = i64(-(1));
                     match(
                       pc_var.ty,
-                      .EnumT(_, _, ev_vnames, _, _, ev_vf_labels, _) => {
+                      .EnumT(_, _, ev_vnames, _, _, ev_vf_labels, _, _, _) => {
                         n_vn := ev_vnames.len();
                         (k_vn : usize) = usize(0);
                         (vi : usize) = n_vn; // sentinel: not found

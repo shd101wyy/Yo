@@ -9,7 +9,7 @@ import {
 import { createIsoType } from "../../types/creators";
 import type { IsoType } from "../../types/definitions";
 import { canTypeFormRcCycle } from "../../types/utils";
-import { isAtomicObjectType } from "../../types/guards";
+import { isAtomicReferenceStructType } from "../../types/guards";
 import { createTypeValue, isTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -62,7 +62,7 @@ export function evaluateIsoTypeCall({
   // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
   // rc, not the inner Arc cell. After extract() you get the Arc back;
   // Iso adds nothing over naked Arc + move-on-spawn.
-  if (isAtomicObjectType(childType)) {
+  if (isAtomicReferenceStructType(childType)) {
     const derefField = childType.fields.find((f) => f.label === "*");
     if (derefField) {
       throw formatErrorMessage({

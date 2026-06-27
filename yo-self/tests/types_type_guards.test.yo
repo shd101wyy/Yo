@@ -8,8 +8,8 @@ open(import("std/string"));
 {
   is_iso_type,
   is_dyn_type,
-  is_object_type,
-  is_atomic_object_type,
+  is_reference_struct_type,
+  is_atomic_reference_struct_type,
   is_newtype_type,
   is_str_type,
   is_box_type
@@ -55,20 +55,20 @@ test("is_dyn_type matches DynT only", {
   assert(is_dyn_type(dyn_ty), "DynT");
   assert(!(is_dyn_type(t_i32())), "i32 is not Dyn");
 });
-test("is_object_type matches reference-semantics struct only", {
+test("is_reference_struct_type matches reference-semantics struct only", {
   obj := mk_struct("Counter", empty_labels(), true, false, false);
   val := mk_struct("Point", empty_labels(), false, false, false);
-  assert(is_object_type(obj), "object Counter");
-  assert(!(is_object_type(val)), "value Point");
-  assert(!(is_object_type(t_i32())), "i32 is not an object");
+  assert(is_reference_struct_type(obj), "object Counter");
+  assert(!(is_reference_struct_type(val)), "value Point");
+  assert(!(is_reference_struct_type(t_i32())), "i32 is not an object");
 });
-test("is_atomic_object_type requires both reference-semantics + atomic_rc", {
+test("is_atomic_reference_struct_type requires both reference-semantics + atomic_rc", {
   atomic := mk_struct("A", empty_labels(), true, true, false);
   plain_obj := mk_struct("B", empty_labels(), true, false, false);
   value_struct := mk_struct("C", empty_labels(), false, true, false); // is_atomic_rc on value is nonsense but should not match
-  assert(is_atomic_object_type(atomic), "atomic object");
-  assert(!(is_atomic_object_type(plain_obj)), "non-atomic object");
-  assert(!(is_atomic_object_type(value_struct)), "value struct can't be atomic");
+  assert(is_atomic_reference_struct_type(atomic), "atomic object");
+  assert(!(is_atomic_reference_struct_type(plain_obj)), "non-atomic object");
+  assert(!(is_atomic_reference_struct_type(value_struct)), "value struct can't be atomic");
 });
 test("is_newtype_type", {
   nt := mk_struct("MyId", empty_labels(), false, false, true);

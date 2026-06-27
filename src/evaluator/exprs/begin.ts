@@ -34,7 +34,7 @@ import { exprTreeContainsReturn } from "../../expr-traversal";
 import { generateExprFromCode } from "../../parser";
 import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { isFunctionType, isObjectType, isSomeType } from "../../types/guards";
+import { isFunctionType, isReferenceStructType, isSomeType } from "../../types/guards";
 import {
   typeContainsRcType,
   typeIsControlBound,
@@ -1905,7 +1905,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // Check the base variable (the temp being assigned from), not the derived variable.
       // Only pointer types (object(...)) can be safely optimized here.
       const isValueTypeWithRCFields =
-        !isObjectType(baseVariable.type) &&
+        !isReferenceStructType(baseVariable.type) &&
         typeContainsRcType(baseVariable.type);
 
       // Check if this variable has dups in some but not all branches.

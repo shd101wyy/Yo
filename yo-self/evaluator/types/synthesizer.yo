@@ -196,7 +196,7 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
     .Struct({ id }) => id,
-    .EnumT(id, _, _, _, _, _, _) => id,
+    .EnumT(id, _, _, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     _ => type_to_string_key(ty)
@@ -366,7 +366,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .EnumT(_, _, _, variant_fields, _, _, _) => {
+    .EnumT(_, _, _, variant_fields, _, _, _, _, _) => {
       (res : bool) = false;
       vi := usize(0);
       while((vi < variant_fields.len()) && !(res), {
@@ -1395,8 +1395,8 @@ _synthesize_types_impl :: (
     // see resolve_enum_shell) before any guard looks at variants.
     exp_en_ty := resolve_enum_shell(expected_ty);
     giv_en_ty := resolve_enum_shell(given_ty);
-    exp_enum_id := match(exp_en_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
-    giv_enum_id := match(giv_en_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
+    exp_enum_id := match(exp_en_ty,.EnumT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_enum_id := match(giv_en_ty,.EnumT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
     // Two instantiations of the same generic enum share a constructor_func_id
     // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
     // constructor → unify variant fields. Mirrors the struct same_constructor.
@@ -1413,8 +1413,8 @@ _synthesize_types_impl :: (
     // real checking.
     (same_variants : bool) = false;
     if((exp_enum_cf.len() == usize(0)) || (giv_enum_cf.len() == usize(0)), {
-      exp_vn := match(exp_en_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-      giv_vn := match(giv_en_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+      exp_vn := match(exp_en_ty,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+      giv_vn := match(giv_en_ty,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
       if(exp_vn.len() == giv_vn.len(), {
         (vni : usize) = usize(0);
         (vn_ok : bool) = (exp_vn.len() > usize(0));
@@ -1441,8 +1441,8 @@ _synthesize_types_impl :: (
         )
       );
     }, {
-      exp_vf := match(exp_en_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      giv_vf := match(giv_en_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      exp_vf := match(exp_en_ty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      giv_vf := match(giv_en_ty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
       n_v := exp_vf.len();
       (vi : usize) = usize(0);
       while(vi < n_v, {

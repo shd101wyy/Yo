@@ -1030,7 +1030,7 @@ evaluate_yo_type_get_info :: (
       );
       (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
     },
-    .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _) => {
+    .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _, _, _) => {
       vl_name := _ti_bind_variant_info_list(local_env, type_val, variant_names, variant_fields, variant_field_labels, ctx, exn);
       (String.from("TypeInfo.Enum(") + vl_name) + String.from(")")
     },
@@ -1719,9 +1719,9 @@ evaluate_type_map_variants :: (
     synthetic_token(mapper_name.clone(), local_env.module_path)
   );
   // Extract enum variant data.
-  variant_names := match(target_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-  variant_fields := match(target_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  variant_field_labels := match(target_type,.EnumT(_, _, _, _, _, vfl, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  variant_names := match(target_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+  variant_fields := match(target_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  variant_field_labels := match(target_type,.EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
   result_vals := ArrayList(EvalValue).new();
   (vi : usize) = usize(0);
   n_variants := variant_names.len();

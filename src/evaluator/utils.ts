@@ -8,7 +8,7 @@ import {
 import { TokenType } from "../token";
 import type { Type } from "../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../types/env-lookup";
-import { isAtomicObjectType, isSomeType } from "../types/guards";
+import { isAtomicReferenceStructType, isSomeType } from "../types/guards";
 
 /**
  * Phase O (THREAD_SAFETY): Walk a field-access expression to find the root
@@ -52,7 +52,7 @@ export function getAtomicObjectRootType(
     const resolved = getValueOfSomeTypeFromEnv(env, rootType);
     if (resolved) rootType = resolved;
   }
-  if (rootType && isAtomicObjectType(rootType)) {
+  if (rootType && isAtomicReferenceStructType(rootType)) {
     return rootType;
   }
   return undefined;

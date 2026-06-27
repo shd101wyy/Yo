@@ -25,7 +25,7 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -388,7 +388,7 @@ function isInsideObjectMethod(context: CodeGenContext): boolean {
   if (!fnType || !fnType.parameters[0]) return false;
   const selfParam = fnType.parameters[0];
   if (selfParam.label !== "self") return false;
-  return isObjectType(selfParam.type);
+  return isReferenceStructType(selfParam.type);
 }
 
 /**

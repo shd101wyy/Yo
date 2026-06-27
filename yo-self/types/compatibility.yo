@@ -460,13 +460,13 @@ _compat_impl :: (
       ),
       _ => false
     ),
-    .EnumT(_, _, _, _, _, _, _) => match(
+    .EnumT(_, _, _, _, _, _, _, _, _) => match(
       // Resolve empty-variant Self shells (enum.yo) to their finalized
       // forms before comparing — pointer/exact children otherwise see a
       // 0-variant shell vs the real enum (`*(JsonValue)` vs
       // `*(<enum:..__self_shell>)`, std/encoding/json.yo).
       resolve_enum_shell(actual),
-      .EnumT(aid, aname, avns, avfs, _, avls, _) => match(
+      .EnumT(aid, aname, avns, avfs, _, avls, _, _, _) => match(
         resolve_enum_shell(expected),
         // Non-exact keeps the empty-name wildcard rule ("TomlValue" vs a
         // ""-named reconstruction of the same enum). Under `require_exact`
@@ -477,7 +477,7 @@ _compat_impl :: (
         // Mirror TS compatibility.ts:344-399: equal ids → true; otherwise
         // compare variant names, field labels, and field types exactly,
         // with the same cycle guard as the Struct arm.
-        .EnumT(eid, ename, evns, evfs, _, evls, _) => cond(
+        .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
           !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
           (aid == eid) => true,
           (avns.len() != evns.len()) => false,

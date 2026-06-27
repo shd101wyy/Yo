@@ -18,9 +18,9 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_object_type, is_atomic_object_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_some_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
-{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, RuntimeStructField } :: import("../utils/index.yo");
+{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
@@ -88,7 +88,7 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   // RC header.
   em.emit_string_line(String.from("  obj->header.ref_count = 1;  // Start with one reference"));
   em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
-  is_atomic := is_atomic_object_type(type);
+  is_atomic := is_atomic_reference_struct_type(type);
   if(context.base.needs_cycle_gc && !(is_atomic), {
     em.emit_string_line(String.from("  obj->header.gc_flags = 0;"));
     em.emit_string_line(String.from("  obj->header.gc_mark = __YO_GC_UNMARKED;"));
@@ -158,8 +158,215 @@ generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationCon
   while(go, {
     match(
       vals.next(),
-      .Some(entry) => if(is_object_type(entry.ty), {
+      .Some(entry) => if(is_reference_struct_type(entry.ty), {
         _generate_one_constructor(entry.ty, entry.c_name.clone(), context);
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+/// Emit the cycle-GC traversal function for ONE reference-semantics enum.
+/// `__yo_traverse_<cName>` switches on the active variant's tag and `visit()`s
+/// each reference-semantics field of that variant (accessed through the handle
+/// pointer). Mirrors the per-type body of `generateRefEnumTraversalFunctions`.
+_generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*)) {`);
+  em.emit_string_line(`  ${c_name} obj = (${c_name})ptr;`);
+  em.emit_string_line(`  switch (obj->tag) {`);
+  match(
+    type,
+    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+      nv := variant_names.len();
+      (vi : usize) = usize(0);
+      while(vi < nv, {
+        vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        // Does this variant carry any reference-semantics field?
+        nf := fields.len();
+        (has_rc : bool) = false;
+        (ci : usize) = usize(0);
+        while(ci < nf, {
+          match(
+            fields.get(ci),
+            .Some(ft) => if(is_reference_struct_type(ft) || is_reference_enum_type(ft), {
+              has_rc = true;
+            }),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        if(has_rc, {
+          tag_c := get_enum_variant_c_name(type, vname.clone(), context.base);
+          em.emit_string_line(`  case ${tag_c}:`);
+          (fi : usize) = usize(0);
+          while(fi < nf, {
+            match(
+              fields.get(fi),
+              .Some(ft) => if(is_reference_struct_type(ft) || is_reference_enum_type(ft), {
+                flabel := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+                fname := sanitize_for_c_identifier(flabel, false);
+                em.emit_string_line(`    if (obj->data.${vname}.${fname}) { visit(obj->data.${vname}.${fname}); }`);
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          em.emit_string_line(`    break;`);
+        });
+        vi = (vi + usize(1));
+      });
+    },
+    _ => ()
+  );
+  em.emit_string_line(`  }`);
+  em.emit_string_line(`}`);
+  em.emit_string_line(``);
+});
+/// Generate cycle-GC traversal functions for every concrete, non-atomic
+/// reference-semantics enum. Mirrors `generateRefEnumTraversalFunctions`.
+generate_ref_enum_traversal_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  vals := context.base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => {
+        ty := entry.ty;
+        // Atomic ref-enums never participate in cycle GC; generic enums skip.
+        if((is_reference_enum_type(ty) && !(is_atomic_reference_enum_type(ty))) && !(type_contains_some_type(ty)), {
+          _generate_one_ref_enum_traversal(ty, entry.c_name.clone(), context);
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+/// Emit the per-variant constructor functions for ONE reference-semantics enum.
+/// Each `__yo_new_<cName>_<variant>(fields…)` heap-allocates the RC handle,
+/// initializes the reference-count header (and GC fields / dispose dispatch,
+/// mirroring the object path), sets the tag and the active variant's data, and
+/// returns the pointer. Mirrors the per-type body of
+/// `generateRefEnumConstructorFunctions`.
+_generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  // Skip generic enums that still contain SomeType parameters.
+  if(type_contains_some_type(type), {
+    return();
+  });
+  // Dispose dispatch is shared across all variants (depends on the type).
+  dispose_opt := get_dispose_function_for_type(type, context);
+  is_atomic := is_atomic_reference_enum_type(type);
+  registers_with_gc := ((context.base.needs_cycle_gc && !(is_atomic)) && can_type_form_rc_cycle(type));
+  match(
+    type,
+    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+      nv := variant_names.len();
+      (vi : usize) = usize(0);
+      while(vi < nv, {
+        vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        nf := fields.len();
+        // Parameter list from the variant's non-unit fields.
+        params := String.from("");
+        (emitted : usize) = usize(0);
+        (pi : usize) = usize(0);
+        while(pi < nf, {
+          match(
+            fields.get(pi),
+            .Some(ft) => if(!(is_unit_type(ft)), {
+              if(emitted > usize(0), {
+                params.push_str(", ");
+              });
+              flabel := match(labels.get(pi),.Some(l) => l,.None => String.from(""));
+              params.push_string(get_type_string(ft, context.base));
+              params.push_str(" ");
+              params.push_string(sanitize_for_c_identifier(flabel, false));
+              emitted = (emitted + usize(1));
+            }),
+            .None => ()
+          );
+          pi = (pi + usize(1));
+        });
+        // Signature + malloc.
+        em.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
+        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_malloc(sizeof(${c_name}));`);
+        em.emit_string_line(`  obj->header.ref_count = 1;  // Start with one reference`);
+        em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
+        if(context.base.needs_cycle_gc && !(is_atomic), {
+          em.emit_string_line(`  obj->header.gc_flags = 0;`);
+          em.emit_string_line(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
+          em.emit_string_line(`  obj->header.gc_next = NULL;`);
+          em.emit_string_line(`  obj->header.gc_prev = NULL;`);
+        });
+        // Dispose function pointer (cyclic GC) / type-tag (lightweight path).
+        match(
+          dispose_opt,
+          .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
+            em.emit_string_line(`  obj->header.dispose_fn = (void(*)(void*))${dispose_c_name};`);
+          }, {
+            dispose_id := context.base.dispose_type_id_for(dispose_c_name.clone());
+            em.emit_string_line(`  obj->header.type_id = ${dispose_id.to_string()};`);
+          }),
+          .None => if(context.base.needs_cycle_gc, {
+            em.emit_string_line(`  obj->header.dispose_fn = NULL;`);
+          }, {
+            em.emit_string_line(`  obj->header.type_id = 0;`);
+          })
+        );
+        // Traversal function pointer (cyclic GC only; atomic never participates).
+        if(context.base.needs_cycle_gc && !(is_atomic), {
+          em.emit_string_line(`  obj->header.traverse_fn = __yo_traverse_${c_name};`);
+        });
+        // Tag + active variant's non-unit field assignments.
+        tag_c := get_enum_variant_c_name(type, vname.clone(), context.base);
+        em.emit_string_line(`  obj->tag = ${tag_c};`);
+        (fi : usize) = usize(0);
+        while(fi < nf, {
+          match(
+            fields.get(fi),
+            .Some(ft) => if(!(is_unit_type(ft)), {
+              flabel := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+              fname := sanitize_for_c_identifier(flabel, false);
+              em.emit_string_line(`  obj->data.${vname}.${fname} = ${fname};`);
+            }),
+            .None => ()
+          );
+          fi = (fi + usize(1));
+        });
+        if(registers_with_gc, {
+          em.emit_string_line(`  __yo_gc_register(obj);`);
+        });
+        em.emit_string_line(`  return obj;`);
+        em.emit_string_line(`}`);
+        em.emit_string_line(``);
+        vi = (vi + usize(1));
+      });
+    },
+    _ => ()
+  )
+});
+/// Generate per-variant constructor implementations for every concrete
+/// reference-semantics enum (`ref(enum(…))`). Mirrors
+/// `generateRefEnumConstructorFunctions`: emits the cycle-GC traversal
+/// functions first (when needed), then the constructors.
+generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  if(context.base.needs_cycle_gc, {
+    generate_ref_enum_traversal_functions(context);
+  });
+  vals := context.base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => if(is_reference_enum_type(entry.ty), {
+        _generate_one_ref_enum_constructor_set(entry.ty, entry.c_name.clone(), context);
       }),
       .None => {
         go = false;
@@ -174,4 +381,4 @@ generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationCon
 generate_closure_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)(
   ()
 );
-export(generate_ref_struct_constructor_functions, generate_closure_constructor_functions);
+export(generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions);

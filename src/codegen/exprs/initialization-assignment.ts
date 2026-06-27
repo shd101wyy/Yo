@@ -10,7 +10,7 @@ import {
 } from "../../expr";
 import {
   isArrayType,
-  isObjectType,
+  isReferenceStructType,
   isStructType,
   isTupleType,
   isUnitType,
@@ -135,7 +135,7 @@ export function generateInitializationAssignment(
       }
 
       // Use -> for ref types (which are pointers), . for regular types
-      const memberAccessOp = rhsType && isObjectType(rhsType) ? "->" : ".";
+      const memberAccessOp = rhsType && isReferenceStructType(rhsType) ? "->" : ".";
 
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`

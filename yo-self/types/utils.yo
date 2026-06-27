@@ -46,7 +46,7 @@ open(import("std/fmt"));
   is_comptime_float_type,
   is_some_type,
   is_rc_type,
-  is_object_type,
+  is_reference_struct_type,
   is_dyn_type
 }
 :: import("./guards.yo");
@@ -363,7 +363,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         found
       },
       // EnumT — check all variant fields
-      .EnumT(id : _, name : _, variant_names : _, variant_fields : all_fields, selected_variant_name : _, variant_field_labels : _, variant_discriminants : _) => {
+      .EnumT({ variant_fields : all_fields }) => {
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < all_fields.len()) && !(found), {
@@ -470,7 +470,7 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         });
         found
       },
-      .EnumT(id : _, name : _, variant_names : _, variant_fields : all_fields, selected_variant_name : _, variant_field_labels : _, variant_discriminants : _) => {
+      .EnumT({ variant_fields : all_fields }) => {
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < all_fields.len()) && !(found), {
@@ -634,7 +634,7 @@ _collect_some_types_into :: (
         i = (i + usize(1));
       });
     },
-    .EnumT(en_id, _, _, vfs, _, _, _) => {
+    .EnumT(en_id, _, _, vfs, _, _, _, _, _) => {
       // Cycle guard — see the Struct arm above.
       if(_id_already_visited(visited_ids, en_id), {
         return(());
@@ -991,7 +991,7 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
   cond(
     (depth == usize(0)) => false,
-    is_object_type(ty) => false,
+    is_reference_struct_type(ty) => false,
     is_dyn_type(ty) => false,
     true => match(
       ty,
@@ -1068,7 +1068,7 @@ type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)(
 _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
   cond(
     (depth == usize(0)) => false,
-    is_object_type(ty) => true,
+    is_reference_struct_type(ty) => true,
     is_dyn_type(ty) => true,
     true => match(
       ty,
