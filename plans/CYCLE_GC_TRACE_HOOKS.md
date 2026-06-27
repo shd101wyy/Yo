@@ -269,39 +269,49 @@ WIP / remaining, with the concrete hooks:
   modeled on `findUserDisposeMethodForType` (generation.ts:142) + `findDisposeTraitValue`
   (:84). GcTracer is a newtype over `*(u8)` so the trace method's C signature is
   `void(<cName>*, u8*)` — the fn-ptr cast bridges it to the traverse_fn ABI.
-- **specialization triggering (the former blocker — SOLVED)**: the generic `trace`
-  method isn't specialized unless referenced. Mirror `collectDisposeMethodsFromGenericImpls`
-  (codegen/functions/collection.ts:649): a `collectTraceMethodsFromGenericImpls` that, for
-  each collected cycle-GC RC type (struct AND enum), finds its `trace` via
-  `findMethodsFromGenericImpls({methodName:"trace"})`, registers it in `context.functions`,
-  and `findFunctionCallsInExpr(body)` (which pulls in the per-element `GcTracer.visit`
-  monomorphizations, whose bodies are the intrinsic). Call it from the same site as the
-  dispose collector.
+- **no-RC-churn element access (item 6) — ✅ SOLVED (design, validated by analysis)**:
+  `tracer.visit` takes the element's SLOT POINTER, never the element by value:
+  `visit : fn(forall(T), self : Self, slot : *(T))`, body `__yo_gc_trace_child(self,
+  slot)`, lowering to `emitTraverseValue("(*(slot))", T)` — a RAW deref read, exactly
+  like the auto-derived `visit(obj->field)` (no dup, no drop, RC-neutral). A by-value
+  managed handle would be dup'd at the call then dropped at `visit`'s scope end, and at
+  RC=1 the drop frees the still-referenced element MID-COLLECTION (UAF) and corrupts the
+  collector's concurrent trial-decrement. The ArrayList impl reads the buffer raw:
+  `match(self._ptr, .Some(base) => while(i < _length) { tracer.visit(base &+ i); ... })`.
+  Prelude: `extern __yo_gc_trace_child : fn(forall(T), tracer : GcTracer, slot : *(T))`;
+  `generateYoGcTraceChild` derives the pointee `T` from the slot arg's `PtrType`.
 - **detection through container (item 7)**: `can_type_form_rc_cycle` /
   `typeCanFormCyclicRcReference` walk only `field_types`; a container's elements sit
-  behind a raw `*(T)` buffer (`_ptr`), so they're invisible. Add: for a struct that
-  implements `Trace` (a container), also walk its element type(s) — for `ArrayList(E)`
-  the single type-arg `E`; for `HashMap(K,V)` both. (The traversal itself is handled by
-  the hand impl; detection just needs to see `E`.)
-- **container impls (item 6) — has an UNSOLVED no-RC-churn constraint (CRITICAL)**:
-  `ArrayList` fields are `_ptr : ?*(T)`, `_length`, `_capacity`
-  (std/collections/array_list.yo); `HashMap`: `data : ?*(Bucket(K,V))`, `ctrl`,
-  `capacity`, `size` (iterate live ctrl slots, trace key+value). THE TRAP: a naive
-  `tracer.visit(self.uget(i))` reads the buffer element through Yo VALUE semantics.
-  If `uget` dups the managed handle (RC++) and `visit`'s by-value `child` param is
-  dropped at scope end (RC--), then for an element at RC=1 the param-drop hits 0 and
-  FREES the still-referenced element MID-TRAVERSAL → use-after-free/double-free (the
-  collector is also trial-decrementing the same RC, so the accounting is wrong too).
-  The auto-derived path avoids this by reading `obj->field` as a RAW C lvalue (no
-  dup, no drop) — the container impl must do the same. So `tracer.visit(elem)` must
-  NOT take/own `elem` by value with a drop. Likely fix: the per-element tracer takes
-  the element's SLOT as a raw lvalue / pointer and `_traverse_value` reads through it
-  with no Yo value semantics (e.g. a `visit_slot(ptr : *(E))` form, or make `uget`
-  an inline raw-lvalue accessor whose result flows into `__yo_gc_trace_child`
-  WITHOUT a dup/drop). MUST be ASan-validated against an RC=1 element cycle. (Item-5
-  plumbing — findUserTraceMethodForType + collectTraceMethodsFromGenericImpls + the
-  `trace_<cName>(obj,(void*)visit)` delegation in both traverse generators — was
-  implemented on TS and BUILDS CLEAN; it was reverted to keep the tree at the clean
-  symmetric phase-2-foundation milestone until item 6's no-churn access is solved, so
-  the container path can land + be tested end-to-end as one unit. Re-derive item 5
-  from the anchors above.)
+  behind a raw `?*(E)` buffer field, invisible to the walk. Add: for a struct that
+  implements `Trace`, also walk the buffer ELEMENT type — a `bufferElementType` helper
+  extracts the pointee of a `*(E)` / `Option(*(E))` field; the existing `visited`-set
+  recursion then closes the cycle (`ArrayList(Self)` → element `Self` → already-visited).
+  Resolve the container's Trace impl with its OWN env (`type.env`), not the root's
+  threaded env (impls are visible in the defining module, not necessarily the root's).
+
+- **⛔ THE OPEN BLOCKER — generic-impl resolution for containers** (this is what stops
+  Phase 3 from finishing): detection (`typeImplementsTrace`), the traverse delegation
+  (`findUserTraceMethodForType`), AND specialization (`collectTraceMethodsFromGenericImpls`)
+  all must resolve a concrete container's GENERIC `Trace` impl, and they all bottom out in
+  `tryMatchGenericImpl` → `synthesizeTypes`, which THROWS:
+  `Cannot unify incompatible struct types: "ArrayList(T)" and "object(_ptr: Option(*(T)),
+  _length: usize, _capacity: usize)"`. The generic impl's receiver is the NAMED struct
+  `"ArrayList(T)"`; concrete instantiations are the ANONYMOUS `"object(...)"` form — they
+  never unify by name, so `findMethodsFromGenericImpls` returns 0 for BOTH `trace` AND
+  `dispose` on ArrayList. `dispose` survives only because the evaluator inserts dispose
+  calls into the AST when a container is dropped, so the specialized `dispose` lands in
+  `context.functions` (found later by the funcName search in `findUserDisposeMethodForType`).
+  `trace` has NO call-sites, so nothing ever collects/specializes it. CANDIDATE FIXES
+  (next focused session): (a) give instantiated generic structs a nominal identity shared
+  with their type-function so `synthesizeTypes` matches `ArrayList(T)` ↔ `ArrayList(X)`
+  [deep struct-naming work — relates to [[yo-self-struct-identity-cache-fix]]]; (b) extract
+  the specialization block out of `findMethodsFromGenericImpls` into a reusable helper and
+  add a `collectContainerTraceMethods` that derives substitutions `{Self: concrete,
+  E: bufferElementType}` manually (single forall for ArrayList; K,V via `Bucket` for
+  HashMap) and specializes the trace body directly, bypassing the broken name-unify
+  [moderate, container-scoped, lowest risk]; (c) synthesize a `trace` call-site during
+  evaluation for cycle-GC containers so it is collected like `dispose` [eval-side].
+  Item-5/6/7 plumbing + the slot-pointer API were implemented on TS and build clean; all
+  reverted to keep the tree at the symmetric phase-2-foundation milestone. Re-apply from
+  these anchors once (a)/(b)/(c) lands; then validate ArrayList(Self) collects + ASan on
+  an RC=1 cycle, port to yo-self, corpus 0-diff.
