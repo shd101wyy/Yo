@@ -10,10 +10,10 @@ P :: struct(x : i32, y : i32);
 
 impl(P,
   // `caller` 引用稍后定义的 `callee`。
-  caller : (fn(ref(self) : Self) -> i32)(
+  caller : (fn(inout(self) : Self) -> i32)(
     self.callee()
   ),
-  callee : (fn(ref(self) : Self) -> i32)(
+  callee : (fn(inout(self) : Self) -> i32)(
     self.x
   )
 );
@@ -25,13 +25,13 @@ impl(P,
 N :: struct(value : i32);
 
 impl(N,
-  is_even : (fn(ref(self) : Self, n : i32) -> bool)(
+  is_even : (fn(inout(self) : Self, n : i32) -> bool)(
     cond(
       (n == i32(0)) => true,
       true => self.is_odd((n - i32(1)))
     )
   ),
-  is_odd : (fn(ref(self) : Self, n : i32) -> bool)(
+  is_odd : (fn(inout(self) : Self, n : i32) -> bool)(
     cond(
       (n == i32(0)) => false,
       true => self.is_even((n - i32(1)))
@@ -93,9 +93,9 @@ impl(N,
 
 ```rust
 impl(MyType,
-  len : (fn(ref(self) : Self) -> usize) self.items.len(),
+  len : (fn(inout(self) : Self) -> usize) self.items.len(),
   // 下面这个 body 内部声明的局部 `len` 就会与同名的兄弟字段冲突
-  trim : (fn(ref(self) : Self) -> Self) {
+  trim : (fn(inout(self) : Self) -> Self) {
     len := usize(0); // 会遮蔽兄弟字段
     // ...
   }

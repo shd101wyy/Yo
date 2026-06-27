@@ -106,7 +106,7 @@ call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit) { // p 默认借用
 每个堆分配的 ARC 值在创建时有一个所有者，引用计数初始为 1。
 
 ```rust
-Point :: object(x : i32, y : i32);
+Point :: ref(struct(x : i32, y : i32));
 
 Point(3, 4); // temp_var 拥有 Point(3, 4)，RC = 1
 ```

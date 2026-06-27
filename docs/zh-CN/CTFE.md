@@ -85,9 +85,9 @@ odd_sum :: sum_odd(10);
 ```rust
 // 在编译期创建一个泛型容器类型
 Container :: (fn(comptime(T) : Type) -> comptime(Type))
-  object(
+  ref(struct(
     value : T
-  )
+  ))
 ;
 
 // 类型在编译期计算

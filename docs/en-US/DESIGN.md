@@ -382,7 +382,7 @@ A type can have the following **Kind**:
 - Structs defined with `struct(...)`
 - Enums/ADTs defined with `enum(...)`
 - Unions defined with `union(...)`
-- Reference-counted object types defined with `object(...)`
+- Reference-counted reference-semantics types defined with `ref(struct(...))` or `ref(enum(...))` (and their atomic variants `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`)
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
 - The static string view: `str` (string literals; refers only to static data)
 - Newtypes defined with `newtype(...)`
@@ -408,9 +408,9 @@ A type can have the following **Kind**:
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
 - Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
 
-**Object Types** (heap-allocated, reference-counted):
+**Reference-Semantics Types** (heap-allocated, reference-counted):
 
-- Types defined with `object(...)`
+- Types defined with `ref(struct(...))` or `ref(enum(...))` (and their atomic variants `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`)
 - Automatic cycle detection and collection
 - Thread-affinity for performance (objects stay on the thread that created them)
 
@@ -420,10 +420,10 @@ Point :: struct(x : i32, y : i32);
 p1 := Point(3, 4);
 p2 := p1;  // p2 is a copy of p1
 
-// Object type - heap-allocated, reference-counted
-MyString :: object(
+// Reference-semantics type - heap-allocated, reference-counted
+MyString :: ref(struct(
   _bytes : ArrayList(u8)
-);
+));
 s1 := MyString.from("Hello");
 s2 := s1;  // s2 and s1 point to the same object (reference counted)
 ```
@@ -737,7 +737,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(ref(self) : Self, dx : i32, dy : i32) -> unit)({
+  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -747,18 +747,18 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // Type method call - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // `ref(self)` lowers to `Self*` — &(p2) is taken automatically
+p2.move_by(5, 10);  // `inout(self)` lowers to `Self*` — &(p2) is taken automatically
 // p2 is now Point(5, 10)
 ```
 
-**Automatic pointer conversion for `ref`:**
+**Automatic pointer conversion for `inout`:**
 
-`ref(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
+`inout(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
 
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : (fn(ref(self) : Self, new_x : i32) -> unit)({
+  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
@@ -797,19 +797,19 @@ If `recur` is the last expression, tail-call optimization will be applied.
   );
   ```
 
-### Object Types and Memory Management
+### Reference-Semantics Types and Memory Management
 
-Yo uses **object types** with [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
+Yo uses **reference-semantics types** with [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
 
-#### Object Type
+#### Reference-Semantics Type
 
-Object types are heap-allocated types with automatic reference counting:
+Reference-semantics types are heap-allocated types with automatic reference counting:
 
 ```rust
-// Define an object type
-MyString :: object(
+// Define a reference-semantics type
+MyString :: ref(struct(
   _bytes : ArrayList(u8)
-);
+));
 impl(MyString,
   // Methods
   from : (fn(s : str) -> Self)({
@@ -859,7 +859,7 @@ swap(&(x), &(y));  // Pass pointers to x and y
 // Now x == 2, y == 1
 ```
 
-For day-to-day in-place mutation, prefer the `ref(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
+For day-to-day in-place mutation, prefer the `inout(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
 
 ### Pointer Operations
 
@@ -960,7 +960,7 @@ match(some_ptr,
 
 ### Memory Safety
 
-For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `ref(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, and `-fwrapv` for signed-integer overflow.
+For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `inout(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, and `-fwrapv` for signed-integer overflow.
 
 Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
 
@@ -1015,18 +1015,18 @@ main :: (fn() -> unit)({
 });
 ```
 
-### `ref` Parameters
+### `inout` Parameters
 
-For in-place mutation without raw pointers, use the `ref(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `ref(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(ref(n) : i32) -> unit)({
+increment :: (fn(inout(n) : i32) -> unit)({
   n = (n + i32(1));
 });
 
@@ -1044,15 +1044,15 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (`ref` is runtime-only). For chained calls, passing a `ref`-param through to another function's `ref`-param works as expected:
+`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
 
 ```rust
-double :: (fn(ref(n) : i32) -> unit)({
+double :: (fn(inout(n) : i32) -> unit)({
   n = (n + n);
 });
 
-double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
-  double(x);  // passes &x through to double's ref-param
+double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+  double(x);  // passes &x through to double's inout-param
   double(y);
 });
 ```
@@ -1314,7 +1314,7 @@ The `Iterator` trait defines a sequence of values. It has an associated type `It
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(ref(self) : Self) -> Option(Self.Item))
+  next : (fn(inout(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1384,7 +1384,7 @@ while(i < usize(3), {
 
 Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-The old borrow form `for(coll, ref(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
+The old borrow form `for(coll, inout(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 
 Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration).
 
@@ -1726,11 +1726,11 @@ A trait is defined as a function that returns a `Trait` type containing field de
 ```rust
 // Define a trait (like a trait in Rust)
 Summary :: trait(
-  summarize : (fn(ref(self) : Self) -> String)
+  summarize : (fn(inout(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(ref(self) : Self) -> String),
+  display : (fn(inout(self) : Self) -> String),
   where(Self <: Summary) // Constraint
 );
 
@@ -1756,12 +1756,12 @@ impl(NewsArticle, Display(
 ));
 
 // Pass in function
-notify :: (fn(ref(item) : NewsArticle) -> unit)({
+notify :: (fn(inout(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // Generic function with trait constraint
-notify2 :: (fn(forall(T : Type), ref(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(forall(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2178,14 +2178,14 @@ test_error :: (fn() -> unit)({
 });
 ```
 
-### Closures with Object Types
+### Closures with Reference-Semantics Types
 
-Closures work seamlessly with object types:
+Closures work seamlessly with reference-semantics types:
 
 ```rust
-MyBox :: object(
+MyBox :: ref(struct(
   (*) : i32
-);
+));
 
 make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
   return((unit) => {
@@ -2212,14 +2212,14 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 
 ### Box Type
 
-`Box(T)` is a generic object type that wraps any value type:
+`Box(T)` is a generic reference-semantics type that wraps any value type:
 
 ```rust
 // Box is defined in std/prelude.yo
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  object(
+  ref(struct(
     (*) : V
-  )
+  ))
 );
 
 // box function creates a Box
@@ -2338,7 +2338,7 @@ result := use_id(42);  // Prints "i32: 42", returns 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(ref(self) : Self) -> i32)
+  return_i32 : (fn(inout(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -2401,8 +2401,8 @@ Run :: trait(
   run: (fn(self : Self) -> i32)
 );
 
-// Must be object type to work with Dyn
-Dog :: object();
+// Must be a reference-semantics type to work with Dyn
+Dog :: ref(struct());
 
 DogSpeak :: impl(Dog, Speak(
   speak: ((self: Self) -> {
@@ -2650,9 +2650,9 @@ Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
 a compiler built-in; it is defined in `std/prelude.yo` as a thin
-`atomic object(...)` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
+`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
 thread-shareable values. Use `Arc(T)` when you want to share a single value.
-Use `atomic object(...)` when defining your own shared types.
+Use `atomic(ref(struct(...)))` when defining your own shared types.
 
 ```rust
 // Create with the arc() helper
@@ -2903,14 +2903,14 @@ test("Division", {
 });
 ```
 
-### Testing with Object Types
+### Testing with Reference-Semantics Types
 
 Test cleanup and disposal:
 
 ```rust
-MyBox :: object(
+MyBox :: ref(struct(
   (*) : i32
-);
+));
 impl(MyBox, Dispose(
   dispose : (self -> {
     printf("Disposing MyBox with value: %d\n", self.*);

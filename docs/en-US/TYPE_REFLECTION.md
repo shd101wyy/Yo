@@ -193,8 +193,8 @@ StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
 - `Struct` — regular value-type struct
-- `Object` — reference-counted object type (`object(...)`)
-- `AtomicObject` — atomic reference-counted object type (`atomic object(...)`)
+- `Object` — reference-counted reference-semantics type (`ref(struct(...))`)
+- `AtomicObject` — atomic reference-counted reference-semantics type (`atomic(ref(struct(...)))`)
 - `NewType` — single-field wrapper type (`newtype(...)`)
 
 ### FunctionInfo

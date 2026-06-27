@@ -2,16 +2,16 @@
 
 `Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
 在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为一个薄包装的
-`atomic object(...)`，因此 `Arc` 与 `arc(...)` 会通过 prelude 自动可用。
+`atomic(ref(struct(...)))`，因此 `Arc` 与 `arc(...)` 会通过 prelude 自动可用。
 `Arc(T)` 本身要求 `T <: Send`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。
 
 ## 当前定义
 
 ```rust
 Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
-  atomic object(
+  atomic(ref(struct(
     (*) : V
-  )
+  )))
 ;
 
 arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
@@ -22,14 +22,14 @@ arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
 ## 什么时候使用 `Arc`
 
 - 当你想在**线程或闭包之间共享一个现有值**时，使用 `Arc(T)`。
-- 当你要定义**自己的共享类型**时，使用 `atomic object(...)`。
+- 当你要定义**自己的共享类型**时，使用 `atomic(ref(struct(...)))`。
 - 当你想要**转移**而不是共享所有权时，使用 `Iso(T)`。
-- `Arc(T)` 只接受实现了 `Send` 的子类型；普通 `object(...)` 并不满足这个条件。
+- `Arc(T)` 只接受实现了 `Send` 的子类型；普通 `ref(struct(...))` 并不满足这个条件。
 
 许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
-原语和 `std/imm` 集合本身就基于 `atomic object(...)` 实现，可以直接跨线程共享。
+原语和 `std/imm` 集合本身就基于 `atomic(ref(struct(...)))` 实现，可以直接跨线程共享。
 
-如果你需要共享可变状态，应该先把这份状态定义成 `atomic object(...)`，
+如果你需要共享可变状态，应该先把这份状态定义成 `atomic(ref(struct(...)))`，
 然后直接共享它；只有在你确实需要“包裹一个单独值”时，再使用 `Arc(...)`。
 
 ## 基本用法
@@ -79,12 +79,12 @@ t.join();
 assert((shared.(*) == i32(42)), "main still sees shared value");
 ```
 
-## `Arc`、`atomic object` 与 `Iso` 的区别
+## `Arc`、`atomic(ref(struct(...)))` 与 `Iso` 的区别
 
 | 需求                            | 推荐工具             |
 | ------------------------------- | -------------------- |
 | 共享一个现有值                  | `Arc(T)`             |
-| 定义可复用的共享引用计数类型    | `atomic object(...)` |
+| 定义可复用的共享引用计数类型    | `atomic(ref(struct(...)))` |
 | 在线程/作用域之间转移唯一所有权 | `Iso(T)`             |
 
 ## 语义
@@ -99,4 +99,4 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 - `docs/zh-CN/PARALLELISM.md` —— 线程与 Worker 模型
 - `docs/zh-CN/ISOLATED.md` —— `Iso(T)` 的唯一所有权
-- `docs/zh-CN/IMMUTABLE_COLLECTIONS.md` —— 基于 `atomic object(...)` 的持久化集合
+- `docs/zh-CN/IMMUTABLE_COLLECTIONS.md` —— 基于 `atomic(ref(struct(...)))` 的持久化集合

@@ -169,25 +169,24 @@ ArgumentList ::= [Expression (',' Expression)*]
 ```abnf
 Parameter ::= ParameterLabel ':' Type
 ParameterLabel ::=
-  | Identifier                  ;; 按值传递（object 类型即共享句柄）
-  | 'ref' '(' Identifier ')'    ;; 指向调用者左值的二等引用
+  | Identifier                  ;; 按值传递（引用语义类型即共享句柄）
+  | 'inout' '(' Identifier ')'  ;; 指向调用者左值的二等引用（绑定写回）
   | 'own' '(' Identifier ')'    ;; 消耗调用者的句柄（移动）
-  | 'inout' '(' Identifier ')'  ;; ref 的别名（绑定写回）
   | 'comptime' '(' Identifier ')' ;; 仅编译期参数
   | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
 ```
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ ... });
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ ... });
 sink :: (fn(own(victim) : Holder) -> unit)({ ... });
 ```
 
-`ref` 的位置规则：
+`inout` 的位置规则：
 
-- 参数位置（`ref(name) : T`）是 `ref` 唯一的合法位置。
-- `ref` 在**返回类型位置被拒绝**（`-> ref(T)`、`-> (ref(name) : T)`），
-  作为局部绑定（`ref(r) := lvalue;`）也被拒绝，更不能出现在任何其他
-  类型表达式中（`Option(ref(T))`、struct 字段、泛型实参）。
+- 参数位置（`inout(name) : T`）是 `inout` 唯一的合法位置。
+- `inout` 在**返回类型位置被拒绝**（`-> inout(T)`、`-> (inout(name) : T)`），
+  作为局部绑定（`inout(r) := lvalue;`）也被拒绝，更不能出现在任何其他
+  类型表达式中（`Option(inout(T))`、struct 字段、泛型实参）。
 - 语义详见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 ## 注释和空白

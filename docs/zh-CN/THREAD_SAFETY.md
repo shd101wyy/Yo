@@ -18,17 +18,17 @@ Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证�
 // 所有字段都是 Send → Point 是 Send
 Point :: struct(x : i32, y : i32);
 
-// 普通 object 不是 Send — 它使用非原子引用计数
-MyObj :: object(data : Vec(i32));
+// 普通 ref(struct(...)) 不是 Send — 它使用非原子引用计数
+MyObj :: ref(struct(data : Vec(i32)));
 ```
 
 ### 手动 Send 实现需要 Pragma
 
 编写 `impl(MyType, Send())` 需要 `pragma(Pragma.AllowUnsafe)` 和解释该类型为何可以安全跨线程发送的 `// SAFETY:` 注释。这确保每个手动 Send 声明都是可审计的。
 
-## 原子对象 vs 普通对象
+## 原子引用语义类型 vs 普通引用语义类型
 
-|                | `object(...)`          | `atomic object(...)`                |
+|                | `ref(struct(...))`     | `atomic(ref(struct(...)))`          |
 | -------------- | ---------------------- | ----------------------------------- |
 | **引用计数**   | 非原子 RC（线程本地）  | 原子 RC（线程安全）                 |
 | **跨线程共享** | 不允许（非 Send）      | 允许（所有字段都是 Send 时为 Send） |
@@ -37,7 +37,7 @@ MyObj :: object(data : Vec(i32));
 
 ## 安全代码中禁止原子字段修改
 
-在安全代码中直接写入 `atomic object` 的字段是**编译时错误**：
+在安全代码中直接写入 `atomic(ref(struct(...)))` 的字段是**编译时错误**：
 
 ```rust
 a := arc(i32(0));
@@ -99,7 +99,7 @@ counter.with_lock((v) => { v = (v + i32(1)); });
 new_value := counter.with_lock((v) => (v + i32(1)));
 ```
 
-闭包接收 `ref(v) : T` — 一个**二级引用**，不能逃逸闭包作用域。
+闭包接收 `inout(v) : T` — 一个**二级引用**，不能逃逸闭包作用域。
 
 解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都调用 `_raw_unlock()`，保证结构化解锁配对。**可重入锁定会导致死锁。**
 

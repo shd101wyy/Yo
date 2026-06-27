@@ -25,7 +25,7 @@ Everything you'd expect from a modern general-purpose language:
 - **Closures and higher-order functions** over safe types.
 - **Generics, traits, GADTs.** All of Yo's type-system features.
 - **Algebraic effects, async/await, comptime.** Full access.
-- **In-place mutation.** Via `ref(name) : T` parameters — covered below.
+- **In-place mutation.** Via `inout(name) : T` parameters — covered below.
 
 This is the default user experience. No pragma needed, no `&()` annotations, no `*(T)` types, no `unsafe(...)` wraps:
 
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Object elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, write back with index assignment (`coll(i) = v`). The old borrow form `for(coll, ref(item) => …)` was removed and produces a compile error with this recipe.
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Object elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, write back with index assignment (`coll(i) = v`). The old borrow form `for(coll, inout(item) => …)` was removed and produces a compile error with this recipe.
 
 ## What Safe Code Cannot Do
 
@@ -54,8 +54,8 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 | Construct                                               | Diagnostic (short)                                                               | Safe alternative                                                                                 |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `ref(name) : T`, an `object` type, or a stdlib wrapper |
-| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` parameter, or pass the owned collection                                          |
+| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `inout(name) : T`, an `object` type, or a stdlib wrapper |
+| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` parameter, or pass the owned collection                                          |
 | `unsafe(...)` call                                      | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops    |
 | `asm(...)` block                                        | "inline assembly is not available in safe code"                                  | Same                                                                                             |
 | `extern(...)` / `c_include(...)` declaration            | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                                |
@@ -64,12 +64,12 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
 
-## In-Place Mutation: `ref(name) : T`
+## In-Place Mutation: `inout(name) : T`
 
 The pattern C/Rust solve with `&mut T` is solved in safe Yo with a parameter modifier:
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
@@ -78,18 +78,18 @@ swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // no &() at the call site — `ref` is in the param spec
+  swap(x, y);              // no &() at the call site — `inout` is in the param spec
   assert((x == i32(2)), "swapped");
 });
 ```
 
-`ref` is **second-class** and exists ONLY in parameter position (`ref(name) : T`). Functions cannot return `ref`, there are no local ref bindings (`ref(r) := …` is rejected — fields read and write in place), there is no first-class "`ref` type", and a borrow cannot leak into a struct field or a closure capture. A ref argument is a simple lvalue place (a variable, or `var.field` rooted at a local/param), so the borrowed storage is alive for the whole call by construction. See [FLOWABILITY.md](./FLOWABILITY.md).
+`inout` is **second-class** and exists ONLY in parameter position (`inout(name) : T`). Functions cannot return `inout`, there are no local ref bindings (`inout(r) := …` is rejected — fields read and write in place), there is no first-class "`inout` type", and a borrow cannot leak into a struct field or a closure capture. An `inout` argument is a simple lvalue place (a variable, or `var.field` rooted at a local/param), so the borrowed storage is alive for the whole call by construction. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 
-- Stdlib trait methods that mutate (`Hash.hash`, `Clone.clone`, `Iterator.next`) all take `ref(self) : Self`. You write `value.hash()`, `it.next()` — no `&()` needed.
-- Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `ref(name) : T`.
-- Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(ref(v) : T) -> R))`.
+- Stdlib trait methods that mutate (`Hash.hash`, `Clone.clone`, `Iterator.next`) all take `inout(self) : Self`. You write `value.hash()`, `it.next()` — no `&()` needed.
+- Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `inout(name) : T`.
+- Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(inout(v) : T) -> R))`.
 
 ## Stdlib Collections Stay Safe
 
@@ -295,7 +295,7 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 ## Further Reading
 
 - `plans/MEMORY_SAFETY.md` — the design document for the safety model. Covers the full rationale, phase rollout, alternatives considered.
-- [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `ref`/borrow rules (flowability + borrow invalidation).
+- [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `inout`/borrow rules (flowability + borrow invalidation).
 - `plans/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
 - `plans/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/ITERATOR_REDESIGN.md` — how iteration works under the safe model.

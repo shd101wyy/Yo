@@ -85,9 +85,9 @@ Types are values in Yo, enabling powerful compile-time type manipulation:
 ```rust
 // Create a generic container type at compile-time
 Container :: (fn(comptime(T) : Type) -> comptime(Type))
-  object(
+  ref(struct(
     value : T
-  )
+  ))
 ;
 
 // Types are computed at compile-time

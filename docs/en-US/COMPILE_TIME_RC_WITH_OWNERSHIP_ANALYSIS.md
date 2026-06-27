@@ -106,7 +106,7 @@ call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit) { // p borrows by defa
 Each heap allocated ARC value starts with a single owner. Its reference counter starts at 1.
 
 ```rust
-Point :: object(x : i32, y : i32);
+Point :: ref(struct(x : i32, y : i32));
 
 Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
 ```

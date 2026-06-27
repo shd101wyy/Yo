@@ -55,7 +55,7 @@ impl(Thread,
   spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self),
 
   // Wait for the thread to complete (blocking)
-  join : (fn(ref(self) : Self) -> unit)
+  join : (fn(inout(self) : Self) -> unit)
 );
 ```
 
@@ -184,7 +184,7 @@ Thread.spawn(() => {
 });
 ```
 
-`Channel` is implemented as an `atomic object(...)`, so it is directly shareable across
+`Channel` is implemented as an `atomic(ref(struct(...)))`, so it is directly shareable across
 threads. No extra `arc()` wrapper is needed.
 
 Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
@@ -194,7 +194,7 @@ Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks w
 Only types that implement `Send` can cross thread boundaries:
 
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs composed of Send fields
-- **Not Sendable**: `object(...)`, `Dyn`, closures capturing non-Send values
+- **Not Sendable**: `ref(struct(...))`, `Dyn`, closures capturing non-Send values
 
 ```rust
 // ✅ Sendable
@@ -204,10 +204,10 @@ Thread.spawn(() => {
 });
 
 // ❌ Not Sendable
-Node :: object(value: i32);
+Node :: ref(struct(value: i32));
 node := Node(42);
 Thread.spawn(() => {
-  // ERROR: Cannot capture `node` (object is not Send)
+  // ERROR: Cannot capture `node` (reference-semantics type is not Send)
   // node.value;
 });
 ```

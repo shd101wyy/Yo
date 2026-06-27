@@ -2,7 +2,7 @@
 
 `Arc(T)` provides shared ownership of a single value via atomic reference counting.
 It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
-in `std/prelude.yo` as a thin `atomic object(...)` wrapper, so `Arc` and
+in `std/prelude.yo` as a thin `atomic(ref(struct(...)))` wrapper, so `Arc` and
 `arc(...)` are available everywhere through the prelude. `Arc(T)` itself requires
 `T <: Send`, which keeps `Arc` from laundering non-thread-safe values into a
 thread-shareable wrapper.
@@ -11,9 +11,9 @@ thread-shareable wrapper.
 
 ```rust
 Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
-  atomic object(
+  atomic(ref(struct(
     (*) : V
-  )
+  )))
 ;
 
 arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
@@ -24,15 +24,15 @@ arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
 ## When to use `Arc`
 
 - Use `Arc(T)` when you want to share **one existing value** across threads or closures.
-- Use `atomic object(...)` when you are defining your **own shared type**.
+- Use `atomic(ref(struct(...)))` when you are defining your **own shared type**.
 - Use `Iso(T)` when ownership should be **transferred**, not shared.
-- `Arc(T)` only accepts `Send` child types. A regular `object(...)` value is not enough.
+- `Arc(T)` only accepts `Send` child types. A regular `ref(struct(...))` value is not enough.
 
 Many standard-library types no longer need an extra `Arc(...)` wrapper. For
 example, `std/sync` primitives and `std/imm` collections are already implemented
-with `atomic object(...)` and are directly shareable.
+with `atomic(ref(struct(...)))` and are directly shareable.
 
-If you need shared mutable state, define that state as an `atomic object(...)`
+If you need shared mutable state, define that state as an `atomic(ref(struct(...)))`
 first, then share it directly or place it inside `Arc(...)` if you specifically
 need a single wrapped value.
 
@@ -83,12 +83,12 @@ t.join();
 assert((shared.(*) == i32(42)), "main still sees shared value");
 ```
 
-## `Arc` vs `atomic object` vs `Iso`
+## `Arc` vs `atomic(ref(struct(...)))` vs `Iso`
 
 | Need                                            | Preferred tool       |
 | ----------------------------------------------- | -------------------- |
 | Share one existing value                        | `Arc(T)`             |
-| Define a reusable shared reference-counted type | `atomic object(...)` |
+| Define a reusable shared reference-counted type | `atomic(ref(struct(...)))` |
 | Transfer unique ownership across scopes/threads | `Iso(T)`             |
 
 ## Semantics
@@ -103,4 +103,4 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 - `docs/en-US/PARALLELISM.md` — thread and worker model
 - `docs/en-US/ISOLATED.md` — unique ownership with `Iso(T)`
-- `docs/en-US/IMMUTABLE_COLLECTIONS.md` — persistent collections built on `atomic object(...)`
+- `docs/en-US/IMMUTABLE_COLLECTIONS.md` — persistent collections built on `atomic(ref(struct(...)))`

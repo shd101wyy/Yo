@@ -6,7 +6,7 @@
 
 - **原子引用计数**：`Iso(T)` 使用原子引用计数，而非普通的非原子引用计数
 - **线程安全共享**：可以安全地跨线程复制和传递
-- **无移动语义**：行为与普通对象一致（可以存储、模式匹配等）
+- **无移动语义**：行为与普通引用语义类型一致（可以存储、模式匹配等）
 - **构造时隔离**：`Iso(T)(v)` 要求 `v` 是唯一所有者（无别名引用）
 - **自动实现 `Send`**：可安全地跨线程发送
 
@@ -32,8 +32,8 @@ Isolation :: trait(
 例如：
 
 ```rust
-Data :: object(v : i32);
-Point :: object(x : Data, y : Data);
+Data :: ref(struct(v : i32));
+Point :: ref(struct(x : Data, y : Data));
 
 impl(Data, Isolation(
   can_isolate : ((self) -> rc(self) == 1)
@@ -61,7 +61,7 @@ impl(Point, Isolation(
    - 检查：没有其他变量的 `isOwningTheSameRcValueAs == v.id`
 
 2. **递归隔离**（对于引用类型）：
-   - 如果 `T` 包含嵌套对象，这些对象也必须是唯一所有的
+   - 如果 `T` 包含嵌套引用语义类型，这些值也必须是唯一所有的
    - 通过 `v.can_isolate()` 方法检查（参见上文 Isolation trait）
 
 ```rust
@@ -134,14 +134,14 @@ match(iso_opt,
 `Iso(T)` 对所有引用计数操作使用原子操作：
 
 ```c
-// 普通对象：非原子引用计数
+// 普通引用语义类型：非原子引用计数
 typedef struct {
   size_t ref_count;        // 非原子计数器
   void (*dispose_fn)(void*);
   T value;
 } Object_T;
 
-// 隔离对象：原子引用计数
+// 隔离引用语义类型：原子引用计数
 typedef struct {
   _Atomic size_t ref_count;  // 原子计数器（线程安全）
   void (*dispose_fn)(void*);

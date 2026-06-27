@@ -7,7 +7,7 @@
 **Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to an `object` type (reference counted).
 
 ```typescript
-Id :: trait(id : (fn(ref(self) : Self) -> i32));
+Id :: trait(id : (fn(inout(self) : Self) -> i32));
 
 impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self); return self; })));
 impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self => 1, true => 0); })));
@@ -64,9 +64,9 @@ void* data = point;                // Store Point pointer
 
 ```rust
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
-  object(
+  ref(struct(
     (*) : V
-  )
+  ))
 ;
 box :: (fn(forall(V : Type), value : V) -> Box(V))
   Box(V)(value)
@@ -98,7 +98,7 @@ typedef struct {
 
 **Constraint**: Traits used with `Dyn()` **cannot** have methods that:
 
-1. Take `Self` by value - must use `ref(self) : Self` instead
+1. Take `Self` by value - must use `inout(self) : Self` instead
 2. Return `Self`
 3. Return types containing `Self` (like `Option(Self)`, `Result(Self, E)`, etc.)
 
@@ -111,8 +111,8 @@ This follows Rust's "object-safety" rules (dyn-compatibility). The reasons:
 
 ```typescript
 TestDyn :: trait(
-  return_i32 : (fn(ref(self) : Self) -> i32),  // Takes ref(Self), returns concrete type - OK!
-  print : (fn(ref(self) : Self) -> unit)        // Takes ref(Self), returns unit - OK!
+  return_i32 : (fn(inout(self) : Self) -> i32),  // Takes inout(Self), returns concrete type - OK!
+  print : (fn(inout(self) : Self) -> unit)        // Takes inout(Self), returns unit - OK!
 );
 ```
 
@@ -121,7 +121,7 @@ TestDyn :: trait(
 ```typescript
 TestDyn :: trait(
   by_value : (fn(self : Self) -> unit),        // Takes Self by value - NOT object-safe!
-  id : (fn(ref(self) : Self) -> Self)           // Returns Self - NOT object-safe!
+  id : (fn(inout(self) : Self) -> Self)           // Returns Self - NOT object-safe!
 );
 ```
 

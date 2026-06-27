@@ -8,8 +8,8 @@ Reference counting cannot reclaim cycles:
 
 ```rust
 // Create a cycle
-node_a := object(value: 1, next: .None);
-node_b := object(value: 2, next: .Some(node_a));
+node_a := ref(struct(value: 1, next: .None));
+node_b := ref(struct(value: 2, next: .Some(node_a)));
 node_a.next = .Some(node_b);  // Creates cycle: A → B → A
 
 // Drop external references
@@ -245,11 +245,11 @@ await task.send(x);  // Send COPY of x (value type)
 | Value structs (`struct(...)`)    | ✅ Yes    | Value type, copied              |
 | Tuples of value types            | ✅ Yes    | Value type, copied              |
 | Enums with value payloads        | ✅ Yes    | Value type, copied              |
-| `object(...)`                    | ❌ No     | Reference counted, thread-local |
+| `ref(struct(...))`               | ❌ No     | Reference counted, thread-local |
 | Closures                         | ❌ No     | May capture references          |
 | `*T` (pointers)                  | ❌ No     | Not safe across threads         |
 
-**Key Design Decision:** Reference types (`object(...)`) **never** cross thread boundaries. This means:
+**Key Design Decision:** Reference types (`ref(struct(...))`) **never** cross thread boundaries. This means:
 
 - Each thread's GC only tracks objects created on that thread
 - No cross-thread GC coordination needed
@@ -374,7 +374,7 @@ Compiler generates tracking code for cycle-forming types:
 
 ```rust
 // User code
-Node :: object(value: i32, next: Option(Node));
+Node :: ref(struct(value: i32, next: Option(Node)));
 
 // Generated tracking
 node := Node(42, .None);  // Calls __yo_gc_track(node)

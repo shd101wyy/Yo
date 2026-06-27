@@ -1,6 +1,6 @@
 # 不可变集合 (`std/imm`)
 
-`std/imm` 提供基于 `atomic object(...)` 的持久化不可变集合。每一次“修改”
+`std/imm` 提供基于 `atomic(ref(struct(...)))` 的持久化不可变集合。每一次“修改”
 都会返回一个**新值**，旧值仍然保持有效，因此结构共享可以安全地跨线程进行。
 
 本文档有意保持为**概览与设计说明**。对于最新的逐模块 API，请优先使用
@@ -11,7 +11,7 @@
 | 特性               | 说明                                               |
 | ------------------ | -------------------------------------------------- |
 | **持久化**         | 插入、更新、删除后旧版本仍然有效。                 |
-| **线程安全共享**   | 底层节点使用 `atomic object(...)` 与原子引用计数。 |
+| **线程安全共享**   | 底层节点使用 `atomic(ref(struct(...)))` 与原子引用计数。 |
 | **带 `Send` 约束** | 集合类型构造器要求元素/值类型实现 `Send`。         |
 | **天然无环**       | 这些数据结构是树、链表、前缀树，不依赖循环收集器。 |
 
@@ -68,14 +68,14 @@ yo doc ./std/imm
 
 ## 设计说明
 
-1. **直接使用 `atomic object(...)`，而不是再包一层 `Arc(...)`**：集合本身就是原子引用计数类型，因此编译器可以直接理解其所有权模型。
+1. **直接使用 `atomic(ref(struct(...)))`，而不是再包一层 `Arc(...)`**：集合本身就是原子引用计数类型，因此编译器可以直接理解其所有权模型。
 2. **不参与循环收集**：不可变集合在结构上天然无环，因此将其排除在循环收集之外可以减少不必要的 GC 开销。
 3. **`Set(T)` / `SortedSet(T)` 内部用 `bool` 表示值**：`unit` 在 C 中没有表示形式，因此集合包装器使用 `Map(T, bool)` / `SortedMap(T, bool)`。
 4. **API 文档由生成工具负责**：本文档聚焦在概念、取舍与模块选择上，而不是手动维护签名表。
 
 ### Acyclic trait 与自引用节点
 
-`atomic object` 类型使用原子引用计数，没有循环收集器。编译器会自动为结构上
+`atomic(ref(struct(...)))` 类型使用原子引用计数，没有循环收集器。编译器会自动为结构上
 不可能形成环的类型派生 `Acyclic` trait。自引用类型（如链表节点的
 `_next : Option(Self)`）无法通过自动派生，因为其结构上*可能*形成环。
 
@@ -84,13 +84,13 @@ yo doc ./std/imm
 
 ```rust
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic object(_value : T, _next : Option(Self))
+  atomic(ref(struct(_value : T, _next : Option(Self))))
 );
 impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());
 ```
 
 这类似于 Rust 的 `unsafe impl Send` ——由程序员断言一个编译器无法从结构上
-验证的安全属性。`atomic object` 字段的 `Send` 约束作为硬性错误强制执行；
+验证的安全属性。`atomic(ref(struct(...)))` 字段的 `Send` 约束作为硬性错误强制执行；
 `Acyclic` 在可能时自动派生，否则由程序员手动声明。
 
 ## 写时复制（COW）优化
@@ -130,7 +130,7 @@ v = v.push(i32(3));    // rc=2，走复制路径
 
 ### 线程安全
 
-对于 `atomic object` 类型，`rc == 1` 检查使用
+对于 `atomic(ref(struct(...)))` 类型，`rc == 1` 检查使用
 `atomic_load_explicit(memory_order_acquire)`。如果加载结果为 1，则没有其他线程
 持有引用，原地修改是安全的（不存在 TOCTOU 竞态）。
 

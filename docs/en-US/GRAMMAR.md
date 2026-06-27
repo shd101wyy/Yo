@@ -170,25 +170,24 @@ Modifiers wrap the **label**, never the type:
 Parameter ::= ParameterLabel ':' Type
 ParameterLabel ::=
   | Identifier                  ;; by value (object types: a shared handle)
-  | 'ref' '(' Identifier ')'    ;; second-class reference to a caller lvalue
+  | 'inout' '(' Identifier ')'  ;; second-class reference to a caller lvalue (binding write-back)
   | 'own' '(' Identifier ')'    ;; consumes the caller's handle (move)
-  | 'inout' '(' Identifier ')'  ;; alias of ref (binding write-back)
   | 'comptime' '(' Identifier ')' ;; compile-time-only parameter
   | 'quote' '(' Identifier ')'  ;; macro parameter (receives the AST)
 ```
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ ... });
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ ... });
 sink :: (fn(own(victim) : Holder) -> unit)({ ... });
 ```
 
-Placement rules for `ref`:
+Placement rules for `inout`:
 
-- Parameter position (`ref(name) : T`) is the ONLY position where
-  `ref` may appear.
-- `ref` is **rejected in return-type position** (`-> ref(T)`,
-  `-> (ref(name) : T)`), as a local binding (`ref(r) := lvalue;`), and
-  inside any other type expression (`Option(ref(T))`, struct fields,
+- Parameter position (`inout(name) : T`) is the ONLY position where
+  `inout` may appear.
+- `inout` is **rejected in return-type position** (`-> inout(T)`,
+  `-> (inout(name) : T)`), as a local binding (`inout(r) := lvalue;`), and
+  inside any other type expression (`Option(inout(T))`, struct fields,
   generic arguments).
 - See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
 

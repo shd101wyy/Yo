@@ -55,8 +55,8 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - 闭包（Closure）。
 - [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `using`/`given` 的隐式参数、通过 `return`/`unwind` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
 - [Async/Await](./ASYNC_AWAIT.md)（内置 `Io` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
-- [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `ref(name)`；`yo unsafe-report` 用于审计 unsafe 表面。
-- 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的 `object` 类型。
+- [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `inout(name)`；`yo unsafe-report` 用于审计 unsafe 表面。
+- 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的引用语义类型（`ref(struct(...))`/`ref(enum(...))`）。
 - [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
 - 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
 - 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、交叉编译）。

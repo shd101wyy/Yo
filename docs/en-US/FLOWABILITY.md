@@ -6,23 +6,23 @@ language has no way to form a pointer into reallocatable storage, so
 the classic invalidation footguns (grow a list, dangle a borrow) are
 not rejected by a clever analysis — they are _inexpressible_.
 
-## Where a `ref` can exist
+## Where an `inout` can exist
 
-`ref` is Yo's second-class reference, and it exists in exactly ONE
-place: **parameter position**. `ref(name) : T` receives a caller lvalue
+`inout` is Yo's second-class reference, and it exists in exactly ONE
+place: **parameter position**. `inout(name) : T` receives a caller lvalue
 (write-back, and no copy for big structs). Callback parameters that
-receive refs (`body : Impl(Fn(ref(v) : T) -> R)`, as in
+receive refs (`body : Impl(Fn(inout(v) : T) -> R)`, as in
 `Mutex.with_lock`) are the same thing one level down.
 
-**Functions cannot return `ref`**, there are **no local ref bindings**
-(`ref(r) := …` is rejected with a migration recipe — fields read and
+**Functions cannot return `inout`**, there are **no local ref bindings**
+(`inout(r) := …` is rejected with a migration recipe — fields read and
 write in place, `h.s = v`; binding the handle `b := a.b` keeps an
 object alive), and refs cannot be stored in fields, captured by
-closures, or placed inside generic types. A ref is born at a call
+closures, or placed inside generic types. An `inout` is born at a call
 boundary and dies when the call returns — it can never outlive the
 storage it points into.
 
-The argument passed to a `ref` parameter is a simple lvalue **place**:
+The argument passed to an `inout` parameter is a simple lvalue **place**:
 
 - a whole variable (any scope — a variable's slot is stable storage);
 - `var.field` (or a struct-field path) rooted at a **local or
@@ -36,7 +36,7 @@ The argument passed to a `ref` parameter is a simple lvalue **place**:
 - an **indexed element** (`xs(i)`) or a chain through an **intermediate
   object** (including a `Box` deref `b.*`, since `Box` is an ordinary
   object and `*` is just a field) is a pointer into a heap object's
-  storage; it may be a ref argument only when the callee cannot reach
+  storage; it may be an `inout` argument only when the callee cannot reach
   that object — passing the container/box (or an alias), indexing a
   module-level container, or passing **any other object/closure
   argument** that could hold a handle to it, is rejected (growth or
@@ -71,14 +71,14 @@ for(xs, (x) => { ... }); // iteration is the value form (into_iter)
 ```
 
 There is no `project`, no `Indexable`, and no borrow form of `for` —
-`for(coll, ref(x) => …)` produces a compile error with this migration
+`for(coll, inout(x) => …)` produces a compile error with this migration
 recipe. `str` remains the immortal static-bytes view (freely copyable,
 no constraints), and range indexing **copies** (`arr(a..b)` returns a
 new `ArrayList`), so mutating the source never affects the result.
 
 ## One call-site rule
 
-**A single call may not receive the same object as both a ref-rooted
+**A single call may not receive the same object as both an `inout`-rooted
 argument and an `own` argument** (`use_and_sink(h.s, h)` with
 `own(victim)` is rejected) — `own` moves the caller's count into a
 callee that could release it while the borrow is still in use. Distinct
