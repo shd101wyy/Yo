@@ -247,3 +247,44 @@ is a verbatim port so TS-ASan is representative).
   use-after-free; under-visiting only leaks. Prefer the conservative direction when
   unsure, and ASan-validate.
 - **1-to-1 port**: TS and yo-self must emit identical C; validate via corpus 0-diff.
+
+## 8. Implementation map (TS anchors — discovered)
+
+Phase-2 status: the prelude API + the `__yo_gc_trace_child` intrinsic codegen are
+**implemented on TS and validated neutral** (TS check ./std 152, `Option(Self)`
+still collects, the old yo-self binary loads the new prelude unchanged). What is
+WIP / remaining, with the concrete hooks:
+
+- **Intrinsic (DONE, TS)**: `BuiltinFunctions.__yo_gc_trace_child` (expr.ts:1237);
+  `generateYoGcTraceChild` (codegen/exprs/gc.ts) → `emitTraverseValue(childCode,
+  childType, context, new Set(), tracerCode)`; dispatch in codegen/exprs/generation.ts
+  next to `__yo_gc_collect`. `emitTraverseValue` (codegen/functions/generation.ts) now
+  takes a `visitExpr` and emits the cast-call `((void(*)(void*))visitExpr)(access)`;
+  exported and relaxed to `CodeGenContext`. **Port these to yo-self** (expr.yo BF
+  constant, codegen/exprs/gc.yo, generation.yo dispatch, the `_traverse_value`
+  visitExpr+cast in codegen/functions/constructors.yo).
+- **traverse_fn selection (item 5)**: in the constructor, if the type has an explicit
+  `Trace` impl, set `header.traverse_fn = (void(*)(void*,void(*)(void*)))<traceCName>`
+  instead of `__yo_traverse_<cName>`. Find `<traceCName>` via a `findUserTraceMethodForType`
+  modeled on `findUserDisposeMethodForType` (generation.ts:142) + `findDisposeTraitValue`
+  (:84). GcTracer is a newtype over `*(u8)` so the trace method's C signature is
+  `void(<cName>*, u8*)` — the fn-ptr cast bridges it to the traverse_fn ABI.
+- **specialization triggering (the former blocker — SOLVED)**: the generic `trace`
+  method isn't specialized unless referenced. Mirror `collectDisposeMethodsFromGenericImpls`
+  (codegen/functions/collection.ts:649): a `collectTraceMethodsFromGenericImpls` that, for
+  each collected cycle-GC RC type (struct AND enum), finds its `trace` via
+  `findMethodsFromGenericImpls({methodName:"trace"})`, registers it in `context.functions`,
+  and `findFunctionCallsInExpr(body)` (which pulls in the per-element `GcTracer.visit`
+  monomorphizations, whose bodies are the intrinsic). Call it from the same site as the
+  dispose collector.
+- **detection through container (item 7)**: `can_type_form_rc_cycle` /
+  `typeCanFormCyclicRcReference` walk only `field_types`; a container's elements sit
+  behind a raw `*(T)` buffer (`_ptr`), so they're invisible. Add: for a struct that
+  implements `Trace` (a container), also walk its element type(s) — for `ArrayList(E)`
+  the single type-arg `E`; for `HashMap(K,V)` both. (The traversal itself is handled by
+  the hand impl; detection just needs to see `E`.)
+- **container impls (item 6)**: `ArrayList` fields are `_ptr : ?*(T)`, `_length`,
+  `_capacity` (std/collections/array_list.yo); it has no unchecked getter — add a
+  `uget(i)` (raw `(self._ptr.unwrap() &+ i).*`-style) for the `Trace` impl to call.
+  `HashMap`: `data : ?*(Bucket(K,V))`, `ctrl`, `capacity`, `size`; iterate live ctrl
+  slots and trace `bucket.key` + `bucket.value`.
