@@ -55,7 +55,7 @@ open(import("std/fmt"));
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, parse_target, TargetInfo } :: import("./target.yo");
+{ host_target, parse_target, TargetInfo, is_target_linux, is_target_windows } :: import("./target.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -873,6 +873,11 @@ run_check :: (
     exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
   });
 });
+/// The argv entry following index `i` (the value of a `--flag value` pair), or
+/// "" if `i` is the last argument. Used by the `compile` flag parser.
+_arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
+  if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
+);
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -884,41 +889,130 @@ run_compile :: (
   if(argv.len() < usize(3), {
     exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o out] [--c-compiler cc] [--target <triple>] [--emit-c]`));
   });
-  // Parse args: positional input path, -o <output>, --c-compiler <cc>,
-  // --target <triple> (cross-compile; defaults to host), --emit-c (write the
-  // C and skip the C compiler — needed for cross-target inspection/diffing).
+  // Parse args. Mirrors the `compile` command options of the TypeScript
+  // `yo-cli` (src/yo-cli.ts / src/codegen/index.ts) for the clang/gcc/zig path.
   (input_path : String) = String.from("");
   (output : String) = String.from("a.out");
   (cc : String) = String.from("clang");
   (target_triple : String) = String.from("");
+  (sysroot : String) = String.from("");
+  (allocator : String) = String.from("libc");
+  (optimize : String) = String.from(""); // "" = unset; "0".."3"
+  (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
+  (cflags : String) = String.from("");
   (skip_cc : bool) = false;
+  (skip_codegen : bool) = false;
+  (release : bool) = false;
+  (debug_gc : bool) = false;
+  (debug_parallelism : bool) = false;
+  (debug_async_await : bool) = false;
+  (debug_symbols : bool) = false; // -g
+  (strip_syms : bool) = false; // -s
+  (static_link : bool) = false; // --static
+  (static_library : bool) = false; // --static-library
+  defines := ArrayList(String).new(); // -D
+  include_paths := ArrayList(String).new(); // -I
+  library_paths := ArrayList(String).new(); // -L
+  libraries := ArrayList(String).new(); // -l
+  externs := ArrayList(String).new(); // --extern
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
     cond(
       (a == "-o") => {
-        if((ai + usize(1)) < argv.len(), {
-          output = argv(ai + usize(1));
-        });
+        output = _arg_val(argv, ai);
         ai = (ai + usize(2));
       },
-      (a == "--c-compiler") => {
-        if((ai + usize(1)) < argv.len(), {
-          cc = argv(ai + usize(1));
-        });
+      ((a == "--c-compiler") || (a == "--cc")) => {
+        cc = _arg_val(argv, ai);
         ai = (ai + usize(2));
       },
-      (a == "--target") => {
-        if((ai + usize(1)) < argv.len(), {
-          target_triple = argv(ai + usize(1));
-        });
+      ((a == "--target") || (a == "-t")) => {
+        target_triple = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--sysroot") => {
+        sysroot = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--allocator") => {
+        allocator = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--optimize") => {
+        optimize = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--sanitize") => {
+        sanitize = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--cflags") => {
+        cflags = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      ((a == "-D") || (a == "--define")) => {
+        defines.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "-I") => {
+        include_paths.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "-L") => {
+        library_paths.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "-l") => {
+        libraries.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "--extern") => {
+        externs.push(_arg_val(argv, ai));
         ai = (ai + usize(2));
       },
       ((a == "--emit-c") || (a == "--skip-c-compiler")) => {
         skip_cc = true;
         ai = (ai + usize(1));
       },
+      (a == "--skip-codegen") => {
+        skip_codegen = true;
+        ai = (ai + usize(1));
+      },
       (a == "--release") => {
+        release = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--debug-gc") => {
+        debug_gc = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--debug-parallelism") => {
+        debug_parallelism = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--debug-async-await") => {
+        debug_async_await = true;
+        ai = (ai + usize(1));
+      },
+      ((a == "-g") || (a == "--debug-symbols")) => {
+        debug_symbols = true;
+        ai = (ai + usize(1));
+      },
+      ((a == "-s") || (a == "--strip")) => {
+        strip_syms = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--static") => {
+        static_link = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--static-library") => {
+        static_library = true;
+        ai = (ai + usize(1));
+      },
+      // Accepted for parity; yo-self adds no default sanitizer so it is a no-op.
+      (a == "--disable-sanitize") => {
         ai = (ai + usize(1));
       },
       a.starts_with("-") => {
@@ -996,24 +1090,166 @@ run_compile :: (
       return(())
     }
   );
-  // Generate C11 from the evaluated module.
-  c_src := compile_module(module_value, ctx.expr_info_table, target, String.from("libc"), false, false, false, false);
+  // --skip-codegen: evaluate only (type-check), emit no C.
+  if(skip_codegen, {
+    return(());
+  });
+  // Generate C11 from the evaluated module. A static library has no main()
+  // wrapper (is_library = true). Allocator + debug-logging flags are threaded
+  // through to the code generator (mirrors CodeGeneratorC.compileModule).
+  c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library);
   c_path := `${output}.c`;
   io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
-  // --emit-c (or a cross-target build the host C compiler can't link): write the
-  // C and stop. Otherwise invoke the C compiler to produce the output binary.
-  if(!(skip_cc), {
-    cmd := Command.new(cc.clone());
-    cmd.arg(String.from("-std=c11"));
-    cmd.arg(String.from("-pthread"));
+  // --emit-c / --skip-c-compiler: write the C and stop.
+  if(skip_cc, {
+    return(());
+  });
+  // ----- assemble the C-compiler invocation (mirrors src/codegen/index.ts) ---
+  std_root := resolve_std_path();
+  cmd := Command.new(cc.clone());
+  // `zig` is invoked as `zig cc ...`.
+  if(cc == "zig", {
+    cmd.arg(String.from("cc"));
+  });
+  cmd.arg(String.from("-std=c11"));
+  cmd.arg(String.from("-fno-strict-aliasing"));
+  // -fwrapv: define signed overflow as two's-complement wrap (MEMORY_SAFETY.md
+  // Limitation #6); without it the optimizer may exploit overflow-UB.
+  cmd.arg(String.from("-fwrapv"));
+  // Optimization + warnings: explicit --optimize wins over --release; the
+  // default and explicit `--optimize 0` use -O0 with the noisy warnings
+  // suppressed (mirrors the TS option logic).
+  cond(
+    ((optimize == "") && release) => {
+      cmd.arg(String.from("-w"));
+      cmd.arg(String.from("-O2"));
+    },
+    ((optimize != "") && (optimize != "0")) => {
+      cmd.arg(String.from("-w"));
+      cmd.arg(`-O${optimize}`);
+    },
+    true => {
+      cmd.arg(String.from("-Wall"));
+      cmd.arg(String.from("-Wextra"));
+      cmd.arg(String.from("-Wno-unused-variable"));
+      cmd.arg(String.from("-Wno-unused-parameter"));
+      cmd.arg(String.from("-Wno-unused-function"));
+      cmd.arg(String.from("-Wno-unused-but-set-variable"));
+      cmd.arg(String.from("-Wno-unused-label"));
+      cmd.arg(String.from("-Wno-unused-value"));
+      cmd.arg(String.from("-Wno-parentheses-equality"));
+      cmd.arg(String.from("-O0"));
+    }
+  );
+  if(debug_symbols, {
+    cmd.arg(String.from("-g"));
+  });
+  if(strip_syms, {
+    cmd.arg(String.from("-s"));
+  });
+  if(static_link, {
+    cmd.arg(String.from("-static"));
+  });
+  // Sanitizers (clang/gcc; mirror of TS getSanitizerFlags for the Unix path).
+  cond(
+    (sanitize == "address") => {
+      cmd.arg(String.from("-fsanitize=address"));
+      cmd.arg(String.from("-fno-omit-frame-pointer"));
+    },
+    (sanitize == "leak") => cmd.arg(String.from("-fsanitize=leak")),
+    (sanitize == "thread") => {
+      cmd.arg(String.from("-fsanitize=thread"));
+      cmd.arg(String.from("-fno-omit-frame-pointer"));
+    },
+    true => ()
+  );
+  // -I include paths, -D defines, -L library search paths.
+  (ii : usize) = usize(0);
+  while(ii < include_paths.len(), {
+    match(include_paths.get(ii),.Some(p) => cmd.arg(`-I${p}`),.None => ());
+    ii = (ii + usize(1));
+  });
+  (di : usize) = usize(0);
+  while(di < defines.len(), {
+    match(defines.get(di),.Some(d) => cmd.arg(`-D${d}`),.None => ());
+    di = (di + usize(1));
+  });
+  (li : usize) = usize(0);
+  while(li < library_paths.len(), {
+    match(library_paths.get(li),.Some(p) => cmd.arg(`-L${p}`),.None => ());
+    li = (li + usize(1));
+  });
+  // Arbitrary custom flags (--cflags "a b c").
+  if(cflags != "", {
+    parts := cflags.split(" ");
+    (ci : usize) = usize(0);
+    while(ci < parts.len(), {
+      match(parts.get(ci),.Some(f) => if(f.len() > usize(0), cmd.arg(f.clone())),.None => ());
+      ci = (ci + usize(1));
+    });
+  });
+  // Bundled mimalloc allocator (else libc): add static.c + its include path.
+  if(allocator == "mimalloc", {
+    cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
+    cmd.arg(`${std_root}/../vendor/mimalloc/src/static.c`);
+  });
+  // Cross-compile target / sysroot pass-through.
+  if(target_triple != "", {
+    cmd.arg(`--target=${target_triple}`);
+  });
+  if(sysroot != "", {
+    cmd.arg(`--sysroot=${sysroot}`);
+  });
+  // --static-library: compile to a .o (-c -fPIC) then archive into a .a.
+  // Otherwise compile + link into an executable.
+  if(static_library, {
+    obj_path := `${output}.o`;
+    cmd.arg(String.from("-c"));
+    if(!(is_target_windows(target)), {
+      cmd.arg(String.from("-fPIC"));
+    });
     cmd.arg(c_path.clone());
     cmd.arg(String.from("-o"));
-    cmd.arg(output.clone());
-    cmd.arg(String.from("-lm"));
-    st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
-    if(st.raw != i32(0), {
-      exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
+    cmd.arg(obj_path.clone());
+    cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+    if(cst.raw != i32(0), {
+      exn.throw(dyn(`compile: C compiler failed (exit ${cst.raw.to_string()}) on ${c_path}`));
+      return(())
     });
+    ar_out := if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
+    arcmd := Command.new(String.from("ar"));
+    arcmd.arg(String.from("rcs"));
+    arcmd.arg(ar_out.clone());
+    arcmd.arg(obj_path.clone());
+    ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
+    if(ast.raw != i32(0), {
+      exn.throw(dyn(`compile: ar failed (exit ${ast.raw.to_string()}) creating ${ar_out}`));
+    });
+    return(())
+  });
+  // Executable: source + externs, output, then link libraries.
+  cmd.arg(c_path.clone());
+  (ei : usize) = usize(0);
+  while(ei < externs.len(), {
+    match(externs.get(ei),.Some(f) => cmd.arg(f.clone()),.None => ());
+    ei = (ei + usize(1));
+  });
+  cmd.arg(String.from("-o"));
+  cmd.arg(output.clone());
+  cmd.arg(String.from("-lm"));
+  cmd.arg(String.from("-pthread"));
+  (xi : usize) = usize(0);
+  while(xi < libraries.len(), {
+    match(libraries.get(xi),.Some(lib) => cmd.arg(`-l${lib}`),.None => ());
+    xi = (xi + usize(1));
+  });
+  if(is_target_windows(target), {
+    cmd.arg(String.from("-lws2_32"));
+    cmd.arg(String.from("-lbcrypt"));
+  });
+  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  if(st.raw != i32(0), {
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
   });
 });
 run_test :: (
