@@ -292,3 +292,34 @@ test("ref-enum two-node cycle all garbage", {
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "ref-enum two-node cycle collected");
 });
+// A ref(enum) whose recursive edge is wrapped in a value enum — `next :
+// Option(Self)`. The collector's traversal must descend INLINE through the
+// `Option` to reach the managed `Self` in `.Some` (compositional traverse_value,
+// plans/CYCLE_GC_TRACE_HOOKS.md phase 1). `.None` allocates nothing, so the cycle
+// is the only allocation and fully reclaims.
+ONode :: ref(
+  enum(
+    ONil,
+    OCons(value : i32, next : Option(Self))
+  )
+);
+test("ref-enum Option(Self) self cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := ONode.OCons(42,.None);
+    a.next =.Some(a); // a -> Some(a): cycle through the value-enum edge
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum Option(Self) self cycle collected");
+});
+test("ref-enum Option(Self) two-node cycle all garbage", {
+  do_test :: (fn() -> unit)({
+    a := ONode.OCons(1,.None);
+    b := ONode.OCons(2,.None);
+    a.next =.Some(b);
+    b.next =.Some(a); // a <-> b through Option(Self), unreachable after return
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum Option(Self) two-node cycle collected");
+});

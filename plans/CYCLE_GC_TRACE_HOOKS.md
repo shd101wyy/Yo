@@ -1,9 +1,28 @@
 # Compositional cycle tracing (`Trace` hooks)
 
-Status: PLANNED (2026-06-27). Both compilers (`src/` and `yo-self/`). Cycle tracing
+Status: IN PROGRESS (2026-06-27). **Phase 1 DONE in both compilers.** Cycle tracing
 is organized around a **mandatory** first-class `Trace` trait defined in
 `std/prelude.yo` (§3.3): auto-derived for structs/enums, hand-implemented for every
 RC-capable container (`ArrayList`, `HashMap`, …) and open to user containers.
+
+**Phase 1 (compositional `traverse_value` + struct/enum auto-derive) — ✅ DONE
+(both compilers).** The struct and enum traverse generators delegate per field to
+a single compositional `emitTraverseValue` / `_traverse_value` that descends inline
+through value structs, **newtypes** (C-transparent typedef alias → recurse the inner
+type with the same access), value enums (incl. `Option`, with nullable-pointer-opt),
+tuples, and inline arrays, stopping at managed handles (atomic skipped). yo-self
+needed one companion fix: `_patch_self_shell` (types/creators.yo) now recurses into
+`EnumT` variant fields like the `.Struct` branch, so the recursive self-shell nested
+in `Option(Self)` is patched to the real enum and `can_type_form_rc_cycle` detects
+the cycle (TS has no shell — its `Self` is a shared ref). Validated: `Option(Self)`
+ref-enum cycle fully reclaims 0→2→0 in BOTH compilers; corpus 85/85 0-diff (new
+`tests/codegen-bootstrap/ref_enum_option_cycle.yo`); TS `check ./std` 152; TS
+`cycle_collector.test.yo` 15/15 (+2 ref-enum `Option(Self)` blocks). (Orthogonal:
+the self-hosted `yo-self-bin check ./std` SIGSEGVs ~50 files in — a pre-existing
+Phase-4/6 evaluator deep-recursion/NULL-deref, reproduced on the newtype-only
+binary, unrelated to cycle GC.)
+
+Phases 2–4 (Trace trait + intrinsics, container impls, drop-on-reassign) remain.
 
 ## 1. The problem
 

@@ -18,22 +18,24 @@ import {
 import { type FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
 import type {
-  EnumType,
   FunctionType,
   TraitType,
   Type,
 } from "../../types/definitions";
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
+  isArrayType,
   isEnumType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
   isSomeType,
   isStructType,
+  isTupleType,
   isUnitType,
 } from "../../types/guards";
 import {
   canTypeFormRcCycle,
+  typeContainsRcType,
   typeContainsSomeType,
   typeContainsSomeTypeForCodegenParam,
   typeToString,
@@ -2446,7 +2448,146 @@ static void __yo_init_process_cleanup(void) {
 }
 
 /**
- * Generate traversal functions for objects (used by GC for marking)
+ * Compositional cycle-GC traversal of a single value (Nim `=trace`-style; see
+ * plans/CYCLE_GC_TRACE_HOOKS.md). Given the C lvalue `access` of Yo type `type`,
+ * emit C that calls `visit()` on every DIRECT reference-counted child reachable
+ * from that value — descending INLINE through value structs / value enums (incl.
+ * `Option`) / tuples / inline arrays, but STOPPING at managed handles (each is a
+ * single graph edge; the collector calls the handle's own traverse_fn later).
+ * Atomic (Iso) handles never participate in cycle collection. `visited` guards
+ * unbounded codegen recursion on inline-recursive value types (recursion normally
+ * terminates at the managed-handle case).
+ *
+ * Container element buffers (ArrayList/HashMap) are reached because the container
+ * is itself a managed handle (visited here) whose own traverse_fn iterates its
+ * buffer — see generateRefStructTraversalFunctions for those.
+ */
+function emitTraverseValue(
+  access: string,
+  type: Type,
+  context: FunctionGenerationContext,
+  visited: Set<string>
+): void {
+  const emitter = context.emitter;
+
+  // Nothing reference-counted anywhere in this value → nothing to trace.
+  if (!typeContainsRcType(type)) {
+    return;
+  }
+
+  // Managed handle (ref(struct)/ref(enum)) — a single graph edge. Atomic RC
+  // (Iso) types do not participate in cycle collection.
+  if ((isStructType(type) || isEnumType(type)) && type.isReferenceSemantics) {
+    if (type.isAtomicRc) {
+      return;
+    }
+    emitter.emitLine(`  if (${access}) { visit(${access}); }`);
+    return;
+  }
+
+  // Defensive guard for inline-recursive value types (a value type cannot be
+  // truly self-recursive without a managed indirection, which terminates above,
+  // so this is belt-and-suspenders).
+  if (type.id) {
+    if (visited.has(type.id)) {
+      return;
+    }
+    visited.add(type.id);
+  }
+  try {
+    if (isEnumType(type)) {
+      // Value enum (e.g. Option). A nullable-pointer optimization collapses
+      // Option(handle) to a bare pointer; typeContainsRcType(type) was true, so
+      // the payload is managed → visit the pointer directly.
+      if (canOptimizeAsNullablePointer(type)) {
+        emitter.emitLine(`  if (${access}) { visit(${access}); }`);
+        return;
+      }
+      if (canOptimizeAsSimpleEnum(type)) {
+        return;
+      }
+      emitter.emitLine(`  switch (${access}.tag) {`);
+      for (const variant of type.variants) {
+        const fields = (variant.fields ?? []).filter((f) =>
+          typeContainsRcType(f.type)
+        );
+        if (fields.length > 0) {
+          emitter.emitLine(
+            `  case ${getEnumVariantCName(type, variant.name, context)}:`
+          );
+          for (const f of fields) {
+            emitTraverseValue(
+              `${access}.data.${variant.name}.${sanitizeForCIdentifier(f.label)}`,
+              f.type,
+              context,
+              visited
+            );
+          }
+          emitter.emitLine(`    break;`);
+        }
+      }
+      emitter.emitLine(`  }`);
+      return;
+    }
+
+    if (isStructType(type)) {
+      const fields = getRuntimeStructFields(type);
+      if (type.isNewtype) {
+        // A newtype is a zero-cost / C-transparent typedef alias for its single
+        // underlying type — the value IS the inner value, so recurse with the
+        // SAME access (no field suffix).
+        if (fields.length > 0) {
+          emitTraverseValue(access, fields[0]!.type, context, visited);
+        }
+        return;
+      }
+      // Value struct: stored inline → recurse its fields.
+      for (const field of fields) {
+        emitTraverseValue(
+          `${access}.${sanitizeForCIdentifier(field.label)}`,
+          field.type,
+          context,
+          visited
+        );
+      }
+      return;
+    }
+
+    if (isTupleType(type)) {
+      // Tuple fields are emitted as `_0`, `_1`, … (see property-access.ts).
+      type.fields.forEach((field, i) => {
+        emitTraverseValue(`${access}._${i}`, field.type, context, visited);
+      });
+      return;
+    }
+
+    if (isArrayType(type)) {
+      // Fixed-size inline array `Array(T, N)` — emitted as a C array, so the
+      // element count is `sizeof(arr)/sizeof(arr[0])`. Visit each element.
+      const elemCount = `(sizeof(${access}) / sizeof(${access}[0]))`;
+      emitter.emitLine(
+        `  for (size_t __yo_ti = 0; __yo_ti < ${elemCount}; __yo_ti++) {`
+      );
+      emitTraverseValue(`${access}[__yo_ti]`, type.childType, context, visited);
+      emitter.emitLine(`  }`);
+      return;
+    }
+
+    // Unions (no active-member discriminant at the C level → unsafe to walk) and
+    // any other shape: nothing. Unions of managed refs are not used in the
+    // self-host types; see plans/CYCLE_GC_TRACE_HOOKS.md §7.
+  } finally {
+    if (type.id) {
+      visited.delete(type.id);
+    }
+  }
+}
+
+/**
+ * Generate traversal functions for objects (used by GC for marking).
+ * Per-field traversal is delegated to the compositional emitTraverseValue, which
+ * descends through value-enums/structs/tuples/arrays (so `Option(Self)` etc. are
+ * traced, not just direct handle fields).
  */
 function generateRefStructTraversalFunctions(
   context: FunctionGenerationContext
@@ -2471,86 +2612,17 @@ function generateRefStructTraversalFunctions(
         continue; // Skip generic structs
       }
 
-      // Generate traversal function for this struct type
-      const traversalFunctionName = `__yo_traverse_${cName}`;
       emitter.emitLine(
-        `static void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
+        `static void __yo_traverse_${cName}(void* ptr, void (*visit)(void*)) {`
       );
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
-
-      // Visit each reference field in the struct
       for (const field of runtimeFields) {
-        const fieldName = sanitizeForCIdentifier(field.label);
-        const fieldType = field.type;
-
-        if (isStructType(fieldType) && fieldType.isReferenceSemantics) {
-          // This field is a direct reference to another object
-          emitter.emitLine(`  if (obj->${fieldName}) {`);
-          emitter.emitLine(`    visit(obj->${fieldName});`);
-          emitter.emitLine(`  }`);
-        } else if (
-          isEnumType(fieldType) &&
-          (fieldType as EnumType).isReferenceSemantics
-        ) {
-          // Reference-semantics enum field (`ref(enum(…))`) is a heap-allocated
-          // RC handle — visit the handle directly. Do NOT inline-traverse its
-          // variants (that is the handle's OWN traverse function's job); the
-          // field is a pointer, so the embedded `.tag`/`.data` walk below is
-          // wrong for it. plans/REF_REFERENCE_SEMANTICS.md Phase 4.
-          emitter.emitLine(`  if (obj->${fieldName}) {`);
-          emitter.emitLine(`    visit(obj->${fieldName});`);
-          emitter.emitLine(`  }`);
-        } else if (isEnumType(fieldType)) {
-          // This field is an enum - we need to check if any variants contain references
-          const enumType = fieldType as EnumType;
-
-          // Check if this enum is optimized as a nullable pointer
-          const nullablePointerType = canOptimizeAsNullablePointer(enumType);
-
-          if (nullablePointerType) {
-            // This is a nullable pointer optimization - just check if it's non-null
-            // No need to visit the pointer itself since it's not a reference-counted object
-            // (it's just a raw pointer or primitive value wrapped in Option)
-          } else if (canOptimizeAsSimpleEnum(enumType)) {
-            // Simple enums have no variant data, so no references to traverse
-          } else {
-            // Generate switch statement to handle enum variants
-            emitter.emitLine(`  switch (obj->${fieldName}.tag) {`);
-
-            for (const variant of enumType.variants || []) {
-              // Check if any of the variant's fields contain references
-              if (variant.fields && variant.fields.length > 0) {
-                const rcFields = variant.fields.filter(
-                  (f) => isStructType(f.type) && f.type.isReferenceSemantics
-                );
-
-                if (rcFields.length > 0) {
-                  const enumConstantName = getEnumVariantCName(
-                    enumType,
-                    variant.name,
-                    context
-                  );
-                  emitter.emitLine(`  case ${enumConstantName}:`);
-
-                  // Visit ALL reference-counted fields in this variant
-                  for (const variantField of rcFields) {
-                    emitter.emitLine(
-                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)}) {`
-                    );
-                    emitter.emitLine(
-                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)});`
-                    );
-                    emitter.emitLine(`    }`);
-                  }
-
-                  emitter.emitLine(`    break;`);
-                }
-              }
-            }
-
-            emitter.emitLine(`  }`);
-          }
-        }
+        emitTraverseValue(
+          `obj->${sanitizeForCIdentifier(field.label)}`,
+          field.type,
+          context,
+          new Set<string>()
+        );
       }
       emitter.emitLine(`}`);
       emitter.emitLine(``);
@@ -2724,19 +2796,19 @@ function generateRefEnumTraversalFunctions(
     emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
     emitter.emitLine(`  switch (obj->tag) {`);
     for (const variant of type.variants) {
-      const rcFields = (variant.fields ?? []).filter(
-        (f) =>
-          (isStructType(f.type) && f.type.isReferenceSemantics) ||
-          (isEnumType(f.type) && f.type.isReferenceSemantics)
+      const fields = (variant.fields ?? []).filter((f) =>
+        typeContainsRcType(f.type)
       );
-      if (rcFields.length > 0) {
+      if (fields.length > 0) {
         emitter.emitLine(
           `  case ${getEnumVariantCName(type, variant.name, context)}:`
         );
-        for (const f of rcFields) {
-          const fieldName = sanitizeForCIdentifier(f.label);
-          emitter.emitLine(
-            `    if (obj->data.${variant.name}.${fieldName}) { visit(obj->data.${variant.name}.${fieldName}); }`
+        for (const f of fields) {
+          emitTraverseValue(
+            `obj->data.${variant.name}.${sanitizeForCIdentifier(f.label)}`,
+            f.type,
+            context,
+            new Set<string>()
           );
         }
         emitter.emitLine(`    break;`);
