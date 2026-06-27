@@ -137,7 +137,7 @@ call_registered_derive_rule :: (
       // Build evaled_arg_infos with 3 pre-constructed entries.
       evaled_arg_infos := ArrayList(ExprInfo).new();
       arg0 := new_expr_info(caller_env, t_type());
-      arg0.value = Option(EvalValue).Some(EvalValue.TypeVal(box(target_type.clone())));
+      arg0.value = Option(EvalValue).Some(EvalValue.TypeVal(target_type.clone()));
       evaled_arg_infos.push(arg0);
       // The ctx/trait_params arg ExprInfos must carry their DECLARED types
       // (DeriveContext / ComptimeList(Expr)) — NOT t_unit(). The param
@@ -149,12 +149,12 @@ call_registered_derive_rule :: (
       // obtain the real type (derive.ts:608-625).
       dc_type := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("DeriveContext").clone(), exn), caller_env, ctx))),
-        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
+        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t, _ => t_unit()),.None => t_unit()),
         .None => t_unit()
       );
       tps_type := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("ComptimeList(Expr)").clone(), exn), caller_env, ctx))),
-        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
+        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t, _ => t_unit()),.None => t_unit()),
         .None => t_unit()
       );
       arg1 := new_expr_info(caller_env, dc_type);
@@ -238,7 +238,7 @@ call_registered_derive_rule :: (
               fresh_env,
               fa_name,
               TypeValue.TypeUni(usize(0)),
-              Option(EvalValue).Some(EvalValue.TypeVal(box(arg_inf.ty))),
+              Option(EvalValue).Some(EvalValue.TypeVal(arg_inf.ty)),
               true,
               false,
               false,
@@ -603,7 +603,7 @@ evaluate_derive :: (
     target_info.value,
     .Some(tv) => match(
       tv,
-      .TypeVal(ty_box) => ty_box.*,
+      .TypeVal(ty_box) => ty_box,
       _ => {
         exn.throw(
           dyn(

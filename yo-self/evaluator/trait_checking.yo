@@ -664,7 +664,7 @@ type_implements_trait :: (
         // `impl(forall(T), where(T <: Send), *(T), Send())`).
         .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
           pfields := ArrayList(TypeValue).new();
-          _pp := pfields.push(pointee_box.*);
+          _pp := pfields.push(pointee_box);
           fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
         }),
         _ => ()
@@ -1302,8 +1302,8 @@ type_contains_some_type_for_codegen_param :: (
   });
   match(
     ty,
-    .Array(element, _, _) => recur(element.*, checked_ids),
-    .Pointer(pointee) => recur(pointee.*, checked_ids),
+    .Array(element, _, _) => recur(element, checked_ids),
+    .Pointer(pointee) => recur(pointee, checked_ids),
     .Tuple(_, field_types) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -1371,7 +1371,7 @@ type_contains_some_type_for_codegen_param :: (
         i = (i + usize(1));
       });
       if(!(found), {
-        found = recur(result_box.*, checked_ids);
+        found = recur(result_box, checked_ids);
       });
       found
     },
@@ -1552,7 +1552,7 @@ find_some_type_missing_comptime_constraint :: (
     match(
       ty,
       .Pointer(inner) => {
-        return(recur(inner.*, env));
+        return(recur(inner, env));
       },
       _ => ()
     );

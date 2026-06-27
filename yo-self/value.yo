@@ -99,7 +99,7 @@ EvalValue :: enum(
   // ArrayList(EvalValue)) in the self-compile. Boxing it drops `sizeof(EvalValue)`
   // to the next-biggest variant; the per-`return` box is transient (control-flow
   // signals are short-lived) while the inline savings are retained (P2).
-  ReturnVal(val : Box(Self), ty : Box(TypeValue)),
+  ReturnVal(val : Box(Self), ty : TypeValue),
   /// Control-flow signal emitted by a `break` statement inside a while or for loop.
   ///
   /// Propagated upward through begin blocks until it reaches the enclosing loop,
@@ -121,7 +121,7 @@ EvalValue :: enum(
   /// `ty` is heap-allocated via `Box` to keep the `EvalValue` enum size small —
   /// `TypeValue` is large (the `Func` variant has 9 ArrayList fields) and
   /// storing it inline would bloat every local `EvalValue` and stack frame.
-  TypeVal(ty : Box(TypeValue)),
+  TypeVal(ty : TypeValue),
   /// A compile-time known struct/object value with named fields.
   ///
   /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
@@ -190,12 +190,12 @@ EvalValue :: enum(
   /// The type is preserved so that subsequent type-checking can verify
   /// compatibility without needing the concrete value.
   ///
-  /// `Box(TypeValue)` keeps the enum size manageable — storing `TypeValue`
+  /// `TypeValue` keeps the enum size manageable — storing `TypeValue`
   /// inline would inflate every local `EvalValue` variable causing ASAN stack overflow.
   ///
   /// NOT the same as `VarRef` — `VarRef` represents a known-at-runtime variable
   /// reference, while `UnknownVal` is a compile-time placeholder.
-  UnknownVal(ty : Box(TypeValue))
+  UnknownVal(ty : TypeValue)
 );
 /// Element-wise equality for `EvalValue`.
 ///
@@ -260,7 +260,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     .BreakVal => match(b,.BreakVal => true, _ => false),
     .ContinueVal => match(b,.ContinueVal => true, _ => false),
     .TypeVal(at) =>
-      match(b,.TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
+      match(b,.TypeVal(bt) => are_types_compatible(at, bt), _ => false),
     .StructVal(atn, anames, avals) =>
       match(
         b,
@@ -513,7 +513,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
-    .UnknownVal(aty) => match(b,.UnknownVal(bty) => are_types_compatible(aty.*, bty.*), _ => false)
+    .UnknownVal(aty) => match(b,.UnknownVal(bty) => are_types_compatible(aty, bty), _ => false)
   )
 );
 impl(
@@ -592,7 +592,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
     },
     .BreakVal => String.from("break"),
     .ContinueVal => String.from("continue"),
-    .TypeVal(ty) => type_to_string(ty.*),
+    .TypeVal(ty) => type_to_string(ty),
     .StructVal(ty_name, field_names, field_values) => {
       parts_sv := String.from("");
       (svi : usize) = usize(0);
@@ -761,7 +761,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
     },
     .ExprVal(_) => String.from("<expr>"),
     .UnknownVal(ty) => {
-      ts := type_to_string(ty.*);
+      ts := type_to_string(ty);
       `<unknown: ${ts}>`
     }
   )
@@ -840,7 +840,7 @@ is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
 /// declared type is `Type` so that later expressions can use the name as a type
 /// (e.g. `INT_LEAST8_MIN : int_least8_t`).
 create_unknown_val :: (fn(ty : TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(Box(TypeValue)(ty))
+  EvalValue.UnknownVal(ty)
 );
 /// Create a compile-time unknown placeholder, promoting to `TypeVal(SomeType)` when
 /// `ty` is the `Type` universe (i.e. the binding is type-level). Mirrors the TS
@@ -849,8 +849,8 @@ create_unknown_val :: (fn(ty : TypeValue) -> EvalValue)(
 create_unknown_val_with_name :: (fn(ty : TypeValue, name : String) -> EvalValue)(
   cond(
     is_type_0(ty) =>
-      EvalValue.TypeVal(Box(TypeValue)(t_some_t(name, usize(0)))),
-    true => EvalValue.UnknownVal(Box(TypeValue)(ty))
+      EvalValue.TypeVal(t_some_t(name, usize(0))),
+    true => EvalValue.UnknownVal(ty)
   )
 );
 /// The result of evaluating a single `AstExpr` node.
@@ -870,7 +870,7 @@ eval_result :: (fn(value : EvalValue, ty : TypeValue) -> EvalResult)(
 /// `src/value.ts`. The "meta type" (TypeUni) is computed separately via
 /// `type_of_type` at call sites that need it.
 create_type_value :: (fn(ty : TypeValue) -> EvalValue)(
-  EvalValue.TypeVal(box(ty))
+  EvalValue.TypeVal(ty)
 );
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
@@ -914,7 +914,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
         true =>.Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
       )
     },
-    .UnknownVal(ty) => ty.*,
+    .UnknownVal(ty) => ty,
     _ => t_unit()
   )
 );

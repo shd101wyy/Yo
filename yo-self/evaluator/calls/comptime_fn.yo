@@ -85,8 +85,8 @@ _ctfe_args_equal :: (
     .TypeVal(aty_b) => match(
       given_av,
       .TypeVal(bty_b) => {
-        aty := aty_b.*;
-        bty := bty_b.*;
+        aty := aty_b;
+        bty := bty_b;
         a_is_some := is_some_type(aty);
         b_is_some := is_some_type(bty);
         cond(
@@ -169,7 +169,7 @@ _resolved_type_of :: (fn(v : EvalValue) -> Option(TypeValue))(
   match(
     v,
     .TypeVal(tb) => {
-      t := tb.*;
+      t := tb;
       is_placeholder := match(
         t,
         .SomeT(id : sid2) => match(lookup_recursive_type_ref(sid2),.Some(_) => true,.None => false),
@@ -330,7 +330,7 @@ _recursive_placeholder :: (
       _ := g_recursive_type_refs.push(
         RecursiveTypeRef(some_id : sid, func_id : func_id, arg_values : arg_vals)
       );
-      EvalValue.TypeVal(box(placeholder))
+      EvalValue.TypeVal(placeholder)
     },
     true => create_unknown_val(return_type)
   )
@@ -357,7 +357,7 @@ evaluate_comptime_fn_call :: (
   // Extract the return type from the function type.
   return_type := match(
     function_type,
-    .Func({ result : result_b }) => result_b.*,
+    .Func({ result : result_b }) => result_b,
     _ => t_unit()
   );
   // Extract func_id and body from the FuncVal.
@@ -807,7 +807,7 @@ evaluate_comptime_fn_call :: (
   match(
     return_value,
     .TypeVal(rv_eb) => match(
-      rv_eb.*,
+      rv_eb,
       .EnumT(eid, _, _, _, _, _, _, _, _) => register_enum_cfid(eid, func_id_str),
       _ => ()
     ),
@@ -827,7 +827,7 @@ evaluate_comptime_fn_call :: (
         match(
           av,
           .TypeVal(tb) => {
-            _p := inst_type_args.push(tb.*);
+            _p := inst_type_args.push(tb);
           },
           _ => {
             _p := inst_type_args.push(TypeValue.Unit);
@@ -841,11 +841,11 @@ evaluate_comptime_fn_call :: (
   final_return_value := match(
     return_value,
     .TypeVal(rv_tb) => match(
-      rv_tb.*,
+      rv_tb,
       .Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid }) => if(
         scfid.len() == usize(0),
         EvalValue.TypeVal(
-          box(TypeValue.Struct(sid, sname, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false))
+          TypeValue.Struct(sid, sname, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false)
         ),
         return_value
       ),

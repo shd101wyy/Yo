@@ -293,7 +293,7 @@ evaluate_comptime_fn :: (
   implicit_types := match(func_type,.Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
   implicit_spreads := match(func_type,.Func({ meta : __fm4 }) => __fm4.*.implicit_spreads, _ => ArrayList(bool).new());
   where_types := match(func_type,.Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type,.Func({ result : rb }) => rb, _ => box(t_unit()));
+  result_box := match(func_type,.Func({ result : rb }) => rb, _ => t_unit());
   // Skip functions with forall parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
     exn.throw(
@@ -326,7 +326,7 @@ evaluate_comptime_fn :: (
     });
     pti = (pti + usize(1));
   });
-  if(type_prohibits_comptime_modifier(result_box.*), {
+  if(type_prohibits_comptime_modifier(result_box), {
     exn.throw(
       dyn(
         format_error_message(
@@ -339,7 +339,7 @@ evaluate_comptime_fn :: (
     );
   });
   // Convert return type to its comptime equivalent.
-  comptime_result_opt := _to_comptime_type(result_box.*);
+  comptime_result_opt := _to_comptime_type(result_box);
   comptime_result_ty := match(
     comptime_result_opt,
     .Some(ct) => ct,
@@ -363,7 +363,7 @@ evaluate_comptime_fn :: (
     param_types,
     implicit_types,
     where_types,
-    box(comptime_result_ty),
+    comptime_result_ty,
     box(
       FuncMeta(
         forall_labels : forall_labels,

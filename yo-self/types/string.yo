@@ -60,11 +60,11 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         (level == usize(0)) => `Type`,
         true => `Type(${level})`
       ),
-      .Pointer(inner) => `*(${recur(inner.*, _d + usize(1))})`,
+      .Pointer(inner) => `*(${recur(inner, _d + usize(1))})`,
       .Str => String.from("str"),
       .Array(inner, n, lv) => cond(
-        (lv.len() > usize(0)) => `Array(${recur(inner.*, _d + usize(1))}, ${lv})`,
-        true => `Array(${recur(inner.*, _d + usize(1))}, ${n})`
+        (lv.len() > usize(0)) => `Array(${recur(inner, _d + usize(1))}, ${lv})`,
+        true => `Array(${recur(inner, _d + usize(1))}, ${n})`
       ),
       .Tuple(labels, types) => {
         body := String.from("");
@@ -136,7 +136,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           ii = (ii + usize(1));
         });
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
-        `fn(${forall_prefix}${body}) -> ${recur(ret.*, _d + usize(1))}${using_suffix}`
+        `fn(${forall_prefix}${body}) -> ${recur(ret, _d + usize(1))}${using_suffix}`
       },
       .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the
@@ -211,7 +211,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         `${n} : (${body})`
       },
       .ExprT => `Expr`,
-      .ComptimeListT(child) => `ComptimeList(${recur(child.*, _d + usize(1))})`,
+      .ComptimeListT(child) => `ComptimeList(${recur(child, _d + usize(1))})`,
       .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
         body := String.from("");
         i := usize(0);
@@ -237,9 +237,9 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `TypeApp(${recur(constructor.*, _d + usize(1))}, [${body}])`
+        `TypeApp(${recur(constructor, _d + usize(1))}, [${body}])`
       },
-      .IsoT(child) => `iso(${recur(child.*, _d + usize(1))})`,
+      .IsoT(child) => `iso(${recur(child, _d + usize(1))})`,
       .DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _) => {
         body := String.from("");
         i := usize(0);
@@ -273,7 +273,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `${bn}(${body}) -> ${recur(cr.*, _d + usize(1))}`
+        `${bn}(${body}) -> ${recur(cr, _d + usize(1))}`
       },
       .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : _) => {
         body := String.from("");
@@ -288,8 +288,8 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           i = (i + usize(1));
         });
         cond(
-          (body.len() > usize(0)) => `Future[${bn}](${recur(out.*, _d + usize(1))}) ${body}`,
-          true => `Future[${bn}](${recur(out.*, _d + usize(1))})`
+          (body.len() > usize(0)) => `Future[${bn}](${recur(out, _d + usize(1))}) ${body}`,
+          true => `Future[${bn}](${recur(out, _d + usize(1))})`
         )
       }
     )

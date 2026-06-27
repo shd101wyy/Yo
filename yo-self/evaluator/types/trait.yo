@@ -138,8 +138,8 @@ _get_or_create_some_ty_for_trait :: (
           match(
             ev,
             .TypeVal(b) => {
-              if(is_some_type(b.*), {
-                return(_SomeTyResolvedResult(b.*, false));
+              if(is_some_type(b), {
+                return(_SomeTyResolvedResult(b, false));
               });
             },
             _ => ()
@@ -230,7 +230,7 @@ _get_or_create_some_ty_for_trait :: (
   env_mut.input_string = lhs_info.env.input_string;
   lhs_tv := match(
     lhs_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   if(!(is_some_type(lhs_tv)), {
@@ -329,7 +329,7 @@ _apply_single_constraint_for_trait :: (
   env_mut.input_string = te_info.env.input_string;
   trait_ty2 = match(
     te_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   if(!(is_trait_type(trait_ty2)), {
@@ -504,7 +504,7 @@ _parse_trait_where_clauses :: (
       env_mut.input_string = te_info.env.input_string;
       trait_ty2 = match(
         te_info.value,
-        .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+        .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       );
       if(!(is_trait_type(trait_ty2)), {
@@ -792,7 +792,7 @@ _evaluate_trait_field :: (
       });
       ty := match(
         te_info.value,
-        .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+        .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       );
       field_ty_opt =.Some(ty);
@@ -1037,8 +1037,8 @@ _evaluate_trait_field :: (
               match(
                 ev,
                 .TypeVal(b) => {
-                  if(is_some_type(b.*), {
-                    assoc_some_ty_opt =.Some(b.*);
+                  if(is_some_type(b), {
+                    assoc_some_ty_opt =.Some(b);
                     found_existing = true;
                   });
                 },
@@ -1111,7 +1111,7 @@ evaluate_trait_type :: (
     field_labels,
     field_types,
     trait_id,
-    Option(Box(TypeValue)).None,
+    Option(TypeValue).None,
     self_constraints,
     neg_self_constraints
   );
@@ -1264,7 +1264,7 @@ evaluate_trait_type :: (
                   match(
                     ev,
                     .TypeVal(b) => {
-                      if(is_some_type(b.*), {
+                      if(is_some_type(b), {
                         already_bound = true;
                       });
                     },

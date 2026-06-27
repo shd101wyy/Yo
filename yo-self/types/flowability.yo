@@ -444,7 +444,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   // Extract the Func's return/ref/param info.
   is_ref_return := match(callee_ty,.Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false);
-  ret_ty := match(callee_ty,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit);
+  ret_ty := match(callee_ty,.Func({ result : rb }) => rb, _ => TypeValue.Unit);
   _slice_pre := (opts.allow_parameter_source && !(is_ref_return));
   is_slice_return := (_slice_pre && type_representation_contains_raw_ptr(ret_ty));
   if(!(is_ref_return) && !(is_slice_return), {

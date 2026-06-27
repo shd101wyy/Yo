@@ -243,12 +243,12 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
               match(
                 rt,
                 .FnTraitT({ call_param_types, call_result }) => {
-                  return_str := get_type_string(call_result.*, context.base);
+                  return_str := get_type_string(call_result, context.base);
                   wrapper := `__yo_wrap_${impl_key}_call`;
                   params := _wrapper_params(call_param_types.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
-                  is_void := is_void_type(call_result.*);
+                  is_void := is_void_type(call_result);
                   if(is_boxed, {
                     boxed_cname := match(context.base.get_type_c_name(type_key(data_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(data_type.clone())}`);
                     field_name := _box_field_name(data_type.clone());
@@ -329,7 +329,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                   param_is_ref := __fm1.*.param_is_ref;
                                   impl_cname := entry.c_name;
                                   wrapper := `__yo_wrap_${impl_key}_${label}`;
-                                  return_str := get_type_string(result.*, context.base);
+                                  return_str := get_type_string(result, context.base);
                                   params := _wrapper_params(param_types.clone(), usize(1), context);
                                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                                   pbp := (match(param_types.get(usize(0)),.Some(p0) => is_pointer_type(p0),.None => false) || match(param_is_ref.get(usize(0)),.Some(r) => r,.None => false));
@@ -344,7 +344,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                     em.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
                                     first_arg = if(pbp, String.from("&concrete_value"), String.from("concrete_value"));
                                   });
-                                  _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result.*));
+                                  _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result));
                                   em.emit_declaration_line("}");
                                   em.emit_declaration_line("");
                                 },

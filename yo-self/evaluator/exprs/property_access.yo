@@ -504,7 +504,7 @@ Raw pointer operations may dereference invalid memory.`,
               )
             );
           });
-          base_ty_deref := match(ot,.Pointer(pt) => pt.*, _ => t_unit());
+          base_ty_deref := match(ot,.Pointer(pt) => pt, _ => t_unit());
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
             is_some_type(base_ty_deref) => get_value_of_some_type_from_env(env, base_ty_deref),
@@ -569,7 +569,7 @@ Raw pointer operations may dereference invalid memory.`,
       obj_val_opt,
       .Some(v) => match(
         v,
-        .TypeVal(ty_box) => ty_box.*,
+        .TypeVal(ty_box) => ty_box,
         _ => t_unit()
       ),
       .None => t_unit()
@@ -1110,7 +1110,7 @@ Raw pointer operations may dereference invalid memory.`,
     match(
       base_ty,
       .Pointer(pt) => {
-        base_ty = pt.*;
+        base_ty = pt;
       },
       _ => ()
     );

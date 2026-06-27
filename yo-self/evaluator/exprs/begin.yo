@@ -366,7 +366,7 @@ evaluate_begin_expression :: (
                 fb_ctx.func_type,
                 .Some(ft) => match(
                   ft,
-                  .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box.*),
+                  .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box),
                   _ => Option(TypeValue).None
                 ),
                 .None => Option(TypeValue).None
@@ -424,7 +424,7 @@ evaluate_begin_expression :: (
                   rft,
                   .Func({ result : rfb, meta : __fm1 }) => {
                     rfco := __fm1.*.result_is_comptime_only;
-                    if((!(rfco) && type_representation_contains_raw_ptr(rfb.*))
+                    if((!(rfco) && type_representation_contains_raw_ptr(rfb))
                     && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone()))), {
                       ret_slice_opts := FlowOptions(
                         allow_same_frame_local : false,
@@ -437,7 +437,7 @@ evaluate_begin_expression :: (
                           dyn(
                             format_error_message(
                               ast_expr_token(ret_arg),
-                              `'return(...)' from a function returning '${type_to_string(rfb.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
+                              `'return(...)' from a function returning '${type_to_string(rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
                               false,
                               .None
                             )
@@ -708,7 +708,7 @@ evaluate_begin_expression :: (
                 match(
                   ft,
                   .Func({ result : result_box }) => {
-                    expected_ret := result_box.*;
+                    expected_ret := result_box;
                     compat := are_types_compatible(return_type, expected_ret);
                     if(!(is_some_type(expected_ret)) && !(compat), {
                       exn.throw(

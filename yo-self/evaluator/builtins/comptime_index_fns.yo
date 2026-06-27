@@ -108,8 +108,8 @@ ci_str_quote :: (fn(s : String) -> String)(
 ci_child_of_comptime_list_ty :: (fn(ty : TypeValue) -> TypeValue)(
   match(
     ty,
-    .ComptimeListT(cb) => cb.*,
-    .Pointer(pb) => match(pb.*,.ComptimeListT(cb) => cb.*, _ => ty),
+    .ComptimeListT(cb) => cb,
+    .Pointer(pb) => match(pb,.ComptimeListT(cb) => cb, _ => ty),
     _ => ty
   )
 );
@@ -117,8 +117,8 @@ ci_child_of_comptime_list_ty :: (fn(ty : TypeValue) -> TypeValue)(
 ci_child_of_array_ty :: (fn(ty : TypeValue) -> TypeValue)(
   match(
     ty,
-    .Array(cb, _, _) => cb.*,
-    .Pointer(pb) => match(pb.*,.Array(cb, _, _) => cb.*, _ => ty),
+    .Array(cb, _, _) => cb,
+    .Pointer(pb) => match(pb,.Array(cb, _, _) => cb, _ => ty),
     _ => ty
   )
 );
@@ -128,15 +128,15 @@ ci_elem_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
   match(
     ty,
     .Pointer(pb) => {
-      inner := pb.*;
+      inner := pb;
       cond(
-        is_array_type(inner) => t_ptr(match(inner,.Array(cb, _, _) => cb.*, _ => inner)),
-        is_comptime_list_type(inner) => t_ptr(match(inner,.ComptimeListT(cb) => cb.*, _ => inner)),
+        is_array_type(inner) => t_ptr(match(inner,.Array(cb, _, _) => cb, _ => inner)),
+        is_comptime_list_type(inner) => t_ptr(match(inner,.ComptimeListT(cb) => cb, _ => inner)),
         true => ty
       )
     },
-    .Array(cb, _, _) => t_ptr(cb.*),
-    .ComptimeListT(cb) => t_ptr(cb.*),
+    .Array(cb, _, _) => t_ptr(cb),
+    .ComptimeListT(cb) => t_ptr(cb),
     _ => ty
   )
 );

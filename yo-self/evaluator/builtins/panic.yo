@@ -86,8 +86,8 @@ evaluate_panic :: (
         .Some(ty) => match(
           ty,
           .Func({ result, meta : __fm1 }) => cond(
-            __fm1.*.result_is_ref => t_ptr(result.*),
-            true => result.*
+            __fm1.*.result_is_ref => t_ptr(result),
+            true => result
           ),
           _ => t_unit()
         ),
@@ -150,7 +150,7 @@ evaluate_panic :: (
           .Some(v) => match(
             v,
             .StrLit(_) => true,
-            .UnknownVal(uty) => is_comptime_string_type(uty.*),
+            .UnknownVal(uty) => is_comptime_string_type(uty),
             _ => false
           ),
           .None => is_comptime_string_type(msg_type)

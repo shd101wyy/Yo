@@ -377,7 +377,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   future_code := _call_generate_expr(future_arg, indent.clone(), context);
   future_type_name := get_type_string(future_type, context.base);
   // Result type (resolve SomeType to concrete).
-  (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   if(is_some_type(result_type), {
     rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
     match(
@@ -477,7 +477,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None);
     context.pending_deferred_drops = saved_drops;
     is_handler_installation := is_await_unwind_handler_installation(future_trait_type, context);
-    return_type := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => Option(TypeValue).Some(r.*), _ => Option(TypeValue).None),.None => Option(TypeValue).None);
+    return_type := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None),.None => Option(TypeValue).None);
     if(is_handler_installation, {
       em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
       match(

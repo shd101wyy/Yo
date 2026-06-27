@@ -96,8 +96,8 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
   match(
     ty,
     // Recurse into pointer / slice / array.
-    .Pointer(inner) =>.Pointer(box(recur(s, inner.*))),
-    .Array(inner, len, lvar) =>.Array(box(recur(s, inner.*)), len, lvar),
+    .Pointer(inner) =>.Pointer(recur(s, inner)),
+    .Array(inner, len, lvar) =>.Array(recur(s, inner), len, lvar),
     // Recurse into tuple.
     .Tuple(labels, types) => {
       new_types := ArrayList(TypeValue).new();
@@ -141,7 +141,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       });
       // Preserve result_is_comptime_only + ref-tracking + variadic flag +
       // FFI metadata across substitution.
-      .Func(new_fts, new_pts, new_its, new_wts, box(recur(s, ret.*)), __fm1)
+      .Func(new_fts, new_pts, new_its, new_wts, recur(s, ret), __fm1)
     },
     // TraitT — recurse into field types. (Source-namespace structs go
     // through the Struct arm above.)
@@ -204,7 +204,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
             new_nts.push(recur(s, elem));
             i = (i + usize(1));
           });
-          .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, false, Option(Box(TypeValue)).None)
+          .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, false, Option(TypeValue).None)
         }
       )
     },
@@ -264,7 +264,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
       .Union(name, labels, new_types)
     },
     // Phase 2f variants — recurse into child types
-    .ComptimeListT(child) =>.ComptimeListT(box(recur(s, child.*))),
+    .ComptimeListT(child) =>.ComptimeListT(recur(s, child)),
     .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
       new_types := ArrayList(TypeValue).new();
       i := usize(0);
@@ -283,9 +283,9 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         new_args.push(recur(s, elem));
         i = (i + usize(1));
       });
-      .TypeAppT(box(recur(s, constructor.*)), new_args)
+      .TypeAppT(recur(s, constructor), new_args)
     },
-    .IsoT(child) =>.IsoT(box(recur(s, child.*))),
+    .IsoT(child) =>.IsoT(recur(s, child)),
     .DynT(
       required_trait_types : rtt,
       required_trait_levels : rtl,
@@ -323,7 +323,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         new_its.push(recur(s, elem));
         iti = (iti + usize(1));
       });
-      .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : box(recur(s, cr.*)), implicit_labels : ils, implicit_types : new_its, implicit_spreads : isps)
+      .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : recur(s, cr), implicit_labels : ils, implicit_types : new_its, implicit_spreads : isps)
     },
     .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : esp) => {
       new_ets := ArrayList(TypeValue).new();
@@ -333,7 +333,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         new_ets.push(recur(s, elem));
         i = (i + usize(1));
       });
-      .FutureTraitT(base_name : bn, output : box(recur(s, out.*)), effect_labels : els, effect_types : new_ets, effect_spreads : esp)
+      .FutureTraitT(base_name : bn, output : recur(s, out), effect_labels : els, effect_types : new_ets, effect_spreads : esp)
     },
     // Primitives and leaves — return unchanged.
     _ => ty

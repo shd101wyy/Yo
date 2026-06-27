@@ -127,7 +127,7 @@ evaluate_subtype_of :: (
   );
   lhs_ty := match(
     lhs_type_val,
-    .TypeVal(b) => b.*,
+    .TypeVal(b) => b,
     _ => t_unit()
   );
   // In a where clause, the LHS must be a SomeType (type parameter).
@@ -240,7 +240,7 @@ evaluate_subtype_of :: (
       te_info.value,
       .Some(v) => match(
         v,
-        .TypeVal(b) => if(is_trait_type(b.*), b.*, {
+        .TypeVal(b) => if(is_trait_type(b), b, {
           exn.throw(
             dyn(
               format_error_message(
@@ -320,9 +320,12 @@ evaluate_subtype_of :: (
       _add_where_clause_constraint(lhs_ty, wt, wn);
       wi = (wi + usize(1));
     });
-    // Clone lhs_ty for new_expr_info; explicitly consume original with box().
+    // Clone lhs_ty for new_expr_info; the original drops naturally at scope end
+    // (a ref-enum TypeValue is an RC handle). It must NOT be consumed here, so
+    // that its consumption is uniform with the non-where-clause branch below
+    // (which also only clones it) — else the flow-checker reports "consumed in
+    // some cases but not in other cases".
     out_info := new_expr_info(env, lhs_ty.clone());
-    _ := box(lhs_ty);
     out_info.value =.Some(lhs_type_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     expr
@@ -374,20 +377,19 @@ evaluate_subtype_of :: (
     });
     // Create a new trait with receiver type (is_concrete) set to lhs_ty.
     // Mirrors TypeScript's `{ ...traitType, receiverType: typeValue.value }`.
-    // Box lhs_ty before the match so both arms can consume it (arm 1 uses the box,
-    // arm 2 dereferences and discards it).
-    lhs_ty_box := box(lhs_ty);
+    // `is_concrete` is `Option(Self)` (a ref-enum TypeValue handle). Clone
+    // lhs_ty into the new trait rather than moving it, so lhs_ty is left
+    // un-consumed on every path (it drops naturally at scope end) — uniform with
+    // the where-clause branch above. Consuming it in only one arm tripped the
+    // flow-checker ("consumed in some cases but not in other cases").
     trait_with_receiver := match(
       trait_ty,
       .TraitT(name, assoc_type_names, field_labels, field_types, id, _, self_constraints, neg_self_constraints) =>
-        TypeValue.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(Box(TypeValue)).Some(lhs_ty_box), self_constraints, neg_self_constraints),
-      _ => {
-        _ := lhs_ty_box;
-        trait_ty
-      }
+        TypeValue.TraitT(name, assoc_type_names, field_labels, field_types, id, Option(TypeValue).Some(lhs_ty.clone()), self_constraints, neg_self_constraints),
+      _ => trait_ty
     );
     trait_with_receiver_clone := trait_with_receiver.clone();
-    trait_type_val := EvalValue.TypeVal(box(trait_with_receiver));
+    trait_type_val := EvalValue.TypeVal(trait_with_receiver);
     out_info := new_expr_info(env, trait_with_receiver_clone);
     out_info.value =.Some(trait_type_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

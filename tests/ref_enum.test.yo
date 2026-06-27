@@ -1,11 +1,29 @@
 //! plans/REF_REFERENCE_SEMANTICS.md Phase 3: reference-semantics enums
 //! `ref(enum(…))` / `atomic(ref(enum(…)))` — heap-allocated RC handles.
 open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 Shape :: ref(enum(Circle(r : i32), Square(s : i32)));
 Tree :: ref(enum(Leaf(value : i32), Node(left : Self, right : Self)));
 Atom :: atomic(ref(enum(Nil, Cons(v : i32))));
 Wrap :: ref(enum(Empty, Has(s : String)));
+// A recursive ref-enum reached BOTH via a direct `Self` field and via an
+// `ArrayList(Self)` field — the shape of the compiler's own `TypeValue` /
+// `AstExpr`. Its `Self` fields need no `Box`: a `ref(enum)` value is already a
+// heap RC handle (pointer). Regression guard for the `getSizeOfType` /
+// `getAlignmentOfType` enum bug: those walked variant field types inline and so
+// recursed forever on a `ref(enum)` whose variant field is typed `Self`, unless
+// the type is recognised as pointer-sized (the ref-semantics short-circuit the
+// struct branch already had). The bug only surfaced for a function that
+// RECONSTRUCTS the ref-enum (`fn(t) -> Self`), e.g. `nest_rebuild` below — a
+// merely-reducing recursion (`tree_sum -> i32`) does not trip it.
+Nest :: ref(enum(Tip(n : i32), One(inner : Self), Many(items : ArrayList(Self))));
+// A VALUE enum (self-recursive via `Box(Self)`) that holds the recursive
+// ref-enum `Nest` as a field — like the compiler's own `EvalValue` holding a
+// `TypeValue`. Regression guard for the RC-cycle analysis bug: analyzing such a
+// type walked `Nest`'s `Self` variant fields with no visited guard → infinite
+// recursion. (The struct path was guarded; the enum path was not.)
+Holder :: enum(Plain(n : i32), Boxed(b : Box(Self), t : Nest));
 
 // `ref`/`atomic` wrap inline struct/enum literals only.
 comptime_expect_error(bad_ref_named :: ref(Shape));
@@ -16,6 +34,53 @@ area :: (fn(sh : Shape) -> i32)(
 );
 tree_sum :: (fn(t : Tree) -> i32)(
   match(t,.Leaf(value) => value,.Node(left, right) => (recur(left) + recur(right)))
+);
+// Reduce a Nest to the sum of its tips (recurses through `Self` + ArrayList(Self)).
+nest_sum :: (fn(t : Nest) -> i32)(
+  match(
+    t,
+    .Tip(n) => n,
+    .One(inner) => recur(inner),
+    .Many(items) => {
+      (acc : i32) = i32(0);
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(
+          items.get(i),
+          .Some(e) => {
+            acc = (acc + recur(e));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      acc
+    }
+  )
+);
+// RECONSTRUCT a Nest (returns `Self`) — this is the shape that tripped the
+// `getSizeOfType`/`getAlignmentOfType` ref-enum recursion bug at def-time eval.
+nest_rebuild :: (fn(t : Nest) -> Nest)(
+  match(
+    t,
+    .Tip(n) => Nest.Tip(n : n),
+    .One(inner) => Nest.One(inner : recur(inner)),
+    .Many(items) => {
+      out := ArrayList(Nest).new();
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(
+          items.get(i),
+          .Some(e) => {
+            _ := out.push(recur(e));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      Nest.Many(items : out)
+    }
+  )
 );
 
 test("ref(enum) construct + match", {
@@ -54,4 +119,35 @@ test("atomic(ref(enum)) construct + match", {
 test("ref(enum) drops its variant's RC fields on free", {
   w := Wrap.Has(s : `a heap string the ref-enum must free`);
   match(w,.Has(sv) => assert(sv.len() > usize(0), "has a string"),.Empty => ());
+});
+
+test("recursive ref(enum) RECONSTRUCTION (Self + ArrayList(Self) fields)", {
+  // Build a Nest reached through both a direct `Self` (`One`) and an
+  // `ArrayList(Self)` (`Many`) field.
+  leaves := ArrayList(Nest).new();
+  _ := leaves.push(Nest.Tip(n : i32(1)));
+  _ := leaves.push(Nest.One(inner : Nest.Tip(n : i32(2))));
+  _ := leaves.push(Nest.Tip(n : i32(4)));
+  n := Nest.One(inner : Nest.Many(items : leaves));
+  assert(nest_sum(n) == i32(7), "sum over a recursive ref-enum");
+  // Reconstructing it (a `fn(t) -> Self`) must compile (regression: the size /
+  // alignment calculators used to recurse forever on a `Self` variant field)
+  // and preserve the structure.
+  rebuilt := nest_rebuild(n);
+  assert(nest_sum(rebuilt) == i32(7), "reconstructed ref-enum preserves structure");
+});
+
+test("value-enum holding a recursive ref(enum) field (RC-cycle analysis)", {
+  // Building/using a value-enum whose field is the recursive ref-enum `Nest`
+  // runs the RC-cycle analysis over `Nest`'s `Self` variant fields — which used
+  // to recurse forever (the enum walk had no visited guard).
+  h := Holder.Boxed(b : box(Holder.Plain(n : i32(1))), t : Nest.Tip(n : i32(9)));
+  match(
+    h,
+    .Boxed(b, t) => {
+      _ := b;
+      assert(nest_sum(t) == i32(9), "ref-enum field inside a value-enum");
+    },
+    .Plain(_) => ()
+  );
 });

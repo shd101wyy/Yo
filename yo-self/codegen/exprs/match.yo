@@ -987,7 +987,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(match_value_type);
   is_ref_sem := (!(is_ptr) && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
-  enum_type := if(is_ptr, match(match_value_type,.Pointer(p) => p.*, _ => match_value_type), match_value_type);
+  enum_type := if(is_ptr, match(match_value_type,.Pointer(p) => p, _ => match_value_type), match_value_type);
   if(!(is_enum_type(enum_type)), {
     return(String.from("// Error: \"match\" expression requires an enum type"));
   });

@@ -307,7 +307,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       ty,
       // Array — recurse on element type
       .Array(element : elem, length : _) =>
-        recur(elem.*, depth + u32(1)),
+        recur(elem, depth + u32(1)),
       // Tuple — check all field types
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
@@ -391,7 +391,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
         found
       },
       // Iso — check child type
-      .IsoT(child : child) => recur(child.*, depth + u32(1)),
+      .IsoT(child : child) => recur(child, depth + u32(1)),
       // SomeT — conservatively true (unresolved generic)
       .SomeT(required_trait_types : _) => true,
       // Function — false (functions are not reference types)
@@ -497,8 +497,8 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       },
       // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
       // control-bound — `*(Raise)` must be rejected).
-      .Array(element : elem, length : _, length_var : _) => recur(elem.*, depth + u32(1)),
-      .Pointer(pointee : p) => recur(p.*, depth + u32(1)),
+      .Array(element : elem, length : _, length_var : _) => recur(elem, depth + u32(1)),
+      .Pointer(pointee : p) => recur(p, depth + u32(1)),
       // SomeT carries no resolved concrete type in yo-self → conservatively
       // false (mirrors TS returning false when `resolvedConcreteType` is unset).
       _ => false
@@ -579,7 +579,7 @@ _collect_some_types_into :: (
       acc.push(ty);
     },
     .TypeAppT(constructor : con, args : args_list) => {
-      recur(con.*, acc, visited_ids);
+      recur(con, acc, visited_ids);
       (i : usize) = usize(0);
       n := args_list.len();
       while(i < n, {
@@ -588,13 +588,13 @@ _collect_some_types_into :: (
       });
     },
     .Array(element : el, _, _) => {
-      recur(el.*, acc, visited_ids);
+      recur(el, acc, visited_ids);
     },
     .Pointer(pointee : pt) => {
-      recur(pt.*, acc, visited_ids);
+      recur(pt, acc, visited_ids);
     },
     .IsoT(child : ch) => {
-      recur(ch.*, acc, visited_ids);
+      recur(ch, acc, visited_ids);
     },
     .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
       (i : usize) = usize(0);
@@ -607,7 +607,7 @@ _collect_some_types_into :: (
         match(ptys.get(j),.Some(pt) => recur(pt, acc, visited_ids),.None => ());
         j = (j + usize(1));
       });
-      recur(res.*, acc, visited_ids);
+      recur(res, acc, visited_ids);
     },
     .Tuple(_, field_types : ftys) => {
       (i : usize) = usize(0);
@@ -817,7 +817,7 @@ get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
     .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
-    .Array({ element : el }) => recur(el.*),
+    .Array({ element : el }) => recur(el),
     // str: pointer-aligned (fat pointer {ptr,len})
     .Str =>.Some(usize(get_target_pointer_size_bytes())),
     // Struct: reference-semantics (object) → pointer-aligned; newtype →
@@ -832,27 +832,33 @@ get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .Tuple({ field_types : tfts }) => _max_field_alignment(tfts),
     // Union: max field alignment.
     .Union({ field_types : ufts }) => _max_field_alignment(ufts),
-    // Enum: max alignment across all variants' fields.
-    .EnumT({ variant_fields : evf }) => {
-      (acc : usize) = usize(1);
-      (unknown : bool) = false;
-      (vi : usize) = usize(0);
-      n_v := evf.len();
-      while((vi < n_v) && !(unknown), {
-        vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-        match(
-          _max_field_alignment(vf),
-          .Some(a) => {
-            acc = _max_usize(acc, a);
-          },
-          .None => {
-            unknown = true;
-          }
-        );
-        vi = (vi + usize(1));
-      });
-      cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
-    },
+    // Enum: reference-semantics (`ref(enum(…))`) → pointer-aligned (it is a heap
+    // handle); otherwise the max alignment across all variants' fields. The
+    // `e_ref` short-circuit mirrors the struct branch and prevents an infinite
+    // walk of a recursive ref-enum whose variant field is typed `Self`.
+    .EnumT({ variant_fields : evf, is_reference_semantics : e_ref }) => cond(
+      e_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
+      true => {
+        (acc : usize) = usize(1);
+        (unknown : bool) = false;
+        (vi : usize) = usize(0);
+        n_v := evf.len();
+        while((vi < n_v) && !(unknown), {
+          vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          match(
+            _max_field_alignment(vf),
+            .Some(a) => {
+              acc = _max_usize(acc, a);
+            },
+            .None => {
+              unknown = true;
+            }
+          );
+          vi = (vi + usize(1));
+        });
+        cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+      }
+    ),
     _ =>.None
   )
 );
@@ -893,7 +899,7 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
     .Array({ element : el, length : n }) => match(
-      recur(el.*),
+      recur(el),
       .Some(elem_bits) =>.Some(elem_bits * n),
       .None =>.None
     ),
@@ -930,48 +936,55 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
       });
       cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
     },
-    // Enum: tag (sized by variant count) + the largest variant payload, with
-    // alignment. Mirrors TS `getEnumTypeSize`.
-    .EnumT({ variant_fields : evf }) => {
-      (max_data : usize) = usize(0);
-      (max_align_bits : usize) = usize(0);
-      (unknown : bool) = false;
-      (vi : usize) = usize(0);
-      n_v := evf.len();
-      while((vi < n_v) && !(unknown), {
-        vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-        match(
-          _aggregate_size(vf),
-          .Some(vbits) => match(
-            _max_field_alignment(vf),
-            .Some(va_bytes) => {
-              max_data = _max_usize(max_data, vbits);
-              max_align_bits = _max_usize(max_align_bits, va_bytes * usize(8));
-            },
+    // Enum: reference-semantics (`ref(enum(…))`) → pointer-sized (it is a heap
+    // RC handle); otherwise tag (sized by variant count) + the largest variant
+    // payload, with alignment. The `e_ref` short-circuit mirrors the struct
+    // branch and the TS `getSizeOfType` fix — without it the variant-field walk
+    // recurses forever on a recursive ref-enum (variant field typed `Self`).
+    // Mirrors TS `getSizeOfType`/`getEnumTypeSize`.
+    .EnumT({ variant_fields : evf, is_reference_semantics : e_ref }) => cond(
+      e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      true => {
+        (max_data : usize) = usize(0);
+        (max_align_bits : usize) = usize(0);
+        (unknown : bool) = false;
+        (vi : usize) = usize(0);
+        n_v := evf.len();
+        while((vi < n_v) && !(unknown), {
+          vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          match(
+            _aggregate_size(vf),
+            .Some(vbits) => match(
+              _max_field_alignment(vf),
+              .Some(va_bytes) => {
+                max_data = _max_usize(max_data, vbits);
+                max_align_bits = _max_usize(max_align_bits, va_bytes * usize(8));
+              },
+              .None => {
+                unknown = true;
+              }
+            ),
             .None => {
               unknown = true;
             }
-          ),
-          .None => {
-            unknown = true;
+          );
+          vi = (vi + usize(1));
+        });
+        cond(
+          unknown => Option(usize).None,
+          true => {
+            tag_bits := _round_up(_ceil_log2(n_v), usize(8));
+            data_align_bits := _max_usize(max_align_bits, usize(8));
+            struct_align_bits := _max_usize(usize(32), data_align_bits);
+            // Pad tag end up to data alignment, add data, then pad total to
+            // struct alignment (all in bits; alignments are byte multiples ×8).
+            after_tag := _round_up(tag_bits, data_align_bits);
+            total_before := (after_tag + max_data);
+            Option(usize).Some(usize(_round_up(total_before, struct_align_bits)))
           }
-        );
-        vi = (vi + usize(1));
-      });
-      cond(
-        unknown => Option(usize).None,
-        true => {
-          tag_bits := _round_up(_ceil_log2(n_v), usize(8));
-          data_align_bits := _max_usize(max_align_bits, usize(8));
-          struct_align_bits := _max_usize(usize(32), data_align_bits);
-          // Pad tag end up to data alignment, add data, then pad total to
-          // struct alignment (all in bits; alignments are byte multiples ×8).
-          after_tag := _round_up(tag_bits, data_align_bits);
-          total_before := (after_tag + max_data);
-          Option(usize).Some(usize(_round_up(total_before, struct_align_bits)))
-        }
-      )
-    },
+        )
+      }
+    ),
     _ =>.None
   )
 );
@@ -1052,7 +1065,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
         });
         found
       },
-      .Array({ element : el }) => recur(el.*, depth - usize(1)),
+      .Array({ element : el }) => recur(el, depth - usize(1)),
       _ => false
     )
   )
@@ -1126,7 +1139,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
         });
         found
       },
-      .Array({ element : el }) => recur(el.*, depth - usize(1)),
+      .Array({ element : el }) => recur(el, depth - usize(1)),
       _ => false
     )
   )

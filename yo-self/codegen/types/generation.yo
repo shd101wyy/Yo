@@ -745,7 +745,7 @@ _walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
   match(
     ft,
     .Pointer(pointee) => {
-      p := pointee.*;
+      p := pointee;
       if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
     },
     _ => if(
@@ -755,7 +755,7 @@ _walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
         .Some(ptrty) => match(
           ptrty,
           .Pointer(pe) => {
-            p := pe.*;
+            p := pe;
             if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
           },
           _ => Option(TypeValue).None
@@ -871,7 +871,7 @@ _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed :
         param_labels := __fm1.*.param_labels;
         // Only methods whose first param is `self` go in the vtable.
         if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)),.Some(l) => (l == String.from("self")),.None => false), {
-          ret_str := get_type_string(result.*, context);
+          ret_str := get_type_string(result, context);
           plist := String.new();
           np := param_labels.len();
           (pi : usize) = usize(0);
@@ -919,7 +919,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
           is_fn_trait_type(tt) => match(
             tt,
             .FnTraitT({ call_param_labels, call_param_types, call_result }) => {
-              ret_str := get_type_string(call_result.*, context);
+              ret_str := get_type_string(call_result, context);
               plist := String.new();
               np := call_param_labels.len();
               (pi : usize) = usize(0);

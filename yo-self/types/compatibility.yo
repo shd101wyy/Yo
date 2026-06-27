@@ -166,8 +166,8 @@ _compat_impl :: (
             expected,
             .Str => true,
             .Pointer(einner) => cond(
-              is_u8_type(einner.*) => true,
-              is_char_type(einner.*) => true,
+              is_u8_type(einner) => true,
+              is_char_type(einner) => true,
               true => false
             ),
             _ => false
@@ -323,7 +323,7 @@ _compat_impl :: (
     // Pointer children always use require_exact=true (TS semantics)
     .Pointer(ainner) => match(
       expected,
-      .Pointer(einner) => recur(ainner.*, einner.*, true, visited),
+      .Pointer(einner) => recur(ainner, einner, true, visited),
       _ => false
     ),
     .Array(ainner, alen, alvar) => match(
@@ -335,7 +335,7 @@ _compat_impl :: (
           ((alvar.len() > usize(0)) || (elvar.len() > usize(0))) => true,
           true => (alen == elen)
         );
-        len_ok && recur(ainner.*, einner.*, require_exact, visited)
+        len_ok && recur(ainner, einner, require_exact, visited)
       },
       _ => false
     ),
@@ -392,7 +392,7 @@ _compat_impl :: (
           });
           i = (i + usize(1));
         });
-        recur(aret.*, eret.*, require_exact, visited)
+        recur(aret, eret, require_exact, visited)
       },
       _ => false
     ),
@@ -550,7 +550,7 @@ _compat_impl :: (
     .ExprT => match(expected,.ExprT => true, _ => false),
     .ComptimeListT(achild) => match(
       expected,
-      .ComptimeListT(echild) => recur(achild.*, echild.*, require_exact, visited),
+      .ComptimeListT(echild) => recur(achild, echild, require_exact, visited),
       _ => false
     ),
     .EffectsRowT(implicit_labels : als, implicit_types : ats) => match(
@@ -581,13 +581,13 @@ _compat_impl :: (
       expected,
       .TypeAppT(constructor : econ, args : eargs) => {
         // Both constructors must be SomeT and share the same unique ID
-        acid_valid := match(acon.*,.SomeT(id : _) => true, _ => false);
-        ecid_valid := match(econ.*,.SomeT(id : _) => true, _ => false);
+        acid_valid := match(acon,.SomeT(id : _) => true, _ => false);
+        ecid_valid := match(econ,.SomeT(id : _) => true, _ => false);
         if((!(acid_valid)) || (!(ecid_valid)), {
           return(false);
         });
-        acid := match(acon.*,.SomeT(id : cid) => cid, _ => ``);
-        ecid := match(econ.*,.SomeT(id : cid) => cid, _ => ``);
+        acid := match(acon,.SomeT(id : cid) => cid, _ => ``);
+        ecid := match(econ,.SomeT(id : cid) => cid, _ => ``);
         if(acid != ecid, {
           return(false);
         });
@@ -609,7 +609,7 @@ _compat_impl :: (
     ),
     .IsoT(achild) => match(
       expected,
-      .IsoT(echild) => recur(achild.*, echild.*, require_exact, visited),
+      .IsoT(echild) => recur(achild, echild, require_exact, visited),
       _ => false
     ),
     // DynT: subset-based — all expected required traits must appear in actual;
@@ -674,7 +674,7 @@ _compat_impl :: (
           });
           i = (i + usize(1));
         });
-        recur(aret.*, eret.*, require_exact, visited)
+        recur(aret, eret, require_exact, visited)
       },
       _ => false
     ),
@@ -686,7 +686,7 @@ _compat_impl :: (
           if(abn != ebn, {
             return(false);
           });
-          if(!(recur(aout.*, eout.*, require_exact, visited)), {
+          if(!(recur(aout, eout, require_exact, visited)), {
             return(false);
           });
           flat_a_labels := ArrayList(String).new();

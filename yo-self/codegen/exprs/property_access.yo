@@ -60,7 +60,7 @@ _c_function_name :: (fn(context : FunctionGenerationContext, func_id : String) -
 );
 /// Whether `object_value` is a TypeValue wrapping an enum type.
 _is_typevalue_enum :: (fn(object_value : Option(EvalValue)) -> bool)(
-  match(object_value,.Some(v) => match(v,.TypeVal(t) => is_enum_type(t.*), _ => false),.None => false)
+  match(object_value,.Some(v) => match(v,.TypeVal(t) => is_enum_type(t), _ => false),.None => false)
 );
 /// Enum field access: nullable-pointer optimization returns the pointer; else
 /// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
@@ -118,7 +118,7 @@ _typevalue_enum_access :: (fn(object_value : Option(EvalValue), field_name : Str
     .Some(v) => match(
       v,
       .TypeVal(t) => {
-        et := t.*;
+        et := t;
         match(
           et,
           .EnumT({ variant_names : vnames, variant_fields : vfields }) => {
@@ -173,7 +173,7 @@ _ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_na
     (deref_level : usize) = usize(0);
     (current_type : TypeValue) = object_type;
     while(is_pointer_type(current_type), {
-      current_type = match(current_type,.Pointer(p) => p.*, _ => current_type);
+      current_type = match(current_type,.Pointer(p) => p, _ => current_type);
       deref_level = (deref_level + usize(1));
     });
     // Reference-semantics structs are already pointers in C — one more deref.

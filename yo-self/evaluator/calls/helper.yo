@@ -330,7 +330,7 @@ validate_function_return_type :: (
                           match(
                             ev,
                             .TypeVal(ty_box) => {
-                              transitive := get_all_some_types(ty_box.*);
+                              transitive := get_all_some_types(ty_box);
                               (k : usize) = usize(0);
                               while((k < transitive.len()) && !(found_transitively), {
                                 match(
@@ -500,7 +500,7 @@ check_if_function_parameter_matches_argument :: (
     // and for a literal arg `evaled_arg` IS the original node codegen reads.
     // Only the codegen reads this field — no evaluator logic branches on it.
     if(arg_was_comptime, {
-      arg_info.converted_runtime_type = Option(Box(TypeValue)).Some(box(arg_type.clone()));
+      arg_info.converted_runtime_type = Option(TypeValue).Some(arg_type.clone());
     });
   });
   arg_value := arg_info.value;
@@ -631,7 +631,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
 value_to_signature_string :: (fn(value : EvalValue) -> String)(
   match(
     value,
-    .TypeVal(t) => type_to_string(t.*),
+    .TypeVal(t) => type_to_string(t),
     .FuncVal(__fvd2, _) => `fn_${__fvd2.*.func_id}`,
     _ => value_to_string(value)
   )
@@ -1108,7 +1108,7 @@ create_specialized_function_inline :: (
           // Register recursive self-reference in context so recursive calls
           // inside the body can find the specialized func_id.
           spec_ret_ty := evaluate_function_return_type_again(
-            match(func_type,.Func({ result : r }) => r.*, _ => t_unit()),
+            match(func_type,.Func({ result : r }) => r, _ => t_unit()),
             callee_env,
             ctx
           );
@@ -1164,7 +1164,7 @@ create_specialized_function_inline :: (
               ft_pt,
               ft_it,
               ft_wt,
-              box(spec_ret_ty.clone()),
+              spec_ret_ty.clone(),
               ft_meta
             ),
             _ => func_type
@@ -1505,13 +1505,13 @@ create_specialized_function_inline :: (
                 );
                 spi = (spi + usize(1));
               });
-              spec_result := evaluate_function_return_type_again(sp_res_b.*, callee_env, ctx);
+              spec_result := evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
               spec_type := TypeValue.Func(
                 ArrayList(TypeValue).new(),
                 spec_param_types,
                 sp_it,
                 sp_wt,
-                box(spec_result),
+                spec_result,
                 box(
                   FuncMeta(
                     forall_labels : ArrayList(String).new(),
@@ -1608,14 +1608,14 @@ evaluate_ctl_function_body_inline :: (
         fb_ctx.func_type,
         .Some(enclosing_ty) => match(
           enclosing_ty,
-          .Func({ result : rb }) => rb.*,
-          _ => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
+          .Func({ result : rb }) => rb,
+          _ => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
         ),
-        .None => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
+        .None => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
       ),
-      _ => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
+      _ => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
     ),
-    .None => match(func_type,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit)
+    .None => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
   );
   // -------------------------------------------------------------------------
   // Determine enclosing return type from definition-site registry.
@@ -1942,7 +1942,7 @@ validate_where_constraints_for_call :: (
           .Some(lv) => match(
             lv,
             .TypeVal(bound_tb) => {
-              bound_ty := bound_tb.*;
+              bound_ty := bound_tb;
               // Fully concrete only: a bound type still carrying SomeTs (a
               // generic instantiation inside an impl body) defers to TS-style
               // constraint propagation, which yo-self's marker derivation
@@ -2014,7 +2014,7 @@ resolve_param_types_from_expected :: (
 )({
   default_pts := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
   forall_lbls := match(func_type,.Func({ meta : __fm7 }) => __fm7.*.forall_labels, _ => ArrayList(String).new());
-  ret_b := match(func_type,.Func({ result : rb }) => rb, _ => box(t_unit()));
+  ret_b := match(func_type,.Func({ result : rb }) => rb, _ => t_unit());
   if(forall_lbls.len() == usize(0), {
     return(());
   });
@@ -2046,7 +2046,7 @@ resolve_param_types_from_expected :: (
     });
     si = (si + usize(1));
   });
-  temp_ret := evaluate_function_return_type_again(ret_b.*, synth_env, ctx);
+  temp_ret := evaluate_function_return_type_again(ret_b, synth_env, ctx);
   rps_checked := ArrayList(TypePair).new();
   (rps_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   rps_synth := synthesize_types(temp_ret, synth_env, expected_ty, expected_env, rps_checked, rps_opts, rps_exn);
@@ -2370,7 +2370,7 @@ try_to_call_function_with_arguments :: (
         flabel := match(fl.get(fpi),.Some(l) => l,.None => String.from(""));
         ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
-        (forall_val : EvalValue) = EvalValue.UnknownVal(box(ftype_inner));
+        (forall_val : EvalValue) = EvalValue.UnknownVal(ftype_inner);
         // If caller supplied explicit forall(…) args, try to resolve.
         match(
           forall_args_opt,
@@ -2619,7 +2619,7 @@ try_to_call_function_with_arguments :: (
       // ----------------------------------------------------------------
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
-      (return_type : TypeValue) = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
+      (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
       // Step 10: Synthesize return type against the caller's expected type.
       if(ctx.expected_type.is_some(), {
         match(
@@ -2637,7 +2637,7 @@ try_to_call_function_with_arguments :: (
               exn
             );
             callee_env_m = synth_ret.expected_env;
-            return_type = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
+            return_type = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
           },
           .None => ()
         );

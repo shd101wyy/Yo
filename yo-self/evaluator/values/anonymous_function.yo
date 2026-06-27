@@ -539,7 +539,7 @@ evaluate_anonymous_function_implementation :: (
   result_box := match(
     function_type,
     .Func({ result : rb }) => rb,
-    _ => box(TypeValue.Unit)
+    _ => TypeValue.Unit
   );
   // -------------------------------------------------------------------------
   // Parse the parameter declaration into a flat list.
@@ -684,20 +684,20 @@ evaluate_anonymous_function_implementation :: (
       fl_name.clone(),
       fl_name.clone(),
       env.frame_count(),
-      box(TypeValue.TypeUni(usize(0))),
+      TypeValue.TypeUni(usize(0)),
       ArrayList(TypeValue).new(),
       ArrayList(usize).new(),
       ArrayList(TypeValue).new(),
       ArrayList(usize).new(),
       false,
-      Option(Box(TypeValue)).None
+      Option(TypeValue).None
     );
     fl_tok := synthetic_token(fl_name.clone(), env.module_path);
     _fa_v := add_variable_to_env(
       env,
       fl_name.clone(),
       TypeValue.TypeUni(usize(0)),
-      Option(EvalValue).Some(EvalValue.TypeVal(box(fl_ty))),
+      Option(EvalValue).Some(EvalValue.TypeVal(fl_ty)),
       true,
       false,
       false,
@@ -846,7 +846,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(enclosing_func_ty) => {
           enclosing_return_ty := match(
             enclosing_func_ty,
-            .Func({ result : rb }) => rb.*,
+            .Func({ result : rb }) => rb,
             _ => TypeValue.Unit
           );
           register_definition_site_return(func_id.clone(), enclosing_return_ty);

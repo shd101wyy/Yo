@@ -494,7 +494,7 @@ _get_expr_type :: (
   });
   match(
     info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   )
 });
@@ -522,7 +522,7 @@ _eval_and_update_env :: (
         .Some(
           match(
             info.value,
-            .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+            .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
             .None => TypeValue.Unit
           )
         ),
@@ -1225,7 +1225,7 @@ use_id :: (fn(forall(T : Type),
         match(
           ev,
           .TypeVal(b) => {
-            if(is_some_type(b.*), {
+            if(is_some_type(b), {
               existing_where_var =.Some(v);
               vi = usize(0); // break
             });
@@ -1267,7 +1267,7 @@ use_id :: (fn(forall(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value,.Some(ev) => match(ev,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+      existing_some_ty := match(wv.value,.Some(ev) => match(ev,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value,
@@ -1275,8 +1275,8 @@ use_id :: (fn(forall(T : Type),
           match(
             av,
             .TypeVal(av_box) => {
-              if(is_some_type(av_box.*), {
-                new_some := av_box.*;
+              if(is_some_type(av_box), {
+                new_some := av_box;
                 match(
                   new_some,
                   .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
@@ -1377,7 +1377,7 @@ use_id :: (fn(forall(T : Type),
                   if(
                     match(
                       final_param_type,
-                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(result.*)),
+                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(result)),
                       _ => false
                     ),
                     Option(EvalValue).Some(create_type_value(t_some_t_with_kind(label_str, param_frame_level, final_param_type))),
@@ -1532,7 +1532,7 @@ validate_concrete_type_constraints :: (
         info.value,
         .Some(ev) => match(
           ev,
-          .TypeVal(b) => b.*,
+          .TypeVal(b) => b,
           _ => {
             exn.throw(
               dyn(
@@ -1659,13 +1659,13 @@ apply_single_trait_constraint :: (
         match(
           ev,
           .TypeVal(b) => {
-            if(is_some_type(b.*), {
-              some_ty_opt =.Some(b.*);
+            if(is_some_type(b), {
+              some_ty_opt =.Some(b);
             }, {
               // Concrete type — validate constraint using validate_concrete_type_constraints.
               // Use outer exn directly (hard failure) — the given/using soft-failure pattern
               // generates incomplete C calls (missing exn__throw argument).
-              validate_concrete_type_constraints(b.*, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, exn);
+              validate_concrete_type_constraints(b, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, exn);
               return(true);
             });
           },
@@ -1697,7 +1697,7 @@ apply_single_trait_constraint :: (
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env_mut.input_string = info.env.input_string;
-    lhs_ty = match(info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+    lhs_ty = match(info.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
     if(is_some_type(lhs_ty), {
       some_ty_opt =.Some(lhs_ty);
     }, {
@@ -1731,7 +1731,7 @@ apply_single_trait_constraint :: (
   env_mut.module_path = info_rhs.env.module_path;
   env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
   env_mut.input_string = info_rhs.env.input_string;
-  trait_ty = match(info_rhs.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+  trait_ty = match(info_rhs.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
   if(!(is_trait_type(trait_ty)), {
     exn.throw(
       dyn(
@@ -1823,14 +1823,14 @@ parse_where_clause_constraints :: (
             match(
               ev,
               .TypeVal(b) => {
-                if(is_some_type(b.*), {
-                  some_ty_opt =.Some(b.*);
+                if(is_some_type(b), {
+                  some_ty_opt =.Some(b);
                 }, {
                   // Concrete type — use outer exn (hard failure).
                   // The given/using soft-failure pattern generates incomplete C calls.
                   // collect_pending behavior is simplified: hard failure on constraint violation.
                   is_concrete_type = true;
-                  validate_concrete_type_constraints(b.*, rhs_expr, constraint_expr, env_mut, ctx, exn);
+                  validate_concrete_type_constraints(b, rhs_expr, constraint_expr, env_mut, ctx, exn);
                   skip_constraint = true;
                 });
               },
@@ -1928,7 +1928,7 @@ parse_where_clause_constraints :: (
       env_mut.module_path = lhs_info.env.module_path;
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
       env_mut.input_string = lhs_info.env.input_string;
-      lhs_tv := match(lhs_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+      lhs_tv := match(lhs_info.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table (mirrors function.ts:1265-1348 +
       // addWhereClauseConstraintForTypeApplication). The RHS trait parsing
@@ -2045,7 +2045,7 @@ parse_where_clause_constraints :: (
       env_mut.module_path = trait_info.env.module_path;
       env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
       env_mut.input_string = trait_info.env.input_string;
-      trait_ty2 = match(trait_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+      trait_ty2 = match(trait_info.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
       if(!(is_trait_type(trait_ty2)), {
         exn.throw(
           dyn(
@@ -2322,20 +2322,20 @@ evaluate_function_parameters :: (
             generate_some_type_id(),
             row_var_name.clone(),
             er_frame_level,
-            Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+            TypeValue.TypeUni(usize(1)),
             ArrayList(TypeValue).new(),
             ArrayList(usize).new(),
             ArrayList(TypeValue).new(),
             ArrayList(usize).new(),
             true,
-            Option(Box(TypeValue)).None
+            Option(TypeValue).None
           );
           row_kind_type := TypeValue.TypeUni(usize(1));
           _ := add_variable_to_env(
             env_mut,
             row_var_name.clone(),
             row_kind_type.clone(),
-            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)(eff_row_some_type.clone()))),
+            Option(EvalValue).Some(EvalValue.TypeVal(eff_row_some_type.clone())),
             true,
             false,
             false,
@@ -2467,7 +2467,7 @@ evaluate_function_parameters :: (
               e_val,
               .Some(ev) => {
                 if(is_type_val(ev) && !(eff_row_handled), {
-                  inner_ty := match(ev,.TypeVal(b) => b.*, _ => TypeValue.Unit);
+                  inner_ty := match(ev,.TypeVal(b) => b, _ => TypeValue.Unit);
                   if(is_effects_row_type(inner_ty.clone()), {
                     // Expand concrete EffectsRowT into individual params
                     match(
@@ -2535,7 +2535,7 @@ evaluate_function_parameters :: (
                   });
                 });
                 if(is_unknown_val(ev) && !(eff_row_handled), {
-                  inner_ty2 := match(ev,.UnknownVal(b) => b.*, _ => TypeValue.Unit);
+                  inner_ty2 := match(ev,.UnknownVal(b) => b, _ => TypeValue.Unit);
                   if(is_effects_row_type(inner_ty2.clone()), {
                     // Expand EffectsRowT
                     match(
@@ -2575,13 +2575,13 @@ evaluate_function_parameters :: (
                       generate_some_type_id(),
                       row_var_name2.clone(),
                       er_fl,
-                      Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+                      TypeValue.TypeUni(usize(1)),
                       ArrayList(TypeValue).new(),
                       ArrayList(usize).new(),
                       ArrayList(TypeValue).new(),
                       ArrayList(usize).new(),
                       true,
-                      Option(Box(TypeValue)).None
+                      Option(TypeValue).None
                     );
                     implicit_params.push(
                       FuncParam(
@@ -2972,7 +2972,7 @@ evaluate_function_parameters :: (
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(varg).get(usize(0)),.Some(a) => a,.None => make_err_expr());
             vparam_name = ast_expr_token(vlabel_expr).value;
-            vparam_type = TypeValue.ComptimeListT(Box(TypeValue)(t_type()));
+            vparam_type = TypeValue.ComptimeListT(t_type());
           }, {
             // ...(quote(name)) or ...(:(name)) — the unary quote
             // macro. `:` (unary) aliases `quote` semantically.
@@ -3608,7 +3608,7 @@ evaluate_function_type :: (
             ct_var.value,
             .Some(cv) => match(
               cv,
-              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb.*, where_constraint_entries),
+              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
               _ => ()
             ),
             .None => ()
@@ -3753,7 +3753,7 @@ evaluate_function_type :: (
     param_types,
     implicit_types,
     where_types,
-    Box(TypeValue)(return_type),
+    return_type,
     box(
       FuncMeta(
         forall_labels : forall_labels,

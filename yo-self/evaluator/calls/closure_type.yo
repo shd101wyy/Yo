@@ -116,7 +116,7 @@ try_to_implement_closure_by_fn_module_type :: (
   );
   result_type := match(
     fn_module_type,
-    .FnTraitT(_, _, _, rt_box, _, _, _) => rt_box.*,
+    .FnTraitT(_, _, _, rt_box, _, _, _) => rt_box,
     _ => t_unit()
   );
   // Push a new env frame for the closure parameters.
@@ -159,7 +159,7 @@ try_to_implement_closure_by_fn_module_type :: (
     // implicit_types
     ArrayList(TypeValue).new(),
     // where_types
-    box(result_type_copy),
+    result_type_copy,
     box(
       FuncMeta(
         forall_labels : ArrayList(String).new(),

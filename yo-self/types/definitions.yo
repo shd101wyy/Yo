@@ -8,7 +8,7 @@
 //!   * Fixed-width integers are encoded as `Int(bits, signed)`. Pointer-sized
 //!     integers (`usize`/`isize`) and C-compatible types (whose width is
 //!     platform-dependent) get their own variants.
-//!   * Compound variants store children via `Box(Self)` to allow recursion.
+//!   * Compound variants store children via `Self` to allow recursion.
 //!   * Tuple/Struct field types are stored as parallel `ArrayList`s so we
 //!     don't need a separate mutually-recursive struct (which would require
 //!     a forward-reference dance during evaluation).
@@ -78,7 +78,7 @@ derive(FuncMeta, Clone);
 /// The Yo type universe.
 ///
 /// Reference-semantics enum (`ref(enum(…))`, plans/REF_REFERENCE_SEMANTICS.md
-/// Phase 4): `TypeValue` is self-referential (`Box(Self)` / `ArrayList(Self)`),
+/// Phase 4): `TypeValue` is self-referential (`Self` / `ArrayList(Self)`),
 /// so a value enum needs the self-shell workaround. As a `ref(enum)` its `Self`
 /// fields are heap-pointer handles — the recursion is broken by indirection,
 /// no shell is needed, and clones share the handle instead of deep-copying.
@@ -120,14 +120,14 @@ TypeValue :: ref(
     /// `Type`, `Type(1)`, `Type(2)`, …  `level` ∈ {0,1,2,…}.
     TypeUni(level : usize),
     // Compound types ---------------------------------------------------------
-    Pointer(pointee : Box(Self)),
+    Pointer(pointee : Self),
     /// `length_var` mirrors the VALUE-ness of TS `ArrayType.length: Value`:
     /// "" = `length` is the concrete element count; non-empty = the length is
     /// an unresolved forall VARIABLE of that name (e.g. the `U` in
     /// `impl(forall(T : Type, U : usize), Array(T, U), ...)`) and `length`
     /// is a meaningless placeholder. TS stores an UnknownValue carrying
     /// `variableName` and binds it during synthesis (synthesizer.ts:884).
-    Array(element : Box(Self), length : usize, length_var : String),
+    Array(element : Self, length : usize, length_var : String),
     /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
     /// field (empty `String` means positional). `field_types(i)` is the type.
     Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
@@ -143,7 +143,7 @@ TypeValue :: ref(
       param_types : ArrayList(Self),
       implicit_types : ArrayList(Self),
       where_types : ArrayList(Self),
-      result : Box(Self),
+      result : Self,
       meta : Box(FuncMeta)
     ),
     // Named user-defined types ------------------------------------------------
@@ -233,7 +233,7 @@ TypeValue :: ref(
       // method / field types
       id : String,
       // unique identity string
-      is_concrete : Option(Box(Self)),
+      is_concrete : Option(Self),
       // Some(T) when this is `Concrete(T)`
       self_constraints : ArrayList(Self),
       // where-clause constraints on Self
@@ -251,7 +251,7 @@ TypeValue :: ref(
       // unique identity string
       name : String,
       frame_level : usize,
-      parent_type : Box(Self),
+      parent_type : Self,
       // meta-type (TypeUni(0) by default)
       required_trait_types : ArrayList(Self),
       // required trait constraints
@@ -267,13 +267,13 @@ TypeValue :: ref(
       // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
       // captures the kind so `F(A)` can be evaluated as a TypeApplication.
       // Mirrors `SomeType.kindFunctionType` in `src/types/definitions.ts:238`.
-      kind_function_type : Option(Box(Self))
+      kind_function_type : Option(Self)
     ),
     // Phase 2f: advanced type variants ----------------------------------------
     /// The Yo `Expr` type (a quoted expression node).
     ExprT,
     /// A compile-time homogeneous list. `child` is the element type.
-    ComptimeListT(child : Box(Self)),
+    ComptimeListT(child : Self),
     /// An effects row — labels and types for `...` constraints.
     EffectsRowT(
       implicit_labels : ArrayList(String),
@@ -282,11 +282,11 @@ TypeValue :: ref(
     /// Application of a generic type constructor to arguments.
     /// `constructor` is always a `SomeT` (the type-constructor variable).
     TypeAppT(
-      constructor : Box(Self),
+      constructor : Self,
       args : ArrayList(Self)
     ),
     /// Iso-wrapped type (linear / unique reference).
-    IsoT(child : Box(Self)),
+    IsoT(child : Self),
     /// Dynamic-dispatch type with trait bounds.
     DynT(
       required_trait_types : ArrayList(Self),
@@ -299,7 +299,7 @@ TypeValue :: ref(
       base_name : String,
       call_param_labels : ArrayList(String),
       call_param_types : ArrayList(Self),
-      call_result : Box(Self),
+      call_result : Self,
       implicit_labels : ArrayList(String),
       implicit_types : ArrayList(Self),
       implicit_spreads : ArrayList(bool)
@@ -307,7 +307,7 @@ TypeValue :: ref(
     /// Future-trait type with associated output and effects.
     FutureTraitT(
       base_name : String,
-      output : Box(Self),
+      output : Self,
       effect_labels : ArrayList(String),
       effect_types : ArrayList(Self),
       effect_spreads : ArrayList(bool)
@@ -318,7 +318,7 @@ TypeValue :: ref(
 // `derive(TypeValue, Clone)`).
 //
 // The compiler's own `TypeValue` enum is SELF-REFERENTIAL (its variants hold
-// `Box(Self)` / `ArrayList(Self)`), so a naive deep clone recurses forever on a
+// `Self` / `ArrayList(Self)`), so a naive deep clone recurses forever on a
 // cyclic value (e.g. a `TypeValue` reached via capture analysis), overflowing the
 // stack. It is also ruinously expensive even when finite: during the self-compile,
 // the def-time body eval of the compiler's own giant functions stores each expr's
@@ -327,21 +327,29 @@ TypeValue :: ref(
 // thousands of times peaked the unified `main.yo` self-compile at ~10 GB and then
 // OOM-killed it (Phase-6 P2; see plans/BOOTSTRAPPING_CODEGEN.md).
 //
-// Both problems have the SAME fix: the recursive, nested-type collection fields
-// (`EnumT.variant_fields`, `Struct.field_types` + `type_arguments`, and `TraitT`'s
-// method func types `tft`) are SHARED (RC-bump) rather than deep-cloned.
-// `ArrayList` is an RC object, so passing the matched binding straight through
-// bumps its refcount instead of deep-copying every element `TypeValue`. This is
-// sound because TypeValues are rebuilt-not-mutated: `substitute` and every other
-// consumer construct FRESH ArrayLists, and a codebase-wide audit found NO in-place
-// mutation of these fields. Sharing also breaks self-reference cycles
-// UNCONDITIONALLY — the clone never recurses into the shared fields, and every
-// type cycle must pass through a NAMED type (enum/struct/trait), so the former
-// path-based cycle guard (`g_tv_clone_path`) is no longer needed. Every
-// non-recursive scalar/label field is still cloned (cheap). All OTHER variant arms
-// recurse one shallow level, but their `TypeValue` children clone cheaply by the
-// same rule. `EvalValue` clones are fixed TRANSITIVELY (its derived clone delegates
-// here for `TypeValue` fields).
+// Both problems have the SAME fix: EVERY `TypeValue`-typed field — whether a
+// direct `Self` (e.g. `Pointer.pointee`, `Func.result`, `SomeT.parent_type`), an
+// `ArrayList(Self)` (`field_types`, `param_types`, `variant_fields`, …), or an
+// `Option(Self)` (`TraitT.is_concrete`, `SomeT.kind_function_type`) — is SHARED
+// (RC-bump) rather than deep-cloned. Now that `TypeValue` is a `ref(enum)`, each
+// such field is itself an RC handle (or an RC `ArrayList` of them), so passing the
+// matched binding straight through bumps a refcount instead of deep-copying. Only
+// the non-`TypeValue` scalar/label fields (`String`, `ArrayList(String)`,
+// `ArrayList(usize)`, `ArrayList(i64)`, `ArrayList(bool)`, and `Box(FuncMeta)`) are
+// `.clone()`d (cheap, terminating).
+//
+// This is REQUIRED, not just an optimization: a deep clone would recurse forever.
+// `types.clone()` on a `Tuple`/`Func`/… `ArrayList(Self)` field calls
+// `item.clone()` on each element, which re-enters THIS clone, which clones its
+// `ArrayList(Self)` fields, … With the old value-enum `TypeValue` the def-time
+// self-shell (an empty placeholder enum) terminated this recursion; a `ref(enum)`
+// has no shell (its `Self` fields are pointers), so the def-time body eval of this
+// clone would blow the stack (`Maximum call stack size exceeded`). Sharing breaks
+// the recursion UNCONDITIONALLY (the clone never re-enters itself) and is sound
+// because TypeValues are rebuilt-not-mutated: `substitute` and every other consumer
+// constructs FRESH values, and a codebase-wide audit found NO in-place mutation of
+// these fields. `EvalValue` clones are fixed TRANSITIVELY (its clone delegates here
+// for `TypeValue` fields).
 impl(
   TypeValue,
   Clone(
@@ -371,10 +379,10 @@ impl(
         .CLongDouble => TypeValue.CLongDouble,
         .TypeUni(tlevel) => TypeValue.TypeUni(tlevel),
         .ExprT => TypeValue.ExprT,
-        .Pointer(inner) => TypeValue.Pointer(inner.clone()),
-        .Array(el, len, lvar) => TypeValue.Array(el.clone(), len, lvar.clone()),
-        .Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone()),
-        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : m }) => TypeValue.Func(fts.clone(), pts.clone(), its.clone(), wts.clone(), ret.clone(), box(m.*.clone())),
+        .Pointer(inner) => TypeValue.Pointer(inner),
+        .Array(el, len, lvar) => TypeValue.Array(el, len, lvar.clone()),
+        .Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types),
+        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : m }) => TypeValue.Func(fts, pts, its, wts, ret, box(m.*.clone())),
         // SHARE (RC-bump) `field_types` + `type_arguments` — the recursive
         // nested-type collections — instead of deep-cloning. (See the rationale
         // on the impl above; `ArrayList` is RC, so sharing is a refcount bump and
@@ -389,22 +397,22 @@ impl(
         // RC-share rationale + safety as the impl doc above.)
         .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) =>
           TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs, esvn.clone(), evfl.clone(), edis.clone(), eirs, eiar),
-        .Union(unm, ufl, uft) => TypeValue.Union(unm.clone(), ufl.clone(), uft.clone()),
+        .Union(unm, ufl, uft) => TypeValue.Union(unm.clone(), ufl.clone(), uft),
         // SHARE (RC-bump) `tft` — the trait's method func types — instead of
         // deep-cloning. This also subsumes the former self-referential-trait cycle
         // guard (e.g. std `Error`'s `source : fn(self) -> Option(Dyn(Error))`,
         // whose `tft` reaches its own `TraitT` via `Option(Dyn(Error))`). (Same
         // RC-share rationale + safety as the impl doc above.)
         .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) =>
-          TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft, tid.clone(), tisc.clone(), tsc.clone(), tnsc.clone()),
-        .SomeT(smid, snm2, slvl, spt, srtt, srtl, sntt, sntl, sier, skft) => TypeValue.SomeT(smid.clone(), snm2.clone(), slvl, spt.clone(), srtt.clone(), srtl.clone(), sntt.clone(), sntl.clone(), sier, skft.clone()),
-        .ComptimeListT(clchild) => TypeValue.ComptimeListT(clchild.clone()),
-        .EffectsRowT(erl, ert) => TypeValue.EffectsRowT(erl.clone(), ert.clone()),
-        .TypeAppT(tac, taa) => TypeValue.TypeAppT(tac.clone(), taa.clone()),
-        .IsoT(isochild) => TypeValue.IsoT(isochild.clone()),
-        .DynT(drtt, drtl, dntt, dntl) => TypeValue.DynT(drtt.clone(), drtl.clone(), dntt.clone(), dntl.clone()),
-        .FnTraitT(base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp) => TypeValue.FnTraitT(base_name : fnbn.clone(), call_param_labels : fncpl.clone(), call_param_types : fncpt.clone(), call_result : fncr.clone(), implicit_labels : fnil.clone(), implicit_types : fnit.clone(), implicit_spreads : fnisp.clone()),
-        .FutureTraitT(base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp) => TypeValue.FutureTraitT(base_name : ftbn.clone(), output : ftout.clone(), effect_labels : ftel.clone(), effect_types : ftet.clone(), effect_spreads : ftesp.clone())
+          TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft, tid.clone(), tisc, tsc, tnsc),
+        .SomeT(smid, snm2, slvl, spt, srtt, srtl, sntt, sntl, sier, skft) => TypeValue.SomeT(smid.clone(), snm2.clone(), slvl, spt, srtt, srtl.clone(), sntt, sntl.clone(), sier, skft),
+        .ComptimeListT(clchild) => TypeValue.ComptimeListT(clchild),
+        .EffectsRowT(erl, ert) => TypeValue.EffectsRowT(erl.clone(), ert),
+        .TypeAppT(tac, taa) => TypeValue.TypeAppT(tac, taa),
+        .IsoT(isochild) => TypeValue.IsoT(isochild),
+        .DynT(drtt, drtl, dntt, dntl) => TypeValue.DynT(drtt, drtl.clone(), dntt, dntl.clone()),
+        .FnTraitT(base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp) => TypeValue.FnTraitT(base_name : fnbn.clone(), call_param_labels : fncpl.clone(), call_param_types : fncpt, call_result : fncr, implicit_labels : fnil.clone(), implicit_types : fnit, implicit_spreads : fnisp.clone()),
+        .FutureTraitT(base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp) => TypeValue.FutureTraitT(base_name : ftbn.clone(), output : ftout, effect_labels : ftel.clone(), effect_types : ftet, effect_spreads : ftesp.clone())
       )
     )
   )

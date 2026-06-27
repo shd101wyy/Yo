@@ -487,7 +487,7 @@ ${rhs_str}`,
         .TypeVal(tv_box) => {
           binding_name := ast_expr_token(actual_lhs).value.clone();
           stamped_ty := match(
-            tv_box.*,
+            tv_box,
             .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
               (st_name.len() == usize(0)) => Option(TypeValue).Some(
                 TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
@@ -522,7 +522,7 @@ ${rhs_str}`,
           );
           match(
             stamped_ty,
-            .Some(new_ty) => Option(EvalValue).Some(EvalValue.TypeVal(box(new_ty))),
+            .Some(new_ty) => Option(EvalValue).Some(EvalValue.TypeVal(new_ty)),
             .None => rhs_value_opt
           )
         },

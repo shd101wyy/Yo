@@ -299,7 +299,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
           if(i > usize(0), {
             out.push_str(", ");
           });
-          match(elements.get(i),.Some(ev) => out.push_string(recur(ev, element.*, context)),.None => ());
+          match(elements.get(i),.Some(ev) => out.push_string(recur(ev, element, context)),.None => ());
           i = (i + usize(1));
         });
         out.push_str(" } }");
@@ -371,14 +371,14 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       _ => String.from("/* skip generating struct value */")
     ),
     .TypeVal(t) => if(
-      is_str_type(t.*),
+      is_str_type(t),
       String.from("__yo_str"),
       match(
-        context.get_type_c_name(type_key(t.*)),
+        context.get_type_c_name(type_key(t)),
         .Some(cn) => cn,
         .None => {
           c := String.from("/* Error: no C type name for ");
-          c.push_string(type_to_string(t.*));
+          c.push_string(type_to_string(t));
           c.push_str(" */");
           c
         }

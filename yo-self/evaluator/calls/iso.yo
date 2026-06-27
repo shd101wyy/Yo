@@ -136,13 +136,13 @@ evaluate_iso_type_call :: (
       )
     );
   });
-  // EvalValue.TypeVal has a Box(TypeValue) — extract the child type.
+  // EvalValue.TypeVal has a TypeValue — extract the child type.
   eval_val_opt := arg_info.value;
   child_type := match(
     eval_val_opt,
     .Some(ev) => match(
       ev,
-      .TypeVal(ty_box) => ty_box.*,
+      .TypeVal(ty_box) => ty_box,
       _ => TypeValue.Unit
     ),
     .None => TypeValue.Unit
@@ -250,7 +250,7 @@ evaluate_iso_value_call :: (
   (env : Environment) = env_in;
   iso_child_type := match(
     iso_type,
-    .IsoT(child_box) => child_box.*,
+    .IsoT(child_box) => child_box,
     _ => TypeValue.Unit
   );
   arg_exprs := match(

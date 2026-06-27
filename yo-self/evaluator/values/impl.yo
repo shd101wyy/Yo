@@ -362,7 +362,7 @@ _resolve_one_forall_binding :: (
     .Some(ev) => match(
       ev,
       .TypeVal(b) => cond(
-        !(is_some_type(b.*)) => Option(TypeValue).Some(b.*),
+        !(is_some_type(b)) => Option(TypeValue).Some(b),
         true => Option(TypeValue).None
       ),
       // VALUE-level forall (`forall(U : usize)` array lengths): the
@@ -847,7 +847,7 @@ _inject_forall_captures :: (
           fa_t := match(bindings.get(fi2),.Some(t) => t,.None => t_unit());
           _a2 := new_cns.push(fa_n);
           _b2 := new_cts.push(t_type());
-          _c2 := new_cvs.push(EvalValue.TypeVal(box(fa_t)));
+          _c2 := new_cvs.push(EvalValue.TypeVal(fa_t));
           fi2 = (fi2 + usize(1));
         });
         Option(EvalValue).Some(
@@ -1029,9 +1029,9 @@ _try_lookup_trait_type :: (
           .Some(ev) => match(
             ev,
             .TypeVal(tb) => match(
-              tb.*,
+              tb,
               .TraitT(_, _, _, _, _, _, _, _) => {
-                atom_result = Option(TypeValue).Some(tb.*);
+                atom_result = Option(TypeValue).Some(tb);
               },
               _ => ()
             ),
@@ -1064,8 +1064,8 @@ _try_lookup_trait_type :: (
       .Some(ev) => match(
         ev,
         .TypeVal(tb) => match(
-          tb.*,
-          .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(tb.*),
+          tb,
+          .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(tb),
           _ => Option(TypeValue).None
         ),
         _ => Option(TypeValue).None
@@ -1142,7 +1142,7 @@ _find_self_level_in_method_ty :: (
       });
       if(found.is_none(), {
         match(
-          ret.*,
+          ret,
           .SomeT(_, n, lvl, _, _, _, _, _, _, _) => {
             if(n == "Self", {
               found = Option(usize).Some(lvl);
@@ -1196,8 +1196,8 @@ _trial_eval_fn_type_head :: (
       .Some(v) => match(
         v,
         .TypeVal(tvb) => if(
-          is_function_type(tvb.*),
-          Option(TypeValue).Some(tvb.*),
+          is_function_type(tvb),
+          Option(TypeValue).Some(tvb),
           Option(TypeValue).None
         ),
         _ => Option(TypeValue).None
@@ -1585,7 +1585,7 @@ evaluate_module_value :: (
           .Some(rv) => match(
             rv,
             .TypeVal(tv2) => {
-              receiver_type_pattern = tv2.*;
+              receiver_type_pattern = tv2;
             },
             _ => ()
           )
@@ -1776,7 +1776,7 @@ evaluate_module_value :: (
                   g_mval,
                   .TypeVal(g_wt_tvb) => {
                     ctx.current_impl_trait_field_labels.push(g_mname.clone());
-                    ctx.current_impl_trait_field_types.push(g_wt_tvb.*);
+                    ctx.current_impl_trait_field_types.push(g_wt_tvb);
                   },
                   _ => ()
                 );
@@ -1893,7 +1893,7 @@ evaluate_module_value :: (
         .Some(rv) => match(
           rv,
           .TypeVal(tv) => {
-            receiver_ty = tv.*;
+            receiver_ty = tv;
           },
           _ => ()
         )
@@ -2200,7 +2200,7 @@ evaluate_module_value :: (
                     method_val,
                     .TypeVal(c3_wt_tvb) => {
                       ctx.current_impl_trait_field_labels.push(method_name.clone());
-                      ctx.current_impl_trait_field_types.push(c3_wt_tvb.*);
+                      ctx.current_impl_trait_field_types.push(c3_wt_tvb);
                     },
                     _ => ()
                   );

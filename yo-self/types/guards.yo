@@ -163,7 +163,7 @@ is_comptime_list_type :: (fn(t : TypeValue) -> bool)(
 is_expr_list_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .ComptimeListT(child) => match(child.*,.ExprT => true, _ => false),
+    .ComptimeListT(child) => match(child,.ExprT => true, _ => false),
     _ => false
   )
 );
@@ -283,7 +283,7 @@ is_fn_trait_type :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_is_type_function :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : r }) => match(r.*,.TypeUni(_) => true, _ => false),
+    .Func({ result : r }) => match(r,.TypeUni(_) => true, _ => false),
     _ => false
   )
 );
@@ -318,7 +318,7 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : r }) => is_comptime_only_type_simple(r.*),
+    .Func({ result : r }) => is_comptime_only_type_simple(r),
     _ => false
   )
 );

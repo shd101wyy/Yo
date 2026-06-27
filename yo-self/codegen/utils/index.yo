@@ -841,7 +841,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
       // in C; for value types a borrow is a pointer to the value. Either way
       // the C type is `<base>*`.
-      base := recur(pointee.*, context);
+      base := recur(pointee, context);
       base.push_str("*");
       base
     },
@@ -850,7 +850,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // length — falls through to the unknown fallback, as in TS.)
     .Array(element, length, length_var) => cond(
       (length_var.len() == usize(0)) => {
-        element_type_string := recur(element.*, context);
+        element_type_string := recur(element, context);
         array_type_name := String.from("Array_");
         array_type_name.push_string(sanitize_for_c_identifier(element_type_string.clone(), false));
         array_type_name.push_str("_");

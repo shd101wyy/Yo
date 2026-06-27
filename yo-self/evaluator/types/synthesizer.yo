@@ -416,11 +416,11 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .Array(elem, _, _) => recur(some_type_id, some_type_name, elem.*, visited, exn),
-    .ComptimeListT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
+    .Array(elem, _, _) => recur(some_type_id, some_type_name, elem, visited, exn),
+    .ComptimeListT(child) => recur(some_type_id, some_type_name, child, visited, exn),
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
-    .IsoT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
+    .IsoT(child) => recur(some_type_id, some_type_name, child, visited, exn),
     .Func({ param_types, implicit_types, result, meta : __fm1 }) => {
       forall_labels := __fm1.*.forall_labels;
       // A forall declared by this Func's OWN signature SHADOWS the
@@ -468,14 +468,14 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
         i = (i + usize(1));
       });
       if(!(res), {
-        if(recur(some_type_id, some_type_name, result.*, visited, exn), {
+        if(recur(some_type_id, some_type_name, result, visited, exn), {
           res = true;
         });
       });
       res
     },
     .FutureTraitT(_, out_box, _, ets, _) => {
-      if(recur(some_type_id, some_type_name, out_box.*, visited, exn), {
+      if(recur(some_type_id, some_type_name, out_box, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -514,14 +514,14 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
         i = (i + usize(1));
       });
       if(!(res), {
-        if(recur(some_type_id, some_type_name, call_result.*, visited, exn), {
+        if(recur(some_type_id, some_type_name, call_result, visited, exn), {
           res = true;
         });
       });
       res
     },
     .TypeAppT(constructor, args) => {
-      if(recur(some_type_id, some_type_name, constructor.*, visited, exn), {
+      if(recur(some_type_id, some_type_name, constructor, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -944,7 +944,7 @@ _synthesize_implicit_params :: (
             ri = (ri + usize(1));
           });
           effects_row := t_effects_row(remaining_labels, remaining_types);
-          type_val := EvalValue.TypeVal(Box(TypeValue)(effects_row));
+          type_val := EvalValue.TypeVal(effects_row);
           _bind_some_type(expected_env, sname, type_val, TypeValue.TypeUni(usize(1)), opts_token(opts, expected_env), exn);
         });
       },
@@ -969,8 +969,8 @@ _synthesize_fn_traits :: (
 )({
   exp_params := match(expected_ty,.FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
   giv_params := match(given_ty,.FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
-  exp_result := match(expected_ty,.FnTraitT(_, _, _, r, _, _, _) => r.*, _ => TypeValue.Unit);
-  giv_result := match(given_ty,.FnTraitT(_, _, _, r, _, _, _) => r.*, _ => TypeValue.Unit);
+  exp_result := match(expected_ty,.FnTraitT(_, _, _, r, _, _, _) => r, _ => TypeValue.Unit);
+  giv_result := match(given_ty,.FnTraitT(_, _, _, r, _, _, _) => r, _ => TypeValue.Unit);
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   n := exp_params.len();
@@ -1016,8 +1016,8 @@ _synthesize_future_traits :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_out := match(expected_ty,.FutureTraitT(_, out, _, _, _) => out.*, _ => TypeValue.Unit);
-  giv_out := match(given_ty,.FutureTraitT(_, out, _, _, _) => out.*, _ => TypeValue.Unit);
+  exp_out := match(expected_ty,.FutureTraitT(_, out, _, _, _) => out, _ => TypeValue.Unit);
+  giv_out := match(given_ty,.FutureTraitT(_, out, _, _, _) => out, _ => TypeValue.Unit);
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   res := _synthesize_call(exp_out, ee, giv_out, ge, checked, opts, exn);
@@ -1089,21 +1089,21 @@ _synthesize_types_impl :: (
     cond(
       !(exp_bound_is_some) => {
         // Expected is bound — use its value to bind given
-        val := EvalValue.TypeVal(Box(TypeValue)(expected_bound));
+        val := EvalValue.TypeVal(expected_bound);
         _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, exn);
       },
       !(giv_bound_is_some) => {
         // Given is bound — use its value to bind expected
-        val := EvalValue.TypeVal(Box(TypeValue)(given_bound));
+        val := EvalValue.TypeVal(given_bound);
         _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
-        val := EvalValue.TypeVal(Box(TypeValue)(given_ty));
+        val := EvalValue.TypeVal(given_ty);
         _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, exn);
-        val2 := EvalValue.TypeVal(Box(TypeValue)(given_ty));
+        val2 := EvalValue.TypeVal(given_ty);
         _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, exn);
       }
     );
@@ -1207,7 +1207,7 @@ _synthesize_types_impl :: (
           return(SynthesizeResult(expected_env : ee, given_env : ge));
         });
       };
-      val := EvalValue.TypeVal(Box(TypeValue)(given_ty));
+      val := EvalValue.TypeVal(given_ty);
       _bind_some_type(ee, exp_name, val, given_ty, tok, exn);
       // Phase 5: record the resolved CONCRETE type for this SomeT (keyed by id)
       // in the side-table when the caller asked for it. Mirrors
@@ -1283,7 +1283,7 @@ _synthesize_types_impl :: (
           return(SynthesizeResult(expected_env : ee, given_env : ge));
         });
       };
-      val := EvalValue.TypeVal(Box(TypeValue)(expected_ty));
+      val := EvalValue.TypeVal(expected_ty);
       _bind_some_type(ge, giv_name, val, expected_ty, tok, exn);
       // Phase 5 (symmetric set-site): record the given SomeT's resolved concrete
       // type (the expected concrete) in the side-table. Mirrors synthesizer.ts:595
@@ -1561,8 +1561,8 @@ _synthesize_types_impl :: (
   });
   // Case: Pointer + Pointer
   if(is_pointer_type(expected_ty) && is_pointer_type(given_ty), {
-    exp_child := match(expected_ty,.Pointer(c) => c.*, _ => TypeValue.Unit);
-    giv_child := match(given_ty,.Pointer(c) => c.*, _ => TypeValue.Unit);
+    exp_child := match(expected_ty,.Pointer(c) => c, _ => TypeValue.Unit);
+    giv_child := match(given_ty,.Pointer(c) => c, _ => TypeValue.Unit);
     res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1570,8 +1570,8 @@ _synthesize_types_impl :: (
   });
   // Case: Iso + Iso
   if(is_iso_type(expected_ty) && is_iso_type(given_ty), {
-    exp_child := match(expected_ty,.IsoT(c) => c.*, _ => TypeValue.Unit);
-    giv_child := match(given_ty,.IsoT(c) => c.*, _ => TypeValue.Unit);
+    exp_child := match(expected_ty,.IsoT(c) => c, _ => TypeValue.Unit);
+    giv_child := match(given_ty,.IsoT(c) => c, _ => TypeValue.Unit);
     res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1579,8 +1579,8 @@ _synthesize_types_impl :: (
   });
   // Case: Array + Array
   if(is_array_type(expected_ty) && is_array_type(given_ty), {
-    exp_elem := match(expected_ty,.Array(e, _, _) => e.*, _ => TypeValue.Unit);
-    giv_elem := match(given_ty,.Array(e, _, _) => e.*, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty,.Array(e, _, _) => e, _ => TypeValue.Unit);
+    giv_elem := match(given_ty,.Array(e, _, _) => e, _ => TypeValue.Unit);
     res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1622,8 +1622,8 @@ _synthesize_types_impl :: (
   });
   // Case: ComptimeList + ComptimeList
   if(is_comptime_list_type(expected_ty) && is_comptime_list_type(given_ty), {
-    exp_elem := match(expected_ty,.ComptimeListT(e) => e.*, _ => TypeValue.Unit);
-    giv_elem := match(given_ty,.ComptimeListT(e) => e.*, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty,.ComptimeListT(e) => e, _ => TypeValue.Unit);
+    giv_elem := match(given_ty,.ComptimeListT(e) => e, _ => TypeValue.Unit);
     res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1655,8 +1655,8 @@ _synthesize_types_impl :: (
     giv_il := match(given_ty,.Func({ meta : __fm4 }) => __fm4.*.implicit_labels, _ => ArrayList(String).new());
     giv_it := match(given_ty,.Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
     giv_is := match(given_ty,.Func({ meta : __fm5 }) => __fm5.*.implicit_spreads, _ => ArrayList(bool).new());
-    exp_ret := match(expected_ty,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
-    giv_ret := match(given_ty,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
+    exp_ret := match(expected_ty,.Func({ result : r }) => r, _ => TypeValue.Unit);
+    giv_ret := match(given_ty,.Func({ result : r }) => r, _ => TypeValue.Unit);
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
       // Synthesize forall type params
       n_fa := exp_fa.len();
@@ -1731,8 +1731,8 @@ _synthesize_types_impl :: (
   });
   // Case: TypeApplication + TypeApplication
   if(is_type_application_type(expected_ty) && is_type_application_type(given_ty), {
-    exp_con := match(expected_ty,.TypeAppT(c, _) => c.*, _ => TypeValue.Unit);
-    giv_con := match(given_ty,.TypeAppT(c, _) => c.*, _ => TypeValue.Unit);
+    exp_con := match(expected_ty,.TypeAppT(c, _) => c, _ => TypeValue.Unit);
+    giv_con := match(given_ty,.TypeAppT(c, _) => c, _ => TypeValue.Unit);
     exp_args := match(expected_ty,.TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     giv_args := match(given_ty,.TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     res := _synthesize_call(exp_con, ee, giv_con, ge, checked, opts, exn);

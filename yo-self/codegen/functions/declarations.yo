@@ -138,7 +138,7 @@ generate_function_prototype :: (
         override_return_type,
         .Some(s) => s,
         .None => {
-          base := get_type_string(result.*, context);
+          base := get_type_string(result, context);
           if(result_is_ref, {
             base.push_str("*");
           });
@@ -357,7 +357,7 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
 });
 /// The result (return) type of a Func TypeValue, or Unit for non-functions.
 _func_result_type :: (fn(ft : TypeValue) -> TypeValue)(
-  match(ft,.Func({ result }) => result.*, _ => TypeValue.Unit)
+  match(ft,.Func({ result }) => result, _ => TypeValue.Unit)
 );
 /// True when the Func's declared return is `comptime(...)` (compile-time-only
 /// function). Mirrors the `isComptimeFunction(value)` gate.

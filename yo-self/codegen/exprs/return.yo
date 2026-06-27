@@ -548,7 +548,7 @@ _emit_effect_handler_param_drops :: (fn(context : FunctionGenerationContext, ind
 _unwind_dummy_return :: (fn(context : FunctionGenerationContext) -> String)({
   rt := match(
     context.current_function_type,
-    .Some(ft) => match(ft,.Func({ result : r }) => r.*, _ => t_unit()),
+    .Some(ft) => match(ft,.Func({ result : r }) => r, _ => t_unit()),
     .None => t_unit()
   );
   if(is_unit_type(rt), String.from("return"), {
@@ -589,7 +589,7 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
   }, {
     generate_pending_deferred_drops(inner.clone(), context, expr, false, true, false, Option(HashSet(String)).None);
     generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false);
-    ret_ty := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => r.*, _ => t_unit()),.None => t_unit());
+    ret_ty := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => r, _ => t_unit()),.None => t_unit());
     if(is_handler_installation, {
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
       if(is_unit_type(ret_ty), em.emit_string_line(`${inner.clone()}return;`), {

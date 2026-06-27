@@ -322,7 +322,7 @@ ExprInfo :: ref(
     /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
     // `Box`ed (P2): rarely set (only on comptime→runtime conversion exprs), but
     // `Option(TypeValue)` reserved ~sizeof(TypeValue) inline in every ExprInfo.
-    converted_runtime_type : Option(Box(TypeValue)),
+    converted_runtime_type : Option(TypeValue),
     /// Name of the temporary variable holding the value in `env`.
     variable_name : Option(String),
     /// Root object type in a property-access chain (used for mutability analysis).
@@ -379,10 +379,10 @@ ExprInfo :: ref(
     comptime_ref : Option(ComptimeRef),
     /// Pointer type returned by the Index trait `index()` method (before auto-deref).
     // `Box`ed (P2): only set on Index-trait dispatch exprs.
-    index_trait_ptr_type : Option(Box(TypeValue)),
+    index_trait_ptr_type : Option(TypeValue),
     /// Specialised FunctionType of the Index trait `index()` method.
     // `Box`ed (P2): only set on Index-trait dispatch exprs.
-    index_method_type : Option(Box(TypeValue)),
+    index_method_type : Option(TypeValue),
     /// Specialised FunctionValue of the Index trait `index()` method.
     index_method_value : Option(EvalValue),
     /// True when `&(value(i))` skips the auto-deref and uses the pointer directly.
@@ -410,7 +410,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     ty : ty,
     path_collection : ArrayList(ArrayList(String)).new(),
     value : Option(EvalValue).None,
-    converted_runtime_type : Option(Box(TypeValue)).None,
+    converted_runtime_type : Option(TypeValue).None,
     variable_name : Option(String).None,
     origin_type : Option(TypeValue).None,
     is_accessing_property : Option(bool).None,
@@ -436,8 +436,8 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     original_expr : Option(AstExpr).None,
     source_variable : Option(Variable).None,
     comptime_ref : Option(ComptimeRef).None,
-    index_trait_ptr_type : Option(Box(TypeValue)).None,
-    index_method_type : Option(Box(TypeValue)).None,
+    index_trait_ptr_type : Option(TypeValue).None,
+    index_method_type : Option(TypeValue).None,
     index_method_value : Option(EvalValue).None,
     is_index_trait_address_of : Option(bool).None,
     is_compile_time_only_assignment : Option(bool).None,

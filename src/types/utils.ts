@@ -1778,6 +1778,13 @@ export function getAlignmentOfType(type: Type): number | null {
     }
     return maxAlign;
   } else if (isEnumType(type)) {
+    // A reference-semantics enum (`ref(enum(…))`) is a heap RC handle — a
+    // pointer — so it is pointer-aligned, exactly like the ref-struct branch
+    // above. Without this short-circuit the variant-field walk recurses forever
+    // on a recursive ref-enum whose variant field is typed `Self` (no `Box`).
+    if (type.isReferenceSemantics) {
+      return getTargetPointerSizeBytes();
+    }
     // Enum alignment is the maximum alignment of its variants
     let maxAlign = 1;
     for (const variant of type.variants) {
@@ -1868,6 +1875,16 @@ export function getSizeOfType(type: Type): number | null {
     }
     return getStructTypeSize(type);
   } else if (isEnumType(type)) {
+    // A reference-semantics enum (`ref(enum(…))` / `atomic(ref(enum(…)))`) is a
+    // heap RC handle — a pointer — so its size is the pointer size, exactly like
+    // a reference-semantics struct above. Without this short-circuit,
+    // `getEnumTypeSize` walks the variant field types inline, and a recursive
+    // ref-enum (a variant field typed `Self`, with no `Box`) recurses into
+    // itself forever. (Value enums break the same recursion via `Box(Self)`,
+    // whose deref is a pointer.)
+    if (type.isReferenceSemantics) {
+      return getTargetPointerSizeBits();
+    }
     return getEnumTypeSize(type);
   } else if (isUnionType(type)) {
     return getUnionType(type);
@@ -1980,22 +1997,39 @@ function typeCanFormCyclicRcReference(
     }
   }
 
-  // Check through enum variants
+  // Check through enum variants. A reference-semantics enum (`ref(enum(…))`)
+  // can be recursive via a `Self` variant field (no `Box` — a ref-enum value is
+  // already a pointer); guard with `visitedTypes` (keyed by enum id) so we don't
+  // descend into the same enum forever. Mirrors the struct guard in
+  // `canTypeFormRcCycle`. Re-visiting an enum already on the path finds no NEW
+  // route back to `originalRefStruct`, so returning false is sound.
   if (isEnumType(type)) {
-    for (const variant of type.variants) {
-      if (variant.fields) {
-        for (const field of variant.fields) {
-          if (
-            typeCanFormCyclicRcReference(
-              field.type,
-              originalRefStruct,
-              visitedTypes,
-              env
-            )
-          ) {
-            return true;
+    if (type.id && visitedTypes.has(type.id)) {
+      return false;
+    }
+    if (type.id) {
+      visitedTypes.add(type.id);
+    }
+    try {
+      for (const variant of type.variants) {
+        if (variant.fields) {
+          for (const field of variant.fields) {
+            if (
+              typeCanFormCyclicRcReference(
+                field.type,
+                originalRefStruct,
+                visitedTypes,
+                env
+              )
+            ) {
+              return true;
+            }
           }
         }
+      }
+    } finally {
+      if (type.id) {
+        visitedTypes.delete(type.id);
       }
     }
   }

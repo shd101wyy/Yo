@@ -325,7 +325,7 @@ eval_identifier :: (fn(tok : Token, env : Environment) -> Option(EvalResult))({
           // Not in env — check if the name is a known primitive type name.
           match(
             type_from_name_opt(tok.value.clone()),
-            .Some(ty) =>.Some(eval_result(.TypeVal(box(ty)), t_type())),
+            .Some(ty) =>.Some(eval_result(.TypeVal(ty), t_type())),
             .None => Option(EvalResult).None
           )
       )
@@ -383,7 +383,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .ComptimeListVal(_) => t_unit(),
     .ExprVal(_) => t_expr_t(),
     // Phase 2u
-    .UnknownVal(ty) => ty.*,
+    .UnknownVal(ty) => ty,
     // Phase 3z
     .StructVal(_, _, _) => t_unit()
   )
@@ -681,7 +681,7 @@ call_funcval_with_args :: (
                                     fa_name,
                                     t_type(),
                                     true,
-                                    .Some(EvalValue.TypeVal(box(arg_res.ty)))
+                                    .Some(EvalValue.TypeVal(arg_res.ty))
                                   );
                                   fa_bound_h = true;
                                 },
@@ -750,7 +750,7 @@ call_funcval_with_args :: (
                 .Some(br) =>
                   match(
                     br.value,
-                    .ReturnVal(rv, rt) =>.Some(eval_result(rv.*, rt.*)),
+                    .ReturnVal(rv, rt) =>.Some(eval_result(rv.*, rt)),
                     _ =>.Some(br)
                   )
               )
@@ -1382,7 +1382,7 @@ handle_method_dispatch :: (
             recv_val,
             .TypeVal(ty_box_n) =>
               match(
-                ty_box_n.*,
+                ty_box_n,
                 .ComptimeString =>
                   {
                     return(Option(EvalResult).Some(eval_result(.StrLit(String.from("\"\"")), t_comptime_string())));
@@ -4738,7 +4738,7 @@ handle_enum_def :: (
                                     .Some(te) =>
                                       match(
                                         ef(te, env),
-                                        .Some(tr) => match(tr.value,.TypeVal(tb) => tb.*, _ => t_unit()),
+                                        .Some(tr) => match(tr.value,.TypeVal(tb) => tb, _ => t_unit()),
                                         .None => t_unit()
                                       ),
                                     .None => t_unit()
@@ -4753,7 +4753,7 @@ handle_enum_def :: (
                             true => {
                               fty := match(
                                 ef(field_e, env),
-                                .Some(fr) => match(fr.value,.TypeVal(tb) => tb.*, _ => t_unit()),
+                                .Some(fr) => match(fr.value,.TypeVal(tb) => tb, _ => t_unit()),
                                 .None => t_unit()
                               );
                               field_lbs.push(String.from(""));
@@ -4791,18 +4791,16 @@ handle_enum_def :: (
           .Some(
             eval_result(
               .TypeVal(
-                box(
-                  TypeValue.EnumT(
-                    enum_id.clone(),
-                    String.from(""),
-                    v_names,
-                    v_fields_all,
-                    Option(String).None,
-                    v_labels_all,
-                    v_discs,
-                    false,
-                    false
-                  )
+                TypeValue.EnumT(
+                  enum_id.clone(),
+                  String.from(""),
+                  v_names,
+                  v_fields_all,
+                  Option(String).None,
+                  v_labels_all,
+                  v_discs,
+                  false,
+                  false
                 )
               ),
               t_type()
@@ -4862,7 +4860,7 @@ handle_struct_def :: (
                         match(
                           ef(type_expr, env),
                           .Some(fres) => {
-                            fty := match(fres.value,.TypeVal(tyb) => tyb.*, _ => t_unit());
+                            fty := match(fres.value,.TypeVal(tyb) => tyb, _ => t_unit());
                             f_labels.push(fname);
                             f_types.push(fty);
                           },
@@ -4882,7 +4880,7 @@ handle_struct_def :: (
                 match(
                   ef(field_expr, env),
                   .Some(fres) => {
-                    fty := match(fres.value,.TypeVal(tyb) => tyb.*, _ => t_unit());
+                    fty := match(fres.value,.TypeVal(tyb) => tyb, _ => t_unit());
                     f_labels.push(String.from("*"));
                     f_types.push(fty);
                   },
@@ -4906,19 +4904,17 @@ handle_struct_def :: (
           .Some(
             eval_result(
               .TypeVal(
-                box(
-                  TypeValue.Struct(
-                    struct_id.clone(),
-                    String.from(""),
-                    f_labels,
-                    f_types,
-                    is_ref_sem,
-                    false,
-                    is_newtype,
-                    String.from(""),
-                    ArrayList(TypeValue).new(),
-                    false
-                  )
+                TypeValue.Struct(
+                  struct_id.clone(),
+                  String.from(""),
+                  f_labels,
+                  f_types,
+                  is_ref_sem,
+                  false,
+                  is_newtype,
+                  String.from(""),
+                  ArrayList(TypeValue).new(),
+                  false
                 )
               ),
               t_type()
@@ -4970,7 +4966,7 @@ handle_union_def :: (
                         match(
                           ef(type_expr, env),
                           .Some(fres) => {
-                            fty := match(fres.value,.TypeVal(tyb) => tyb.*, _ => t_unit());
+                            fty := match(fres.value,.TypeVal(tyb) => tyb, _ => t_unit());
                             f_labels.push(fname);
                             f_types.push(fty);
                           },
@@ -4989,7 +4985,7 @@ handle_union_def :: (
                 match(
                   ef(field_expr, env),
                   .Some(fres) => {
-                    fty := match(fres.value,.TypeVal(tyb) => tyb.*, _ => t_unit());
+                    fty := match(fres.value,.TypeVal(tyb) => tyb, _ => t_unit());
                     f_labels.push(String.from(""));
                     f_types.push(fty);
                   },
@@ -5013,12 +5009,10 @@ handle_union_def :: (
           .Some(
             eval_result(
               .TypeVal(
-                box(
-                  TypeValue.Union(
-                    String.from(""),
-                    f_labels,
-                    f_types
-                  )
+                TypeValue.Union(
+                  String.from(""),
+                  f_labels,
+                  f_types
                 )
               ),
               t_type()
@@ -5045,17 +5039,15 @@ handle_trait_def :: (
       .Some(
         eval_result(
           .TypeVal(
-            box(
-              TypeValue.TraitT(
-                String.from(""),
-                ArrayList(String).new(),
-                ArrayList(String).new(),
-                ArrayList(TypeValue).new(),
-                trait_id.clone(),
-                Option(Box(TypeValue)).None,
-                ArrayList(TypeValue).new(),
-                ArrayList(TypeValue).new()
-              )
+            TypeValue.TraitT(
+              String.from(""),
+              ArrayList(String).new(),
+              ArrayList(String).new(),
+              ArrayList(TypeValue).new(),
+              trait_id.clone(),
+              Option(TypeValue).None,
+              ArrayList(TypeValue).new(),
+              ArrayList(TypeValue).new()
             )
           ),
           t_type()
@@ -5244,7 +5236,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       // Phase 5ar: TypeVal.Variant(args) — self-hosted format
                       // Only treat as variant construction if the TypeVal wraps an EnumT.
                       // Other TypeVals (StructT, etc.) fall through to method dispatch.
-                      sh_is_enum_tv := match(recv_res.value,.TypeVal(tv_box) => match(tv_box.*,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false), _ => false);
+                      sh_is_enum_tv := match(recv_res.value,.TypeVal(tv_box) => match(tv_box,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false), _ => false);
                       if(sh_is_enum_tv, {
                         sh_vn_name_sr := match((&(method_expr)).*,.Atom(_, sh_vtk) => sh_vtk.value.clone(),.FnCall(_, _, _, _, _) => String.new());
                         if(sh_vn_name_sr != "", {
@@ -5566,7 +5558,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                             ret_te,
                                             .FnCall(_, ret_box, _ret_args, _, _) =>
                                               match(
-                                                ret_box.*,
+                                                ret_box,
                                                 .Atom(_, ret_tok) =>
                                                   cond(
                                                     (ret_tok.value == "unquote") => {
@@ -6543,7 +6535,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           match(
                             recv_res.value,
                             .TypeVal(tv_box_fq) => match(
-                              tv_box_fq.*,
+                              tv_box_fq,
                               .EnumT(_, _, _, _, _, _, _, _, _) => {
                                 // Get variant name from method_func_box2
                                 vname_tv2 := match(
@@ -6848,7 +6840,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             (fval == "return") =>
               cond(
                 (args.len() == usize(0)) =>
-                  .Some(eval_result(.ReturnVal(box(.UnitVal), box(t_unit())), t_unit())),
+                  .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
                 true =>
                   match(
                     args.get(usize(0)),
@@ -6860,7 +6852,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .Some(ret_res) =>
                           .Some(
                             eval_result(
-                              .ReturnVal(box(ret_res.value), box(ret_res.ty)),
+                              .ReturnVal(box(ret_res.value), ret_res.ty),
                               t_unit()
                             )
                           )
@@ -6873,7 +6865,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             (fval == "unwind") =>
               cond(
                 (args.len() == usize(0)) =>
-                  .Some(eval_result(.ReturnVal(box(.UnitVal), box(t_unit())), t_unit())),
+                  .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
                 true =>
                   match(
                     args.get(usize(0)),
@@ -6885,7 +6877,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                         .Some(esc_res) =>
                           .Some(
                             eval_result(
-                              .ReturnVal(box(esc_res.value), box(esc_res.ty)),
+                              .ReturnVal(box(esc_res.value), esc_res.ty),
                               t_unit()
                             )
                           )
@@ -7464,7 +7456,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             // matters for the proto-evaluator's purpose.
             // -----------------------------------------------------------------
             (fval == "ArrayList") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             // -----------------------------------------------------------------
             // Phase 5w: runtime(expr) — unwrap runtime wrapper, just eval inner.
             // In the real compiler this prevents CTFE; for proto-eval, pass-through.
@@ -7501,26 +7493,26 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             // to avoid shadowing struct constructors like Box(size: i32(5)).
             // -----------------------------------------------------------------
             (((fval == "Option") && (args.len() == usize(1))) && (!(is_named_field_arg(args)))) =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             ((fval == "Result") && (args.len() <= usize(2))) =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (((fval == "Box") && (args.len() == usize(1))) && (!(is_named_field_arg(args)))) =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (((fval == "Pointer") && (args.len() == usize(1))) && (!(is_named_field_arg(args)))) =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             // -----------------------------------------------------------------
             // Phase 5aa: Slice(T), Future(T, ...), Array(T, N) — type constructors.
             // -----------------------------------------------------------------
             (fval == "Slice") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (fval == "Future") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (fval == "Array") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (fval == "Io") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (fval == "Exception") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             // -----------------------------------------------------------------
             // Phase 5x: println/print — evaluate args but return unit.
             // In CTFE these are no-ops; we just ensure args are well-formed.
@@ -7532,7 +7524,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             // Returns the string value as a StrLit for the proto-evaluator.
             // -----------------------------------------------------------------
             (fval == "String") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             // -----------------------------------------------------------------
             // Phase 5y: extern / c_include — FFI declarations.
             // In the proto-evaluator these are no-ops (just return unit).
@@ -7564,7 +7556,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     recur(typeof_arg, env),
                     .None => Option(EvalResult).None,
                     .Some(typeof_res) =>
-                      .Some(eval_result(.TypeVal(box(typeof_res.ty)), t_type()))
+                      .Some(eval_result(.TypeVal(typeof_res.ty), t_type()))
                   )
               ),
             // -----------------------------------------------------------------
@@ -7579,7 +7571,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             // Phase 5y: HashMap(K, V) — type constructor placeholder.
             // -----------------------------------------------------------------
             ((fval == "HashMap") && (args.len() == usize(2))) =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             // -----------------------------------------------------------------
             // Phase 5y: unreachable / panic / todo — control-flow builtins.
             // In proto-eval these just return unit (we can't actually abort).
@@ -7592,13 +7584,13 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             // Returns TypeVal placeholder.
             // -----------------------------------------------------------------
             (fval == "Impl") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (fval == "Fn") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (fval == "FnMut") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             (fval == "FnOnce") =>
-              .Some(eval_result(.TypeVal(box(t_type())), t_type())),
+              .Some(eval_result(.TypeVal(t_type()), t_type())),
             // -----------------------------------------------------------------
             // Phase 5z: comptime_expect_error(expr) — test helper.
             // Tries to evaluate the argument; if it returns None (error) → pass.

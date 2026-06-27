@@ -71,7 +71,7 @@ generate_yo_array_fill :: (fn(expr : AstExpr, indent : String, context : Functio
   // The ArrayType comes from the first argument's compile-time value.
   array_type := match(
     context.base.get_expr_info(array_type_arg),
-    .Some(aei) => match(aei.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),.None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
+    .Some(aei) => match(aei.value,.Some(v) => match(v,.TypeVal(t) => t, _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),.None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
     .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))
   );
   if(!(is_array_type(array_type)), {

@@ -810,7 +810,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     expr,
     .FnCall(_, ecf, _, _, _) => match(
       context.base.get_expr_info(ecf.*),
-      .Some(ecfei) => match(ecfei.value,.Some(ecfv) => match(ecfv,.TypeVal(ewb) => is_enum_type(ewb.*), _ => false),.None => false),
+      .Some(ecfei) => match(ecfei.value,.Some(ecfv) => match(ecfv,.TypeVal(ewb) => is_enum_type(ewb), _ => false),.None => false),
       .None => false
     ),
     .Atom(_, _) => false
@@ -1133,7 +1133,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     .Some(fv) => match(
       fv,
       .TypeVal(wrapped_box) => {
-        wrapped := wrapped_box.*;
+        wrapped := wrapped_box;
         if(is_reference_struct_type(wrapped), {
           cname := match(context.base.get_type_c_name(type_key(wrapped.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_obj"));
           obj_fncall_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
@@ -1309,7 +1309,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           if(name == String.from("__yo_worker_spawn"), {
             return(generate_worker_spawn_call(expr, indent.clone(), context));
           });
-          if(is_unit_type(r.*), {
+          if(is_unit_type(r), {
             line := indent.clone();
             line.push_string(name);
             line.push_str("(");
@@ -1336,7 +1336,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     },
     _ => ()
   );
-  result_type := match(function_type,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
+  result_type := match(function_type,.Func({ result : r }) => r, _ => TypeValue.Unit);
   // Effect-unwind detection (port of other-fn-call.ts callMayUnwind /
   // callIsHandlerInstallation). When a call may unwind, an
   // `emit_effect_unwind_check` is emitted after it: at the install frame the

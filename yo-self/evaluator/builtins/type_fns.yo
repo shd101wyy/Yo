@@ -53,7 +53,7 @@ open(import("std/string"));
 { Exception } :: import("std/error");
 /// Helper: extract a TypeValue from an arg's ExprInfo value, or throw.
 /// If value is .None (runtime expression), throws.
-/// If value is .Some(.TypeVal(tv)), returns tv.*.
+/// If value is .Some(.TypeVal(tv)), returns tv.
 /// If value is .Some(other), throws with a descriptive error.
 _extract_type_val :: (
   fn(
@@ -80,7 +80,7 @@ _extract_type_val :: (
     },
     .Some(v) => match(
       v,
-      .TypeVal(tv) => tv.*,
+      .TypeVal(tv) => tv,
       _ => {
         exn.throw(
           dyn(
@@ -169,7 +169,7 @@ evaluate_yo_type_to_string :: (
         // built `oke(…)` for `Token` and an empty callee for `T`, so the
         // synthesized constructor failed to transpile. Mirrors process.yo's
         // `__yo_process_platform` StrLit construction.
-        s := type_to_string(tv.*);
+        s := type_to_string(tv);
         quoted := ((String.from("\"") + s) + String.from("\""));
         out_info.value = Option(EvalValue).Some(EvalValue.StrLit(quoted));
       },
@@ -609,7 +609,7 @@ evaluate_yo_type_impls :: (
   trait_type_opt := match(
     info1.value,
     .Some(v) => if(is_type_val(v), {
-      tv := match(v,.TypeVal(b) => b.*, _ => t_unit());
+      tv := match(v,.TypeVal(b) => b, _ => t_unit());
       if(is_trait_type(tv), Option(TypeValue).Some(tv), Option(TypeValue).None)
     }, Option(TypeValue).None),
     .None => Option(TypeValue).None
@@ -704,7 +704,7 @@ _ti_bind_type :: (
     env_ptr,
     name_str.clone(),
     t_type(),
-    Option(EvalValue).Some(EvalValue.TypeVal(box(ty))),
+    Option(EvalValue).Some(EvalValue.TypeVal(ty)),
     true,
     false,
     false,
@@ -770,7 +770,7 @@ _ti_bind_comptime_list :: (
     env_ptr.input_string = type_info.env.input_string;
     match(
       type_info.value,
-      .Some(v) => match(v,.TypeVal(tv) => tv.*, _ => t_unit()),
+      .Some(v) => match(v,.TypeVal(tv) => tv, _ => t_unit()),
       .None => t_unit()
     )
   });
@@ -1000,19 +1000,19 @@ evaluate_yo_type_get_info :: (
     .Float(bits) => if(bits == u8(32), String.from("TypeInfo.F32"), String.from("TypeInfo.F64")),
     .TypeUni(level) => ((String.from("TypeInfo.Type(") + level.to_string()) + String.from(")")),
     .Pointer(pointee_box) => {
-      cn := _ti_bind_type(local_env, pointee_box.*, ctx);
+      cn := _ti_bind_type(local_env, pointee_box, ctx);
       (String.from("TypeInfo.Ptr(") + cn) + String.from(")")
     },
     .Array(element_box, length, _) => {
-      cn := _ti_bind_type(local_env, element_box.*, ctx);
+      cn := _ti_bind_type(local_env, element_box, ctx);
       (((String.from("TypeInfo.Array(") + cn) + String.from(", ")) + length.to_string()) + String.from(")")
     },
     .IsoT(child_box) => {
-      cn := _ti_bind_type(local_env, child_box.*, ctx);
+      cn := _ti_bind_type(local_env, child_box, ctx);
       (String.from("TypeInfo.Iso(") + cn) + String.from(")")
     },
     .ComptimeListT(child_box) => {
-      cn := _ti_bind_type(local_env, child_box.*, ctx);
+      cn := _ti_bind_type(local_env, child_box, ctx);
       (String.from("TypeInfo.ComptimeList(") + cn) + String.from(")")
     },
     .Tuple(labels, types) => {

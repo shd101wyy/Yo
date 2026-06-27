@@ -359,8 +359,8 @@ has_effect_in_spread_ :: (
             match(
               eval_val,
               .TypeVal(ty_box) => {
-                if(is_effects_row_type(ty_box.*.clone()), {
-                  effects_row_opt = Option(TypeValue).Some(ty_box.*);
+                if(is_effects_row_type(ty_box.clone()), {
+                  effects_row_opt = Option(TypeValue).Some(ty_box);
                 });
               },
               _ => ()
@@ -628,7 +628,7 @@ detect_effect_expr_ :: (
         .None => Option(TypeValue).None,
         .Some(fn_type) => match(
           fn_type,
-          .Func({ result }) => Option(TypeValue).Some(result.*),
+          .Func({ result }) => Option(TypeValue).Some(result),
           _ => Option(TypeValue).None
         )
       );
@@ -720,7 +720,7 @@ detect_effect_expr_ :: (
           transitive_result_type_opt := cond(
             via_closure => match(
               ctl_type,
-              .Func({ result }) => Option(TypeValue).Some(result.*),
+              .Func({ result }) => Option(TypeValue).Some(result),
               _ => Option(TypeValue).None
             ),
             true => match(

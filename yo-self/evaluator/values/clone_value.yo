@@ -42,7 +42,7 @@ clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     .UnknownVal(_) => v,
     // ReturnVal — recursively clone the wrapped value
     .ReturnVal(val : val_box, ty : ty) =>
-      EvalValue.ReturnVal(val : box(recur(val_box.*, preserve_pointer_refs)), ty : box(ty.*.clone())),
+      EvalValue.ReturnVal(val : box(recur(val_box.*, preserve_pointer_refs)), ty : ty.clone()),
     // PtrVal — preserve or deep-clone depending on flag
     .PtrVal(target : tgt_box, index : idx) =>
       cond(

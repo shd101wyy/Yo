@@ -82,8 +82,8 @@ try_to_convert_to_pointer_type :: (
   is_ptr_u8_or_char := match(
     target_type,
     .Pointer(inner) => cond(
-      is_u8_type(inner.*) => true,
-      is_char_type(inner.*) => true,
+      is_u8_type(inner) => true,
+      is_char_type(inner) => true,
       true => false
     ),
     _ => false
@@ -96,7 +96,7 @@ try_to_convert_to_pointer_type :: (
     converted_ty := convert_comptime_type_to_runtime_type_with_expected(arg_type, Option(TypeValue).Some(target_type), env);
     out_info := new_expr_info(env, converted_ty);
     out_info.value = arg_info.value;
-    out_info.converted_runtime_type =.Some(box(converted_ty));
+    out_info.converted_runtime_type =.Some(converted_ty);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Annotate the ARG node too — this helper returns `evaluated` (the
     // arg), and callers read the RETURNED node's info; leaving the arg's

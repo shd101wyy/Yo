@@ -67,16 +67,16 @@ t_c_ulong :: (fn() -> TypeValue)(.CULong);
 t_c_longlong :: (fn() -> TypeValue)(.CLongLong);
 t_c_ulonglong :: (fn() -> TypeValue)(.CULongLong);
 t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
-t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
+t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(pointee));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
-  .Array(box(element), length, String.from(""))
+  .Array(element, length, String.from(""))
 );
 /// Array type whose LENGTH is an unresolved forall variable (`Array(T, U)`
 /// with `U : usize` in a forall list). `length` is a placeholder 0; the
 /// synthesizer binds `length_var` to the concrete count during matching
 /// (mirrors TS ArrayType.length being an UnknownValue with variableName).
 t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
-  .Array(box(element), usize(0), length_var)
+  .Array(element, usize(0), length_var)
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
@@ -94,7 +94,7 @@ t_func_simple :: (
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    box(result),
+    result,
     box(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -126,11 +126,11 @@ t_trait :: (
     field_types : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(Box(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
+  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : String) -> TypeValue)(
-  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(Box(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
+  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
 );
 /// Create a module type with field lists.
 t_module :: (
@@ -153,16 +153,16 @@ t_module_simple :: (fn(name : String) -> TypeValue)(
 // ---------------------------------------------------------------------------
 t_expr_t :: (fn() -> TypeValue)(.ExprT);
 t_comptime_list :: (fn(child : TypeValue) -> TypeValue)(
-  .ComptimeListT(box(child))
+  .ComptimeListT(child)
 );
 t_effects_row :: (fn(labels : ArrayList(String), types : ArrayList(TypeValue)) -> TypeValue)(
   .EffectsRowT(labels, types)
 );
 t_type_app :: (fn(constructor : TypeValue, args : ArrayList(TypeValue)) -> TypeValue)(
-  .TypeAppT(box(constructor), args)
+  .TypeAppT(constructor, args)
 );
 t_iso :: (fn(child : TypeValue) -> TypeValue)(
-  .IsoT(box(child))
+  .IsoT(child)
 );
 t_dyn :: (
   fn(
@@ -188,7 +188,7 @@ t_fn_trait :: (
     implicit_spreads : ArrayList(bool)
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, call_param_labels, call_param_types, box(call_result), implicit_labels, implicit_types, implicit_spreads)
+  .FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, implicit_spreads)
 );
 t_fn_trait_simple :: (
   fn(
@@ -197,7 +197,7 @@ t_fn_trait_simple :: (
     call_result : TypeValue
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, box(call_result), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
+  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
 );
 t_future_trait :: (
   fn(
@@ -208,10 +208,10 @@ t_future_trait :: (
     effect_spreads : ArrayList(bool)
   ) -> TypeValue
 )(
-  .FutureTraitT(base_name, box(output), effect_labels, effect_types, effect_spreads)
+  .FutureTraitT(base_name, output, effect_labels, effect_types, effect_spreads)
 );
 t_future_trait_simple :: (fn(base_name : String, output : TypeValue) -> TypeValue)(
-  .FutureTraitT(base_name, box(output), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
+  .FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
@@ -219,13 +219,13 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
     generate_some_type_id(),
     name,
     frame_level,
-    Box(TypeValue)(.TypeUni(usize(0))),
+    .TypeUni(usize(0)),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     false,
-    Option(Box(TypeValue)).None
+    Option(TypeValue).None
   )
 );
 /// Create a SomeType with a `kind_function_type` set — represents a
@@ -238,13 +238,13 @@ t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) 
     generate_some_type_id(),
     name,
     frame_level,
-    Box(TypeValue)(.TypeUni(usize(0))),
+    .TypeUni(usize(0)),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     false,
-    Option(Box(TypeValue)).Some(box(kind))
+    Option(TypeValue).Some(kind)
   )
 );
 // ---------------------------------------------------------------------------
@@ -329,9 +329,9 @@ _patch_self_shell :: (
       ((eid == shell_id) && (vns.len() == usize(0))) => final_ty,
       true => t
     ),
-    .Pointer(inner) =>.Pointer(box(recur(inner.*, shell_id, final_ty))),
-    .Array(el, n, lv) =>.Array(box(recur(el.*, shell_id, final_ty)), n, lv),
-    .ComptimeListT(el) =>.ComptimeListT(box(recur(el.*, shell_id, final_ty))),
+    .Pointer(inner) =>.Pointer(recur(inner, shell_id, final_ty)),
+    .Array(el, n, lv) =>.Array(recur(el, shell_id, final_ty), n, lv),
+    .ComptimeListT(el) =>.ComptimeListT(recur(el, shell_id, final_ty)),
     .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
       true => {

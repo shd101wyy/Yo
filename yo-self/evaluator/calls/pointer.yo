@@ -85,7 +85,7 @@ evaluate_raw_pointer_call :: (
     is_type_value(arg_info.value) => {
       inner_ty := match(
         arg_info.value,
-        .Some(v) => match(v,.TypeVal(inner) => inner.*, _ => t_i32()),
+        .Some(v) => match(v,.TypeVal(inner) => inner, _ => t_i32()),
         .None => t_i32() // unreachable
       );
       // Phase C structural gate (plans/MEMORY_SAFETY.md): `*(T)` produces a raw

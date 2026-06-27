@@ -231,7 +231,7 @@ _try_find_receiver_method :: (
     is_static => {
       inner_ty := match(
         receiver_value,
-        .Some(rv) => match(rv,.TypeVal(inner_b) => inner_b.*, _ => receiver_type),
+        .Some(rv) => match(rv,.TypeVal(inner_b) => inner_b, _ => receiver_type),
         .None => receiver_type
       );
       get_type_trait_methods_by_name_from_env(env, method_name, inner_ty)
@@ -302,7 +302,7 @@ _static_dot_receiver_self_type :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
     .Some(ri) => match(
       ri.value,
-      .Some(rv) => match(rv,.TypeVal(ib) => Option(TypeValue).Some(ib.*), _ => Option(TypeValue).None),
+      .Some(rv) => match(rv,.TypeVal(ib) => Option(TypeValue).Some(ib), _ => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -324,17 +324,17 @@ _resolve_array_length_vars_from_self :: (
     .Array(elem, len, lvar) => match(
       self_ty,
       .Array(s_elem, s_len, s_lvar) => {
-        new_elem := recur(elem.*, s_elem.*);
+        new_elem := recur(elem, s_elem);
         resolve := ((lvar.len() > usize(0)) && (s_lvar.len() == usize(0)));
         new_len := cond(resolve => s_len, true => len);
         new_lvar := cond(resolve => String.from(""), true => lvar);
-        TypeValue.Array(box(new_elem), new_len, new_lvar)
+        TypeValue.Array(new_elem, new_len, new_lvar)
       },
       _ => ty
     ),
     .Pointer(inner) => match(
       self_ty,
-      .Pointer(s_inner) => TypeValue.Pointer(box(recur(inner.*, s_inner.*))),
+      .Pointer(s_inner) => TypeValue.Pointer(recur(inner, s_inner)),
       _ => ty
     ),
     _ => ty
@@ -761,7 +761,7 @@ _try_rewrite_range_index_to_slice_copy :: (
 _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
   match(
     t,
-    .FutureTraitT({ output : o }) => match(o.*,.SomeT({ id : oid }) => Option(String).Some(oid), _ => Option(String).None),
+    .FutureTraitT({ output : o }) => match(o,.SomeT({ id : oid }) => Option(String).Some(oid), _ => Option(String).None),
     .SomeT({ required_trait_types : rtts }) => {
       (i : usize) = usize(0);
       (found : Option(String)) = Option(String).None;
@@ -771,7 +771,7 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
           .Some(rt) => match(
             rt,
             .FutureTraitT({ output : o }) => match(
-              o.*,
+              o,
               .SomeT({ id : oid }) => {
                 found = Option(String).Some(oid);
               },
@@ -879,7 +879,7 @@ _funcval_bind_foralls :: (
           fresh_env,
           fa_name,
           TypeValue.TypeUni(usize(0)),
-          Option(EvalValue).Some(EvalValue.TypeVal(box(fa_infer_ty.clone()))),
+          Option(EvalValue).Some(EvalValue.TypeVal(fa_infer_ty.clone())),
           true,
           false,
           false,
@@ -904,7 +904,7 @@ _funcval_bind_foralls :: (
             fresh_env,
             fa_name,
             TypeValue.TypeUni(usize(0)),
-            Option(EvalValue).Some(EvalValue.TypeVal(box(rta))),
+            Option(EvalValue).Some(EvalValue.TypeVal(rta)),
             true,
             false,
             false,
@@ -931,14 +931,14 @@ _funcval_bind_foralls :: (
             .Some(cvv) => match(
               cvv,
               .TypeVal(ctb) => {
-                cap_ty := ctb.*;
+                cap_ty := ctb;
                 fa_bound_names.push(fa_name.clone());
                 fa_bound_types.push(cap_ty.clone());
                 _add_forall_cap := add_variable_to_env(
                   fresh_env,
                   fa_name,
                   TypeValue.TypeUni(usize(0)),
-                  Option(EvalValue).Some(EvalValue.TypeVal(box(cap_ty))),
+                  Option(EvalValue).Some(EvalValue.TypeVal(cap_ty)),
                   true,
                   false,
                   false,
@@ -1105,7 +1105,7 @@ _evaluate_funcval_runtime_call :: (
       fbt := match(fa_bound_types.get(sfa_i),.Some(t) => t,.None => t_unit());
       _sfa := spec_forall_args.push(
         ArgEntry(
-          value : Option(EvalValue).Some(EvalValue.TypeVal(box(fbt.clone()))),
+          value : Option(EvalValue).Some(EvalValue.TypeVal(fbt.clone())),
           parameter_type : TypeValue.TypeUni(usize(0)),
           arg_type : fbt
         )
@@ -1158,7 +1158,7 @@ _evaluate_funcval_runtime_call :: (
         fx_pt,
         fx_it,
         fx_wt,
-        box(resolved_ret.clone()),
+        resolved_ret.clone(),
         fx_meta
       ),
       _ => base_spec_ty
@@ -1339,7 +1339,7 @@ evaluate_function_call :: (
       // Classify by the method's return shape: an associated-type return
       // (contains a SomeT, e.g. `comptime(Self.Output)`) marks arithmetic;
       // a SomeT-free return (e.g. `bool`) marks comparison.
-      m_ret_op := match(first_m.ty,.Func({ result : _rb }) => _rb.*, _ => t_unit());
+      m_ret_op := match(first_m.ty,.Func({ result : _rb }) => _rb, _ => t_unit());
       op_ret_has_some := (get_all_some_types(m_ret_op).len() > usize(0));
       // Associated-type return pre-hint: `try_to_call_function_with_arguments`
       // validates the return type and throws "Failed to infer the function
@@ -1392,7 +1392,7 @@ evaluate_function_call :: (
                 .Some(av) => match(
                   av,
                   .TypeVal(tb) => {
-                    cand_ty := tb.*;
+                    cand_ty := tb;
                     match(
                       agreed,
                       .None => {
@@ -1626,8 +1626,8 @@ evaluate_function_call :: (
     .Some(cv) => match(
       cv,
       .TypeVal(tb) => match(
-        resolve_recursive_type_ref(tb.*, ctx),
-        .Some(rt) => Option(EvalValue).Some(EvalValue.TypeVal(box(rt))),
+        resolve_recursive_type_ref(tb, ctx),
+        .Some(rt) => Option(EvalValue).Some(EvalValue.TypeVal(rt)),
         .None => callee_value_raw
       ),
       _ => callee_value_raw
@@ -1697,7 +1697,7 @@ Fix: wrap the call:
     .Some(cv) => match(
       cv,
       .TypeVal(func_type_box) => {
-        func_type := func_type_box.*;
+        func_type := func_type_box;
         match(
           func_type,
           .Func({ result : _ }) => {
@@ -1762,7 +1762,7 @@ Fix: wrap the call:
                   ta_info := match(ta_info_opt,.Some(ii) => ii,.None => new_expr_info(env, t_unit()));
                   ta_ty := match(
                     ta_info.value,
-                    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+                    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
                     .None => TypeValue.Unit
                   );
                   ta_args.push(ta_ty);
@@ -1770,7 +1770,7 @@ Fix: wrap the call:
                 });
                 type_app := t_type_app(func_type, ta_args);
                 out_ta := new_expr_info(env, t_type());
-                out_ta.value = Option(EvalValue).Some(EvalValue.TypeVal(box(type_app)));
+                out_ta.value = Option(EvalValue).Some(EvalValue.TypeVal(type_app));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ta);
                 expr
               },
@@ -2190,7 +2190,7 @@ Fix: wrap the call:
                 exn
               );
               out_ts := new_expr_info(result_ts.caller_env, t_type());
-              out_ts.value = Option(EvalValue).Some(EvalValue.TypeVal(box(result_ts.specialized_trait_type)));
+              out_ts.value = Option(EvalValue).Some(EvalValue.TypeVal(result_ts.specialized_trait_type));
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ts);
               expr
             }, {
@@ -2843,7 +2843,7 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            .Func({ result : result_b }) => result_b.*,
+            .Func({ result : result_b }) => result_b,
             _ => t_unit()
           ),
           .None => t_unit()
@@ -3205,11 +3205,11 @@ Fix: wrap the call:
           // Record the `*(T)` the index method returns (before auto-deref)
           // so the ref-argument place gate recognizes `xs(i)` as a pointer
           // into the container's buffer. Mirrors TS function.ts:2788.
-          out_idx_rt.index_trait_ptr_type = Option(Box(TypeValue)).Some(box(idx_result_rt.ptr_type));
+          out_idx_rt.index_trait_ptr_type = Option(TypeValue).Some(idx_result_rt.ptr_type);
           // Also record the specialized index() method type + value so codegen
           // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
           // Mirrors TS function.ts:2790-2791.
-          out_idx_rt.index_method_type = match(idx_result_rt.index_method_type,.Some(imt) => Option(Box(TypeValue)).Some(box(imt)),.None => Option(Box(TypeValue)).None);
+          out_idx_rt.index_method_type = match(idx_result_rt.index_method_type,.Some(imt) => Option(TypeValue).Some(imt),.None => Option(TypeValue).None);
           out_idx_rt.index_method_value = idx_result_rt.index_method_value;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           return(expr);
@@ -3256,8 +3256,8 @@ Fix: wrap the call:
                     cfv,
                     .FuncVal(__fvd2, _) => match(
                       get_func_type(__fvd2.*.func_id),
-                      .Func({ result : rr }) => if(!(is_some_type(rr.*)), {
-                        register_some_resolved_concrete(oid.clone(), rr.*.clone());
+                      .Func({ result : rr }) => if(!(is_some_type(rr)), {
+                        register_some_resolved_concrete(oid.clone(), rr.clone());
                       }),
                       _ => ()
                     ),
@@ -3417,7 +3417,7 @@ Fix: wrap the call:
           // keep the cheap path. `evaluate_comptime_fn_call` itself returns
           // an UnknownVal (without executing) when any arg is unknown, so a
           // runtime receiver is handled safely.
-          m_ret_ty := match(method_info.method_ty,.Func({ result : _mrb }) => _mrb.*, _ => t_unit());
+          m_ret_ty := match(method_info.method_ty,.Func({ result : _mrb }) => _mrb, _ => t_unit());
           m_is_comptime := match(method_info.method_ty,.Func({ meta : __fm9 }) => __fm9.*.result_is_comptime_only, _ => false);
           (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(m_ret_ty) || m_is_comptime, {
             m_self_ty_saved := ctx.self_type;
@@ -3519,11 +3519,11 @@ Fix: wrap the call:
             out_idx.value = idx_result.value;
             // Record the index method's `*(T)` so the ref-argument place
             // gate recognizes `xs(i)` as a buffer pointer (TS function.ts:2788).
-            out_idx.index_trait_ptr_type = Option(Box(TypeValue)).Some(box(idx_result.ptr_type));
+            out_idx.index_trait_ptr_type = Option(TypeValue).Some(idx_result.ptr_type);
             // Also record the specialized index() method type + value so codegen
             // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
             // Mirrors TS function.ts:2790-2791.
-            out_idx.index_method_type = match(idx_result.index_method_type,.Some(imt) => Option(Box(TypeValue)).Some(box(imt)),.None => Option(Box(TypeValue)).None);
+            out_idx.index_method_type = match(idx_result.index_method_type,.Some(imt) => Option(TypeValue).Some(imt),.None => Option(TypeValue).None);
             out_idx.index_method_value = idx_result.index_method_value;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             return(expr);

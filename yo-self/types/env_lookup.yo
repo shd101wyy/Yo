@@ -38,7 +38,7 @@ _is_type_eval_value :: (fn(val : EvalValue) -> bool)(
 );
 /// Extract the `TypeValue` from a `TypeVal`; returns Unit type on mismatch.
 _unwrap_type_eval_value :: (fn(val : EvalValue) -> TypeValue)(
-  match(val,.TypeVal(boxed_ty) => boxed_ty.*, _ => TypeValue.Unit)
+  match(val,.TypeVal(boxed_ty) => boxed_ty, _ => TypeValue.Unit)
 );
 /// True if `ty` is a `SomeT` whose `id` equals `id_to_compare`.
 _same_some_id :: (fn(ty : TypeValue, id_to_compare : String) -> bool)(
@@ -468,7 +468,7 @@ create_str_type :: (fn(env : Environment) -> TypeValue)({
 _pointer_target_is_byte :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .Pointer(pointee) => (is_u8_type(pointee.*) || is_char_type(pointee.*)),
+    .Pointer(pointee) => (is_u8_type(pointee) || is_char_type(pointee)),
     _ => false
   )
 );

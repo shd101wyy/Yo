@@ -121,7 +121,7 @@ create_function_body_evaluation_context :: (
         block.func_type,
         .Some(ft) => match(
           ft,
-          .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box.*),
+          .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box),
           _ => Option(TypeValue).None
         ),
         .None => Option(TypeValue).None
@@ -139,8 +139,8 @@ create_function_body_evaluation_context :: (
   return_type := match(
     function_type,
     .Func({ result : ret_box, meta : __fm1 }) => cond(
-      __fm1.*.result_is_ref => t_ptr(ret_box.*),
-      true => ret_box.*
+      __fm1.*.result_is_ref => t_ptr(ret_box),
+      true => ret_box
     ),
     _ => t_unit()
   );
@@ -570,7 +570,7 @@ try_to_implement_function_by_function_type :: (
       match(
         flow_body,
         .Some(fb) => {
-          flow_env := _build_def_time_body_env(caller_env, param_labels, param_types, param_is_ref, result_box.*);
+          flow_env := _build_def_time_body_env(caller_env, param_labels, param_types, param_is_ref, result_box);
           // Bind the variadic parameter (`...(quote(elems))` → `elems` as
           // an unknown ComptimeList) into the body env — its name/type
           // are not on TypeValue.Func, so they ride the side table (see
@@ -650,7 +650,7 @@ try_to_implement_function_by_function_type :: (
           // (Ref-returning functions are banned at signature evaluation —
           // see types/function.yo — so only the raw-pointer-representation
           // rooting check remains. Mirrors function-type.ts.)
-          if((type_representation_contains_raw_ptr(result_box.*) && !(result_is_comptime_only))
+          if((type_representation_contains_raw_ptr(result_box) && !(result_is_comptime_only))
           && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
             seb := match(
               flow_out.get(usize(0)),
@@ -668,7 +668,7 @@ try_to_implement_function_by_function_type :: (
                 dyn(
                   format_error_message(
                     ast_expr_token(seb),
-                    `Function returning '${type_to_string(result_box.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`,
+                    `Function returning '${type_to_string(result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`,
                     false,
                     .None
                   )

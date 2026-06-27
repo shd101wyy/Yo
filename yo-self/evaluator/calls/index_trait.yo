@@ -276,7 +276,7 @@ _find_index_method :: (
                   match(
                     p1_opt,
                     .Some(p1) => {
-                      ret_ty := result_box.*;
+                      ret_ty := result_box;
                       // self must be a pointer type OR a `ref` parameter —
                       // both `(self : *(Self), ...)` and the modern
                       // `(inout(self) : Self, ...)` shape are accepted
@@ -327,7 +327,7 @@ _try_comptime_element_access :: (
 )({
   elem_ty := match(
     value_type,
-    .Array(et, _, _) => et.*,
+    .Array(et, _, _) => et,
     _ => t_unit()
   );
   match(
@@ -894,7 +894,7 @@ try_to_call_with_index_trait :: (
   if(is_arr_or_slice_ty, {
     elem_ty := match(
       value_type,
-      .Array(et, _, _) => et.*,
+      .Array(et, _, _) => et,
       _ => t_unit()
     );
     result_val := create_unknown_val(elem_ty);
@@ -936,12 +936,12 @@ try_to_call_with_index_trait :: (
   // Get the output type: index method returns *(Output), deref to get Output
   ret_ty := match(
     method.method_type,
-    .Func({ result : result_box }) => result_box.*,
+    .Func({ result : result_box }) => result_box,
     _ => t_unit()
   );
   output_ty := match(
     ret_ty,
-    .Pointer(et) => et.*,
+    .Pointer(et) => et,
     _ => ret_ty
   );
   result_val := create_unknown_val(output_ty);

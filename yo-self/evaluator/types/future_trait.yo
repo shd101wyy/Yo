@@ -97,7 +97,7 @@ _resolve_effect_row_spread :: (
             // Case 1/2: TypeVal — check if EffectsRowT (expand) or SomeT (spread marker)
             .TypeVal(type_box) => {
               match(
-                type_box.*,
+                type_box,
                 .EffectsRowT(row_labels, row_types) => {
                   // Case 1: Concrete EffectsRowT — expand into non-spread params
                   (ri : usize) = usize(0);
@@ -127,7 +127,7 @@ _resolve_effect_row_spread :: (
                 .SomeT(_, _, _, _, _, _, _, _, _, _) => {
                   // Case 2: SomeT effects row variable — use as spread marker
                   out_labels.push(row_var_name);
-                  out_types.push(type_box.*);
+                  out_types.push(type_box);
                   out_spreads.push(true);
                 },
                 _ => {
@@ -147,7 +147,7 @@ _resolve_effect_row_spread :: (
             // Case 3/4/5: UnknownVal — check the contained type
             .UnknownVal(type_box) => {
               match(
-                type_box.*,
+                type_box,
                 .EffectsRowT(row_labels, row_types) => {
                   // Case 3: UnknownVal with EffectsRowT — expand into concrete non-spread params
                   (ri : usize) = usize(0);
@@ -177,7 +177,7 @@ _resolve_effect_row_spread :: (
                 .SomeT(_, _, _, _, _, _, _, _, _, _) => {
                   // Case 4: UnknownVal with SomeT type — use SomeT as spread marker
                   out_labels.push(row_var_name);
-                  out_types.push(type_box.*);
+                  out_types.push(type_box);
                   out_spreads.push(true);
                 },
                 _ => {
@@ -190,13 +190,13 @@ _resolve_effect_row_spread :: (
                     generate_some_type_id(),
                     row_var_name,
                     frame_level,
-                    Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+                    TypeValue.TypeUni(usize(1)),
                     ArrayList(TypeValue).new(),
                     ArrayList(usize).new(),
                     ArrayList(TypeValue).new(),
                     ArrayList(usize).new(),
                     true,
-                    Option(Box(TypeValue)).None
+                    Option(TypeValue).None
                   );
                   out_labels.push(row_var_name);
                   out_types.push(new_some_t);
@@ -292,7 +292,7 @@ _resolve_effect_arg :: (
           });
           effect_type := match(
             info.value,
-            .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+            .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
             .None => TypeValue.Unit
           );
           label := _effect_label_for(effect_type, effect_expr);
@@ -382,7 +382,7 @@ evaluate_future_type :: (
   });
   output_type := match(
     elem_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   // Process effect arguments (args 1..N)

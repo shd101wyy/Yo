@@ -115,7 +115,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
         ec := String.from("(");
         ec.push_string(value_code.clone());
         ec.push_str(").data[i]");
-        elem_drop := recur(ec, element.*, context);
+        elem_drop := recur(ec, element, context);
         if(elem_drop.len() > usize(0), {
           line := String.from("  ");
           line.push_string(elem_drop);
@@ -248,7 +248,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
         elem_ref.push_str(".data[");
         elem_ref.push_string(loop_var.clone());
         elem_ref.push_str("]");
-        elem_dup := recur(elem_ref.clone(), element.*, context);
+        elem_dup := recur(elem_ref.clone(), element, context);
         asn := String.from("  ");
         asn.push_string(elem_ref);
         asn.push_str(" = ");

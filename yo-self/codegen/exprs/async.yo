@@ -639,7 +639,7 @@ emit_async_block_struct_definition :: (
                 .Some(ftt) => match(
                   ftt,
                   .FutureTraitT({ output : o }) => {
-                    await_result_type = o.*.clone();
+                    await_result_type = o.clone();
                   },
                   _ => ()
                 ),
@@ -1464,7 +1464,7 @@ generate_async_block :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // Await analysis computed during evaluation.
   analysis := match(io_async_await_analysis(expr, context),.Some(a) => a,.None => panic("Missing await analysis for async block. This should have been computed during evaluation."));
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
-  (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   if(is_some_type(result_type), {
     rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
     match(
@@ -1991,7 +1991,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
   );
-  (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   // Capture the future-trait output SomeType id BEFORE resolution. Once we resolve
   // it to a concrete type below, we register it under this id so the matching
   // `io.await` site (same future type → same output SomeType id) can resolve the
@@ -2047,8 +2047,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         fv,
         .FuncVal(__fvd5, _) => match(
           get_func_type(__fvd5.*.func_id),
-          .Func({ result : rb }) => if(!(is_some_type(rb.*)), {
-            result_type = rb.*.clone();
+          .Func({ result : rb }) => if(!(is_some_type(rb)), {
+            result_type = rb.clone();
           }),
           _ => ()
         ),
