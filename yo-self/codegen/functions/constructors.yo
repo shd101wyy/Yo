@@ -174,7 +174,9 @@ generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationCon
 _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*)) {`);
-  em.emit_string_line(`  ${c_name} obj = (${c_name})ptr;`);
+  // `${c_name}` is the struct-VALUE typedef (get_type_string adds the `*`), so
+  // the handle is `${c_name}*` — cast accordingly (matches the ref-struct path).
+  em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
   em.emit_string_line(`  switch (obj->tag) {`);
   match(
     type,

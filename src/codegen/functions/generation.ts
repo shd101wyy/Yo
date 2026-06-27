@@ -2488,6 +2488,18 @@ function generateRefStructTraversalFunctions(
           emitter.emitLine(`  if (obj->${fieldName}) {`);
           emitter.emitLine(`    visit(obj->${fieldName});`);
           emitter.emitLine(`  }`);
+        } else if (
+          isEnumType(fieldType) &&
+          (fieldType as EnumType).isReferenceSemantics
+        ) {
+          // Reference-semantics enum field (`ref(enum(…))`) is a heap-allocated
+          // RC handle — visit the handle directly. Do NOT inline-traverse its
+          // variants (that is the handle's OWN traverse function's job); the
+          // field is a pointer, so the embedded `.tag`/`.data` walk below is
+          // wrong for it. plans/REF_REFERENCE_SEMANTICS.md Phase 4.
+          emitter.emitLine(`  if (obj->${fieldName}) {`);
+          emitter.emitLine(`    visit(obj->${fieldName});`);
+          emitter.emitLine(`  }`);
         } else if (isEnumType(fieldType)) {
           // This field is an enum - we need to check if any variants contain references
           const enumType = fieldType as EnumType;
@@ -2707,7 +2719,9 @@ function generateRefEnumTraversalFunctions(
     emitter.emitLine(
       `static void __yo_traverse_${cName}(void* ptr, void (*visit)(void*)) {`
     );
-    emitter.emitLine(`  ${cName} obj = (${cName})ptr;`);
+    // `${cName}` is the struct-VALUE typedef (getTypeString adds the `*`), so the
+    // handle is `${cName}*` — cast accordingly (matches the ref-struct traversal).
+    emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
     emitter.emitLine(`  switch (obj->tag) {`);
     for (const variant of type.variants) {
       const rcFields = (variant.fields ?? []).filter(
