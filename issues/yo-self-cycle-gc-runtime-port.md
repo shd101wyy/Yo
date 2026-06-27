@@ -1,7 +1,12 @@
 # yo-self cycle-GC runtime port — the real scope behind `can_type_form_rc_cycle`
 
-**Status:** OPEN (scoped 2026-06-27). Blocks un-stubbing `can_type_form_rc_cycle`
-in `yo-self/types/utils.yo`. This is task #34.
+**Status:** DONE for ref-structs + direct-field ref-enums (2026-06-27). The
+QuickJS trial-deletion runtime is ported and `can_type_form_rc_cycle` is
+un-stubbed (commit b4a18a750), and cycle roots now include ref-enums (the
+ref(enum) cycle commit). Remaining: the traverse only follows DIRECT reference
+fields, not reference fields wrapped in a value-enum (`Option(Self)`) or a
+container (`ArrayList(Self)`) — see "Remaining traverse layers" below. The
+original task-#34 scope as written:
 
 ## Summary
 
@@ -90,3 +95,62 @@ already-present `generate_ref_enum_traversal_functions` run on the same gate.
 focused, memory-safety-sensitive effort that warrants its own clean session, not a
 tail-of-session grind. Phase 4 (the REF refactor that motivated revisiting cycle
 GC) is complete and corpus-green; this is the remaining `no-stub` follow-up.
+
+## DONE (2026-06-27)
+
+- **Runtime ported + un-stubbed** (commit b4a18a750): `generate_full_gc_runtime_functions`
+  (QuickJS trial-deletion collector) + the ref-struct traversal emitter + the
+  `can_type_form_rc_cycle` structural DFS. Validated: a ref-struct cycle is
+  collected (`tracked 3→1`); corpus 83/83; std 152/152.
+- **ref(enum) cycle roots** (the ref-enum commit): four pre-existing Phase-4 gaps
+  fixed across BOTH compilers — (1) ref-enum variant-field access codegen used `.`
+  instead of `->` (a hard C-compile error on any ref-enum field write;
+  `property-access.ts:341` / `property_access.yo` `_enum_field_access`); (2)
+  `canTypeFormRcCycle`/`can_type_form_rc_cycle` + the `needs_cycle_gc` scan now root
+  at ref-ENUMS, not just ref-structs (with an id-based direct-self-ref check in the
+  enum branch of `typeCanFormCyclicRcReference`). A recursive `ref(enum)` with a
+  DIRECT `Self`-typed variant field now collects its cycles (TS + yo-self). Tests:
+  `tests/cycle_collector.test.yo` (ref-enum self + two-node blocks) +
+  `tests/codegen-bootstrap/ref_enum_cycle.yo` (differential).
+
+## Remaining traverse layers (follow-up)
+
+The traverse functions (`generate_ref_struct/enum_traversal_functions`) only follow
+a reference field when it is the variant/struct field's DIRECT type. They do not
+descend into:
+
+- **value-enum-wrapped references** — `next : Option(Self)`. The ref-STRUCT traverse
+  has a value-enum switch case (so `Option(ref-struct)` works), but (a) the ref-ENUM
+  traverse has no such case at all (its variant fields that are value-enums are
+  skipped — an empty `switch (obj->tag)` is emitted), and (b) that value-enum case
+  filters reference-STRUCT fields only, so `Option(ref-enum)` is missed in both.
+- **container-wrapped references** — `items : ArrayList(Self)`. The traverse visits
+  the `ArrayList` handle (a ref-struct) but the elements live in a malloc'd buffer,
+  not as struct fields, so the field-walk never reaches them.
+
+Consequence: cycles that close through `Option(Self)` / `ArrayList(Self)` (the
+common recursive shapes — including the real Phase-4 `TypeValue.field_types :
+ArrayList(Self)`) are tracked but NOT yet reclaimed. The fix is a unified per-field
+traversal helper used by both struct + enum traverses that (i) descends into
+value-enum fields and (ii) emits a per-element visit loop for RC-containing
+containers — both compilers, mirror-ported, ASan-validated.
+
+## Orthogonal gap: `___dispose` not derived
+
+`get_dispose_function_for_type` → `_method_c_name(type, "___dispose")` returns None
+in yo-self (it does not derive `___dispose`/`___drop`/`___dup` — task #34's original
+title), so collected objects are freed but their `dispose` is not called
+(`dispose_fn` is NULL). Pre-existing (affects the lightweight path too), no corpus
+regression; the cycle collector itself reclaims memory correctly.
+
+## Orthogonal gap: ref-enum field reassignment leaks the old value (yo-self)
+
+Reassigning a ref-enum variant field — `a.next = b` — does not drop the
+overwritten value's RC in yo-self (it saves the old value to a temp but never
+`decr`s it), so the old value leaks. TS drops it correctly. Measured on the
+two-node ref-enum cycle: TS `tracked 0→2→0`, yo-self `0→4→2` (the two `ENil`
+terminators leak; the a<->b cycle is collected by BOTH). This is why
+`tests/codegen-bootstrap/ref_enum_cycle.yo` asserts `after < mid` (the unreachable
+cycle was reclaimed) rather than `after == before` (everything freed). Fix:
+yo-self's assignment codegen must `decr_rc` the saved old value when the field
+type is RC-managed (the TS reference already does). Separate from cycle collection.

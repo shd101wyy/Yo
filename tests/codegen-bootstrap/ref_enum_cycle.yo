@@ -1,0 +1,43 @@
+// Regression: cycle collection for a recursive `ref(enum(...))` (a Phase-4
+// reference-semantics enum). A direct `Self`-typed variant field forms an RC
+// reference cycle that ordinary reference counting cannot reclaim (the count
+// never reaches zero); the cycle collector must. Both compilers must agree.
+//
+// The output is a count-independent string (the exact tracked_count differs
+// between back ends) so the differential harness compares the OUTCOME: the
+// cycle, made unreachable when `form_cycle` returns, is reclaimed by Gc.collect.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio.yo"));
+Gc :: import("std/gc");
+ENode :: ref(
+  enum(
+    ENil,
+    ECons(value : i32, next : Self)
+  )
+);
+form_cycle :: (fn() -> unit)({
+  a := ENode.ECons(1, ENode.ENil);
+  b := ENode.ECons(2, ENode.ENil);
+  a.next = b;
+  b.next = a; // a <-> b cycle; both become unreachable when this returns
+});
+main :: (fn() -> unit)({
+  before := Gc.tracked_count();
+  form_cycle();
+  mid := Gc.tracked_count();
+  Gc.collect();
+  after := Gc.tracked_count();
+  // The a<->b cycle is unreachable after form_cycle returns and has RC=1 on each
+  // node (referencing only each other), so ordinary reference counting can NEVER
+  // reclaim it — any drop after Gc.collect() proves the cycle collector did.
+  // (We assert `after < mid`, not `after == before`: the exact resting total
+  // differs across back ends because of an orthogonal ref-enum field-reassignment
+  // RC-drop gap — see issues/yo-self-cycle-gc-runtime-port.md — but both back ends
+  // must reclaim the cycle.)
+  if((mid > before) && (after < mid), {
+    unsafe(printf("ref-enum cycle collected\n"));
+  }, {
+    unsafe(printf("ref-enum cycle leaked\n"));
+  });
+});
+export(main);

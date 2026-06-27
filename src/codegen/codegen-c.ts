@@ -4,7 +4,7 @@ import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
 import type { StructValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
-import { isStructType } from "../types/guards";
+import { isStructType, isEnumType } from "../types/guards";
 import { canTypeFormRcCycle, typeContainsSomeType } from "../types/utils";
 import {
   generateDeferredAsyncBlocks,
@@ -162,16 +162,26 @@ typedef enum {
     context.needsCycleGC = false;
     for (const typeId in context.types) {
       const { type } = context.types[typeId]!;
-      if (
+      const isCyclableRefStruct =
         isStructType(type) &&
         type.isReferenceSemantics &&
         !type.isAtomicRc &&
-        !type.fields.some((field) => typeContainsSomeType(field.type))
+        !type.fields.some((field) => typeContainsSomeType(field.type));
+      // A reference-semantics enum (`ref(enum(…))`) can also form an RC cycle
+      // (e.g. a recursive `Self`-valued variant field), so it is a cycle root too.
+      const isCyclableRefEnum =
+        isEnumType(type) &&
+        type.isReferenceSemantics &&
+        !type.isAtomicRc &&
+        !type.variants.some((v) =>
+          (v.fields ?? []).some((f) => typeContainsSomeType(f.type))
+        );
+      if (
+        (isCyclableRefStruct || isCyclableRefEnum) &&
+        canTypeFormRcCycle(type, new Set(), type.env)
       ) {
-        if (canTypeFormRcCycle(type, new Set(), type.env)) {
-          context.needsCycleGC = true;
-          break;
-        }
+        context.needsCycleGC = true;
+        break;
       }
     }
 

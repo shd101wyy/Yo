@@ -22,7 +22,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_is_atom, ast_expr_token } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_newtype_type, is_module_type } :: import("../../types/guards.yo");
+{ is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -85,7 +85,13 @@ _enum_field_access :: (fn(object_type : TypeValue, object_code : String, field_n
                   .Some(lbl) => if(lbl == field_name, {
                     vname := match(vnames.get(vi),.Some(v) => v,.None => String.from(""));
                     out := object_code.clone();
-                    out.push_str(".data.");
+                    // A reference-semantics enum (`ref(enum(…))`) value is a pointer,
+                    // so its variant data is reached with `->`, not `.` (mirrors match).
+                    if(is_reference_enum_type(object_type), {
+                      out.push_str("->data.");
+                    }, {
+                      out.push_str(".data.");
+                    });
                     out.push_string(vname);
                     out.push_str(".");
                     out.push_string(sanitize_for_c_identifier(field_name.clone(), false));

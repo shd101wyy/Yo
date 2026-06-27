@@ -336,9 +336,12 @@ export function generateFieldAccess(
         if (variant.fields) {
           for (const field of variant.fields) {
             if (field.label === fieldName) {
-              // Found the field in this variant
+              // Found the field in this variant. A reference-semantics enum
+              // (`ref(enum(…))`) value is a pointer, so its variant data must be
+              // reached with `->`, not `.` (mirrors match.ts's accessPrefix).
               const variantName = variant.name;
-              return `${objectCode}.data.${variantName}.${sanitizeForCIdentifier(fieldName)}`;
+              const accessOp = enumType.isReferenceSemantics ? "->" : ".";
+              return `${objectCode}${accessOp}data.${variantName}.${sanitizeForCIdentifier(fieldName)}`;
             }
           }
         }

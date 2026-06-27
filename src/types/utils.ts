@@ -1929,8 +1929,9 @@ export function canTypeFormRcCycle(
   visitedTypes: Set<string>,
   env: Environment
 ): boolean {
-  if (!isReferenceStructType(type)) {
-    return false; // Only objects can form cycles through reference counting
+  const isRefEnumRoot = isEnumType(type) && type.isReferenceSemantics;
+  if (!isReferenceStructType(type) && !isRefEnumRoot) {
+    return false; // Only reference-semantics structs/enums can form RC cycles
   }
 
   if (typeImplementsAcyclic(type, env)) {
@@ -1945,8 +1946,12 @@ export function canTypeFormRcCycle(
   visitedTypes.add(type.id);
 
   try {
-    // Check all fields in the struct
-    for (const field of type.fields) {
+    // Check every field — the struct's fields, or (for a ref-enum root) the
+    // fields of all variants — for a reference path back to this type (a cycle).
+    const fields = isStructType(type)
+      ? type.fields
+      : (type as EnumType).variants.flatMap((v) => v.fields ?? []);
+    for (const field of fields) {
       if (typeCanFormCyclicRcReference(field.type, type, visitedTypes, env)) {
         return true;
       }
@@ -1964,12 +1969,19 @@ export function canTypeFormRcCycle(
  */
 function typeCanFormCyclicRcReference(
   type: Type,
-  originalRefStruct: StructType,
+  originalRefStruct: StructType | EnumType,
   visitedTypes: Set<string>,
   env: Environment
 ): boolean {
-  // If this type is the same as the original object, we have a direct self-reference
-  if (isStructType(type) && type.id === originalRefStruct.id) {
+  // If this type is the same as the original root (a ref-struct OR a ref-enum),
+  // we have a direct self-reference. Compare by id so it covers ref-enum roots
+  // too (must precede the enum visited-guard below, which would otherwise hide
+  // the root's own id).
+  if (
+    (isStructType(type) || isEnumType(type)) &&
+    type.id !== undefined &&
+    type.id === originalRefStruct.id
+  ) {
     return true;
   }
 

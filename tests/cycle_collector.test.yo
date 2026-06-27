@@ -262,3 +262,33 @@ test("Diamond reference pattern - all reachable", {
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "All freed after scope + GC");
 });
+// --- ref(enum(...)) cycle collection (Phase-4 reference-semantics enums) ---
+// A recursive ref(enum) with a direct Self-typed variant field can form an RC
+// cycle just like a ref(struct); the cycle collector must reclaim it. (`ENil` is
+// the acyclic terminator; the initial `ENil` is freed on each `next` reassign.)
+ENode :: ref(
+  enum(
+    ENil,
+    ECons(value : i32, next : Self)
+  )
+);
+test("ref-enum self-referential cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := ENode.ECons(42, ENode.ENil);
+    a.next = a; // a -> a: simplest ref-enum cycle (RC never reaches 0)
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum self-referential cycle collected");
+});
+test("ref-enum two-node cycle all garbage", {
+  do_test :: (fn() -> unit)({
+    a := ENode.ECons(1, ENode.ENil);
+    b := ENode.ECons(2, ENode.ENil);
+    a.next = b;
+    b.next = a; // a <-> b: two-node ref-enum cycle, unreachable after return
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum two-node cycle collected");
+});

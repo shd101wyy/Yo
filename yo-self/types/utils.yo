@@ -48,6 +48,7 @@ open(import("std/fmt"));
   is_some_type,
   is_rc_type,
   is_reference_struct_type,
+  is_reference_enum_type,
   is_dyn_type
 }
 :: import("./guards.yo");
@@ -592,6 +593,9 @@ _type_refs_back_to_cyclic :: (
     // Enum variants — guard with `visited` (by enum id) so a recursive ref-enum
     // does not loop forever.
     .EnumT({ id : eid, variant_fields : vfs }) => cond(
+      // Direct self-reference back to a ref-enum root (must precede the visited
+      // guard, which would otherwise hide the root's own id).
+      (eid == original_id) => true,
       _id_already_visited(visited, eid) => false,
       true => {
         v2 := visited.clone();
@@ -672,8 +676,7 @@ _type_refs_back_to_cyclic :: (
 /// and codegen call sites consistent.
 can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
   cond(
-    !(is_reference_struct_type(ty)) => false,
-    true => match(
+    is_reference_struct_type(ty) => match(
       ty,
       .Struct({ id : sid, field_types : fields }) => {
         visited := ArrayList(String).new();
@@ -693,7 +696,42 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
         found
       },
       _ => false
-    )
+    ),
+    // A reference-semantics enum can also form an RC cycle (e.g. a recursive
+    // `Self`-valued variant field), so it is a cycle root too. Walk every
+    // variant's fields, keyed on the enum's own id.
+    is_reference_enum_type(ty) => match(
+      ty,
+      .EnumT({ id : eid, variant_fields : vfs }) => {
+        visited := ArrayList(String).new();
+        _ := visited.push(eid);
+        (found : bool) = false;
+        (vi : usize) = usize(0);
+        while((vi < vfs.len()) && !(found), {
+          match(
+            vfs.get(vi),
+            .Some(vf) => {
+              (fi : usize) = usize(0);
+              while((fi < vf.len()) && !(found), {
+                match(
+                  vf.get(fi),
+                  .Some(ft) => if(_type_refs_back_to_cyclic(ft, eid, visited), {
+                    found = true;
+                  }),
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        found
+      },
+      _ => false
+    ),
+    true => false
   )
 );
 /// Return `true` if the type needs type-inference to resolve fully

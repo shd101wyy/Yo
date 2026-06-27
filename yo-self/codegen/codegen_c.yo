@@ -22,7 +22,7 @@ open(import("std/string"));
 { TargetInfo } :: import("../target.yo");
 { ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
 { Emitter } :: import("../emitter.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
 { type_contains_some_type, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { CodeGenContext } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
@@ -79,7 +79,11 @@ compute_needs_cycle_gc :: (fn(context : CodeGenContext) -> unit)({
       vals.next(),
       .Some(entry) => {
         ty := entry.ty;
-        if((is_reference_struct_type(ty) && (!(is_atomic_reference_struct_type(ty)) && !(_struct_has_generic_field(ty)))) && can_type_form_rc_cycle(ty), {
+        is_struct_root := ((is_reference_struct_type(ty) && !(is_atomic_reference_struct_type(ty))) && !(_struct_has_generic_field(ty)));
+        // A reference-semantics enum can also form an RC cycle (recursive Self
+        // variant field), so it is a cycle root too.
+        is_enum_root := ((is_reference_enum_type(ty) && !(is_atomic_reference_enum_type(ty))) && !(type_contains_some_type(ty)));
+        if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(ty), {
           context.needs_cycle_gc = true;
           go = false;
         });
