@@ -127,13 +127,13 @@ masked := ((A | B) | C);
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
 - **Pointer deref (`p.*`), arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)` require `unsafe(...)`, AND the file must declare `pragma(Pragma.AllowUnsafe);` at the top before `unsafe(...)` is usable.** Pointer comparison (`&==`, `&<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p &+ usize(1))`. Every file in `std/`, `yo-self/`, and `tests/` declares the pragma explicitly. User code (default) does not, so attempts to use `unsafe(...)` are rejected with a hint to add the pragma. See `plans/MEMORY_SAFETY.md`.
-- **In-place mutation without raw pointers:** use the `ref(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `ref(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `forall`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(ref(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
-- **Object-type params:** use plain `name : Type`, NOT `*(Type)` or `ref(name) : Type`. Object types (`Environment`, `EvalContext`, `CodegenContext`, `Emitter`, `HashMap`, `ArrayList`, …) carry reference semantics — passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `ref(name) : Type` is redundant since object semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap object arguments with `&(obj)`; just pass `obj`. For receivers on object methods, plain `self : Self` is the idiom (`yo-self/env.yo`, `yo-self/codegen/context.yo`, `yo-self/emitter.yo` all follow this). `ref(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
+- **In-place mutation without raw pointers:** use the `inout(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `inout(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `forall`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(inout(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
+- **Reference-semantics-type params:** use plain `name : Type`, NOT `*(Type)` or `inout(name) : Type`. Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (and `atomic(ref(...))`) — such as `Environment`, `EvalContext`, `CodegenContext`, `Emitter`, `HashMap`, `ArrayList`, … carry reference semantics: passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `inout(name) : Type` is redundant since reference semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap reference-semantics arguments with `&(obj)`; just pass `obj`. For receivers on reference-semantics methods, plain `self : Self` is the idiom (`yo-self/env.yo`, `yo-self/codegen/context.yo`, `yo-self/emitter.yo` all follow this). `inout(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
 - **Byte-buffer params:** for SAFE public signatures use owned collections (`ArrayList(u8)`/`String`). For pragma'd internals/FFI, `RawSlice(u8)` carries ptr+len (construct with `RawSlice(u8)(ptr : &(buf(0)), len : n)`; read `.ptr`/`.len` fields). The `_cstr` family is the explicit raw-pointer variant — those names signal raw-pointer use by contract.
 - **Audit public stdlib safety with `./yo-cli public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./yo-self`; keep it that way when adding new APIs.
 - **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/EXTERN_UNSAFE_WRAP.md`.
 - **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
-- **`ref` is PARAMETER-ONLY (v4.1, plans/BORROW_EXCLUSIVITY.md).** `-> ref(T)`, `-> (ref(name) : T)`, `-> (name : ref(T))` AND the local binding form `ref(r) := lvalue` are all rejected (both compilers, teaching errors). Refs exist ONLY as `ref(name) : T` parameters. Migrations: return the value (object values are handles that mutate in place; struct values copy); read/write fields directly (`h.s = v`); bind the handle (`b := a.b`) to keep an object alive; or take a callback parameter receiving `ref(v) : T` (`Mutex.with_lock` pattern). A ref ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate-OBJECT hops and module-level field roots are rejected (bind to a local first). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo`, `tests/ref_field_borrow.test.yo`.
+- **`inout` is PARAMETER-ONLY (v4.1, plans/BORROW_EXCLUSIVITY.md).** `-> inout(T)`, `-> (inout(name) : T)`, `-> (name : inout(T))` AND the local binding form `inout(r) := lvalue` are all rejected (both compilers, teaching errors). They exist ONLY as `inout(name) : T` parameters. Migrations: return the value (reference-semantics values are handles that mutate in place; struct values copy); read/write fields directly (`h.s = v`); bind the handle (`b := a.b`) to keep a reference-semantics value alive; or take a callback parameter receiving `inout(v) : T` (`Mutex.with_lock` pattern). An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate reference-semantics-value hops and module-level field roots are rejected (bind to a local first). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo`, `tests/ref_field_borrow.test.yo`.
 - **Signed-integer overflow is defined (wrap-around).** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on `i32(MAX)` wraps to `i32(MIN)` instead of UB. Opt-out: `--cflags='-fno-wrapv'`.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
@@ -235,7 +235,7 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 
 - `(params) => expr` — lambda / closure syntax
 - `Impl(Fn(params) -> ReturnType)` — closure type
-- Value types are captured by copy; object types by reference
+- Value types are captured by copy; reference-semantics types by reference
 - Each closure has a unique type; you cannot assign different closures to the same variable
 
 ## Imports and modules
@@ -397,8 +397,8 @@ while(comptime((i < 10)), {
 });
 
 // for loop — 2-arg prelude macro iterating BY VALUE (implicit
-// .into_iter()). Object elements are handles: mutating them in the
-// body mutates the element in place.
+// .into_iter()). Reference-semantics elements are handles: mutating
+// them in the body mutates the element in place.
 for(list, (x) => {
   process(x);
 });
@@ -422,7 +422,7 @@ for(list.into_iter().map((x) => (x + i32(1))), (y) => println(y));
 - `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
-- **`for(coll, (x) => body)`** — the only form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for object element types).
+- **`for(coll, (x) => body)`** — the only form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for reference-semantics element types).
 - **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error with the migration recipe.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
 
@@ -492,7 +492,7 @@ for(list, (value) => {
 });
 
 // In-place element mutation: index writes (struct/scalar elements) or
-// mutate the handle (object elements).
+// mutate the handle (reference-semantics elements).
 i := usize(0);
 while(i < list.len(), {
   list(i) = (list(i) + i32(1));
@@ -500,7 +500,7 @@ while(i < list.len(), {
 });
 ```
 
-- `for(coll, (x) => body)` — macro expands to `coll.into_iter()` and yields elements by value (a handle for object element types — mutating it mutates the element in place).
+- `for(coll, (x) => body)` — macro expands to `coll.into_iter()` and yields elements by value (a handle for reference-semantics element types — mutating it mutates the element in place).
 - The borrow form `for(coll, ref(x) => body)` was REMOVED (v4); it emits a teaching compile error.
 - Combinator chains (`coll.into_iter().map(f).filter(g)`) work as the first arg with `(x) => body`.
 
@@ -542,7 +542,7 @@ divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y)
 );
 
 // Inside ensures: `result` = return value, old(expr) = entry-time value.
-increment :: (fn(ref(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
+increment :: (fn(inout(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
 
 // invariant(...) must be the FIRST statement of a while body.
 // NOTE: do NOT wrap the condition in runtime(...) — while conditions are
@@ -653,10 +653,10 @@ Same applies to `.IntLit(42)`, `.StrLit("hello")`, etc.
 
 ```rust
 // WRONG:
-Variable :: object(name : String, type : TypeValue);
+Variable :: ref(struct(name : String, type : TypeValue));
 
 // CORRECT:
-Variable :: object(name : String, ty : TypeValue);
+Variable :: ref(struct(name : String, ty : TypeValue));
 ```
 
 ### 1-element array literals require a trailing comma
@@ -721,7 +721,7 @@ Both forms call the same `Index` trait method. The call-syntax form
 is shorter, doesn't need raw-pointer plumbing in user code, and
 panics on out-of-bounds identically to `.unwrap()` on `.get(...)`.
 
-### Named fields required for `struct`/`object` constructors
+### Named fields required for `struct`/`ref(struct(...))` constructors
 
 ```rust
 Point :: struct(x : i32, y : i32);
@@ -729,18 +729,18 @@ Point :: struct(x : i32, y : i32);
 // CORRECT:
 p := Point(x: i32(1), y: i32(2));
 
-// WRONG — positional not supported for struct/object:
+// WRONG — positional not supported for struct/ref(struct(...)):
 p := Point(i32(1), i32(2));
 ```
 
 Enum variant construction is positional (no field names needed).
 
-### Object types (RC) are passed by value
+### Reference-semantics types (RC) are passed by value
 
-`HashMap`, `ArrayList`, and other `object(...)` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders.
+`HashMap`, `ArrayList`, and other `ref(struct(...))` / `ref(enum(...))` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders.
 
 ```rust
-// DO NOT use pointer params for RC objects:
+// DO NOT use pointer params for RC reference-semantics values:
 // WRONG: fn(m : *(HashMap(String, V))) — will cause greedy & issues at call site
 // CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
 
@@ -778,7 +778,7 @@ This applies to ALL callee-before-caller relationships:
 
 ### Named tuple fields in type syntax are not allowed
 
-Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use an `object` struct instead:
+Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use a named struct instead:
 
 ```rust
 // WRONG — "Labelled field is not allowed in tuple value":
@@ -787,13 +787,13 @@ get_range :: (fn(ty : TypeValue) -> Option((min : i64, max : u64)))(
 );
 
 // CORRECT — define a named struct:
-Range :: object(min : i64, max : u64);
+Range :: ref(struct(min : i64, max : u64));
 get_range :: (fn(ty : TypeValue) -> Option(Range))(
   .Some({min: i64(-128), max: u64(127)})
 );
 ```
 
-Named fields work in struct/object constructors `{min: ..., max: ...}`, just not in the type syntax for tuples.
+Named fields work in struct/ref(struct(...)) constructors `{min: ..., max: ...}`, just not in the type syntax for tuples.
 
 ### `Option` equality comparison limitations
 
@@ -877,7 +877,7 @@ my_fn :: (fn(init_env : Environment) -> Environment)({
 });
 ```
 
-This also applies to `object` types: you can mutate fields (`env.field = val`)
+This also applies to reference-semantics types (`ref(struct(...))` / `ref(enum(...))`): you can mutate fields (`env.field = val`)
 but cannot rebind the variable (`env = other_env`).
 
 ### String cloning
@@ -1018,7 +1018,7 @@ lines.push(`**Implements:** ${sep.join(names)}`);
 
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
-String (and other RC object) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
+String (and other RC reference-semantics) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
 
 ```rust
 names.push(param.name);
