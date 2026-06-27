@@ -52,7 +52,7 @@ import { generateDowncast } from "./downcast";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateDynCall } from "./dyn";
 import { generateExpr } from "./expr";
-import { generateYoGcCollect } from "./gc";
+import { generateYoGcCollect, generateYoGcTraceChild } from "./gc";
 import { generateInitializationAssignment } from "./initialization-assignment";
 import { generateYoInlineFunctionCall } from "./inline-fns";
 import {
@@ -629,6 +629,11 @@ function generateFuncCall(
   // __yo_gc_collect - trigger garbage collection
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
     return generateYoGcCollect(expr, indent, context);
+  }
+
+  // __yo_gc_trace_child - per-value edge tracer (body of GcTracer.visit)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_trace_child)) {
+    return generateYoGcTraceChild(expr, indent, context);
   }
 
   // rc - get the reference count of a value

@@ -1234,6 +1234,7 @@ export const BuiltinFunctions = {
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
+  __yo_gc_trace_child: ["__yo_gc_trace_child"], // per-value edge tracer (GcTracer.visit body)
 
   // Dynamic dispatch Rc functions
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object

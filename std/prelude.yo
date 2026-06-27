@@ -230,6 +230,37 @@ Dispose :: trait(
   where(Self <: Rc)
 );
 export(Dispose);
+/// === Cycle-GC tracing ===
+/// `GcTracer` carries the cycle collector's edge-registration callback (an opaque
+/// raw pointer). A `Trace` impl calls `tracer.visit(child)` once per outgoing edge:
+/// it registers the edge if `child` is a managed handle, and recurses inline through
+/// value structure otherwise. The raw callback is never touched directly.
+GcTracer :: newtype(_callback : *(u8));
+export(GcTracer);
+extern(
+  "Yo",
+  /// Per-value edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
+  __yo_gc_trace_child : (fn(forall(T : Type), tracer : GcTracer, child : T) -> unit)
+);
+impl(
+  GcTracer,
+  /// Trace one outgoing edge: register `child` if it is a managed handle, else
+  /// recurse inline through its value structure (struct / enum / tuple / array).
+  visit : (fn(forall(T : Type), self : Self, child : T) -> unit)(
+    __yo_gc_trace_child(self, child)
+  )
+);
+/// Trace trait — mandatory for every reference type that can transitively hold a
+/// managed reference. Auto-derived by the compiler for structs/enums (incl.
+/// `Option` and all value types); hand-implemented for containers whose elements
+/// live in a heap buffer (`ArrayList`, `HashMap`, …). The constructor wires
+/// `header.traverse_fn` to this `trace`.
+Trace :: trait(
+  id := "Trace",
+  trace : (fn(self : Self, tracer : GcTracer) -> unit),
+  where(Self <: Rc)
+);
+export(Trace);
 /// Index trait — enables `container(idx)` subscript syntax at runtime.
 /// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`).
 /// Implementations must define an `Output` associated type and an `index` method.

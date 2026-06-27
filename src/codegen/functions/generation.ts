@@ -2462,11 +2462,12 @@ static void __yo_init_process_cleanup(void) {
  * is itself a managed handle (visited here) whose own traverse_fn iterates its
  * buffer — see generateRefStructTraversalFunctions for those.
  */
-function emitTraverseValue(
+export function emitTraverseValue(
   access: string,
   type: Type,
-  context: FunctionGenerationContext,
-  visited: Set<string>
+  context: CodeGenContext,
+  visited: Set<string>,
+  visitExpr: string
 ): void {
   const emitter = context.emitter;
 
@@ -2476,12 +2477,18 @@ function emitTraverseValue(
   }
 
   // Managed handle (ref(struct)/ref(enum)) — a single graph edge. Atomic RC
-  // (Iso) types do not participate in cycle collection.
+  // (Iso) types do not participate in cycle collection. `visitExpr` is the C
+  // expression for the collector's callback; it is `void(*)(void*)` in the
+  // auto-derived traverse_fn (cast is identity) and an opaque `*(u8)` carried by
+  // a `GcTracer` inside a hand-written `Trace` impl (cast reinterprets) — both
+  // lower to the same indirect call.
   if ((isStructType(type) || isEnumType(type)) && type.isReferenceSemantics) {
     if (type.isAtomicRc) {
       return;
     }
-    emitter.emitLine(`  if (${access}) { visit(${access}); }`);
+    emitter.emitLine(
+      `  if (${access}) { ((void(*)(void*))${visitExpr})(${access}); }`
+    );
     return;
   }
 
@@ -2500,7 +2507,9 @@ function emitTraverseValue(
       // Option(handle) to a bare pointer; typeContainsRcType(type) was true, so
       // the payload is managed → visit the pointer directly.
       if (canOptimizeAsNullablePointer(type)) {
-        emitter.emitLine(`  if (${access}) { visit(${access}); }`);
+        emitter.emitLine(
+          `  if (${access}) { ((void(*)(void*))${visitExpr})(${access}); }`
+        );
         return;
       }
       if (canOptimizeAsSimpleEnum(type)) {
@@ -2520,7 +2529,8 @@ function emitTraverseValue(
               `${access}.data.${variant.name}.${sanitizeForCIdentifier(f.label)}`,
               f.type,
               context,
-              visited
+              visited,
+              visitExpr
             );
           }
           emitter.emitLine(`    break;`);
@@ -2537,7 +2547,7 @@ function emitTraverseValue(
         // underlying type — the value IS the inner value, so recurse with the
         // SAME access (no field suffix).
         if (fields.length > 0) {
-          emitTraverseValue(access, fields[0]!.type, context, visited);
+          emitTraverseValue(access, fields[0]!.type, context, visited, visitExpr);
         }
         return;
       }
@@ -2547,7 +2557,8 @@ function emitTraverseValue(
           `${access}.${sanitizeForCIdentifier(field.label)}`,
           field.type,
           context,
-          visited
+          visited,
+          visitExpr
         );
       }
       return;
@@ -2556,7 +2567,7 @@ function emitTraverseValue(
     if (isTupleType(type)) {
       // Tuple fields are emitted as `_0`, `_1`, … (see property-access.ts).
       type.fields.forEach((field, i) => {
-        emitTraverseValue(`${access}._${i}`, field.type, context, visited);
+        emitTraverseValue(`${access}._${i}`, field.type, context, visited, visitExpr);
       });
       return;
     }
@@ -2568,7 +2579,13 @@ function emitTraverseValue(
       emitter.emitLine(
         `  for (size_t __yo_ti = 0; __yo_ti < ${elemCount}; __yo_ti++) {`
       );
-      emitTraverseValue(`${access}[__yo_ti]`, type.childType, context, visited);
+      emitTraverseValue(
+        `${access}[__yo_ti]`,
+        type.childType,
+        context,
+        visited,
+        visitExpr
+      );
       emitter.emitLine(`  }`);
       return;
     }
@@ -2621,7 +2638,8 @@ function generateRefStructTraversalFunctions(
           `obj->${sanitizeForCIdentifier(field.label)}`,
           field.type,
           context,
-          new Set<string>()
+          new Set<string>(),
+          "visit"
         );
       }
       emitter.emitLine(`}`);
@@ -2808,7 +2826,8 @@ function generateRefEnumTraversalFunctions(
             `obj->data.${variant.name}.${sanitizeForCIdentifier(f.label)}`,
             f.type,
             context,
-            new Set<string>()
+            new Set<string>(),
+            "visit"
           );
         }
         emitter.emitLine(`    break;`);
