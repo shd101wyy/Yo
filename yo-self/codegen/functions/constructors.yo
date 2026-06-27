@@ -156,7 +156,7 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
 /// STOPPING at managed handles (each is one graph edge; the collector calls the
 /// handle's own traverse_fn). Atomic (Iso) handles never participate. Mirrors
 /// `emitTraverseValue` in src/codegen/functions/generation.ts.
-_traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenerationContext) -> unit)({
+_traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenerationContext, visit_expr : String) -> unit)({
   em := context.base.emitter;
   // Nothing reference-counted anywhere in this value → nothing to trace.
   if(!(type_contains_rc_type(ty)), {
@@ -168,7 +168,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
     if(is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty), {
       return();
     });
-    em.emit_string_line(`  if (${access}) { visit(${access}); }`);
+    em.emit_string_line(`  if (${access}) { ((void(*)(void*))${visit_expr})(${access}); }`);
     return();
   });
   cond(
@@ -178,7 +178,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
     is_enum_type(ty) => {
       is_nullable := match(can_optimize_as_nullable_pointer(ty),.Some(_) => true,.None => false);
       if(is_nullable, {
-        em.emit_string_line(`  if (${access}) { visit(${access}); }`);
+        em.emit_string_line(`  if (${access}) { ((void(*)(void*))${visit_expr})(${access}); }`);
       }, {
         if(!(can_optimize_as_simple_enum(ty)), {
           match(
@@ -214,7 +214,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
                       .Some(vt) => if(type_contains_rc_type(vt), {
                         vflabel := match(vlabels.get(vfi),.Some(l) => l,.None => String.from(""));
                         vfname := sanitize_for_c_identifier(vflabel, false);
-                        recur(`${access}.data.${vname}.${vfname}`, vt, context);
+                        recur(`${access}.data.${vname}.${vfname}`, vt, context, visit_expr.clone());
                       }),
                       .None => ()
                     );
@@ -237,7 +237,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
       if(is_newtype_type(ty), {
         // A newtype is a C-transparent typedef alias for its single underlying
         // type — the value IS the inner value, so recurse with the SAME access.
-        match(rf.get(usize(0)),.Some(sfield) => recur(access, sfield.ty, context),.None => ());
+        match(rf.get(usize(0)),.Some(sfield) => recur(access, sfield.ty, context, visit_expr.clone()),.None => ());
       }, {
         nrf := rf.len();
         (si : usize) = usize(0);
@@ -246,7 +246,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
             rf.get(si),
             .Some(sfield) => {
               sfname := sanitize_for_c_identifier(sfield.label.clone(), false);
-              recur(`${access}.${sfname}`, sfield.ty, context);
+              recur(`${access}.${sfname}`, sfield.ty, context, visit_expr.clone());
             },
             .None => ()
           );
@@ -263,7 +263,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
         while(ti < ntf, {
           match(
             field_types.get(ti),
-            .Some(tt) => recur(`${access}._${ti.to_string()}`, tt, context),
+            .Some(tt) => recur(`${access}._${ti.to_string()}`, tt, context, visit_expr.clone()),
             .None => ()
           );
           ti = (ti + usize(1));
@@ -277,7 +277,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
       ty,
       .Array({ element }) => {
         em.emit_string_line(`  for (size_t __yo_ti = 0; __yo_ti < (sizeof(${access}) / sizeof(${access}[0])); __yo_ti++) {`);
-        recur(`${access}[__yo_ti]`, element, context);
+        recur(`${access}[__yo_ti]`, element, context, visit_expr.clone());
         em.emit_string_line(`  }`);
       },
       _ => ()
@@ -307,7 +307,7 @@ _generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, con
       runtime_fields.get(fi),
       .Some(field) => {
         fname := sanitize_for_c_identifier(field.label.clone(), false);
-        _traverse_value(`obj->${fname}`, field.ty, context);
+        _traverse_value(`obj->${fname}`, field.ty, context, String.from("visit"));
       },
       .None => ()
     );
@@ -403,7 +403,7 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
               .Some(ft) => if(type_contains_rc_type(ft), {
                 flabel := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
                 fname := sanitize_for_c_identifier(flabel, false);
-                _traverse_value(`obj->data.${vname}.${fname}`, ft, context);
+                _traverse_value(`obj->data.${vname}.${fname}`, ft, context, String.from("visit"));
               }),
               .None => ()
             );
@@ -575,4 +575,4 @@ generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationConte
 generate_closure_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)(
   ()
 );
-export(generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions);
+export(generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions, _traverse_value);

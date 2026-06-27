@@ -1,7 +1,10 @@
-//! `__yo_gc_collect()` emitter — mirrors `src/codegen/exprs/gc.ts`.
+//! `__yo_gc_collect()` / `__yo_gc_trace_child(...)` emitters — mirrors
+//! `src/codegen/exprs/gc.ts`.
 open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ _traverse_value } :: import("../functions/constructors.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
 /// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args). Mirrors
 /// `generateYoGcCollect`.
 generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : FunctionGenerationContext) -> String)(
@@ -11,4 +14,30 @@ generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : Funct
     .Atom(_, _) => String.from("// Error: __yo_gc_collect requires a call expression")
   )
 );
-export(generate_yo_gc_collect);
+/// `__yo_gc_trace_child(tracer, child)` — the body of `GcTracer.visit`. Lowers to
+/// the compositional per-value traverse (`_traverse_value`) of `child`, using
+/// `tracer` (a `GcTracer`, i.e. the opaque `void(*)(void*)` collector callback
+/// carried as a raw pointer) as the visit callback: a managed `child` registers
+/// the edge, a value `child` recurses inline. Returns unit. Mirrors
+/// `generateYoGcTraceChild`.
+generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => if(args.len() == usize(2), {
+      tracer_arg := match(args.get(usize(0)),.Some(a) => a,.None => expr);
+      child_arg := match(args.get(usize(1)),.Some(a) => a,.None => expr);
+      match(
+        context.base.get_expr_info(child_arg),
+        .Some(ei) => {
+          tracer_code := _call_generate_expr(tracer_arg, indent.clone(), context);
+          child_code := _call_generate_expr(child_arg, indent.clone(), context);
+          _traverse_value(child_code, ei.ty, context, tracer_code);
+          String.from("((void)0)")
+        },
+        .None => String.from("// Error: __yo_gc_trace_child child missing type information")
+      )
+    }, String.from("// Error: __yo_gc_trace_child requires exactly 2 arguments")),
+    .Atom(_, _) => String.from("// Error: __yo_gc_trace_child requires a call expression")
+  )
+);
+export(generate_yo_gc_collect, generate_yo_gc_trace_child);

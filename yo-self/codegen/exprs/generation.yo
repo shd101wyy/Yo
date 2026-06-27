@@ -63,6 +63,7 @@ open(import("std/string"));
   BF_YO_SOMETYPE_DROP,
   BF_YO_SOMETYPE_DUP,
   BF_YO_GC_COLLECT,
+  BF_YO_GC_TRACE_CHILD,
   BF_RC,
   BF_PANIC,
   BF_ASM,
@@ -115,7 +116,7 @@ open(import("std/string"));
 { generate_atom } :: import("./atom.yo");
 { generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_rc_call } :: import("./rc_fns.yo");
 { generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call } :: import("./iso.yo");
-{ generate_yo_gc_collect } :: import("./gc.yo");
+{ generate_yo_gc_collect, generate_yo_gc_trace_child } :: import("./gc.yo");
 { generate_panic } :: import("./panic.yo");
 { generate_dyn_call } :: import("./dyn.yo");
 { generate_return, generate_unwind } :: import("./return.yo");
@@ -448,6 +449,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP, Option(usize).None), return(generate_yo_sometype_drop(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, Option(usize).None), return(generate_yo_sometype_dup(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_GC_COLLECT, Option(usize).None), return(generate_yo_gc_collect(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_GC_TRACE_CHILD, Option(usize).None), return(generate_yo_gc_trace_child(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_RC, Option(usize).None), return(generate_rc_call(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_PANIC, Option(usize).None), return(generate_panic(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_ASM, Option(usize).None), return(String.from("/* TODO[codegen-port]: asm not yet ported */")));
