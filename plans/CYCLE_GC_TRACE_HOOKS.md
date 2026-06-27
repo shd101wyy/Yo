@@ -1,6 +1,9 @@
 # Compositional cycle tracing (`Trace` hooks)
 
-Status: PLANNED (2026-06-27). Both compilers (`src/` and `yo-self/`).
+Status: PLANNED (2026-06-27). Both compilers (`src/` and `yo-self/`). Cycle tracing
+is organized around a **mandatory** first-class `Trace` trait defined in
+`std/prelude.yo` (§3.3): auto-derived for structs/enums, hand-implemented for every
+RC-capable container (`ArrayList`, `HashMap`, …) and open to user containers.
 
 ## 1. The problem
 
@@ -86,39 +89,72 @@ Then:
 This subsumes the current per-field logic and adds value-enum descent + tuples for
 free, in one place used by both the struct and enum traverse generators.
 
-### 3.3 Containers — the one piece that needs explicit help
+### 3.3 The `Trace` trait — MANDATORY, defined in `std/prelude.yo`
 
-A container's elements live in a malloc'd buffer, not in named fields, so a
-field-walk cannot reach them. The container must expose an element-iterating
-`traverse_fn`. We realize the **`Trace` trait** here:
-
-- `Trace` marks a type as "has traceable contents." Structs/enums get their `Trace`
-  behaviour **auto-derived** (= the `traverse_value` walk, emitted by codegen).
-- **Std containers** (`ArrayList`, `HashMap`) carry `Trace`; the codegen emits their
-  element-iterating `traverse_fn` from their known buffer layout, e.g.:
+Cycle tracing is organized around a first-class trait so that **every** type that
+can transitively hold a managed reference participates uniformly and extensibly —
+including user-defined containers. A container's elements live in a malloc'd buffer
+(not named fields), so a field-walk cannot reach them; the container must expose its
+own element iteration. The `Trace` trait is that contract:
 
 ```rust
-// __yo_traverse_ArrayList(T):   (T is RC-relevant)
-for (size_t i = 0; i < obj->length; i++) {
-    traverse_value(((T*)obj->data)[i], T, visit);
-}
-// HashMap: iterate occupied buckets → traverse_value(key), traverse_value(value)
+// std/prelude.yo
+Trace :: trait({
+  // Visit every managed object directly held by `self`, descending inline through
+  // value structure. `visit` is the collector's edge-registration callback,
+  // type-erased to an opaque pointer (a C `void(*)(void*)`); never call it
+  // directly — go through the `__yo_gc_trace_child` / `__yo_gc_visit` intrinsics.
+  __yo_gc_traverse : (fn(self : Self, visit : *(u8)) -> unit)
+});
 ```
 
-  When `T` (and `K`/`V`) contain no managed refs, the loop body is empty → skip the
-  whole traverse (and the type isn't a cycle root anyway).
-- **Phase 2 (extensibility):** expose `Trace` to user-defined containers — a user
-  type with a raw element buffer implements `Trace` and the collector dispatches to
-  it. Deferred until the visit-callback ABI (below) is firmed up; the std-container
-  path above already covers every real case incl. the self-host `TypeValue`.
+Two codegen intrinsics bridge Yo `Trace` impls and the C collector:
 
-### 3.4 Visit-callback ABI (the bootstrapping subtlety)
+- **`__yo_gc_trace_child(child : T, visit : *(u8))`** — the per-VALUE edge tracer
+  (exactly `traverse_value`, §3.2), monomorphized per `T`: `T` managed handle →
+  `__yo_gc_visit` it; `T` value struct/enum/tuple/array → recurse via
+  `child.__yo_gc_traverse(visit)`; otherwise nothing. This is what container impls
+  call per element.
+- **`__yo_gc_visit(visit : *(u8), child)`** — invoke the type-erased callback:
+  lowers to `((void(*)(void*))visit)((void*)child)`.
 
-The collector's visitor is `void (*visit)(void*)`. In Phase 1 the entire traverse is
-**codegen-emitted C**, so `visit` is just the C function pointer the collector
-passes — no Yo-level closure/ABI work. A user-facing Yo `Trace` trait (Phase 2)
-would need a Yo type for that callback (a `*(extern "C" fn(*(u8)) -> unit)` or
-equivalent); that is the only reason Phase 2 is deferred, not Phase 1.
+**Who implements `Trace`:**
+
+- **structs / enums** — `__yo_gc_traverse` is **auto-derived** by the codegen
+  (= `traverse_value` over the runtime fields / active-variant fields). Users never
+  write it; the type's `header.traverse_fn` *is* this derived body.
+- **containers** (`ArrayList`, `HashMap`, … and any user container) — **hand-implement
+  `Trace` in std**, iterating the element buffer and calling `__yo_gc_trace_child`
+  per element (and per key+value for maps):
+
+```rust
+// std/collections/array_list.yo
+impl(ArrayList(forall(E), where(E <: Trace)), Trace(
+  __yo_gc_traverse : (fn(self : Self, visit : *(u8)) -> unit)({
+    i := usize(0);
+    while(i < self.length, {
+      __yo_gc_trace_child(self.uget(i), visit); // managed elem → visit; value → recurse
+      i = (i + usize(1));
+    });
+  })
+));
+```
+
+`Trace` is **mandatory**: every reference type that can transitively hold a managed
+reference has a `__yo_gc_traverse` (derived for struct/enum, written for containers),
+so the collector never misses an edge. The constructor sets
+`header.traverse_fn = <type's __yo_gc_traverse>`.
+
+### 3.4 Visit-callback ABI
+
+`visit` is passed as an opaque `*(u8)` (the C `void(*)(void*)` the collector owns)
+and is only ever *called* through `__yo_gc_visit` / `__yo_gc_trace_child`, which the
+codegen lowers to the raw indirect call. This keeps `Trace` impls in ordinary Yo (no
+first-class C-function-pointer Yo type needed) while the call site is plain C. The
+auto-derived struct/enum traverse uses the same intrinsics, so derived and
+hand-written impls are ABI-identical and freely compose (e.g.
+`ArrayList(Option(Self))` works: the container impl calls `__yo_gc_trace_child` on an
+`Option(Self)`, which descends the value-enum, which `visit`s the `Self` handle).
 
 ## 4. Companion fix — drop-on-reassign (no-leak completeness)
 
@@ -130,13 +166,20 @@ as gap #3 in `issues/yo-self-cycle-gc-runtime-port.md`.
 
 ## 5. Implementation phases
 
-1. **`traverse_value` core + struct/enum rewire** (both compilers). Delivers
-   `Option(Self)`, nested value-enums, tuples, and reference-enum-in-value-enum.
-   Validate against a `ref_enum_option_cycle` test.
-2. **Container traverse** for `ArrayList` then `HashMap` (both compilers). Delivers
-   `ArrayList(Self)` / `HashMap(_, Self)` cycles — the real self-host shapes.
-3. **drop-on-reassign** fix (§4) so totals return to baseline (no terminator leak).
-4. **Phase 2 (optional, later):** user-facing `Trace` trait + visit ABI.
+1. **`traverse_value` core + struct/enum auto-derive** (both compilers). The struct
+   and enum `traverse_fn` generators delegate per field to the compositional
+   `traverse_value`. Delivers `Option(Self)`, nested value-enums, tuples, inline
+   arrays, and reference-enum-in-value-enum. This *is* the auto-derived `Trace`
+   behaviour for struct/enum.
+2. **`Trace` trait + intrinsics** (`std/prelude.yo` + both compilers): define the
+   trait; add `__yo_gc_trace_child` (= `traverse_value` exposed as a per-value
+   intrinsic) and `__yo_gc_visit` (the type-erased call). Wire the codegen so a type
+   carrying an explicit `Trace` impl uses that impl as its `traverse_fn`; struct/enum
+   without one keep the auto-derived body from phase 1.
+3. **Container `Trace` impls**: `ArrayList`, then `HashMap` (and any other RC-capable
+   std container), in std. Delivers `ArrayList(Self)` / `HashMap(_, Self)` cycles —
+   the real self-host `TypeValue.field_types : ArrayList(Self)` shape.
+4. **drop-on-reassign** fix (§4) so totals return to baseline (no terminator leak).
 
 Each phase: build → run the cycle tests (totals return to baseline, not just
 "dropped") → corpus 0-diff → `check ./std` → TS-ASan on the new cycle programs (the
