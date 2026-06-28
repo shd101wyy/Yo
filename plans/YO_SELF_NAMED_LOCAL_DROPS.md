@@ -1,12 +1,14 @@
 # yo-self: schedule begin-block scope-end RC drops for owning named locals
 
-**Status:** 2× ATTEMPTED 2026-06-28 — eval scheduling works + the codegen crash is
-root-caused & fixed, BUT partial scope-end drops are proven UNSAFE without the full
-coupled RC machinery (UAF + broken cycles). Reverted to clean. **§11 is the decisive
-conclusion: this is a full RC-emission-layer port, not an incremental M1.** Read §10
-(crash root) + §11 (coupling proof) before retrying. Diagnosis (§1-§5) complete.
+**Status: ✅ DONE — folded into `plans/YO_SELF_RC_EMISSION_LAYER.md` Phase B (committed
+`f2de4f781`).** §11's conclusion was correct: this could NOT land as an incremental M1 — it
+needed the full coupled RC-emission-layer port (dup-on-store + scope-end drops +
+return-materialization + early-return filter), which is exactly what RC_EMISSION Phase A+B
+delivered. Named locals now drop at scope end (Probe A p1/p2/p3 0→0); recursive free of
+RC-via-enum-field landed too (RC_EMISSION §10, p4 0→0). This file is retained for the
+§1–§5 diagnosis and the §10/§11 attempt history; the live plan is YO_SELF_RC_EMISSION_LAYER.md.
 
-**One-line:** yo-self never emits scope-end `___drop` for owning *named-local* bindings
+**One-line:** yo-self never emits scope-end `___drop` for owning _named-local_ bindings
 (`x := New(...)`), so it leaks every named local. Port the TS begin-block scope-drop
 scheduling into `yo-self/evaluator/exprs/begin.yo`. ⚠️ Delicate RC change (double-free/UAF
 risk); validate with TS-ASan + the corpus + `tracked_count` every iteration.
@@ -20,7 +22,7 @@ phase 4 ("complete consume-tracking mirror" — this is part of that remaining w
 ## 1. The gap (confirmed, precise)
 
 yo-self does **not** schedule begin-block scope-end RC drops for owning **named-local
-bindings**. It is **not** a total RC absence — it *does* drop call-arg/clone temporaries +
+bindings**. It is **not** a total RC absence — it _does_ drop call-arg/clone temporaries +
 return-path values (proven by the documented yo-self double-free fix
 `return_call_clone_arg_drop`, BOOTSTRAPPING_CODEGEN.md:181-189 — you cannot double-free
 without dropping; `other_fn_call.yo` / `return.yo` / `match.yo` all call
@@ -47,7 +49,7 @@ The behavior-based corpus can't see leaks, which is why this went unnoticed.
   evaluates the block but never builds `deferred_drop_expressions` for the frame's owning
   locals. The eval-side builder **already exists**:
   `yo-self/evaluator/calls/helper.yo:234 generate_deferred_drop_expressions(variables_to_drop,
-  env, ctx, exn) -> Option(ArrayList(AstExpr))` (builds + evaluates `___drop(name)` per var).
+env, ctx, exn) -> Option(ArrayList(AstExpr))` (builds + evaluates `___drop(name)` per var).
   It is exported but has **zero evaluator callers** (only `suspension_analysis.yo` + `recur.yo`
   ever set `deferred_drop_expressions`, neither for plain scope-end).
 - **`Variable` already carries every field the predicate needs** (`yo-self/env.yo:58`):
@@ -58,6 +60,7 @@ The behavior-based corpus can't see leaks, which is why this went unnoticed.
 ## 3. TS reference (what to port)
 
 `src/evaluator/exprs/begin.ts`:
+
 - **Predicate** `variableCanNeedDropIgnoringConsumed` (lines **242-257**): drop-eligible iff
   `isOwningTheRcValue` && `typeContainsRcType(type)` && `!isModuleLevel` && NOT an unresolved
   `SomeType` (`isSomeType && !resolvedConcreteType && requiredTraits.length===0` → false).
@@ -75,6 +78,7 @@ The behavior-based corpus can't see leaks, which is why this went unnoticed.
 ## 4. yo-self insertion point (precise)
 
 In `yo-self/evaluator/exprs/begin.yo`, the post-loop tail (read lines 673-823):
+
 - The top frame (pushed at **line 251** `env.push_frame(true)`) is captured as
   `current_frame_opt` at **lines 770-775**, just before `env.pop_frame_nonmutating()` at
   **line 783**.
@@ -149,6 +153,7 @@ export(main);
 ```
 
 **Per-iteration validation gates (ALL must pass):**
+
 1. Probe A: yo-self prints all `→` equal (was monotonic leak); matches TS.
 2. Probe B: yo-self prints `disposed 7`.
 3. **TS-ASan** on Probes A+B and on a handful of reassignment-heavy programs
@@ -157,7 +162,7 @@ export(main);
    port, so TS-ASan on the same source is representative — but ALSO run the yo-self-compiled
    binary normally to catch crashes.)
 4. **Corpus 0-diff**: `YO_SELF_BIN=/tmp/yo-self-bin scripts/diff-test.sh tests/codegen-bootstrap/
-   --parallel 4` → PASS unchanged, **DIFF 0, SELF-FAIL 0** (a double-free crashes a program →
+--parallel 4` → PASS unchanged, **DIFF 0, SELF-FAIL 0** (a double-free crashes a program →
    shows as SELF-FAIL/DIFF). This is the primary safety net.
 5. `./yo-cli check ./std` 152, `check ./tests` unchanged (build the new yo-self-bin first).
 6. `ref_enum_cycle` / `arraylist_self_cycle` still collect (and ideally return to baseline
@@ -216,6 +221,7 @@ Build loop (no `--release`, per memory): `./yo-cli compile yo-self/main.yo -o /t
 Reverted begin.yo to clean. Working patch saved (scratchpad `m1_begin_yo.patch`).**
 
 ### What worked (eval-side)
+
 Added `_schedule_scope_end_drops` to `begin.yo` (after the main loop, before
 `env.pop_frame_nonmutating()`; set `out_info.deferred_drop_expressions`). It collects
 the popped frame's drop-eligible owning locals and builds `___drop(name)` exprs inline
@@ -231,6 +237,7 @@ cycle forbids importing `helper.yo:234`).
   sound**.
 
 ### The blocker (codegen)
+
 Full `compile` SIGBUSes (exit 138, `EXC_BAD_ACCESS` in `_platform_memmove`, wild dest
 addr) → **27 SELF-FAIL + 1 DIFF** (corpus was 86/86). The crash is in **codegen's
 begin-block deferred-drop EMISSION** path (`generation.yo:102/116` →
@@ -251,11 +258,13 @@ latent, never-exercised codegen bug.
   removing the `expected_type = unit` override (matched `helper.yo:234`). Neither fixed it.
 
 ### Leading theory + next steps
+
 Likely the begin-block-drop emission differs from the return-path emission in how it
 resolves the dropped var's C identity (a stale/missing generated-variable-name entry →
 wild pointer → memmove), and/or it's entangled with consume-tracking for
 **construction-moves into a NEWTYPE** (`String.from` moves the `ArrayList` into the
 `String`; if not marked consumed, M1 drops a moved-out value). Next:
+
 1. Get a real backtrace — the release build's unwinder is broken at the crash; build
    yo-self with frame pointers / `-O0` (or bisect by adding a guarded `eprintln`/static
    panic in `drop_dup.yo:384` + `generation.yo:102/116` to find which emit corrupts).
@@ -268,6 +277,7 @@ wild pointer → memmove), and/or it's entangled with consume-tracking for
    §6 gates (Probe A `0→0`, corpus 0-diff/no-SELF-FAIL, TS-ASan).
 
 ### Status of the broader goal
+
 `CYCLE_GC_TRACE_HOOKS.md` §4 (drop-on-reassign) is part of this same work, so it remains
 open too. The cycle-GC plan's CORE (Phases 1-3 container collection in both compilers +
 Phase 5 docs) is done and committed; only the scope-drop completeness (§4 / this plan)
@@ -280,10 +290,12 @@ drops are FUNDAMENTALLY UNSAFE without the full coupled RC machinery — empiric
 proven. Reverted to clean. Full attempt saved (scratchpad `m1_full_attempt.patch`).**
 
 ### The crash (from §10) — root-caused + fixed
+
 Pinned by probe-bisection to: codegen of `if(slen==0, begin(return(Self(_bytes:.None)),
 ()))` in `String.from` — an early-return inside an `if`, in a function with M1-scheduled
 deferred drops. Two dormant codegen bugs (always-empty `deferred_drop_expressions`
 pre-M1 hid them), both fixed in the saved patch:
+
 1. **Aliasing (faithful divergence):** `generation.yo:58` aliased `ei.deferred_drop_expressions`
    into `pending_deferred_drops`; TS `generation.ts:1515` COPIES (`[...]`). Added
    `_copy_expr_list`. (A real 1-to-1 divergence regardless of M1.)
@@ -296,10 +308,12 @@ With those, `min_str` / `string_build_iterate` compile + run, Probe A still `0�
 corpus has **SELF-FAIL 0** (no crashes).
 
 ### But: 6 behavioral DIFFs prove the dup/drop COUPLING (§5)
+
 The partial M1 (scope-end drops, NO dup-on-store, NO return-value materialization) diverges
 from TS on 6 corpus tests — two are decisive:
+
 - **`rc_early_return_drop`** (`{ xs := AL.new(); xs.push(n); if(n>5) return 100; xs.push(1);
-  i32(xs.len()) }`): yo-self prints `0` for `xs.len()`, TS prints `2` → **USE-AFTER-FREE**.
+i32(xs.len()) }`): yo-self prints `0` for `xs.len()`, TS prints `2` → **USE-AFTER-FREE**.
   `generation.yo:101-108` emits the scope-end `___drop(xs)` BEFORE the `return <expr>`
   statement, but `<expr>` = `i32(xs.len())` is evaluated in C AT the return — after xs is
   freed. The return value must be MATERIALIZED into a temp before the drops (TS does).
@@ -308,14 +322,16 @@ from TS on 6 corpus tests — two are decisive:
   no-dup/no-drop RC-error cancellation, §1).
 
 ### CONCLUSION (answers "can M1 land alone?" → NO)
+
 Scope-end drops cannot be added piecemeal. The full faithful RC-codegen machinery must
 co-land, matching TS exactly for 1-to-1:
+
 1. **dup-on-store** (assignment RHS / field store / construction-move) — else drops
    unbalance RC (breaks cycles, premature frees).
 2. **return-value materialization** before scope-end drops — else drop-before-return-use UAF.
 3. **early-return init-position-filtered drops** (TS begin.ts:2068-2122) — else early
    returns drop not-yet-live locals.
 4. **consume/move exclusion** for returned/moved values (verify yo-self's coverage).
-This is essentially porting yo-self's entire RC-emission layer faithfully — a major,
-coupled effort (its own multi-session project), NOT an incremental M1/M2/M3 sequence. The
-crash fixes + `_copy_expr_list` (item 1 of §10) are worth keeping when that port starts.
+   This is essentially porting yo-self's entire RC-emission layer faithfully — a major,
+   coupled effort (its own multi-session project), NOT an incremental M1/M2/M3 sequence. The
+   crash fixes + `_copy_expr_list` (item 1 of §10) are worth keeping when that port starts.

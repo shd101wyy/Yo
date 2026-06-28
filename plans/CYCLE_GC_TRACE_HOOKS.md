@@ -1,9 +1,25 @@
 # Compositional cycle tracing (`Trace` hooks)
 
-Status: IN PROGRESS (2026-06-27). **Phase 1 DONE in both compilers.** Cycle tracing
-is organized around a **mandatory** first-class `Trace` trait defined in
-`std/prelude.yo` (§3.3): auto-derived for structs/enums, hand-implemented for every
-RC-capable container (`ArrayList`, `HashMap`, …) and open to user containers.
+Status: MOSTLY DONE (2026-06-28). **Phases 1, 2, 4, 5 DONE in both compilers; Phase 3 DONE
+for `ArrayList`, NOT YET for `HashMap`.** Cycle tracing is organized around a **mandatory**
+first-class `Trace` trait defined in `std/prelude.yo` (§3.3): auto-derived for structs/enums,
+hand-implemented for every RC-capable container (`ArrayList`, `HashMap`, …) and open to user
+containers.
+
+**ONLY REMAINING ITEM: `HashMap` container tracing (Phase 3 remainder).** `std/collections/
+hash_map.yo` has NO `Trace` impl (only `array_list.yo` does), so `HashMap(_, Self)` cycles are
+not collected (they leak — safe, but incomplete). To close: hand-implement `Trace` for HashMap
+(iterate the bucket buffer, `tracer.visit` per key + value via slot pointers, §8 item 6),
+teach `can_type_form_rc_cycle` to see through the bucket buffer to K/V (§8 item 7 — already
+done for ArrayList's `?*(E)`; verify it covers HashMap's bucket layout), and add the
+`HashMap(_, Self)` cycle test (§6). NOTE: the self-host types use `ArrayList(Self)` /
+`Option(Self)`, NOT `HashMap(_, Self)`, so this is a completeness item, not a bootstrap blocker.
+
+**DONE:** Phase 1 (compositional `traverse_value` + struct/enum auto-derive), Phase 2 (`Trace`
+trait + `GcTracer` intrinsic), Phase 3-ArrayList (detection + collection, both compilers — §8),
+Phase 4 (drop-on-reassign: `assignment.yo` saves the old value to the result temp, which the
+RC-layer scope-drop machinery then drops — RC_EMISSION Phase B/§10), Phase 5 (bilingual
+`docs/{en-US,zh-CN}/CYCLE_COLLECTION.md`).
 
 **Phase 1 (compositional `traverse_value` + struct/enum auto-derive) — ✅ DONE
 (both compilers).** The struct and enum traverse generators delegate per field to
@@ -22,15 +38,15 @@ the self-hosted `yo-self-bin check ./std` SIGSEGVs ~50 files in — a pre-existi
 Phase-4/6 evaluator deep-recursion/NULL-deref, reproduced on the newtype-only
 binary, unrelated to cycle GC.)
 
-Phases 2–5 (Trace trait + GcTracer, container impls, drop-on-reassign, bilingual
-docs) remain. The user-facing API is a clean `Trace` trait with `trace(self,
+Of Phases 2–5, all are DONE except the `HashMap` half of Phase 3 (container impls) —
+see the status block above. The user-facing API is a clean `Trace` trait with `trace(self,
 tracer)` + `tracer.visit(child)` — no `__yo_`-looking names in Yo source.
 
 ## 1. The problem
 
 The cycle collector (QuickJS-style trial deletion / Bacon–Rajan) is **correct given
 one contract**: every object's `traverse_fn(obj, visit)` must call `visit()` on
-*every* directly-referenced reference-counted (RC) child. The collector decrements
+_every_ directly-referenced reference-counted (RC) child. The collector decrements
 RC across internal object→object edges; objects left at RC=0 are garbage.
 
 Our generated `traverse_fn` only walks **direct** reference fields. It does **not**:
@@ -39,7 +55,7 @@ Our generated `traverse_fn` only walks **direct** reference fields. It does **no
 - descend through **container-wrapped** references — `items : ArrayList(Self)`,
   `m : HashMap(K, Self)`;
 - visit **reference-enum** fields inside an embedded value-enum (the struct
-  traverse's value-enum case filters reference-*struct* fields only).
+  traverse's value-enum case filters reference-_struct_ fields only).
 
 A missed edge is **conservative**: the child's internal RC is never decremented, so
 it looks externally referenced → false "live root" → never collected → **leak**. It
@@ -53,7 +69,7 @@ ArrayList(Self)`, `Option(Self)` everywhere. Their cycles cannot be reclaimed to
 ## 2. This is NOT an algorithm change
 
 QuickJS, Nim ORC, and our collector are all **the same Bacon–Rajan synchronous
-trial-deletion algorithm**. The difference is purely *traversal completeness*:
+trial-deletion algorithm**. The difference is purely _traversal completeness_:
 
 - QuickJS hand-writes a `gc_mark` per built-in class (fixed type set → all complete).
 - Nim ORC auto-generates a **`=trace` hook** per type that recurses through `object`
@@ -68,13 +84,13 @@ switch algorithms.
 ### 3.1 Contract
 
 `traverse_fn(obj, visit)` for an object visits every **direct managed child** of
-`obj`, descending *inline* through value structure (value structs, value enums incl.
-`Option`, tuples/unions) and *iterating* containers, but **stopping at managed
-handles** (it `visit()`s them; the collector calls *their* `traverse_fn` later).
+`obj`, descending _inline_ through value structure (value structs, value enums incl.
+`Option`, tuples/unions) and _iterating_ containers, but **stopping at managed
+handles** (it `visit()`s them; the collector calls _their_ `traverse_fn` later).
 
 This is exactly Nim's `=trace`. We model it as a `Trace` contract:
 
-- **Managed handle** (`ref(struct)`/`ref(enum)`, non-atomic) as a *field*: a single
+- **Managed handle** (`ref(struct)`/`ref(enum)`, non-atomic) as a _field_: a single
   graph edge → `visit(field)`, stop (do not recurse — the collector will).
 - **Value struct / newtype** as a field: recurse each field inline.
 - **Value enum** (incl. `Option`) as a field: `switch(tag)` → recurse the active
@@ -82,7 +98,7 @@ This is exactly Nim's `=trace`. We model it as a `Trace` contract:
   bare pointer → `visit(field)`.)
 - **Tuple / union**: recurse each component inline.
 - **Container** (`ArrayList`, `HashMap`, …): a managed handle, so `visit(field)`;
-  the container's *own* `traverse_fn` iterates its element buffer.
+  the container's _own_ `traverse_fn` iterates its element buffer.
 - **Atomic ref / raw pointer / primitive / unit**: nothing.
 
 ### 3.2 The codegen primitive: `traverse_value`
@@ -96,7 +112,7 @@ traverse_value(emitter, access_expr : String, ty : TypeValue, visited : Set, con
 
 It emits C that visits the managed children of the value at `access_expr`, applying
 the table above and recursing on field/element types. `visited` (type-id set) guards
-against unbounded *codegen* recursion on recursive value types (in practice
+against unbounded _codegen_ recursion on recursive value types (in practice
 recursion stops at managed handles, which never recurse the codegen, but the guard
 is kept for safety — mirrors `can_type_form_rc_cycle`).
 
@@ -150,7 +166,7 @@ compiler inside `visit`'s managed-handle case — it has **no user-facing name**
   **auto-derived** by the codegen (= `traverse_value` over the runtime fields /
   active-variant fields; phase 1). Users never write it, and **`Option(Self)` and
   value enums need NO hand-written impl** — the derived traverse already descends
-  through them inline. The type's `header.traverse_fn` *is* this derived body.
+  through them inline. The type's `header.traverse_fn` _is_ this derived body.
 - **containers** (`ArrayList`, `HashMap`, … and any user container) — **hand-implement
   `Trace` in std**, because the elements live in a malloc'd buffer that a field walk
   cannot reach. Iterate the buffer and call `tracer.visit` per element (and per
@@ -187,6 +203,12 @@ compose (e.g. `ArrayList(Option(Self))` works: the container impl calls
 registers the inner `Self` handle edge).
 
 ## 4. Companion fix — drop-on-reassign (no-leak completeness)
+
+**✅ RESOLVED via the RC-emission-layer port (YO_SELF_RC_EMISSION_LAYER.md Phase B/§10).**
+`assignment.yo` now saves the old managed-field value into the assignment's result temp,
+and the Phase-B scope-end-drop machinery drops that temp — so the overwritten value is
+`decr_rc`'d (matching TS). The dup-on-store of the RHS landed in the same port. The diagnosis
+below is retained for history.
 
 Independently of tracing, yo-self leaks the **overwritten** value on a managed-field
 reassignment: `a.next = b` saves the old `a.next` to a temp but never `decr_rc`s it
@@ -229,7 +251,7 @@ effort. Repro: `src/tests/fixme.yo`, `/tmp/rc_probe{,2}.yo`, `/tmp/dispose_test.
 1. **`traverse_value` core + struct/enum auto-derive** (both compilers). The struct
    and enum `traverse_fn` generators delegate per field to the compositional
    `traverse_value`. Delivers `Option(Self)`, nested value-enums, tuples, inline
-   arrays, and reference-enum-in-value-enum. This *is* the auto-derived `Trace`
+   arrays, and reference-enum-in-value-enum. This _is_ the auto-derived `Trace`
    behaviour for struct/enum.
 2. **`Trace` trait + `GcTracer`** (`std/prelude.yo` + both compilers): define the
    `Trace` trait (`trace : fn(self, tracer : GcTracer)`) and the opaque `GcTracer`
@@ -242,7 +264,7 @@ effort. Repro: `src/tests/fixme.yo`, `/tmp/rc_probe{,2}.yo`, `/tmp/dispose_test.
    container to its element type (the elements sit behind a raw buffer pointer, so the
    field walk alone never reaches them). Delivers `ArrayList(Self)` /
    `HashMap(_, Self)` cycles — the real self-host `TypeValue.field_types :
-   ArrayList(Self)` shape.
+ArrayList(Self)` shape.
 4. **drop-on-reassign** fix (§4) so totals return to baseline (no terminator leak).
 5. **Docs** (bilingual): update `docs/en-US/CYCLE_COLLECTION.md` and
    `docs/zh-CN/CYCLE_COLLECTION.md` to document compositional tracing and the `Trace`
@@ -287,7 +309,7 @@ WIP / remaining, with the concrete hooks:
 
 - **Intrinsic (DONE, TS)**: `BuiltinFunctions.__yo_gc_trace_child` (expr.ts:1237);
   `generateYoGcTraceChild` (codegen/exprs/gc.ts) → `emitTraverseValue(childCode,
-  childType, context, new Set(), tracerCode)`; dispatch in codegen/exprs/generation.ts
+childType, context, new Set(), tracerCode)`; dispatch in codegen/exprs/generation.ts
   next to `__yo_gc_collect`. `emitTraverseValue` (codegen/functions/generation.ts) now
   takes a `visitExpr` and emits the cast-call `((void(*)(void*))visitExpr)(access)`;
   exported and relaxed to `CodeGenContext`. **Port these to yo-self** (expr.yo BF
@@ -302,7 +324,7 @@ WIP / remaining, with the concrete hooks:
 - **no-RC-churn element access (item 6) — ✅ SOLVED (design, validated by analysis)**:
   `tracer.visit` takes the element's SLOT POINTER, never the element by value:
   `visit : fn(forall(T), self : Self, slot : *(T))`, body `__yo_gc_trace_child(self,
-  slot)`, lowering to `emitTraverseValue("(*(slot))", T)` — a RAW deref read, exactly
+slot)`, lowering to `emitTraverseValue("(*(slot))", T)` — a RAW deref read, exactly
   like the auto-derived `visit(obj->field)` (no dup, no drop, RC-neutral). A by-value
   managed handle would be dup'd at the call then dropped at `visit`'s scope end, and at
   RC=1 the drop frees the still-referenced element MID-COLLECTION (UAF) and corrupts the
@@ -326,13 +348,13 @@ WIP / remaining, with the concrete hooks:
   (id_704), and `synthesizeTypes`' funcId-unification path resolves both `dispose` and
   `trace` for it. Resolution/delegation was never the wall.
   - **The true root: the buffer-blind `Acyclic` auto-derive.** `autoDeriveAcyclicForStructType`
-    marked a ref struct `Acyclic` whenever `!canTypeFormRcCycle`, and *both* of those
+    marked a ref struct `Acyclic` whenever `!canTypeFormRcCycle`, and _both_ of those
     looked only at the struct's declared fields. A container's elements live behind a raw
     `?*(E)` buffer pointer, not in a field of type `E`, so the field walk saw no managed
     refs → `ArrayList(Node)` was wrongly marked `Acyclic`. `canTypeFormRcCycle` then
     short-circuits to `false` for any `Acyclic` type, so `Node`'s cycle was never found →
     `needsCycleGC=false` → nothing GC-tracked (`mid=0`).
-  - **The fix (commit ee3d7b82b):** make both halves *element-aware* via a shared
+  - **The fix (commit ee3d7b82b):** make both halves _element-aware_ via a shared
     `bufferElementType(fieldType)` helper (`src/types/utils.ts`) that extracts the pointee
     `E` from an `Option(*(E))` (`?*(E)`) buffer field (bare `*(E)` is intentionally NOT
     matched — a non-owning raw pointer).
@@ -358,10 +380,10 @@ WIP / remaining, with the concrete hooks:
   yo-self now COLLECTS container cycles (`ArrayList(Self)` tracked 0→4→0, full reclaim),
   matching TS. It was a genuine machinery divergence from TS, resolved in two parts:
   - **The divergence:** TS has `collectTraceMethodsFromGenericImpls`, whose
-    `findMethodsFromGenericImpls` returns a *specialized* (emittable) FuncVal. yo-self
-    specializes impl methods *lazily at call sites* (`try_to_call` →
+    `findMethodsFromGenericImpls` returns a _specialized_ (emittable) FuncVal. yo-self
+    specializes impl methods _lazily at call sites_ (`try_to_call` →
     `create_specialized_function_inline`); `trace` has no call site, and yo-self's
-    `find_methods_from_generic_impls` returns a *generic* (non-emittable) FuncVal (same
+    `find_methods_from_generic_impls` returns a _generic_ (non-emittable) FuncVal (same
     func_id, generic body — only forall captures injected).
   - **Part 1/2 — codegen delegation plumbing (inert until part 2):** `gc.yo`
     `generate_yo_gc_trace_child` → slot-deref `(*(slot))` form (was by-value);
@@ -372,7 +394,7 @@ WIP / remaining, with the concrete hooks:
     `collect_trace_methods_from_generic_impls` walks the RC struct/enum types in
     `context.types`, and for each carrying a generic `Trace` impl drives
     `create_specialized_function_inline` to monomorphize `trace` for the concrete
-    container (building the callee env with the impl's forall captures *and* the
+    container (building the callee env with the impl's forall captures _and_ the
     self/tracer params bound — try_to_call normally does the latter), then registers the
     specialized FuncVal under the concrete id (`register_type_trait_method`) + in
     `context.functions` + collects its signature types (GcTracer) and body calls. Gated to

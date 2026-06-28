@@ -1,12 +1,14 @@
 # yo-self RC-emission layer: faithful dup + drop port
 
-**Status:** Phase A (dup-on-store) + Phase B (scope-end drops + return-materialization +
-store-dup) DONE + COMMITTED — **corpus 86/86 DIFF 0 SELF-FAIL 0, TS-ASan clean**, named
-locals now drop (Probe A p1/p2/p3 0→0). ONE residual: Probe A **p4 leaks 0→1** (vs TS 0→0)
-— needs the faithful **`___dispose` synthesis** (§9 below), the deferred RC-function
-synthesis. Supersedes `plans/YO_SELF_NAMED_LOCAL_DROPS.md`. Original decisive finding: the
-eval-side `set_expr_as_needs_to_call_dup` was a **no-op stub** — the true root of why scope
-drops couldn't land alone.
+**Status: ✅ COMPLETE + COMMITTED.** Phase A (dup-on-store) + Phase B (scope-end drops +
+return-materialization + store-dup) + the p4 recursive-`___dispose` synthesis + inline
+value-enum drop (§10) are all landed. **corpus 87/87 DIFF 0 SELF-FAIL 0, TS-ASan clean**,
+named locals drop AND free recursively (Probe A p1/p2/p3/**p4** all 0→0; regression test
+`tests/codegen-bootstrap/rc_dispose_recursive.yo`). Supersedes
+`plans/YO_SELF_NAMED_LOCAL_DROPS.md` (its named-local-drop work IS Phase B). Original decisive
+finding: the eval-side `set_expr_as_needs_to_call_dup` was a **no-op stub** — the true root of
+why scope drops couldn't land alone. §9 records the dead-end method-synthesis attempt; §10 is
+the landed inline approach.
 
 Phase commits: A1 `4eccdb5dd`, A2 `b61f2252c`/`cd113b73d`/`5778bb093`, Phase B `f2de4f781`.
 
