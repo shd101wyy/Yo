@@ -338,24 +338,35 @@ WIP / remaining, with the concrete hooks:
   `yo-self/evaluator/types/utils.yo` (`_all_buffer_elements_acyclic`). The self-hosted
   compiler now **detects** the container cycle (`tracked_count` 0→4; was 0→0). Corpus 85/85
   0-diff.
-- **⏳ PHASE 3 (yo-self COLLECTION): the one remaining piece — a yo-self trace-specialization
-  path.** yo-self detects the cycle but does not yet collect it (0→4→4), because its
-  `trace` method is never specialized for the concrete container. **This is a genuine
-  machinery divergence from TS, not a bug:**
-  - TS has `collectTraceMethodsFromGenericImpls` (mirror of the dispose collector) which
-    walks `context.types`, resolves each container's generic `Trace` impl via
-    `findMethodsFromGenericImpls`, and force-specializes `trace`. **yo-self has no such
-    collector** — it specializes impl methods *lazily at call sites* (`try_to_call` →
-    `create_specialized_function_inline`), and `trace` has no call site, so it is never
-    specialized. `_method_c_name(type, "trace", context)` returns `None`.
-  - **The adaptation (planned):** add a yo-self collector that, for each container type in
-    `context.types` with a `?*(E)` buffer and a generic `Trace` impl, force-specializes
-    `trace` through yo-self's existing `create_specialized_function_inline` and registers
-    the result in `g_type_trait_methods` + `context.functions` (so `_method_c_name` finds
-    it). Then mirror the three TS collection edits in yo-self: (a) `gc.yo`
-    `generate_yo_gc_trace_child` slot-deref (currently still by-value), (b) `find_trace`
-    via `_method_c_name`, (c) the traverse-generator delegation in `constructors.yo`
-    (`_generate_one_ref_struct_traversal` line 293 / `_generate_one_ref_enum_traversal`
-    line 366) calling `${traceCName}(obj, (void*)visit)` when a Trace impl exists.
-  - Add the `ArrayList(Self)` **corpus** differential test only *after* yo-self collects
-    (until then it would diff: TS 0→4→0 vs yo-self 0→4→4).
+- **✅ PHASE 3 (yo-self COLLECTION): DONE (commits 8c97d0f34 part 1/2 + 846f8d483 part 2/2).**
+  yo-self now COLLECTS container cycles (`ArrayList(Self)` tracked 0→4→0, full reclaim),
+  matching TS. It was a genuine machinery divergence from TS, resolved in two parts:
+  - **The divergence:** TS has `collectTraceMethodsFromGenericImpls`, whose
+    `findMethodsFromGenericImpls` returns a *specialized* (emittable) FuncVal. yo-self
+    specializes impl methods *lazily at call sites* (`try_to_call` →
+    `create_specialized_function_inline`); `trace` has no call site, and yo-self's
+    `find_methods_from_generic_impls` returns a *generic* (non-emittable) FuncVal (same
+    func_id, generic body — only forall captures injected).
+  - **Part 1/2 — codegen delegation plumbing (inert until part 2):** `gc.yo`
+    `generate_yo_gc_trace_child` → slot-deref `(*(slot))` form (was by-value);
+    `drop_dup.yo` `get_trace_function_for_type` = `_method_c_name(type, "trace")`;
+    `constructors.yo` ref-struct + ref-enum traverse generators delegate
+    `${traceCName}(obj, (void*)visit)` when a trace is registered, else the field walk.
+  - **Part 2/2 — eval-time collector:** `collection.yo`
+    `collect_trace_methods_from_generic_impls` walks the RC struct/enum types in
+    `context.types`, and for each carrying a generic `Trace` impl drives
+    `create_specialized_function_inline` to monomorphize `trace` for the concrete
+    container (building the callee env with the impl's forall captures *and* the
+    self/tracer params bound — try_to_call normally does the latter), then registers the
+    specialized FuncVal under the concrete id (`register_type_trait_method`) + in
+    `context.functions` + collects its signature types (GcTracer) and body calls. Gated to
+    register only a real FuncVal (create_specialized can soft-fall-back to unit → a no-op
+    leaves the auto-derived field walk → "still leaks", never a crash/miscompile). Codegen
+    has no EvalContext/exn of its own, so `compile_module` takes the live ctx / module env /
+    exn threaded from `run_compile`; the collector runs after `compute_needs_cycle_gc`,
+    gated on `needs_cycle_gc`. (Divergence from TS's compile_module signature is necessary:
+    yo-self's effect-based evaluator can't self-construct an exn handler the way TS
+    self-constructs a context object — the emitted C is identical.)
+  - **Validated:** `ArrayList(Self)` 0→4→0 (was 0→4→4 detect-only); corpus 86/86 PASS,
+    DIFF 0, SELF-FAIL 0 (added `tests/codegen-bootstrap/arraylist_self_cycle.yo`, which
+    PASSES differentially — both back ends agree).
