@@ -382,17 +382,33 @@ node := Node(42, .None);  // Calls __yo_gc_track(node)
 
 ### Traverse Function Generation
 
-For each object type, compiler generates traverse function:
+Every cycle-forming object carries a `traverse_fn` in its header. The collector calls
+it during both trial deletion and restoration, passing a `visit` callback that must be
+applied to **every managed reference the object directly holds**. Missing an edge only
+ever leaks (conservative); visiting a wrong pointer is a use-after-free, so the
+generated traversal is built to be exact.
+
+The compiler generates this traversal **compositionally**. It descends inline through
+value structure — nested value structs, value enums (including `Option`), tuples, and
+inline arrays — and stops at each managed handle, which it visits:
 
 ```c
-// Generated for Node
+// Auto-derived for Node :: ref(struct(value : i32, next : Option(Node)))
 void Node_traverse(void* obj, void (*visit)(void*)) {
     Node* node = (Node*)obj;
-    if (node->next.tag == SOME) {
-        visit(node->next.value);  // Visit referenced Node
+    // `Option(Node)` is nullable-pointer-optimized: visit the bare pointer when set.
+    if (node->next != NULL) {
+        visit(node->next);  // the directly-held managed Node
     }
 }
 ```
+
+This per-field descent is exactly the **auto-derived `Trace` behaviour** (see
+[The `Trace` Trait](#the-trace-trait)). It works for every struct and enum because
+their children live in named fields the compiler can see. It does **not** work for
+containers like `ArrayList` or `HashMap`, whose elements live in a heap buffer behind a
+raw pointer the field walk cannot follow — those types provide a hand-written `Trace`
+impl, and their `traverse_fn` delegates to it.
 
 ### Object Registration
 
@@ -416,6 +432,92 @@ if (__yo_gc_state.alloc_count >= __YO_GC_THRESHOLD) {
 ```
 
 Since spawned tasks are completely isolated (no shared memory), there's no need to track "stealability" - each thread simply manages its own objects independently.
+
+## The `Trace` Trait
+
+Cycle collection rests on one contract: the collector must be able to enumerate the
+managed references each object holds. That contract is the `Trace` trait, defined in
+`std/prelude.yo`:
+
+```rust
+Trace :: trait(
+  id := "Trace",
+  trace : (fn(self : Self, tracer : GcTracer) -> unit),
+  where(Self <: Rc)
+);
+```
+
+A `trace` implementation calls `tracer.visit(...)` once per outgoing edge. The compiler
+turns each type's `trace` into the `traverse_fn` stored in its object header.
+
+### Auto-derived for structs, enums, and value types
+
+You almost never write a `Trace` impl. The compiler **auto-derives** one for every
+reference type whose children sit in named fields it can see:
+
+- `ref(struct(...))` — visits each managed field; descends inline through value-typed
+  fields.
+- `ref(enum(...))` — switches on the tag and visits the active variant's managed fields.
+- `Option`, tuples, nested value structs/enums, and inline arrays — traversed inline as
+  part of their containing field.
+
+So an `Option(Node)` field, a `(Node, i32)` tuple field, or a value struct holding a
+`Node` all just work — no annotation, no impl.
+
+### Hand-implemented for buffer-backed containers
+
+The only types that need a hand-written `Trace` impl are containers that store their
+elements in a heap buffer reached through a raw pointer (`ArrayList`, `HashMap`, …). The
+auto-derived field walk stops at the raw buffer pointer and never reaches the elements,
+so the container must trace each element slot itself. `ArrayList` (in
+`std/collections/array_list.yo`):
+
+```rust
+impl(forall(T : Type), ArrayList(T),
+  Trace(
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self._ptr,
+        .Some(base) => {
+          (i : usize) = usize(0);
+          while(i < self._length, {
+            tracer.visit(base &+ i);  // pass the element's SLOT POINTER
+            i = (i + usize(1));
+          });
+        },
+        .None => ()
+      );
+    })
+  )
+);
+```
+
+### `GcTracer` and the slot-pointer rule
+
+`GcTracer` is an opaque handle that carries the collector's edge-registration callback:
+
+```rust
+GcTracer :: newtype(_callback : *(u8));
+
+// (in `impl(GcTracer, ...)`)
+visit : (fn(forall(T : Type), self : Self, slot : *(T)) -> unit)
+```
+
+`visit` takes a **pointer to where the child lives** (a struct field or a buffer slot),
+never the child by value. This is the critical correctness rule: `visit` reads `*slot`
+**without touching its reference count**, registers the edge if it is a managed handle,
+and recurses inline through value structure otherwise. Passing the element by value
+would dup it and then drop it when `trace` returns — freeing a live, RC-1 element in the
+middle of a collection (a use-after-free). Passing the slot pointer keeps tracing
+reference-count-neutral, matching the auto-derived `visit(&obj->field)` form.
+
+When implementing `Trace` for a new container, the rules are simply:
+
+1. Call `tracer.visit(slot)` for **every** element slot — missing one leaks; there is no
+   crash risk.
+2. Always pass a **pointer to the slot**, never the element by value.
+3. You do not recurse into the elements yourself — `visit` handles whatever a slot holds
+   (a managed handle, a value struct, a nested `Option`, …) compositionally.
 
 ## Comparison with Other Approaches
 

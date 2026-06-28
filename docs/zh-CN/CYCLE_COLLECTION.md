@@ -382,17 +382,28 @@ node := Node(42, .None);  // 调用 __yo_gc_track(node)
 
 ### 遍历函数生成
 
-编译器为每种对象类型生成遍历函数：
+每个可形成循环的对象在其头部携带一个 `traverse_fn`。回收器在试验性删除和恢复两个阶段都会调用它，
+并传入一个 `visit` 回调，该回调必须作用于**对象直接持有的每一个受管引用**。漏掉某条边只会导致泄漏
+（保守，安全）；而访问了错误的指针则是 use-after-free，因此生成的遍历逻辑被设计为精确无误。
+
+编译器以**组合式**方式生成这段遍历逻辑：它内联地穿透值结构——嵌套的值结构体、值枚举（包括
+`Option`）、元组以及内联数组——并在每个受管句柄处停下来访问它：
 
 ```c
-// 为 Node 生成的遍历函数
+// 为 Node :: ref(struct(value : i32, next : Option(Node))) 自动派生
 void Node_traverse(void* obj, void (*visit)(void*)) {
     Node* node = (Node*)obj;
-    if (node->next.tag == SOME) {
-        visit(node->next.value);  // 访问引用的 Node
+    // `Option(Node)` 采用可空指针优化：非空时访问裸指针。
+    if (node->next != NULL) {
+        visit(node->next);  // 直接持有的受管 Node
     }
 }
 ```
+
+这种逐字段下降正是**自动派生的 `Trace` 行为**（参见 [`Trace` Trait](#trace-trait)）。它对每个结构体和
+枚举都有效，因为它们的子节点都位于编译器可见的命名字段中。但它对 `ArrayList`、`HashMap` 这类容器
+**无效**——这些容器的元素位于裸指针背后的堆缓冲区中，字段遍历无法跟进。这类类型需提供一个手写的
+`Trace` 实现，其 `traverse_fn` 会委托给该实现。
 
 ### 对象注册
 
@@ -416,6 +427,84 @@ if (__yo_gc_state.alloc_count >= __YO_GC_THRESHOLD) {
 ```
 
 由于 spawn 的任务完全隔离（不共享内存），无需跟踪"可窃取性"——每个线程只需独立管理自己的对象即可。
+
+## `Trace` Trait
+
+循环回收建立在一个约定之上：回收器必须能够枚举出每个对象所持有的受管引用。这个约定就是 `Trace`
+trait，定义于 `std/prelude.yo`：
+
+```rust
+Trace :: trait(
+  id := "Trace",
+  trace : (fn(self : Self, tracer : GcTracer) -> unit),
+  where(Self <: Rc)
+);
+```
+
+`trace` 实现每条出边调用一次 `tracer.visit(...)`。编译器会把每个类型的 `trace` 转换为存放在其对象头部
+的 `traverse_fn`。
+
+### 结构体、枚举与值类型自动派生
+
+你几乎从不需要手写 `Trace` 实现。对于子节点位于编译器可见命名字段中的每个引用类型，编译器都会
+**自动派生**一个：
+
+- `ref(struct(...))`——访问每个受管字段；对值类型字段内联下降。
+- `ref(enum(...))`——根据标签分支，访问当前变体的受管字段。
+- `Option`、元组、嵌套的值结构体/枚举以及内联数组——作为其所属字段的一部分被内联遍历。
+
+因此，一个 `Option(Node)` 字段、一个 `(Node, i32)` 元组字段，或一个持有 `Node` 的值结构体，全都开箱
+即用——无需注解，无需实现。
+
+### 缓冲区支撑的容器需手写实现
+
+唯一需要手写 `Trace` 实现的，是那些将元素存放在堆缓冲区、并通过裸指针访问的容器（`ArrayList`、
+`HashMap` 等）。自动派生的字段遍历会在裸缓冲区指针处停下，永远到不了元素，因此容器必须自行遍历每个
+元素槽位。`ArrayList`（位于 `std/collections/array_list.yo`）：
+
+```rust
+impl(forall(T : Type), ArrayList(T),
+  Trace(
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self._ptr,
+        .Some(base) => {
+          (i : usize) = usize(0);
+          while(i < self._length, {
+            tracer.visit(base &+ i);  // 传入元素的槽位指针
+            i = (i + usize(1));
+          });
+        },
+        .None => ()
+      );
+    })
+  )
+);
+```
+
+### `GcTracer` 与槽位指针规则
+
+`GcTracer` 是一个不透明句柄，承载回收器的边注册回调：
+
+```rust
+GcTracer :: newtype(_callback : *(u8));
+
+// （位于 `impl(GcTracer, ...)` 中）
+visit : (fn(forall(T : Type), self : Self, slot : *(T)) -> unit)
+```
+
+`visit` 接收一个**指向子节点所在位置的指针**（结构体字段或缓冲区槽位），而非按值传入子节点。这是关键的
+正确性规则：`visit` 读取 `*slot` 时**不触碰其引用计数**，若它是受管句柄则注册该边，否则内联地穿透值结构
+递归。若按值传入元素，则会先 dup 再在 `trace` 返回时 drop——这会在一次回收过程中释放掉一个仍存活、
+引用计数为 1 的元素（use-after-free）。传入槽位指针可使遍历对引用计数保持中性，与自动派生的
+`visit(&obj->field)` 形式一致。
+
+为新容器实现 `Trace` 时，规则很简单：
+
+1. 对**每一个**元素槽位调用 `tracer.visit(slot)`——漏掉只会泄漏，不会崩溃。
+2. 始终传入**指向槽位的指针**，绝不按值传入元素。
+3. 你无需自己递归进入元素——`visit` 会组合式地处理槽位中持有的任何内容（受管句柄、值结构体、嵌套
+   `Option` 等）。
 
 ## 与其他方案的对比
 
