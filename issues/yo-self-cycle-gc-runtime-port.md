@@ -154,31 +154,34 @@ terminators leak; the a<->b cycle is collected by BOTH). This is why
 cycle was reclaimed) rather than `after == before` (everything freed). Separate
 from cycle collection.
 
-**PINNED ROOT (2026-06-28 — supersedes the "no-op stub" and "ref-enum reassign-only"
-framings):** yo-self **never schedules begin-block scope-end RC drops for owning
-locals** — a broad gap; the reassignment leak is one symptom. `attach_temp_variable_to_expr`
-is fully implemented (utils.yo:105; the "stub" comments are stale). MECHANISM: the
-codegen `generate_deferred_drop_expressions` (drop_dup.yo:384) and `_emit_deferred_drops`
-(begin.yo) only **read** `ei.deferred_drop_expressions` — they compute nothing. The
-eval-side scheduler that BUILDS the drop exprs (`generate_deferred_drop_expressions`,
-`evaluator/calls/helper.yo:234` — takes `variables_to_drop`, emits `___drop(var)`,
-returns the list) EXISTS + is exported but has **zero callers in the evaluator**, and a
-begin block's `deferred_drop_expressions` is never populated for scope-end (only
-suspension_analysis + recur set that field). So the function-body generator emits
-whatever the block scheduled = nothing. VERIFIED 3 ways: (1) a `Dispose` impl does not
-fire when a local goes out of scope (TS prints "disposed 7", yo-self doesn't); (2)
-`tracked_count` leaks (`make(){ e := ECons(1,ENil); () }` leaves yo-self tracked=2);
-(3) emitted C shows no trailing drop call for the local. CONSISTENT WITH: yo-self's ~2×
-self-compile memory (P2 task #21) is partly this leak; the cycle tests "collected" partly
-by RC-error CANCELLATION (missing dup-on-store + missing scope-drop offset for cyclic
-objs), so leaks surface for non-cyclic objects (the `ENil` terminators); the behavior-based
-corpus can't see leaks; the memory's double-free fixes were the TS compiler's codegen (a
-never-dropping compiler leaks, can't double-free). FIX = port TS `begin.ts:285-331`
-scope-drop scheduling into yo-self `begin.yo`: at block end collect the frame's owning,
-non-consumed, non-borrowed RC vars, call the existing `helper.yo:234`
-`generate_deferred_drop_expressions`, store the result on the begin-block ExprInfo; plus
-control-flow-exit drops + consume/move tracking (don't drop a moved-out/returned var →
-double-free) + closure-capture/ref-param exclusions. ⚠️ SUBSTANTIAL + DELICATE (changes RC
-for every function; wrong → double-free/UAF across the corpus). Validate corpus 0-diff +
-Dispose-fires + tracked→baseline + TS-ASan. Repro: `src/tests/fixme.yo`, `/tmp/leak2.yo`,
-`/tmp/dispose_test.yo`.
+**PINNED ROOT (2026-06-28, rigorously confirmed + NARROWED — supersedes the "no-op stub",
+"ref-enum-reassign-only", AND an overstated "zero drops / broad" framing):** yo-self **does
+not schedule begin-block scope-end RC drops for owning NAMED-LOCAL bindings** (`x :=
+New(...)`). It is NOT a total RC absence — yo-self DOES drop call-arg/clone temporaries +
+return-path values (PROVEN by the documented yo-self double-free fix
+`return_call_clone_arg_drop`, BOOTSTRAPPING_CODEGEN.md:181-189 — you can't double-free
+without dropping; other_fn_call.yo/return.yo/match.yo all call
+`generate_deferred_drop_expressions`). (`attach_temp_variable_to_expr` is fully implemented,
+utils.yo:105; the "stub" comments are stale.) MECHANISM: the codegen function-body generator
+(generation.yo:102/116) emits `body_expr.deferred_drop_expressions`, but the begin-block
+EVALUATOR (begin.yo) never POPULATES that field for owning named locals at scope end — the
+eval-side scheduler (`helper.yo:234 generate_deferred_drop_expressions`, takes
+`variables_to_drop`, emits `___drop(var)`) exists + is exported but has **zero evaluator
+callers** (only suspension_analysis + recur set the field). CONFIRMED via tracked_count
+probe (`/tmp/rc_probe{,2}.yo`): TS drops every named local (all patterns `0→0`); yo-self
+leaks every named local (monotonic `0→1→2→3→…` across local / pass-to-owned-param /
+returned-value / field-store / unit-tail / value-tail / explicit-`return`). Also: a
+`Dispose` impl doesn't fire on a scope-exiting local (TS prints "disposed 7", yo-self
+doesn't). CONSISTENT WITH yo-self's ~2× self-compile memory (P2 #21: named locals leak,
+temps drop) and the cycle tests "collecting" partly by RC-error CANCELLATION (yo-self also
+omits dup-on-store, so the two errors offset for cyclic objs; leaks surface for non-cyclic
+ones like the `ENil` terminators). The behavior-based corpus can't see leaks.
+**PREREQUISITE (unverified — UAF risk):** whether yo-self DUPs on named-local field-stores/
+construction. form_cycle's reassignment showed NO `__dup`; if construction likewise doesn't,
+adding a scope-drop for a stored-then-also-local var → UAF. **SAFE FIX ORDER:** (1) verify +
+fix dup-on-store FIRST (over-dup = leak, never UAF); (2) THEN port TS `begin.ts:285-331` into
+`begin.yo` (schedule drops for the frame's owning non-consumed non-borrowed named locals via
+the existing `helper.yo:234` scheduler, store on the begin-block ExprInfo; + consume/move/
+borrow/closure-capture exclusions). ⚠️ DELICATE (changes RC for every function; wrong →
+double-free/UAF across the corpus). Validate corpus 0-diff + Dispose-fires + tracked→baseline
++ TS-ASan. Repro: `src/tests/fixme.yo`, `/tmp/rc_probe{,2}.yo`, `/tmp/dispose_test.yo`.
