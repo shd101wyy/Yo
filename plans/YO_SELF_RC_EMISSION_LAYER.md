@@ -1,10 +1,14 @@
 # yo-self RC-emission layer: faithful dup + drop port
 
-**Status:** PLANNED — master plan for task #38. Supersedes the incremental framing in
-`plans/YO_SELF_NAMED_LOCAL_DROPS.md` (keep that doc for its M1 attempt logs §10/§11 and
-the validation harness §6). This plan adds the **decisive new finding**: the eval-side
-`set_expr_as_needs_to_call_dup` is a **no-op stub** (`yo-self/evaluator/utils.yo:562`), so
-yo-self has **zero dup-on-store** — the true root of why scope drops can't land alone.
+**Status:** Phase A (dup-on-store) + Phase B (scope-end drops + return-materialization +
+store-dup) DONE + COMMITTED — **corpus 86/86 DIFF 0 SELF-FAIL 0, TS-ASan clean**, named
+locals now drop (Probe A p1/p2/p3 0→0). ONE residual: Probe A **p4 leaks 0→1** (vs TS 0→0)
+— needs the faithful **`___dispose` synthesis** (§9 below), the deferred RC-function
+synthesis. Supersedes `plans/YO_SELF_NAMED_LOCAL_DROPS.md`. Original decisive finding: the
+eval-side `set_expr_as_needs_to_call_dup` was a **no-op stub** — the true root of why scope
+drops couldn't land alone.
+
+Phase commits: A1 `4eccdb5dd`, A2 `b61f2252c`/`cd113b73d`/`5778bb093`, Phase B `f2de4f781`.
 
 **One-line:** Port yo-self's entire reference-counting emission layer to match TS 1-to-1:
 (A) dup-on-store (the stub + ~9 codegen emission sites), then (B) scope-end drops +
@@ -328,3 +332,41 @@ All dup sites (eval calls + codegen emits) are crash-safe to add incrementally
 reassignment-dup lands — that one co-lands with Phase B/C drops). THEN Phase B
 (drops + return materialization + early-return filter) rebalances. Never land a
 drop before its paired dups exist.
+
+## 9. NEXT (the p4 residual): faithful `___dispose` synthesis — auto-derived recursive RC-field drop
+
+**Root cause of the p4 leak (verified):** yo-self ref-structs with RC fields have NO
+auto-derived `___dispose`, so `get_dispose_function_for_type(N)` (= `_method_c_name(N,"___dispose")`,
+drop_dup.yo:34) returns None → the constructor sets `dispose_fn = NULL` (constructors.yo:113) →
+when an N is freed (rc→0), `__yo_decr_rc` does NOT recursively drop its RC fields (the runtime
+calls `dispose_fn` for that — gc_runtime.yo:341 normal free, :658 collector). So `b := N(5,Some(a))`:
+freeing `b` never decrements `a` → `a` leaks. TS auto-derives `___dispose` (recursive field-drop);
+yo-self **deferred the whole RC-function synthesis** (evaluator/types/utils.yo:19).
+
+**TS source to port (faithful):** `src/evaluator/types/utils.ts` —
+`generateDisposeFunctionCodeForStructType` (389), `generateDestructuringAndCalls` (355),
+`generateDisposeFunctionCodeForEnumType` (~691), `addRcFunctionsToStructType` (573) /
+`addFunctionCodeToSelfTypeModule`. The `___dispose` body is just:
+`(fn(self : Self) -> unit)({ { f1 : a1, f2 : a2, … } := self; (___drop)(a1); (___drop)(a2); … () })`
+over the RC-containing runtime fields (TS `generateDestructuringAndCalls`).
+
+**Where to do it in yo-self (a ctx-bearing pass — `auto_derive_traits_for_struct_type` lacks
+ctx/exn/field-labels):** add a codegen-time `collect_dispose_methods` pass mirroring task #37's
+`collect_trace_methods_from_generic_impls` (collection.yo:852) + `_specialize_and_register_trace`
+(it already threads `base/ctx/module_env/info/exn` from `compile_module`):
+
+1. Snapshot RC struct/enum types from `base.types` (like the trace pass).
+2. For each with RC fields and no existing `___dispose`: build the dispose code string from the
+   type's field labels (get_runtime_struct_fields / variant fields), `generate_expr_from_code`,
+   evaluate it in a `clone_env(module_env)` frame with `Self`/`self` bound to the concrete type
+   (mirror `_specialize_and_register_trace`'s env-build), extract the `FuncVal`,
+   `register_type_trait_method(type_id, ___dispose_entry)`, and collect it for codegen (add to
+   `base.functions` + collect its sig/body, exactly as the trace pass does).
+3. Then the EXISTING machinery works unchanged: `get_dispose_function_for_type` finds it →
+   constructor sets `dispose_fn` → `decr_rc` recurses on free.
+
+**Scope/risk:** task-#37-scale (intricate synth+register+collect, broad blast radius — every RC
+type). Validate: corpus 86/86 0-diff + SELF-FAIL 0, **Probe A p4 0→0** (the fix target) + p1-3
+still 0→0, Probe B (`disposed 7` fires), TS-ASan clean, check ./std 152, cycle tests still
+collect. Enum version (`generateDisposeFunctionCodeForEnumType`) + the `containsSomeType`/
+comptime-only skips must be ported too. This is the last piece for a leak-free faithful Phase B.
