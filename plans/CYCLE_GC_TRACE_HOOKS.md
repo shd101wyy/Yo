@@ -289,29 +289,33 @@ WIP / remaining, with the concrete hooks:
   Resolve the container's Trace impl with its OWN env (`type.env`), not the root's
   threaded env (impls are visible in the defining module, not necessarily the root's).
 
-- **⛔ THE OPEN BLOCKER — generic-impl resolution for containers** (this is what stops
-  Phase 3 from finishing): detection (`typeImplementsTrace`), the traverse delegation
-  (`findUserTraceMethodForType`), AND specialization (`collectTraceMethodsFromGenericImpls`)
-  all must resolve a concrete container's GENERIC `Trace` impl, and they all bottom out in
-  `tryMatchGenericImpl` → `synthesizeTypes`, which THROWS:
-  `Cannot unify incompatible struct types: "ArrayList(T)" and "object(_ptr: Option(*(T)),
-  _length: usize, _capacity: usize)"`. The generic impl's receiver is the NAMED struct
-  `"ArrayList(T)"`; concrete instantiations are the ANONYMOUS `"object(...)"` form — they
-  never unify by name, so `findMethodsFromGenericImpls` returns 0 for BOTH `trace` AND
-  `dispose` on ArrayList. `dispose` survives only because the evaluator inserts dispose
-  calls into the AST when a container is dropped, so the specialized `dispose` lands in
-  `context.functions` (found later by the funcName search in `findUserDisposeMethodForType`).
-  `trace` has NO call-sites, so nothing ever collects/specializes it. CANDIDATE FIXES
-  (next focused session): (a) give instantiated generic structs a nominal identity shared
-  with their type-function so `synthesizeTypes` matches `ArrayList(T)` ↔ `ArrayList(X)`
-  [deep struct-naming work — relates to [[yo-self-struct-identity-cache-fix]]]; (b) extract
-  the specialization block out of `findMethodsFromGenericImpls` into a reusable helper and
-  add a `collectContainerTraceMethods` that derives substitutions `{Self: concrete,
-  E: bufferElementType}` manually (single forall for ArrayList; K,V via `Bucket` for
-  HashMap) and specializes the trace body directly, bypassing the broken name-unify
-  [moderate, container-scoped, lowest risk]; (c) synthesize a `trace` call-site during
-  evaluation for cycle-GC containers so it is collected like `dispose` [eval-side].
-  Item-5/6/7 plumbing + the slot-pointer API were implemented on TS and build clean; all
-  reverted to keep the tree at the symmetric phase-2-foundation milestone. Re-apply from
-  these anchors once (a)/(b)/(c) lands; then validate ArrayList(Self) collects + ASan on
-  an RC=1 cycle, port to yo-self, corpus 0-diff.
+- **⛔ THE REAL OPEN BLOCKER — struct-identity fragmentation for generic instantiations
+  (task #30), specifically in cycle DETECTION.** Full implementation of items 5/6/7 + the
+  slot-pointer API was done on TS (builds clean) and reverted; here is exactly what was
+  learned:
+  - **Resolution/delegation WORKS** for a concrete container that carries a `functionValue`.
+    `synthesizeTypes` has a funcId-unification path (synthesizer.ts:660) that matches
+    `ArrayList(T)` ↔ `ArrayList(X)` when both structs share `functionValue.funcId`. The
+    concrete `ArrayList(Node)` in `context.types` (id_704) has `functionValue=…id_40`, so
+    `findMethodsFromGenericImpls` resolves BOTH `dispose` AND `trace` for it
+    (`disposeFound=1`). So `collectTraceMethodsFromGenericImpls` + the traverse delegation
+    are viable. (My earlier "name-divergence" reading was only the *symptom* on fv-LESS
+    instances.)
+  - **Detection does NOT work** — the wall. `can_type_form_rc_cycle(Node)` for
+    `Node :: ref(struct(children : ArrayList(Self)))` cannot find the cycle because
+    `ArrayList(Node)` exists as MULTIPLE non-identical struct instances (different
+    `type.id`: the scan reaches id_738 whose buffer element is concrete `Node`, but Node's
+    own `children` field references a DIFFERENT `ArrayList(Node)` instance). The cycle check
+    keys its `visited` set by `type.id`, so the back-reference `…→ArrayList(Node)→Node→…`
+    never converges to a visited id → `cycles=false` → `needsCycleGC` stays false → nothing
+    is even GC-registered (`mid=0`). Keying `visited` by a canonical identity instead would
+    fix it, but a canonical key needs `functionValue.funcId` + the type-args, and (i) some
+    instances have `functionValue=none` and (ii) `StructType` has no `typeArguments` field —
+    i.e. exactly task #30 ("stable type identity for same-fielded generic instantiations").
+  - **Conclusion:** Phase 3 (container cycle collection) is gated on **task #30**. None of
+    the three earlier options (functionValue preservation / manual specializer / eval call-
+    site) resolves DETECTION, because they all assume a single canonical `ArrayList(Node)`
+    identity that does not exist today. The slot-pointer no-RC-churn design (above) is
+    correct and ready; re-apply items 5/6/7 from these anchors AFTER task #30 gives
+    generic instantiations a stable identity, then validate `ArrayList(Self)` collects +
+    ASan on an RC=1 cycle, port to yo-self, corpus 0-diff.
