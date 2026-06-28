@@ -193,26 +193,28 @@ reassignment: `a.next = b` saves the old `a.next` to a temp but never `decr_rc`s
 (TS does). Required for "no leaks." Tracked as gap #3 in
 `issues/yo-self-cycle-gc-runtime-port.md`.
 
-**Precise root (RE-DIAGNOSED 2026-06-28 from emitted C — supersedes two earlier wrong
-framings):** NOT "fix the codegen save" (the save is emitted) and NOT "un-stub
-`attach_temp_variable_to_expr`" (that fn IS fully implemented in
-`yo-self/evaluator/utils.yo:105` — it registers the temp; the "no-op stub" comments in
-`recur.yo:20`/`assignment.yo:13,718` are STALE, predating its porting). The actual gap,
-from comparing the emitted C of the ref-enum cycle (TS `0→2→0` vs yo-self `0→4→2`): for
-`a.next = b` where `next : Self` (a ref-**enum** managed field), yo-self emits the old
-value SAVE (`temp = a->data.ECons.next; // Save old value`) but emits **neither** (1) a
-`__dup` on the RHS (TS: `a->next = __dup(b)`; yo-self: `a->next = b`) **nor** (2) any
-scope-end `__drop` — not the saved temps, *not even the locals* `a`/`b`. TS drops all
-four. Net: the two overwritten `ENil` terminators are held at RC=1 by dead save-temps and
-survive trial deletion (nothing else points at them) → leak (`after=2`); the `a↔b` ECons
-cycle still collects. So yo-self's assignment dup/drop **scheduling** doesn't treat
-ref-enum managed-field writes as RC-managed (no deferred dup on RHS, no deferred drop of
-the saved old value). **Fix:** schedule the deferred `dup(RHS)` + deferred
-`drop(saved-old-value)` for ref-enum (verify ref-struct) managed-field reassignment in
-yo-self's assignment evaluator/codegen, mirroring TS. ⚠️ Delicate RC change — validate
-corpus 0-diff + `ref_enum_cycle` returning to baseline (`after==before`) + TS-ASan.
-Likely localized to the ref-enum field-write path (ref-struct field writes + variable
-reassignment already emit correct RC). Repro: `src/tests/fixme.yo` (count-printing).
+**PINNED ROOT (2026-06-28 — supersedes three earlier framings; this is bigger than §4):**
+the reassignment leak is one symptom of a **broad** gap — yo-self **never schedules
+begin-block scope-end RC drops for owning locals**. (`attach_temp_variable_to_expr` is
+fully implemented, utils.yo:105; the "no-op stub" comments are stale.) MECHANISM: codegen
+`generate_deferred_drop_expressions` (drop_dup.yo:384) + `_emit_deferred_drops` (begin.yo)
+only **read** `ei.deferred_drop_expressions`; the eval-side scheduler that BUILDS the drops
+(`helper.yo:234 generate_deferred_drop_expressions`) EXISTS + is exported but has **zero
+evaluator callers**, and a begin block's `deferred_drop_expressions` is never populated
+for scope-end. So function bodies emit nothing. VERIFIED 3 ways (Dispose impl doesn't fire
+on a scope-exiting local; `tracked_count` leaks; emitted C has no trailing drop). CONSISTENT
+WITH yo-self's ~2× self-compile memory (P2 task #21) and the cycle tests "collecting" partly
+by RC-error CANCELLATION (missing dup-on-store offsets missing drop for cyclic objs; leaks
+surface for the non-cyclic `ENil` terminators). The behavior-based corpus can't see leaks;
+the memory's double-free fixes were TS-compiler codegen (a never-dropping compiler leaks,
+can't double-free). **Fix:** port TS `begin.ts:285-331` into yo-self `begin.yo` — at block
+end collect the frame's owning, non-consumed, non-borrowed RC vars, call the existing
+`helper.yo:234` scheduler, store the result on the begin-block ExprInfo; plus control-flow-
+exit drops + consume/move tracking (don't drop a moved-out/returned var → double-free) +
+closure-capture/ref-param exclusions. ⚠️ SUBSTANTIAL + DELICATE: changes RC for every
+function; wrong → double-free/UAF across the corpus. Validate corpus 0-diff + Dispose-fires
++ `tracked→baseline` + TS-ASan. NOT surgical — its own focused effort. Repro:
+`src/tests/fixme.yo`, `/tmp/leak2.yo`, `/tmp/dispose_test.yo`.
 
 ## 5. Implementation phases
 
