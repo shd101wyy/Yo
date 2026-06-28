@@ -27,7 +27,8 @@ open(import("std/string"));
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
+{ Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
 _method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGenerationContext) -> Option(String))({
@@ -462,4 +463,39 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
     .None => ()
   )
 );
-export(get_drop_function_for_type, get_dup_function_for_type, get_dispose_function_for_type, get_trace_function_for_type, resolve_some_type_param_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_deferred_dup_expressions);
+/// Emit `expr`'s deferred `___dup` expression(s), if any, then return the
+/// dup-result temp's C name (so the dup'd copy is what gets stored/passed);
+/// otherwise return `fallback_code` unchanged. Shared by the codegen
+/// dup-on-store sites (init-assignment RHS, ref-struct ctor args, ...).
+/// Mirrors the `deferredDupExpressions` blocks in `src/codegen/exprs/*`.
+emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.deferred_dup_expressions,
+      .Some(dups) => if(dups.len() > usize(0), {
+        generate_deferred_dup_expressions(expr, indent.clone(), context);
+        match(
+          dups.get(usize(0)),
+          .Some(dup_expr) => if(
+            ast_expr_is_fn_call(dup_expr),
+            match(
+              context.base.get_expr_info(dup_expr),
+              .Some(dei) => match(
+                dei.variable_name,
+                .Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)),
+                .None => fallback_code
+              ),
+              .None => fallback_code
+            ),
+            fallback_code
+          ),
+          .None => fallback_code
+        )
+      }, fallback_code),
+      .None => fallback_code
+    ),
+    .None => fallback_code
+  )
+);
+export(get_drop_function_for_type, get_dup_function_for_type, get_dispose_function_for_type, get_trace_function_for_type, resolve_some_type_param_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_deferred_dup_expressions, emit_deferred_dup_or_code);

@@ -30,7 +30,7 @@ open(import("std/string"));
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
-{ generate_deferred_drop_expressions } :: import("./drop_dup.yo");
+{ generate_deferred_drop_expressions, emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_effect_unwind_check } :: import("./return.yo");
@@ -1152,7 +1152,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             if(ci > usize(0), {
               ctor_list.push_str(", ");
             });
-            match(ctor_args.get(ci),.Some(ca) => ctor_list.push_string(_call_generate_expr(ca, indent.clone(), context)),.None => ());
+            match(ctor_args.get(ci),.Some(ca) => ctor_list.push_string(emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context)),.None => ());
             ci = (ci + usize(1));
           });
           ctor_call := String.from("__yo_new_");
