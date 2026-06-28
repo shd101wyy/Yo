@@ -1,8 +1,10 @@
 # yo-self: schedule begin-block scope-end RC drops for owning named locals
 
-**Status:** M1 ATTEMPTED 2026-06-28 — eval-side scheduling WORKS; blocked by a
-codegen crash. Reverted to keep the tree clean. See §10 (attempt log) for the precise
-blocker before retrying. Diagnosis (§1-§5) is complete + rigorous.
+**Status:** 2× ATTEMPTED 2026-06-28 — eval scheduling works + the codegen crash is
+root-caused & fixed, BUT partial scope-end drops are proven UNSAFE without the full
+coupled RC machinery (UAF + broken cycles). Reverted to clean. **§11 is the decisive
+conclusion: this is a full RC-emission-layer port, not an incremental M1.** Read §10
+(crash root) + §11 (coupling proof) before retrying. Diagnosis (§1-§5) complete.
 
 **One-line:** yo-self never emits scope-end `___drop` for owning *named-local* bindings
 (`x := New(...)`), so it leaks every named local. Port the TS begin-block scope-drop
@@ -270,3 +272,50 @@ wild pointer → memmove), and/or it's entangled with consume-tracking for
 open too. The cycle-GC plan's CORE (Phases 1-3 container collection in both compilers +
 Phase 5 docs) is done and committed; only the scope-drop completeness (§4 / this plan)
 remains, blocked on the codegen crash above.
+
+## 11. M1 attempt 2 — crash FIXED, but coupling proven (2026-06-28)
+
+**Decisive outcome: the codegen crash is FIXED + root-caused, but partial scope-end
+drops are FUNDAMENTALLY UNSAFE without the full coupled RC machinery — empirically
+proven. Reverted to clean. Full attempt saved (scratchpad `m1_full_attempt.patch`).**
+
+### The crash (from §10) — root-caused + fixed
+Pinned by probe-bisection to: codegen of `if(slen==0, begin(return(Self(_bytes:.None)),
+()))` in `String.from` — an early-return inside an `if`, in a function with M1-scheduled
+deferred drops. Two dormant codegen bugs (always-empty `deferred_drop_expressions`
+pre-M1 hid them), both fixed in the saved patch:
+1. **Aliasing (faithful divergence):** `generation.yo:58` aliased `ei.deferred_drop_expressions`
+   into `pending_deferred_drops`; TS `generation.ts:1515` COPIES (`[...]`). Added
+   `_copy_expr_list`. (A real 1-to-1 divergence regardless of M1.)
+2. **Early-return drop of not-yet-live locals:** feeding the scope-end drops into the
+   early-return `pending` path emits drops for locals not yet initialized at the return →
+   crash. yo-self lacks TS's init-position-filtered early-return drops (begin.ts:2068-2122).
+   Fix: skip begin blocks that directly contain a control-flow exit + keep `pending` empty.
+
+With those, `min_str` / `string_build_iterate` compile + run, Probe A still `0→0`, and the
+corpus has **SELF-FAIL 0** (no crashes).
+
+### But: 6 behavioral DIFFs prove the dup/drop COUPLING (§5)
+The partial M1 (scope-end drops, NO dup-on-store, NO return-value materialization) diverges
+from TS on 6 corpus tests — two are decisive:
+- **`rc_early_return_drop`** (`{ xs := AL.new(); xs.push(n); if(n>5) return 100; xs.push(1);
+  i32(xs.len()) }`): yo-self prints `0` for `xs.len()`, TS prints `2` → **USE-AFTER-FREE**.
+  `generation.yo:101-108` emits the scope-end `___drop(xs)` BEFORE the `return <expr>`
+  statement, but `<expr>` = `i32(xs.len())` is evaluated in C AT the return — after xs is
+  freed. The return value must be MATERIALIZED into a temp before the drops (TS does).
+- **`arraylist_self_cycle`** (the Phase-3 test): now "leaked". Adding drops WITHOUT the
+  matching dup-on-store UNBALANCES the cycle collection (which only worked by the
+  no-dup/no-drop RC-error cancellation, §1).
+
+### CONCLUSION (answers "can M1 land alone?" → NO)
+Scope-end drops cannot be added piecemeal. The full faithful RC-codegen machinery must
+co-land, matching TS exactly for 1-to-1:
+1. **dup-on-store** (assignment RHS / field store / construction-move) — else drops
+   unbalance RC (breaks cycles, premature frees).
+2. **return-value materialization** before scope-end drops — else drop-before-return-use UAF.
+3. **early-return init-position-filtered drops** (TS begin.ts:2068-2122) — else early
+   returns drop not-yet-live locals.
+4. **consume/move exclusion** for returned/moved values (verify yo-self's coverage).
+This is essentially porting yo-self's entire RC-emission layer faithfully — a major,
+coupled effort (its own multi-session project), NOT an incremental M1/M2/M3 sequence. The
+crash fixes + `_copy_expr_list` (item 1 of §10) are worth keeping when that port starts.
