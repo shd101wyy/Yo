@@ -185,3 +185,54 @@ See `plans/YO_SELF_NAMED_LOCAL_DROPS.md §6` (Probe A/B source, the 6 gates). Su
 - `issues/yo-self-cycle-gc-runtime-port.md` → `issues/fixed/` if fully closed.
 - `plans/BOOTSTRAPPING_CODEGEN.md` phase 4 → consume-tracking/RC + self-compile-memory (P2 #21).
 - `cycle-gc-trace-hooks-progress` memory + task #38.
+
+## 8. Progress + PRECISE two-sided gap inventory (2026-06-28)
+
+The dup-on-store gap is **two-sided** — the eval side must CALL
+`set_expr_as_needs_to_call_dup` (mark) AND codegen must EMIT the resulting
+`deferred_dup_expressions` (rewrite to the dup temp). yo-self is missing calls
+on BOTH sides. Verified by diffing `setExprAsNeedsToCallDup` call sites
+(`src/evaluator/` 12 files) and `deferredDupExpressions` emit sites
+(`src/codegen/` 18 files) against yo-self.
+
+### DONE this session
+
+- **A1 — eval-side `set_expr_as_needs_to_call_dup` ported** (was a no-op stub;
+  THE root cause). Commit `4eccdb5dd`. All existing callers thread `exn`.
+- **A2 (1/N) — codegen dup emission in `init_assignment.yo`** (`_emit_rhs_deferred_dup`
+  helper; the two scalar-path RHS sites). Commit `b61f2252c`.
+- Both validated: compile OK (~77s), corpus **86/86 PASS DIFF 0 SELF-FAIL 0**,
+  `check ./yo-self` 0 regressions (baseline = identical 11 pre-existing test-file fails).
+
+### REMAINING — eval side (must CALL `set_expr_as_needs_to_call_dup`; TS has, yo-self lacks)
+
+| TS site                   | yo-self file                | note                                                                                                                                                                                                                                                                                                                 |
+| ------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calls/helper.ts:418-452` | `evaluator/calls/helper.yo` | **HIGH** — fn-call args (`sink(x)`). yo-self helper.yo lacks the WHOLE owned-vs-borrowed arg branch (no `set_expr_as_consumed` calls at all): owning arg → consume (move, no dup); borrowed/non-owning → `set_expr_as_needs_to_call_dup` + consume. Consume-tracking change → validate use-after-move across corpus. |
+| `exprs/begin.ts:1776`     | `evaluator/exprs/begin.yo`  | return-value expr dup (pairs with Phase B return handling)                                                                                                                                                                                                                                                           |
+| `values/dyn.ts:321`       | `evaluator/values/dyn.yo`   | dyn() inner value                                                                                                                                                                                                                                                                                                    |
+| `values/tuple.ts:107`     | `evaluator/values/tuple.yo` | tuple element                                                                                                                                                                                                                                                                                                        |
+
+(yo-self's `record_type.yo`/`trait_type.yo` calls have no separate TS file — TS folds them into `type.ts`. Those are already present.)
+
+### REMAINING — codegen side (must EMIT `deferred_dup_expressions`; pattern §3, helper like `init_assignment.yo`'s `_emit_rhs_deferred_dup`)
+
+| TS site                        | yo-self file                      | note                                                                                                                                                                                                                                                                             |
+| ------------------------------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `other-fn-call.ts` (~7 blocks) | `codegen/exprs/other_fn_call.yo`  | **HIGH** — primary block maps to `_materialize_arg` (line ~420, after `final_name`); needs the `argTargets`-filtered `get_deferred_dup_target_atom_name` match (utils/index.yo:992) so a closure-capture dup isn't substituted as the arg. Plus method-call/variadic/dyn blocks. |
+| `assignment.ts`                | `codegen/exprs/assignment.yo`     | **COUPLED w/ Phase C** — reassignment `a.f = __dup(b)`; will make cycle tests DIFF until the paired drop-of-old + scope drops land. Do LAST.                                                                                                                                     |
+| `cond.ts`                      | `codegen/exprs/cond.yo`           |                                                                                                                                                                                                                                                                                  |
+| `array-fns.ts`                 | `codegen/exprs/array_fns.yo`      | also the array-init RHS path left in `init_assignment.yo`                                                                                                                                                                                                                        |
+| `closures.ts`                  | `codegen/exprs/closures.yo`       | capture dup                                                                                                                                                                                                                                                                      |
+| `recur.ts`                     | `codegen/exprs/recur.yo`          |                                                                                                                                                                                                                                                                                  |
+| `tuple-fn.ts`                  | `codegen/exprs/tuple_fn.yo`       |                                                                                                                                                                                                                                                                                  |
+| `functions/generation.ts`      | `codegen/functions/generation.yo` | param/body dup + the `_copy_expr_list` divergence fix (saved `m1_full_attempt.patch`) belongs here for Phase B                                                                                                                                                                   |
+
+### Safe landing order (recap §0)
+
+All dup sites (eval calls + codegen emits) are crash-safe to add incrementally
+(refcount++ only leaks; never UAFs). Add them ALL first, validating corpus
+0-diff/SELF-FAIL-0 after each (cycle tests may DIFF only when `assignment.yo`
+reassignment-dup lands — that one co-lands with Phase B/C drops). THEN Phase B
+(drops + return materialization + early-return filter) rebalances. Never land a
+drop before its paired dups exist.
