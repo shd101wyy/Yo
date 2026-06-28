@@ -151,6 +151,17 @@ overwritten value's RC in yo-self (it saves the old value to a temp but never
 two-node ref-enum cycle: TS `tracked 0→2→0`, yo-self `0→4→2` (the two `ENil`
 terminators leak; the a<->b cycle is collected by BOTH). This is why
 `tests/codegen-bootstrap/ref_enum_cycle.yo` asserts `after < mid` (the unreachable
-cycle was reclaimed) rather than `after == before` (everything freed). Fix:
-yo-self's assignment codegen must `decr_rc` the saved old value when the field
-type is RC-managed (the TS reference already does). Separate from cycle collection.
+cycle was reclaimed) rather than `after == before` (everything freed). Separate
+from cycle collection.
+
+**Precise root (investigated 2026-06-28):** NOT a codegen bug. `generate_assignment`
+(yo-self/codegen/exprs/assignment.yo:95-113) already emits `temp = <old lhs>; // Save
+old value`, exactly like TS. The gap is that yo-self's `attach_temp_variable_to_expr`
+is a **no-op stub** in `evaluator/exprs/utils.yo` (it IS called at
+`evaluator/exprs/assignment.yo:720`), so the saved temp is never registered as an
+RC-*owning* scope variable and the enclosing begin-block's scope-end drop never drops
+it. Fix = un-stub `attach_temp_variable_to_expr`, faithfully porting
+`attachTempVariableToExpr` (src/expr.ts:1657 — the ~95-line RC-ownership /
+`isOwningTheRcValue` / env-binding routine). ⚠️ Delicate, broad blast radius — it runs
+for EVERY reassignment, so validate with corpus 0-diff + the cycle tests returning to
+baseline + TS-ASan before trusting it.

@@ -190,9 +190,23 @@ registers the inner `Self` handle edge).
 
 Independently of tracing, yo-self leaks the **overwritten** value on a managed-field
 reassignment: `a.next = b` saves the old `a.next` to a temp but never `decr_rc`s it
-(TS does). Required for "no leaks." Fix yo-self's assignment codegen to `decr_rc` the
-saved old value when the field type is RC-managed (mirror the TS reference). Tracked
-as gap #3 in `issues/yo-self-cycle-gc-runtime-port.md`.
+(TS does). Required for "no leaks." Tracked as gap #3 in
+`issues/yo-self-cycle-gc-runtime-port.md`.
+
+**Precise root (investigated 2026-06-28):** the yo-self *codegen* is NOT at fault —
+`generate_assignment` (yo-self/codegen/exprs/assignment.yo:95-113) already emits the
+`temp = <old lhs>; // Save old value` exactly like TS. The gap is that yo-self's
+`attach_temp_variable_to_expr` (called in evaluator/exprs/assignment.yo:720 but a
+**no-op stub** in utils.yo) never registers that temp as an RC-*owning* scope variable,
+so the enclosing begin-block's scope-end drop machinery never drops it. The fix is to
+**un-stub `attach_temp_variable_to_expr`**, faithfully porting `attachTempVariableToExpr`
+(src/expr.ts:1657) — the ~95-line RC-ownership / `isOwningTheRcValue` / env-binding
+routine that adds the temp to the env frame so scope-end drop reclaims it. ⚠️ This is
+delicate, broad-blast-radius evaluator work: the function runs for EVERY reassignment
+(not just cycles), so a wrong port double-frees or leaks across the whole corpus. Must
+be its own focused effort, validated by corpus 0-diff + the cycle tests returning to
+baseline (`after == before`) + TS-ASan. (The codegen-only framing in earlier revisions
+of this section was wrong.)
 
 ## 5. Implementation phases
 
