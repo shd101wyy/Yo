@@ -35,7 +35,7 @@ open(import("std/string"));
   type_implements_runtime_full,
   register_type_trait
 } :: import("../trait_checking.yo");
-{ can_type_form_rc_cycle } :: import("../../types/utils.yo");
+{ can_type_form_rc_cycle, buffer_element_type } :: import("../../types/utils.yo");
 // ---------------------------------------------------------------------------
 // Helpers: check all field types for a trait
 // ---------------------------------------------------------------------------
@@ -61,6 +61,29 @@ _all_fields_implement_acyclic :: (fn(field_types : ArrayList(TypeValue), env : E
     if(!(type_implements_acyclic(ft, env)), {
       all_ok = false;
     });
+    i = (i + usize(1));
+  });
+  all_ok
+});
+/// True if every `?*(E)` buffer element type held by the struct's fields is itself
+/// Acyclic. A container is Acyclic only if its element is (the field walk can't see
+/// the buffer, and this derive can run before a self-referential element's own
+/// cycle status is known, so `ArrayList(Node)` is correctly withheld from Acyclic
+/// while `ArrayList(i32)` stays Acyclic). Mirrors the element-aware check in
+/// `autoDeriveAcyclicForStructType` (src/evaluator/types/utils.ts).
+_all_buffer_elements_acyclic :: (fn(field_types : ArrayList(TypeValue), env : Environment) -> bool)({
+  n := field_types.len();
+  (i : usize) = usize(0);
+  (all_ok : bool) = true;
+  while((i < n) && all_ok, {
+    ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    match(
+      buffer_element_type(ft),
+      .Some(elem) => if(!(type_implements_acyclic(elem, env)), {
+        all_ok = false;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   all_ok
@@ -132,7 +155,7 @@ auto_derive_traits_for_struct_type :: (
   // Struct (value) types: all fields Acyclic.
   is_acyclic := if(
     is_reference_semantics,
-    !(can_type_form_rc_cycle(self_type)),
+    _all_buffer_elements_acyclic(field_types, env) && !(can_type_form_rc_cycle(self_type)),
     _all_fields_implement_acyclic(field_types, env)
   );
   if(is_acyclic, {

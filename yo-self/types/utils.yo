@@ -542,6 +542,46 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
 /// itself pushed onto `visited`), so no separate mutually-recursive entry is
 /// needed. The enum branch carries the same visited guard the struct path has
 /// (a recursive `ref(enum(… Self …))` would otherwise loop forever).
+/// Extract the element type a container holds behind its `?*(E)` heap buffer field
+/// — the pointee `E` of the Option-wrapped pointer. Mirrors `bufferElementType` in
+/// src/types/utils.ts. Used to see through a container to its elements both for
+/// cycle detection and for the Acyclic auto-derive. A bare `*(E)` is intentionally
+/// NOT matched (non-owning raw pointer; doesn't participate in ARC cycles).
+buffer_element_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
+  match(
+    ty,
+    .EnumT({ variant_fields }) => {
+      (result : Option(TypeValue)) = Option(TypeValue).None;
+      (vi : usize) = usize(0);
+      while((vi < variant_fields.len()) && result.is_none(), {
+        match(
+          variant_fields.get(vi),
+          .Some(vf) => {
+            (fi : usize) = usize(0);
+            while((fi < vf.len()) && result.is_none(), {
+              match(
+                vf.get(fi),
+                .Some(ft) => match(
+                  ft,
+                  .Pointer(pointee) => {
+                    result = Option(TypeValue).Some(pointee);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      result
+    },
+    _ => Option(TypeValue).None
+  )
+);
 _type_refs_back_to_cyclic :: (
   fn(ty : TypeValue, original_id : String, visited : ArrayList(String)) -> bool
 )(
@@ -568,6 +608,26 @@ _type_refs_back_to_cyclic :: (
               .None => ()
             );
             i = (i + usize(1));
+          });
+          // Container buffer-walk: a `?*(E)` field holds elements the field walk
+          // above cannot see (raw pointer); trace the element type so element cycles
+          // (`ArrayList(Self)` etc.) are detected.
+          if(!(found), {
+            (bi : usize) = usize(0);
+            while((bi < sfields.len()) && !(found), {
+              match(
+                sfields.get(bi),
+                .Some(ft) => match(
+                  buffer_element_type(ft),
+                  .Some(elem) => if(recur(elem, sid, v2), {
+                    found = true;
+                  }),
+                  .None => ()
+                ),
+                .None => ()
+              );
+              bi = (bi + usize(1));
+            });
           });
           found
         }
@@ -692,6 +752,26 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
             .None => ()
           );
           i = (i + usize(1));
+        });
+        // Container buffer-walk: a `?*(E)` field holds elements the field walk
+        // above cannot see (raw pointer); trace the element type so element cycles
+        // (`ArrayList(Self)` etc.) are detected.
+        if(!(found), {
+          (bi : usize) = usize(0);
+          while((bi < fields.len()) && !(found), {
+            match(
+              fields.get(bi),
+              .Some(ft) => match(
+                buffer_element_type(ft),
+                .Some(elem) => if(_type_refs_back_to_cyclic(elem, sid, visited), {
+                  found = true;
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            bi = (bi + usize(1));
+          });
         });
         found
       },
@@ -1366,7 +1446,7 @@ export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
 export(type_contains_rc_type);
 export(type_is_control_bound);
-export(can_type_form_rc_cycle);
+export(can_type_form_rc_cycle, buffer_element_type);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
