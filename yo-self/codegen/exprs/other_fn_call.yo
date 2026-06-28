@@ -611,7 +611,7 @@ _generate_runtime_enum_construct :: (
     (ptr_opt.is_some() && (rt_args.len() == usize(0))) => String.from("NULL"),
     (ptr_opt.is_some() && (rt_args.len() == usize(1))) => match(
       rt_args.get(usize(0)),
-      .Some(a) => _call_generate_expr(a, indent.clone(), context),
+      .Some(a) => emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),
       .None => String.from("NULL")
     ),
     can_optimize_as_simple_enum(enum_ty) => get_enum_variant_c_name(enum_ty, variant.clone(), context.base),
@@ -637,7 +637,7 @@ _generate_runtime_enum_construct :: (
             while(i < n, {
               fty := match(vftys.get(i),.Some(t) => t,.None => TypeValue.Unit);
               if(!(is_unit_type(fty)), {
-                fcode := match(rt_args.get(i),.Some(a) => _call_generate_expr(a, indent.clone(), context),.None => String.from(""));
+                fcode := match(rt_args.get(i),.Some(a) => emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),.None => String.from(""));
                 if(any_field, {
                   inits.push_str(", ");
                   positional.push_str(", ");

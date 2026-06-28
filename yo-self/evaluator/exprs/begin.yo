@@ -51,12 +51,13 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type, is_reference_enum_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -205,6 +206,127 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
     _ => false
   )
 );
+/// True iff `name` equals the name carried by `opt` (if any).
+_name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
+  match(opt,.Some(n) => (name == n),.None => false)
+);
+/// M1 (plans/YO_SELF_NAMED_LOCAL_DROPS.md): schedule scope-end `___drop` expressions
+/// for owning named-local bindings declared in `frame`, so a begin block's owning
+/// locals are reclaimed at scope exit. yo-self previously emitted NO scope-end drops
+/// for named locals (it leaked every one). Mirrors the normal scope-exit path of
+/// `begin.ts:2065-2231` + the predicate `begin.ts:242-257`.
+///
+/// M1 CONSERVATIVE SAFETY: skips the ENTIRE block if it contains any field/index-write
+/// assignment (a non-atom assignment LHS). Such a write may store an RC value WITHOUT a
+/// balancing dup (dup-on-reassign is not ported until M2), so dropping the involved
+/// locals would double-free / UAF. Skipping keeps those blocks at their current
+/// (balanced-leak) behavior. Excludes consumed / borrowed (`inout`) / module-level /
+/// generic (`SomeType`) vars and the block's result-temp / returned bare-local (moved
+/// out). The `___drop(name)` exprs are built inline (the builder in calls/helper.yo
+/// cannot be imported — begin.yo <-> helper.yo would be a mutual destructuring cycle).
+_schedule_scope_end_drops :: (
+  fn(
+    frame : Frame,
+    begin_args : ArrayList(AstExpr),
+    result_var_name : Option(String),
+    last_expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Option(ArrayList(AstExpr))
+)({
+  // Conservative M1 skip. Skip the ENTIRE block's scope-end drops when it directly
+  // contains either:
+  //  (a) a field/index-write assignment (`x.f = …`, `x(i) = …` — a non-atom assign
+  //      LHS): the dup-on-reassign balance isn't ported (M2), so dropping would UAF.
+  //  (b) a control-flow EXIT (`return`/`unwind`/`break`/`continue`): yo-self has no
+  //      init-position-filtered early-return drops yet (TS begin.ts:2068-2122 — M3),
+  //      and the returned value's temp isn't excluded as moved-out (consume — M2),
+  //      so scheduling drops on a control-flow block crashes codegen when it emits a
+  //      drop for a not-yet-live / moved-out local. (See plans/YO_SELF_NAMED_LOCAL_DROPS.md.)
+  (skip_block : bool) = false;
+  na := begin_args.len();
+  (sai : usize) = usize(0);
+  while((sai < na) && !(skip_block), {
+    match(
+      begin_args.get(sai),
+      .Some(stmt) => {
+        // (§C landed: the field/index/deref store now dups its RHS — assignment.yo
+        // codegen via emit_deferred_dup_or_code — so a reassigned-into local is
+        // balanced and CAN be scope-dropped. The earlier field-write skip is removed.)
+        // Control-flow exit (call or atom form).
+        cf := (
+          (ast_expr_is_fn_call_of(stmt, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(stmt, BF_UNWIND, Option(usize).None)) ||
+            ((ast_expr_is_atom(stmt) && ast_expr_is_atom_of(stmt, BK_RETURN)) || (ast_expr_is_atom(stmt) && (ast_expr_is_atom_of(stmt, "break") || ast_expr_is_atom_of(stmt, "continue"))))
+        );
+        if(cf, {
+          skip_block = true;
+        });
+      },
+      .None => ()
+    );
+    sai = (sai + usize(1));
+  });
+  if(skip_block, {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  // A bare-atom block result is a named local moved out (returned) — never drop it.
+  tail_atom_name := if(
+    ast_expr_is_atom(last_expr),
+    Option(String).Some(ast_expr_token(last_expr).value),
+    Option(String).None
+  );
+  // Collect drop-eligible owning named locals from the frame.
+  to_drop := ArrayList(Variable).new();
+  fvars := frame.variables;
+  nv := fvars.len();
+  (vi : usize) = usize(0);
+  while(vi < nv, {
+    match(
+      fvars.get(vi),
+      .Some(v) => {
+        // M1 scope: drop only DIRECT RC handles (ref struct / ref enum) — the
+        // validated-working case. Newtypes (e.g. String) and value-structs holding
+        // RC fields need a recursive drop whose codegen path is a dormant, untested
+        // crash (memmove EXC_BAD_ACCESS); deferred to a follow-up. Cyclable cycle-GC
+        // types (Node, ENode, ArrayList(Self)) are ref struct/enum, so covered.
+        e1 := (v.is_owning_the_rc_value && (is_reference_struct_type(v.ty) || is_reference_enum_type(v.ty)));
+        e2 := (e1 && (!(v.is_module_level)));
+        e3 := (e2 && (!(v.is_ref)));
+        e4 := (e3 && (!(is_some_type(v.ty))));
+        e5 := (e4 && v.consumed_at_token.is_none());
+        e6 := (e5 && (!(_name_matches_opt(v.name.clone(), result_var_name))));
+        e7 := (e6 && (!(_name_matches_opt(v.name.clone(), tail_atom_name))));
+        if(e7, {
+          _p := to_drop.push(v);
+        });
+      },
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  if(to_drop.len() == usize(0), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  // Build + evaluate `___drop(name)` per var — mirrors the proven eval-side builder
+  // calls/helper.yo:234 (and begin.ts:273-334).
+  deferred := ArrayList(AstExpr).new();
+  (di : usize) = usize(0);
+  while(di < to_drop.len(), {
+    match(
+      to_drop.get(di),
+      .Some(v) => {
+        drop_code := `___drop(${v.name})`;
+        drop_expr := generate_expr_from_code(drop_code, exn);
+        evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+        _p := deferred.push(evaluated);
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  Option(ArrayList(AstExpr)).Some(deferred)
+});
 evaluate_begin_expression :: (
   fn(
     expr : AstExpr,
@@ -780,11 +902,20 @@ evaluate_begin_expression :: (
   // would drop the begin frame from THAT snapshot too, hiding begin-local
   // bindings from any later consumer of the recorded env (e.g. the flowability
   // check). See issues/fixed/yo-self-recorded-env-aliasing.md.
+  // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
+  // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
+  // names are still in scope). See _schedule_scope_end_drops + plans/YO_SELF_NAMED_LOCAL_DROPS.md.
+  scope_end_drops := match(
+    current_frame_opt,
+    .Some(fr) => _schedule_scope_end_drops(fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
+    .None => Option(ArrayList(AstExpr)).None
+  );
   env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
   // Build ExprInfo for the begin expression itself
   // -------------------------------------------------------------------------
   out_info := new_expr_info(env, return_type);
+  out_info.deferred_drop_expressions = scope_end_drops;
   out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
   out_info.control_flow = last_info.control_flow;
   out_info.comptime_ref = last_info.comptime_ref;

@@ -44,6 +44,33 @@ open(import("std/string"));
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
 );
+/// Shallow-copy a deferred-drop/dup expr list into a FRESH ArrayList (same AstExpr
+/// refs, independent list). Mirrors TS `[...(expr.$?.deferredDropExpressions ?? [])]`
+/// (generation.ts:1515): `context.pending_deferred_drops` is MUTATED as drops are
+/// emitted on control-flow exits, so it must NOT alias the begin block's recorded
+/// `ei.deferred_drop_expressions` — which is re-read for the scope-end drops. Aliasing
+/// (the previous yo-self behaviour) corrupted that list mid-codegen → memmove crash.
+_copy_expr_list :: (fn(opt : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  match(
+    opt,
+    .Some(d) => {
+      (i : usize) = usize(0);
+      while(i < d.len(), {
+        match(
+          d.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
 /// Generate a function's body with proper return handling. Mirrors
 /// `generateFunctionBody` (corpus path).
 generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
@@ -55,8 +82,14 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
     match(
       context.base.get_expr_info(body_expr),
       .Some(ei) => {
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(match(ei.deferred_drop_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new()));
-        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(match(ei.consumed_variable_drop_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new()));
+        // M1: do NOT feed the begin block's scope-end drops into the EARLY-RETURN
+        // (pending) path. yo-self has no init-position-filtered early-return drops
+        // yet (TS begin.ts:2068-2122 — M3), so emitting a function's scope-end drops
+        // unfiltered at an early return would drop not-yet-live locals → codegen
+        // crash. The scope-end drops are still emitted at normal exit (line ~129).
+        // (consumed_variable_drop_expressions stays as TS-faithful copy — empty under M1.)
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.consumed_variable_drop_expressions));
       },
       .None => ()
     );
@@ -99,14 +132,42 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
           args.get(n - usize(1)),
           .Some(last_expr) => {
             expr_code := _call_generate_expr(last_expr, indent.clone(), context);
-            generate_deferred_drop_expressions(body_expr, indent.clone(), context);
-            if(expr_code.len() > usize(0), {
-              line := indent.clone();
-              line.push_str("return ");
-              line.push_string(expr_code);
-              line.push_str(";");
-              em.emit_string_line(line);
-            });
+            // B1 (plans/YO_SELF_RC_EMISSION_LAYER.md §8): materialize the result
+            // into a temp BEFORE the scope-end drops, so a drop does not free a
+            // local the result expression reads (e.g. `i32(xs.len())` after `xs`
+            // is dropped → reads freed memory). Mirrors generation.ts:1587-1611.
+            // Only when there are drops + a non-unit return; else `return <expr>`.
+            ret_ty_opt := match(function_type,.Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None);
+            has_drops := match(context.base.get_expr_info(body_expr),.Some(bei) => match(bei.deferred_drop_expressions,.Some(d) => (d.len() > usize(0)),.None => false),.None => false);
+            mat_ty := cond(
+              ((has_drops && (!(result_is_unit))) && (expr_code.len() > usize(0))) => ret_ty_opt,
+              true => Option(TypeValue).None
+            );
+            match(
+              mat_ty,
+              .Some(ret_ty) => {
+                decl := indent.clone();
+                decl.push_string(get_type_string(ret_ty, context.base));
+                decl.push_str(" __yo_scope_ret = ");
+                decl.push_string(expr_code);
+                decl.push_str(";");
+                em.emit_string_line(decl);
+                generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+                rl := indent.clone();
+                rl.push_str("return __yo_scope_ret;");
+                em.emit_string_line(rl);
+              },
+              .None => {
+                generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+                if(expr_code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_str("return ");
+                  line.push_string(expr_code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                });
+              }
+            );
           },
           .None => ()
         );

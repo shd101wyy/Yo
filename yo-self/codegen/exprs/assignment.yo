@@ -20,6 +20,11 @@ open(import("std/string"));
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+// §C dup-on-store: a field/index/deref store of a borrowed RC value must dup it
+// (the slot takes a new owned ref) so the value survives the source's scope-end
+// drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
+// eval :388); this emits it. Mirrors src/codegen/exprs/assignment.ts.
+{ emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 /// The last binding for `name` is a module-level global.
 _last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
@@ -113,7 +118,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   );
   // Array assignment uses direct struct copy; everything else is scalar.
   if(is_array_type(lhs_type), {
-    rhs_code := _call_generate_expr(rhs, indent.clone(), context);
+    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
     if(is_init, {
       vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
       line := indent.clone();
@@ -131,7 +136,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       em.emit_string_line(line);
     });
   }, {
-    rhs_code := _call_generate_expr(rhs, indent.clone(), context);
+    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
     if(!(is_unit_type(lhs_type)), {
       c_type_string := get_type_string(lhs_type, context.base);
       is_sm_var := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false);
