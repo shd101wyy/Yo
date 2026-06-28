@@ -370,3 +370,28 @@ type). Validate: corpus 86/86 0-diff + SELF-FAIL 0, **Probe A p4 0→0** (the fi
 still 0→0, Probe B (`disposed 7` fires), TS-ASan clean, check ./std 152, cycle tests still
 collect. Enum version (`generateDisposeFunctionCodeForEnumType`) + the `containsSomeType`/
 comptime-only skips must be ported too. This is the last piece for a leak-free faithful Phase B.
+
+### §9 ATTEMPT 1 (2026-06-28) — collect_dispose_methods, reverted (saved dispose_synth_attempt.patch)
+
+Implemented a codegen-time `collect_dispose_methods` pass (collection.yo) + `_synthesize_and_
+register_dispose` + wired into compile_module before type-decls (codegen_c.yo), mirroring the
+trace pass: synthesize `(fn(self : Self) -> unit)({ { f : a, … } := self; (___drop)(a); … () })`
+from RC field labels → generate_expr_from_code → evaluate_expression_raw (Self-bound via
+ctx.self_type) → register_function + find_function_calls_in_expr + register_type_trait_method.
+Build OK, but corpus = PASS 85 DIFF 0 **SELF-FAIL 1** (regression) and p4 STILL 0→1. Two
+concrete bugs to fix next time:
+
+1. **Synthesized destructuring parse error** (`recursive_enum_nested_match` → `error: unexpected
+token: }`): the generated `{ label : alias }` destructuring doesn't parse for some struct
+   shapes. Port TS `generateDestructuringAndCalls` faithfully — it aliases NON-identifier labels
+   as `{ (label) : alias }` (parenthesized) and uses `isValidIdentifier`; the bare `{ label : alias }`
+   form breaks on such labels (or on the `{`-ambiguity). Also guard: only emit for structs whose
+   fields are all concrete (no SomeType — TS `containsSomeType` skip) + runtime (not comptime-only).
+2. **Dispose didn't connect for N** (p4 unchanged): the synthesized FuncVal either didn't register
+   under the right id or the constructor's `get_dispose_function_for_type` didn't find it. Verify
+   `type_id_or_empty(ct)` matches the constructor's lookup id, that `evaluate_expression_raw`
+   actually yields a FuncVal (the ExprInfo.value), and that collect_dispose_methods runs before
+   constructor emission (it's placed before generate_type_declarations — confirm constructors emit
+   later). Add a temporary stderr probe in \_synthesize_and_register_dispose (did it register? fid?).
+   The approach is sound (faithful TS synthesis); it needs this iterative debugging. Phase B
+   (f2de4f781) stands as the committed milestone meanwhile.
