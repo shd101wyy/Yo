@@ -418,7 +418,10 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
           });
         });
         final_name := if(emitted, vname, arg_code.clone());
-        if(((is_comptime_only || is_sm) || param_is_ref) || is_deref_read, arg_code, sanitize_for_c_identifier(final_name, false))
+        // dup-on-store for an owned param: emit the arg's deferred `___dup` (set by
+        // helper.yo's move-ownership branch) before the call uses it. Only in the
+        // value-pass case — ref/`inout`/comptime/sm/deref args transfer no ownership.
+        if(((is_comptime_only || is_sm) || param_is_ref) || is_deref_read, arg_code, emit_deferred_dup_or_code(arg, sanitize_for_c_identifier(final_name, false), indent.clone(), context))
       },
       .None => _call_generate_expr(arg, indent.clone(), context)
     ),

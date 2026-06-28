@@ -40,8 +40,12 @@ open(import("std/string"));
   add_variable_to_env,
   update_existing_variable,
   synthetic_token,
-  clone_env
+  clone_env,
+  make_err_variable
 } :: import("../../env.yo");
+// dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
+// imports nothing from calls/, so this is acyclic.
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -417,6 +421,7 @@ check_if_function_parameter_matches_argument :: (
     param_label : String,
     param_type : TypeValue,
     is_ct_only : bool,
+    param_is_owning : bool,
     arg_expr_raw : AstExpr,
     callee_env : Environment,
     caller_env : Environment,
@@ -507,6 +512,31 @@ check_if_function_parameter_matches_argument :: (
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);
+  });
+  // Step 4b: Move-ownership for an OWNED parameter (mirrors src/evaluator/calls/
+  // helper.ts:411-451). If the arg already owns the RC value → MOVE it (consume,
+  // no dup). If borrowed/non-owning → materialize an owned copy via `___dup` and
+  // consume the original so it can't be used after the call. Gated on the
+  // PARAMETER taking ownership — borrow/`inout` params never consume/dup their arg.
+  // NOTE: the own(self)-captured-variable tracking (`ctx.own_consumed_captures`,
+  // TS helper.ts:419-428) is deferred until a thread-spawn capture test needs it.
+  if(param_is_owning && (!(is_ct_only)), {
+    match(
+      arg_info.variable_name,
+      .None => (),
+      .Some(arg_var_name) => {
+        arg_vars := get_variables_from_env(caller_env_r, arg_var_name);
+        if(arg_vars.len() > usize(0), {
+          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(caller_env_r));
+          if(arg_var.is_owning_the_rc_value, {
+            set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
+          }, {
+            set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+            set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
+          });
+        });
+      }
+    );
   });
   // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
   if(is_ct_only, {
@@ -2123,6 +2153,7 @@ try_to_call_function_with_arguments :: (
     .Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b, meta : __fm8 }) => {
       fl := __fm8.*.forall_labels;
       pl := __fm8.*.param_labels;
+      pio := __fm8.*.param_is_owning;
       il := __fm8.*.implicit_labels;
       ispr := __fm8.*.implicit_spreads;
       fn_has_variadic := __fm8.*.has_variadic;
@@ -2427,6 +2458,7 @@ try_to_call_function_with_arguments :: (
       while(pi < n_params, {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
         ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
+        p_owning := match(pio.get(pi),.Some(o) => o,.None => false);
         // Omitted optional parameter (no corresponding argument): bind it
         // to its recorded default value (falling back to an `UnknownVal`
         // of its declared type if, defensively, no default is recorded).
@@ -2493,6 +2525,7 @@ try_to_call_function_with_arguments :: (
           ptype,
           false,
           // is_ct_only: Phase 3 treats all regular params as runtime
+          p_owning,
           parg,
           callee_env_m,
           caller_env_m,
