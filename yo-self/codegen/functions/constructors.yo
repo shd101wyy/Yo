@@ -22,7 +22,7 @@ open(import("std/string"));
 { type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ get_dispose_function_for_type } :: import("../exprs/drop_dup.yo");
+{ get_dispose_function_for_type, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
 _has_generic_fields :: (fn(fields : ArrayList(RuntimeStructField)) -> bool)({
   n := fields.len();
@@ -300,19 +300,32 @@ _generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, con
   });
   em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*)) {`);
   em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
-  nf := runtime_fields.len();
-  (fi : usize) = usize(0);
-  while(fi < nf, {
-    match(
-      runtime_fields.get(fi),
-      .Some(field) => {
-        fname := sanitize_for_c_identifier(field.label.clone(), false);
-        _traverse_value(`obj->${fname}`, field.ty, context, String.from("visit"));
-      },
-      .None => ()
-    );
-    fi = (fi + usize(1));
-  });
+  // A type with an explicit Trace impl (a container whose elements live in a
+  // malloc'd buffer a field walk can't reach): delegate to its monomorphized
+  // `trace`. `(void*)visit` becomes the GcTracer newtype (uint8_t*) implicitly;
+  // the impl iterates its buffer and re-enters tracing per element slot via
+  // `tracer.visit` (__yo_gc_trace_child). Mirrors generateRefStructTraversalFunctions.
+  match(
+    get_trace_function_for_type(type, context),
+    .Some(trace_c_name) => {
+      em.emit_string_line(`  ${trace_c_name}(obj, (void*)visit);`);
+    },
+    .None => {
+      nf := runtime_fields.len();
+      (fi : usize) = usize(0);
+      while(fi < nf, {
+        match(
+          runtime_fields.get(fi),
+          .Some(field) => {
+            fname := sanitize_for_c_identifier(field.label.clone(), false);
+            _traverse_value(`obj->${fname}`, field.ty, context, String.from("visit"));
+          },
+          .None => ()
+        );
+        fi = (fi + usize(1));
+      });
+    }
+  );
   em.emit_string_line(`}`);
   em.emit_string_line(``);
 });
@@ -369,6 +382,18 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
   // `${c_name}` is the struct-VALUE typedef (get_type_string adds the `*`), so
   // the handle is `${c_name}*` — cast accordingly (matches the ref-struct path).
   em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
+  // A ref-enum with an explicit Trace impl — delegate to it (same as structs).
+  // Mirrors generateRefEnumTraversalFunctions's traceCName branch.
+  match(
+    get_trace_function_for_type(type, context),
+    .Some(trace_c_name) => {
+      em.emit_string_line(`  ${trace_c_name}(obj, (void*)visit);`);
+      em.emit_string_line(`}`);
+      em.emit_string_line(``);
+      return(());
+    },
+    .None => ()
+  );
   em.emit_string_line(`  switch (obj->tag) {`);
   match(
     type,

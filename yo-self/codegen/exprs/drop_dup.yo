@@ -52,6 +52,16 @@ get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationC
 get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
   _method_c_name(type, "___dispose", context)
 );
+/// The C name of `type`'s monomorphized `trace` method (the Trace trait), if any.
+/// Used by the cycle-GC traversal generators: a container whose elements live in a
+/// malloc'd buffer (which the auto-derived field walk can't reach) carries an
+/// explicit Trace impl, and its `traverse_fn` delegates to this `trace`. Returns
+/// None for types that use the auto-derived field-walk traversal. Mirrors the
+/// registry-lookup half of `findUserTraceMethodForType` (the specialized `trace`
+/// is registered under the concrete type id by `collect_trace_methods_from_generic_impls`).
+get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
+  _method_c_name(type, "trace", context)
+);
 /// If `value_arg` is a forall-typed (SomeType) parameter atom, recover its
 /// concrete parameter type from the enclosing function signature. Mirrors
 /// `resolveSomeTypeParamType` (the SomeType.resolvedConcreteType branches are
@@ -452,4 +462,4 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
     .None => ()
   )
 );
-export(get_drop_function_for_type, get_dup_function_for_type, get_dispose_function_for_type, resolve_some_type_param_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_deferred_dup_expressions);
+export(get_drop_function_for_type, get_dup_function_for_type, get_dispose_function_for_type, get_trace_function_for_type, resolve_some_type_param_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_deferred_dup_expressions);
