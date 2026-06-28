@@ -395,3 +395,29 @@ token: }`): the generated `{ label : alias }` destructuring doesn't parse for so
    later). Add a temporary stderr probe in \_synthesize_and_register_dispose (did it register? fid?).
    The approach is sound (faithful TS synthesis); it needs this iterative debugging. Phase B
    (f2de4f781) stands as the committed milestone meanwhile.
+
+### §9 ATTEMPT 1 — FULL DIAGNOSIS (probes): synthesis WORKS; real blocker is deeper
+
+Re-ran with probes (`[DISP]` eprintln). Findings (definitive):
+
+- **The dispose synthesis WORKS end-to-end for the happy case.** For `N = ref(struct(v, next:Option(Self)))`:
+  the pass synthesized `(fn(self:Self)->unit)({ {next:a} := self; (___drop)(a); () })`, evaluated it →
+  FuncVal `yo_id_3742`, registered it, and the CONSTRUCTOR picked it up:
+  emitted `obj->header.dispose_fn = (void(*)(void*))yo_id_3742;` + the function is defined. So the
+  synthesis + registration + constructor-wiring (bug 2) all WORK. (Add `type_contains_some_type` skip.)
+- **Bug 1 (parse crash, SELF-FAIL):** a struct `id_3510` has a field labeled `*` (Box/newtype inner) →
+  synthesized `{ * : __yo_disp_* } := self` is invalid → "unexpected token }". FIX: skip structs whose
+  RC field labels aren't simple identifiers (TS parenthesizes via `generateDestructuringAndCalls`, but `*`
+  is special — skip is safest), or special-case the newtype/box `.*` field.
+- **Bug 3 (the REAL p4 blocker — deeper):** `yo_id_3742`'s emitted body is ONLY
+  `__yo_disp_next = self->next; // Destructuring next` — **the `(___drop)(__yo_disp_next)` emitted NOTHING**,
+  AND there's no scope-end drop of `a`. Root: `a : Option(N)` is a VALUE-enum (nullable-ptr); (i) the
+  explicit `___drop(Option(N))` codegen elides, and (ii) the Phase-B scope-drop predicate (begin.yo
+  `_schedule_scope_end_drops`) is deliberately NARROW — ref-struct/enum only (M1 excluded
+  value-enums/newtypes-holding-RC to avoid the then-untested recursive-drop codegen crash). TS drops `a`
+  via the scope-end drop of the destructured local with a BROADER predicate + working value-enum
+  recursive-drop. **So p4's fix = (a) broaden the scope-drop predicate from ref-struct/enum to
+  `type_contains_rc_type` (covering Option(N)/newtypes), AND (b) make the recursive \_\_\_drop codegen for
+  value-enums/newtypes-holding-RC actually emit (the dormant path M1 flagged).** This is a deeper Phase-B
+  layer, NOT just the dispose synthesis. The synthesis scaffold (scratchpad/dispose_synth_attempt.patch)
+  is correct + reusable; it needs bug-1 skip + the bug-3 drop-predicate/codegen work to make p4 0→0.
