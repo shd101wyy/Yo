@@ -197,3 +197,33 @@ error to COMPILING.
 So the codegen-key fix is the faithful CORE (regression-free); layers 1–3 remain for the full
 `HashMap`-of-ref-struct use case. `tests/codegen-bootstrap/hashmap_self_cycle.yo` stays held
 (TS-validated; saved at `/tmp/hashmap_self_cycle_hold.yo`) until layers 1–2 land.
+
+## Layer 2 — UPDATE 2 (2026-06-29): full use-case map — 3 DISTINCT deep bugs, only 1 is task #30
+
+Exhaustive investigation of `HashMap`-of-recursive-ref-struct (the use case that surfaced
+task #30). It is blocked by THREE independent deep bugs; only the first is task #30:
+
+1. **Type-identity (task #30 proper).** The cfid-key fix (committed 69eabca07) collapses the
+   cfid-STAMPED subset, but the churn is pervasive: generic ENUM instantiations (`Option(...)`)
+   churn ids too (the EnumT key uses the id), and the SAME struct reaches codegen with `cfid`
+   sometimes empty. The complete fix is the TS-faithful MEMOIZATION root — make
+   `g_comptime_fn_caches` HIT for recursive generic instantiations so ONE struct object (stable
+   id) is returned everywhere (TS's `calledComptimeFunctionCaches`). The cache misses because a
+   recursive type arg is the self-shell / SomeT-template on first instantiation and resolved
+   later (`_ctfe_args_equal` → unequal). ATTEMPTED: adding `resolve_struct_shell` to
+   `are_types_compatible_exact` (mirroring the enum-shell handling) — did NOT fix the case
+   (reverted); the actual mismatch is the SomeT-template, not a shell.
+2. **Substitution template-leak (NOT task #30).** `Bucket(K, V)` with unsubstituted SomeT args
+   (`gs_..._1832_1833`) reaches codegen as a concrete C struct — i.e. a `HashMap(i32,N)` copy
+   whose `data : ?*(Bucket(K,V))` field never had `K→i32, V→N` substituted. A
+   nested-generic-instantiation substitution gap.
+3. **RC-dup undeclared-temp (NOT task #30).** `HashMap.get` returning `Some(bucket.value)` (an
+   RC field of a value-struct local) emits `__yo_incr_rc(_file____tmp__temp_NNNN)` referencing
+   a dup-result temp that is never declared — a deferred-dup materialization gap for a
+   field-access dup source in a match-arm-return context.
+
+Each is core-compiler deep work (substitution / comptime memoization / RC-dup codegen);
+together MULTI-SESSION, matching the original assessment. **Task #30 does NOT block P1** — no
+corpus test uses HashMap-of-ref-struct (the held `hashmap_self_cycle.yo` is TS-validated),
+corpus is 88/88, `check ./std` 152/152, yo-self builds. The cfid-key core fix is the landed,
+regression-free, faithful first layer.
