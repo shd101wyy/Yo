@@ -24,9 +24,12 @@ open(import("std/string"));
 { Emitter } :: import("../emitter.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
 { type_contains_some_type, can_type_form_rc_cycle } :: import("../types/utils.yo");
+{ Exception } :: import("std/error");
+{ Environment } :: import("../env.yo");
+{ EvalContext } :: import("../evaluator/context.yo");
 { CodeGenContext } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
-{ collect_required_functions, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
+{ collect_required_functions, collect_trace_methods_from_generic_impls, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
 { collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
 { generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
@@ -175,7 +178,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// preRegisterAsyncBlockTypes / preRegisterEffectfulFunctions /
 /// generateDeferredAsyncBlocks (Phase 5), generateClosureDisposeFunctions
 /// (Phase 5), generateSpecialized* (Gap 2), generateLibraryInitFunction.
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool) -> String)({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception) -> String)({
   // Wire the mutual-recursion indirections before any collection / body walk.
   register_collect_type();
   register_find_function_calls_in_expr();
@@ -226,6 +229,15 @@ typedef enum {
   );
   // Pre-scan: select the __yo_ref_header_t layout (must precede type decls).
   compute_needs_cycle_gc(base);
+  // Cycle-GC: when any type can form an RC cycle, monomorphize each cyclable
+  // container's generic `trace` method (the Trace trait) and register it under the
+  // concrete container id, so the traversal generators delegate to it. Must run
+  // before function declarations so the specialized `trace` gets a prototype+body.
+  // (yo-self has no codegen-time monomorphizer; the collector drives the
+  // evaluator's create_specialized_function_inline with the threaded ctx/exn/env.)
+  if(base.needs_cycle_gc, {
+    collect_trace_methods_from_generic_impls(base, eval_ctx, module_env, info, exn);
+  });
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   // Re-key dyn impls to C names (now available), then emit dyn box types.

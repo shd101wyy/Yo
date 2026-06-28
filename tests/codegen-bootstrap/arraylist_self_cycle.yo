@@ -1,0 +1,44 @@
+// Regression: cycle collection for a recursive edge wrapped in a CONTAINER —
+// `children : ArrayList(Self)`. The child nodes live in the ArrayList's malloc'd
+// buffer, which the compiler's auto-derived field walk cannot reach; only the
+// container's hand-written `Trace` impl (delegated to from the node's traverse
+// function) visits each element slot. Without that delegation the cycle is never
+// even tracked. Both compilers must agree.
+//
+// The output is a count-independent string (the exact tracked_count differs
+// between back ends) so the differential harness compares the OUTCOME: the
+// a<->b cycle, made unreachable when `form_cycle` returns, is reclaimed by
+// Gc.collect — proving the container's elements were traced.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio.yo"));
+{ ArrayList } :: import("std/collections/array_list");
+Gc :: import("std/gc");
+Node :: ref(
+  struct(
+    value : i32,
+    children : ArrayList(Self)
+  )
+);
+form_cycle :: (fn() -> unit)({
+  a := Node(1, ArrayList(Node).new());
+  b := Node(2, ArrayList(Node).new());
+  consume(a.children.push(b)); // a -> b
+  consume(b.children.push(a)); // b -> a : cycle through ArrayList(Self)
+});
+main :: (fn() -> unit)({
+  before := Gc.tracked_count();
+  form_cycle();
+  mid := Gc.tracked_count();
+  Gc.collect();
+  after := Gc.tracked_count();
+  // The a<->b cycle is unreachable after form_cycle returns and each node has
+  // RC=1 (held only by the other's children buffer), so ordinary reference
+  // counting can NEVER reclaim it — a drop after Gc.collect() proves the cycle
+  // collector traced through the ArrayList buffer and reclaimed it.
+  if((mid > before) && (after < mid), {
+    unsafe(printf("arraylist-self cycle collected\n"));
+  }, {
+    unsafe(printf("arraylist-self cycle leaked\n"));
+  });
+});
+export(main);

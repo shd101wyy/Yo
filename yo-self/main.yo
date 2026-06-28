@@ -1097,7 +1097,7 @@ run_compile :: (
   // Generate C11 from the evaluated module. A static library has no main()
   // wrapper (is_library = true). Allocator + debug-logging flags are threaded
   // through to the code generator (mirrors CodeGeneratorC.compileModule).
-  c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library);
+  c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
   c_path := `${output}.c`;
   io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
   // --emit-c / --skip-c-compiler: write the C and stop.
