@@ -652,7 +652,37 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
-    .Struct({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    .Struct({ id, constructor_func_id : cfid, type_arguments : tas }) => cond(
+      // A GENERIC INSTANTIATION (e.g. `Bucket(i32, N)`) gets a fresh random `id` on
+      // every re-instantiation — yo-self does not intern the comptime type-constructor
+      // result the way TS memoizes `functionValue.calledComptimeFunctionCaches` (the
+      // call's `func_id` is stable but the cache misses, so `handle_struct_def` re-runs
+      // → `struct_${random_id}`). Keying by that churning `id` fragments one logical type
+      // into several incompatible C structs (was task #30). Key instead by the STABLE
+      // identity yo-self DOES stamp at instantiation (comptime_fn.yo): the constructor's
+      // `func_id` + the concrete `type_arguments` — the faithful analogue of TS's
+      // stable `(funcId, argValues)` struct identity. Same (constructor, args) → one key
+      // → one C struct; `Bucket(i32, N)` vs `Bucket(i32, M)` stay distinct (args differ),
+      // and a different constructor stays distinct (`func_id` differs).
+      ((cfid.len() > usize(0)) && ((tas.len() > usize(0)) && (depth <= usize(4)))) => {
+        key := `gs_${cfid.clone()}`;
+        (ti : usize) = usize(0);
+        while(ti < tas.len(), {
+          match(
+            tas.get(ti),
+            .Some(ta) => {
+              key.push_str("_");
+              key.push_string(recur(ta, depth + usize(1)));
+            },
+            .None => ()
+          );
+          ti = (ti + usize(1));
+        });
+        key
+      },
+      (id.len() > usize(0)) => id.clone(),
+      true => type_to_string(t)
+    ),
     .EnumT({ id, variant_fields : vfs }) => {
       // Resolve a leaked recursive-enum SELF-SHELL to its final so the shell and
       // its final share ONE C type key (else a `Box(Self)` field two levels deep

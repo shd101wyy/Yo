@@ -15,6 +15,7 @@ comptime-fn CTFE cache:
 CodegenTypeEntry     :: object(ty : TypeValue, c_name : String, c_include : Option(String));
 CodegenExternFnEntry :: object(ty : TypeValue, c_name : String, c_include : Option(String));
 ```
+
 (`yo-self/codegen/utils/index.yo:75-76`)
 
 They are the value types of two separate maps —
@@ -31,10 +32,10 @@ trial-eval, surfacing as `Failed to transpile` markers on every dependent op).
 Minimal repro (`src/tests/fixme.yo`): two same-fielded structs `StA`/`StB` used as
 `HashMap` value types, each iterated via `.values().next()`:
 
-| compiler | markers |
-| --- | --- |
-| TS reference (`./yo-cli`) | **0** |
-| yo-self clean HEAD | **5** (`mb.set`, both `.values()`, both `.next()` matches) |
+| compiler                  | markers                                                    |
+| ------------------------- | ---------------------------------------------------------- |
+| TS reference (`./yo-cli`) | **0**                                                      |
+| yo-self clean HEAD        | **5** (`mb.set`, both `.values()`, both `.next()` matches) |
 
 TS handles it; yo-self does not → a port divergence, not a language bug.
 
@@ -46,12 +47,15 @@ TS handles it; yo-self does not → a port divergence, not a language bug.
 check first:
 
 ```ts
-if (expected.fields.length !== given.fields.length ||
-    (expected.type.id !== given.type.id &&        // different identity
-     !typeContainsSomeType(expected.type) &&        // neither is a placeholder
-     !typeContainsSomeType(given.type) &&
-     !(sameFuncId)))                                // not the same constructor
-  return false;                                     // → DISTINCT
+if (
+  expected.fields.length !== given.fields.length ||
+  (expected.type.id !== given.type.id && // different identity
+    !typeContainsSomeType(expected.type) && // neither is a placeholder
+    !typeContainsSomeType(given.type) &&
+    !sameFuncId)
+)
+  // not the same constructor
+  return false; // → DISTINCT
 if (expected.type.id === given.type.id) return true;
 // …only then structural field comparison
 ```
@@ -79,7 +83,7 @@ Add a nominal **name-distinctness** arm before the structural comparison:
 - Same name (`Box(i32)` vs `Box(String)`) or empty names (`""`-reconstructed types)
   fall through to the existing **structural** comparison → generic-instantiation
   matching is preserved (this is why yo-self uses structural at all).
-- Mirrors TS's *results* exactly (TS never treats differently-named, non-placeholder
+- Mirrors TS's _results_ exactly (TS never treats differently-named, non-placeholder
   structs as exact-equal), using yo-self's available identity (name).
 - NOT "name-only" comparison (which regressed `std` 151→17 once —
   [[yo-self-phase3-hashmap-new-blocker]]): it is name-DISTINCTNESS layered on top of
@@ -94,7 +98,7 @@ Also added `{ type_contains_some_type } :: import("./utils.yo");` to compatibili
 - Full self-compile: **440 → 422 markers (clean net −18, 0 un-masked)**. EXIT=0.
   Contrast the recursive-clone fix ([[yo-self-p1-dirB-where-self-type1]] UPDATE 7),
   which was +3 from warm-up un-masking — this fix has **zero churn**, supporting
-  that the cache collision was itself a *source* of warm-up instability.
+  that the cache collision was itself a _source_ of warm-up instability.
 - Corpus A/B (base vs dbg40): pending.
 
 ### What the −18 actually unblocked (NOT the predicted async-capture fn)
@@ -121,18 +125,18 @@ error: assigning to '__yo_struct_yo_id_5815' from incompatible type '__yo_struct
 ```
 
 **ROOT-CAUSED (probe-confirmed, see task #30):** generic type instantiations are never
-interned to a stable id. `HashMapValues` is an anonymous `struct(...)` (hash_map.yo:631)
+interned to a stable id. `HashMapValues` is an anonymous `struct(...)` (hash*map.yo:631)
 returned by a comptime fn. An instrumented `comptime_fn.yo` probe showed the constructor
 appears under **7 different func_ids** (funcId churn across specialization contexts) AND
 the comptime-fn cache **misses every time within each func_id** (HIT=0); `yo_id_5968`
 missed 3× → struct ids 5981/6001/6199 = the exact conflicting C ids. So each instantiation
-re-runs `handle_struct_def` → fresh `struct_${random_id}` → codegen emits distinct
+re-runs `handle_struct_def` → fresh `struct*${random_id}` → codegen emits distinct
 incompatible C types → clang fails. The clang conflicts span **both** within-func_id
 (5981/6001/6199) and across func_ids (`Option` enums 5989 vs 6206), so the 7 func_ids
 must collapse to ONE stable id.
 
-**CONFIRMED pre-existing and general** (NOT caused by the layer-1 fix): the *base* binary
-(no compat fix) fails the *single-struct* repro identically (5 clang errors, 0 transpile
+**CONFIRMED pre-existing and general** (NOT caused by the layer-1 fix): the _base_ binary
+(no compat fix) fails the _single-struct_ repro identically (5 clang errors, 0 transpile
 markers). `HashMap.values()/.next()` returning any struct value is simply broken in
 yo-self codegen; the corpus never exercises it and `check ./std` is evaluator-only.
 
@@ -155,3 +159,41 @@ repro through BOTH compilers first, then diff the specific decision (here: TS's
 nominal `id`/`funcId` struct-distinctness vs yo-self's structural-only exact
 comparison). The faithful fix maps TS's stable `id` identity onto yo-self's stable
 identity (the stamped name) without copying the unstable mechanism verbatim.
+
+## Layer 2 — UPDATE 2026-06-29: faithful codegen-key fix landed (core) + multi-layer map
+
+**Confirmed yo-self-ONLY (TS has no bug).** TS `src/evaluator/calls/comptime-fn.ts` MEMOIZES
+comptime type-constructor calls in `functionValue.calledComptimeFunctionCaches` keyed by
+`(funcId, argValues)` → `Bucket(i32,N)` returns the SAME interned struct (stable `id`)
+everywhere; it also stamps `typeName="Bucket(i32,N)"` + `functionValue`. yo-self's cache
+(`g_comptime_fn_caches`) misses on the args comparison → fresh `struct_${random_id}` each time.
+
+**Probe finding (decisive):** for `HashMap(i32,N)`, the two `Bucket` struct ids (3819/4094)
+BOTH carry the SAME `constructor_func_id=yo_id_3766` + `type_arguments=[i32,N]`. So the random
+`id` churns but `(constructor_func_id, type_arguments)` is STABLE — yo-self DOES stamp it at
+instantiation (comptime_fn.yo:841-851), the faithful analogue of TS's `(funcId, argValues)`.
+
+**Fix landed (faithful, the issue-endorsed mapping — NOT the unstable cache mechanism):**
+`_type_key_at` (codegen/utils/index.yo) now keys a generic-instantiation struct (non-empty
+`constructor_func_id` + `type_arguments`) by `gs_${cfid}_${recur(type_args)}` instead of the
+churning `id`. **Regression-free: corpus 88/88 DIFF 0 SELF-FAIL 0.** Eliminates the FATAL
+`Bucket`-value-struct assignment errors — `HashMap(i32,Self)` cycle went from a hard C-compile
+error to COMPILING.
+
+**Confirmed multi-layered (matches the original "multi-session" assessment).** Full
+`HashMap`-of-RECURSIVE-ref-struct support additionally needs, each a SEPARATE mechanism:
+
+1. **cfid consistency:** the SAME struct (id 4090 = `HashMap(i32,N)`) reaches codegen sometimes
+   with `cfid=3802` (→ stable `gs_` key) and sometimes `cfid=""` (→ falls back to churning
+   `id` key) → re-fragments into two C types. substitute/clone/shell-resolution all PRESERVE
+   cfid (verified), so the `cfid=""` comes from an evaluation-order / early-collection path
+   (unpinned). This is the next layer to land for the codegen-key fix to fully bite.
+2. **Recursive self-shell id stability:** `N` (recursive through `HashMap(i32,Self)`) fragments
+   via the struct self-shell (4090 vs 4088) — a different mechanism from generic-instantiation
+   identity (related to the recursive-enum/struct self-shell work).
+3. **Separate pre-existing codegen bug:** `use of undeclared identifier _file____tmp__temp_2154`
+   in HashMap `set`/`_resize` — unrelated to type identity; blocks the non-cyclic set/get path.
+
+So the codegen-key fix is the faithful CORE (regression-free); layers 1–3 remain for the full
+`HashMap`-of-ref-struct use case. `tests/codegen-bootstrap/hashmap_self_cycle.yo` stays held
+(TS-validated; saved at `/tmp/hashmap_self_cycle_hold.yo`) until layers 1–2 land.
