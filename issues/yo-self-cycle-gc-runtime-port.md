@@ -154,14 +154,20 @@ terminators leak; the a<->b cycle is collected by BOTH). This is why
 cycle was reclaimed) rather than `after == before` (everything freed). Separate
 from cycle collection.
 
-**Precise root (investigated 2026-06-28):** NOT a codegen bug. `generate_assignment`
-(yo-self/codegen/exprs/assignment.yo:95-113) already emits `temp = <old lhs>; // Save
-old value`, exactly like TS. The gap is that yo-self's `attach_temp_variable_to_expr`
-is a **no-op stub** in `evaluator/exprs/utils.yo` (it IS called at
-`evaluator/exprs/assignment.yo:720`), so the saved temp is never registered as an
-RC-*owning* scope variable and the enclosing begin-block's scope-end drop never drops
-it. Fix = un-stub `attach_temp_variable_to_expr`, faithfully porting
-`attachTempVariableToExpr` (src/expr.ts:1657 — the ~95-line RC-ownership /
-`isOwningTheRcValue` / env-binding routine). ⚠️ Delicate, broad blast radius — it runs
-for EVERY reassignment, so validate with corpus 0-diff + the cycle tests returning to
-baseline + TS-ASan before trusting it.
+**Precise root (RE-DIAGNOSED 2026-06-28 from emitted C — supersedes the earlier
+"no-op stub" note):** `attach_temp_variable_to_expr` is NOT a no-op stub — it is fully
+implemented in `evaluator/utils.yo:105` (registers the temp). The "no-op stub" comments
+in `recur.yo:20` / `assignment.yo:13,718` are STALE (predate its porting). The save IS
+emitted too. The actual gap, from comparing the ref-enum cycle's emitted C (TS `0→2→0`
+vs yo-self `0→4→2`): for `a.next = b` where `next : Self` (ref-ENUM managed field),
+yo-self emits the old-value save (`temp = a->data.ECons.next; // Save old value`) but
+emits **neither** a `__dup` on the RHS (TS: `a->next = __dup(b)`; yo-self: `a->next = b`)
+**nor** any scope-end `__drop` — not the saved temps, not even the locals `a`/`b`. TS
+drops all four. Net: the two overwritten `ENil` terminators are held at RC=1 by dead
+save-temps, survive trial deletion (nothing points at them) → leak (`after=2`); the
+`a↔b` ECons cycle still collects. So yo-self's assignment dup/drop SCHEDULING doesn't
+treat ref-enum managed-field writes as RC-managed. Fix = schedule the deferred
+`dup(RHS)` + deferred `drop(saved-old-value)` for ref-enum (verify ref-struct)
+managed-field reassignment, mirroring TS. ⚠️ Delicate RC change — validate corpus
+0-diff + `ref_enum_cycle` returning to baseline + TS-ASan. Likely localized to the
+ref-enum field-write path. Repro: `src/tests/fixme.yo` (count-printing).

@@ -193,20 +193,26 @@ reassignment: `a.next = b` saves the old `a.next` to a temp but never `decr_rc`s
 (TS does). Required for "no leaks." Tracked as gap #3 in
 `issues/yo-self-cycle-gc-runtime-port.md`.
 
-**Precise root (investigated 2026-06-28):** the yo-self *codegen* is NOT at fault —
-`generate_assignment` (yo-self/codegen/exprs/assignment.yo:95-113) already emits the
-`temp = <old lhs>; // Save old value` exactly like TS. The gap is that yo-self's
-`attach_temp_variable_to_expr` (called in evaluator/exprs/assignment.yo:720 but a
-**no-op stub** in utils.yo) never registers that temp as an RC-*owning* scope variable,
-so the enclosing begin-block's scope-end drop machinery never drops it. The fix is to
-**un-stub `attach_temp_variable_to_expr`**, faithfully porting `attachTempVariableToExpr`
-(src/expr.ts:1657) — the ~95-line RC-ownership / `isOwningTheRcValue` / env-binding
-routine that adds the temp to the env frame so scope-end drop reclaims it. ⚠️ This is
-delicate, broad-blast-radius evaluator work: the function runs for EVERY reassignment
-(not just cycles), so a wrong port double-frees or leaks across the whole corpus. Must
-be its own focused effort, validated by corpus 0-diff + the cycle tests returning to
-baseline (`after == before`) + TS-ASan. (The codegen-only framing in earlier revisions
-of this section was wrong.)
+**Precise root (RE-DIAGNOSED 2026-06-28 from emitted C — supersedes two earlier wrong
+framings):** NOT "fix the codegen save" (the save is emitted) and NOT "un-stub
+`attach_temp_variable_to_expr`" (that fn IS fully implemented in
+`yo-self/evaluator/utils.yo:105` — it registers the temp; the "no-op stub" comments in
+`recur.yo:20`/`assignment.yo:13,718` are STALE, predating its porting). The actual gap,
+from comparing the emitted C of the ref-enum cycle (TS `0→2→0` vs yo-self `0→4→2`): for
+`a.next = b` where `next : Self` (a ref-**enum** managed field), yo-self emits the old
+value SAVE (`temp = a->data.ECons.next; // Save old value`) but emits **neither** (1) a
+`__dup` on the RHS (TS: `a->next = __dup(b)`; yo-self: `a->next = b`) **nor** (2) any
+scope-end `__drop` — not the saved temps, *not even the locals* `a`/`b`. TS drops all
+four. Net: the two overwritten `ENil` terminators are held at RC=1 by dead save-temps and
+survive trial deletion (nothing else points at them) → leak (`after=2`); the `a↔b` ECons
+cycle still collects. So yo-self's assignment dup/drop **scheduling** doesn't treat
+ref-enum managed-field writes as RC-managed (no deferred dup on RHS, no deferred drop of
+the saved old value). **Fix:** schedule the deferred `dup(RHS)` + deferred
+`drop(saved-old-value)` for ref-enum (verify ref-struct) managed-field reassignment in
+yo-self's assignment evaluator/codegen, mirroring TS. ⚠️ Delicate RC change — validate
+corpus 0-diff + `ref_enum_cycle` returning to baseline (`after==before`) + TS-ASan.
+Likely localized to the ref-enum field-write path (ref-struct field writes + variable
+reassignment already emit correct RC). Repro: `src/tests/fixme.yo` (count-printing).
 
 ## 5. Implementation phases
 
