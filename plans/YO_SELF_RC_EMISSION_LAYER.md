@@ -199,10 +199,39 @@ on BOTH sides. Verified by diffing `setExprAsNeedsToCallDup` call sites
 
 - **A1 — eval-side `set_expr_as_needs_to_call_dup` ported** (was a no-op stub;
   THE root cause). Commit `4eccdb5dd`. All existing callers thread `exn`.
-- **A2 (1/N) — codegen dup emission in `init_assignment.yo`** (`_emit_rhs_deferred_dup`
-  helper; the two scalar-path RHS sites). Commit `b61f2252c`.
-- Both validated: compile OK (~77s), corpus **86/86 PASS DIFF 0 SELF-FAIL 0**,
+- **A2 (1/N) — codegen dup emission in `init_assignment.yo`**. Commit `b61f2252c`.
+- **A2 (2/N) — shared `emit_deferred_dup_or_code` helper (drop_dup.yo) + ref-struct
+  ctor-arg dup** (other*fn_call.yo `\_\_yo_new*<cName>(args)`loop). Commit`cd113b73d`.
+- All validated: compile OK (~77s), corpus **86/86 PASS DIFF 0 SELF-FAIL 0**,
   `check ./yo-self` 0 regressions (baseline = identical 11 pre-existing test-file fails).
+
+### ✅ Dup machinery PROVEN firing (the key de-risk this session)
+
+Verified end-to-end with `Pair(y, y)` (y kept) vs TS: eval builds 2 dups; codegen
+emits 2 inline `__yo_incr_rc(y)` before the ctor; program runs correctly; matches
+TS's 2 `___dup` calls. **DIAGNOSTIC LESSON: a ref-struct/ref-enum `___dup` lowers to
+`__yo_incr_rc((void*)x)`, NOT a `_dup(`-named call — grep `__yo_incr_rc` (not `_dup`)
+when checking whether a dup fired.** `incr_rc` returns the same pointer, so yo-self's
+`incr_rc(x); Ctor(x,x)` (emit-then-use-raw) is equivalent to TS's `t=dup(x); Ctor(t,t)`
+for rc-types (the dup-result-temp rewrite returns the raw fallback because a ref dup
+has no result temp — correct).
+
+### ⚠️ COUPLING boundary discovered: which dup sites are SAFE-alone vs cycle-COUPLED
+
+Adding a dup is crash-safe (refcount++), but a dup on a **cycle-formation path** changes
+the refcounts a cycle test observes (`tracked_count`) → corpus DIFF (no crash) until the
+paired Phase-B drops land. Measured:
+
+- **SAFE alone (0-diff, landed):** init-assignment RHS, **ref-struct ctor args**
+  (`Pair(y,y)`) — the corpus struct cycle forms via ArrayList push/reassign, not ctor args.
+- **CYCLE-COUPLED (DIFF without drops — must co-land with Phase B/C):**
+  **enum-construction args** (`Some(y)`/`Cons(..)` — `ref_enum_option_cycle` DIFFs:
+  enum ctors ARE the cycle nodes) and **assignment reassignment** (`a.next=b`). ATTEMPTED
+  the enum-ctor dup (other_fn_call `_emit_enum_construction`, both the nullable-ptr
+  single-arg + multi-field loop) → `ref_enum_option_cycle` DIFF 1, reverted. Re-apply it
+  together with the enum-cycle drops in Phase B/C.
+  So the refined order: SAFE dup sites land in Phase A; the two cycle-coupled dup sites move
+  to the coupled Phase-B/C landing (with their drops).
 
 ### REMAINING — eval side (must CALL `set_expr_as_needs_to_call_dup`; TS has, yo-self lacks)
 
