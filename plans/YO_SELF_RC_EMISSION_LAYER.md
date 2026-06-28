@@ -242,6 +242,36 @@ paired Phase-B drops land. Measured:
   So the refined order: SAFE dup sites land in Phase A; the two cycle-coupled dup sites move
   to the coupled Phase-B/C landing (with their drops).
 
+### Phase-B re-attempt on the dup groundwork (2026-06-28) — de-risked, NOT yet 0-diff
+
+Re-applied the saved M1 scope-drop patch (`scratchpad/m1_full_attempt.patch`:
+begin.yo `_schedule_scope_end_drops` + the conservative skip + generation.yo
+`_copy_expr_list` + empty early-return pending) ON TOP of the landed Phase-A dups,
+then reverted. Result: **PASS 80, DIFF 6, SELF-FAIL 0**. The big news: **the dups
+eliminated the §11 UAF-CRASHES** — zero SELF-FAIL now (was crashing pre-dup). The
+fn-call consume (5778bb093) correctly excludes moved-into-owned-param args from the
+scope drop, so the pass-to-function case balances. The 6 remaining DIFFs (no crashes,
+all `ts_rc=0 self_rc=0` behavioral) split into TWO root causes:
+
+1. **Return-value NOT materialized before scope-end drops (5 diffs):** the block's
+   result expr reads a local that the scope-end drop already freed → reads garbage/0.
+   `rc_early_return_drop` prints `0` not `2` (`i32(xs.len())` after `xs` freed);
+   `fn_pointer_struct_result` `0` not `42`; also `effect_handler_struct_result`,
+   `io_async_struct_field`, `io_async_two_await_struct` (struct/async results). The M1
+   conservative skip only catches a DIRECT `return` statement, not a result expr that
+   uses a to-be-dropped local, nor a `return` nested in an `if`. **FIX = port the
+   normal-exit return-value materialization (TS generation.ts ~1515 region): emit the
+   block result into a temp BEFORE the scope-end drops, then return the temp.**
+2. **Cycle/reassignment-dup coupling (1 diff):** `arraylist_self_cycle` "leaked" not
+   "collected" — dropping the list nodes without the dup-on-reassign unbalances the
+   cycle. **FIX = land the reassignment dup (assignment.yo, §C) WITH these drops**, or
+   keep the conservative field-write skip (it must catch the push/reassign path).
+   **Next Phase-B steps (in order): (B1) return-value materialization → expect the 5 UAF
+   diffs to clear; (B2) tighten the control-flow/result-use exclusion or port the
+   init-filtered early-return drops (begin.ts:2068-2122); (B3) reassignment dup for the
+   cycle. Validate corpus 0-diff + TS-ASan after each.** The M1 patch is a good starting
+   scaffold but its conservative skip is too coarse — the materialization is the real fix.
+
 ### REMAINING — eval side (must CALL `set_expr_as_needs_to_call_dup`; TS has, yo-self lacks)
 
 | TS site                       | yo-self file                    | note                                                                                                                                                                     |
