@@ -264,13 +264,37 @@ all `ts_rc=0 self_rc=0` behavioral) split into TWO root causes:
    block result into a temp BEFORE the scope-end drops, then return the temp.**
 2. **Cycle/reassignment-dup coupling (1 diff):** `arraylist_self_cycle` "leaked" not
    "collected" — dropping the list nodes without the dup-on-reassign unbalances the
-   cycle. **FIX = land the reassignment dup (assignment.yo, §C) WITH these drops**, or
-   keep the conservative field-write skip (it must catch the push/reassign path).
-   **Next Phase-B steps (in order): (B1) return-value materialization → expect the 5 UAF
-   diffs to clear; (B2) tighten the control-flow/result-use exclusion or port the
-   init-filtered early-return drops (begin.ts:2068-2122); (B3) reassignment dup for the
-   cycle. Validate corpus 0-diff + TS-ASan after each.** The M1 patch is a good starting
-   scaffold but its conservative skip is too coarse — the materialization is the real fix.
+   cycle. **FIX = land the reassignment/method-call-arg dup-or-consume WITH these drops.**
+
+### ✅ B1 IMPLEMENTED + CONFIRMED (2026-06-28) — M1+B1 = 85/86, last diff pinpointed
+
+Implemented B1 (return-value materialization) in `generation.yo` `generate_function_body`'s
+no-early-return last-expr path: when the body has scope-end drops + a non-unit return, emit
+`<ret_type> __yo_scope_ret = <expr_code>;` BEFORE `generate_deferred_drop_expressions`, then
+`return __yo_scope_ret;` (mirrors generation.ts:1587-1611, return type from the `Func` result).
+With M1 scope-drops + B1 applied (on the Phase-A dup groundwork): **PASS 85, DIFF 1,
+SELF-FAIL 0** — **all 5 return-UAF diffs CLEARED** (rc_early_return_drop, fn_pointer_struct_result,
+effect_handler_struct_result, io_async_struct_field, io_async_two_await_struct). The full
+M1+B1 work is saved at `scratchpad/phaseB_m1_b1.patch` (begin.yo + generation.yo). Reverted to
+clean Phase A (can't commit a 1-diff state).
+
+**The ONE remaining diff — `arraylist_self_cycle` — root-caused precisely (NOT a consume
+issue):** BOTH compilers drop `a`/`b` at `form_cycle` scope end — TS emits
+`fn_..._id_21___drop(b); ___drop(a)`, yo-self emits `__yo_decr_rc((void*)(a/b))`. The
+difference is the **dup-on-store INSIDE `push`**: TS's `a.children.push(b)` stores a **dup'd**
+`b` into the buffer (b rc 1→2), so the scope-end `___drop(b)` leaves rc=1 (b survives, held by
+the buffer = the cycle edge) → `Gc.collect` reclaims the unreachable cycle (`collected`).
+yo-self's `push` stores `b` into the buffer **without duping** (rc stays 1), so the scope-end
+drop frees `b` immediately (rc→0) → the cycle never forms → `leaked`. The call site passes `b`
+RAW in both (no caller-side dup; verified in the emitted C). **So the fix is the store-dup
+inside `push`'s body — the §C assignment / index-store dup-on-store (`a.f = dup(v)` /
+`buf(i) = dup(v)`), which yo-self has not ported.** This is exactly the "cycle-COUPLED"
+reassignment/store-dup flagged above — it MUST co-land with the M1+B1 drops.
+**NEXT (B3): port the assignment/index-store dup (TS `assignment.ts`; yo-self `assignment.yo`
+already calls `set_expr_as_needs_to_call_dup(prop_rhs)` at line 388 — wire its codegen emit +
+the index-store path used by `ArrayList.push`).** Then re-apply `phaseB_m1_b1.patch`, expect
+**86/86**, validate TS-ASan, flip the cycle assertions to baseline. That closes Phase B for the
+corpus.
 
 ### REMAINING — eval side (must CALL `set_expr_as_needs_to_call_dup`; TS has, yo-self lacks)
 
