@@ -53,7 +53,8 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_is_atom,
   ast_expr_to_string,
-  make_err_expr
+  make_err_expr,
+  BF_DUP
 } :: import("../expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 {
@@ -84,6 +85,11 @@ open(import("std/string"));
 { are_types_compatible } :: import("../types/compatibility.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
+// `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
+// `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
+// late-binding dispatcher (it imports neither utils.yo nor any handler).
+{ generate_expr_from_code } :: import("../parser.yo");
+{ evaluate_expression_raw } :: import("./exprs/expr.yo");
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `yo-self/utils.yo` (mirroring src/utils.ts).
@@ -550,21 +556,122 @@ set_expr_as_consumed :: (
   );
 });
 // ---------------------------------------------------------------------------
-// set_expr_as_needs_to_call_dup  (Phase 2w stub)
+// set_expr_as_needs_to_call_dup  (Phase A: dup-on-store)
 // ---------------------------------------------------------------------------
-/// Mark `rhs` as needing a `___dup` call to transfer RC ownership.
+/// Mark `rhs` as needing a `___dup` call to transfer/share RC ownership.
 ///
-/// Phase 2w stub: no-op.  The full implementation (Phase 3) will insert a
-/// deferred `___dup` expression into `ctx.expr_info_table` for `rhs` and
-/// may consume a temp-variable owner.
+/// When an owning RC value is shared (stored into a binding/field, passed to an
+/// owned param), this either (a) marks the source temp **consumed** and emits no
+/// dup when ownership simply transfers, or (b) builds + evaluates `___dup(name)`,
+/// stores it in `rhs`'s `deferred_dup_expressions` (codegen emits it and uses the
+/// dup-result temp), and consumes that dup-result temp.
+///
+/// yo-self note: `Variable`/`ExprInfo` are RC objects, so `consumed_at_token` and
+/// `deferred_dup_expressions` are mutated in place (mirroring
+/// `consume_case_body_temp_var`); the TS `updateExistingVariable`/`expr.$.env =`
+/// reassignments are implicit because the underlying objects are shared.
+/// `exn` is threaded because yo-self's `generate_expr_from_code` /
+/// `evaluate_expression_raw` require an explicit exception handler (TS throws).
 ///
 /// Mirrors `setExprAsNeedsToCallDup` in `src/expr.ts`.
 set_expr_as_needs_to_call_dup :: (
   fn(
-    _rhs : AstExpr,
-    _ctx : EvalContext
+    rhs : AstExpr,
+    ctx : EvalContext,
+    exn : Exception
   ) -> unit
-)(());
+)({
+  // `expr.$.variableName` — no ExprInfo or no temp variable name ⇒ nothing to do.
+  var_name_opt := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
+    .Some(info) => info.variable_name,
+    .None => Option(String).None
+  );
+  match(
+    var_name_opt,
+    .None => (),
+    .Some(variable_name) => {
+      // Re-fetch the ExprInfo to mutate (guaranteed Some — the table is
+      // unchanged since the var_name lookup above; the .None arm is unreachable).
+      ei := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
+        .Some(info) => info,
+        .None => new_expr_info_placeholder_for_unreachable_(rhs)
+      );
+      // --- Compile-time value handling (mirrors `if (expr.$.value)`). ---
+      if(ei.value.is_some(), {
+        (needs_dup_for_non_owning_rc_temp : bool) = false;
+        if(is_temp_variable_name(ei.env.module_path, variable_name) && type_contains_rc_type(ei.ty), {
+          vars := get_variables_from_env(ei.env, variable_name);
+          if(vars.len() > usize(0), {
+            v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(ei.env));
+            if(v.is_owning_the_rc_value && v.consumed_at_token.is_none(), {
+              v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+            });
+            // Non-owning RC temp (e.g. index-trait result): codegen does not
+            // dup inline for these, so fall through to generate the dup.
+            if(!(v.is_owning_the_rc_value), {
+              needs_dup_for_non_owning_rc_temp = true;
+            });
+          });
+        });
+        if(!(needs_dup_for_non_owning_rc_temp), {
+          return(());
+        });
+      });
+      // --- Only RC-bearing types need dup/consume. ---
+      if(!(type_contains_rc_type(ei.ty)), {
+        return(());
+      });
+      // Owning temp already holding the value: ownership transfers ⇒ consume, no dup.
+      if(is_temp_variable_name(ei.env.module_path, variable_name), {
+        is_atom_with_other_name := (ast_expr_is_atom(rhs) && (ast_expr_token(rhs).value != variable_name));
+        if(!(is_atom_with_other_name), {
+          vars := get_variables_from_env(ei.env, variable_name);
+          if(vars.len() > usize(0), {
+            v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(ei.env));
+            if(v.is_owning_the_rc_value, {
+              if(v.consumed_at_token.is_none(), {
+                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+              });
+              return(());
+            });
+          });
+        });
+      });
+      // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
+      dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
+      saved_expected := ctx.expected_type;
+      ctx.expected_type =.None;
+      evaluated_dup := evaluate_expression_raw(dup_expr, ei.env, ctx, exn);
+      ctx.expected_type = saved_expected;
+      // Consume the dup-result temp so it is not dropped separately later. The
+      // dup temp was added in-place to `ei.env`'s current frame during eval.
+      dup_var_name_opt := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dup)),
+        .Some(di) => di.variable_name,
+        .None => Option(String).None
+      );
+      match(
+        dup_var_name_opt,
+        .None => (),
+        .Some(dvn) => {
+          dvars := get_variables_from_env(ei.env, dvn);
+          if(dvars.len() > usize(0), {
+            dv := match(dvars.get(dvars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(ei.env));
+            if(dv.consumed_at_token.is_none(), {
+              dv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_dup)));
+            });
+          });
+        }
+      );
+      // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
+      dup_list := ArrayList(AstExpr).new();
+      dup_list.push(evaluated_dup);
+      ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // doc_comment_lookup_key_from_token
 // ---------------------------------------------------------------------------

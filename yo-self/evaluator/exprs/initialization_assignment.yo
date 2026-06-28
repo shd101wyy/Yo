@@ -301,8 +301,8 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     // -------------------------------------------------------------------
     // Check if the RHS variable has been consumed (moved).
     require_expr_not_consumed(rhs, env, ctx, exn);
-    // Insert dup (Phase 2w: stub, no-op).
-    set_expr_as_needs_to_call_dup(rhs, ctx);
+    // Insert dup-on-store (transfers/shares RC ownership of the RHS).
+    set_expr_as_needs_to_call_dup(rhs, ctx, exn);
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
