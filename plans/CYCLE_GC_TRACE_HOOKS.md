@@ -289,33 +289,59 @@ WIP / remaining, with the concrete hooks:
   Resolve the container's Trace impl with its OWN env (`type.env`), not the root's
   threaded env (impls are visible in the defining module, not necessarily the root's).
 
-- **⛔ THE REAL OPEN BLOCKER — struct-identity fragmentation for generic instantiations
-  (task #30), specifically in cycle DETECTION.** Full implementation of items 5/6/7 + the
-  slot-pointer API was done on TS (builds clean) and reverted; here is exactly what was
-  learned:
-  - **Resolution/delegation WORKS** for a concrete container that carries a `functionValue`.
-    `synthesizeTypes` has a funcId-unification path (synthesizer.ts:660) that matches
-    `ArrayList(T)` ↔ `ArrayList(X)` when both structs share `functionValue.funcId`. The
-    concrete `ArrayList(Node)` in `context.types` (id_704) has `functionValue=…id_40`, so
-    `findMethodsFromGenericImpls` resolves BOTH `dispose` AND `trace` for it
-    (`disposeFound=1`). So `collectTraceMethodsFromGenericImpls` + the traverse delegation
-    are viable. (My earlier "name-divergence" reading was only the *symptom* on fv-LESS
-    instances.)
-  - **Detection does NOT work** — the wall. `can_type_form_rc_cycle(Node)` for
-    `Node :: ref(struct(children : ArrayList(Self)))` cannot find the cycle because
-    `ArrayList(Node)` exists as MULTIPLE non-identical struct instances (different
-    `type.id`: the scan reaches id_738 whose buffer element is concrete `Node`, but Node's
-    own `children` field references a DIFFERENT `ArrayList(Node)` instance). The cycle check
-    keys its `visited` set by `type.id`, so the back-reference `…→ArrayList(Node)→Node→…`
-    never converges to a visited id → `cycles=false` → `needsCycleGC` stays false → nothing
-    is even GC-registered (`mid=0`). Keying `visited` by a canonical identity instead would
-    fix it, but a canonical key needs `functionValue.funcId` + the type-args, and (i) some
-    instances have `functionValue=none` and (ii) `StructType` has no `typeArguments` field —
-    i.e. exactly task #30 ("stable type identity for same-fielded generic instantiations").
-  - **Conclusion:** Phase 3 (container cycle collection) is gated on **task #30**. None of
-    the three earlier options (functionValue preservation / manual specializer / eval call-
-    site) resolves DETECTION, because they all assume a single canonical `ArrayList(Node)`
-    identity that does not exist today. The slot-pointer no-RC-churn design (above) is
-    correct and ready; re-apply items 5/6/7 from these anchors AFTER task #30 gives
-    generic instantiations a stable identity, then validate `ArrayList(Self)` collects +
-    ASan on an RC=1 cycle, port to yo-self, corpus 0-diff.
+- **✅ PHASE 3 (TS): DONE — container cycles collect. The blocker was NOT task #30.**
+  The earlier "struct-identity fragmentation (task #30)" diagnosis was a **red herring**.
+  The id_738-vs-id_704 fragmentation I chased was an artifact of an earlier instrumented
+  build; in the real run `Node.children` references a single consistent `ArrayList(Node)`
+  (id_704), and `synthesizeTypes`' funcId-unification path resolves both `dispose` and
+  `trace` for it. Resolution/delegation was never the wall.
+  - **The true root: the buffer-blind `Acyclic` auto-derive.** `autoDeriveAcyclicForStructType`
+    marked a ref struct `Acyclic` whenever `!canTypeFormRcCycle`, and *both* of those
+    looked only at the struct's declared fields. A container's elements live behind a raw
+    `?*(E)` buffer pointer, not in a field of type `E`, so the field walk saw no managed
+    refs → `ArrayList(Node)` was wrongly marked `Acyclic`. `canTypeFormRcCycle` then
+    short-circuits to `false` for any `Acyclic` type, so `Node`'s cycle was never found →
+    `needsCycleGC=false` → nothing GC-tracked (`mid=0`).
+  - **The fix (commit ee3d7b82b):** make both halves *element-aware* via a shared
+    `bufferElementType(fieldType)` helper (`src/types/utils.ts`) that extracts the pointee
+    `E` from an `Option(*(E))` (`?*(E)`) buffer field (bare `*(E)` is intentionally NOT
+    matched — a non-owning raw pointer).
+    - `canTypeFormRcCycle` (src/types/utils.ts): after the field walk, also walk each
+      field's `bufferElementType` and recurse — so `ArrayList(Node) → Node → ArrayList(Node)`
+      converges and the cycle is found.
+    - `autoDeriveAcyclicForStructType` (src/evaluator/types/utils.ts): a ref struct is
+      `Acyclic` only if **every** `?*(E)` buffer element is itself `Acyclic`
+      (`allBufferElementsAcyclic`) **and** `!canTypeFormRcCycle`. So `ArrayList(Node)` is
+      correctly withheld from `Acyclic` (stays visible to detection) while `ArrayList(i32)`
+      stays `Acyclic`.
+  - **Validated (TS):** `ArrayList(Self)` two-node cycle now tracks then collects (0→4→0),
+    ASan-clean on an RC=1 cycle (the slot-pointer no-RC-churn API above), `tests/cycle_collector.test.yo`
+    16/16, no std regression, corpus 85/85.
+- **✅ PHASE 3 (yo-self DETECTION): DONE (commit 9241f3e0d).** The element-aware Acyclic +
+  buffer-walk fix is mirrored 1-to-1 in `yo-self/types/utils.yo` (`buffer_element_type` +
+  buffer-walk in `can_type_form_rc_cycle` and the `_type_refs_back_to_cyclic` sref re-root,
+  inlined via `recur` since yo-self forbids top-level mutual recursion) and
+  `yo-self/evaluator/types/utils.yo` (`_all_buffer_elements_acyclic`). The self-hosted
+  compiler now **detects** the container cycle (`tracked_count` 0→4; was 0→0). Corpus 85/85
+  0-diff.
+- **⏳ PHASE 3 (yo-self COLLECTION): the one remaining piece — a yo-self trace-specialization
+  path.** yo-self detects the cycle but does not yet collect it (0→4→4), because its
+  `trace` method is never specialized for the concrete container. **This is a genuine
+  machinery divergence from TS, not a bug:**
+  - TS has `collectTraceMethodsFromGenericImpls` (mirror of the dispose collector) which
+    walks `context.types`, resolves each container's generic `Trace` impl via
+    `findMethodsFromGenericImpls`, and force-specializes `trace`. **yo-self has no such
+    collector** — it specializes impl methods *lazily at call sites* (`try_to_call` →
+    `create_specialized_function_inline`), and `trace` has no call site, so it is never
+    specialized. `_method_c_name(type, "trace", context)` returns `None`.
+  - **The adaptation (planned):** add a yo-self collector that, for each container type in
+    `context.types` with a `?*(E)` buffer and a generic `Trace` impl, force-specializes
+    `trace` through yo-self's existing `create_specialized_function_inline` and registers
+    the result in `g_type_trait_methods` + `context.functions` (so `_method_c_name` finds
+    it). Then mirror the three TS collection edits in yo-self: (a) `gc.yo`
+    `generate_yo_gc_trace_child` slot-deref (currently still by-value), (b) `find_trace`
+    via `_method_c_name`, (c) the traverse-generator delegation in `constructors.yo`
+    (`_generate_one_ref_struct_traversal` line 293 / `_generate_one_ref_enum_traversal`
+    line 366) calling `${traceCName}(obj, (void*)visit)` when a Trace impl exists.
+  - Add the `ArrayList(Self)` **corpus** differential test only *after* yo-self collects
+    (until then it would diff: TS 0→4→0 vs yo-self 0→4→4).
