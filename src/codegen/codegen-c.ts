@@ -13,6 +13,7 @@ import {
 import {
   collectDisposeMethodsFromGenericImpls,
   collectRequiredFunctions,
+  collectTraceMethodsFromGenericImpls,
   findFunctionCallsInExpr,
 } from "./functions/collection";
 import type { FunctionGenerationContext } from "./functions/context";
@@ -139,6 +140,10 @@ export class CodeGeneratorC {
     // This is needed because ___dispose functions may need to call user's dispose methods
     // that are defined via generic impls like: impl(forall(T : Type), ArrayList(T), Dispose(...))
     collectDisposeMethodsFromGenericImpls(context);
+
+    // Same for `trace` methods (Trace trait) from generic impls — the cycle-GC
+    // traverse function delegates to a container's hand-written Trace impl.
+    collectTraceMethodsFromGenericImpls(context);
 
     // Collect C includes from variables used in the module
     collectCIncludes(context);

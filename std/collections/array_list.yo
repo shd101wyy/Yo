@@ -567,6 +567,32 @@ impl(
     })
   )
 );
+impl(
+  forall(T : Type),
+  ArrayList(T),
+  Trace(
+    /**
+    * Cycle-GC tracing. The elements live in a malloc'd buffer the compiler's
+    * auto-derived field walk cannot reach, so trace each element's buffer slot.
+    * `tracer.visit` takes the slot POINTER and reads it WITHOUT touching the
+    * element's reference count — a by-value managed handle would be dup'd then
+    * dropped, freeing a live element mid-collection.
+    */
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self._ptr,
+        .Some(base) => {
+          (i : usize) = usize(0);
+          while(i < self._length, {
+            tracer.visit(base &+ i);
+            i = (i + usize(1));
+          });
+        },
+        .None => ()
+      );
+    })
+  )
+);
 // === Iterator support ===
 /**
 * Value iterator for ArrayList - yields elements by value (T)

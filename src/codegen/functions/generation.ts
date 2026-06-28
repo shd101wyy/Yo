@@ -193,6 +193,95 @@ function findUserDisposeMethodForType(
 }
 
 /**
+ * Find the Trace trait value attached to (or generic-impl'd for) `type`.
+ * Mirrors findDisposeTraitValue for the Trace trait.
+ */
+function findTraceTraitValue(
+  type: Type,
+  env: Environment
+): TraitValue | undefined {
+  const traceTraitType = getTraitTypeFromEnv(env, "Trace");
+  if (!traceTraitType) {
+    return undefined;
+  }
+  const expectedTraitWithReceiver: TraitType = {
+    ...traceTraitType,
+    receiverType: type,
+  };
+  if (type.trait) {
+    for (const field of type.trait.fields) {
+      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
+        continue;
+      }
+      if (
+        areTypesCompatible(
+          { type: expectedTraitWithReceiver, env },
+          { type: field.assignedValue.type, env }
+        )
+      ) {
+        return field.assignedValue;
+      }
+    }
+  }
+  const genericImpl = findMatchingGenericImpl({
+    concreteType: type,
+    traitType: traceTraitType,
+    env,
+  });
+  if (genericImpl) {
+    return genericImpl.traitValue;
+  }
+  return undefined;
+}
+
+/**
+ * Find the user's `trace` method (the Trace impl) for `type`, returning its C
+ * function name if found. Used to make the cycle-GC traverse function delegate to
+ * a container's hand-written Trace impl instead of the auto-derived field walk.
+ * Mirrors findUserDisposeMethodForType (the funcName search finds the specialized
+ * trace that collectTraceMethodsFromGenericImpls registered in context.functions).
+ */
+function findUserTraceMethodForType(
+  type: Type,
+  env: Environment,
+  context: CodeGenContext
+): string | undefined {
+  const traitValue = findTraceTraitValue(type, env);
+  if (!traitValue) {
+    return undefined;
+  }
+  const traceIndex = traitValue.type.fields.findIndex(
+    (field) => field.label === "trace"
+  );
+  if (traceIndex < 0) {
+    return undefined;
+  }
+  const traceValue = traitValue.fields[traceIndex];
+  if (!isFunctionValue(traceValue)) {
+    return undefined;
+  }
+  const directLookup = context.functions[traceValue.funcId]?.cName;
+  if (directLookup) {
+    return directLookup;
+  }
+  for (const funcId in context.functions) {
+    const funcEntry = context.functions[funcId]!;
+    const funcValue = funcEntry.value;
+    const funcType = funcValue.specializedType ?? funcValue.type;
+    if (funcValue.funcName !== "trace") {
+      continue;
+    }
+    if (
+      funcType.SelfType &&
+      areTypesCompatible({ type: funcType.SelfType, env }, { type, env })
+    ) {
+      return funcEntry.cName;
+    }
+  }
+  return undefined;
+}
+
+/**
  * True if the expression tree contains a `return(expr)` call with an
  * argument (a value-returning return statement). Used by the
  * `isEffectRecordMember` stub-emit gate to detect bodies whose
@@ -2633,14 +2722,24 @@ function generateRefStructTraversalFunctions(
         `static void __yo_traverse_${cName}(void* ptr, void (*visit)(void*)) {`
       );
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
-      for (const field of runtimeFields) {
-        emitTraverseValue(
-          `obj->${sanitizeForCIdentifier(field.label)}`,
-          field.type,
-          context,
-          new Set<string>(),
-          "visit"
-        );
+      const traceCName = findUserTraceMethodForType(type, type.env, context);
+      if (traceCName) {
+        // A type with an explicit Trace impl (a container whose elements live in a
+        // malloc'd buffer a field walk can't reach): delegate to its monomorphized
+        // `trace`. `(void*)visit` becomes the GcTracer newtype (uint8_t*)
+        // implicitly; the impl iterates its buffer and re-enters tracing per
+        // element via `tracer.visit` (__yo_gc_trace_child).
+        emitter.emitLine(`  ${traceCName}(obj, (void*)visit);`);
+      } else {
+        for (const field of runtimeFields) {
+          emitTraverseValue(
+            `obj->${sanitizeForCIdentifier(field.label)}`,
+            field.type,
+            context,
+            new Set<string>(),
+            "visit"
+          );
+        }
       }
       emitter.emitLine(`}`);
       emitter.emitLine(``);
@@ -2812,6 +2911,14 @@ function generateRefEnumTraversalFunctions(
     // `${cName}` is the struct-VALUE typedef (getTypeString adds the `*`), so the
     // handle is `${cName}*` — cast accordingly (matches the ref-struct traversal).
     emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
+    const traceCName = findUserTraceMethodForType(type, type.env, context);
+    if (traceCName) {
+      // A ref-enum with an explicit Trace impl — delegate to it (same as structs).
+      emitter.emitLine(`  ${traceCName}(obj, (void*)visit);`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+      continue;
+    }
     emitter.emitLine(`  switch (obj->tag) {`);
     for (const variant of type.variants) {
       const fields = (variant.fields ?? []).filter((f) =>

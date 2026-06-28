@@ -1924,6 +1924,28 @@ Please consider use 'unit' type instead.
  * @param visitedTypes Internal tracking of visited types
  * @param env Environment for trait checking (used to check if SomeType implements Acyclic)
  */
+/**
+ * Extract the element type a container holds behind its heap buffer field — the
+ * pointee `E` of an `Option(*(E))` (`?*(E)`) field, the idiom every RC-capable std
+ * container uses (`ArrayList._ptr : ?*(T)`, `HashMap.data : ?*(Bucket(K,V))`). A
+ * bare `*(E)` field is intentionally NOT matched: it is treated as a non-owning raw
+ * pointer that does not participate in ARC cycles, matching the field walk's existing
+ * `isPtrType → false` behaviour. Used to see through a container to its elements both
+ * for cycle detection and for the Acyclic auto-derive.
+ */
+export function bufferElementType(fieldType: Type): Type | undefined {
+  if (isEnumType(fieldType)) {
+    for (const variant of fieldType.variants) {
+      for (const f of variant.fields ?? []) {
+        if (isPtrType(f.type)) {
+          return f.type.childType;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 export function canTypeFormRcCycle(
   type: Type,
   visitedTypes: Set<string>,
@@ -1954,6 +1976,20 @@ export function canTypeFormRcCycle(
     for (const field of fields) {
       if (typeCanFormCyclicRcReference(field.type, type, visitedTypes, env)) {
         return true;
+      }
+    }
+
+    // Containers hold their elements behind a raw buffer pointer that the field
+    // walk above treats as non-participating (raw pointers don't form ARC cycles).
+    // Walk the buffer ELEMENT type so element cycles — `ArrayList(Self)`,
+    // `HashMap(_, Self)`, the self-host `TypeValue.field_types : ArrayList(Self)`
+    // shape — are detected.
+    if (isStructType(type)) {
+      for (const field of type.fields) {
+        const elem = bufferElementType(field.type);
+        if (elem && typeCanFormCyclicRcReference(elem, type, visitedTypes, env)) {
+          return true;
+        }
       }
     }
 

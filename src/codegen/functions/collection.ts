@@ -13,6 +13,7 @@ import type { Type } from "../../types/definitions";
 import {
   isBoxedType,
   isDynType,
+  isEnumType,
   isFunctionSpecializable,
   isFunctionType,
   isFunctionTypeHardGeneric,
@@ -690,6 +691,56 @@ export function collectDisposeMethodsFromGenericImpls(
         collectTypesFromFunctionType(funcValue.type, context);
 
         // Recursively collect functions called by this dispose function
+        findFunctionCallsInExpr(funcValue.body, context);
+      }
+    }
+  }
+}
+
+/**
+ * Collect `trace` methods (the Trace trait) from generic impls for all collected
+ * reference-counted types. Like collectDisposeMethodsFromGenericImpls: a generic
+ * impl such as `impl(ArrayList(forall(E)), Trace(...))` stores a generic `trace`
+ * that isn't specialized until called, but the cycle-GC traverse function for the
+ * container needs to CALL it — so specialize and collect it here (which also pulls
+ * in the per-element `GcTracer.visit` monomorphizations referenced in its body).
+ */
+export function collectTraceMethodsFromGenericImpls(
+  context: CodeGenContext
+): void {
+  const traceFuncName = "trace";
+
+  for (const typeId in context.types) {
+    const { type } = context.types[typeId]!;
+
+    // Reference-counted struct OR enum types can carry a Trace impl.
+    const isRc =
+      (isStructType(type) || isEnumType(type)) && type.isReferenceSemantics;
+    if (!isRc) {
+      continue;
+    }
+
+    const methods = findMethodsFromGenericImpls({
+      concreteType: type,
+      methodName: traceFuncName,
+      env: type.env,
+    });
+
+    for (const method of methods) {
+      if (method.value && isFunctionValue(method.value)) {
+        const funcValue = method.value;
+
+        if (context.functions[funcValue.funcId]) {
+          continue;
+        }
+        if (!funcValue.funcName) {
+          funcValue.funcName = traceFuncName;
+        }
+        context.functions[funcValue.funcId] = {
+          value: funcValue,
+          cName: sanitizeForCIdentifier(funcValue.funcId),
+        };
+        collectTypesFromFunctionType(funcValue.type, context);
         findFunctionCallsInExpr(funcValue.body, context);
       }
     }

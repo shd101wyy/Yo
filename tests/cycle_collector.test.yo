@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio.yo"));
 Gc :: import("std/gc");
+{ ArrayList } :: import("std/collections/array_list");
 List :: ref(
   struct(
     value : i32,
@@ -322,4 +323,27 @@ test("ref-enum Option(Self) two-node cycle all garbage", {
   do_test();
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "ref-enum Option(Self) two-node cycle collected");
+});
+// --- container-held self-reference: children : ArrayList(Self) ---
+// The recursive edge lives in the ArrayList's malloc'd buffer, which the
+// auto-derived field walk can't reach — only the hand-written Trace impl iterates
+// it. Detection also requires the Acyclic auto-derive to see THROUGH the buffer
+// (ArrayList(LNode) is NOT Acyclic because LNode is not). This is the self-host
+// `TypeValue.field_types : ArrayList(Self)` shape.
+LNode :: ref(
+  struct(
+    value : i32,
+    children : ArrayList(Self)
+  )
+);
+test("ArrayList(Self) two-node cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := LNode(1, ArrayList(LNode).new());
+    b := LNode(2, ArrayList(LNode).new());
+    consume(a.children.push(b)); // a -> b
+    consume(b.children.push(a)); // b -> a : cycle through ArrayList(Self)
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ArrayList(Self) cycle collected");
 });

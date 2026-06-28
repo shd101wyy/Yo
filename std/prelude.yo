@@ -232,22 +232,26 @@ Dispose :: trait(
 export(Dispose);
 /// === Cycle-GC tracing ===
 /// `GcTracer` carries the cycle collector's edge-registration callback (an opaque
-/// raw pointer). A `Trace` impl calls `tracer.visit(child)` once per outgoing edge:
-/// it registers the edge if `child` is a managed handle, and recurses inline through
-/// value structure otherwise. The raw callback is never touched directly.
+/// raw pointer). A `Trace` impl calls `tracer.visit(slot)` once per outgoing edge,
+/// passing a POINTER to where the child lives (a struct field or a container buffer
+/// element). The raw callback is never touched directly.
 GcTracer :: newtype(_callback : *(u8));
 export(GcTracer);
 extern(
   "Yo",
-  /// Per-value edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
-  __yo_gc_trace_child : (fn(forall(T : Type), tracer : GcTracer, child : T) -> unit)
+  /// Per-slot edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
+  __yo_gc_trace_child : (fn(forall(T : Type), tracer : GcTracer, slot : *(T)) -> unit)
 );
 impl(
   GcTracer,
-  /// Trace one outgoing edge: register `child` if it is a managed handle, else
-  /// recurse inline through its value structure (struct / enum / tuple / array).
-  visit : (fn(forall(T : Type), self : Self, child : T) -> unit)(
-    __yo_gc_trace_child(self, child)
+  /// Trace one outgoing edge. `slot` points at where the child lives; the collector
+  /// reads `*slot` WITHOUT touching its reference count — registering the edge if it
+  /// is a managed handle and recursing inline through value structure otherwise.
+  /// Passing the slot pointer (not the element by value) keeps tracing RC-neutral: a
+  /// by-value managed handle would be dup'd then dropped, freeing a live element
+  /// mid-collection.
+  visit : (fn(forall(T : Type), self : Self, slot : *(T)) -> unit)(
+    __yo_gc_trace_child(self, slot)
   )
 );
 /// Trace trait — mandatory for every reference type that can transitively hold a

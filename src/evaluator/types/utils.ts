@@ -31,6 +31,7 @@ import {
 } from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
 import {
+  bufferElementType,
   canTypeFormRcCycle,
   typeContainsRcType,
   typeContainsSomeType,
@@ -1402,8 +1403,23 @@ export function autoDeriveAcyclicForStructType({
   context: EvaluatorContext;
 }): Environment {
   if (structType.isReferenceSemantics) {
+    // A container holds its elements behind a raw `?*(E)` buffer that
+    // canTypeFormRcCycle's field walk cannot see — and worse, this derive runs when
+    // the container is first instantiated, which for a self-referential element
+    // (`ArrayList(Self)` inside the type being defined) is BEFORE that element's own
+    // cycle status is known. So a container is Acyclic only if every buffer element
+    // type is itself Acyclic; for `ArrayList(Node)` the element `Node` is not (yet)
+    // Acyclic, so the container is correctly withheld from Acyclic and remains
+    // visible to cycle collection. (`ArrayList(i32)` stays Acyclic — i32 is Acyclic.)
+    const allBufferElementsAcyclic = structType.fields.every((field) => {
+      const elem = bufferElementType(field.type);
+      return !elem || typeImplementsAcyclic(elem, env);
+    });
     // For object types, check if they can form cycles (pass env for SomeType Acyclic checking)
-    if (!canTypeFormRcCycle(structType, new Set(), env)) {
+    if (
+      allBufferElementsAcyclic &&
+      !canTypeFormRcCycle(structType, new Set(), env)
+    ) {
       env = attachTraitToReceiverType("Acyclic", structType, env, context);
     }
   } else {
