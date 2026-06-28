@@ -739,6 +739,47 @@ impl(
     })
   )
 );
+impl(
+  forall(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  Trace(
+    /**
+    * Cycle-GC tracing. Buckets live in a malloc'd open-addressing buffer the
+    * compiler's auto-derived field walk cannot reach, so trace each FULL slot
+    * (its control byte is neither EMPTY nor DELETED). `tracer.visit` takes the
+    * `Bucket(K, V)` slot POINTER; the per-value traversal descends inline through
+    * the value struct, tracing BOTH the key and the value, WITHOUT touching any
+    * reference count (a by-value managed handle would be dup'd then dropped,
+    * freeing a live element mid-collection). Mirrors the ArrayList `Trace` impl +
+    * the SwissTable slot scan.
+    */
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self.ctrl,
+        .Some(ctrl_ptr) => match(
+          self.data,
+          .Some(data_ptr) => {
+            (i : usize) = usize(0);
+            while(i < self.capacity, {
+              ctrl_byte := (ctrl_ptr &+ i).*;
+              // Full slot iff the SwissTable control high bit is clear (a full byte
+              // stores the 7-bit h2 hash); EMPTY (255) and DELETED (254) both set it.
+              // Uses the control-bit directly so the trace body needs no module-level
+              // constant in scope.
+              if((ctrl_byte & u8(128)) == u8(0), {
+                tracer.visit(data_ptr &+ i);
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    })
+  )
+);
 export(
   HashMap,
   HashMapError,

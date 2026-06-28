@@ -1,0 +1,24 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio.yo"));
+Gc :: import("std/gc");
+{ Deque } :: import("std/collections/deque");
+N :: ref(struct(id : i32, peers : Deque(Self)));
+form_cycle :: (fn() -> unit)({
+  a := N(1, Deque(N).new());
+  b := N(2, Deque(N).new());
+  a.peers.push_back(b); // a -> b
+  b.peers.push_back(a); // b -> a : cycle through Deque
+});
+main :: (fn() -> unit)({
+  before := Gc.tracked_count();
+  form_cycle();
+  mid := Gc.tracked_count();
+  Gc.collect();
+  after := Gc.tracked_count();
+  if((mid > before) && (after == before), {
+    unsafe(printf("deque cycle fully reclaimed\n"));
+  }, {
+    unsafe(printf("deque cycle leaked\n"));
+  });
+});
+export(main);
