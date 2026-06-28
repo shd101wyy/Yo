@@ -27,7 +27,7 @@ open(import("std/string"));
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
@@ -207,7 +207,87 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
       out.push_str("))");
       out
     },
-    (is_struct_type(concrete_type) || is_enum_type(concrete_type)) => match(
+    // Value enum carrying RC fields: drop the active variant's RC fields INLINE — yo-self
+    // lowers RC operations directly rather than via a side-registry method (same rationale
+    // as the reference-enum branch above; registering a ___drop method instead makes
+    // `(___drop)(x)` resolve via method dispatch, which mis-lowers). Mirrors the per-variant
+    // walk in generateRefEnumTraversalFunctions, adapted to a value (not a handle).
+    is_enum_type(concrete_type) => match(
+      can_optimize_as_nullable_pointer(concrete_type),
+      // Nullable-pointer enum: the value IS the inner pointer (NULL = the empty variant).
+      .Some(inner) => {
+        inner_drop := recur(value_code.clone(), inner, context);
+        if(inner_drop.len() > usize(0), {
+          line := String.from("if ((");
+          line.push_string(value_code.clone());
+          line.push_str(") != NULL) { ");
+          line.push_string(inner_drop);
+          line.push_str("; }");
+          em.emit_string_line(line);
+        });
+        String.from("")
+      },
+      // Tagged representation: switch on the discriminant, drop each RC field of the arm.
+      .None => match(
+        concrete_type,
+        .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+          em.emit_string_line(`switch ((${value_code.clone()}).tag) {`);
+          nv := variant_names.len();
+          (vi : usize) = usize(0);
+          while(vi < nv, {
+            vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+            fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+            labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+            nf := fields.len();
+            (has_rc : bool) = false;
+            (ci : usize) = usize(0);
+            while(ci < nf, {
+              match(
+                fields.get(ci),
+                .Some(ft) => if(type_contains_rc_type(ft), {
+                  has_rc = true;
+                }),
+                .None => ()
+              );
+              ci = (ci + usize(1));
+            });
+            if(has_rc, {
+              tag_c := get_enum_variant_c_name(concrete_type, vname.clone(), context.base);
+              em.emit_string_line(`  case ${tag_c}: {`);
+              (fi : usize) = usize(0);
+              while(fi < nf, {
+                match(
+                  fields.get(fi),
+                  .Some(ft) => if(type_contains_rc_type(ft), {
+                    flabel := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+                    fname := sanitize_for_c_identifier(flabel, false);
+                    access := `(${value_code.clone()}).data.${vname.clone()}.${fname}`;
+                    fd := recur(access, ft, context);
+                    if(fd.len() > usize(0), {
+                      line := String.from("    ");
+                      line.push_string(fd);
+                      line.push_str(";");
+                      em.emit_string_line(line);
+                    });
+                  }),
+                  .None => ()
+                );
+                fi = (fi + usize(1));
+              });
+              em.emit_string_line(String.from("    break;"));
+              em.emit_string_line(String.from("  }"));
+            });
+            vi = (vi + usize(1));
+          });
+          em.emit_string_line(String.from("  default: break;"));
+          em.emit_string_line(String.from("}"));
+          String.from("")
+        },
+        _ => String.from("")
+      )
+    ),
+    // Value struct carrying RC fields: drop via its synthesized ___drop method, if any.
+    is_struct_type(concrete_type) => match(
       get_drop_function_for_type(concrete_type, context),
       .Some(fn) => {
         out := fn;

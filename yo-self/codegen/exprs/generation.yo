@@ -411,6 +411,16 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       return(out);
     }
   );
+  // RC drop/dup builtins are lowered by their dedicated generators (generate_drop /
+  // generate_dup), which resolve the operation from the value's TYPE and are
+  // authoritative — they must never be diverted through a macro_expansion. yo-self
+  // keeps `(___drop)(x)` / `(___dup)(x)` as builtin calls (TS instead rewrites them to
+  // `(x).___drop()` method calls in evaluate_drop, so TS's original builtin expr never
+  // reaches codegen — see the stub note in evaluator/builtins/drop.yo). Because the
+  // builtin expr DOES survive here, a stale id-keyed side-table entry (from a colliding
+  // expr id) could otherwise mis-route it and double-emit `f(x)(x)`. Route them first.
+  if(ast_expr_is_fn_call_of(expr, BF_DROP, Option(usize).None), return(generate_drop(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).None), return(generate_dup(expr, indent.clone(), context)));
   // Macro expansion: generate the already-expanded form. Prefer the per-expr
   // ExprInfo; fall back to the durable id-keyed side-table when a later eval
   // pass overwrote this call's ExprInfo without `macro_expansion` (e.g. a macro
@@ -437,8 +447,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_dup_array_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_drop_tuple_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_dup_tuple_element(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).None), return(generate_dup(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_DROP, Option(usize).None), return(generate_drop(expr, indent.clone(), context)));
+  // (BF_DUP / BF_DROP routed above, before the macro_expansion check.)
   if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, Option(usize).None), return(generate_yo_dyn_drop(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, Option(usize).None), return(generate_yo_dyn_dup(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC, Option(usize).None), return(generate_yo_incr_rc_atomic(expr, indent.clone(), context)));

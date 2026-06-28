@@ -21,7 +21,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
 { is_control_fn, mark_as_effect_record_member, get_func_type } :: import("../../function_value.yo");
-{ get_all_some_types } :: import("../../types/utils.yo");
+{ get_all_some_types, type_contains_rc_type } :: import("../../types/utils.yo");
 { CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier } :: import("../utils/index.yo");
 // Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): yo-self
 // has no codegen-time monomorphizer, so the trace collector drives the evaluator's
@@ -32,6 +32,13 @@ open(import("std/string"));
 { EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
 { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
 { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
+// Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
+// recursive RC-field-drop function from the struct's fields, parse + evaluate it,
+// register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
+// addRcFunctionsToStructType / generateDisposeFunctionCodeForStructType. parser.yo
+// is upstream; exprs/expr.yo is the cycle-free evaluate dispatcher (no import cycle).
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ evaluate_expression_raw } :: import("../../evaluator/exprs/expr.yo");
 // NOTE: collect_type (types/collection) is reached through an indirection
 // global rather than a direct import, so the dependency between this file and
 // types/collection is ONE-WAY (types/collection imports from here). A direct
@@ -894,6 +901,180 @@ collect_trace_methods_from_generic_impls :: (
     ti = (ti + usize(1));
   });
 });
+/// True if `s` is a valid Yo identifier (letter/underscore start, then letters,
+/// digits, underscores). Mirrors TS evaluator/types/utils.ts `isValidIdentifier`:
+/// an auto-derived destructuring label that is NOT a valid identifier (e.g. the
+/// newtype/box `*` field) must be paren-aliased — `{ (*) : a } := self` — rather
+/// than written bare — `{ * : a } := self` — which fails to parse.
+_is_valid_yo_identifier :: (fn(s : String) -> bool)({
+  n := s.len();
+  if(n == usize(0), {
+    return(false);
+  });
+  first := s.byte_at(usize(0));
+  if((first >= u8(48)) && (first <= u8(57)), {
+    return(false); // leading digit
+  });
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(i < n, {
+    b := s.byte_at(i);
+    is_alpha := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))));
+    is_digit := ((b >= u8(48)) && (b <= u8(57)));
+    is_us := (b == u8(95));
+    if(!((is_alpha || is_digit) || is_us), {
+      ok = false;
+    });
+    i = (i + usize(1));
+  });
+  ok
+});
+/// The destructuring-label fragment for `lbl`, paren-aliasing it when it is not a
+/// valid identifier (`*` → `(*)`). Mirrors the per-label branch of TS's
+/// `generateDestructuringAndCalls`.
+_destructuring_label_fragment :: (fn(lbl : String) -> String)(
+  if(_is_valid_yo_identifier(lbl.clone()), lbl.clone(), {
+    out := String.from("(");
+    out.push_string(lbl.clone());
+    out.push_str(")");
+    out
+  })
+);
+/// Evaluate a synthesized RC-method `code` (`(fn(self : Self) -> unit)({ … })`) with
+/// `Self` bound to `ct`, then register the resulting FuncVal both as a codegen function
+/// (so it gets emitted + its calls collected) and as `ct`'s `method_label` trait method
+/// (so get_drop/dispose_function_for_type resolves it). Shared by the struct-`___dispose`
+/// and value-enum-`___drop` synthesizers. Mirrors the registration half of TS's
+/// addRcFunctionsTo{Struct,Enum}Type.
+_eval_and_register_rc_method :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue, code : String, method_label : String) -> unit
+)({
+  expr := generate_expr_from_code(code.clone(), exn);
+  fresh := clone_env(module_env);
+  saved_self := ctx.self_type;
+  ctx.self_type = Option(TypeValue).Some(ct.clone());
+  evaluated := evaluate_expression_raw(expr, fresh, ctx, exn);
+  ctx.self_type = saved_self;
+  fv_opt := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),.Some(ei) => ei.value,.None => Option(EvalValue).None);
+  match(
+    fv_opt,
+    .Some(fv) => if(is_func_val(fv), {
+      match(
+        fv,
+        .FuncVal(__dfvd, _) => {
+          fid := __dfvd.*.func_id;
+          fbody := __dfvd.*.body;
+          if(!(base.has_function(fid.clone())), {
+            base.register_function(fid.clone(), fv, sanitize_for_c_identifier(fid.clone(), false));
+            find_function_calls_in_expr(fbody, base, info);
+          });
+          register_type_trait_method(
+            type_id_or_empty(ct),
+            MethodEntry(
+              label : method_label.clone(),
+              ty : get_func_type(fid.clone()),
+              value : Option(EvalValue).Some(fv),
+              source_trait_id : String.from(""),
+              needs_pointer_conversion : false,
+              self_type : Option(TypeValue).None
+            )
+          );
+        },
+        _ => ()
+      );
+    }),
+    .None => ()
+  );
+});
+/// Synthesize + register the auto-derived `___dispose` (recursive RC-field drop) for a
+/// concrete RC struct that has RC runtime fields and no ___dispose yet. Builds
+/// `(fn(self : Self) -> unit)({ { f : a, … } := self; (___drop)(a); … () })` over the
+/// RC fields, evaluates it Self-bound, registers it as the type's ___dispose method, and
+/// collects it for codegen. Mirrors TS evaluator/types/utils.ts generateDisposeFunction
+/// CodeForStructType + addRcFunctionsToStructType. Then the constructor's dispose_fn
+/// (constructors.yo) resolves via get_dispose_function_for_type, and the runtime drops the
+/// fields on free (gc_runtime.yo:341/658).
+_synthesize_and_register_dispose :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue) -> unit
+)({
+  // Skip if a ___dispose is already registered (user Dispose impl or a prior pass).
+  if(get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("___dispose")).len() > usize(0), {
+    return(());
+  });
+  flabels := match(ct,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  ftypes := match(ct,.Struct({ field_types : ftys }) => ftys, _ => ArrayList(TypeValue).new());
+  // Destructuring + `___drop` calls over the RC-containing fields.
+  destructs := String.from("");
+  calls := String.from("");
+  (any : bool) = false;
+  nf := flabels.len();
+  (fi : usize) = usize(0);
+  while(fi < nf, {
+    lbl := match(flabels.get(fi),.Some(l) => l,.None => String.from(""));
+    fty := match(ftypes.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+    if(type_contains_rc_type(fty), {
+      // Index-based alias (the field label may not be a valid identifier — e.g. the
+      // newtype/box `*` field — so it must not be interpolated into the binding name).
+      alias := `__yo_disp_f${fi.to_string()}`;
+      if(any, {
+        destructs.push_str(", ");
+      });
+      destructs.push_string(_destructuring_label_fragment(lbl.clone()));
+      destructs.push_str(" : ");
+      destructs.push_string(alias.clone());
+      calls.push_str("(___drop)(");
+      calls.push_string(alias);
+      calls.push_str("); ");
+      any = true;
+    });
+    fi = (fi + usize(1));
+  });
+  if(!(any), {
+    return(());
+  });
+  // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
+  code := `(fn(self : Self) -> unit)({ { ${destructs} } := self; ${calls}() })`;
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
+});
+/// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
+/// struct type that lacks one, so freeing such a value recursively drops its RC fields
+/// (the runtime invokes header.dispose_fn — gc_runtime.yo:341 normal free / :658 collector).
+/// yo-self defers the RC-function synthesis (evaluator/types/utils.yo:19), so it runs here
+/// with the live ctx/exn threaded from run_compile, mirroring
+/// collect_trace_methods_from_generic_impls. Must run before constructor emission so
+/// get_dispose_function_for_type resolves.
+collect_dispose_methods :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception) -> unit
+)({
+  // Snapshot the RC struct types needing an auto-derived ___dispose (registering
+  // functions during the walk must not perturb the base.types iterator). Value enums
+  // do NOT need a synthesized ___drop method: generate_drop_code_for_value lowers their
+  // per-variant drop INLINE (drop_dup.yo is_enum_type branch), exactly as it already
+  // does for reference-semantics enums (drop_dup.yo:204). Registering a ___drop method
+  // instead would make `(___drop)(x)` resolve via method dispatch, which mis-lowers to a
+  // double-application `f(x)(x)` when the method is already registered at synthesis time.
+  type_list := ArrayList(TypeValue).new();
+  vals := base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => if(is_reference_struct_type(entry.ty), {
+        _p := type_list.push(entry.ty);
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  nt := type_list.len();
+  (ti : usize) = usize(0);
+  while(ti < nt, {
+    ct := match(type_list.get(ti),.Some(t) => t,.None => TypeValue.Unit);
+    _synthesize_and_register_dispose(base, ctx, module_env, info, exn, ct);
+    ti = (ti + usize(1));
+  });
+});
 /// Register find_function_calls_in_expr in its indirection global. Call once.
 register_find_function_calls_in_expr :: (fn() -> unit)({
   g_find_function_calls_in_expr = Option(FindFunctionCallsFn).Some(find_function_calls_in_expr);
@@ -907,5 +1088,6 @@ export(
   _call_find_function_calls_in_expr,
   set_collect_type_fn,
   collect_trace_methods_from_generic_impls,
+  collect_dispose_methods,
   register_find_function_calls_in_expr
 );

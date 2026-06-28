@@ -29,7 +29,7 @@ open(import("std/string"));
 { EvalContext } :: import("../evaluator/context.yo");
 { CodeGenContext } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
-{ collect_required_functions, collect_trace_methods_from_generic_impls, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
+{ collect_required_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
 { collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
 { generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
@@ -238,6 +238,11 @@ typedef enum {
   if(base.needs_cycle_gc, {
     collect_trace_methods_from_generic_impls(base, eval_ctx, module_env, info, exn);
   });
+  // Auto-derive the ___dispose (recursive RC-field drop) for RC struct types lacking
+  // one, so freeing them drops their RC fields (runtime calls header.dispose_fn). yo-self
+  // defers the RC-function synthesis; this runs it with the threaded ctx/exn. Must precede
+  // function declarations + constructor emission (which read get_dispose_function_for_type).
+  collect_dispose_methods(base, eval_ctx, module_env, info, exn);
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   // Re-key dyn impls to C names (now available), then emit dyn box types.

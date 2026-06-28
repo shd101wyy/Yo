@@ -421,3 +421,40 @@ Re-ran with probes (`[DISP]` eprintln). Findings (definitive):
   value-enums/newtypes-holding-RC actually emit (the dormant path M1 flagged).** This is a deeper Phase-B
   layer, NOT just the dispose synthesis. The synthesis scaffold (scratchpad/dispose_synth_attempt.patch)
   is correct + reusable; it needs bug-1 skip + the bug-3 drop-predicate/codegen work to make p4 0→0.
+
+### §10 p4 FIXED — recursive \_\_\_dispose synthesis + INLINE value-enum drop (committed)
+
+The p4 leak (0→1) is FIXED — Probe A p4 now **0→0**, matching TS. Two coordinated pieces, both
+landed faithfully to yo-self's established RC-lowering architecture (inline, side-registry-free):
+
+1. **Struct `___dispose` synthesis** (`collect_dispose_methods` in codegen/functions/collection.yo).
+   A codegen-collection-time pass (mirroring task #37's trace synthesis) that, for every RC struct
+   lacking a **_dispose, synthesizes `(fn(self : Self) -> unit)({ { f : a, … } := self; (_**drop)(a); … })`
+over its RC fields, evaluates it Self-bound (`\_eval_and_register_rc_method`), and registers it as the
+type's ___dispose method. The constructor then wires `dispose_fn` via get_dispose_function_for_type,
+   so freeing the struct (gc_runtime header.dispose_fn) recursively drops its RC fields. Mirrors TS
+   addRcFunctionsToStructType / generateDisposeFunctionCodeForStructType.
+
+   - **Bug-1 (non-identifier field labels, e.g. the newtype/box `*` field):** the destructuring LABEL is
+     paren-aliased (`{ (*) : alias }`, via `_destructuring_label_fragment` + `_is_valid_yo_identifier`,
+     porting TS isValidIdentifier) AND the alias is index-based (`__yo_disp_f0`) so the raw `*` never
+     leaks into a binding name.
+
+2. **Value-enum per-variant drop — INLINE (NOT a synthesized method).** `generate_drop_code_for_value`
+   (codegen/exprs/drop_dup.yo) now lowers a value enum's drop inline: nullable-pointer enums →
+   `if ((v) != NULL) { <drop inner> }`; tagged enums → `switch ((v).tag) { case TAG: <drop each RC
+field of the arm>; … }`. This is the SAME inline treatment yo-self already uses for reference-enum
+   drops (drop_dup.yo:193-209) — yo-self stores trait methods in a side-registry, not on the type.
+   - **Why inline, not the TS method approach:** registering a value-enum `___drop` _trait method_
+     (the literal TS port) made `(___drop)(x : ValueEnum)` resolve via method dispatch, which mis-lowered
+     to a double-application `f(x)(x)` for a _duplicate_ generic instantiation (task #30) whose dispose
+     was synthesized AFTER the method was registered (surfaced by recursive_enum_nested_match: two
+     Box(Tree) struct ids). Inline lowering sidesteps the method dispatch entirely and is consistent
+     with the ref-enum divergence already documented in the codebase.
+   - codegen/exprs/generation.yo: BF_DROP / BF_DUP are now routed to generate_drop / generate_dup
+     BEFORE the macro_expansion check — these RC builtins are authoritative via their generators and must
+     never be diverted through a (possibly stale, id-collided) side-table macro_expansion.
+
+**Validation:** corpus **86/86 DIFF 0 SELF-FAIL 0**; Probe A p4 **0→0** (was 0→1), p1/p2/p3 still 0→0;
+TS-ASan clean on p4 + recursive_enum_nested_match (no leak / UAF / double-free); recursive_enum_nested_match
+(the lone regression from the method-approach attempt) compiles + runs correctly under the inline approach.
