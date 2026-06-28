@@ -1,7 +1,8 @@
 # yo-self: schedule begin-block scope-end RC drops for owning named locals
 
-**Status:** ready to implement (focused session). Diagnosis is complete + rigorous;
-this doc is turnkey — a fresh session can execute it without re-deriving.
+**Status:** M1 ATTEMPTED 2026-06-28 — eval-side scheduling WORKS; blocked by a
+codegen crash. Reverted to keep the tree clean. See §10 (attempt log) for the precise
+blocker before retrying. Diagnosis (§1-§5) is complete + rigorous.
 
 **One-line:** yo-self never emits scope-end `___drop` for owning *named-local* bindings
 (`x := New(...)`), so it leaks every named local. Port the TS begin-block scope-drop
@@ -206,3 +207,66 @@ Build loop (no `--release`, per memory): `./yo-cli compile yo-self/main.yo -o /t
 - `plans/BOOTSTRAPPING_CODEGEN.md` phase 4 → update consume-tracking/RC status; note the
   self-compile memory impact (P2 task #21) if measurable.
 - Update the `cycle-gc-trace-hooks-progress` memory + task #38.
+
+## 10. M1 attempt 1 — eval works, codegen blocker (2026-06-28)
+
+**Result: the eval-side scheduling WORKS; a pre-existing codegen crash blocks landing.
+Reverted begin.yo to clean. Working patch saved (scratchpad `m1_begin_yo.patch`).**
+
+### What worked (eval-side)
+Added `_schedule_scope_end_drops` to `begin.yo` (after the main loop, before
+`env.pop_frame_nonmutating()`; set `out_info.deferred_drop_expressions`). It collects
+the popped frame's drop-eligible owning locals and builds `___drop(name)` exprs inline
+(via `generate_expr_from_code` + `evaluate_expression_raw` — the begin.yo↔helper.yo
+cycle forbids importing `helper.yo:234`).
+
+- **Probe A passed: all `0→0`** (was monotonic leak `0→1→2→3→5`). Named ref-struct
+  locals are now dropped at scope end across local / pass-to-owned-param / returned /
+  field-store. Construction-move into a ref-struct (p4 `b := N(5, Some(a))`) is correctly
+  consumed (a not double-dropped) — so yo-self's consume-tracking is correct for
+  ref-struct construction-moves.
+- `--skip-codegen` (eval only) is clean on ALL the failing programs — **the eval half is
+  sound**.
+
+### The blocker (codegen)
+Full `compile` SIGBUSes (exit 138, `EXC_BAD_ACCESS` in `_platform_memmove`, wild dest
+addr) → **27 SELF-FAIL + 1 DIFF** (corpus was 86/86). The crash is in **codegen's
+begin-block deferred-drop EMISSION** path (`generation.yo:102/116` →
+`drop_dup.yo:384 generate_deferred_drop_expressions` → `_call_generate_expr(___drop(x))`),
+which was **dormant** before M1 (`deferred_drop_expressions` was always empty), so it's a
+latent, never-exercised codegen bug.
+
+- Crashes for **buffer-backed ref-structs** — `ArrayList` (`?*(u8)` buffer + Dispose
+  impl). Reproduces with `min_str = { s := String.from("AB"); () }`: `s` (String, a
+  newtype) is now excluded, but `String.from`'s internals build+drop an `ArrayList` →
+  crash. So it's pulled in by ~every program (`String.from`).
+- Does **NOT** crash for simple ref-structs (Probe A's `N`: RC fields, no buffer) —
+  compiles + runs `0→0`.
+- The SAME `ArrayList` `___drop` codegen WORKS via the return/temp drop path (pre-M1
+  corpus had ArrayList tests). So the bug is specific to the begin-block-drop EMISSION
+  context, not ArrayList drops universally.
+- **Ruled out**: narrowing the predicate to ref-struct/enum (ArrayList IS ref-struct);
+  removing the `expected_type = unit` override (matched `helper.yo:234`). Neither fixed it.
+
+### Leading theory + next steps
+Likely the begin-block-drop emission differs from the return-path emission in how it
+resolves the dropped var's C identity (a stale/missing generated-variable-name entry →
+wild pointer → memmove), and/or it's entangled with consume-tracking for
+**construction-moves into a NEWTYPE** (`String.from` moves the `ArrayList` into the
+`String`; if not marked consumed, M1 drops a moved-out value). Next:
+1. Get a real backtrace — the release build's unwinder is broken at the crash; build
+   yo-self with frame pointers / `-O0` (or bisect by adding a guarded `eprintln`/static
+   panic in `drop_dup.yo:384` + `generation.yo:102/116` to find which emit corrupts).
+2. Compare the emitted C of an `ArrayList` drop in the return path vs the begin-block
+   path for the SAME function (minimal repro that drops an ArrayList both ways).
+3. Verify whether `String.from`'s `ArrayList` local is marked consumed (moved into the
+   returned `String`); if not, that's a consume-tracking gap to fix first (then the
+   moved-out var is excluded from the scope drop, sidestepping the crash).
+4. Re-apply the saved `m1_begin_yo.patch` once the codegen path is fixed; re-run the
+   §6 gates (Probe A `0→0`, corpus 0-diff/no-SELF-FAIL, TS-ASan).
+
+### Status of the broader goal
+`CYCLE_GC_TRACE_HOOKS.md` §4 (drop-on-reassign) is part of this same work, so it remains
+open too. The cycle-GC plan's CORE (Phases 1-3 container collection in both compilers +
+Phase 5 docs) is done and committed; only the scope-drop completeness (§4 / this plan)
+remains, blocked on the codegen crash above.
