@@ -15,14 +15,50 @@
 //! gated dead (in_async_state_machine = .None for the corpus).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL } :: import("../../expr.yo");
 { RuntimeDestructuring } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
+/// Emit `rhs`'s deferred `___dup` expression(s), if any, then return the
+/// dup-result temp's C name (so the dup'd copy is stored); otherwise return
+/// `fallback_code` unchanged. Mirrors the `deferredDupExpressions` blocks in
+/// `src/codegen/exprs/initialization-assignment.ts` (the RHS dup-on-store).
+/// Same shape as `return.yo`'s `handle_atom_deferred_dup`.
+_emit_rhs_deferred_dup :: (fn(rhs : AstExpr, fallback_code : String, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(rhs),
+    .Some(rei) => match(
+      rei.deferred_dup_expressions,
+      .Some(dups) => if(dups.len() > usize(0), {
+        generate_deferred_dup_expressions(rhs, indent.clone(), context);
+        match(
+          dups.get(usize(0)),
+          .Some(dup_expr) => if(
+            ast_expr_is_fn_call(dup_expr),
+            match(
+              context.base.get_expr_info(dup_expr),
+              .Some(dei) => match(
+                dei.variable_name,
+                .Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)),
+                .None => fallback_code
+              ),
+              .None => fallback_code
+            ),
+            fallback_code
+          ),
+          .None => fallback_code
+        )
+      }, fallback_code),
+      .None => fallback_code
+    ),
+    .None => fallback_code
+  )
+);
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
   n := s.len();
@@ -234,7 +270,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
             temp_var_name := get_variable_name_for_codegen(tvn, Option(Environment).Some(rei.env));
             // Same name as the binding, or a bare atom already named — no temp.
             rhs_is_same_atom := (ast_expr_is_atom(rhs) && (temp_var_name == get_variable_name_for_codegen(ast_expr_token(rhs).value, Option(Environment).Some(rei.env))));
-            if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, _call_generate_expr(rhs, indent.clone(), context), {
+            if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, _emit_rhs_deferred_dup(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
               if(!(rhs_expr_code == temp_var_name), {
                 effective_type := match(rei.converted_runtime_type,.Some(crt) => crt,.None => rei.ty);
@@ -246,7 +282,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
                 line.push_str(";");
                 em.emit_string_line(line);
               });
-              temp_var_name
+              _emit_rhs_deferred_dup(rhs, temp_var_name, indent.clone(), context)
             })
           },
           .None => _call_generate_expr(rhs, indent.clone(), context)
