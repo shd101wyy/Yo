@@ -1358,6 +1358,12 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         .Some(c_func_name) => {
           casted := _per_arg_cast(args_list.clone(), param_types, param_is_ref, context);
           if(is_unit_type(result_type), {
+            // Clear __yo_effect_escaped before the call so a stale flag from
+            // a previous unwind (already handled by a higher-level handler)
+            // doesn't leak into this call's escape check.
+            if(ou_may_unwind, {
+              em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+            });
             line := indent.clone();
             line.push_string(c_func_name);
             line.push_str("(");
@@ -1385,6 +1391,12 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                     context.declared_temp_vars = Option(HashSet(String)).Some(ns);
                   }
                 );
+                // Clear __yo_effect_escaped before the call so a stale flag from
+                // a previous unwind (already handled by a higher-level handler)
+                // doesn't leak into this call's escape check.
+                if(ou_may_unwind, {
+                  em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                });
                 line := indent.clone();
                 line.push_string(c_type);
                 line.push_str(" ");
@@ -1465,6 +1477,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // emits a temp + emitEffectUnwindCheck for such calls).
   if(ou_may_unwind, {
     if(is_unit_type(result_type), {
+      // Clear __yo_effect_escaped before the indirect call
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       ucall := indent.clone();
       ucall.push_string(out.clone());
       ucall.push_str(";");
@@ -1495,6 +1509,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       fline.push_str(" = ");
       fline.push_string(out.clone());
       fline.push_str(";");
+      // Clear __yo_effect_escaped before the indirect call
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       em.emit_string_line(fline);
     });
     generate_deferred_drop_expressions(expr, indent.clone(), context);

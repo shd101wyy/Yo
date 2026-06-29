@@ -1356,6 +1356,12 @@ export function generateOtherFunctionCall(
             );
 
             // If the function returns unit, just call it without assignment
+            // Clear __yo_effect_escaped before the call so a stale flag from
+            // a previous unwind (already handled by a higher-level handler)
+            // doesn't leak into this call's escape check.
+            if (callMayUnwind) {
+              context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+            }
             context.emitter.emitLine(
               `${indent}${cFuncName}(${namedCastedArgsList});`
             );
@@ -1482,6 +1488,12 @@ export function generateOtherFunctionCall(
                 funcCtx.declaredTempVars = new Set();
               if (!funcCtx.declaredTempVars.has(tempVar)) {
                 funcCtx.declaredTempVars.add(tempVar);
+                // Clear __yo_effect_escaped before the call so a stale flag from
+                // a previous unwind (already handled by a higher-level handler)
+                // doesn't leak into this call's escape check.
+                if (callMayUnwind) {
+                  context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+                }
                 context.emitter.emitLine(
                   `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${namedCastedArgsList});`
                 );
@@ -1657,6 +1669,9 @@ export function generateOtherFunctionCall(
 
           if (isEffectRecordCapture) {
             context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+          } else if (isFunctionType(functionType) && functionType.isControl) {
+            // Clear before indirect ctl call (e.g. exn.throw(error))
+            context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
           }
 
           if (
@@ -1767,6 +1782,13 @@ export function generateOtherFunctionCall(
                 funcCtx2.declaredTempVars = new Set();
               if (!funcCtx2.declaredTempVars.has(tempVar)) {
                 funcCtx2.declaredTempVars.add(tempVar);
+                // Clear before indirect ctl call (e.g. exn.throw(error))
+                if (
+                  isFunctionType(functionType) &&
+                  (functionType.isControl || exprIsAtom(expr.func))
+                ) {
+                  context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+                }
                 context.emitter.emitLine(
                   `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${castedArgsList});`
                 );
@@ -2707,13 +2729,10 @@ export function generateOtherFunctionCall(
               }
             })
             .filter(
-              (e): e is { designated: string; positional: string } =>
-                e !== null
+              (e): e is { designated: string; positional: string } => e !== null
             );
           const argsList = argEntries.map((e) => e.designated).join(", ");
-          const positionalArgs = argEntries
-            .map((e) => e.positional)
-            .join(", ");
+          const positionalArgs = argEntries.map((e) => e.positional).join(", ");
 
           // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
           // per-variant constructor; value enums use a compound literal.
