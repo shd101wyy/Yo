@@ -979,16 +979,31 @@ _evaluate_expression_wrapper :: (
   exn := Exception(
     throw : (
       (err) -> {
-        // During check, don't abort — let the caller handle the error.
-        // Abort only in non-check contexts (the raw evaluator path
-        // provides its own exn handler). The error is swallowed here;
-        // callers that need the diagnostic print it themselves.
         unwind(make_err_expr());
       }
     )
   );
   result := _evaluate_expression(expr, env, ctx, exn);
-  _bridge_expr_info(expr, result, ctx);
+  // Inline _bridge_expr_info to avoid the codegen emitting an
+  // `if(__yo_effect_escaped) return NULL` after the call. HashMap ops
+  // (ExprInfo table get/set) can leak the escaped flag through GC,
+  // causing the outer wrapper to return NULL → SIGSEGV in callers
+  // that don't check for NULL (try_to_convert_to_pointer_type).
+  (oid : usize) = ast_expr_id(expr);
+  (rid : usize) = ast_expr_id(result);
+  if(!(oid == rid), {
+    match(
+      expr_info_table_get(ctx.expr_info_table, oid),
+      .Some(_) => (),
+      .None => match(
+        expr_info_table_get(ctx.expr_info_table, rid),
+        .Some(rinfo) => {
+          expr_info_table_set(ctx.expr_info_table, oid, rinfo);
+        },
+        .None => ()
+      )
+    );
+  });
   result
 });
 /// Concrete-signature wrapper for set_evaluate_expression_raw_fn.
