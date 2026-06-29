@@ -16,7 +16,7 @@ open(import("std/string"));
 { ExprInfo, new_expr_info, expr_info_table_set }
 :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, find_variable_in_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
 :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -144,44 +144,23 @@ evaluate_identifier_and_operator :: (
   // Variable lookup
   // ------------------------------------------------------------------
   identifier_string := token.value;
-  variables := get_variables_from_env(env, identifier_string);
-  if(variables.len() == usize(0), {
-    // Unresolved OPERATOR names keep the soft fallback: prelude pre-load
-    // hits this for operator-trait names like `==` (bound to
-    // `impl({...})` in a way the bootstrap's lookup can't yet resolve).
-    // Tracked in `issues/yo-self-evaluator-gaps.md`.
-    if(string_is_operator(identifier_string.clone()), {
-      fallback_info := new_expr_info(env, t_unit());
-      fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
-      return(expr);
-    });
-    // Ordinary identifiers throw, mirroring TS `Variable "X" not found.`
-    // (env-lookup error). The previous unconditional soft fallback let
-    // `inout(i32)` in expression position evaluate to unknown-unit and the
-    // surrounding type application succeed — tests/ref_return.test.yo's
-    // comptime_expect_error then saw no error.
-    exn.throw(
-      dyn(
-        format_error_message(
-          token,
-          `Variable "${identifier_string}" not found.`,
-          false,
-          Option(ErrorKind).None
-        )
-      )
-    );
-    return(expr);
-  });
   variable := match(
-    variables.get(variables.len() - usize(1)),
+    find_variable_in_env(env, identifier_string),
     .Some(v) => v,
     .None => {
+      // Unresolved OPERATOR names keep the soft fallback.
+      if(string_is_operator(identifier_string.clone()), {
+        fallback_info := new_expr_info(env, t_unit());
+        fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
+        return(expr);
+      });
+      // Ordinary identifiers throw.
       exn.throw(
         dyn(
           format_error_message(
             token,
-            (String.from("Variable \"") + identifier_string) + String.from("\" not found (internal)."),
+            `Variable "${identifier_string}" not found.`,
             false,
             Option(ErrorKind).None
           )
