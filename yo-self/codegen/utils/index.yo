@@ -36,7 +36,7 @@ open(import("std/string"));
   is_extern_type_name
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ resolve_enum_shell } :: import("../../types/creators.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
@@ -649,40 +649,74 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 /// the variant field types' keys to distinguish instantiations (TS keeps them distinct:
 /// 16 enums vs yo-self's 6 for token.yo). Depth-capped to stay finite on self-
 /// referential enums. Struct ids are already per-instantiation (no suffix needed).
+
+// Side-table: struct_id -> cfid-based type key. When a generic-instantiation struct
+// reaches _type_key_at with cfid="" (an unstamped copy leaked from a pre-stamp
+// reference), look up its id here to reuse the canonical C name from the stamped
+// copy. Without this, the same logical type (e.g. HashMap(i32,N)) gets two C structs
+// — one keyed by gs_<cfid>_<args>, one by the raw id — triggering a clang
+// -Wincompatible-pointer-types. ArrayList (not HashMap) to avoid any resize/rehash
+// inside the recursive _type_key_at hot path.
+StructCfidKeyEntry :: ref(struct(struct_id : String, cfid_key : String));
+(g_struct_cfid_keys : ArrayList(StructCfidKeyEntry)) = ArrayList(StructCfidKeyEntry).new();
+
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
-    .Struct({ id, constructor_func_id : cfid, type_arguments : tas }) => cond(
-      // A GENERIC INSTANTIATION (e.g. `Bucket(i32, N)`) gets a fresh random `id` on
-      // every re-instantiation — yo-self does not intern the comptime type-constructor
-      // result the way TS memoizes `functionValue.calledComptimeFunctionCaches` (the
-      // call's `func_id` is stable but the cache misses, so `handle_struct_def` re-runs
-      // → `struct_${random_id}`). Keying by that churning `id` fragments one logical type
-      // into several incompatible C structs (was task #30). Key instead by the STABLE
-      // identity yo-self DOES stamp at instantiation (comptime_fn.yo): the constructor's
-      // `func_id` + the concrete `type_arguments` — the faithful analogue of TS's
-      // stable `(funcId, argValues)` struct identity. Same (constructor, args) → one key
-      // → one C struct; `Bucket(i32, N)` vs `Bucket(i32, M)` stay distinct (args differ),
-      // and a different constructor stays distinct (`func_id` differs).
-      ((cfid.len() > usize(0)) && ((tas.len() > usize(0)) && (depth <= usize(4)))) => {
-        key := `gs_${cfid.clone()}`;
-        (ti : usize) = usize(0);
-        while(ti < tas.len(), {
-          match(
-            tas.get(ti),
-            .Some(ta) => {
-              key.push_str("_");
-              key.push_string(recur(ta, depth + usize(1)));
-            },
-            .None => ()
-          );
-          ti = (ti + usize(1));
-        });
-        key
-      },
-      (id.len() > usize(0)) => id.clone(),
-      true => type_to_string(t)
-    ),
+    .Struct({ id, constructor_func_id : cfid, type_arguments : tas }) => {
+      // Resolve a leaked recursive-struct SELF-SHELL to its final so the shell and
+      // its final share ONE C type key. Mirrors the EnumT branch below. No-op for
+      // non-shells. See resolve_struct_shell (creators.yo).
+      st := resolve_struct_shell(t);
+      (sid, scfid, stas) := match(
+        st,
+        .Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas }) => (rid, rcfid, rtas),
+        _ => (id, cfid, tas)
+      );
+      cond(
+        // GENERIC INSTANTIATION with stable identity: key by (constructor_func_id, type_arguments).
+        ((scfid.len() > usize(0)) && ((stas.len() > usize(0)) && (depth <= usize(4)))) => {
+          key := `gs_${scfid.clone()}`;
+          (ti : usize) = usize(0);
+          while(ti < stas.len(), {
+            match(
+              stas.get(ti),
+              .Some(ta) => {
+                key.push_str("_");
+                key.push_string(recur(ta, depth + usize(1)));
+              },
+              .None => ()
+            );
+            ti = (ti + usize(1));
+          });
+          // Record the cfid-key for this struct id so cfid-empty copies use it.
+          if(sid.len() > usize(0), {
+            _ := g_struct_cfid_keys.push(StructCfidKeyEntry(struct_id : sid, cfid_key : key.clone()));
+          });
+          key
+        },
+        // No cfid: search the side-table for a previously-recorded cfid-key
+        // for this struct id. Linear scan is cheap (few entries; hot only
+        // during collection, not per-expr lowering).
+        (sid.len() > usize(0)) => {
+          (found : Option(String)) = Option(String).None;
+          (ki : usize) = usize(0);
+          nk := g_struct_cfid_keys.len();
+          while((ki < nk) && found.is_none(), {
+            match(
+              g_struct_cfid_keys.get(ki),
+              .Some(e) => if(e.struct_id == sid, {
+                found = Option(String).Some(e.cfid_key);
+              }),
+              .None => ()
+            );
+            ki = (ki + usize(1));
+          });
+          match(found,.Some(k) => k,.None => sid.clone())
+        },
+        true => type_to_string(st)
+      )
+    },
     .EnumT({ id, variant_fields : vfs }) => {
       // Resolve a leaked recursive-enum SELF-SHELL to its final so the shell and
       // its final share ONE C type key (else a `Box(Self)` field two levels deep

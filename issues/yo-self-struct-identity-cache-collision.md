@@ -254,3 +254,31 @@ incr_rc(tmp)`, TS's materialize-then-dup, guarded against redefinition where the
 Net: the use case is FUNCTIONALLY complete (compiles + runs + cycles collect, matching TS); the only
 residual is the benign bug-1 cosmetic warning. Validated regression-free: corpus 89/89, TS check ./std
 152/152.
+
+## UPDATE 4 (2026-06-29): bug-1 cosmetic warning ELIMINATED
+
+The residual clang `-Wincompatible-pointer-types` warning is now fixed. Root cause: the same
+generic-instantiation struct (e.g. `HashMap(i32,N)`) reached `_type_key_at` as TWO different
+TypeValues — one stamped with `constructor_func_id` + `type_arguments` (producing the stable
+`gs_<cfid>_<args>` key), and one unstamped copy (cfid="", tas.len=0) falling back to the churning
+raw `id` key. Both had the same struct `id` but different cfid states.
+
+**Fix** (`yo-self/codegen/utils/index.yo`, `_type_key_at` Struct branch):
+
+1. **Struct-shell resolution** — `resolve_struct_shell(t)` mirrors the existing enum-shell
+   resolution in the EnumT branch: an empty-field self-shell resolves to the final struct, so
+   the shell and final share one C type key.
+
+2. **Side-table dedup** — `g_struct_cfid_keys: ArrayList(StructCfidKeyEntry)` maps struct*id →
+   cfid-based key. When a cfid-present struct generates its `gs*<cfid>\_<args>`key, it records`(struct_id, key)`. When a cfid-empty copy reaches the same branch, it searches the
+side-table and reuses the same key. Linear scan (ArrayList, not HashMap) — cheap because the
+side-table is only hit during type collection, not per-expr lowering, and avoids the
+HashMap resize/rehash that caused an abort inside the recursive `\_type_key_at` hot path.
+
+This is faithful to TS's principle ("one type → one C name") — TS achieves it via comptime-fn
+memoization producing one struct object; yo-self achieves it via struct-id-keyed key dedup at
+the codegen level.
+
+**Validated:** corpus 89/89 (0 DIFF, 0 SELF-FAIL), TS `check ./std` 152/152, hashmap cycle test
+compiles with ZERO incompatible-pointer-type warnings and runs correctly ("hashmap cycle fully
+reclaimed").
