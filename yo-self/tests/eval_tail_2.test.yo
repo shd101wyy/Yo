@@ -591,7 +591,7 @@ make_typed_fn_def :: (
 make_env_with_T :: (fn() -> Environment)({
   env := Environment.new(`T_env`);
   (ti32 : TypeValue) = t_i32();
-  _ := env.define_val(
+  env.define_val(
     String.from("T"),
     t_type(),
     true,
@@ -1118,7 +1118,7 @@ test("Phase 5y: array is_empty on non-empty array", {
   arr_items.push(make_atom(TokenKind.Integer, String.from("30")));
   arr_expr := make_fncall_atom("array", arr_items);
   def_expr := make_infix(String.from(":="), make_atom(TokenKind.Identifier, String.from("arr")), arr_expr);
-  _ := evaluate(def_expr, env);
+  evaluate(def_expr, env);
   // arr.is_empty()
   dot_tok := make_token(TokenKind.Dot, String.from("."));
   dot_args := ArrayList(AstExpr).new();
@@ -1145,7 +1145,7 @@ test("Phase 5y: array is_empty on empty array", {
   arr_items := ArrayList(AstExpr).new();
   arr_expr := make_fncall_atom("array", arr_items);
   def_expr := make_infix(String.from(":="), make_atom(TokenKind.Identifier, String.from("arr")), arr_expr);
-  _ := evaluate(def_expr, env);
+  evaluate(def_expr, env);
   // arr.is_empty()
   dot_tok := make_token(TokenKind.Dot, String.from("."));
   dot_args := ArrayList(AstExpr).new();

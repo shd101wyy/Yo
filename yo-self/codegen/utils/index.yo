@@ -649,7 +649,6 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 /// the variant field types' keys to distinguish instantiations (TS keeps them distinct:
 /// 16 enums vs yo-self's 6 for token.yo). Depth-capped to stay finite on self-
 /// referential enums. Struct ids are already per-instantiation (no suffix needed).
-
 // Side-table: struct_id -> cfid-based type key. When a generic-instantiation struct
 // reaches _type_key_at with cfid="" (an unstamped copy leaked from a pre-stamp
 // reference), look up its id here to reuse the canonical C name from the stamped
@@ -691,7 +690,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           });
           // Record the cfid-key for this struct id so cfid-empty copies use it.
           if(sid.len() > usize(0), {
-            _ := g_struct_cfid_keys.push(StructCfidKeyEntry(struct_id : sid, cfid_key : key.clone()));
+            g_struct_cfid_keys.push(StructCfidKeyEntry(struct_id : sid, cfid_key : key.clone()));
           });
           key
         },

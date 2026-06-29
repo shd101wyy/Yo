@@ -68,9 +68,9 @@ open(import("std/string"));
 /// recording its message for the def-time re-raise.
 flag_flow_violation :: (fn(msg : String) -> unit)({
   g_flow_violation_box.clear();
-  _ := g_flow_violation_box.push(true);
+  g_flow_violation_box.push(true);
   g_flow_violation_msg.clear();
-  _ := g_flow_violation_msg.push(msg);
+  g_flow_violation_msg.push(msg);
   ()
 });
 /// Reset the flag (called before each def-time body eval and after each catch).
@@ -105,7 +105,7 @@ flow_violation_message :: (fn() -> String)(
 /// Enter/leave "propagate all def-time body-eval errors" mode.
 set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
   g_propagate_def_time_errors_box.clear();
-  _ := g_propagate_def_time_errors_box.push(on);
+  g_propagate_def_time_errors_box.push(on);
   ()
 });
 /// True iff def-time body-eval errors should propagate (set during a

@@ -96,14 +96,14 @@ open(import("std/fmt"));
 register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
   cond(
     (indices.len() > usize(0)) => {
-      ___ := g_macro_quoted_param_indices.set(func_id.clone(), indices);
+      g_macro_quoted_param_indices.set(func_id.clone(), indices);
     },
     true => ()
   );
 });
 /// Mark a function as having an `unquote(...)` return type. Idempotent.
 register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
-  ___ := g_macro_return_is_unquote.set(func_id.clone(), true);
+  g_macro_return_is_unquote.set(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
 get_macro_quoted_param_indices :: (fn(func_id : String) -> ArrayList(usize))(
@@ -168,14 +168,14 @@ copy_macro_registration :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_macro_quoted_param_indices.get(from_id.clone()),
     .Some(idxs) => {
-      ___ := g_macro_quoted_param_indices.set(to_id.clone(), idxs);
+      g_macro_quoted_param_indices.set(to_id.clone(), idxs);
     },
     .None => ()
   );
   match(
     g_macro_return_is_unquote.get(from_id.clone()),
     .Some(_) => {
-      ___ := g_macro_return_is_unquote.set(to_id.clone(), true);
+      g_macro_return_is_unquote.set(to_id.clone(), true);
     },
     .None => ()
   );
@@ -214,7 +214,7 @@ register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Optio
     i = (i + usize(1));
   });
   if(any_default, {
-    ___ := g_func_param_defaults.set(func_id.clone(), defaults);
+    g_func_param_defaults.set(func_id.clone(), defaults);
   });
 });
 /// Copy a registered default-values entry from `from_id` to `to_id`
@@ -224,7 +224,7 @@ copy_func_param_defaults :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_defaults.get(from_id.clone()),
     .Some(defaults) => {
-      ___ := g_func_param_defaults.set(to_id.clone(), defaults);
+      g_func_param_defaults.set(to_id.clone(), defaults);
     },
     .None => ()
   );
@@ -242,14 +242,14 @@ VariadicParamEntry :: struct(label : String, ty : TypeValue);
   HashMap(String, VariadicParamEntry).new();
 register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeValue) -> unit)({
   if(label != "...", {
-    ___ := g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
+    g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
   });
 });
 copy_func_variadic_param :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_variadic_params.get(from_id.clone()),
     .Some(entry) => {
-      ___ := g_func_variadic_params.set(to_id.clone(), entry);
+      g_func_variadic_params.set(to_id.clone(), entry);
     },
     .None => ()
   );
@@ -289,14 +289,14 @@ register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Opt
     i = (i + usize(1));
   });
   if(any_default, {
-    ___ := g_func_param_default_exprs.set(func_id.clone(), exprs);
+    g_func_param_default_exprs.set(func_id.clone(), exprs);
   });
 });
 copy_func_param_default_exprs :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_default_exprs.get(from_id.clone()),
     .Some(exprs) => {
-      ___ := g_func_param_default_exprs.set(to_id.clone(), exprs);
+      g_func_param_default_exprs.set(to_id.clone(), exprs);
     },
     .None => ()
   );
@@ -333,7 +333,7 @@ WhereConstraintEntry :: struct(
 /// No-op when the function has none (keeps the table sparse).
 register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(WhereConstraintEntry)) -> unit)({
   if(entries.len() > usize(0), {
-    ___ := g_func_where_constraints.set(func_id.clone(), entries);
+    g_func_where_constraints.set(func_id.clone(), entries);
   });
 });
 /// Copy a registered where-constraints entry from `from_id` to `to_id`
@@ -342,7 +342,7 @@ copy_func_where_constraints :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_where_constraints.get(from_id.clone()),
     .Some(entries) => {
-      ___ := g_func_where_constraints.set(to_id.clone(), entries);
+      g_func_where_constraints.set(to_id.clone(), entries);
     },
     .None => ()
   );
@@ -1387,7 +1387,7 @@ use_id :: (fn(forall(T : Type),
                 Option(EvalValue).None
               )
           );
-          _ := add_variable_to_env(
+          add_variable_to_env(
             env_mut,
             label_str,
             final_param_type,
@@ -1505,7 +1505,7 @@ validate_concrete_type_constraints :: (
     (negated : bool) = match(trait_negated.get(j),.Some(b) => b,.None => false);
     evaled_t := evaluate_expression_raw(t_expr, env_mut, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_t));
-    _ := evaled_t;
+    evaled_t;
     info := match(
       info_opt,
       .Some(i) => i,
@@ -1869,7 +1869,7 @@ parse_where_clause_constraints :: (
         });
         new_some_ty := t_some_t(var_name, top_frame - usize(1));
         tv := create_type_value(new_some_ty);
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           var_name,
           type_of_type(new_some_ty),
@@ -2014,7 +2014,7 @@ parse_where_clause_constraints :: (
               )
             );
           });
-          _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+          pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
           skip_iter = true;
           new_expr_info(env_mut, TypeValue.Unit)
         }
@@ -2035,7 +2035,7 @@ parse_where_clause_constraints :: (
             )
           );
         });
-        _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+        pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
         skip_iter = true;
       });
       if(skip_iter, {
@@ -2149,7 +2149,7 @@ prepare_where_clause_variables :: (
         });
         new_some_ty := t_some_t(var_name, top_frame - usize(1));
         tv := create_type_value(new_some_ty);
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           var_name,
           type_of_type(new_some_ty),
@@ -2247,7 +2247,7 @@ evaluate_function_parameters :: (
     exn : Exception
   ) -> FuncParamsResult
 )({
-  _ := env_mut.push_frame(false);
+  env_mut.push_frame(false);
   params := ArrayList(FuncParam).new();
   forall_params := ArrayList(FuncParam).new();
   implicit_params := ArrayList(FuncParam).new();
@@ -2331,7 +2331,7 @@ evaluate_function_parameters :: (
             Option(TypeValue).None
           );
           row_kind_type := TypeValue.TypeUni(usize(1));
-          _ := add_variable_to_env(
+          add_variable_to_env(
             env_mut,
             row_var_name.clone(),
             row_kind_type.clone(),
@@ -2790,7 +2790,7 @@ evaluate_function_parameters :: (
           create_type_value(t_some_t(info.name, ct_frame_level)),
           create_unknown_val(param_type)
         );
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           info.name,
           param_type,
@@ -3044,7 +3044,7 @@ evaluate_function_parameters :: (
           ),
           Option(EvalValue).None
         );
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           vparam_name,
           vparam_type,

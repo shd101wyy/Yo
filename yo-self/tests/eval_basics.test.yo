@@ -593,7 +593,7 @@ make_typed_fn_def :: (
 make_env_with_T :: (fn() -> Environment)({
   env := Environment.new(`T_env`);
   (ti32 : TypeValue) = t_i32();
-  _ := env.define_val(
+  env.define_val(
     String.from("T"),
     t_type(),
     true,
@@ -2303,7 +2303,7 @@ test("evaluate: forall param name is extracted into FuncVal.forall_names", {
   param_exprs.push(make_typed_param(String.from("x"), "A"));
   fn_def := make_fn_def_from_param_exprs(param_exprs, make_ident(String.from("x")));
   define_e := make_infix(String.from(":="), make_ident(String.from("id")), fn_def);
-  _ := evaluate(define_e, env);
+  evaluate(define_e, env);
   // Look up id — should be FuncVal with forall_names = ["A"], params = ["x"],
   // param_type_names = ["A"]
   id_res := evaluate(make_ident(String.from("id")), env);
@@ -3207,7 +3207,7 @@ test("Phase 3am: box and deref round-trip", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3244,7 +3244,7 @@ test("Phase 3am: ArrayList store and export", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3281,7 +3281,7 @@ test("Phase 3am: ArrayList const binding len", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3306,7 +3306,7 @@ test("Phase 3am: ArrayList new returns empty ArrayVal", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3343,7 +3343,7 @@ test("Phase 3am: ArrayVal push and len", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3380,7 +3380,7 @@ test("Phase 3am: ArrayVal get returns Some(element)", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3429,7 +3429,7 @@ test("Phase 3am: StrLit.substring", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3466,7 +3466,7 @@ test("Phase 3an: StrLit.replace_all", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3503,7 +3503,7 @@ test("Phase 3an: StrLit.trim", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3540,7 +3540,7 @@ test("Phase 3an: StrLit.to_uppercase", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3577,7 +3577,7 @@ test("Phase 3an: StrLit.to_lowercase", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3614,7 +3614,7 @@ test("Phase 3ao: StrLit.parse_i64 valid integer", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3663,7 +3663,7 @@ test("Phase 3ao: StrLit.parse_i64 invalid string returns None", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3700,7 +3700,7 @@ test("Phase 3ap: while loop with break exits early", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3737,7 +3737,7 @@ test("Phase 3ap: for loop iterates over array", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3774,7 +3774,7 @@ test("Phase 3ap: for loop with break exits early", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3811,7 +3811,7 @@ test("Phase 3aq: struct field mutation updates value", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3848,7 +3848,7 @@ test("Phase 3aq: multiple struct field mutations", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }
@@ -3895,7 +3895,7 @@ test("Phase 3aq: struct field mutation in loop", {
   exn := Exception(
     throw : (
       (err) -> {
-        _ := err;
+        err;
         assert(false, "parse error");
         unwind(());
       }

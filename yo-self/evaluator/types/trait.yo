@@ -165,7 +165,7 @@ _get_or_create_some_ty_for_trait :: (
     });
     new_some_ty := t_some_t(var_name, top_frame - usize(1));
     tv := create_type_value(new_some_ty);
-    _ := add_variable_to_env(
+    add_variable_to_env(
       env_mut,
       var_name,
       type_of_type(new_some_ty),
@@ -574,7 +574,7 @@ _drop_where_constraint_failures :: (
   retry_exn := Exception(
     throw : ((_err) -> unwind(()))
   );
-  _ := _parse_trait_where_clauses(
+  _parse_trait_where_clauses(
     retry_list,
     self_type,
     trait_ty,
@@ -1116,7 +1116,7 @@ evaluate_trait_type :: (
     neg_self_constraints
   );
   // Push a scoped env frame for trait evaluation
-  _ := env_mut.push_frame(false);
+  env_mut.push_frame(false);
   args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
   top_frame := env_mut.frames.len();
@@ -1279,7 +1279,7 @@ evaluate_trait_type :: (
         });
         if(!(already_bound), {
           tv := create_type_value(some_ty);
-          _ := add_variable_to_env(
+          add_variable_to_env(
             env_mut,
             field_result.label,
             type_of_type(some_ty),

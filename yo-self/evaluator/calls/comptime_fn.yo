@@ -327,7 +327,7 @@ _recursive_placeholder :: (
     is_type_0(return_type) => {
       placeholder := t_some_t(`recur_${func_id}`, usize(0));
       sid := match(placeholder,.SomeT(id : x) => x, _ => String.from(""));
-      _ := g_recursive_type_refs.push(
+      g_recursive_type_refs.push(
         RecursiveTypeRef(some_id : sid, func_id : func_id, arg_values : arg_vals)
       );
       EvalValue.TypeVal(placeholder)
@@ -454,7 +454,7 @@ evaluate_comptime_fn_call :: (
       .Some(e) => match(
         e.value,
         .Some(v) => {
-          _ := all_arg_vals.push(v);
+          all_arg_vals.push(v);
         },
         .None => {
           collect_ok = false;
@@ -474,7 +474,7 @@ evaluate_comptime_fn_call :: (
       .Some(e) => match(
         e.value,
         .Some(v) => {
-          _ := all_arg_vals.push(v);
+          all_arg_vals.push(v);
         },
         .None => {
           collect_ok = false;
@@ -494,7 +494,7 @@ evaluate_comptime_fn_call :: (
       .Some(e) => match(
         e.value,
         .Some(v) => {
-          _ := all_arg_vals.push(v);
+          all_arg_vals.push(v);
         },
         .None => {
           collect_ok = false;
@@ -619,7 +619,7 @@ evaluate_comptime_fn_call :: (
         func_id : func_id_str,
         caches : ArrayList(CalledComptimeFnCache).new()
       );
-      _ := g_comptime_fn_caches.push(new_entry);
+      g_comptime_fn_caches.push(new_entry);
       entry_idx_opt = Option(usize).Some(g_comptime_fn_caches.len() - usize(1));
     },
     .Some(_) => ()
@@ -696,7 +696,7 @@ evaluate_comptime_fn_call :: (
   match(
     g_comptime_fn_caches.get(the_entry_idx),
     .Some(entry) => {
-      _ := entry.caches.push(temp_cache);
+      entry.caches.push(temp_cache);
     },
     .None => ()
   );
@@ -755,7 +755,7 @@ evaluate_comptime_fn_call :: (
       match(
         g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
-          _ := entry.caches.remove(temp_cache_index, usize(1));
+          entry.caches.remove(temp_cache_index, usize(1));
         },
         .None => ()
       );
@@ -780,7 +780,7 @@ evaluate_comptime_fn_call :: (
       match(
         g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
-          _ := entry.caches.remove(temp_cache_index, usize(1));
+          entry.caches.remove(temp_cache_index, usize(1));
         },
         .None => ()
       );
@@ -870,8 +870,8 @@ evaluate_comptime_fn_call :: (
         // placeholder by removing it and pushing the finalized entry.
         // (Recursive sub-calls only append AFTER temp_cache_index, so it is
         // still the correct slot to drop; lookups match by content, not index.)
-        _ := entry.caches.remove(temp_cache_index, usize(1));
-        _ := entry.caches.push(updated_cache);
+        entry.caches.remove(temp_cache_index, usize(1));
+        entry.caches.push(updated_cache);
       },
       .None => ()
     );
@@ -879,7 +879,7 @@ evaluate_comptime_fn_call :: (
     match(
       g_comptime_fn_caches.get(the_entry_idx),
       .Some(entry) => {
-        _ := entry.caches.remove(temp_cache_index, usize(1));
+        entry.caches.remove(temp_cache_index, usize(1));
       },
       .None => ()
     );

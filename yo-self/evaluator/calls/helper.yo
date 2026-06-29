@@ -259,7 +259,7 @@ generate_deferred_drop_expressions :: (
         drop_expr := generate_expr_from_code(drop_code.clone(), exn);
         evaluated := evaluate_expression_raw(drop_expr, cur_env, ctx, exn);
         // Phase 3: env update from ExprInfo is skipped; cur_env stays unchanged.
-        _ := evaluated;
+        evaluated;
         deferred.push(evaluated);
       },
       .None => ()
@@ -596,7 +596,7 @@ check_if_function_parameter_matches_argument :: (
   });
   // Step 9: Bind param variable in callee_env.
   param_tok := synthetic_token(param_label, callee_env_r.module_path);
-  _ := add_variable_to_env(
+  add_variable_to_env(
     callee_env_r,
     param_label,
     final_pt,
@@ -852,7 +852,7 @@ _find_specialization_cache :: (
                   n_cur_rt := runtime_parameter_types.len();
                   rt_match := (n_rt == n_cur_rt);
                   if(rt_match, {
-                    _ := caller_env;
+                    caller_env;
                     (rti : usize) = usize(0);
                     while((rti < n_rt) && rt_match, {
                       cached_ty := match(cache.runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
@@ -1156,7 +1156,7 @@ create_specialized_function_inline :: (
             .Some(s) => s,
             .None => ArrayList(SpecializingFunctionInfo).new()
           );
-          _ := spec_stack.push(
+          spec_stack.push(
             SpecializingFunctionInfo(
               original_func_id : func_id.clone(),
               specialized_func_id : specialized_func_id.clone(),
@@ -1427,7 +1427,7 @@ create_specialized_function_inline :: (
             .Some(s) => s,
             .None => ArrayList(SpecializingFunctionInfo).new()
           );
-          _ := spec_stack_r.pop();
+          spec_stack_r.pop();
           ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack_r);
           // Build updated captures from the specialized callee_env.
           // This ensures the specialized function "closes over" the bound
@@ -1483,7 +1483,7 @@ create_specialized_function_inline :: (
             fai2 = (fai2 + usize(1));
           });
           // Evaluate the specialized body to get its return type
-          _ := specialized_body;
+          specialized_body;
           // Create the specialized function value — carries the fresh-id CLONE
           // (not the shared original body) so codegen walks this specialization's
           // own nodes and reads its own per-node ExprInfo / method-callee entries.
@@ -2055,14 +2055,14 @@ resolve_param_types_from_expected :: (
   // `synthesize_types` has a slot to rebind (mirrors the forall-placeholder
   // setup in `try_to_call_function_with_arguments`).
   synth_env := Environment.new(caller_env.module_path);
-  _ := synth_env.push_frame(false);
+  synth_env.push_frame(false);
   sig_somes := get_all_some_types(func_type);
   (si : usize) = usize(0);
   while(si < sig_somes.len(), {
     sst := match(sig_somes.get(si),.Some(t) => t,.None => t_unit());
     snm := match(sst,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
     if(snm.len() > usize(0), {
-      _ := add_variable_to_env(
+      add_variable_to_env(
         synth_env,
         snm,
         t_type(),
@@ -2084,7 +2084,7 @@ resolve_param_types_from_expected :: (
   (pj : usize) = usize(0);
   while(pj < default_pts.len(), {
     p_orig := match(default_pts.get(pj),.Some(t) => t,.None => t_unit());
-    _ := out.push(evaluate_function_return_type_again(p_orig, resolved_env, ctx));
+    out.push(evaluate_function_return_type_again(p_orig, resolved_env, ctx));
     pj = (pj + usize(1));
   });
 });
@@ -2103,8 +2103,8 @@ try_to_call_function_with_arguments :: (
     exn : Exception
   ) -> FuncCallResult
 )({
-  _ := callee_expr;
-  _ := skip_ctfe_execution;
+  callee_expr;
+  skip_ctfe_execution;
   tok := ast_expr_token(expr);
   // Normalize a closure-trait callee type (`Impl(Fn(...))` SomeT or a bare
   // FnTraitT) to its Func signature so the `.Func` arm below types the call.
@@ -2157,8 +2157,8 @@ try_to_call_function_with_arguments :: (
       il := __fm8.*.implicit_labels;
       ispr := __fm8.*.implicit_spreads;
       fn_has_variadic := __fm8.*.has_variadic;
-      _ := ispr;
-      _ := wt;
+      ispr;
+      wt;
       // ----------------------------------------------------------------
       // Step 1: Detect explicit forall(…) argument.
       // ----------------------------------------------------------------
@@ -2293,7 +2293,7 @@ try_to_call_function_with_arguments :: (
                 .None => Option(EvalValue).None
               );
               is_ct_cap := match(cval,.Some(_) => true,.None => false);
-              _ := add_variable_to_env(
+              add_variable_to_env(
                 fenv,
                 cname,
                 cty,
@@ -2313,7 +2313,7 @@ try_to_call_function_with_arguments :: (
         .None => Environment.new(caller_env.module_path)
       );
       // Step 5: Push a new frame on callee_env for parameter bindings.
-      _ := callee_env.push_frame(false);
+      callee_env.push_frame(false);
       // ----------------------------------------------------------------
       // Step 6: Add forall params as UnknownVal placeholders (or resolve
       //         them from an explicit forall(…) argument).
@@ -2366,7 +2366,7 @@ try_to_call_function_with_arguments :: (
             });
             sg_already_bound := (get_variables_from_env(callee_env, sg_nm).len() > usize(0));
             if(sg_is_forall || !(sg_already_bound), {
-              _ := add_variable_to_env(
+              add_variable_to_env(
                 callee_env,
                 sg_nm,
                 t_type(),
@@ -2380,7 +2380,7 @@ try_to_call_function_with_arguments :: (
             });
             if((!(sg_is_forall)) && !(sg_already_bound), {
               // The updatable second binding for non-forall SomeTs.
-              _ := add_variable_to_env(
+              add_variable_to_env(
                 callee_env,
                 sg_nm,
                 t_type(),
@@ -2432,7 +2432,7 @@ try_to_call_function_with_arguments :: (
           },
           .None => ()
         );
-        _ := add_variable_to_env(
+        add_variable_to_env(
           callee_env,
           flabel,
           ftype,
@@ -2475,7 +2475,7 @@ try_to_call_function_with_arguments :: (
             ),
             .None => ()
           );
-          _ := add_variable_to_env(
+          add_variable_to_env(
             callee_env_m,
             plabel,
             ptype,
@@ -2510,7 +2510,7 @@ try_to_call_function_with_arguments :: (
                 ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : ptype, env : callee_env_m));
                 evaled_de := evaluate_expression_raw(cloned_de, callee_env_m, ctx, exn);
                 ctx.expected_type = def_saved_exp;
-                _ := rt_args.push(evaled_de);
+                rt_args.push(evaled_de);
               },
               .None => ()
             ),
@@ -2715,7 +2715,7 @@ try_to_call_function_with_arguments :: (
                           );
                         });
                         impl_tok := synthetic_token(impl_label, callee_env_m.module_path);
-                        _ := add_variable_to_env(
+                        add_variable_to_env(
                           callee_env_m,
                           impl_label,
                           resolved_impl_type,
@@ -2795,7 +2795,7 @@ try_to_call_function_with_arguments :: (
             given_val,
             .Some(gv_val) => {
               impl_tok2 := synthetic_token(impl_label, callee_env_m.module_path);
-              _ := add_variable_to_env(
+              add_variable_to_env(
                 callee_env_m,
                 impl_label,
                 resolved_impl_type,
@@ -2968,7 +2968,7 @@ try_to_call_function_with_arguments :: (
       // through prelude impls that exercise operator-trait dispatch
       // patterns the bootstrap doesn't yet model. Tracked as an
       // evaluator coverage gap in `issues/yo-self-evaluator-gaps.md`.
-      _ := tok;
+      tok;
       FuncCallResult(
         callee_env : caller_env,
         caller_env : caller_env,

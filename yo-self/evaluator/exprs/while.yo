@@ -463,7 +463,7 @@ evaluate_while :: (
     possible := _body_has_any_terminator_possible(body_expr, body_info.control_flow);
     if(!(guaranteed) && !(possible), {
       // No terminator anywhere — this loop can never end.
-      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+      _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
     if(!(guaranteed) && possible, {
       // Conditional terminator exists — emit as a runtime loop.
@@ -526,7 +526,7 @@ evaluate_while :: (
   if(eff_cond_is_true_main, {
     next_count := (comptime_iteration_count + usize(1));
     if(next_count >= MAX_COMPTIME_LOOP_ITERATIONS, {
-      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+      _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
     return(recur(expr, env, ctx, next_count, exn));
   }, {

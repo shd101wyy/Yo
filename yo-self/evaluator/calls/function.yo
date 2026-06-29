@@ -375,7 +375,7 @@ _trial_call_overload_candidate :: (
     );
     ci = (ci + usize(1));
   });
-  _ := try_to_call_function_with_arguments(
+  try_to_call_function_with_arguments(
     Option(EvalValue).Some(fn_val),
     fn_ty,
     clone_expr_fresh_ids(call_expr),
@@ -388,7 +388,7 @@ _trial_call_overload_candidate :: (
     true,
     trial_exn
   );
-  ___ := ok_out.push(true);
+  ok_out.push(true);
 });
 /// Build the C-call argument list for a receiver method candidate: prepend the
 /// receiver (wrapped in `&(...)` when the method's self param is `*(T)`) for
@@ -416,10 +416,10 @@ _build_receiver_call_args :: (
         )
       );
       amp_args := ArrayList(AstExpr).new();
-      _ := amp_args.push(receiver_expr.clone());
-      _ := all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, amp_args, false, recv_tok));
+      amp_args.push(receiver_expr.clone());
+      all_args.push(AstExpr.FnCall(alloc_global_expr_id(), amp_atom, amp_args, false, recv_tok));
     }, {
-      _ := all_args.push(receiver_expr.clone());
+      all_args.push(receiver_expr.clone());
     });
   });
   (ai : usize) = usize(0);
@@ -427,7 +427,7 @@ _build_receiver_call_args :: (
     match(
       args.get(ai),
       .Some(a) => {
-        _ := all_args.push(a.clone());
+        all_args.push(a.clone());
       },
       .None => ()
     );
@@ -1049,7 +1049,7 @@ _evaluate_funcval_runtime_call :: (
   // can materialize it as `<cty> <tmp> = call(...)`. Mirrors TS
   // function.ts:2263 attachTempVariableToExpr(expr, true, ...).
   attach_temp_variable_to_expr(expr, true, ctx);
-  _ := param_vars;
+  param_vars;
   // Generic-function SPECIALIZATION for codegen (Gap 6). The runtime-
   // return path doesn't execute the body, leaving the callee's ExprInfo
   // as the GENERIC FuncVal (its `forall(T) v:T` type crashes
@@ -1186,7 +1186,7 @@ _try_eval_operand_type :: (
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(oe_evaled)),
     .Some(si) => {
-      _ := out.push(si.ty);
+      out.push(si.ty);
     },
     .None => ()
   );
@@ -1201,7 +1201,7 @@ evaluate_function_call :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _ := given_type;
+  given_type;
   tok := ast_expr_token(expr);
   // Decompose the call: func_expr = callee, args = argument list.
   func_expr := match(
@@ -3022,7 +3022,7 @@ Fix: wrap the call:
                 // call WITHOUT macro_expansion (e.g. `if(...recur...)`), leaving
                 // codegen with `None`. Codegen falls back to this side-table.
                 record_macro_expansion(ast_expr_id(expr), expanded_expr);
-                _ := param_vars;
+                param_vars;
                 return(expr);
               },
               _ => {
@@ -3059,7 +3059,7 @@ Fix: wrap the call:
           out_ct := new_expr_info(ct_result.caller_env, resolved_ret_ct);
           out_ct.value = Option(EvalValue).Some(ct_result.value);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
-          _ := param_vars;
+          param_vars;
           return(expr);
         });
         // Faithful port of `helper.ts:1731`: ONLY comptime-only-return functions
@@ -3158,7 +3158,7 @@ Fix: wrap the call:
         // Temp variable for the (non-unit) call result (mirrors TS
         // attachTempVariableToExpr on the body-executed call path).
         attach_temp_variable_to_expr(expr, true, ctx);
-        _ := param_vars;
+        param_vars;
         expr
       },
       // ------------------------------------------------------------------

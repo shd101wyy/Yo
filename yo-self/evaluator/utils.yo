@@ -161,7 +161,7 @@ attach_temp_variable_to_expr :: (
             );
           }, {
             // Variable name exists but not in env: add it to begin-block frame.
-            ___ := add_variable_to_begin_block_frame(
+            add_variable_to_begin_block_frame(
               info.env,
               existing_name,
               effective_ty,
@@ -183,7 +183,7 @@ attach_temp_variable_to_expr :: (
         .None => {
           // Create a new temp variable.
           temp_name := generate_new_temp_variable_name(info.env.module_path);
-          ___ := add_variable_to_begin_block_frame(
+          add_variable_to_begin_block_frame(
             info.env,
             temp_name,
             effective_ty,
@@ -887,7 +887,7 @@ merge_and_check_envs :: (
                     extra_var2 := match(case_frame.variables.get(ek2),.Some(v) => v,.None => make_err_variable(env));
                     extra_var2.is_owning_the_rc_value = false;
                     {
-                      ___ := frame.variables.push(extra_var2);
+                      frame.variables.push(extra_var2);
                     };
                     ek2 = (ek2 + usize(1));
                   });
@@ -981,23 +981,23 @@ merge_and_check_envs :: (
             // above + issues/yo-self-p1-transpile-tail.md Candidate 3.
             case_var := match(case_frame_k.variables.get(var_j),.Some(v) => v,.None => base_var);
             {
-              ___ := initialized_at_tokens.push(case_var.initialized_at_token);
+              initialized_at_tokens.push(case_var.initialized_at_token);
             };
             {
-              ___ := consumed_at_tokens.push(match(case_var.consumed_at_token,.Some(b) => Option(Token).Some(b.*),.None => Option(Token).None));
+              consumed_at_tokens.push(match(case_var.consumed_at_token,.Some(b) => Option(Token).Some(b.*),.None => Option(Token).None));
             };
             owning_token := cond(
               case_var.is_owning_the_rc_value => Option(Token).Some(case_var.token),
               true => Option(Token).None
             );
             {
-              ___ := owning_at_tokens.push(owning_token);
+              owning_at_tokens.push(owning_token);
             };
             {
-              ___ := var_ids.push(case_var.id);
+              var_ids.push(case_var.id);
             };
             {
-              ___ := case_types.push(case_var.ty);
+              case_types.push(case_var.ty);
             };
             ck = (ck + usize(1));
           });
@@ -1071,7 +1071,7 @@ merge_and_check_envs :: (
                 );
                 err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
                 {
-                  ___ := err_list.push(TokenAndError(token : err_tok, error_message : msg));
+                  err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
                 ei = (ei + usize(1));
               });
@@ -1138,7 +1138,7 @@ merge_and_check_envs :: (
                 );
                 err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
                 {
-                  ___ := err_list.push(TokenAndError(token : err_tok, error_message : msg));
+                  err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
                 eci = (eci + usize(1));
               });
@@ -1181,7 +1181,7 @@ merge_and_check_envs :: (
               );
               err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
               {
-                ___ := err_list.push(TokenAndError(token : err_tok, error_message : msg));
+                err_list.push(TokenAndError(token : err_tok, error_message : msg));
               };
               oei = (oei + usize(1));
             });

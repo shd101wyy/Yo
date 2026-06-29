@@ -492,7 +492,7 @@ _eval_module_exprs_capturing_error :: (
     )
   );
   result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, local_exn);
-  ___ := out.push(result.module_value);
+  out.push(result.module_value);
   ___t := out_tys.push(result.module_type);
   true
 });
@@ -532,7 +532,7 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   register_loading(abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
-  _ := _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
+  _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
   // ALWAYS unregister — a leaked currently-loading entry poisons every
   // LATER check that imports this module: `demand_load_module` then
   // returns partial exports from the dead env (hangs/crashes; see
@@ -783,7 +783,7 @@ check_single_file :: (
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   out_vals_cf := ArrayList(EvalValue).new();
   out_tys_cf := ArrayList(TypeValue).new();
-  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf, out_tys_cf);
+  _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf, out_tys_cf);
   // ALWAYS unregister, error or not — a leaked currently-loading entry
   // poisons every LATER file in a directory check (see
   // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md).
@@ -1068,7 +1068,7 @@ run_compile :: (
   register_loading(entry_abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
-  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals, out_tys);
+  _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals, out_tys);
   unregister_loading(entry_abs.clone());
   module_value := match(
     out_vals.get(usize(0)),

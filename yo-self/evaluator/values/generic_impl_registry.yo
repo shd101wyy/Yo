@@ -164,7 +164,7 @@ try_match_generic_impl :: (
   });
   // 2. Build unify_env: clone the env and push a fresh frame, add all forall SomeTs.
   (unify_env : Environment) = clone_env(env);
-  _ := unify_env.push_frame(false);
+  unify_env.push_frame(false);
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
   while(ui < n_forall, {
@@ -184,7 +184,7 @@ try_match_generic_impl :: (
         continue;
       }
     );
-    _ := add_variable_to_env(
+    add_variable_to_env(
       unify_env,
       fa_name,
       t_type(),
@@ -205,7 +205,7 @@ try_match_generic_impl :: (
     throw : (
       (err) -> {
         // Synthesis failed → no match.
-        _ := err;
+        err;
         unwind(false);
       }
     )

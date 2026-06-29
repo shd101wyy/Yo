@@ -78,11 +78,11 @@ check_deferred_generic_return_type :: (
     exn : Exception
   ) -> unit
 )({
-  _ := function_body_expr;
-  _ := function_type;
-  _ := function_value;
-  _ := env;
-  _ := ctx;
+  function_body_expr;
+  function_type;
+  function_value;
+  env;
+  ctx;
   ()
 });
 /// Creates a fresh evaluation context for function body evaluation.
@@ -216,7 +216,7 @@ _trial_eval_fn_body :: (
   // the def-time caller re-raises it via the real `exn` after this returns.
   inner_exn := Exception(throw : ((_err) -> unwind(())));
   evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
-  ___ := out.push(evaluated);
+  out.push(evaluated);
 });
 /// Build a fresh definition-time evaluation env for a function body: captures
 /// (re-derived from `caller_env` so other top-level names resolve) + a frame
@@ -260,7 +260,7 @@ _build_def_time_body_env :: (
                 // ARE reassignable from fn bodies; rebinding them read-only
                 // made std/log.yo's `_global_level = level` def-eval fail
                 // "Cannot reassign".
-                ___ := add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
+                add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
               });
             },
             .None => ()
@@ -289,7 +289,7 @@ _build_def_time_body_env :: (
         match(
           found.get(sfi),
           .Some(st) => {
-            _ := sig_some_ts.push(st);
+            sig_some_ts.push(st);
           },
           .None => ()
         );
@@ -303,7 +303,7 @@ _build_def_time_body_env :: (
       match(
         found_r.get(sri),
         .Some(st) => {
-          _ := sig_some_ts.push(st);
+          sig_some_ts.push(st);
         },
         .None => ()
       );
@@ -347,7 +347,7 @@ _build_def_time_body_env :: (
         .None => create_type_value(t_some_t(pn, pf_level))
       )
     }, create_unknown_val(pt));
-    ___ := add_parameter_to_env(
+    add_parameter_to_env(
       fresh_env,
       pn,
       pt,
@@ -433,7 +433,7 @@ try_to_implement_function_by_function_type :: (
           ),
           .None => String.from("")
         );
-        ___ := param_type_names.push(pt_name);
+        param_type_names.push(pt_name);
         pti = (pti + usize(1));
       });
       // Build cap_names/cap_tys/cap_vals from `caller_env` so the FuncVal's body
@@ -557,7 +557,7 @@ try_to_implement_function_by_function_type :: (
         },
         .Atom(_, _) => ()
       );
-      _ := result_box;
+      result_box;
       // Build and store ExprInfo for the function definition expression.
       // The type of a function definition is the function type itself.
       info := new_expr_info(caller_env, function_type);

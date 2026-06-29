@@ -154,11 +154,11 @@ register_type_trait_method :: (
   match(
     _type_trait_methods.get(type_id),
     .Some(list) => {
-      ___ := list.push(entry);
+      list.push(entry);
     },
     .None => {
       fresh := ArrayList(MethodEntry).new();
-      ___ := fresh.push(entry);
+      fresh.push(entry);
       ___set := _type_trait_methods.set(type_id, fresh);
     }
   );
@@ -189,7 +189,7 @@ get_type_trait_methods_by_name :: (
       all.get(i),
       .Some(entry) => {
         if(entry.label == method_name, {
-          ___ := result.push(entry);
+          result.push(entry);
         });
       },
       .None => ()
@@ -213,7 +213,7 @@ clear_type_trait_methods :: (fn() -> unit)({
 /// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
 (_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 register_trait_default :: (fn(trait_id : String, label : String, value : EvalValue) -> unit)({
-  ___ := _trait_method_defaults.set((trait_id + String.from("::")) + label, value);
+  _trait_method_defaults.set((trait_id + String.from("::")) + label, value);
 });
 get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
   _trait_method_defaults.get((trait_id + String.from("::")) + label)
@@ -229,7 +229,7 @@ get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue)
 /// parser.yo's recursive `get_program` emitting a shell's unevaluated body.
 (_shell_redirect : HashMap(String, String)) = HashMap(String, String).new();
 register_shell_redirect :: (fn(shell_func_id : String, real_func_id : String) -> unit)({
-  ___ := _shell_redirect.set(shell_func_id, real_func_id);
+  _shell_redirect.set(shell_func_id, real_func_id);
 });
 get_shell_redirect :: (fn(shell_func_id : String) -> Option(String))(
   _shell_redirect.get(shell_func_id)

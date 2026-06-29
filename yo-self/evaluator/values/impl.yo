@@ -246,12 +246,12 @@ is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) ->
 /// Mark a type+trait pair as currently being registered.
 mark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
-  _ := _currently_registering_concrete_impls.set(k, true);
+  _currently_registering_concrete_impls.set(k, true);
 });
 /// Unmark a type+trait pair after registration completes.
 unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
-  _ := _currently_registering_concrete_impls.remove(k);
+  _currently_registering_concrete_impls.remove(k);
 });
 /// Extract the registry key from a trait TypeValue.
 /// Uses the `id` field of TraitT (the stable nominal ID).
@@ -328,7 +328,7 @@ has_negative_impl :: (fn(type_id : String, trait_id : String) -> bool)({
 });
 register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
   if(!(has_negative_impl(type_id, trait_id)), {
-    ___ := g_negative_impl_registry.push(`${type_id}:${trait_id}`);
+    g_negative_impl_registry.push(`${type_id}:${trait_id}`);
   });
 });
 // Mirrors `tryMatchGenericImpl` in impl.ts — uses `synthesize_types` to
@@ -550,7 +550,7 @@ try_match_generic_impl :: (
   });
   // 2. Build unify_env: clone the env and push a fresh frame, add all forall SomeTs.
   (unify_env : Environment) = clone_env(env);
-  _ := unify_env.push_frame(false);
+  unify_env.push_frame(false);
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
   while(ui < n_forall, {
@@ -570,7 +570,7 @@ try_match_generic_impl :: (
         continue;
       }
     );
-    _ := add_variable_to_env(
+    add_variable_to_env(
       unify_env,
       fa_name,
       t_type(),
@@ -590,7 +590,7 @@ try_match_generic_impl :: (
     throw : (
       (err) -> {
         // Synthesis failed → no match.
-        _ := err;
+        err;
         unwind(Option(ArrayList(TypeValue)).None);
       }
     )
@@ -749,7 +749,7 @@ find_matching_generic_impl :: (
 (g_negative_generic_impl_entries : ArrayList(GenericImplEntry)) =
   ArrayList(GenericImplEntry).new();
 register_negative_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
-  _ := g_negative_generic_impl_entries.push(entry);
+  g_negative_generic_impl_entries.push(entry);
 });
 /// Returns true if some registered negative generic impl for `trait_type`
 /// matches `concrete_type`. Mirrors TS `findMatchingNegativeGenericImpl`
@@ -1500,7 +1500,7 @@ evaluate_module_value :: (
     );
     // Clone env to isolate forall frame from the outer scope.
     (forall_env : Environment) = clone_env(local_env);
-    _ := forall_env.push_frame(false);
+    forall_env.push_frame(false);
     frame_lvl := (forall_env.frames.len() - usize(1));
     // Forall param names and SomeT TypeValues (parallel arrays).
     (forall_names : ArrayList(String)) = ArrayList(String).new();
@@ -1528,7 +1528,7 @@ evaluate_module_value :: (
       some_ty := t_some_t(param_name_str.clone(), frame_lvl);
       tv := create_type_value(some_ty);
       // Add TypeVal(SomeT) to forall_env so receiver type evaluation sees it.
-      _ := add_variable_to_env(
+      add_variable_to_env(
         forall_env,
         param_name_str.clone(),
         t_type(),
@@ -1954,7 +1954,7 @@ evaluate_module_value :: (
   // Push a frame for the impl's field bindings (popped after the loop) —
   // mirrors TS impl.ts:623 `env = pushEnvFrame(env)` so the per-field
   // BARE-label bindings below don't leak into the module scope.
-  _ := local_env.push_frame(false);
+  local_env.push_frame(false);
   // ============================================================
   // Pre-pass: forward-declare DIRECT function-typed fields as
   // registry shells so sibling bodies can forward-reference them
@@ -2358,7 +2358,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
     match(
       candidates.get(i),
       .Some(c) => {
-        ___ := out.push(
+        out.push(
           MethodEntry(
             label : method_name.clone(),
             ty : c.method_type,

@@ -459,7 +459,7 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
 );
 /// Store an ExprInfo for the given expression id.
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
-  _ := table.data.set(id, info);
+  table.data.set(id, info);
   ()
 });
 /// Retrieve the ExprInfo for the given expression id, or None.
@@ -486,7 +486,7 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 (g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
 /// Record the resolved method `Func` type for a method-call expr id.
 record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
-  _ := g_method_callee_types.set(call_id, ty);
+  g_method_callee_types.set(call_id, ty);
   ()
 });
 /// Look up the resolved method `Func` type for a method-call expr id, if any.

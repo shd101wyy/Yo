@@ -249,7 +249,7 @@ evaluate_primitive_match :: (
       mae_wc_info := new_expr_info(case_env, scrutinee_type);
       mae_wc_info.case_executed = Option(bool).Some(true);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_wc_info);
-      ___ := env.push_frame(false);
+      env.push_frame(false);
       is_arm_executing_wc := match(
         scrutinee_val_opt,
         .None => false,
@@ -537,7 +537,7 @@ evaluate_primitive_match :: (
       mae_lit_info.case_executed = Option(bool).Some(true);
       mae_lit_info.primitive_pattern_values = Option(ArrayList(Option(EvalValue))).Some(pattern_value_opts);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_lit_info);
-      ___ := env.push_frame(false);
+      env.push_frame(false);
       old_executing_lit := ctx.is_executing;
       ctx.is_executing = matches_at_ct;
       // Running-result-type as expected type (bare `.None`/`.Variant` inference);
@@ -1349,7 +1349,7 @@ evaluate_match :: (
         vne_fl_info := new_expr_info(env, new_enum_type_fl);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(variant_name_expr), vne_fl_info);
         // Push frame for this arm
-        ___ := env.push_frame(false);
+        env.push_frame(false);
         // Set ExprInfo for matchArmExpr (AFTER push_frame)
         mae_fl_info := new_expr_info(env, variable_type_fl);
         mae_fl_info.case_executed = Option(bool).Some(true);
@@ -1725,7 +1725,7 @@ evaluate_match :: (
           vne_wf_info := new_expr_info(env, new_enum_type_wf);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(fb_vne), vne_wf_info);
           // Push frame for this arm
-          ___ := env.push_frame(false);
+          env.push_frame(false);
           // is_comptime_scrutinee: concrete known enum value
           is_comptime_scr_wf := match(
             scrutinee_val_opt,

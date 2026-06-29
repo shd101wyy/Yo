@@ -305,7 +305,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
         done = true;
       },
       true => {
-        ___ := visited_ids.push(cur_id);
+        visited_ids.push(cur_id);
         variables := get_variables_from_env(env, cur_name);
         n := variables.len();
         cond(
@@ -458,7 +458,7 @@ get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue)
 create_str_type :: (fn(env : Environment) -> TypeValue)({
   // str is now the builtin static string view; no prelude lookup needed.
   // (env parameter kept for signature stability with callers.)
-  ___ := env;
+  env;
   t_str()
 });
 
