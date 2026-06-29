@@ -27,7 +27,7 @@ open(import("std/fmt"));
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
-{ Environment, clone_env } :: import("./env.yo");
+{ Environment, clone_env, build_prelude_var_cache } :: import("./env.yo");
 // Cached prelude env — populated on first check, reused thereafter.
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
 // Demand-driven module loader state (set per `check_single_file` run). The
@@ -745,6 +745,8 @@ check_single_file :: (
       local_exn
     );
     g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    // Build the O(1) prelude variable cache for all subsequent lookups.
+    build_prelude_var_cache(prelude_env);
     println(`check: ${input_path} — evaluator OK`);
     return(true);
   });
