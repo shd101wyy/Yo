@@ -27,7 +27,7 @@ open(import("std/string"));
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
@@ -446,7 +446,65 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
       out.push_str(")))");
       out
     },
-    (is_struct_type(concrete_type) || is_enum_type(concrete_type)) => match(
+    // Value struct (reference structs handled above): dup is a per-field dup —
+    // materialize a copy temp, dup each RC runtime field IN PLACE, return the temp.
+    // Mirrors the tuple-dup case + TS generateDupFunctionCodeForStructType (value-with-RC
+    // branch); yo-self lowers it inline (no ___dup method), exactly as it lowers the
+    // value-enum drop inline. Without this, copying a value struct that holds an RC field
+    // (e.g. `bucket := (data_ptr &+ i).*` in HashMap.get) did not dup the field, so the
+    // RC was unbalanced (the auto-derived field walk could not see the buffer copy). A
+    // value struct with no RC field falls through to a bare value copy.
+    is_struct_type(concrete_type) => {
+      rfs := get_runtime_struct_fields(concrete_type);
+      (has_rc : bool) = false;
+      (ci : usize) = usize(0);
+      while(ci < rfs.len(), {
+        match(
+          rfs.get(ci),
+          .Some(f) => if(type_contains_rc_type(f.ty), {
+            has_rc = true;
+          }),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      cond(
+        !(has_rc) => value_code.clone(),
+        true => {
+          temp_var := String.from("temp_dup_struct_");
+          temp_var.push_string(random_id(String.from("")));
+          struct_c_name := get_type_string(concrete_type, context.base);
+          decl := struct_c_name;
+          decl.push_str(" ");
+          decl.push_string(temp_var.clone());
+          decl.push_str(" = ");
+          decl.push_string(value_code.clone());
+          decl.push_str(";");
+          em.emit_string_line(decl);
+          (fi : usize) = usize(0);
+          while(fi < rfs.len(), {
+            match(
+              rfs.get(fi),
+              .Some(f) => if(type_contains_rc_type(f.ty), {
+                fref := temp_var.clone();
+                fref.push_str(".");
+                fref.push_string(sanitize_for_c_identifier(f.label.clone(), false));
+                fdup := recur(fref.clone(), f.ty, context);
+                asn := fref;
+                asn.push_str(" = ");
+                asn.push_string(fdup);
+                asn.push_str(";");
+                em.emit_string_line(asn);
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          temp_var
+        }
+      )
+    },
+    is_enum_type(concrete_type) => match(
       get_dup_function_for_type(concrete_type, context),
       .Some(fn) => {
         out := fn;
