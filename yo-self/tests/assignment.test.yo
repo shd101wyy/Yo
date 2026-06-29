@@ -66,12 +66,12 @@ mk_op_atom :: (fn(id : usize, op : str) -> AstExpr)(
 /// Build `op(args…)` FnCall — callee is Atom with an Operator token.
 mk_op_call :: (fn(id : usize, op : str, args : ArrayList(AstExpr)) -> AstExpr)({
   callee := mk_op_atom(id + usize(10000), op);
-  AstExpr.FnCall(id, box(callee), args, true, mk_token(TokenKind.Operator, op))
+  AstExpr.FnCall(id, callee, args, true, mk_token(TokenKind.Operator, op))
 });
 /// Build `name(args…)` FnCall — callee is Atom with an Identifier token.
 mk_ident_call :: (fn(id : usize, name : str, args : ArrayList(AstExpr)) -> AstExpr)({
   callee := mk_ident(id + usize(10000), name);
-  AstExpr.FnCall(id, box(callee), args, false, mk_token(TokenKind.Identifier, name))
+  AstExpr.FnCall(id, callee, args, false, mk_token(TokenKind.Identifier, name))
 });
 /// Build `lhs = rhs` expression.
 mk_assign :: (fn(id : usize, lhs : AstExpr, rhs : AstExpr) -> AstExpr)({

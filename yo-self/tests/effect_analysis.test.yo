@@ -6,7 +6,7 @@ open(import("std/string"));
 { TokenKind, Token } :: import("../token.yo");
 { AstExpr } :: import("../expr.yo");
 { ExprInfo, new_expr_info } :: import("../expr_info.yo");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../types/definitions.yo");
 { t_unit, t_bool } :: import("../types/creators.yo");
 { Environment } :: import("../env.yo");
 {
@@ -95,24 +95,27 @@ make_effects_row_with :: (fn(effect_name : String) -> TypeValue)({
   implicit_types := ArrayList(TypeValue).new();
   implicit_spreads := ArrayList(bool).new();
   where_types := ArrayList(TypeValue).new();
+  meta := FuncMeta(
+    forall_labels : forall_labels,
+    param_labels : param_labels,
+    implicit_labels : implicit_labels,
+    implicit_spreads : implicit_spreads,
+    result_is_comptime_only : false,
+    param_is_ref : ArrayList(bool).new(),
+    param_is_owning : ArrayList(bool).new(),
+    result_is_ref : false,
+    has_variadic : false,
+    is_extern : Option(String).None,
+    extern_name : Option(String).None,
+    is_control : false
+  );
   fn_ty := TypeValue.Func(
-    forall_labels,
     forall_types,
-    param_labels,
     param_types,
-    implicit_labels,
     implicit_types,
-    implicit_spreads,
     where_types,
-    Box(TypeValue)(t_unit()),
-    false,
-    ArrayList(bool).new(),
-    ArrayList(bool).new(),
-    false,
-    false,
-    Option(String).None,
-    Option(String).None,
-    false
+    t_unit(),
+    box(meta)
   );
   types.push(fn_ty);
   TypeValue.EffectsRowT(labels, types)

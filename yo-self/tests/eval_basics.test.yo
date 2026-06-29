@@ -54,7 +54,7 @@ make_ident :: (fn(name : String) -> AstExpr)(
   make_atom(TokenKind.Identifier, name)
 );
 make_infix :: (fn(op : String, lhs : AstExpr, rhs : AstExpr) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, op))), {
+  .FnCall(usize(0),.Atom(usize(0), make_token(TokenKind.Operator, op)), {
     args := ArrayList(AstExpr).new();
     args.push(lhs);
     args.push(rhs);
@@ -65,7 +65,7 @@ make_infix :: (fn(op : String, lhs : AstExpr, rhs : AstExpr) -> AstExpr)(
 make_begin :: (fn(stmts : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from(BK_BEGIN)))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from(BK_BEGIN))),
     stmts,
     false,
     make_token(TokenKind.Identifier, String.from(BK_BEGIN))
@@ -75,7 +75,7 @@ make_begin :: (fn(stmts : ArrayList(AstExpr)) -> AstExpr)(
 make_unit :: (fn() -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from(BK_TUPLE)))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from(BK_TUPLE))),
     ArrayList(AstExpr).new(),
     false,
     make_token(TokenKind.Identifier, String.from(BK_TUPLE))
@@ -83,7 +83,7 @@ make_unit :: (fn() -> AstExpr)(
 );
 /// Build a cond arm `condition => body` (infix =>).
 make_arm :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("=>")))), {
+  .FnCall(usize(0),.Atom(usize(0), make_token(TokenKind.Operator, String.from("=>"))), {
     a := ArrayList(AstExpr).new();
     a.push(cond_expr);
     a.push(body_expr);
@@ -94,7 +94,7 @@ make_arm :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)(
 make_cond :: (fn(arms : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("cond")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("cond"))),
     arms,
     false,
     make_token(TokenKind.Identifier, String.from("cond"))
@@ -104,7 +104,7 @@ make_cond :: (fn(arms : ArrayList(AstExpr)) -> AstExpr)(
 make_typedef_call :: (fn(keyword : String, type_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, keyword))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, keyword)),
     type_args,
     false,
     make_token(TokenKind.Identifier, keyword)
@@ -114,7 +114,7 @@ make_typedef_call :: (fn(keyword : String, type_args : ArrayList(AstExpr)) -> As
 make_fncall_atom :: (fn(name : String, call_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, name)),
     call_args,
     false,
     make_token(TokenKind.Identifier, name)
@@ -122,7 +122,7 @@ make_fncall_atom :: (fn(name : String, call_args : ArrayList(AstExpr)) -> AstExp
 );
 /// Build a `label : type_expr` labeled field expression (infix colon).
 make_labeled_field :: (fn(label : String, type_expr : AstExpr) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))), {
+  .FnCall(usize(0),.Atom(usize(0), make_token(TokenKind.Operator, String.from(":"))), {
     a := ArrayList(AstExpr).new();
     a.push(make_ident(label));
     a.push(type_expr);
@@ -133,7 +133,7 @@ make_labeled_field :: (fn(label : String, type_expr : AstExpr) -> AstExpr)(
 make_variant :: (fn(name : String, field_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, name)),
     field_args,
     false,
     make_token(TokenKind.Identifier, name)
@@ -215,7 +215,7 @@ make_dot_atom :: (fn() -> AstExpr)(make_atom(TokenKind.Dot, String.from(".")));
 /// Build a fieldless enum variant: `.None`
 /// Parsed representation: FnCall(Atom(Dot), [Atom(Identifier, "None")], is_infix=true)
 make_fieldless_variant :: (fn(name : String) -> AstExpr)(
-  .FnCall(usize(0), box(make_dot_atom()), {
+  .FnCall(usize(0), make_dot_atom(), {
     a := ArrayList(AstExpr).new();
     a.push(make_ident(name));
     a
@@ -226,7 +226,7 @@ make_fieldless_variant :: (fn(name : String) -> AstExpr)(
 make_variant_call :: (fn(name : String, args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(make_fieldless_variant(name)),
+    make_fieldless_variant(name),
     args,
     false,
     make_token(TokenKind.Identifier, name)
@@ -249,7 +249,7 @@ make_match :: (fn(scrutinee : AstExpr, arms : ArrayList(AstExpr)) -> AstExpr)({
   });
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("match")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("match"))),
     all,
     false,
     make_token(TokenKind.Identifier, String.from("match"))
@@ -262,7 +262,7 @@ make_while :: (fn(cond_expr : AstExpr, body_expr : AstExpr) -> AstExpr)({
   args.push(body_expr);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("while")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("while"))),
     args,
     false,
     make_token(TokenKind.Identifier, String.from("while"))
@@ -274,7 +274,7 @@ make_runtime :: (fn(inner : AstExpr) -> AstExpr)({
   args.push(inner);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("runtime")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("runtime"))),
     args,
     false,
     make_token(TokenKind.Identifier, String.from("runtime"))
@@ -309,7 +309,7 @@ make_fn_params :: (fn(param_names : ArrayList(String)) -> AstExpr)({
   });
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn"))),
     param_exprs,
     false,
     make_token(TokenKind.Identifier, String.from("fn"))
@@ -323,21 +323,21 @@ make_fn_def :: (fn(param_names : ArrayList(String), body : AstExpr) -> AstExpr)(
   arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("unit"))));
   (fn_sig : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
+    .Atom(usize(0), make_token(TokenKind.Operator, String.from("->"))),
     arrow_args,
     true,
     make_token(TokenKind.Operator, String.from("->"))
   );
   outer_args := ArrayList(AstExpr).new();
   outer_args.push(body);
-  (result : AstExpr) =.FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, String.from("->")));
+  (result : AstExpr) =.FnCall(usize(0), fn_sig, outer_args, false, make_token(TokenKind.Operator, String.from("->")));
   result
 });
 /// Build a function call `name(args…)`.
 make_call :: (fn(name : String, call_args : ArrayList(AstExpr)) -> AstExpr)(
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, name)),
     call_args,
     false,
     make_token(TokenKind.Identifier, name)
@@ -349,7 +349,7 @@ make_return :: (fn(expr : AstExpr) -> AstExpr)({
   ret_args.push(expr);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("return")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("return"))),
     ret_args,
     false,
     make_token(TokenKind.Identifier, String.from("return"))
@@ -379,7 +379,7 @@ make_typed_decl :: (fn(name : String, type_name : String, rhs : AstExpr) -> AstE
   colon_args.push(make_ident(type_name));
   (lhs : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))),
+    .Atom(usize(0), make_token(TokenKind.Operator, String.from(":"))),
     colon_args,
     true,
     make_token(TokenKind.Operator, String.from(":"))
@@ -409,7 +409,7 @@ make_typed_decl :: (fn(name : String, type_name : String, rhs : AstExpr) -> AstE
 // ---------------------------------------------------------------------------
 /// Build a typed param `name : type_name` as an infix `:` FnCall.
 make_typed_param :: (fn(name : String, type_name : String) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))), {
+  .FnCall(usize(0),.Atom(usize(0), make_token(TokenKind.Operator, String.from(":"))), {
     a := ArrayList(AstExpr).new();
     a.push(make_atom(TokenKind.Identifier, name));
     a.push(make_atom(TokenKind.Identifier, type_name));
@@ -418,7 +418,7 @@ make_typed_param :: (fn(name : String, type_name : String) -> AstExpr)(
 );
 /// Build a forall param `forall(name)` as a non-infix FnCall.
 make_forall_param :: (fn(name : String) -> AstExpr)(
-  .FnCall(usize(0), box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("forall")))), {
+  .FnCall(usize(0),.Atom(usize(0), make_token(TokenKind.Identifier, String.from("forall"))), {
     a := ArrayList(AstExpr).new();
     a.push(make_atom(TokenKind.Identifier, name));
     a
@@ -429,7 +429,7 @@ make_forall_param :: (fn(name : String) -> AstExpr)(
 make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : AstExpr) -> AstExpr)({
   (fn_expr : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn"))),
     param_exprs,
     false,
     make_token(TokenKind.Identifier, String.from("fn"))
@@ -439,14 +439,14 @@ make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : Ast
   arrow_args.push(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("unit"))));
   (fn_sig : AstExpr) =.FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
+    .Atom(usize(0), make_token(TokenKind.Operator, String.from("->"))),
     arrow_args,
     true,
     make_token(TokenKind.Operator, String.from("->"))
   );
   outer_args := ArrayList(AstExpr).new();
   outer_args.push(body);
-  (result : AstExpr) =.FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, String.from("->")));
+  (result : AstExpr) =.FnCall(usize(0), fn_sig, outer_args, false, make_token(TokenKind.Operator, String.from("->")));
   result
 });
 // ---------------------------------------------------------------------------
@@ -471,14 +471,14 @@ make_export :: (fn(names : ArrayList(String)) -> AstExpr)({
     );
     i = (i + usize(1));
   });
-  .FnCall(usize(0), box(.Atom(usize(0), export_tok)), args, false, export_tok)
+  .FnCall(usize(0),.Atom(usize(0), export_tok), args, false, export_tok)
 });
 /// Build `open(expr)` as a non-infix FnCall.
 make_open :: (fn(expr : AstExpr) -> AstExpr)({
   open_tok := make_token(TokenKind.Identifier, String.from(BK_OPEN));
   args := ArrayList(AstExpr).new();
   args.push(expr);
-  .FnCall(usize(0), box(.Atom(usize(0), open_tok)), args, false, open_tok)
+  .FnCall(usize(0),.Atom(usize(0), open_tok), args, false, open_tok)
 });
 /// Build `import("path")` as a non-infix FnCall (path is a string literal).
 make_import_expr :: (fn(path : String) -> AstExpr)({
@@ -486,7 +486,7 @@ make_import_expr :: (fn(path : String) -> AstExpr)({
   path_lit := `"${path}"`;
   args := ArrayList(AstExpr).new();
   args.push(make_atom(TokenKind.StringLit, path_lit.clone()));
-  .FnCall(usize(0), box(.Atom(usize(0), import_tok)), args, false, import_tok)
+  .FnCall(usize(0),.Atom(usize(0), import_tok), args, false, import_tok)
 });
 /// Build `{ A, B } :: import("path")` — anon-struct LHS destructure.
 make_destructure_import :: (fn(names : ArrayList(String), path : String) -> AstExpr)({
@@ -504,7 +504,7 @@ make_destructure_import :: (fn(names : ArrayList(String), path : String) -> AstE
     );
     i = (i + usize(1));
   });
-  lhs := (AstExpr).FnCall(usize(0), box(.Atom(usize(0), anon_tok)), name_exprs, false, anon_tok);
+  lhs := (AstExpr).FnCall(usize(0),.Atom(usize(0), anon_tok), name_exprs, false, anon_tok);
   rhs := make_import_expr(path);
   make_infix(String.from("::"), lhs, rhs)
 });
@@ -524,7 +524,7 @@ make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
   ua.push(inner);
   .FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("using")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("using"))),
     ua,
     false,
     make_token(TokenKind.Identifier, String.from("using"))
@@ -537,7 +537,7 @@ make_using_param :: (fn(name : String, type_name : String) -> AstExpr)({
   ca.push(make_ident(type_name));
   colon_expr := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))),
+    .Atom(usize(0), make_token(TokenKind.Operator, String.from(":"))),
     ca,
     true,
     make_token(TokenKind.Operator, String.from(":"))
@@ -554,7 +554,7 @@ make_typed_fn_def :: (
 )({
   fn_head := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn"))),
     fn_params,
     false,
     make_token(TokenKind.Identifier, String.from("fn"))
@@ -564,14 +564,14 @@ make_typed_fn_def :: (
   arr_a.push(ret_type);
   fn_sig := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
+    .Atom(usize(0), make_token(TokenKind.Operator, String.from("->"))),
     arr_a,
     true,
     make_token(TokenKind.Operator, String.from("->"))
   );
   body_args := ArrayList(AstExpr).new();
   body_args.push(body);
-  (AstExpr).FnCall(usize(0), box(fn_sig), body_args, false, make_token(TokenKind.Operator, String.from("->")))
+  (AstExpr).FnCall(usize(0), fn_sig, body_args, false, make_token(TokenKind.Operator, String.from("->")))
 });
 // ---------------------------------------------------------------------------
 // Phase 3 Validation Milestone — evaluate a simple hello_world-style module
@@ -597,7 +597,7 @@ make_env_with_T :: (fn() -> Environment)({
     String.from("T"),
     t_type(),
     true,
-    .Some(.TypeVal(box(ti32)))
+    .Some(.TypeVal(ti32))
   );
   env
 });
@@ -1167,7 +1167,7 @@ test("evaluate: operator atom → None", {
 test("evaluate: fn call (unknown fn) → None", {
   (e : AstExpr) =.FnCall(
     usize(0),
-    box(make_ident(String.from("foo"))),
+    make_ident(String.from("foo")),
     ArrayList(AstExpr).new(),
     false,
     make_token(TokenKind.Identifier, String.from("foo"))
@@ -2271,10 +2271,10 @@ test("evaluate: TypeVal is comptime", {
         }
       );
       // TypeVal equality: two TypeVals for i32 should compare equal
-      (tv_a : EvalValue) = EvalValue.TypeVal(box(t_i32()));
-      (tv_b : EvalValue) = EvalValue.TypeVal(box(t_i32()));
+      (tv_a : EvalValue) = EvalValue.TypeVal(t_i32());
+      (tv_b : EvalValue) = EvalValue.TypeVal(t_i32());
       assert(tv_a == tv_b, "TypeVal(i32) == TypeVal(i32)");
-      (tv_c : EvalValue) = EvalValue.TypeVal(box(t_bool()));
+      (tv_c : EvalValue) = EvalValue.TypeVal(t_bool());
       assert(!(tv_a == tv_c), "TypeVal(i32) != TypeVal(bool)");
     },
     .None => {
@@ -2520,7 +2520,7 @@ test("evaluate: { A, B } :: ModuleVal destructures correctly", {
   a_arg_list := ArrayList(AstExpr).new();
   a_arg_list.push(make_ident(String.from("a")));
   a_arg_list.push(make_ident(String.from("b")));
-  lhs := (AstExpr).FnCall(usize(0), box(.Atom(usize(0), anon_tok)), a_arg_list, false, anon_tok);
+  lhs := (AstExpr).FnCall(usize(0),.Atom(usize(0), anon_tok), a_arg_list, false, anon_tok);
   destr_expr := make_infix(String.from("::"), lhs, make_ident(String.from("m")));
   destr_res := evaluate(destr_expr, env);
   check_some(destr_res, "destructure result");
@@ -2717,7 +2717,7 @@ test("evaluate: float unary negation", {
   result := evaluate(
     .FnCall(
       usize(0),
-      box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("-")))),
+      .Atom(usize(0), make_token(TokenKind.Operator, String.from("-"))),
       neg_args,
       false,
       make_token(TokenKind.Operator, String.from("-"))
@@ -2738,7 +2738,7 @@ test("evaluate: comptime(Name) param extracted in fn def", {
   ct_inner_args.push(make_ident(String.from("T")));
   ct_param_name := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("comptime")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("comptime"))),
     ct_inner_args,
     false,
     make_token(TokenKind.Identifier, String.from("comptime"))
@@ -2748,7 +2748,7 @@ test("evaluate: comptime(Name) param extracted in fn def", {
   colon_args.push(make_ident(String.from("Type")));
   colon_param := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from(":")))),
+    .Atom(usize(0), make_token(TokenKind.Operator, String.from(":"))),
     colon_args,
     true,
     make_token(TokenKind.Operator, String.from(":"))
@@ -2758,7 +2758,7 @@ test("evaluate: comptime(Name) param extracted in fn def", {
   param_list.push(colon_param);
   fn_head := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn")))),
+    .Atom(usize(0), make_token(TokenKind.Identifier, String.from("fn"))),
     param_list,
     false,
     make_token(TokenKind.Identifier, String.from("fn"))
@@ -2768,14 +2768,14 @@ test("evaluate: comptime(Name) param extracted in fn def", {
   arrow_args.push(make_ident(String.from("unit")));
   fn_sig := (AstExpr).FnCall(
     usize(0),
-    box(.Atom(usize(0), make_token(TokenKind.Operator, String.from("->")))),
+    .Atom(usize(0), make_token(TokenKind.Operator, String.from("->"))),
     arrow_args,
     true,
     make_token(TokenKind.Operator, String.from("->"))
   );
   outer_args := ArrayList(AstExpr).new();
   outer_args.push(make_ident(String.from("T")));
-  fn_def := (AstExpr).FnCall(usize(0), box(fn_sig), outer_args, false, make_token(TokenKind.Operator, String.from("->")));
+  fn_def := (AstExpr).FnCall(usize(0), fn_sig, outer_args, false, make_token(TokenKind.Operator, String.from("->")));
   // f := fn_def
   _d := evaluate(make_infix(String.from(":="), make_ident(String.from("f")), fn_def), env);
   // Call f(3) — T should be bound to IntLit("3"), body returns T
@@ -3202,7 +3202,7 @@ test("evaluate: trait() stub creates TraitT TypeVal", {
   );
 });
 test("Phase 3am: box and deref round-trip", {
-  src := "a :: box(42); b :: a.*; export(b);";
+  src := "a :: 42; b :: a.*; export(b);";
   env := empty_env();
   exn := Exception(
     throw : (
