@@ -745,8 +745,6 @@ check_single_file :: (
       local_exn
     );
     g_cached_prelude_env = Option(Environment).Some(prelude_env);
-    // Build the O(1) prelude variable cache for all subsequent lookups.
-    build_prelude_var_cache(prelude_env);
     println(`check: ${input_path} — evaluator OK`);
     return(true);
   });
@@ -851,6 +849,9 @@ run_check :: (
   if(g_cached_prelude_env.is_none(), {
     prelude_path := `${std_path}/prelude.yo`;
     _pre := check_single_file(prelude_path, std_path.clone(), io, exn);
+    // Build the O(1) prelude variable cache (called here, not inside
+    // check_single_file, to avoid interference with the compile path).
+    match(g_cached_prelude_env,.Some(pe) => build_prelude_var_cache(pe),.None => ());
   });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
@@ -1041,6 +1042,7 @@ run_compile :: (
   // Ensure the prelude env is cached (provides std types to the evaluator).
   if(g_cached_prelude_env.is_none(), {
     _pre := check_single_file(`${std_path}/prelude.yo`, std_path.clone(), io, exn);
+    match(g_cached_prelude_env,.Some(pe) => build_prelude_var_cache(pe),.None => ());
   });
   // Read + parse the input module.
   src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
