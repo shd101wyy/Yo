@@ -227,3 +227,30 @@ together MULTI-SESSION, matching the original assessment. **Task #30 does NOT bl
 corpus test uses HashMap-of-ref-struct (the held `hashmap_self_cycle.yo` is TS-validated),
 corpus is 88/88, `check ./std` 152/152, yo-self builds. The cfid-key core fix is the landed,
 regression-free, faithful first layer.
+
+## Layer 2 — UPDATE 3 (2026-06-29): the 3 use-case bugs fixed — HashMap-of-ref-struct WORKS
+
+`HashMap`-of-ref-struct now compiles, runs, AND collects cycles in yo-self (corpus 89/89,
+`tests/codegen-bootstrap/hashmap_self_cycle.yo` re-added + passing differentially; `HashMap(i32,N).get`
+→ "got 42"; `HashMap(i32,Self)` cycle → "fully reclaimed"). The three use-case bugs:
+
+1. **Type identity (task #30):** the cfid-key (`_type_key_at`, commit 69eabca07) collapses the
+   cfid-stamped generic-instantiation structs. A residual remains: some struct copies reach codegen
+   with `constructor_func_id` empty (an unpinned eval-order/recursive-self-shell path), keyed by the
+   churning raw id, so a layout-identical `HashMap(i32,N)` copy gets two C structs → a clang
+   `-Wincompatible-pointer-types` WARNING. It is **benign** (the structs are layout-identical; the
+   pointer is used identically and the cycle GC traverses correctly — the program runs + collects).
+   Full elimination = the deep memoization root (make the comptime-fn cache HIT for recursive args so
+   ONE struct object exists) — risky, cosmetic, separate.
+2. **Substitution template-leak:** resolved/benign in practice — `HashMap(i32,N).get` now compiles
+   cleanly ("got 42"); no template-leak error.
+3. **RC-dup undeclared-temp (bug 3): FIXED** (commits db2b47d4d + 74a7611bd). Two parts:
+   (A) inline value-struct `___dup` in `generate_dup_code_for_value` (value structs had no dup → a
+   copy didn't dup its RC fields); (B) materialize the phantom dup-source temp for field-access
+   ref-handle dups in `emit_deferred_dup_or_code` (`incr_rc(<undeclared temp>)` → `T tmp = x.f;
+incr_rc(tmp)`, TS's materialize-then-dup, guarded against redefinition where the temp is
+   pre-declared). This was an RC-layer port gap, not task #30.
+
+Net: the use case is FUNCTIONALLY complete (compiles + runs + cycles collect, matching TS); the only
+residual is the benign bug-1 cosmetic warning. Validated regression-free: corpus 89/89, TS check ./std
+152/152.
