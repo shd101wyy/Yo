@@ -340,9 +340,8 @@ throw_expr_is_implicit_variable_error :: (
     var_name_opt,
     .None => (),
     .Some(var_name) => {
-      root_vars := get_variables_from_env(env, var_name);
       match(
-        root_vars.get(root_vars.len() - usize(1)),
+        find_variable_in_env(env, var_name),
         .None => (),
         .Some(rv) => {
           if(rv.is_implicit, {
@@ -603,18 +602,20 @@ set_expr_as_needs_to_call_dup :: (
       if(ei.value.is_some(), {
         (needs_dup_for_non_owning_rc_temp : bool) = false;
         if(is_temp_variable_name(ei.env.module_path, variable_name) && type_contains_rc_type(ei.ty), {
-          vars := get_variables_from_env(ei.env, variable_name);
-          if(vars.len() > usize(0), {
-            v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(ei.env));
-            if(v.is_owning_the_rc_value && v.consumed_at_token.is_none(), {
-              v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
-            });
-            // Non-owning RC temp (e.g. index-trait result): codegen does not
-            // dup inline for these, so fall through to generate the dup.
-            if(!(v.is_owning_the_rc_value), {
-              needs_dup_for_non_owning_rc_temp = true;
-            });
-          });
+          match(
+            find_variable_in_env(ei.env, variable_name),
+            .Some(v) => {
+              if(v.is_owning_the_rc_value && v.consumed_at_token.is_none(), {
+                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+              });
+              // Non-owning RC temp (e.g. index-trait result): codegen does not
+              // dup inline for these, so fall through to generate the dup.
+              if(!(v.is_owning_the_rc_value), {
+                needs_dup_for_non_owning_rc_temp = true;
+              });
+            },
+            .None => ()
+          );
         });
         if(!(needs_dup_for_non_owning_rc_temp), {
           return(());
@@ -628,16 +629,18 @@ set_expr_as_needs_to_call_dup :: (
       if(is_temp_variable_name(ei.env.module_path, variable_name), {
         is_atom_with_other_name := (ast_expr_is_atom(rhs) && (ast_expr_token(rhs).value != variable_name));
         if(!(is_atom_with_other_name), {
-          vars := get_variables_from_env(ei.env, variable_name);
-          if(vars.len() > usize(0), {
-            v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(ei.env));
-            if(v.is_owning_the_rc_value, {
-              if(v.consumed_at_token.is_none(), {
-                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+          match(
+            find_variable_in_env(ei.env, variable_name),
+            .Some(v) => {
+              if(v.is_owning_the_rc_value, {
+                if(v.consumed_at_token.is_none(), {
+                  v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+                });
+                return(());
               });
-              return(());
-            });
-          });
+            },
+            .None => ()
+          );
         });
       });
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
