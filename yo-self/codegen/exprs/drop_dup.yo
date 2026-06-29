@@ -18,7 +18,7 @@
 //! a no-op; unresolved-SomeT params (Phase-3 generics) need Gap-6 resolution.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_token, BF_DROP, BF_DUP } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BF_DROP, BF_DUP, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type } :: import("../../types/guards.yo");
@@ -27,7 +27,7 @@ open(import("std/string"));
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
@@ -612,8 +612,11 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
     .Some(ei) => match(
       ei.deferred_dup_expressions,
       .Some(dups) => if(dups.len() > usize(0), {
-        generate_deferred_dup_expressions(expr, indent.clone(), context);
-        match(
+        em := context.base.emitter;
+        // The dup result's C variable name: Some for value-type dups (their inline form
+        // materializes a result temp), None for ref-handle dups (which lower to
+        // `incr_rc(arg)` with no result temp — the caller keeps using the raw value).
+        dup_result_name := match(
           dups.get(usize(0)),
           .Some(dup_expr) => if(
             ast_expr_is_fn_call(dup_expr),
@@ -621,14 +624,50 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
               context.base.get_expr_info(dup_expr),
               .Some(dei) => match(
                 dei.variable_name,
-                .Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)),
-                .None => fallback_code
+                .Some(dvn) => Option(String).Some(get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env))),
+                .None => Option(String).None
               ),
-              .None => fallback_code
+              .None => Option(String).None
             ),
-            fallback_code
+            Option(String).None
           ),
-          .None => fallback_code
+          .None => Option(String).None
+        );
+        // A ref-handle dup (`incr_rc(arg)`, no result temp) whose SOURCE is an inlined
+        // field access (`x.f`): the dup's argument is the source's temp variableName,
+        // which codegen never declares (the field read is inlined at the use site), so
+        // `incr_rc(<temp>)` references an undeclared identifier — e.g. HashMap.get's
+        // `Some(bucket.value)`. Materialize the field value once into that temp (exactly
+        // TS's materialize-then-dup), so the dup references a real local and the temp is
+        // the dup'd value the caller uses. Safe: the field access is evaluated once.
+        dup_target := match(dups.get(usize(0)),.Some(de) => get_deferred_dup_target_atom_name(de),.None => Option(String).None);
+        t_name := sanitize_for_c_identifier(match(dup_target,.Some(s) => s,.None => String.from("")), false);
+        // Only materialize when the source is NOT already materialized into the dup
+        // target temp: if the caller's fallback code already IS that temp (some paths
+        // declare it before this call — e.g. `set`'s old-value extraction), declaring it
+        // again would redefine it. When the fallback is the raw field access (`get`'s
+        // `Some(bucket.value)`), the temp is a never-declared phantom → materialize.
+        needs_materialize := match(
+          dup_result_name,
+          .None => ((ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some()) && (fallback_code != t_name)),
+          .Some(_) => false
+        );
+        cond(
+          needs_materialize => {
+            decl := get_type_string(ei.ty, context.base);
+            decl.push_str(" ");
+            decl.push_string(t_name.clone());
+            decl.push_str(" = ");
+            decl.push_string(fallback_code.clone());
+            decl.push_str(";");
+            em.emit_string_line(decl);
+            generate_deferred_dup_expressions(expr, indent.clone(), context);
+            t_name
+          },
+          true => {
+            generate_deferred_dup_expressions(expr, indent.clone(), context);
+            match(dup_result_name,.Some(n) => n,.None => fallback_code)
+          }
         )
       }, fallback_code),
       .None => fallback_code
