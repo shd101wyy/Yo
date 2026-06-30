@@ -582,11 +582,20 @@ check_if_function_parameter_matches_argument :: (
   // Step 7: Re-evaluate param type with the updated callee_env.
   final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
   // Step 8: Type-compatibility check.
-  // WORKAROUND: when both sides are pointer types and one side has an
-  // unresolved generic (SomeT) pointee, skip the exact check. The
-  // synthesizer may fail to bind through pointer wrappers in certain
-  // codegen paths (e.g. &+ on generic *(T)). All pointers are the
-  // same width in C, so this is sound.
+  //
+  // GAP (yo-self porting gap): the TS compiler correctly synthesizes
+  // forall type parameters through pointer wrappers — *(SomeT) unifies
+  // with *(ConcreteType) by recursing into the child types and binding
+  // SomeT := ConcreteType.  yo-self's synthesis reaches the same
+  // Pointer+Pointer case (synthesizer.yo:1562) but the binding is not
+  // preserved when the call-site re-evaluates the parameter type,
+  // leaving the forall T unresolved and producing a false mismatch.
+  //
+  // Workaround: when both sides are pointer types and one child is an
+  // unresolved generic (SomeT), skip exact compatibility.  All
+  // pointers are the same width in C, so this is sound.  TODO: find
+  // the root cause in generic-impl method specialization / forall
+  // binding propagation and remove this.
   pt_ok := if(is_pointer_type(final_pt) && is_pointer_type(arg_type), {
     exp_child := match(final_pt,.Pointer(c) => c, _ => TypeValue.Unit);
     giv_child := match(arg_type,.Pointer(c) => c, _ => TypeValue.Unit);
