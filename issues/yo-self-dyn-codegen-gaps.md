@@ -49,7 +49,41 @@ type. (Same SomeT-stays-unresolved class as the closure operator-body issue in
 `yo-self-closure-codegen-gate.md`.) A reverted experiment confirmed the
 auto-box plumbing is correct; only the SomeT→concrete resolution is missing.
 
-## Gap 2 — dyn method dispatch through the fat pointer
+## Gap 2 — dyn method dispatch through the fat pointer — ✅ FIXED
+
+**FIXED 2026-06-30.** `16b`/`16c` now match TS; the binary emits
+`(sh).vtable->area((sh).data)`. Regression-clean: 16-program differential sweep
+
+- 89/89 codegen-bootstrap corpus + the self-build all pass. Added corpus fixture
+  `tests/codegen-bootstrap/dyn_dispatch_ptr_self.yo` (prints `Q`, differential-clean).
+
+ROOT CAUSE: in `other_fn_call.yo`, the dyn-method-dispatch branch gated on
+`recv_is_dyn` (is the prepended runtime-arg[0] a Dyn?). For a `self : *(Self)`
+trait method the prepended receiver is WRAPPED in `&(..)` (needs_pointer_conversion),
+so runtime-arg[0] is a `*(Dyn)` pointer, not a Dyn → `recv_is_dyn = false` → the
+dispatch was skipped, and the sibling concrete-dispatch branch (gated on
+`!recv_is_dyn`) fired instead, found no concrete impl for the DynT receiver, and
+fell through to "Failed to transpile". (The pre-existing `dyn_dispatch.yo` corpus
+fixture uses `self : Self` by-value, so its receiver is NOT wrapped and
+`recv_is_dyn` was true — which is why the by-value case already worked.)
+
+FIX (mirrors TS other-fn-call.ts:478+, which keys `isDynMethodCall` off
+`expr.func.args[0].$.type` — the dot-receiver): gate the dyn dispatch on
+`dot_recv_is_dyn && method_atom_ok` and emit the vtable call off the DOT-receiver
+(`dmethod_args[0]`), not the `&`-wrapped prepended arg. `recv_is_dyn` is retained
+ONLY for the concrete branch's `exn.throw(dyn(err))` exclusion (ctl-field call
+whose dyn ARGUMENT sits at runtime-arg[0] with a non-Dyn dot-receiver). The dyn
+branch runs first and returns, so the concrete branch is never reached for a real
+dyn call.
+
+NB: the EARLIER diagnostics in this section (no-throw / missing-ExprInfo / id-
+mismatch) were a mis-localization — the call expr DOES get an ExprInfo (eval's
+method-found branch sets it); codegen reached `generate_other_function_call` fine
+and the failure was the dispatch GATE, surfaced via the second "Failed to
+transpile" site (`generation.yo:577`, the `.None` fallback), not the
+`get_expr_info=None` site at `generation.yo:405`.
+
+### Original investigation notes (superseded by the fix above)
 
 Repro `/tmp/cgbugs/16b_dyn_ref.yo` (same as above but `Sq :: ref(struct(s:i32))`
 so no boxing is needed). The `dyn(Sq(5))` construction now succeeds, but

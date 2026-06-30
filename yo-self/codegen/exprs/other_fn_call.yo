@@ -860,22 +860,32 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
     dmethod_args := match(func_expr,.FnCall(_, _, da, _, _) => da,.Atom(_, _) => ArrayList(AstExpr).new());
     dm_runtime := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+    // `recv_is_dyn` = is the prepended runtime-arg[0] itself a Dyn? Used ONLY by
+    // the concrete-dispatch branch below to exclude a `ctl`-FIELD effect call like
+    // `exn.throw(dyn(err))`, whose receiver `exn` is NOT prepended so the dyn
+    // ARGUMENT sits at runtime-arg[0]. NOT used to gate the dyn dispatch (a
+    // `self : *(Self)` dyn method wraps its prepended receiver in `&(..)`, making
+    // runtime-arg[0] a `*(Dyn)` pointer rather than a Dyn — see below).
     recv_is_dyn := ((dm_runtime.len() > usize(0)) && match(dm_runtime.get(usize(0)),.Some(rv) => match(context.base.get_expr_info(rv),.Some(rvi) => is_dyn_type(rvi.ty),.None => false),.None => false));
-    // The DOT-RECEIVER (`obj` in `obj.method`) must itself be a Dyn for this to
-    // be a real Dyn method-dispatch. A real Dyn call prepends the receiver to the
-    // runtime args, so `dm_runtime[0]` IS the receiver (also Dyn). But for a
-    // `ctl`-FIELD effect call like `exn.throw(dyn(err))` (Exception.throw is a
-    // `ctl(...)` struct field, std/error.yo) the receiver `exn` (a struct, NOT a
-    // Dyn) is NOT prepended — so `dm_runtime[0]` is the dyn-typed ARGUMENT, and
-    // without this guard the dispatch fires on the arg, emitting
-    // `arg.vtable->throw(arg.data)` (the Error vtable has no `throw`) instead of
-    // invoking `exn`'s `throw` ctl handler. Gating on the dot-receiver's own type
-    // excludes that case; a genuine Dyn method call is unaffected (its receiver IS
-    // the Dyn).
+    // The DOT-RECEIVER (`obj` in `obj.method`) must itself be a Dyn for this to be
+    // a real Dyn method-dispatch — mirrors TS (other-fn-call.ts:478+), which keys
+    // `isDynMethodCall` off `expr.func.args[0].$.type` (the dot-receiver), NOT the
+    // prepended runtime arg. Two reasons the dot-receiver is the correct signal:
+    //   1. A `ctl`-FIELD effect call like `exn.throw(dyn(err))` (Exception.throw is
+    //      a `ctl(...)` struct field) does NOT prepend the receiver, so the dyn arg
+    //      sits at runtime-arg[0]; gating on the dot-receiver `exn` (a struct, not a
+    //      Dyn) correctly excludes it.
+    //   2. For a `self : *(Self)` trait method the receiver IS prepended but gets
+    //      WRAPPED in `&(recv)` (needs_pointer_conversion), so runtime-arg[0] is a
+    //      `*(Dyn)` pointer, not a Dyn — keying off it would wrongly skip the
+    //      dispatch. The dot-receiver stays a clean Dyn.
+    // The vtable dispatch below therefore emits off the dot-receiver
+    // (`(recv).vtable->method((recv).data, …)`), not the (possibly `&`-wrapped)
+    // prepended arg; explicit args still come from runtime-args[1..].
     dot_recv_is_dyn := match(dmethod_args.get(usize(0)),.Some(dr) => match(context.base.get_expr_info(dr),.Some(dri) => is_dyn_type(dri.ty),.None => false),.None => false);
     method_atom_ok := match(dmethod_args.get(usize(1)),.Some(ma) => ast_expr_is_atom(ma),.None => false);
-    if((recv_is_dyn && dot_recv_is_dyn) && method_atom_ok, {
-      recv_expr := match(dm_runtime.get(usize(0)),.Some(rv) => rv,.None => make_err_expr());
+    if(dot_recv_is_dyn && method_atom_ok, {
+      recv_expr := match(dmethod_args.get(usize(0)),.Some(rv) => rv,.None => make_err_expr());
       recv_code := _call_generate_expr(recv_expr, indent.clone(), context);
       method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)),.Some(ma) => ma,.None => make_err_expr())).value, false);
       dm_call := String.from("(");

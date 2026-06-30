@@ -1,0 +1,22 @@
+// Dyn method dispatch where the trait method takes `self : *(Self)` (by pointer).
+// The receiver is prepended AND wrapped in `&(..)` (needs_pointer_conversion), so
+// runtime-arg[0] is a `*(Dyn)` pointer, not a Dyn. The codegen dyn-dispatch gate
+// must therefore key off the DOT-receiver's type (a clean Dyn), not the prepended
+// arg, and emit `(recv).vtable->method((recv).data)` off the dot-receiver.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+Shape :: trait(
+  area : (fn(self : *(Self)) -> i32)
+);
+Sq :: ref(struct(s : i32));
+SqShape :: impl(
+  Sq,
+  Shape(
+    area : (fn(self : *(Self)) -> i32)(self.s * self.s)
+  )
+);
+use_shape :: (fn(sh : Dyn(Shape)) -> i32)(sh.area());
+main :: (fn() -> unit)({
+  unsafe(_a := putchar(int(use_shape(dyn(Sq(9)))))); // 9*9 = 81 = 'Q'
+});
+export(main);
