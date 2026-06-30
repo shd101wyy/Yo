@@ -51,7 +51,7 @@ open(import("std/string"));
 :: import("../../error.yo");
 { Exception } :: import("std/error");
 { random_id } :: import("../../utils.yo");
-{ mark_as_closure_fn } :: import("../../function_value.yo");
+{ mark_as_closure_fn, register_func_type, register_closure_capture_info, ClosureCaptureInfo } :: import("../../function_value.yo");
 {
   create_function_body_evaluation_context
 } :: import("./function_type.yo");
@@ -121,6 +121,10 @@ try_to_implement_closure_by_fn_module_type :: (
   );
   // Push a new env frame for the closure parameters.
   (env : Environment) = caller_env;
+  // Outer frame count BEFORE the param frame is pushed — the closure's defining
+  // frame level, used by codegen (generate_function) to rewrite captured vars to
+  // `closure_context->field`. Mirrors anonymous_function.yo:637 `n_cap_fr`.
+  n_cap_fr := env.frames.len();
   _fr := env.push_frame(false);
   // Add each FnTrait parameter as a runtime variable to the new frame.
   n_params := param_labels.len();
@@ -203,6 +207,12 @@ try_to_implement_closure_by_fn_module_type :: (
   // Mark this function as a closure so codegen prepends the `void* closure_context`
   // capture parameter to its C prototype/definition (mirrors FunctionType.isClosure).
   mark_as_closure_fn(closure_id.clone());
+  // Record the closure's own resolved Func type by func_id so codegen's
+  // prototype emitter (get_func_type) can build the signature. TS reads
+  // `closureFunctionValue.type` directly; yo-self's FuncVal carries only
+  // param-name strings, so the structured type is side-tabled here at creation
+  // time (mirrors anonymous_function.yo:806 `register_func_type(func_id, ...)`).
+  register_func_type(closure_id.clone(), synthetic_func_ty.clone());
   // Create the function body evaluation context.
   eval_ctx := create_function_body_evaluation_context(
     synthetic_func_ty,
@@ -270,6 +280,14 @@ try_to_implement_closure_by_fn_module_type :: (
     tok
   );
   capture_ty := cap_result.capture_type;
+  // Record the capture struct type + defining frame level by func_id so codegen's
+  // generate_function can set the closure-capture context (rewriting captured vars
+  // like `k` to `((<cap>*)closure_context)->k`). Mirrors anonymous_function.yo:1068.
+  match(
+    capture_ty.clone(),
+    .Some(ct) => register_closure_capture_info(closure_id.clone(), ClosureCaptureInfo(capture_type : ct, frame_level : n_cap_fr)),
+    .None => ()
+  );
   // Determine the final type (use wrapper_type).
   final_ty := wrapper_type;
   // Build the ExprInfo for this closure expression.
