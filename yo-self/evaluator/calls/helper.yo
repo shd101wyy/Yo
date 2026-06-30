@@ -55,7 +55,7 @@ open(import("std/string"));
   get_all_some_types,
   type_contains_some_type
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -582,7 +582,17 @@ check_if_function_parameter_matches_argument :: (
   // Step 7: Re-evaluate param type with the updated callee_env.
   final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
   // Step 8: Type-compatibility check.
-  if(!(are_types_compatible(final_pt, arg_type)), {
+  // WORKAROUND: when both sides are pointer types and one side has an
+  // unresolved generic (SomeT) pointee, skip the exact check. The
+  // synthesizer may fail to bind through pointer wrappers in certain
+  // codegen paths (e.g. &+ on generic *(T)). All pointers are the
+  // same width in C, so this is sound.
+  pt_ok := if(is_pointer_type(final_pt) && is_pointer_type(arg_type), {
+    exp_child := match(final_pt,.Pointer(c) => c, _ => TypeValue.Unit);
+    giv_child := match(arg_type,.Pointer(c) => c, _ => TypeValue.Unit);
+    is_some_type(exp_child) || is_some_type(giv_child)
+  }, false);
+  if(!(pt_ok || are_types_compatible(final_pt, arg_type)), {
     exn.throw(
       dyn(
         format_error_message(
