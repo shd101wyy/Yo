@@ -632,7 +632,16 @@ export function generateObjectConstructorDeclarations(
     `static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
   );
   emitter.emitDeclarationLine(
-    `static void __yo_gc_collect(); // Trigger garbage collection`
+    `static void __yo_gc_collect(); // Thorough full-heap cycle collection (explicit Gc.collect())`
+  );
+  emitter.emitDeclarationLine(
+    `static void __yo_gc_collect_incremental(); // Bacon-Rajan incremental collection (auto-trigger)`
+  );
+  emitter.emitDeclarationLine(
+    `static void __yo_gc_add_root(void* ptr); // Bacon-Rajan: buffer a possible cycle root`
+  );
+  emitter.emitDeclarationLine(
+    `static void __yo_gc_remove_root(void* ptr); // Bacon-Rajan: unbuffer a possible cycle root`
   );
   emitter.emitDeclarationLine(
     `static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`

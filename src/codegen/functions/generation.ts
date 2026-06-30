@@ -2059,6 +2059,12 @@ function generateFullGCRuntimeFunctions(
 // already accounts for their references via trial deletion.
 static _Thread_local int __yo_gc_collecting = 0;
 
+// GC tracking state + thresholds (declared here so __yo_decr_rc, emitted below,
+// can buffer possible cycle roots and trigger collection — Bacon-Rajan).
+static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+static size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold
+static size_t __yo_gc_collect_threshold = 256;   // Collect when possible_roots reaches this many candidates
+
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
@@ -2072,25 +2078,33 @@ static inline void __yo_decr_rc(void* ptr) {
     return;
   }
   
-  // Also skip objects marked as garbage by the GC (legacy guard for safety).
-  if ((header->gc_flags & __YO_GC_TRACKED) && header->gc_mark == __YO_GC_GARBAGE) {
-    GC_DEBUG("Decr: Skipping ptr=%p (marked as GC garbage)\\n", ptr);
-    return;
-  }
-  
   GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, header->ref_count, header->ref_count - 1);
-  
+
   if (header->ref_count == 1) {
-    // Last reference - deallocate immediately without decrementing
+    // Last reference - deallocate immediately without decrementing (acyclic garbage).
     GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+    // Bacon-Rajan: if this object was buffered as a possible cycle root, unlink it
+    // from the possible-roots list FIRST (O(1)) so no dangling pointer survives.
+    if (header->gc_flags & __YO_GC_BUFFERED) {
+      __yo_gc_remove_root(ptr);
+    }
     __yo_gc_unregister(ptr);
     if (header->dispose_fn) {
       header->dispose_fn(ptr);
     }
     __yo_free(ptr);
   } else {
-    // More than one reference - just decrement
+    // More than one reference - just decrement. The object's RC dropped but it
+    // is not freed, so it is a possible root of a garbage CYCLE (Bacon-Rajan):
+    // buffer tracked objects for the next collection.
     header->ref_count--;
+    if (header->gc_flags & __YO_GC_TRACKED) {
+      __yo_gc_add_root(ptr);
+      if (!__yo_gc_collecting && __yo_current_thread_gc != NULL &&
+          __yo_current_thread_gc->possible_roots_count >= __yo_gc_collect_threshold) {
+        __yo_gc_collect_incremental();
+      }
+    }
   }
 }
 
@@ -2139,11 +2153,9 @@ static void __yo_decr_rc_atomic(void* ptr) {
   );
   emitUnwindValueBuffer(context);
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
-static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+// (__yo_current_thread_gc + thresholds are declared earlier, before __yo_decr_rc)
 static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
 ${isTargetWindows(context.targetInfo) ? `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex;` : `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex = __YO_THREAD_SYNC_INIT;`}
-static size_t __yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
-static size_t __yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
 
 // Thread cleanup infrastructure
 ${
@@ -2202,6 +2214,11 @@ ${
   __yo_current_thread_gc->tracked_count = 0;
   __yo_current_thread_gc->thread_id = __yo_thread_self();
   __yo_current_thread_gc->alloc_count = 0;
+  __yo_current_thread_gc->possible_roots = NULL;
+  __yo_current_thread_gc->possible_roots_count = 0;
+  __yo_current_thread_gc->gc_white = NULL;
+  __yo_current_thread_gc->gc_white_count = 0;
+  __yo_current_thread_gc->gc_white_cap = 0;
 
   // One-time: honor YO_GC_THRESHOLD to raise or DISABLE the cycle collector.
   // For allocation-heavy, short-lived runs (e.g. the compiler itself, which
@@ -2265,11 +2282,8 @@ static void __yo_gc_init_thread() {
   }
   __yo_current_thread_gc->tracked_objects = header;
   __yo_current_thread_gc->tracked_count++;
-  
-  // Check if we should trigger GC (skip during active collection to prevent re-entrance)
-  if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_collect_threshold) {
-    __yo_gc_collect();
-  }
+  // Bacon-Rajan: allocation does NOT trigger collection — only a decrement that
+  // leaves an object alive (a possible cycle root) does. See __yo_decr_rc.
 }
 
 static void __yo_gc_unregister(void* ptr) {
@@ -2298,165 +2312,242 @@ static void __yo_gc_unregister(void* ptr) {
   header->gc_flags &= ~__YO_GC_TRACKED;
 }`);
 
-  // Generate QuickJS-style trial deletion cycle collection
-  emitter.emitLine(`// QuickJS-style trial deletion for cycle collection
-// Phase 1: Trial deletion - decrement ref counts for internal references
+  // Generate Bacon-Rajan synchronous cycle collection.
+  //
+  // Instead of scanning the WHOLE tracked set on every collection (O(all live) —
+  // a stall on allocation-heavy, mostly-live, cycle-poor workloads like the
+  // compiler), we process only the "possible roots": objects whose ref count was
+  // decremented to a non-zero value (the only objects that can root a garbage
+  // cycle). decr_rc buffers them into the intrusive `possible_roots` list; this
+  // collector trial-deletes / scans / collects only the subgraph reachable from
+  // those roots. Colors reuse gc_mark: UNMARKED=black (in use), CANDIDATE=purple
+  // (buffered candidate), TRIAL_DELETED=gray (being trial-deleted),
+  // GARBAGE=white (cycle garbage), LIVE=gathered-for-free sentinel.
+  emitter.emitLine(`// Bacon-Rajan: buffer a possible cycle root (decremented to non-zero).
+static void __yo_gc_add_root(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (__yo_current_thread_gc == NULL) return;
+  if (h->gc_flags & __YO_GC_BUFFERED) { h->gc_mark = __YO_GC_CANDIDATE; return; }
+  h->gc_flags |= __YO_GC_BUFFERED;
+  h->gc_mark = __YO_GC_CANDIDATE; // purple
+  h->roots_next = __yo_current_thread_gc->possible_roots;
+  h->roots_prev = NULL;
+  if (__yo_current_thread_gc->possible_roots != NULL) {
+    __yo_current_thread_gc->possible_roots->roots_prev = h;
+  }
+  __yo_current_thread_gc->possible_roots = h;
+  __yo_current_thread_gc->possible_roots_count++;
+}
+
+// Bacon-Rajan: unlink a possible root (O(1), called at free or during collection).
+static void __yo_gc_remove_root(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (__yo_current_thread_gc == NULL) return;
+  if (!(h->gc_flags & __YO_GC_BUFFERED)) return;
+  if (h->roots_prev != NULL) h->roots_prev->roots_next = h->roots_next;
+  else __yo_current_thread_gc->possible_roots = h->roots_next;
+  if (h->roots_next != NULL) h->roots_next->roots_prev = h->roots_prev;
+  h->roots_next = NULL;
+  h->roots_prev = NULL;
+  h->gc_flags &= ~__YO_GC_BUFFERED;
+  __yo_current_thread_gc->possible_roots_count--;
+}
+
+// MarkGray: color the subgraph gray, trial-decrementing internal (tracked) refs.
+static void __yo_gc_mark_gray(__yo_ref_header_t* s);
+static void __yo_gc_mark_gray_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
+  if (h->ref_count > 0) h->ref_count--;   // trial decrement of internal reference
+  __yo_gc_mark_gray(h);
+}
+static void __yo_gc_mark_gray(__yo_ref_header_t* s) {
+  if (s->gc_mark == __YO_GC_TRIAL_DELETED) return; // already gray
+  s->gc_mark = __YO_GC_TRIAL_DELETED;
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_mark_gray_visitor);
+}
+
+// ScanBlack: a live object — restore the trial decrements over its subgraph.
+static void __yo_gc_scan_black(__yo_ref_header_t* s);
+static void __yo_gc_scan_black_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
+  h->ref_count++;   // restore internal reference
+  if (h->gc_mark != __YO_GC_UNMARKED) __yo_gc_scan_black(h);
+}
+static void __yo_gc_scan_black(__yo_ref_header_t* s) {
+  s->gc_mark = __YO_GC_UNMARKED; // black (live)
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_scan_black_visitor);
+}
+
+// Scan: gray object with RC>0 is live (ScanBlack); otherwise it is white garbage.
+static void __yo_gc_scan(__yo_ref_header_t* s);
+static void __yo_gc_scan_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_gc_scan((__yo_ref_header_t*)ptr);
+}
+static void __yo_gc_scan(__yo_ref_header_t* s) {
+  if (s->gc_mark != __YO_GC_TRIAL_DELETED) return; // only gray
+  if (s->ref_count > 0) {
+    __yo_gc_scan_black(s);
+  } else {
+    s->gc_mark = __YO_GC_GARBAGE; // white
+    if (s->traverse_fn) s->traverse_fn(s, __yo_gc_scan_visitor);
+  }
+}
+
+// GatherWhite: collect the white subgraph into the scratch array (do NOT free yet,
+// so a member's dispose never dereferences an already-freed sibling).
+static void __yo_gc_gather_white(__yo_ref_header_t* s);
+static void __yo_gc_gather_white_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_gc_gather_white((__yo_ref_header_t*)ptr);
+}
+static void __yo_gc_gather_white(__yo_ref_header_t* s) {
+  if (!(s->gc_flags & __YO_GC_TRACKED)) return;
+  if (s->gc_mark != __YO_GC_GARBAGE) return;   // only white, and not already gathered
+  s->gc_mark = __YO_GC_LIVE;                    // sentinel: gathered (stops re-visit)
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc->gc_white_count == gc->gc_white_cap) {
+    size_t ncap = gc->gc_white_cap == 0 ? 64 : gc->gc_white_cap * 2;
+    gc->gc_white = (__yo_ref_header_t**)realloc(gc->gc_white, ncap * sizeof(__yo_ref_header_t*));
+    gc->gc_white_cap = ncap;
+  }
+  gc->gc_white[gc->gc_white_count++] = s;
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_gather_white_visitor);
+}
+
+// INCREMENTAL collection (Bacon-Rajan): processes ONLY the possible-roots buffer
+// and the subgraph reachable from it — O(roots + closure), not O(all tracked).
+// This is the auto-trigger path (the compiler's hot path). It reclaims cycles
+// whose roots passed through a decrement (PossibleRoot). Cycles formed purely by
+// a MOVE into a self/child field (codegen elides the incr+decr, so no PossibleRoot
+// event) are NOT seen here — those are reclaimed by the full collector below
+// (explicit Gc.collect()) or at process exit.
+static void __yo_gc_collect_incremental() {
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc == NULL || gc->possible_roots == NULL) return;
+  __yo_gc_collecting = 1;
+
+  // MarkRoots: trial-delete the subgraph reachable from each purple root.
+  for (__yo_ref_header_t* s = gc->possible_roots; s != NULL; s = s->roots_next) {
+    if (s->gc_mark == __YO_GC_CANDIDATE) {
+      __yo_gc_mark_gray(s);
+    }
+  }
+  // ScanRoots: classify the gray subgraph — live (black) vs. white garbage.
+  for (__yo_ref_header_t* s = gc->possible_roots; s != NULL; s = s->roots_next) {
+    __yo_gc_scan(s);
+  }
+  // CollectRoots: drain the buffer; gather the white subgraph reachable from each
+  // (still-)white root, then dispose + free in two passes.
+  gc->gc_white_count = 0;
+  while (gc->possible_roots != NULL) {
+    __yo_ref_header_t* root = gc->possible_roots;
+    __yo_gc_remove_root(root);          // clears BUFFERED, unlinks (O(1))
+    __yo_gc_gather_white(root);
+  }
+  size_t nwhite = gc->gc_white_count;
+  // Pass 1: dispose (collecting=1 → decr_rc skips tracked children whose refs were
+  // already accounted by trial deletion; non-tracked children are released).
+  for (size_t i = 0; i < nwhite; i++) {
+    if (gc->gc_white[i]->dispose_fn) gc->gc_white[i]->dispose_fn(gc->gc_white[i]);
+  }
+  // Pass 2: unlink from the tracked list + free.
+  for (size_t i = 0; i < nwhite; i++) {
+    __yo_gc_unregister(gc->gc_white[i]);
+    __yo_free(gc->gc_white[i]);
+  }
+  gc->gc_white_count = 0;
+  __yo_gc_collecting = 0;
+
+  // Adaptive frequency. A cycle collection still traverses the subgraph reachable
+  // from the roots, which on a DENSELY-connected, mostly-live, cycle-poor heap
+  // (e.g. the compiler) is ~O(heap) per pass — so collecting on every 256 roots
+  // thrashes. __yo_gc_collect_threshold is the DYNAMIC trigger (floor =
+  // __yo_gc_min_threshold). When a pass reclaims NOTHING, grow it (×4, capped) so
+  // such passes become rare; when it reclaims a real cycle, reset to the floor.
+  // Skip when disabled (SIZE_MAX via YO_GC_THRESHOLD=0).
+  if (__yo_gc_collect_threshold != (size_t)-1) {
+    if (nwhite == 0) {
+      __yo_gc_collect_threshold = (__yo_gc_collect_threshold < (((size_t)-1) / 4)) ? __yo_gc_collect_threshold * 4 : ((size_t)-1) / 2;
+    } else {
+      __yo_gc_collect_threshold = __yo_gc_min_threshold;
+    }
+  }
+}
+
+// Full-heap trial-deletion visitor (for the thorough collector below).
 static void __yo_gc_trial_delete_visitor(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  
-  // Only process tracked objects
   if (!(header->gc_flags & __YO_GC_TRACKED)) return;
-  
-  // Trial decrement
-  if (header->ref_count > 0) {
-    header->ref_count--;
-    GC_DEBUG("TrialDelete: ptr=%p, ref_count->%zu\\n", ptr, header->ref_count);
-  }
+  if (header->ref_count > 0) header->ref_count--;
 }
-
-// Phase 3: Recursive scan/restore visitor.
-// Restores trial-deleted ref counts and propagates liveness from live roots
-// to all reachable objects. Objects promoted from GARBAGE to live (UNMARKED)
-// have their children recursively scanned.
+// Full-heap scan/restore visitor.
 static void __yo_gc_scan_restore_visitor(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  
-  // Skip non-tracked objects (their RC was never trial-deleted)
   if (!(header->gc_flags & __YO_GC_TRACKED)) return;
-  
-  // Restore the trial-deleted reference
   header->ref_count++;
-  GC_DEBUG("ScanRestore: ptr=%p, ref_count->%zu, mark=%d\\n", ptr, header->ref_count, header->gc_mark);
-  
   if (header->gc_mark == __YO_GC_GARBAGE) {
-    // This object was tentatively marked garbage but is reachable from a live root.
-    // Promote to live (mark UNMARKED = "scanned") and recursively scan children.
     header->gc_mark = __YO_GC_UNMARKED;
-    if (header->traverse_fn) {
-      header->traverse_fn(ptr, __yo_gc_scan_restore_visitor);
-    }
+    if (header->traverse_fn) header->traverse_fn(ptr, __yo_gc_scan_restore_visitor);
   }
-  // If already LIVE or UNMARKED (already scanned), just restore RC — don't recurse again.
 }
 
+// THOROUGH collection: a full-heap trial-deletion mark-sweep over ALL tracked
+// objects. O(all tracked) — slow on large live heaps, so it is NOT the auto path;
+// it backs the explicit Gc.collect() and reclaims cycles the incremental collector
+// cannot see (e.g. move-formed self-cycles with no decrement event). It first
+// clears the possible-roots buffer (it supersedes incremental bookkeeping).
 static void __yo_gc_collect() {
-  if (__yo_current_thread_gc == NULL) return;
-  
-  __yo_ref_header_t* head = __yo_current_thread_gc->tracked_objects;
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc == NULL) return;
+  // Clear the incremental possible-roots buffer: a full scan covers everything,
+  // and freeing here must not leave dangling buffer entries.
+  while (gc->possible_roots != NULL) {
+    __yo_gc_remove_root(gc->possible_roots);
+  }
+  __yo_ref_header_t* head = gc->tracked_objects;
   if (head == NULL) return;
-  
-  GC_DEBUG("GC: Starting collection, tracked_count=%zu\\n", __yo_current_thread_gc->tracked_count);
-  
   __yo_gc_collecting = 1;
-  size_t collected = 0;
-  
-  // Phase 1: Mark all as candidates and trial-delete
-  __yo_ref_header_t* obj = head;
-  while (obj != NULL) {
-    obj->gc_mark = __YO_GC_CANDIDATE;
-    obj = obj->gc_next;
+
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) obj->gc_mark = __YO_GC_CANDIDATE;
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->traverse_fn) obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
   }
-  
-  // Trial deletion: decrement RC for all internal (tracked→tracked) references
-  obj = head;
-  while (obj != NULL) {
-    if (obj->traverse_fn) {
-      obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
-    }
-    obj = obj->gc_next;
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    obj->gc_mark = (obj->ref_count == 0) ? __YO_GC_GARBAGE : __YO_GC_LIVE;
   }
-  
-  // Phase 2: Classify objects — RC > 0 means external references exist (live root),
-  // RC == 0 means only internal references (tentative garbage)
-  obj = head;
-  while (obj != NULL) {
-    if (obj->ref_count == 0) {
-      obj->gc_mark = __YO_GC_GARBAGE;
-      GC_DEBUG("GC: Marked as garbage: ptr=%p\\n", obj);
-    } else {
-      obj->gc_mark = __YO_GC_LIVE;
-      GC_DEBUG("GC: Marked as live root: ptr=%p (ref_count=%zu)\\n", obj, obj->ref_count);
-    }
-    obj = obj->gc_next;
-  }
-  
-  // Phase 3: Scan from live roots — restore ref counts and propagate liveness.
-  // Live roots (__YO_GC_LIVE) are scanned; their reachable GARBAGE children are
-  // promoted to UNMARKED (live+scanned). After this phase, only truly unreachable
-  // objects remain marked __YO_GC_GARBAGE.
-  obj = head;
-  while (obj != NULL) {
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
     if (obj->gc_mark == __YO_GC_LIVE) {
-      // Mark this root as scanned so the loop doesn't re-process it
-      // if the list order changes (defensive) and to distinguish from promoted objects
       obj->gc_mark = __YO_GC_UNMARKED;
-      if (obj->traverse_fn) {
-        obj->traverse_fn(obj, __yo_gc_scan_restore_visitor);
-      }
+      if (obj->traverse_fn) obj->traverse_fn(obj, __yo_gc_scan_restore_visitor);
     }
-    obj = obj->gc_next;
   }
-  
-  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid).
-  // __yo_gc_collecting flag ensures __yo_decr_rc skips tracked objects, preventing
-  // double RC decrements (trial deletion already accounted for those references).
-  // Non-tracked RC children are still properly released by dispose.
-  obj = head;
-  while (obj != NULL) {
-    if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) {
-      GC_DEBUG("GC: Disposing garbage: ptr=%p\\n", obj);
-      obj->dispose_fn(obj);
-    }
-    obj = obj->gc_next;
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) obj->dispose_fn(obj);
   }
-  
-  // Phase 4b: Free all garbage objects and remove from tracking list
   __yo_ref_header_t* current = head;
   __yo_ref_header_t* prev = NULL;
-  
   while (current != NULL) {
     __yo_ref_header_t* next = current->gc_next;
-    
     if (current->gc_mark == __YO_GC_GARBAGE) {
-      GC_DEBUG("GC: Freeing garbage: ptr=%p\\n", current);
-      
-      // Remove from tracking list
-      if (prev == NULL) {
-        __yo_current_thread_gc->tracked_objects = next;
-      } else {
-        prev->gc_next = next;
-      }
-      if (next != NULL) {
-        next->gc_prev = prev;
-      }
-      
-      __yo_current_thread_gc->tracked_count--;
-      collected++;
-      
-      // Free the object (dispose was already called in Phase 4a)
+      if (prev == NULL) gc->tracked_objects = next; else prev->gc_next = next;
+      if (next != NULL) next->gc_prev = prev;
+      gc->tracked_count--;
       __yo_free(current);
-      
       current = next;
     } else {
-      // Reset mark for next collection
       current->gc_mark = __YO_GC_UNMARKED;
       prev = current;
       current = next;
     }
   }
-  
   __yo_gc_collecting = 0;
-  
-  // Adaptive threshold: set to max(min_threshold, 2 * remaining_objects)
-  size_t new_threshold = __yo_current_thread_gc->tracked_count * 2;
-  if (new_threshold < __yo_gc_min_threshold) {
-    new_threshold = __yo_gc_min_threshold;
-  }
-  __yo_gc_collect_threshold = new_threshold;
-  
-  GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu, next_threshold=%zu\\n", collected, __yo_current_thread_gc->tracked_count, __yo_gc_collect_threshold);
 }
 
 static size_t __yo_gc_tracked_count() {

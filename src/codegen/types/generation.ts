@@ -144,6 +144,7 @@ typedef enum {
 
 // GC flags
 #define __YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
+#define __YO_GC_BUFFERED             0x02  // Object is in the possible-roots buffer (Bacon-Rajan candidate)
 `);
 
   // Thread synchronization — emit only target-specific types and macros
@@ -415,6 +416,8 @@ typedef struct __yo_ref_header_t {
   __yo_gc_mark_t gc_mark;
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
+  struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
+  struct __yo_ref_header_t* roots_prev;
   void (*dispose_fn)(void*);
   void (*traverse_fn)(void*, void (*visit)(void*));
 } __yo_ref_header_t;
@@ -425,6 +428,11 @@ struct __yo_thread_gc_state {
   size_t tracked_count;
   size_t thread_id;
   size_t alloc_count;
+  __yo_ref_header_t* possible_roots;   // Bacon-Rajan: head of the possible-roots list (objects decremented to non-zero)
+  size_t possible_roots_count;         // length of possible_roots (collection trigger)
+  __yo_ref_header_t** gc_white;        // scratch buffer: white (garbage) objects gathered during a collection
+  size_t gc_white_count;
+  size_t gc_white_cap;
   __yo_thread_gc_state_t* next;
   __yo_thread_gc_state_t* prev;
 };`);
