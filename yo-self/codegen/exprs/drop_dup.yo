@@ -21,7 +21,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BF_DROP, BF_DUP, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type } :: import("../../types/guards.yo");
+{ is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { random_id } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
@@ -445,6 +445,25 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
       out.push_string(value_code.clone());
       out.push_str(")))");
       out
+    },
+    // Newtype (`newtype(_f : Inner)`): a TRANSPARENT typedef to `Inner` at the
+    // C ABI (no struct wrapper, no `._f` member — see codegen/types/generation
+    // "newtype - zero-cost abstraction"). So its value IS the inner value: dup
+    // it by recursing on the inner field's type with the SAME value_code (NOT
+    // the per-field `temp._f = …` path below, which emits an invalid member
+    // access — e.g. `String._bytes` on the typedef'd `Option(ArrayList(u8))`).
+    // Faithful inline equivalent of TS calling the newtype's auto-derived
+    // ___dup, which dups the underlying value.
+    is_newtype_type(concrete_type) => {
+      rfs := get_runtime_struct_fields(concrete_type);
+      match(
+        rfs.get(usize(0)),
+        .Some(f) => cond(
+          type_contains_rc_type(f.ty) => recur(value_code.clone(), f.ty, context),
+          true => value_code.clone()
+        ),
+        .None => value_code.clone()
+      )
     },
     // Value struct (reference structs handled above): dup is a per-field dup —
     // materialize a copy temp, dup each RC runtime field IN PLACE, return the temp.
