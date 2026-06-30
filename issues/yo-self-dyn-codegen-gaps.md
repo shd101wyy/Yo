@@ -67,25 +67,41 @@ since-reverted experiment, not the real inner type. Gap 1 is actually TWO layers
    the box call's EXPECTED type (dyn.ts:256) — yo-self's auto-box evaluates
    `box(..)` with no expected type, so `V` must be inferred and isn't.
 
-   **ATTEMPTED + REVERTED (2026-06-30) — blocker found.** Ported `createBoxedType`
-   → `_create_boxed_type` (looks up the prelude `Box` constructor and calls it via
-   `evaluate_comptime_fn_call` with the inner type — NO import cycle, confirmed)
-   and wired the validating-path auto-box to evaluate the synthetic `box(value)`
-   with the EXPECTED `Box(Sq)` so `V` binds. Result: `dyn(Sq)` then COMPILED (the
-   dyn itself resolved + the Gap-2/boxed-dyn path took over), but the ENCLOSING
-   expression regressed — `printf("…", use_shape(dyn(Sq(5))))` emitted
-   `// Failed to transpile printf(…)`, i.e. the printf lost its ExprInfo and main
-   compiled to a no-op (empty output instead of TS's `area=25`). Root: evaluating
-   the synthetic `box(eval_inner)` in the nested validating context THROWS (or
-   otherwise disrupts), and the throw unwinds past the enclosing `printf` to the
-   def-time trial wrapper, dropping printf's ExprInfo. Corpus stayed 91/91 (no
-   broad regression — only `dyn(valueStruct)` is affected), but turning a clean
-   "use box()" compile-error into a silent no-op is itself a regression, so the
-   change was reverted. NEXT: find why `box(eval_inner)` throws in the validating
-   pass (candidates: `box`'s `own(value)` flow/consume check on an already-
-   evaluated arg; or `_create_boxed_type`'s `evaluate_comptime_fn_call` throwing) —
-   then re-land the auto-box. The `_create_boxed_type` port + validating-path wiring
-   are correct scaffolding; only the box-call throw remains.
+   **ATTEMPTED TWICE + REVERTED (2026-06-30) — it is a 5+ layer rabbit hole.**
+   Ported `createBoxedType` → `_create_boxed_type` and wired the validating-path
+   auto-box (evaluate synthetic `box(value)` with the EXPECTED `Box(Sq)`). Each
+   fix surfaced the next layer (all genuine faithful-port gaps); peeled 5 in one
+   sitting, each verified by the error changing:
+
+   - **(a) `Variable "V" not found`.** `_create_boxed_type` called
+     `evaluate_comptime_fn_call(Box, …)` but that evals the body in the passed
+     `callee_env` and does NOT bind params — TS `createBoxedType` (dyn.ts:90-105)
+     pre-binds `V` in the callee env. FIX: build a callee env (`push_frame` +
+     `add_variable_to_env(V = inner_type, comptime)`), pass it.
+   - **(b) enclosing-expr disruption.** Before (a), the throw unwound past the
+     enclosing `printf` to the trial wrapper → `// Failed to transpile printf(…)`
+     → main compiled to a silent no-op. Fixed by (a).
+   - **(c) synthetic `box()` call didn't resolve to `Box(Sq)`** (→ "requires an
+     object type"). The synthetic atom/call used `id = usize(0)`; the call's
+     ExprInfo/forall setup keys on the id. FIX: mint real ids with
+     `alloc_global_expr_id()` for the synthetic atom + call. (The pre-existing
+     executing-path auto-box has the same `usize(0)` latent bug.)
+   - **(d) box-construction fn uncollected** (`no C function name for func value
+yo_id_…_Sq`). The synthesized box lives in `runtime_arg_exprs_in_order`, not
+     the source AST, so the codegen collection pass never walks it (TS mutates
+     `expr.args[0]`, which collection walks). FIX: collection (`collection.yo`)
+     walks `runtime_arg_exprs_in_order[0]` for dyn calls (gated on
+     `dyn_call_trait_values`).
+   - **(e) STILL OPEN: `__yo_dyn_box_<Sq>` typedef missing** (referenced by its
+     new/dispose). A dyn-box typedef/new consistency wrinkle specific to the
+     auto-box path (the boxed-dyn `dyn(box(X))` path got the inverse mismatch,
+     fixed in layer 4 / commit c8058712d; the auto-box path produces a different
+     skew). Needs the dyn-box typedef + new/dispose emitters keyed identically for
+     the auto-boxed payload.
+     All 5 fixes were REVERTED (incomplete + layer (e) unsolved); each is correct
+     scaffolding for a future focused pass. Corpus stayed 91/91 throughout (no broad
+     regression). Given `dyn(box(X))` is a one-token working workaround and this is
+     the least-common dyn pattern, completing the 5-layer chain was deferred.
 
    **Workaround available today:** `dyn(box(valueStruct))` (explicit `box`) works
    end-to-end (layers 3-4 fixed), and `dyn(valueStruct)` errors cleanly directing
