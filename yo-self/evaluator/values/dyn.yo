@@ -25,7 +25,7 @@ open(import("std/string"));
 { create_specialized_function_inline } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -38,8 +38,32 @@ open(import("std/string"));
 /// wrappers read these FuncVals to dispatch; a field with no registered method
 /// falls back to None. Shared by both the executing and non-executing paths so
 /// codegen has the evidence regardless of the mode the body was evaluated in.
+/// For a BOXED dyn payload (`Box(Sq)`), return the box's underlying value type
+/// (`Sq`, its single `*` field) so trait methods resolve on the concrete type the
+/// impl is registered against; non-boxed passes through. The codegen wrapper's
+/// is_boxed branch then unboxes `Box* -> &box->*` at the call. Requires the box's
+/// `Box(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
+_unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
+  (result : TypeValue) = t;
+  if(is_boxed_type(t), {
+    match(
+      t,
+      .Struct({ field_types : fts }) => match(
+        fts.get(usize(0)),
+        .Some(ut) => {
+          result = ut;
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
+  result
+});
 _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, ctx : EvalContext, caller_env : Environment, exn : Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
+  // Resolve trait methods on the UNDERLYING type when the payload is a Box.
+  method_lookup_type := _unwrap_box_for_method_lookup(value_type);
   match(
     dyn_type,
     .DynT(required_trait_types : rtt) => {
@@ -51,7 +75,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
           .Some(tt) => match(
             tt,
             .TraitT(name : tname, field_labels : fl, id : trait_id) => {
-              entries := get_type_trait_methods_for_type(type_id_or_empty(value_type));
+              entries := get_type_trait_methods_for_type(type_id_or_empty(method_lookup_type));
               n_fields := fl.len();
               field_names := ArrayList(String).new();
               field_vals := ArrayList(Option(EvalValue)).new();

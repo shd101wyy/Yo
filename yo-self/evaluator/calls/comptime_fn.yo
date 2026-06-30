@@ -34,7 +34,8 @@ open(import("std/string"));
   is_unknown_val,
   create_unknown_val,
   create_unknown_val_with_name,
-  register_enum_cfid
+  register_enum_cfid,
+  value_to_string
 } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 {
@@ -838,17 +839,42 @@ evaluate_comptime_fn_call :: (
     );
     tai = (tai + usize(1));
   });
+  // Stamp the returned type's display name `Box(arg)` for the prelude `Box`
+  // constructor only, mirroring `comptime-fn.ts:261-265` (which names ALL
+  // comptime-fn type results). yo-self CANNOT name every instantiation: its
+  // compatibility layer treats the struct NAME as nominal identity
+  // (compatibility.yo:430), so broadly naming generic instantiations breaks
+  // type unification (HashMap/ArrayList/nested generics — corpus 90→55). But
+  // `is_boxed_type` (types/guards.yo) keys off a `Box(`-prefixed name, and the
+  // boxed-dyn vtable path (`dyn(box(Sq))`) needs it to recognise the box and
+  // resolve trait methods on the UNDERLYING type. Box instantiations are
+  // structurally unambiguous (single `*` field) and never unify with user
+  // types, so naming ONLY them is safe. yo-self FuncVal carries no funcName, so
+  // read it from the callee expr (the `Box` atom).
+  ctfe_fn_name := match(function_callee_expr,.Some(ce) => ast_expr_token(ce).value,.None => String.from(""));
+  ctfe_box_name := if(!(ctfe_fn_name == "Box"), String.from(""), {
+    nm := String.from("Box(");
+    (cni : usize) = usize(0);
+    while(cni < all_arg_vals.len(), {
+      if(cni > usize(0), {
+        nm.push_str(", ");
+      });
+      match(all_arg_vals.get(cni),.Some(cav) => nm.push_string(value_to_string(cav)),.None => ());
+      cni = (cni + usize(1));
+    });
+    nm.push_str(")");
+    nm
+  });
   final_return_value := match(
     return_value,
     .TypeVal(rv_tb) => match(
       rv_tb,
-      .Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid }) => if(
-        scfid.len() == usize(0),
+      .Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid }) => if(scfid.len() == usize(0), {
+        stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
-          TypeValue.Struct(sid, sname, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false)
-        ),
-        return_value
-      ),
+          TypeValue.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false)
+        )
+      }, return_value),
       _ => return_value
     ),
     _ => return_value
