@@ -2063,7 +2063,8 @@ static _Thread_local int __yo_gc_collecting = 0;
 // can buffer possible cycle roots and trigger collection — Bacon-Rajan).
 static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
 static size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold
-static size_t __yo_gc_collect_threshold = 256;   // Collect when possible_roots reaches this many candidates
+static size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
+static size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive 2x-live)
 
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
@@ -2282,8 +2283,20 @@ static void __yo_gc_init_thread() {
   }
   __yo_current_thread_gc->tracked_objects = header;
   __yo_current_thread_gc->tracked_count++;
-  // Bacon-Rajan: allocation does NOT trigger collection — only a decrement that
-  // leaves an object alive (a possible cycle root) does. See __yo_decr_rc.
+  // Allocation-driven FULL collection. The incremental (Bacon-Rajan) path in
+  // __yo_decr_rc reclaims cheap decrement-rooted cycles, but CANNOT see cycles
+  // formed by a move into a self/child field (no decrement event) — those would
+  // leak unboundedly. So a full-heap scan still runs when the tracked set grows
+  // past an adaptive 2x-live threshold: this bounds memory and reclaims
+  // move-formed cycles. (On light workloads the incremental path keeps the live
+  // set small, so full collections are rare; the compiler's dense heap still pays
+  // ~O(heap) per full scan — see issues/yo-gc-full-heap-scan-bottleneck.md.)
+  if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_full_threshold) {
+    __yo_gc_collect();
+    size_t nt = __yo_current_thread_gc->tracked_count * 2;
+    if (nt < 256) nt = 256;
+    __yo_gc_full_threshold = nt;
+  }
 }
 
 static void __yo_gc_unregister(void* ptr) {
