@@ -358,3 +358,47 @@ implemented in yo-self and now receive data (via the capture-info fix); the
 remaining work is the eval-side specialization that lowers an `Impl(Fn)`
 value-param to its concrete capture struct and registers the specialized
 function for codegen emission.
+
+---
+
+## Direct closure-value call `add := Impl(Fn)({...}); add(5)` (2026-06-30)
+
+Surfaced by differential testing (`/tmp/cgbugs/25_nested_closure.yo`): a captured
+closure stored in a var and CALLED directly (not via a higher-order `apply`).
+TS emits:
+
+```c
+__yo_struct_<cap> add = (<cap>){ .a = a };          // add typed as the CAPTURE STRUCT
+int32_t r = closure_<id>(&(add), 5);                 // static dispatch: closure_fn(&add, 5)
+```
+
+Binary emits (both wrong):
+
+```c
+void* add = (__yo_capture_<id>){ .a = a };           // (1) add typed void*, not the capture struct
+int32_t r = (((int32_t (*)(int32_t))add)(5));        // (2) cast struct->fn-ptr, NO closure_context
+```
+
+ROOT CAUSE (both symptoms, one cause): the `Impl(Fn)` closure value's `SomeT`
+type is never resolved/lowered to its capture struct.
+
+- (1) the init-assignment types `add` via `get_variable_type_string(Impl(Fn))`,
+  which lowers to `void*` instead of the capture struct C name.
+- (2) the closure-value-call path (`other_fn_call.yo:1436-1483`) IS implemented and
+  WOULD emit the correct `closure_fn(&(add), args)` — it looks up
+  `impl_closure_call_map.get(cc_id)` where `cc_id =
+resolve_some_type_to_concrete(func_expr.ty).id`. But `func_expr` (`add`) has
+  type `Impl(Fn)` (a `SomeT`) whose resolved-concrete is NOT recorded as the
+  capture struct, so `cc_id` ≠ the map key (the capture-struct id) → MISS → falls
+  to the wrong fn-ptr cast.
+
+So the fix is the same gap B as the `apply` case: record/lower the closure's
+`Impl(Fn)` SomeT → its capture struct (TS's `resolvedConcreteType`), via
+`register_some_resolved_concrete(impl_fn_sid, capture_struct)` at closure creation
+(closure_type.yo / anonymous_function.yo). Then `get_variable_type_string` lowers
+`add` to the capture struct AND `resolve_some_type_to_concrete` makes `cc_id`
+match `impl_closure_call_map` → correct static dispatch. This is a deep
+closure-type-lowering subsystem (comparable to the 5-layer dyn auto-box chain),
+deferred to a focused pass. NB: `impl_closure_call_map` + the call-site dispatch
+(piece C) + `generate_closure_construction` are all already implemented — the
+missing piece is the SomeT→capture-struct resolution that feeds them.
