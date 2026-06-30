@@ -73,6 +73,42 @@ since-reverted experiment, not the real inner type. Gap 1 is actually TWO layers
    calls `Sq.area` is referenced but never emitted. This affects the reasonable
    `dyn(box(valueStruct))` pattern too, independent of auto-box.
 
+   **DEFINITIVE ROOT CAUSE (2026-06-30).** `is_boxed_type` (types/guards.yo:574)
+   returns true only for a single-`*`-field ref-struct **whose `name` starts with
+   `"Box("`** (mirrors TS `typeName?.startsWith("Box(")`). But yo-self gives a
+   `Box(Sq)` instantiation an ANONYMOUS struct name — the emitted C shows
+   `struct __yo_gs_yo_id_3506_struct_yo_id_3727_struct { //  : <struct:struct_…>`,
+   i.e. name `<struct:…>`, not `"Box(Sq)"` (yo-self identifies structs by id, not
+   name — see [[yo-self-phase3-hashmap-new-blocker]] "name-only struct comparison
+   is unsound"). So `is_boxed_type(Box(Sq)) == false`, which breaks BOTH:
+
+   - the evaluator's trait-method resolution (it looks up `area` on `Box(Sq)`'s id
+     instead of unwrapping to `Sq` → field value `None` → no wrapper emitted), and
+   - the codegen wrapper's `is_boxed` branch (would mis-cast `self_ptr` even if the
+     wrapper were emitted).
+     A reverted experiment added an `is_boxed`-gated box-unwrap to
+     `_resolve_dyn_trait_values` (`method_lookup_type = unwrap(Box) → Sq`); it built
+     clean but was a NO-OP because `is_boxed_type` is false. Confirmed the unwrap
+     helper itself is correct; the blocker is purely the `is_boxed_type` name check.
+
+   **Fix options** (both non-trivial, deferred): (a) name generic struct
+   instantiations (`Box(Sq)`) so the name check works — but yo-self deliberately
+   avoids name-based struct logic (unsound per the HashMap blocker), so this risks
+   regressions; (b) make box-detection name-INDEPENDENT via generic-origin
+   tracking — record that a struct was produced by the prelude `Box` fn (by the
+   generic-struct origin id, e.g. `gs_yo_id_3506`) and have `is_boxed_type` check
+   that origin instead of the name. (b) is the sounder path. A purely structural
+   "single `*` field ref-struct" check is NOT safe — user types like
+   `MyBox :: ref(struct((*) : i32))` would false-positive and get wrongly unboxed.
+
+   NB: the merge checker (during TS-compiles-yo-self def-time body eval) is
+   unusually hostile to instrumentation in `evaluator/values/dyn.yo`: match arms
+   that BIND a var and let it escape as the arm value (e.g.
+   `.Some(ut) => ut`) alongside a non-binding sibling arm throw "Frame level N has
+   different number of values for different cases". Use the assign-to-outer-`(x:T)=`
+   pattern (arms return unit) instead. This cost several rebuilds before the C
+   type-name comment (`// : <struct:…>`) gave the root cause without any probe.
+
 Fix sketch: (1) mirror TS `createBoxedType` — build `Box(value_type)` directly
 and pass it as the box call's expected type so `V` binds; (2) port the
 boxed-dyn vtable-wrapper emission. Deferred — value-type dyn is less common than
