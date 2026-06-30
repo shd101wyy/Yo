@@ -293,7 +293,10 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
   // GC function declarations.
   em.emit_declaration_line("static void __yo_gc_register(void* ptr); // Register object for cycle detection");
   em.emit_declaration_line("static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection");
-  em.emit_declaration_line("static void __yo_gc_collect(); // Trigger garbage collection");
+  em.emit_declaration_line("static void __yo_gc_collect(); // Thorough full-heap cycle collection (explicit Gc.collect())");
+  em.emit_declaration_line("static void __yo_gc_collect_incremental(); // Bacon-Rajan incremental collection (auto-trigger)");
+  em.emit_declaration_line("static void __yo_gc_add_root(void* ptr); // Bacon-Rajan: buffer a possible cycle root");
+  em.emit_declaration_line("static void __yo_gc_remove_root(void* ptr); // Bacon-Rajan: unbuffer a possible cycle root");
   em.emit_declaration_line("static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)");
   em.emit_declaration_line("static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state");
   em.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
