@@ -1,3 +1,15 @@
+# Cycle-GC full-heap-scan bottleneck — FIXED
+
+**Resolution (commits dc6e0d69f TS + f425bebbc yo-self):** replaced the always-full-heap
+collector with adaptive Bacon-Rajan — incremental possible-roots auto-trigger (O(roots-
+closure), adaptive frequency: ×4 backoff on unproductive passes) + full-heap explicit
+`Gc.collect()` fallback (catches move-formed cycles with no decrement event). GC on by
+default; `check ./std` 5.7s (was stalling); cycle_collector 16/16 + arc/closure_capture_rc_leak/
+continue_rc_cleanup/ref_enum under ASan; corpus 96/96; std 152/152. YO_GC_THRESHOLD retained
+as floor/disable override. Docs: docs/{en-US,zh-CN}/CYCLE_COLLECTION.md.
+
+---
+
 # Cycle-GC is a full-heap mark-sweep → bottleneck on alloc-heavy runs (compiler)
 
 ## Audit: when/why the GC becomes the bottleneck
