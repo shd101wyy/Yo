@@ -679,11 +679,24 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
           // corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe
           // key is future work for compiling std's self-referential traits.
           if((tvs.len() > usize(0)) && is_dyn_type(ei.ty), {
+            // The dyn payload codegen emits is runtime_arg_exprs_in_order[0] —
+            // for `dyn(valueStruct)` this is a SYNTHESIZED `box(value)` (auto-box,
+            // type Box(Sq)) that is NOT the source arg `cargs[0]` (the bare value).
+            // Prefer it (matching generate_dyn_call) so (1) the box-construction fn
+            // is collected [recur below] and (2) the dyn impl registers with the
+            // BOXED type → the unwrapped concrete `Sq` → __yo_dyn_box_<Sq> TYPE is
+            // emitted in the pre-pass (consistent with the new/dispose). Falls back
+            // to the source arg for non-auto-boxed dyns.
+            varg_opt := match(
+              ei.runtime_arg_exprs_in_order,
+              .Some(ra) => match(ra.get(usize(0)),.Some(p) => Option(AstExpr).Some(p),.None => match(expr,.FnCall(_, _, cargs, _, _) => cargs.get(usize(0)),.Atom(_, _) => Option(AstExpr).None)),
+              .None => match(expr,.FnCall(_, _, cargs, _, _) => cargs.get(usize(0)),.Atom(_, _) => Option(AstExpr).None)
+            );
             match(
-              expr,
-              .FnCall(_, _, cargs, _, _) => match(
-                cargs.get(usize(0)),
-                .Some(varg) => match(
+              varg_opt,
+              .Some(varg) => {
+                recur(varg, context, info);
+                match(
                   expr_info_table_get(info, ast_expr_id(varg)),
                   .Some(vei) => {
                     vty := vei.ty;
@@ -696,10 +709,9 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
                     });
                   },
                   .None => ()
-                ),
-                .None => ()
-              ),
-              _ => ()
+                );
+              },
+              .None => ()
             );
           });
         },

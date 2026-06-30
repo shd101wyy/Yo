@@ -1,0 +1,24 @@
+// Dyn dispatch over a VALUE struct WITHOUT explicit box: `dyn(Sq)`. The evaluator
+// auto-boxes the value (mirrors TS evaluateDynValue, which always boxes) into a
+// Box(Sq) payload, then the boxed-dyn codegen path (vtable wrapper unboxing +
+// concrete-type unwrap + dyn-box keyed on the underlying Sq) takes over. Exercises
+// the full 5-layer auto-box chain: createBoxedType (V pre-bound), synthetic box
+// call with real expr ids + expected Box(Sq), collection of the box-construction
+// fn + dyn-impl registration off runtime_arg_exprs[0].
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+Shape :: trait(
+  area : (fn(self : *(Self)) -> i32)
+);
+Sq :: struct(s : i32);
+SqShape :: impl(
+  Sq,
+  Shape(
+    area : (fn(self : *(Self)) -> i32)(self.s * self.s)
+  )
+);
+use_shape :: (fn(sh : Dyn(Shape)) -> i32)(sh.area());
+main :: (fn() -> unit)({
+  unsafe(_a := putchar(int(use_shape(dyn(Sq(9)))))); // 9*9 = 81 = 'Q'
+});
+export(main);

@@ -11,22 +11,23 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment, synthetic_token } :: import("../../env.yo");
+{ Environment, synthetic_token, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
-{ EvalValue, is_func_val } :: import("../../value.yo");
+{ EvalValue, is_func_val, create_type_value } :: import("../../value.yo");
 { get_func_type } :: import("../../function_value.yo");
 { create_specialized_function_inline } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_unit, t_type, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
+{ evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
@@ -43,6 +44,55 @@ open(import("std/string"));
 /// impl is registered against; non-boxed passes through. The codegen wrapper's
 /// is_boxed branch then unboxes `Box* -> &box->*` at the call. Requires the box's
 /// `Box(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
+/// Construct `Box(inner_type)` by calling the prelude `Box` comptime
+/// type-constructor with `V` pre-bound to inner_type in the callee env. Mirrors
+/// TS `createBoxedType` (dyn.ts:62-105). evaluate_comptime_fn_call evals the body
+/// in the passed callee_env and does NOT bind params, so V must be pre-bound.
+_create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, String.from("Box"));
+  (box_fv : Option(EvalValue)) = Option(EvalValue).None;
+  (box_ft : TypeValue) = t_unit();
+  nv := vars.len();
+  (vi : usize) = usize(0);
+  while((vi < nv) && box_fv.is_none(), {
+    match(
+      vars.get(vi),
+      .Some(v) => match(
+        v.value,
+        .Some(val) => if(is_func_val(val), {
+          box_fv = Option(EvalValue).Some(val);
+          box_ft = v.ty;
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  match(
+    box_fv,
+    .None => Option(TypeValue).None,
+    .Some(bfv) => {
+      param0_ty := match(box_ft,.Func({ param_types : pts }) => match(pts.get(usize(0)),.Some(p) => p,.None => t_type()), _ => t_type());
+      param0_label := match(box_ft,.Func({ meta : bm }) => match(bm.*.param_labels.get(usize(0)),.Some(l) => l,.None => String.from("V")), _ => String.from("V"));
+      (cenv : Environment) = env;
+      _cfr := cenv.push_frame(false);
+      vtok := synthetic_token(param0_label.clone(), cenv.module_path);
+      add_variable_to_env(cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, vtok);
+      bargs := ArrayList(ArgEntry).new();
+      bargs.push(ArgEntry(value : Option(EvalValue).Some(create_type_value(inner_type)), parameter_type : param0_ty, arg_type : t_type()));
+      bav := ArgValues(
+        forall_args : ArrayList(ArgEntry).new(),
+        args : bargs,
+        implicit_args : Option(ArrayList(ArgEntry)).None,
+        variadic_args : ArrayList(VarArgEntry).new()
+      );
+      bres := evaluate_comptime_fn_call(Option(AstExpr).None, box_ft, bfv, bav, env, cenv, ctx, exn);
+      cenv.pop_frame();
+      match(bres.value,.TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
+    }
+  )
+});
 _unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
   if(is_boxed_type(t), {
@@ -276,6 +326,40 @@ evaluate_dyn_value :: (
     // evaluates fn bodies in validating mode) has the vtable FuncVals. The
     // resolution is structural (registry lookup), not execution-dependent.
     ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),.Some(ii) => ii.ty,.None => t_unit());
+    // Auto-box a non-object, non-dyn payload (mirrors TS evaluateDynValue, which
+    // always boxes), evaluating the synthetic `box(value)` with the EXPECTED
+    // `Box(value_type)` so the box's `forall(V)` binds. The synthetic atom/call
+    // get REAL ids (alloc_global_expr_id) — id=0 breaks the call's ExprInfo/forall
+    // setup. The boxed expr is surfaced via runtime_arg_exprs_in_order (the field
+    // generate_dyn_call reads). Trait evidence stays on the PRE-box concrete type.
+    (ne_final_expr : AstExpr) = inner_ne;
+    if(!(is_reference_struct_type(ne_value_type)) && !(is_dyn_type(ne_value_type)), {
+      match(
+        _create_boxed_type(ne_value_type, env, ctx, exn),
+        .Some(box_ty) => {
+          ne_box_tok := synthetic_token(String.from("box"), env.module_path);
+          ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);
+          ne_box_args := ArrayList(AstExpr).new();
+          ne_box_args.push(inner_ne);
+          ne_box_call := AstExpr.FnCall(alloc_global_expr_id(), ne_box_atom, ne_box_args, false, expr_tok);
+          saved_bet := ctx.expected_type;
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env));
+          ne_boxed := evaluate_expression(ne_box_call, env, ctx);
+          ctx.expected_type = saved_bet;
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ne_boxed)),
+            .Some(_) => {
+              ne_final_expr = ne_boxed;
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    });
+    rt_args_ne := ArrayList(AstExpr).new();
+    rt_args_ne.push(ne_final_expr);
+    out_info.runtime_arg_exprs_in_order =.Some(rt_args_ne);
     if(is_dyn_type(ret_type.clone()), {
       out_info.dyn_call_trait_values =.Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn));
     });
