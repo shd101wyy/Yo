@@ -17,11 +17,7 @@ import {
 } from "../../expr";
 import { type FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
-import type {
-  FunctionType,
-  TraitType,
-  Type,
-} from "../../types/definitions";
+import type { FunctionType, TraitType, Type } from "../../types/definitions";
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
@@ -2207,6 +2203,26 @@ ${
   __yo_current_thread_gc->thread_id = __yo_thread_self();
   __yo_current_thread_gc->alloc_count = 0;
 
+  // One-time: honor YO_GC_THRESHOLD to raise or DISABLE the cycle collector.
+  // For allocation-heavy, short-lived runs (e.g. the compiler itself, which
+  // builds a large mostly-live graph and exits), repeated full-heap trial
+  // deletion is near-quadratic overhead the OS reclaims at exit anyway. A value
+  // of 0 disables auto-collection (threshold = SIZE_MAX); any other value sets
+  // both the live threshold and the adaptive floor. Default (env unset) keeps
+  // the adaptive 256 behavior. Mirrors the YO_MAIN_STACK_MB knob.
+  {
+    static int __yo_gc_thr_env_read = 0;
+    if (!__yo_gc_thr_env_read) {
+      __yo_gc_thr_env_read = 1;
+      const char* __yo_gc_thr = getenv("YO_GC_THRESHOLD");
+      if (__yo_gc_thr != NULL) {
+        unsigned long long __yo_gc_thr_v = strtoull(__yo_gc_thr, NULL, 10);
+        __yo_gc_collect_threshold = (__yo_gc_thr_v == 0ULL) ? (size_t)-1 : (size_t)__yo_gc_thr_v;
+        __yo_gc_min_threshold = __yo_gc_collect_threshold;
+      }
+    }
+  }
+
   // Add to global thread list (for cleanup coordination)
   __yo_mutex_lock(&__yo_thread_list_mutex);
   __yo_current_thread_gc->next = __yo_all_thread_gcs;
@@ -2636,7 +2652,13 @@ export function emitTraverseValue(
         // underlying type — the value IS the inner value, so recurse with the
         // SAME access (no field suffix).
         if (fields.length > 0) {
-          emitTraverseValue(access, fields[0]!.type, context, visited, visitExpr);
+          emitTraverseValue(
+            access,
+            fields[0]!.type,
+            context,
+            visited,
+            visitExpr
+          );
         }
         return;
       }
@@ -2656,7 +2678,13 @@ export function emitTraverseValue(
     if (isTupleType(type)) {
       // Tuple fields are emitted as `_0`, `_1`, … (see property-access.ts).
       type.fields.forEach((field, i) => {
-        emitTraverseValue(`${access}._${i}`, field.type, context, visited, visitExpr);
+        emitTraverseValue(
+          `${access}._${i}`,
+          field.type,
+          context,
+          visited,
+          visitExpr
+        );
       });
       return;
     }
@@ -3051,16 +3079,16 @@ export function generateRefEnumConstructorFunctions(
         }
       }
       if (context.needsCycleGC && !type.isAtomicRc) {
-        emitter.emitLine(
-          `  obj->header.traverse_fn = __yo_traverse_${cName};`
-        );
+        emitter.emitLine(`  obj->header.traverse_fn = __yo_traverse_${cName};`);
       }
       emitter.emitLine(
         `  obj->tag = ${getEnumVariantCName(type, variant.name, context)};`
       );
       for (const field of nonUnitFields) {
         const fieldName = sanitizeForCIdentifier(field.label);
-        emitter.emitLine(`  obj->data.${variant.name}.${fieldName} = ${fieldName};`);
+        emitter.emitLine(
+          `  obj->data.${variant.name}.${fieldName} = ${fieldName};`
+        );
       }
       if (registersWithGc) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
