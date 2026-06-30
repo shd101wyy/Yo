@@ -44,11 +44,39 @@ In yo-self:
   the inner stays SomeT-typed (`void*`), so `box()` of a SomeT silently produces
   no usable box function (0 box fns emitted) and the guard still fires.
 
-So the real fix is upstream: **resolve the inner value's SomeT to its concrete
-type** (here `Sq`) after synthesize binds it, so the auto-box wraps a concrete
-type. (Same SomeT-stays-unresolved class as the closure operator-body issue in
-`yo-self-closure-codegen-gate.md`.) A reverted experiment confirmed the
-auto-box plumbing is correct; only the SomeT→concrete resolution is missing.
+CORRECTION (2026-06-30, after the Gap-2 fix): the SomeT diagnosis above was
+WRONG. Re-instrumented `evaluate_dyn_value`'s validating path: the inner
+`Sq(5)` types as the concrete value struct `Sq` (`is_some=N`,
+`inner=Struct:Sq`), NOT a SomeT. The `void*` seen earlier was an artifact of the
+since-reverted experiment, not the real inner type. Gap 1 is actually TWO layers:
+
+1. **Auto-box not in the validating path.** TS's `evaluateDynValue` always boxes;
+   yo-self only boxes in the executing path (the validating path — which is what
+   codegen reads — returns early without boxing). So codegen sees the bare value
+   struct `Sq` → "requires an object type". Adding the auto-box to the validating
+   path is necessary but not sufficient (see layer 2).
+
+2. **`box()` return-type doesn't resolve via the SYNTHETIC auto-box call.** When
+   the validating path synthesises `box(eval_inner)` and evaluates it, the result
+   type comes back as neither a `Struct` nor any common variant (`boxed=other`) —
+   i.e. the generic `box`'s `-> Box(V)` return is not monomorphised to `Box(Sq)`.
+   Yet an EXPLICIT `box(Sq(9))` in source DOES type as a `Box` ref-struct (the
+   auto-box condition skips it), so `box()` itself works — the synthetic
+   pre-evaluated-arg call path is what fails to resolve `V`. TS sidesteps this by
+   constructing `Box(valueType)` directly (`createBoxedType`) and passing it as
+   the box call's EXPECTED type (dyn.ts:256) — yo-self's auto-box evaluates
+   `box(..)` with no expected type, so `V` must be inferred and isn't.
+
+3. **vtable-wrapper emission for a boxed dyn.** Even `dyn(box(Sq(9)))` (explicit
+   box, gets past the object guard) then fails C compile with an undeclared
+   `__yo_wrap_<box>_<dyn>_area` — the vtable wrapper that unboxes `Box(Sq)` and
+   calls `Sq.area` is referenced but never emitted. This affects the reasonable
+   `dyn(box(valueStruct))` pattern too, independent of auto-box.
+
+Fix sketch: (1) mirror TS `createBoxedType` — build `Box(value_type)` directly
+and pass it as the box call's expected type so `V` binds; (2) port the
+boxed-dyn vtable-wrapper emission. Deferred — value-type dyn is less common than
+the ref-struct dyn dispatch fixed in Gap 2; both layers are non-trivial.
 
 ## Gap 2 — dyn method dispatch through the fat pointer — ✅ FIXED
 
