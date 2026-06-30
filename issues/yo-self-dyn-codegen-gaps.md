@@ -78,12 +78,32 @@ swallowed eval throw:
 
 So the call expr simply has no findable ExprInfo at codegen time. This is the
 same hard class as the earlier P1 work ("ExprInfo lookup failing due to
-expression-id mismatch" / "get_expr_info=None during binary compile"): the
-method-call expr's ExprInfo is either never produced during `use_shape`'s
-def-time body eval, or recorded under a different ast_expr_id than the node
-codegen walks. Needs a two-sided id trace (the id eval records for the dyn
-method call vs the id codegen looks up). Evaluator-side, deeper than an emitter
-fix.
+expression-id mismatch" / "get_expr_info=None during binary compile").
+
+NARROWED FURTHER with a richer body `{ base := 100; r := sh.area(); base + r }`
+(`/tmp/cgbugs/16c.yo`): the binary emits
+
+```c
+int32_t base = 100;                              // OK
+int32_t r = // Failed to transpile (sh.area)();  // only the dyn call
+return ((base) + (r));                           // OK
+```
+
+Two facts pin it down:
+
+1. The body IS def-time evaluated (base/return transpile fine).
+2. The assignment knows `r : int32_t` — i.e. the dyn method `area` WAS resolved
+   and its return type (i32) propagated. So this is NOT a 0-hit method-lookup
+   failure (`get_receiver_methods_by_name_from_env` does find `area`).
+
+Conclusion: the dyn method-call eval resolves the method + result type (feeds the
+assignment) but does not leave an ExprInfo on the ORIGINAL `sh.area()` call node
+under the id codegen walks — it is recorded under a different ast_expr_id or on a
+rewritten/resolved node. The fix is in the dyn method-call eval path
+(`evaluator/calls/function.yo`, the `_try_find_receiver_method` → call-eval
+handoff): ensure the final ExprInfo is `expr_info_table_set` on the original call
+expr's id. Needs a two-sided id trace (eval-recorded id vs codegen-looked-up id).
+Evaluator-side, deeper than an emitter fix.
 
 ## Working (for contrast)
 
