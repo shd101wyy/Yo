@@ -531,6 +531,74 @@ When implementing `Trace` for a new container, the rules are simply:
 | **Go (mark-sweep)**                   | O(heap)      | Yes                  | High        | 10-100ms STW       |
 | **Yo (QuickJS-style trial deletion)** | O(N/threads) | No (isolated)        | Low         | 0.5-5ms per thread |
 
+## Performance: full-heap scan vs. possible-roots (planned)
+
+> **Status:** the collector described above scans the **entire** tracked set on
+> every collection. On allocation-heavy, mostly-live workloads with few real
+> cycles (most notably the compiler compiling itself) this becomes the dominant
+> cost. The optimization below is the planned fix; an env knob is the current
+> stopgap.
+
+### When the trial-deletion collector becomes a bottleneck
+
+`__yo_gc_collect` walks the whole `tracked_objects` list across all of its phases
+(mark-candidates → trial-delete-traverse → classify → scan-restore → dispose+free)
+— i.e. **O(all tracked objects)** per collection, triggered whenever
+`tracked_count` reaches the adaptive threshold (256, growing to 2× live). That is
+fine when collections reclaim a meaningful fraction of the heap, but it degrades
+badly when **most tracked objects are live and there are few cycles**: every
+collection re-scans the entire live graph to reclaim almost nothing.
+
+The compiler is the worst case — compiling a large program builds millions of
+live, RC-managed AST / type / value / environment nodes with very few cycles.
+Profiling the self-compile showed the process **stalled at ~8.7% CPU**, dominated
+by `__yo_gc_trial_delete_visitor` / `traverse` / `__yo_gc_collect`. Disabling the
+collector took the same run to **100% CPU** (no GC stalls), confirming the
+collector — not the evaluator — was the throttle.
+
+### Stopgap: `YO_GC_THRESHOLD`
+
+A one-time env read (`__yo_init_thread_gc`, mirrors `YO_MAIN_STACK_MB`) lets a run
+raise or disable auto-collection:
+
+- **unset** — default adaptive 256 collector (unchanged).
+- **`N`** — set the live threshold and adaptive floor to `N`.
+- **`0`** — disable auto-collection (threshold = `SIZE_MAX`). Use for short-lived,
+  allocation-heavy runs (e.g. the compiler) where cycles, if any, are reclaimed
+  by the OS at process exit anyway.
+
+### Planned fix: Bacon-Rajan possible-roots (O(roots), not O(heap))
+
+The proper fix is the **Bacon-Rajan synchronous cycle collection** algorithm. The
+key observation: only an object whose reference count is **decremented to a
+non-zero value** can be the root of a garbage _cycle_ (a "possible root"). So
+instead of scanning every tracked object, the collector processes only the
+**possible-roots buffer** and the subgraph reachable from it:
+
+1. **Buffer candidates in `__yo_decr_rc`.** When `--ref_count` leaves it `> 0`,
+   add the object to a `possible_roots` list (an intrusive doubly-linked list so
+   removal at free is O(1) and no dangling pointer can survive in the buffer) and
+   color it _purple_. Acyclic garbage (RC → 0) is still freed eagerly, exactly as
+   today.
+2. **Trigger** a collection on `possible_roots` length (not `tracked_count`).
+3. **Collect** over the roots only, using the classic colors (purple = buffered
+   candidate, gray = trial-deleted, white = garbage, black = live):
+   - **MarkGray** each purple root, trial-decrementing internal references over
+     its reachable subgraph.
+   - **Scan** each root: a gray object with RC > 0 is live → **ScanBlack**
+     (restore counts); otherwise it is white (cycle garbage).
+   - **CollectWhite** frees the white subgraph (dispose then free, in two passes
+     so a member's traversal never touches an already-freed sibling), then clears
+     the buffer.
+
+This makes each collection **O(possible-roots + their reachable subgraph)** rather
+than O(all tracked), so cycle-poor workloads (the compiler) collect cheaply and
+the collector can stay on by default with no env override. It is a
+correctness-critical change (it touches the free path) and is validated against
+the cycle-collector tests (`tests/cycle_collector.test.yo`,
+`tests/codegen-bootstrap/*_self_cycle.yo`, `ref_enum_cycle.yo`) under
+AddressSanitizer before landing.
+
 ## Summary
 
 Yo's cycle collection design:
