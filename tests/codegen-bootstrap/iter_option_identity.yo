@@ -1,0 +1,34 @@
+// Iterating an ArrayList exercises generic-enum codegen identity: the iterator's
+// `next()` returns `Option(T)` via its `-> Option(T)` return type AND via the
+// inner `self._list.get(i)` (also `Option(T)`). yo-self's eval mints a DISTINCT
+// id per generic instantiation, so these two `Option(i32)` had different id-based
+// C type keys -> the self-compiled binary emitted broken C ("assigning to
+// '__yo_enum_..._3853_i32' from incompatible type '__yo_enum_..._3805_i32'").
+// `EnumT` (unlike `Struct`) carries no constructor_func_id/type_arguments, so the
+// codegen type_key now dedups value enums by their STRUCTURAL signature (variant
+// names + discriminants + field-type keys), collapsing structurally-identical
+// instantiations to one C type. See issues/fixed/yo-self-iterator-option-identity.md.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+
+sum_via_for :: (fn(al : ArrayList(i32)) -> i32)({
+  (s : i32) = 0;
+  for(al, (x) => {
+    s = (s + x);
+  });
+  s
+});
+
+main :: (fn() -> unit)({
+  al := ArrayList(i32).new();
+  al.push(10);
+  al.push(20);
+  al.push(30);
+  // Manual iterator: into_iter().next() returns Option(i32).
+  it := al.into_iter();
+  match(it.next(),.Some(v) => println(`first ${v.to_string()}`),.None => println(`empty`));
+  // for-loop sum (exercises the iterator next() Option(i32) end to end).
+  println(`sum ${sum_via_for(al).to_string()}`);
+});
+export(main);

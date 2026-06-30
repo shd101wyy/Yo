@@ -1,4 +1,16 @@
-# yo-self: iterator `next()` mints a second `Option(i32)` id (incompatible-struct C error)
+# yo-self: iterator `next()` mints a second `Option(i32)` id (incompatible-struct C error) — FIXED
+
+## Resolution
+
+Codegen `type_key` (`yo-self/codegen/utils/index.yo`) now dedups VALUE enums by a
+structural signature (variant names + discriminants + field-type keys, NO id) via
+a side-table `g_enum_sig_keys` — the enum analogue of the struct `g_struct_cfid_keys`
+scheme. The full id-based key is unchanged for the first-seen enum; later
+structural duplicates collapse to that first key, so the two `Option(i32)`
+instantiations share one C type. Reference-semantics enums are excluded (their id
+is load-bearing for recursion termination). Validated: corpus 94/95 (the 1 fail,
+`recursive_enum_nested_match`, is a separate pre-existing self-shell bug —
+unchanged), binary `check ./std` 152/152, fixture `iter_option_identity.yo` added.
 
 ## Symptom
 

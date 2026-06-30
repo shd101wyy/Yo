@@ -659,6 +659,52 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 StructCfidKeyEntry :: ref(struct(struct_id : String, cfid_key : String));
 (g_struct_cfid_keys : ArrayList(StructCfidKeyEntry)) = ArrayList(StructCfidKeyEntry).new();
 
+// Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
+// `Struct` carries a `constructor_func_id` + `type_arguments` that give every
+// generic instantiation a stable codegen key; `EnumT` has NO such field, so two
+// structurally-identical generic enum instantiations (e.g. `Option(i32)` reached
+// once via `ArrayList.get()` and once via the iterator `next()`'s `-> Option(T)`
+// return) get DISTINCT eval ids → distinct id-based type keys → two incompatible
+// C structs (`assigning from incompatible type` when one is stored into the
+// other). TS avoids this entirely: its eval unifies the ids via the comptime-fn
+// cache and codegen keys the registry by `type.id` (collection.ts:805). yo-self's
+// eval mints fresh ids per instantiation (same divergence the struct cfid scheme
+// already compensates for), so we dedup at codegen here: map an enum's STRUCTURAL
+// signature (variant names + discriminants + field-type keys, NO id) to the
+// FIRST-seen full key, and reuse that for later structural duplicates. Single
+// enums are unaffected (they register their own key and get it back), so this is
+// minimal — only genuine duplicates collapse, and only to a C-layout-identical
+// peer. Reference-semantics enums are excluded (they key by id for recursion
+// termination). See issues/yo-self-iterator-option-identity.md.
+EnumSigKeyEntry :: ref(struct(sig : String, canonical_key : String));
+(g_enum_sig_keys : ArrayList(EnumSigKeyEntry)) = ArrayList(EnumSigKeyEntry).new();
+/// Look up the canonical key for a structural signature; register `full_key` as
+/// the canonical for `sig` on first sight. Linear scan (few entries, collection-
+/// time only), mirroring the struct cfid side-table.
+_lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)({
+  (i : usize) = usize(0);
+  n := g_enum_sig_keys.len();
+  (found : Option(String)) = Option(String).None;
+  while((i < n) && found.is_none(), {
+    match(
+      g_enum_sig_keys.get(i),
+      .Some(e) => if(e.sig == sig, {
+        found = Option(String).Some(e.canonical_key);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    found,
+    .Some(k) => k,
+    .None => {
+      g_enum_sig_keys.push(EnumSigKeyEntry(sig : sig.clone(), canonical_key : full_key.clone()));
+      full_key
+    }
+  )
+});
+
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
@@ -725,8 +771,13 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       rs := resolve_enum_shell(t);
       eid := match(rs,.EnumT({ id : rid }) => rid, _ => id.clone());
       evfs := match(rs,.EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs);
+      evns := match(rs,.EnumT({ variant_names : rvns }) => rvns, _ => ArrayList(String).new());
+      evds := match(rs,.EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
+      e_is_ref := match(rs,.EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
       if((eid.len() == usize(0)) || (depth > usize(4)), if(eid.len() > usize(0), eid.clone(), type_to_string(rs)), {
-        key := eid.clone();
+        // Build the per-field structural suffix ONCE (used in both the full key
+        // and the structural signature).
+        field_part := String.new();
         (vi : usize) = usize(0);
         while(vi < evfs.len(), {
           match(
@@ -737,7 +788,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
                 match(
                   fields.get(fi),
                   .Some(ft) => {
-                    key.push_str("_");
+                    field_part.push_str("_");
                     // A reference-semantics enum field (`ref(enum(…))`) is a
                     // POINTER, so key it by its shell-resolved `id` ALONE. This
                     // terminates self-referential `ref(enum(…))` recursion with
@@ -754,7 +805,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
                         if(rrs && (rid.len() > usize(0)), rid.clone(), recur(ft, depth + usize(1))),
                       _ => recur(ft, depth + usize(1))
                     );
-                    key.push_string(fk);
+                    field_part.push_string(fk);
                   },
                   .None => ()
                 );
@@ -765,7 +816,31 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           );
           vi = (vi + usize(1));
         });
-        key
+        // Full key = id-based (UNCHANGED behavior). This is what a single,
+        // first-seen enum gets.
+        key := eid.clone();
+        key.push_string(field_part);
+        // Reference-semantics enums keep the id-based key verbatim (no structural
+        // dedup — their id is load-bearing for recursion termination).
+        if(e_is_ref, key, {
+          // Structural signature = variant names + discriminants + field suffix
+          // (NO id). Two generic instantiations of the same enum (e.g. two
+          // `Option(i32)` with distinct eval ids) produce the SAME sig and so
+          // collapse to one C type; distinct enums differ in variant names,
+          // discriminants, or field types. Discriminants are included so two
+          // same-named/same-fielded variants with different tag values do NOT
+          // merge.
+          sig := String.from("e");
+          (si : usize) = usize(0);
+          while(si < evns.len(), {
+            sig.push_str("_");
+            match(evns.get(si),.Some(vn) => sig.push_string(vn),.None => ());
+            match(evds.get(si),.Some(d) => { sig.push_str("="); sig.push_string(d.to_string()); },.None => ());
+            si = (si + usize(1));
+          });
+          sig.push_string(field_part);
+          _lookup_or_register_enum_sig(sig, key)
+        })
       })
     },
     .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
