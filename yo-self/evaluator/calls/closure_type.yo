@@ -26,7 +26,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get }
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, register_some_resolved_concrete }
 :: import("../../expr_info.yo");
 { Token } :: import("../../token.yo");
 {
@@ -285,7 +285,20 @@ try_to_implement_closure_by_fn_module_type :: (
   // like `k` to `((<cap>*)closure_context)->k`). Mirrors anonymous_function.yo:1068.
   match(
     capture_ty.clone(),
-    .Some(ct) => register_closure_capture_info(closure_id.clone(), ClosureCaptureInfo(capture_type : ct, frame_level : n_cap_fr)),
+    .Some(ct) => {
+      register_closure_capture_info(closure_id.clone(), ClosureCaptureInfo(capture_type : ct.clone(), frame_level : n_cap_fr));
+      // Lower the `Impl(Fn)` wrapper SomeT to the capture struct for codegen: the
+      // closure VALUE then types as the capture struct (get_type_string resolves
+      // the SomeT via lookup_some_resolved_concrete) and a direct value-call
+      // `add(x)` resolves cc_id to the capture-struct id so it dispatches through
+      // impl_closure_call_map (`closure_fn(&add, x)`) instead of a bad fn-ptr
+      // cast. Mirrors TS's `resolvedConcreteType` on the closure SomeType.
+      match(
+        wrapper_type.clone(),
+        .SomeT({ id : wid }) => register_some_resolved_concrete(wid, ct),
+        _ => ()
+      );
+    },
     .None => ()
   );
   // Determine the final type (use wrapper_type).

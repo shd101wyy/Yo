@@ -1,0 +1,19 @@
+// Impl(Fn) closure that CAPTURES an outer var, stored in a var and called both
+// directly and through a higher-order fn. Exercises the closure value-typing +
+// static-dispatch path: the closure value must type as its CAPTURE STRUCT (not
+// void*), and `add(x)` / `apply(add, x)` must dispatch via the capture struct
+// (closure_fn(&capture, x)), driven by lowering the Impl(Fn) wrapper SomeT to the
+// capture struct (register_some_resolved_concrete, mirroring TS resolvedConcreteType).
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+apply :: (fn(f : Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(x));
+main :: (fn() -> unit)({
+  k := 100;
+  add_k := Impl(Fn(x : i32) -> i32)({
+    return(x + k);
+  });
+  direct := add_k(5); // 105
+  viahof := apply(add_k, 11); // 111
+  unsafe(printf("%d %d\n", direct, viahof));
+});
+export(main);
