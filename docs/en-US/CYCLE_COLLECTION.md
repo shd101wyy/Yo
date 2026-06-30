@@ -567,6 +567,25 @@ raise or disable auto-collection:
   allocation-heavy runs (e.g. the compiler) where cycles, if any, are reclaimed
   by the OS at process exit anyway.
 
+### Peak-memory knob: `YO_GC_FULL_PCT`
+
+The full-heap collector re-arms its trigger at a multiple of the **post-collection
+live count** — by default `200` (2×-live), which bounds the tracked set to ~2× the
+live working set between full scans. On a memory-constrained box a workload with a
+large live set (e.g. the self-hosted compiler evaluating its own modules) can have
+its 2×-live peak exceed physical RAM, causing swap-thrash or an OOM kill. A second
+one-time env read (same `__yo_init_thread_gc` site) tunes this factor:
+
+- **unset** — default `200` (2×-live), unchanged.
+- **`N` (> 100)** — re-arm the full scan at `N`% of live. Lower values (e.g. `130`,
+  `115`) cap peak memory at the cost of more frequent — and individually
+  ~`O(heap)` — full scans. Values ≤ 100 are ignored (a factor ≤ 1 cannot make
+  forward progress; the trigger always advances by at least one object).
+
+This trades throughput for a lower memory ceiling; it cannot shrink the **live**
+set itself, so a workload whose live working set alone exceeds available RAM still
+needs a larger machine or a smaller live footprint.
+
 ### The fix: adaptive Bacon-Rajan possible-roots (auto) + full-heap (explicit)
 
 The auto-trigger uses **Bacon-Rajan synchronous cycle collection**

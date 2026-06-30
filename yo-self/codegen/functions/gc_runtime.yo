@@ -318,7 +318,8 @@ static _Thread_local int __yo_gc_collecting = 0;
 static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
 static size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold (floor)
 static size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
-static size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive 2x-live)
+static size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive Nx-live)
+static size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a percent of post-collection live (default 200 = 2x-live). Lower to cap peak memory on constrained boxes; raise for fewer (but larger) scans. Env: YO_GC_FULL_PCT.
 
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
@@ -503,6 +504,14 @@ static void __yo_init_thread_gc() {
         __yo_gc_collect_threshold = (__yo_gc_thr_v == 0ULL) ? (size_t)-1 : (size_t)__yo_gc_thr_v;
         __yo_gc_min_threshold = __yo_gc_collect_threshold;
       }
+      // YO_GC_FULL_PCT: full-scan growth factor as a percent of live (default 200
+      // = 2x-live). Lower (e.g. 130) caps peak memory on constrained boxes at the
+      // cost of more frequent full scans; must be > 100 to make progress.
+      const char* __yo_gc_full = getenv("YO_GC_FULL_PCT");
+      if (__yo_gc_full != NULL) {
+        unsigned long long __yo_gc_full_v = strtoull(__yo_gc_full, NULL, 10);
+        if (__yo_gc_full_v > 100ULL) __yo_gc_full_pct = (size_t)__yo_gc_full_v;
+      }
     }
   }
 
@@ -557,7 +566,8 @@ static void __yo_gc_init_thread() {
   // move-formed cycles. See issues/yo-gc-full-heap-scan-bottleneck.md.
   if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_full_threshold) {
     __yo_gc_collect();
-    size_t nt = __yo_current_thread_gc->tracked_count * 2;
+    size_t nt = (__yo_current_thread_gc->tracked_count * __yo_gc_full_pct) / 100;
+    if (nt <= __yo_current_thread_gc->tracked_count) nt = __yo_current_thread_gc->tracked_count + 1;
     if (nt < 256) nt = 256;
     __yo_gc_full_threshold = nt;
   }
