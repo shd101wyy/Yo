@@ -62,8 +62,28 @@ static inline int32_t yo_id_3731(__yo_dyn_trait_yo_id_3726 sh) {
 ```
 
 TS dispatches `sh.area()` through the vtable (`sh.vtable->area(sh.data)`).
-yo-self's codegen for a trait-method call on a `Dyn(Trait)` receiver does not
-transpile — the dyn-method-dispatch emitter is incomplete in the binary.
+
+REFINED ROOT CAUSE (2026-06-30): this is NOT a missing codegen emitter and NOT a
+swallowed eval throw:
+
+- The dyn-method-dispatch EMITTER already exists in yo-self
+  (`other_fn_call.yo` ~860-919: lowers `(recv).vtable->method((recv).data, …)`,
+  gated on `recv_is_dyn && dot_recv_is_dyn && method_atom_ok`).
+- The "Failed to transpile" actually fires earlier, at `generation.yo:405-412`:
+  `get_expr_info(expr)` returns **None** for the `sh.area()` call expr, so codegen
+  bails before reaching the dyn-dispatch branch.
+- It is not a swallowed throw: instrumenting `_trial_eval_fn_body`'s swallow
+  handler (`function_type.yo:217`) to `eprintln` every swallowed error produced
+  **zero** TTERR lines for this compile — the body eval does not throw.
+
+So the call expr simply has no findable ExprInfo at codegen time. This is the
+same hard class as the earlier P1 work ("ExprInfo lookup failing due to
+expression-id mismatch" / "get_expr_info=None during binary compile"): the
+method-call expr's ExprInfo is either never produced during `use_shape`'s
+def-time body eval, or recorded under a different ast_expr_id than the node
+codegen walks. Needs a two-sided id trace (the id eval records for the dyn
+method call vs the id codegen looks up). Evaluator-side, deeper than an emitter
+fix.
 
 ## Working (for contrast)
 
