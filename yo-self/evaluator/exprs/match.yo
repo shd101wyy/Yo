@@ -1724,6 +1724,22 @@ evaluate_match :: (
           // Set ExprInfo for fb_vne (BEFORE push_frame)
           vne_wf_info := new_expr_info(env, new_enum_type_wf);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(fb_vne), vne_wf_info);
+          // Pre-arm frame count: the shared `env` must be restored to EXACTLY this
+          // depth after evaluating the arm body, so each arm (and the post-loop
+          // env merge) sees the same clean base. TS keeps the shared env untouched
+          // entirely — it pushes the arm frame into a LOCAL `caseEnv` copy
+          // (match.ts:343/445) and never pops. yo-self mutates the shared `env`, so
+          // it must restore it here. A single `pop_frame()` is NOT enough: when the
+          // arm body is a begin-block whose tail `return`s, evaluate_begin_expression
+          // leaves `env` one frame deep (it threads `env.frames` to the returning
+          // statement's recorded snapshot, which still carries the begin frame), so a
+          // lone pop removes the begin frame and LEAKS this arm's pattern binding —
+          // a later sibling arm then sees it at the same frame level and the env
+          // merge throws "different variable names for different cases". Truncating
+          // to `base_frame_count_wf` removes both the stray begin frame and the arm
+          // frame regardless. Use pop_frame_nonmutating so recorded body-env
+          // snapshots (which may alias env.frames) are not corrupted.
+          base_frame_count_wf := env.frames.len();
           // Push frame for this arm
           env.push_frame(false);
           // is_comptime_scrutinee: concrete known enum value
@@ -1942,7 +1958,12 @@ evaluate_match :: (
           evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
           ctx.expected_type = old_expected_wf;
           ctx.is_executing = old_executing_wf;
-          env.pop_frame();
+          // Restore the shared env to its exact pre-arm depth (see base_frame_count_wf
+          // comment): pop every frame the arm + its (possibly unbalanced, returning)
+          // body left behind, not just one.
+          while(env.frames.len() > base_frame_count_wf, {
+            env.pop_frame_nonmutating();
+          });
           body_info_wf_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wf));
           if(body_info_wf_opt.is_none(), {
             exn.throw(
