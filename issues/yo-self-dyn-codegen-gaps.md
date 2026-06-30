@@ -1,11 +1,15 @@
 # yo-self dyn() codegen gaps (binary)
 
-**Status: Gap 2 ✅ FIXED (commit 2f857d7a6); Gap 1 OPEN.** Two distinct gaps in
-the self-compiled binary's `dyn()` codegen, surfaced by differential testing the
-binary against TS on small `dyn`/trait programs (2026-06-30). The evaluator-side
-dyn coercion + method dispatch were fixed earlier (commits 2f91537c / 02315945);
-these were the remaining CODEGEN gaps. Gap 2 (method dispatch for `self:*(Self)`)
-is now fixed; Gap 1 (value-type auto-box, needs SomeT→concrete resolution) remains.
+**Status: ✅ ALL FIXED (2026-06-30). The entire dyn() subsystem now matches TS.**
+Surfaced by differential testing the self-compiled binary against TS on small
+`dyn`/trait programs. Every dyn pattern compiles + runs identically to TS:
+
+- `dyn(refStruct)` + method dispatch (`self:*(Self)`) — Gap 2, commit 2f857d7a6
+- `dyn(box(valueStruct))` — vtable wrapper (07e7fbba8) + concrete unwrap (c8058712d)
+- `dyn(valueStruct)` auto-box — Gap 1, commit d0d55e69a (the 5-layer chain below)
+
+corpus 92/92; fixtures dyn_dispatch_ptr_self / dyn_dispatch_boxed_value /
+dyn_dispatch_autobox_value. The sections below retain the investigation history.
 
 ## Gap 1 — value-type `dyn()` auto-box (SomeT not resolved to concrete)
 
@@ -67,11 +71,12 @@ since-reverted experiment, not the real inner type. Gap 1 is actually TWO layers
    the box call's EXPECTED type (dyn.ts:256) — yo-self's auto-box evaluates
    `box(..)` with no expected type, so `V` must be inferred and isn't.
 
-   **ATTEMPTED TWICE + REVERTED (2026-06-30) — it is a 5+ layer rabbit hole.**
+   **✅ FIXED (commit d0d55e69a) — it was a 5-layer chain, all landed together.**
    Ported `createBoxedType` → `_create_boxed_type` and wired the validating-path
-   auto-box (evaluate synthetic `box(value)` with the EXPECTED `Box(Sq)`). Each
-   fix surfaced the next layer (all genuine faithful-port gaps); peeled 5 in one
-   sitting, each verified by the error changing:
+   auto-box (evaluate synthetic `box(value)` with the EXPECTED `Box(Sq)`). Five
+   stacked faithful-port gaps, each verified by the error changing; the final fix
+   (e) was found by reading the code (collection registers the dyn impl off the
+   SOURCE arg, not the boxed payload) and all five were applied together:
 
    - **(a) `Variable "V" not found`.** `_create_boxed_type` called
      `evaluate_comptime_fn_call(Box, …)` but that evals the body in the passed
@@ -92,16 +97,18 @@ yo_id_…_Sq`). The synthesized box lives in `runtime_arg_exprs_in_order`, not
      `expr.args[0]`, which collection walks). FIX: collection (`collection.yo`)
      walks `runtime_arg_exprs_in_order[0]` for dyn calls (gated on
      `dyn_call_trait_values`).
-   - **(e) STILL OPEN: `__yo_dyn_box_<Sq>` typedef missing** (referenced by its
-     new/dispose). A dyn-box typedef/new consistency wrinkle specific to the
-     auto-box path (the boxed-dyn `dyn(box(X))` path got the inverse mismatch,
-     fixed in layer 4 / commit c8058712d; the auto-box path produces a different
-     skew). Needs the dyn-box typedef + new/dispose emitters keyed identically for
-     the auto-boxed payload.
-     All 5 fixes were REVERTED (incomplete + layer (e) unsolved); each is correct
-     scaffolding for a future focused pass. Corpus stayed 91/91 throughout (no broad
-     regression). Given `dyn(box(X))` is a one-token working workaround and this is
-     the least-common dyn pattern, completing the 5-layer chain was deferred.
+   - **(e) `__yo_dyn_box_<Sq>` typedef missing** (referenced by its new/dispose).
+     `register_dyn_impl` runs in TWO places: the collection PRE-PASS
+     (`collection.yo`, before the dyn-box TYPE emitter) and codegen
+     (`exprs/dyn.yo`, after). The pre-pass read the dyn's SOURCE arg `cargs[0]` —
+     for `dyn(Sq)` that's the bare value `Sq` (not ref/boxed) → its guard skipped
+     registration → the TYPE emitter saw no impl → typedef missing; codegen
+     registered it later → new/dispose present. FIX: the pre-pass reads
+     `runtime_arg_exprs_in_order[0]` (the synthesized boxed payload) first, so it
+     registers off `Box(Sq)` → unwrapped concrete `Sq` → `__yo_dyn_box_<Sq>` type
+     emitted in the pre-pass, consistent with new/dispose. (Same change also
+     recurs into the boxed payload so the box-construction fn — layer (d) — is
+     collected.)
 
    **Workaround available today:** `dyn(box(valueStruct))` (explicit `box`) works
    end-to-end (layers 3-4 fixed), and `dyn(valueStruct)` errors cleanly directing
