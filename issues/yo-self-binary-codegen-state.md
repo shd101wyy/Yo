@@ -57,3 +57,26 @@ structs, generics, closures, effects) with the binary; fix the C-compile
 errors that surface (like the String `_bytes` bug). The marker count for
 correct programs is already ~0 — the tail is specific codegen correctness bugs,
 not broad unported constructs.
+
+## Update (2026-06-30): String `_bytes` dup bug FIXED; GC-tracer `switch()` bug localized
+
+**FIXED (commit 2f686f3e7):** the `no member named '_bytes'` errors. yo-self
+lowers value-struct dup INLINE (`temp.field = dup(temp.field)`) instead of
+calling a `___dup` method like TS. A newtype (String) is modeled as a 1-field
+struct, so it took that branch and emitted `temp._bytes = ...` — invalid
+because a newtype is a C-transparent typedef. Fix: dup a newtype by recursing
+on the underlying field's value with the SAME `value_code` (no member access).
+
+**REMAINING — GC-tracer `((void(*)(void*)) switch ())` (cycle-GC, deeper):**
+The auto-generated `GcTracer.visit`/traverse for `Bucket(String,i32)` emits a
+malformed function-pointer cast where the callee (`visit_expr`) is the text
+`  switch (` instead of `self`. Instrumentation (`_traverse_value`) showed
+`visit_expr` starts as `'self'` (correct, from `tracer_code =
+_call_generate_expr(self)`) but is **corrupted to the emitted switch-line text**
+by the time the enum branch recurses — i.e. emitting `switch (${access}.tag){`
+overwrites `visit_expr`. This is a **String-buffer aliasing bug** in the
+codegen string flow (the tracer-callback string shares storage with the
+emitter's line buffer). Localized to `_traverse_value`'s enum branch
+(`constructors.yo`) + `generate_yo_gc_trace_child` (`gc.yo`); the exact
+ownership share is not yet pinned. Only affects programs that use a
+cycle-GC-traced container of a newtype-over-enum (e.g. `HashMap(String, _)`).
