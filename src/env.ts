@@ -816,29 +816,19 @@ export function getVariablesFromFrame(
  * and used by `getVariablesFromEnv` to skip scanning the prelude frames
  * (which hold ~1000 variables and dominate lookup cost).
  */
-let preludeVarCache: Map<string, Variable[]> | null = null;
-let preludeFrameCount = 0;
-
 /**
- * Populate the global prelude variable cache from an environment (called
- * once after prelude evaluation). Builds the index from ALL frames.
+ * Record the prelude environment (called once after prelude evaluation).
+ *
+ * HISTORICAL: this once populated a prelude-variable cache that let
+ * `getVariablesFromEnv` skip rescanning the prelude frames. That was unsound
+ * — it assumed an env's bottom `preludeFrameCount` frames ARE the (unmodified)
+ * prelude frames. A freshly-built env, or a clone of the prelude env that
+ * appends bindings into the prelude module frame, both diverge from the
+ * snapshot and lose real bindings. Measurement showed it gave no meaningful
+ * speedup, so it was removed. Kept as a no-op so callers need not change.
  */
-export function buildPreludeVarCache(env: Environment): void {
-  const idx = new Map<string, Variable[]>();
-  preludeFrameCount = env.frames.length;
-  for (let i = 0; i < env.frames.length; i++) {
-    const frame = env.frames[i]!;
-    for (let j = 0; j < frame.variables.length; j++) {
-      const v = frame.variables[j]!;
-      const list = idx.get(v.name);
-      if (list) {
-        list.push(v);
-      } else {
-        idx.set(v.name, [v]);
-      }
-    }
-  }
-  preludeVarCache = idx;
+export function buildPreludeVarCache(_env: Environment): void {
+  // no-op (see doc comment)
 }
 
 export function getVariablesFromEnv(
@@ -847,9 +837,7 @@ export function getVariablesFromEnv(
   variableFilter?: (variable: Variable) => boolean
 ): Variable[] {
   const variables: Variable[] = [];
-  // When the prelude cache is available, skip prelude frames entirely.
-  const startFrame = preludeVarCache ? preludeFrameCount : 0;
-  for (let i = startFrame; i < env.frames.length; i++) {
+  for (let i = 0; i < env.frames.length; i++) {
     const frame = env.frames[i]!;
     const variablesInFrame = getVariablesFromFrame(
       frame,
@@ -857,13 +845,6 @@ export function getVariablesFromEnv(
       variableFilter
     );
     variables.push(...variablesInFrame);
-  }
-  // Add prelude matches from the cache (if available).
-  if (preludeVarCache) {
-    const preludeMatches = preludeVarCache.get(variableName);
-    if (preludeMatches) {
-      variables.push(...preludeMatches);
-    }
   }
 
   if (variableFilter) {
