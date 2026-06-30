@@ -67,11 +67,41 @@ since-reverted experiment, not the real inner type. Gap 1 is actually TWO layers
    the box call's EXPECTED type (dyn.ts:256) — yo-self's auto-box evaluates
    `box(..)` with no expected type, so `V` must be inferred and isn't.
 
-3. **vtable-wrapper emission for a boxed dyn.** Even `dyn(box(Sq(9)))` (explicit
-   box, gets past the object guard) then fails C compile with an undeclared
-   `__yo_wrap_<box>_<dyn>_area` — the vtable wrapper that unboxes `Box(Sq)` and
-   calls `Sq.area` is referenced but never emitted. This affects the reasonable
-   `dyn(box(valueStruct))` pattern too, independent of auto-box.
+3. **vtable-wrapper emission for a boxed dyn — ✅ FIXED (commit 07e7fbba8).**
+   `dyn(box(Sq(9)))` used to fail C compile with an undeclared
+   `__yo_wrap_<box>_<dyn>_area`. Two coupled faithful-port gaps, both fixed:
+
+   - **`is_boxed_type` name dependency.** It keys off a `Box(`-prefixed struct
+     name (mirrors TS `typeName?.startsWith("Box(")`), but yo-self left generic
+     instantiations ANONYMOUS — the comptime-fn type-name back-patching
+     (`comptime-fn.ts:261-265`) was skipped (`comptime_fn.yo` header even
+     documented the omission). Fix: stamp the returned struct's name in
+     `comptime_fn.yo`'s existing constructor-id rebuild, **scoped to `Box` only**.
+     Naming ALL instantiations like TS regressed the corpus 90→55 because
+     yo-self's `compatibility.yo:430` treats the struct name as nominal identity
+     (the "name-only comparison unsound" issue) — but `Box(T)` is structurally
+     unambiguous (single `*` field) and never unifies with user types, so naming
+     only `Box` is safe (corpus stays 90/90).
+   - **trait-method resolution on the box, not the underlying.**
+     `_resolve_dyn_trait_values` looked up `area` on `Box(Sq)`'s id → no FuncVal →
+     no wrapper. Fix: `_unwrap_box_for_method_lookup` (dyn.yo) unwraps a boxed
+     payload to its `*` field type for the registry lookup (now that
+     `is_boxed_type` works). The wrapper now emits correctly.
+
+   **STILL OPEN — layer 4: dyn-box over-creation for an already-boxed value.**
+   `dyn(box(Sq))` now fails C compile differently: a `__yo_dyn_box_<Box(Sq)>`
+   typedef/new mismatch. TS (`dyn.ts:66`) sets `concreteType = isBoxedType(v) ?
+v.fields[0].type : v` (unwrap → `Sq`) while `dataType = v` (the `Box`); yo-self
+   (`codegen/exprs/dyn.yo:82`) sets `concrete_type = value_type` with no unwrap.
+   But simply unwrapping `concrete_type` is NOT enough: the dyn-box for an
+   already-object (ref) value should not be created at all — `.data` should point
+   at the `Box(Sq)` directly (TS only auto-boxes VALUE types into a dyn-box).
+   `generate_dyn_box_types`/`generate_dyn_box_functions` (yo-self) appear to emit a
+   dyn-box per dyn impl regardless of whether the data is already an object,
+   producing the type mismatch. The fix is to suppress the dyn-box when the data
+   type is a reference struct / boxed (matching TS), plus the `concreteType`
+   unwrap. Deferred: `dyn(box(valueStruct))` is an uncommon pattern; ref-struct
+   dyn (Gap 2) and the wrapper itself are unaffected.
 
    **DEFINITIVE ROOT CAUSE (2026-06-30).** `is_boxed_type` (types/guards.yo:574)
    returns true only for a single-`*`-field ref-struct **whose `name` starts with
