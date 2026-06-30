@@ -25,6 +25,28 @@ open(import("std/string"));
 { type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+/// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
+/// type (`Sq`, the box's single `*` field) while the runtime data type stays
+/// `Box(Sq)`. Mirrors TS `dyn.ts:66` (`concreteType = isBoxedType(v) ?
+/// v.fields[0].type : v`). Keeps the dyn-box / vtable / impl_key keyed on the
+/// concrete type consistently; a non-boxed value passes through unchanged.
+_unwrap_box_concrete :: (fn(t : TypeValue) -> TypeValue)({
+  (result : TypeValue) = t;
+  if(is_boxed_type(t), {
+    match(
+      t,
+      .Struct({ field_types : fts }) => match(
+        fts.get(usize(0)),
+        .Some(ut) => {
+          result = ut;
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
+  result
+});
 /// The C name for `dyn_type` (registered, else `__yo_dyn_<id>`).
 _dyn_c_name :: (fn(dyn_type : TypeValue, context : FunctionGenerationContext) -> String)(
   match(
@@ -79,7 +101,9 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   if(!(is_reference_struct_type(value_type)) && !(is_boxed_type(value_type)), {
     return(String.from("/* Error: dyn() requires an object type (use box() for value types) */"));
   });
-  concrete_type := value_type;
+  // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
+  // type = `Box(Sq)`. Mirrors TS dyn.ts:66 / :95-96.
+  concrete_type := _unwrap_box_concrete(value_type);
   dyn_type_c_name := _dyn_c_name(dyn_type, context);
   concrete_type_c_name := _concrete_c_name(concrete_type, context);
   impl_key := concrete_type_c_name.clone();
