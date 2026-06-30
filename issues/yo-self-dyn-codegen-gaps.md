@@ -88,20 +88,21 @@ since-reverted experiment, not the real inner type. Gap 1 is actually TWO layers
      payload to its `*` field type for the registry lookup (now that
      `is_boxed_type` works). The wrapper now emits correctly.
 
-   **STILL OPEN — layer 4: dyn-box over-creation for an already-boxed value.**
-   `dyn(box(Sq))` now fails C compile differently: a `__yo_dyn_box_<Box(Sq)>`
-   typedef/new mismatch. TS (`dyn.ts:66`) sets `concreteType = isBoxedType(v) ?
-v.fields[0].type : v` (unwrap → `Sq`) while `dataType = v` (the `Box`); yo-self
-   (`codegen/exprs/dyn.yo:82`) sets `concrete_type = value_type` with no unwrap.
-   But simply unwrapping `concrete_type` is NOT enough: the dyn-box for an
-   already-object (ref) value should not be created at all — `.data` should point
-   at the `Box(Sq)` directly (TS only auto-boxes VALUE types into a dyn-box).
-   `generate_dyn_box_types`/`generate_dyn_box_functions` (yo-self) appear to emit a
-   dyn-box per dyn impl regardless of whether the data is already an object,
-   producing the type mismatch. The fix is to suppress the dyn-box when the data
-   type is a reference struct / boxed (matching TS), plus the `concreteType`
-   unwrap. Deferred: `dyn(box(valueStruct))` is an uncommon pattern; ref-struct
-   dyn (Gap 2) and the wrapper itself are unaffected.
+4. **dyn-box concrete-type unwrap — ✅ FIXED (commit c8058712d).** After the
+   wrapper fix, `dyn(box(Sq))` still failed C compile on a `__yo_dyn_box_<Box(Sq)>`
+   typedef/new mismatch: `generate_dyn_call` (`codegen/exprs/dyn.yo:82`) set
+   `concrete_type = value_type` (`Box(Sq)`) with no unwrap, so the dyn-box /
+   impl_key / vtable were keyed inconsistently between the box and the underlying
+   type. Fix mirrors TS `dyn.ts:66`/`:95-96`: `_unwrap_box_concrete` sets the impl
+   `concrete_type` to the underlying (`Sq`, the box's `*` field) while `data_type`
+   stays `Box(Sq)` and `.data` still points at the `Box(Sq)` pointer directly (the
+   dyn-box functions are dead code here — never called — but now keyed
+   consistently on `Sq`). `dyn(box(Sq(9)))` compiles + runs → `Q` (matches TS).
+   Corpus fixture `dyn_dispatch_boxed_value.yo`; corpus 91/91, no regressions.
+
+   **NET: `dyn(box(valueStruct))` works end-to-end.** The only remaining dyn gap
+   is the value-type AUTO-box (`dyn(Sq)` with no explicit `box()`) — Gap 1
+   layers 1-2 below.
 
    **DEFINITIVE ROOT CAUSE (2026-06-30).** `is_boxed_type` (types/guards.yo:574)
    returns true only for a single-`*`-field ref-struct **whose `name` starts with
