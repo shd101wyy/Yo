@@ -1,10 +1,11 @@
 # yo-self dyn() codegen gaps (binary)
 
-**Status: OPEN — two distinct, well-characterized gaps in the self-compiled
-binary's `dyn()` codegen. The TS compiler handles both correctly.** Surfaced by
-differential testing the binary against TS on small `dyn`/trait programs
-(2026-06-30). The evaluator-side dyn coercion + method dispatch were fixed
-earlier (commits 2f91537c / 02315945); these are the remaining CODEGEN gaps.
+**Status: Gap 2 ✅ FIXED (commit 2f857d7a6); Gap 1 OPEN.** Two distinct gaps in
+the self-compiled binary's `dyn()` codegen, surfaced by differential testing the
+binary against TS on small `dyn`/trait programs (2026-06-30). The evaluator-side
+dyn coercion + method dispatch were fixed earlier (commits 2f91537c / 02315945);
+these were the remaining CODEGEN gaps. Gap 2 (method dispatch for `self:*(Self)`)
+is now fixed; Gap 1 (value-type auto-box, needs SomeT→concrete resolution) remains.
 
 ## Gap 1 — value-type `dyn()` auto-box (SomeT not resolved to concrete)
 
