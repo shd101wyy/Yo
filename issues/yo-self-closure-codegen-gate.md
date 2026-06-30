@@ -402,3 +402,32 @@ closure-type-lowering subsystem (comparable to the 5-layer dyn auto-box chain),
 deferred to a focused pass. NB: `impl_closure_call_map` + the call-site dispatch
 (piece C) + `generate_closure_construction` are all already implemented — the
 missing piece is the SomeT→capture-struct resolution that feeds them.
+
+---
+
+## ✅ RESOLVED (commit 255f4e59c) — Impl(Fn) closure value/param subsystem
+
+The whole sync `Impl(Fn)` closure value/param family (the deferred gaps B/C above
+AND the direct `add(x)` value-call) is FIXED by a SINGLE targeted registration,
+once the prereqs (register_func_type + register_closure_capture_info, 60d55c7c4)
+were in place. It was NOT a multi-layer chain after all.
+
+Root cause: the closure's `Impl(Fn)` wrapper `SomeT` was never lowered to its
+capture struct. TS carries `SomeType.resolvedConcreteType`; yo-self side-tables it
+(`register_some_resolved_concrete` / `lookup_some_resolved_concrete`). With no
+entry, `get_type_string(SomeT)` → `void*` (so the value mis-typed) and
+`resolve_some_type_to_concrete` (the `cc_id` for `impl_closure_call_map`) → the
+bare SomeT id (so the value-call missed the closure-call map and fell to a bad
+fn-ptr cast). All the consumers — `generate_closure_construction`,
+`register_impl_closure_call_mappings`, the value-call dispatch (piece C) — were
+ALREADY implemented; the only missing piece was the resolved-concrete entry.
+
+Fix (closure_type.yo, in the existing capture-info registration block):
+`register_some_resolved_concrete(wrapper_SomeT.id, capture_struct)`. Now closure
+values type as the capture struct, and both `add(x)` and `apply(add, x)` dispatch
+through `impl_closure_call_map` as `closure_fn(&capture, x)`. Verified:
+`04`/`04a` (apply, capture + no-capture), `25` (direct value-call),
+`closure_impl_fn_capture.yo` (both) all match TS; corpus 93/93.
+
+LESSON: a gap documented as a "deep multi-layer subsystem" can collapse to one
+registration once its prereqs land — re-check before assuming depth.
