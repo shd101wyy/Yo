@@ -32,20 +32,20 @@ unless the whole body is clean.
 std 152/152, corpus 83/83. See `issues/yo-self-struct-identity-cache-collision.md`.
 
 **[TTERR] swallowed-throw map of the 422** (instrumented `_trial_eval_fn_body` swallow
-handler with `println(\`[TTERR] ${_err.to_string()}\`)`, full self-compile EXIT=0):
+handler with `println(\`[TTERR] ${\_err.to_string()}\`)`, full self-compile EXIT=0):
 only **43 distinct swallowed throws** produce all 422 markers (~10 cascaded marker-lines
 per root throw; 309 of the 422 are enclosing `if(`). Clustered + cross-referenced vs the
 actual stage2 markers:
 
-| swallows | category | location | → markers? |
-| --- | --- | --- | --- |
-| **19** | `Type mismatch member "value"` Got `Type(1)` | hash_map.yo:82 / hash_set.yo:74 (`with_capacity` `Self(…)`) | **0 — WARM-UP-MASKED noise** (confirmed: 0 stage2 markers) |
-| **9** | `Frame level N … different number of values for different cases` | suspension_analysis.yo:479(3)/:134(2), trait_checking.yo:1143/:1391, function.yo:1698, await.yo:125 | **YES — largest real cluster** (branch-merge) |
-| 7 | `Incompatible types` | flowability:674, import:214, va_start:88, gensym:116, comptime_assert:81, and_or:77 | scattered (≈6 distinct) |
-| 3 | `Type mismatch member "args"/"field_types"` | definitions.yo:362 (recursive `TypeValue.clone`), parser.yo:982/:1392 | recursive-clone + array_list args |
-| 2 | `Expected bool` | formatter.yo:174, utils.yo:934 | |
-| 2 | `Cannot unify` | function.yo, await.yo | |
-| 1 | `Argument count mismatch` | parser.yo:1205 | |
+| swallows | category                                                         | location                                                                                            | → markers?                                                 |
+| -------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **19**   | `Type mismatch member "value"` Got `Type(1)`                     | hash_map.yo:82 / hash_set.yo:74 (`with_capacity` `Self(…)`)                                         | **0 — WARM-UP-MASKED noise** (confirmed: 0 stage2 markers) |
+| **9**    | `Frame level N … different number of values for different cases` | suspension_analysis.yo:479(3)/:134(2), trait_checking.yo:1143/:1391, function.yo:1698, await.yo:125 | **YES — largest real cluster** (branch-merge)              |
+| 7        | `Incompatible types`                                             | flowability:674, import:214, va_start:88, gensym:116, comptime_assert:81, and_or:77                 | scattered (≈6 distinct)                                    |
+| 3        | `Type mismatch member "args"/"field_types"`                      | definitions.yo:362 (recursive `TypeValue.clone`), parser.yo:982/:1392                               | recursive-clone + array_list args                          |
+| 2        | `Expected bool`                                                  | formatter.yo:174, utils.yo:934                                                                      |                                                            |
+| 2        | `Cannot unify`                                                   | function.yo, await.yo                                                                               |                                                            |
+| 1        | `Argument count mismatch`                                        | parser.yo:1205                                                                                      |                                                            |
 
 **KEY: the dominant [TTERR] cluster (19 `"value"`) is masked NOISE (0 markers)** — exactly
 the doc-wide overcount warning. The real next target = **branch-merge "Frame level" (9
@@ -62,6 +62,7 @@ two was **+0 markers** in the full self-compile (std 152/152, corpus 83/83), bec
 DOMINANT markers come from a deeper recursive-type behavioral gap, not these line-diffs.
 
 **Verified divergences (real porting bugs; worth fixing for faithfulness, NOT the dominant root):**
+
 1. `types/compatibility.yo:331-335` — compares TUPLE element LABELS; TS (compatibility.ts:262-263)
    explicitly does NOT ("Tuple is structural, not nominal"). Removing the check → +0. REVERTED.
 2. `evaluator/exprs/property_access.yo` (533, 1280/1301/1312/1317, 1403/1412/1417) — field/deref
@@ -82,7 +83,7 @@ DOMINANT markers come from a deeper recursive-type behavioral gap, not these lin
 each a divergence on the SPECIFIC failing construct). But the remaining dominant markers are NOT a
 localized line-divergence — they are a DEEP behavioral gap in recursive-type def-time handling
 (`(*(T))(ptr)`→Type(1) in HashMap/HashSet `with_capacity`; clone→TypeVal; box-deref-field→unit on
-recursive structs; the self-shell). SIX fix attempts (recur×2, _apply_ref_amp, cfid, tuple,
+recursive structs; the self-shell). SIX fix attempts (recur×2, \_apply_ref_amp, cfid, tuple,
 property_access-Type0) were +0 in the full compile — the markers are warm-up/context-dependent and
 resist instrumentation-guessing AND edge-case-divergence-fixing. The dominant root is the
 recursive-type behavioral work (multi-session). [[yo-self-recursive-enum-self-shell]]
@@ -101,6 +102,7 @@ in the full compile; filter them). Full self-compile = periodic checkpoint only.
 **Precise async.yo error map (19 def-time throws, instrumented standalone compile)** — after
 filtering warm-up-masked hash_map/hash_set noise, the REAL remaining clusters are all
 recursive-type / structural-identity / branch-merge (NO quick convergent wins left):
+
 1. **`box.*.field` → unit** (env.yo:925 `boxed.*.name`; await_analysis.yo:248 `owner_box.*.id`;
    suspension_analysis.yo:227 `owner_var.id`). `Variable` is a recursive struct
    (`is_owning_the_same_rc_value_as : Option(Box(Variable))`). **EMPIRICAL: a minimal repro
@@ -153,23 +155,25 @@ short-circuit when that's tackled.
 expr):** #1 ~126 = a `type_key(entry.ty) == target_key` reverse-lookup scan whose throw
 is "Cannot unify incompatible STRUCT types" (synthetic token → codegen/utils/index.yo:1),
 i.e. a recursive-enum/struct-unification failure inside `_type_key_at`'s `resolve_enum_shell`
-+ EnumT/Struct id handling — the documented self-shell family, NOT recur (the workflow
-mis-diagnosed it as recur; the error category disproves that). #2 ~83 = an `_unwrap_unsafe`-
-shaped body (`.FnCall(_,_,args,_,_) => … args.len() …`) — a recursive-enum DESTRUCTURE
-whose bound field resolves to a TypeVal/unit. These two = 47% of the tail and both reduce
-to the recursive-enum field-type / self-shell cluster (the hardest unsolved area). Smaller
-solid wins from the workflow (verifier-adopt, faithful, low-risk): `_apply_ref_amp`
-(other_fn_call.yo) nested-cond `c.len() - usize(1)` → extract to a typed binding (mirrors
-line 98); `generate_type_declarations` (types/generation.yo) add explicit `()` to the
-queue.push if-blocks.
+
+- EnumT/Struct id handling — the documented self-shell family, NOT recur (the workflow
+  mis-diagnosed it as recur; the error category disproves that). #2 ~83 = an `_unwrap_unsafe`-
+  shaped body (`.FnCall(_,_,args,_,_) => … args.len() …`) — a recursive-enum DESTRUCTURE
+  whose bound field resolves to a TypeVal/unit. These two = 47% of the tail and both reduce
+  to the recursive-enum field-type / self-shell cluster (the hardest unsolved area). Smaller
+  solid wins from the workflow (verifier-adopt, faithful, low-risk): `_apply_ref_amp`
+  (other_fn_call.yo) nested-cond `c.len() - usize(1)` → extract to a typed binding (mirrors
+  line 98); `generate_type_declarations` (types/generation.yo) add explicit `()` to the
+  queue.push if-blocks.
 
 **Method that worked (reusable):**
+
 1. Instrument the def-time-eval swallow `_trial_eval_fn_body` (function_type.yo) with
-   a capture-free handler `((_err) -> { _tt_eprint(\`[TTERR] ${_err.to_string()}\n\`); unwind(()) })`
-   (`_err.to_string()` embeds file:row via format_error_message; `_tt_eprint` = a
-   non-aborting libc fwrite, mirror panic_dyn). The handler CANNOT reference module
-   variables — only its local `_err` + module fns. Build `--optimize 1`, run the
-   self-compile capturing `2>stderr`, then cluster `[TTERR]` blocks by (error, file:row).
+   a capture-free handler `((_err) -> { _tt_eprint(\`[TTERR] ${\_err.to_string()}\n\`); unwind(()) })`
+(`\_err.to_string()`embeds file:row via format_error_message;`\_tt_eprint`= a
+non-aborting libc fwrite, mirror panic_dyn). The handler CANNOT reference module
+variables — only its local`\_err`+ module fns. Build`--optimize 1`, run the
+self-compile capturing `2>stderr`, then cluster `[TTERR]` blocks by (error, file:row).
    REVERT the instrumentation before committing fixes.
 2. Cluster the actual stage2.c markers by enclosing C function
    (`awk '/^static .*yo_id_[0-9]+\(/{...}'`) — this is the GROUND TRUTH for which
@@ -182,6 +186,7 @@ queue.push if-blocks.
    await String/str, env.yo `boxed.*.name`, future-trait label-type).
 
 **The two dominant CONVERGENT compiler roots (both TS-faithful porting bugs):**
+
 - ✅ **`return()` (zero-arg call) not treated as unit** (begin.yo, FIXED a0a45270e, −37).
   Routed to the `return(val)` branch → `args.get(0)`=None → `make_err_expr()` → poisons
   return-type inference ("got fn(T:Type)->Type"). TS begin.ts:1122-1124 treats
@@ -195,6 +200,7 @@ queue.push if-blocks.
   utils/index) — the principled root vs the per-site `Option(T).None` band-aids.
 
 **Remaining clusters (from the 46-agent workflow, ranked):**
+
 - "Case env is missing outer frames" — branch-merge, 7 sites (return.yo, function.yo:1698,
   await.yo:125, trait_checking.yo:1143/1391, suspension_analysis.yo:134, var_fns.yo:156).
   Documented [[yo-self-branch-merge-trivial-arm]]; merge_and_check_envs too strict. The
@@ -218,6 +224,7 @@ variable), a concrete type bound to a where-constrained forall param must implem
 the constraint trait via `g_type_implements_trait_fn`, else the impl does NOT match.
 
 **Mechanism delivered:**
+
 - `GenericImplEntry` gained two parallel arrays `where_constraint_some_types` /
   `where_constraint_traits` (mirrors TS `GenericImpl.whereConstraints`).
 - `_collect_impl_where_constraints` parses the `where(...)` clause at BOTH positions
@@ -297,6 +304,7 @@ yo-self's OWN source uses async heavily (`version_cache`/`fetch`/`build_runner`/
 during def-time body eval, for ANY collection (HashMap AND ArrayList), so
 `match(it.next(), .Some => …, .None => …)` throws "Expected enum … got unit" and
 downstream `e.value.field` throws "member value mismatch". Narrowing:
+
 - `match(xs.get(usize(0)), .Some/.None)` (`.get()` → `Option(T)`) — **works**.
 - `it := xs.into_iter(); n := it.next()` (no match) — **works** (binding `unit` is silent).
 - `match(it.next(), …)` — **throws got-unit**.
@@ -425,19 +433,19 @@ def-time body-eval swallow (`_trial_eval_fn_body`, function_type.yo) shows the
 564 markers come from only **102 distinct def-time eval throws** (each failing
 fn → its whole tail loses ExprInfo → many markers). Throw-category breakdown:
 
-| count | category | nature |
-|---|---|---|
-| 21 | `Expected enum...got unit` (match scrutinee) | recv resolved to unit |
-| 20 | `Type mismatch for type member "value"` | Bucket/recursive value field |
-| 17 | `Return type...got fn(T : Type) -> Type` | **clone-resolves-to-TypeVal** (documented self-shell) |
-| 14 | `Incompatible types` | generic mismatch (downstream) |
-| 5 | `Failed to infer enum variant type` | |
-| 5 | `<enum:..._self_shell> and unit` | **explicit recursive-enum self-shell** |
-| 4 | `Case env is missing outer frames` | branch-merge (documented) |
-| ~6 | member mismatches `id`/`args`/`param_types`/`field_types` | recursive value fields |
-| 2 | `Cannot unify "String" and "str"` | redesign-adjacent residue |
-| 2 | `Expected bool for "and"` | comptime `and` |
-| misc | argcount, begin-tail, struct-name unify | |
+| count | category                                                  | nature                                                |
+| ----- | --------------------------------------------------------- | ----------------------------------------------------- |
+| 21    | `Expected enum...got unit` (match scrutinee)              | recv resolved to unit                                 |
+| 20    | `Type mismatch for type member "value"`                   | Bucket/recursive value field                          |
+| 17    | `Return type...got fn(T : Type) -> Type`                  | **clone-resolves-to-TypeVal** (documented self-shell) |
+| 14    | `Incompatible types`                                      | generic mismatch (downstream)                         |
+| 5     | `Failed to infer enum variant type`                       |                                                       |
+| 5     | `<enum:..._self_shell> and unit`                          | **explicit recursive-enum self-shell**                |
+| 4     | `Case env is missing outer frames`                        | branch-merge (documented)                             |
+| ~6    | member mismatches `id`/`args`/`param_types`/`field_types` | recursive value fields                                |
+| 2     | `Cannot unify "String" and "str"`                         | redesign-adjacent residue                             |
+| 2     | `Expected bool for "and"`                                 | comptime `and`                                        |
+| misc  | argcount, begin-tail, struct-name unify                   |                                                       |
 
 ### 2026-06-23 (cont.) — shell-receiver-resolve fix: 564 → 527 (partial)
 
@@ -515,7 +523,7 @@ registration COMPLETES (`register_type_trait_method`, impl.yo:2108). Therefore
 `_select_matching_overload` (b4788d38e) DOES pick the `str` overload and records it
 via `record_method_callee_value`. (The earlier "hits=1 / 1 individual registration"
 readings were instrumentation artifacts — empirically false: the fix below works
-*because* eval recorded the StrPattern value.)
+_because_ eval recorded the StrPattern value.)
 
 **The real bug is in CODEGEN.** `other_fn_call.yo`'s concrete method-call dispatch
 re-resolved the method by NAME via `get_type_trait_methods_by_name(tid, mname)` and
@@ -523,7 +531,7 @@ took the FIRST FuncVal entry (the `while ... mc_name.is_none()` loop stops at hi
 The inherent `starts_with(prefix:String)` registers before (std/string.yo:842 < 1567)
 the StrPattern `starts_with(prefix:str)`, so codegen emitted a call to the INHERENT
 (`yo_id_4572(self, prefix:String, position)`) while passing the `__yo_str` literal →
-C error "passing '__yo_str' to parameter of incompatible type 'String'". The
+C error "passing '\_\_yo_str' to parameter of incompatible type 'String'". The
 evaluator-resolved value (`lookup_method_callee_value`) was only a FALLBACK, used
 when the registry MISSED — so the priority was inverted.
 
@@ -542,7 +550,7 @@ regression-gate: IN PROGRESS (clean so far) — to be confirmed 83/83 + `check .
 
 Lesson: when a method resolves correctly in the EVALUATOR but C-fails on arg types,
 suspect codegen RE-RESOLUTION, not the evaluator. The decisive moves were (1)
-inspecting the emitted C — *which* C function does `main` call? — and (2) the 3-way
+inspecting the emitted C — _which_ C function does `main` call? — and (2) the 3-way
 HAS/NO/THREW probe; both beat the 8-cycle panic binary-search that chased a phantom
 registration throw. (The `_substitute_self_in_method_ty` step in impl.yo is real and
 fine; it does not throw for this case.)
@@ -593,7 +601,7 @@ builds the trial arg list (receiver prepend + `&(...)` ptr-conv).
 
 1. **Default-arg codegen (omitted optionals not emitted) — ✅ FIXED (commit
    98b95a9dd), method-call path.** `a.starts_with("-")` omits `(position : usize)
-   ?= 0`; the eval bound the default VALUE but never pushed it to
+?= 0`; the eval bound the default VALUE but never pushed it to
    `runtime_arg_exprs_in_order` → C `too few arguments`. Fix (faithful, mirrors
    helper.ts:328-344): added `FuncParam.default_value_expr` + a func-id side-table
    (`g_func_param_default_exprs`), and in `try_to_call`'s Step 7 omitted branch
@@ -603,12 +611,12 @@ builds the trial arg list (receiver prepend + `&(...)` ptr-conv).
    the supplied-args loop; the side-table is already there.
 2. **str-vs-String = trait-impl overload NOT COLLECTED (diagnostic-confirmed root).**
    After fix #1, `a.starts_with("-")` emits all 3 args but C-fails `passing
-   '__yo_str' to parameter of incompatible type '…' (String)`: codegen emits the
+'__yo_str' to parameter of incompatible type '…' (String)`: codegen emits the
    INHERENT `starts_with(self : String, prefix : String, position)` (`yo_id_4572` —
    body matches `prefix._bytes`) with the str literal. DIAGNOSTIC (panic-instrumented
    `_try_find_receiver_method`): for `a.starts_with`, **`get_receiver_methods_by_name`
    returns hits=1 — only the inherent**; the `StrPattern` trait `starts_with(prefix
-   : str)` (std/string.yo:1567 `impl(String, StrPattern(...))`) is NOT collected. So
+: str)` (std/string.yo:1567 `impl(String, StrPattern(...))`) is NOT collected. So
    `_select_matching_overload` (fix b4788d38e) is a no-op here (1 hit) and the
    inherent is used; the comptime_string `"-"` then matches the inherent's `String`
    prefix LENIENTLY (no "Cannot unify" throw — confirmed: `prefix`'s resolved_pt is
@@ -632,10 +640,9 @@ builds the trial arg list (receiver prepend + `&(...)` ptr-conv).
    Surfaced only by the fixpoint (corpus has no str-literal overloaded-method call
    omitting a default).
 3. **`dyn(<template string>)` codegen** — `exn.throw(dyn(\`compile: missing input
-   file…\`))` (run_compile's first stmt) emits `/* Error: dyn() requires an object
-   type (use box() for value types) */` (a broken `Type x = ;` decl). TS compiles it
-   (its only such hit is the source string literal). The recorded arg type for the
-   `dyn(\`…\`)` arg is a value-type String in yo-self vs an object/Box type in TS.
+   file…\`))`(run_compile's first stmt) emits`/_ Error: dyn() requires an object
+   type (use box() for value types) _/`(a broken`Type x = ;`decl). TS compiles it
+(its only such hit is the source string literal). The recorded arg type for the`dyn(\`…\`)` arg is a value-type String in yo-self vs an object/Box type in TS.
    2 instances in the self-compiled C (run_compile + one other fn).
 
 Beyond these, the statements AFTER the `while` (std_path / io.await / compile_module /
@@ -652,17 +659,18 @@ open-import, and P0 double-free fixes), the small/medium modules are near-clean:
 Per-module status as of 2026-06-21 AFTER Candidates 1–3 + the frame-depth fix +
 the specialization-Self fix + the receiver-arg-type fix:
 
-| module | swallowed errors | note |
-|---|---|---|
-| `error/token/utils/lexer/expr/target/naming_checker` | **0** | ✅ all clear (Candidates 1–3 + frame-depth relaxation) |
-| `value.yo` | 6→2 swallowed | `Self`-not-found ×4 (378914804) + `field_labels` (8910182ad) RESOLVED. DBG_SW2 re-survey shows 2 remain: (a) `field_types` ×1 — `types.clone()` (the SECOND arg of the SAME `.Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone())` at definitions.yo:392, masked behind field_labels before) where `types : ArrayList(Self)` has the RECURSIVE-ENUM element `TypeValue` (vs `labels`'s concrete `String`) → still Type(1); receiver-arg-type fix did NOT clear it = recursive-enum-element intersection (deeper). CONFIRMED ROOT (DBG_EL instrumentation): the clone receiver's element IS a recursive-enum SELF-SHELL — `types.clone()` has `types : ArrayList(<enum:..._self_shell>)` (e.g. `enum_yo_id_5981__self_shell`). The empty-variant shell as the element makes `with_capacity`'s `(*(T))(_ptr)`/`sizeof(T)` degenerate to Type(1) (shell has no layout). FOUR fix attempts, ALL ruled out (build-validated, reverted, zero regression each): (1) try_to_call self_type from self arg → REGRESSED expr/target/parser; (2) substitute `Self` SomeT in receiver type → no-op (it's a SHELL, not a SomeT); (3) `resolve_enum_shell` the receiver Struct's type_arguments in create_specialized → no-op (T bound separately, upstream); (4) `resolve_enum_shell` the `forall_val` in try_to_call's explicit-forall loop → no-op (with_capacity's T is bound via a DIFFERENT path — the receiver-type-arg→forall derivation in the DISPATCH, NOT the explicit-forall loop). FIVE fix attempts now ruled out (build-validated, reverted, zero regression each):
+| module                                               | swallowed errors | note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `error/token/utils/lexer/expr/target/naming_checker` | **0**            | ✅ all clear (Candidates 1–3 + frame-depth relaxation)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `value.yo`                                           | 6→2 swallowed    | `Self`-not-found ×4 (378914804) + `field_labels` (8910182ad) RESOLVED. DBG_SW2 re-survey shows 2 remain: (a) `field_types` ×1 — `types.clone()` (the SECOND arg of the SAME `.Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone())` at definitions.yo:392, masked behind field_labels before) where `types : ArrayList(Self)` has the RECURSIVE-ENUM element `TypeValue` (vs `labels`'s concrete `String`) → still Type(1); receiver-arg-type fix did NOT clear it = recursive-enum-element intersection (deeper). CONFIRMED ROOT (DBG_EL instrumentation): the clone receiver's element IS a recursive-enum SELF-SHELL — `types.clone()` has `types : ArrayList(<enum:..._self_shell>)` (e.g. `enum_yo_id_5981__self_shell`). The empty-variant shell as the element makes `with_capacity`'s `(*(T))(_ptr)`/`sizeof(T)` degenerate to Type(1) (shell has no layout). FOUR fix attempts, ALL ruled out (build-validated, reverted, zero regression each): (1) try_to_call self_type from self arg → REGRESSED expr/target/parser; (2) substitute `Self` SomeT in receiver type → no-op (it's a SHELL, not a SomeT); (3) `resolve_enum_shell` the receiver Struct's type_arguments in create_specialized → no-op (T bound separately, upstream); (4) `resolve_enum_shell` the `forall_val` in try_to_call's explicit-forall loop → no-op (with_capacity's T is bound via a DIFFERENT path — the receiver-type-arg→forall derivation in the DISPATCH, NOT the explicit-forall loop). FIVE fix attempts now ruled out (build-validated, reverted, zero regression each): |
+
 (1) try_to_call self_type ← self arg → REGRESSED expr/target/parser; (2) substitute
 `Self` SomeT in receiver → no-op (it's a SHELL not a SomeT); (3) resolve_enum_shell
 the receiver Struct type_arguments in create_specialized → no-op; (4)
 resolve_enum_shell `forall_val` in try_to_call's explicit-forall loop → no-op;
 (5) resolve_enum_shell `recv_type_args` at the static-dot derivation
 (function.yo:2477) → no-op (`types.clone()` is an INSTANCE call, so
-_static_dot_receiver_self_type returns None → recv_type_args empty). DEFINITIVE
+\_static_dot_receiver_self_type returns None → recv_type_args empty). DEFINITIVE
 CONCLUSION: `_funcval_bind_foralls` (function.yo:733) binds foralls by NAME-MATCH
 (`ptn == fa_name`) + recv_type_args fallback — NEITHER fires for instance `clone`'s
 impl forall `T` (param type is `ArrayList(T)`, not literally `T`), so the shell-`T`
@@ -709,7 +717,7 @@ resolution PERVASIVELY. The fix needs EITHER (a) systematic shell elimination at
 the recursive-enum representation / `register_enum_final` time so no `__self_shell`
 survives into method resolution (preferred — kills the whole class), OR (b) finer
 instrumentation to pin which clone-resolution path (property_access vs
-_try_find_receiver_method) evaluates the failing `types.clone` func and returns a
+\_try_find_receiver_method) evaluates the failing `types.clone` func and returns a
 type. Confirmed beyond 8 single-build attempts — a focused multi-step effort.
 9TH ATTEMPT (no-op, reverted): resolve_enum_shell at the CENTRAL method-registry
 chokepoint `type_id_or_empty` (type_trait_methods.yo:58 — used by every
@@ -732,26 +740,26 @@ DEFINITIVE DIAGNOSTIC (build #21, DBG_RESOLVE inside type_id_or_empty): for the
 SAME shell id (e.g. `enum_yo_id_5981__self_shell`), resolve_enum_shell returns BOTH
 `…5981__self_shell|vars=0` (final NOT registered — TIMING) on ~2 calls AND
 `…5981|vars=39` (resolved) on ~9 calls. So TWO facts are now PROVEN:
-  (1) TIMING — some clone-resolutions run BEFORE `register_enum_final`, so resolve
-      is a genuine no-op there (vars=0).
-  (2) PATH — the chokepoint fix used the RESOLVED id (vars=39) yet field_types
-      STILL failed → `clone` for these enums is NOT in the `type_id_or_empty`
-      method registry at all; it is resolved via a DIFFERENT path (the generic
-      Clone-impl resolver / derived-clone), which the shell breaks.
+(1) TIMING — some clone-resolutions run BEFORE `register_enum_final`, so resolve
+is a genuine no-op there (vars=0).
+(2) PATH — the chokepoint fix used the RESOLVED id (vars=39) yet field_types
+STILL failed → `clone` for these enums is NOT in the `type_id_or_empty`
+method registry at all; it is resolved via a DIFFERENT path (the generic
+Clone-impl resolver / derived-clone), which the shell breaks.
 So the failing `types.clone()`/`__v_args.clone()` resolve via the generic-impl /
 derived-clone path on a shell-typed RUNTIME (NoVal) receiver — NOT
 `_try_find_receiver_method` (8th attempt, no-op) and NOT
 `find_methods_from_generic_impls` (takes a TypeVal, our receiver is NoVal). The
 TRUE next step: find the clone-resolution path for a RUNTIME enum value receiver
 (derive(Clone)/generic Clone impl dispatch in the method-CALL path,
-evaluator/calls/*), resolve the shell receiver THERE, AND fix the registration
+evaluator/calls/_), resolve the shell receiver THERE, AND fix the registration
 TIMING so the final exists before any clone of a shell-typed value. A deep,
 multi-faceted effort (shell + clone-via-generic-impl/derived + registration timing)
 — the hardest subsystem, confirmed beyond 9 build-validated targeted attempts. That is a focused
 effort on the recursive-enum-shell subsystem (the hardest part of the port, per
 [[yo-self-recursive-enum-self-shell]] + [[yo-self-phase3-hashmap-new-blocker]]).
-Warm-up-masked (not a real fixpoint blocker). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool. ISOLATED (repro ladder, this session): NOT default-arg (both `starts_with("a")` and `starts_with("a", usize(0))` fail) and NOT the `&&` (starts_with ALONE fails; `len()==` alone works). ROOT: a COMPTIME_STRING LITERAL arg to a `Self`-TYPED param — `name.starts_with(p)` with a String VARIABLE `p` WORKS, but `name.starts_with("a")` (literal) FAILS. `starts_with(self : Self, prefix : Self, …)`: the comptime-arg→param coercion (helper.yo:482) is GUARDED `!is_some_type(resolved_pt)`, and `prefix`'s `Self` is NOT resolved to the concrete receiver (String) because `ctx.self_type` is not the receiver during `try_to_call`'s arg-binding (the create_specialized Self fix runs LATER). FIX ATTEMPT (FAILED + REVERTED, this session): setting `ctx.self_type` from the `self` param's arg_type inside `try_to_call`'s param loop (so a later `prefix : Self` resolves) did NOT fix starts_with AND regressed expr 0→1, target 0→1, parser 4→5. Two reasons learned: (1) `resolved_pt` for `prefix` is an ALREADY-EVALUATED SomeT, not the `Self` identifier, so setting `ctx.self_type` does NOT make `evaluate_function_parameter_type_again` resolve it; (2) the self param's `arg_type` is NOT a clean receiver type (e.g. `*(Self)` for `ref(self) : Self` methods), so overwriting `ctx.self_type` with it corrupts Self resolution elsewhere. So the real fix must RESOLVE the SomeT `Self` in `resolved_pt` directly (in the coercion at helper.yo:482, guarded: only when the SomeT is `Self` and resolves to a concrete non-SomeT) — the regression-prone coercion area (touching it unguarded once regressed std 151→17, see [[yo-self-template-string-to-string-cluster]]); a careful, validated focused effort. Gates that catch regressions here: the small-module marker counts (expr/target were 0) + `check ./std` (sensitive to this coercion class). 2ND `and` ATTEMPT (no-op, reverted): resolve a BOUND SomeT via `get_value_of_some_type_from_env(callee_env_r, resolved_pt)` before the coercion guard — no-op because `Self` is NOT bound in callee_env_r during starts_with's arg-binding (the receiver type isn't threaded there). UNIFIED ROOT (both value.yo residuals): `field_types` AND `and` both stem from the RECEIVER TYPE not reaching instance-method arg-binding / method-resolution. Threading it is the central method-dispatch change that (a) regressed expr/target/parser when done via ctx.self_type from the self arg (ref-self `*(Self)` corruption) and (b) no-op'd via env-resolution (Self not in env). So the value.yo tail needs ONE careful central fix: correctly thread the (deref'd, non-pointer) receiver type into instance-method arg-binding + method-resolution + as `Self` for coercion — validated incrementally against expr/target/std (all sensitive). A focused effort; 12 build-validated targeted attempts (10 field_types + 2 and) ruled out the peripheral approaches. 3RD `and` ATTEMPT (no-op, reverted): resolve a bare `SomeT("Self")` resolved_pt via the bound `self` var in callee_env_r before the coercion — no-op, so `prefix`'s resolved_pt is NOT a bare SomeT literally named "Self" (likely a fresh-id SomeT whose name isn't "Self", OR `self` isn't bound at that point, OR the failing path isn't this check_if_function_parameter_matches_argument). DEFINITIVE NEXT STEP for `and`: instrument `resolved_pt` (type_to_string + the SomeT name/id) for the prefix param of starts_with when compiling value.yo — determine the ACTUAL type before designing the resolution. INSTRUMENTATION OBSTACLE (build #24): `helper.yo` CANNOT `import("std/fmt")` for `eprintln` — it creates a circular import (helper.yo → std/fmt → … → calls/function.yo → helper.yo), build fails rc=1. So instrument via a NON-eprintln mechanism: a module-level `(g_dbg : ArrayList(String))` global written in helper.yo and printed by a caller that CAN import std/fmt, OR add the diagnostic in a callee/caller of check_if_function_parameter_matches_argument that already imports fmt, OR temporarily print from `function_type.yo` (which can import fmt) by threading the value out. 13 build-validated attempts total (10 field_types + 3 and); all peripheral guesses ruled out — both value.yo residuals need finer instrumentation of the exact type/path THEN a regression-prone central fix (a focused multi-session effort, not single-build attempts). The 6 visible MARKERS are all `if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
-| `parser.yo` | 4 markers | `array_list(...)` macro-expansion ×3 (gated MACRO_DISPATCH) + arg-count |
+Warm-up-masked (not a real fixpoint blocker). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool. ISOLATED (repro ladder, this session): NOT default-arg (both `starts_with("a")` and `starts_with("a", usize(0))` fail) and NOT the `&&` (starts_with ALONE fails; `len()==` alone works). ROOT: a COMPTIME_STRING LITERAL arg to a `Self`-TYPED param — `name.starts_with(p)` with a String VARIABLE `p` WORKS, but `name.starts_with("a")` (literal) FAILS. `starts_with(self : Self, prefix : Self, …)`: the comptime-arg→param coercion (helper.yo:482) is GUARDED `!is_some_type(resolved_pt)`, and `prefix`'s `Self` is NOT resolved to the concrete receiver (String) because `ctx.self_type` is not the receiver during `try_to_call`'s arg-binding (the create_specialized Self fix runs LATER). FIX ATTEMPT (FAILED + REVERTED, this session): setting `ctx.self_type` from the `self` param's arg_type inside `try_to_call`'s param loop (so a later `prefix : Self` resolves) did NOT fix starts_with AND regressed expr 0→1, target 0→1, parser 4→5. Two reasons learned: (1) `resolved_pt` for `prefix` is an ALREADY-EVALUATED SomeT, not the `Self` identifier, so setting `ctx.self_type` does NOT make `evaluate_function_parameter_type_again` resolve it; (2) the self param's `arg_type` is NOT a clean receiver type (e.g. `_(Self)`for`ref(self) : Self`methods), so overwriting`ctx.self_type`with it corrupts Self resolution elsewhere. So the real fix must RESOLVE the SomeT`Self`in`resolved_pt`directly (in the coercion at helper.yo:482, guarded: only when the SomeT is`Self`and resolves to a concrete non-SomeT) — the regression-prone coercion area (touching it unguarded once regressed std 151→17, see [[yo-self-template-string-to-string-cluster]]); a careful, validated focused effort. Gates that catch regressions here: the small-module marker counts (expr/target were 0) +`check ./std`(sensitive to this coercion class). 2ND`and`ATTEMPT (no-op, reverted): resolve a BOUND SomeT via`get_value_of_some_type_from_env(callee_env_r, resolved_pt)`before the coercion guard — no-op because`Self`is NOT bound in callee_env_r during starts_with's arg-binding (the receiver type isn't threaded there). UNIFIED ROOT (both value.yo residuals):`field_types`AND`and`both stem from the RECEIVER TYPE not reaching instance-method arg-binding / method-resolution. Threading it is the central method-dispatch change that (a) regressed expr/target/parser when done via ctx.self_type from the self arg (ref-self`\*(Self)`corruption) and (b) no-op'd via env-resolution (Self not in env). So the value.yo tail needs ONE careful central fix: correctly thread the (deref'd, non-pointer) receiver type into instance-method arg-binding + method-resolution + as`Self`for coercion — validated incrementally against expr/target/std (all sensitive). A focused effort; 12 build-validated targeted attempts (10 field_types + 2 and) ruled out the peripheral approaches. 3RD`and`ATTEMPT (no-op, reverted): resolve a bare`SomeT("Self")`resolved_pt via the bound`self`var in callee_env_r before the coercion — no-op, so`prefix`'s resolved_pt is NOT a bare SomeT literally named "Self" (likely a fresh-id SomeT whose name isn't "Self", OR `self`isn't bound at that point, OR the failing path isn't this check_if_function_parameter_matches_argument). DEFINITIVE NEXT STEP for`and`: instrument `resolved_pt`(type_to_string + the SomeT name/id) for the prefix param of starts_with when compiling value.yo — determine the ACTUAL type before designing the resolution. INSTRUMENTATION OBSTACLE (build #24):`helper.yo`CANNOT`import("std/fmt")`for`eprintln`— it creates a circular import (helper.yo → std/fmt → … → calls/function.yo → helper.yo), build fails rc=1. So instrument via a NON-eprintln mechanism: a module-level`(g_dbg : ArrayList(String))`global written in helper.yo and printed by a caller that CAN import std/fmt, OR add the diagnostic in a callee/caller of check_if_function_parameter_matches_argument that already imports fmt, OR temporarily print from`function_type.yo`(which can import fmt) by threading the value out. 13 build-validated attempts total (10 field_types + 3 and); all peripheral guesses ruled out — both value.yo residuals need finer instrumentation of the exact type/path THEN a regression-prone central fix (a focused multi-session effort, not single-build attempts). The 6 visible MARKERS are all`if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
+| `parser.yo`| 4 markers |`array_list(...)` macro-expansion ×3 (gated MACRO_DISPATCH) + arg-count |
 
 IMPORTANT — STACK, not memory: standalone-compiling a big module SIGSEGVs (rc=139,
 peak mem only ~2.8 GB — NOT OOM) at the default 1 GiB main-thread stack due to
@@ -765,10 +773,10 @@ The visible `// Failed to transpile` markers (all `if(...)`-shaped) are COLLATER
 (`_trial_eval_fn_body`) under the big stack surfaced the REAL per-function throws
 (the remaining MEASURABLE P1 tail, 2026-06-21):
 
-| module | real swallowed errors (count) |
-|---|---|
-| `value.yo` | `Variable "Self" not found` ×4 (dominant); `Type mismatch for type member "field_labels"` ×1; `Expected bool type for "and" argument` ×1 |
-| `parser.yo` | `Type mismatch for type member "args"` ×2; `Argument count mismatch: expected 0, got 1` ×1 |
+| module      | real swallowed errors (count)                                                                                                            |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `value.yo`  | `Variable "Self" not found` ×4 (dominant); `Type mismatch for type member "field_labels"` ×1; `Expected bool type for "and" argument` ×1 |
+| `parser.yo` | `Type mismatch for type member "args"` ×2; `Argument count mismatch: expected 0, got 1` ×1                                               |
 
 These are NEW families (distinct from Candidates 1–3): (a) `Self` unbound in some
 def-time body-eval context (likely an impl/trait-method body or a nested
@@ -802,6 +810,7 @@ The dominant `value.yo` family (`Variable "Self" not found.` ×4) was traced via
 the printing-swallow instrumentation (DBG_SW handler in `_trial_eval_fn_body` +
 DBG_LOC at the def-time call site) to four GENERIC method bodies evaluated during
 SPECIALIZATION:
+
 - `std/collections/hash_map.yo:287` (`set` → `Self._find_bucket(self, key, hash)`)
 - `std/collections/hash_map.yo:335` (`get` → `Self._find_bucket(...)`)
 - `std/collections/hash_set.yo:272` (`add` → `Self._find_slot(self, element, hash)`)
@@ -839,6 +848,7 @@ surfaces.
 ## Remaining value.yo (2) + parser.yo (3) — characterized, ORDER/CONTEXT-dependent
 
 After the Self fix, the remaining swallowed errors are:
+
 - `value.yo`: `Type mismatch for type member "field_labels"` ×1 (definitions.yo:392,
   `.Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types.clone())` —
   `labels.clone()` evaluated to `Type(1)`); `Expected bool type for "and"` ×1
@@ -881,7 +891,7 @@ TWO root families:
      def-time eval threw. Emit it (call it) and it fails. So this is NOT
      order/context-dependent; it is consistent once the body is emitted.
    - The swallowed throw (via the instrumented binary): `Type mismatch for type
-     member "_ptr": Expected <enum…(Option(*(T)))> Got Type(1)` at
+member "_ptr": Expected <enum…(Option(*(T)))> Got Type(1)` at
      `std/collections/array_list.yo:124` — `_ptr : .Some((*(T))(_ptr))` inside
      `with_capacity`. `xs.clone()` calls `Self.with_capacity(...)`; when
      `with_capacity` is specialized INSIDE clone's specialization (nested), the
@@ -919,8 +929,8 @@ TWO root families:
      m_wc-direct-first): the forall-binding hypothesis is DISPROVEN — `with_capacity`
      specializes with `names=[T] forall_args=[String]` in BOTH cases, so `T` IS
      bound to `String`. The real differentiator is STRUCT IDENTITY:
-       FAIL: with_capacity specialized for `self=struct_3934`(String) + `struct_3984`(u8); NO struct_4028.
-       PASS: same + with_capacity for `self=struct_4028`(String)  ← the extra one.
+     FAIL: with_capacity specialized for `self=struct_3934`(String) + `struct_3984`(u8); NO struct_4028.
+     PASS: same + with_capacity for `self=struct_4028`(String) ← the extra one.
      `ArrayList(String)` exists as TWO distinct struct ids (3934 vs 4028). `m_clone`'s
      `xs.clone()` (receiver = one instance) has clone's body call `Self.with_capacity`
      where `Self` resolves to the OTHER `ArrayList(String)` instance (struct_3934, a
@@ -939,13 +949,13 @@ TWO root families:
      regression risk; a focused effort, not a session-end fix. (Diagnostic note:
      `type_to_string` renders a struct as `<struct:id>` WITHOUT type args; print
      `arg_values.forall_args` values, and compare struct IDS across pass/fail.)
-   The `name.starts_with()` (`and` ×1) error is a sibling — same "method call in an
-   emitted body during specialization mis-resolves" class; re-confirm its exact
-   throw the same way. LOWER-VALUE than the Self family (2 errors, 1 module);
-   does NOT gate the fixpoint (P2 does). Session fixme.yo repro ladder: repro2→3
-   (isolate method-call) → repro5/6 (FALSE clean = dead-code-elim) → repro7 (enum
-   fn alone, trivial main → false clean) → **repro8 (fns CALLED from main → both
-   bodies fail; the reliable repro)**.
+     The `name.starts_with()` (`and` ×1) error is a sibling — same "method call in an
+     emitted body during specialization mis-resolves" class; re-confirm its exact
+     throw the same way. LOWER-VALUE than the Self family (2 errors, 1 module);
+     does NOT gate the fixpoint (P2 does). Session fixme.yo repro ladder: repro2→3
+     (isolate method-call) → repro5/6 (FALSE clean = dead-code-elim) → repro7 (enum
+     fn alone, trivial main → false clean) → **repro8 (fns CALLED from main → both
+     bodies fail; the reliable repro)**.
 
 ## Candidate 1 — derived multi-field `Clone` — ✅ RESOLVED (4-layer fix)
 
@@ -975,9 +985,11 @@ export(main);
 ```
 
 yo-self emits, in T's derived clone body:
+
 ```c
 return // Failed to transpile (((self.kind).clone)(), ((self.value).clone)(), …);
 ```
+
 i.e. a struct construction whose **callee renders empty** (positional
 `(field.clone(), …)`, no `T` head). An EXPLICIT labeled `T(kind : …, …)` (as in
 `mk`) transpiles fine — only the derive-generated positional/`Self(...)` form
@@ -1000,7 +1012,7 @@ Root: it does `match(func_box.*, …)` two levels into `AstExpr` (`func : Box(Se
 The enum self-shell patch (types/enum.yo) replaces only ONE level of self-nesting;
 the second-level `Box(Self)` deref surfaced the raw empty-variant shell, and the
 match evaluator never called `resolve_enum_shell` → "variant Atom not found in
-<enum:..._self_shell>" → swallowed at def-time → no ExprInfo → "Failed to
+<enum:...\_self_shell>" → swallowed at def-time → no ExprInfo → "Failed to
 transpile". Found by instrumenting `_trial_eval_fn_body`'s swallow to print
 `err.to_string()`. Fix: `resolve_enum_shell(matched_type)` in match.yo (mirrors
 synthesizer.yo / property_access.yo). check ./std 152/152, corpus PASS 82.
@@ -1053,10 +1065,12 @@ an IDENTICAL frame/variable layout at every level 0..max_frame_level. A
 `begin`-block arm's `:=` bindings (e.g. `char_index`/`byte_index`) land in a
 scanned frame that a simple sibling arm (`.None => .None`) does not have — so the
 names/counts diverge. PRECISE ROOT (instrumented the names-check, DBG_NAMES dump):
+
 ```
 frame=4/max=4 kk=0 base.len=1 case.len=0 base[kk]=self_al   case[kk]=__err__
 frame=5/max=5 kk=0 base.len=1 case.len=0 base[kk]=search_al case[kk]=__err__
 ```
+
 i.e. it is NOT the begin-arm adding locals — it is the TRIVIAL arm DROPPING an
 outer binding. In the nested `match(self._bytes, .None => .None, .Some(self_al)
 => match(substr._bytes, .None => .None, .Some(sub_al) => begin(…)))`, the inner
@@ -1106,28 +1120,33 @@ markers (16 `if`, 16 `match`, 10 `while`, 3 `cond`)**. The `if`/`match` half tra
 to ONE root via [TTERR] swallow-instrumentation + binary search.
 
 **The swallowed throw** (def-time body eval, [TTERR]):
+
 ```
 Error: Type mismatch for type member "value":
 Expected: <struct:struct_yo_id_5827>   (= String)
 Got:   Type(1)                          (= TypeUni(1), an unsubstituted type param)
   at std/collections/hash_set.yo:88:15  ->  Self(... data : .Some(data_ptr) ...)
 ```
+
 `Type(1)` is `TypeValue.TypeUni(1)` — the kind/placeholder for an **unsubstituted
 forall `T`**. The match/if marker is on the WHOLE construct (not the inner call)
 because the throw leaves it NOINFO (no ExprInfo) -> codegen falls to the marker.
 
 **Minimal repro (8 lines, NO object, NO match, NO cross-module — much simpler than
 the html.yo HashMap case in `issues/fixed/self-dispatch-loses-type-args.md`):**
+
 ```rust
 open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 emit :: (fn(h : HashSet(String), name : String) -> unit)({ _a := h.add(name.clone()); (); });
 main :: (fn() -> unit)({ /* ... construct + */ emit(hs, `x`); (); });
 ```
+
 **Fails (1 marker).** But `s := HashSet(String).new(); _a := s.add(name.clone());`
 in the same fn **WORKS (0 markers).** The `.new()`-masking is the key tell.
 
 **Mechanism (confirmed by binary-search over repro variants):**
+
 - `add` (mutating) calls `Self._resize(self,...)` -> `Self._alloc_with_capacity(cap)`.
   `_alloc_with_capacity : (fn(capacity : usize) -> Result(Self, ...))` has **NO `self`
   and NO `T`-typed param** — its `T` lives ONLY in the body (`*(T)`, `sizeof(T)`,
@@ -1189,7 +1208,7 @@ method = `_alloc_with_capacity`, on the 8-line repro):
   nothing to fix there (`cf_unresolved` is correctly `false`). Two fix variants
   (rebind on `UnknownVal`/`SomeT`; widened to `TypeUni`; widened to any non-concrete)
   ALL left the marker at 1, because `T` is genuinely `String` going in.
-- `[CF0] name=Self val=novar` — there is no `Self` *variable* in `callee_env`;
+- `[CF0] name=Self val=novar` — there is no `Self` _variable_ in `callee_env`;
   `Self` resolves via `ctx.self_type` (correct, `HashSet(String)`).
 
 **Conclusion:** with `T = String` and `Self = HashSet(String)` both correct at the
@@ -1221,10 +1240,11 @@ result-tag probe at the struct-construction dispatch.
 
 Traced where `Self(...)` is evaluated (no build). `evaluate_function_call`'s
 TypeVal-callee dispatch (`function.yo:1691+`) has two relevant arms:
+
 - **`.Struct(...)` arm (`function.yo:1873`)** → `try_to_call_type_with_arguments`
-  + sets `out_s.ty = func_type` (the struct type). If `Self(...)` reached THIS arm
-  its result type would be `HashSet(String)` — NOT `Type(1)`.
-- **`.SomeT(... kind_fn ...)` arm (`function.yo:1749`)** → builds a *TypeApplication*
+  - sets `out_s.ty = func_type` (the struct type). If `Self(...)` reached THIS arm
+    its result type would be `HashSet(String)` — NOT `Type(1)`.
+- **`.SomeT(... kind_fn ...)` arm (`function.yo:1749`)** → builds a _TypeApplication_
   (a TYPE) → exactly the `Type(1)`/`TypeUni` degenerate.
 
 So the failing inner `Self(...)` callee is resolving to a **`SomeT`** (routing to the
@@ -1281,10 +1301,12 @@ OUT of scope.
 Probe at the `try_to_call_type_with_arguments` field-check throw (type.yo, printing
 `member_element.label` + `arg_type` + `ast_expr_to_string(actual_arg_expr)`, guarded to
 `member=="value"`) gave TWO mismatches on the 8-line repro:
+
 ```
 [ARGEXPR] member=value got=*(String) expr=data_ptr
 [ARGEXPR] member=value got=Type(1)  expr=Self(ctrl :.Some(ctrl_ptr), data :.Some(data_ptr), capacity : capacity, size : usize(0))
 ```
+
 - Line 1: the inner `.Some(data_ptr)` (the `data : ?*(T)` field). **`data_ptr` is correctly
   `*(String)`** — so the `*(T)(data_void_ptr)` cast is FINE (my prior "the cast yields
   Type(1)" guess is WRONG). The mismatch is that the Option's `value` field EXPECTS
@@ -1333,6 +1355,7 @@ mutable local and overrode only `.ty` (no `clone()` of the metadata — `Option(
 has no `.clone`).
 
 **Validation (all green):**
+
 - minimal repro (HashSet.add on param + match-bound receiver): 1 → **0** markers
 - full stage-2 self-compile: 141 → **78** markers (−63, ~45% of the tail), EXIT=0
 - `check ./std`: 153 modules OK, no errors
@@ -1356,12 +1379,13 @@ By leading construct: 8 `if`, 7 `while`, 6 `match`, 4 `usize`, 3 `cond`, 3
 Type(1) construction dominated ~63), **the 78 are DIFFUSE — a long tail of distinct
 small roots, no single dominant lever.** Visible candidate sub-clusters (each ~1–3
 markers, distinct roots — NOT the now-fixed construction):
+
 - **Derived-clone big-enum matches**: `match(self, .Unit => TypeValue.Unit, .BoolT
-  => …)` (TypeValue clone) and `match(self, .Atom(__v_id,…) => .Atom(…clone…),
-  .FnCall(…) => …)` (AstExpr clone) — the derived `clone` over a many-variant enum.
+=> …)` (TypeValue clone) and `match(self, .Atom(__v_id,…) => .Atom(…clone…),
+.FnCall(…) => …)` (AstExpr clone) — the derived `clone` over a many-variant enum.
 - **template-string inline method call** (`${hs.contains(x)}`) — see above.
 - **comptime_assert** (`if(!(is_bool_val(arg_val)), begin(exn.throw(…"Expected bool
-  value for \"comptime_assert\"")))`).
+value for \"comptime_assert\"")))`).
 - **async sync-await result** (`if(!(is_result_unit), begin(result_var := …))`),
   template-string-import (`if(self.has_template_string, …BK_IMPORT…)`), variadic
   param reg (`if(label != "...", …g_func_variadic_params.set…)`).
@@ -1379,13 +1403,14 @@ walker ~6, the comptime-`and` fold ~5, an async-result codegen emitter ~5.)
 
 Built a [TTERR]-instrumented binary from the FIXED source and ran the full
 self-compile capturing the swallowed def-time throws. Categories:
+
 - **7 `Incompatible types: Previous X / Current unit`** (the biggest) — at
   **cond.yo:543** (the `cond` arm-type unification; `if`/`match` route here).
-  Sites: comptime_assert.yo:81 `.None => {}`, gensym.yo:116 `_ => {}`, and_or.yo:77,
-  import.yo:214 `}, {`, the `if`-macro default `?= quote(())` (prelude:7602),
-  flowability.yo:674 (`Previous: ResumeType`). Pattern = a STATEMENT-position
-  `match`/`cond`/`if` where one arm is a value-producing block and another is an
-  empty `{}` / `()` (unit).
+  Sites: comptime*assert.yo:81 `.None => {}`, gensym.yo:116 `* => {}`, and_or.yo:77,
+import.yo:214 `}, {`, the `if`-macro default `?= quote(())` (prelude:7602),
+flowability.yo:674 (`Previous: ResumeType`). Pattern = a STATEMENT-position
+`match`/`cond`/`if`where one arm is a value-producing block and another is an
+empty`{}`/`()` (unit).
 - 3 `Frame level N — different number of values` + 1 `… different variable names`
   (branch-merge family, [[yo-self-branch-merge-trivial-arm]]).
 - 2 `Type mismatch for type member "args"` + 1 `"field_types"` — **NOT the enum
@@ -1420,6 +1445,7 @@ next step documented above. None is a quick extension of a prior fix. Highest
 marker-count target = the arm-type/Incompatible-types cluster (~22 markers across
 comptime_assert/gensym/and_or) but it is the most delicate (must not relax the
 TS-faithful cond.yo:543 check — fix the upstream arm-typing).
+
 - 2 `Expected bool type for "and" argument` (the comptime-`and` builtin, and_or.yo).
 - 2 `Cannot unify incompatible types`, 1 `Argument count mismatch`.
 
@@ -1492,6 +1518,7 @@ yo-self had NO variadic-macro support in the type-checker dispatch (`variadic_ar
 was always empty; `is_param_quoted` excludes the variadic). The fix implements it,
 mirroring TS `helper.ts:969` + `1620-1709`, all GATED on quoted-variadic so
 non-variadic calls are byte-identical (regression confined to `array_list`):
+
 1. Skip the arg-count check when `get_func_variadic_param(func_id_fv).is_some()`.
 2. Detect a quoted variadic via its recorded type = `ComptimeList(Expr)`
    (`is_expr_list_type`).
@@ -1514,30 +1541,33 @@ with the right id but never reached the macro check.
 
 Drove the highest-yield cluster (7 "Incompatible types" throws, ~22 markers via
 comptime_assert/gensym/and_or). Minimal repro + [TTERR]:
+
 ```
 test_c :: (fn(o : Option(i32)) -> unit)({
   match(o, .Some(x) => { _y := x; }, .None => {});  ();
 });
 ```
+
 → `[TTERR] Incompatible types: Previous: unit, Current: <struct:struct_yo_id_NNNN>`
 at the match. Variant matrix (fixed binary):
-- `.Some => (), .None => {}` → FAILS  | `.Some => {x;}, .None => {}` → FAILS |
-  `.Some => {_y := x;}, .None => {}` → FAILS
-- `.Some => {}, .None => {}` → OK     | `.Some => {_y:=mk(x);}, .None => {_w:=mk(0);}` → OK
 
-**Root:** `{}` (empty braces) parses to **`_()`** (the `_` anon-struct, BK_ANON_STRUCT),
+- `.Some => (), .None => {}` → FAILS | `.Some => {x;}, .None => {}` → FAILS |
+  `.Some => {_y := x;}, .None => {}` → FAILS
+- `.Some => {}, .None => {}` → OK | `.Some => {_y:=mk(x);}, .None => {_w:=mk(0);}` → OK
+
+**Root:** `{}` (empty braces) parses to **`_()`** (the `_` anon-struct, BK*ANON_STRUCT),
 which `evaluate_anonymous_struct_value` types as a FRESH empty struct (struct_NNNN) —
 NOT unit. `()` types as unit. So `.None => {}` (empty struct) vs a `unit` sibling arm
 fails yo-self's match-arm type unification, because **compatibility.yo:278**
-(`.Unit => match(expected, .Unit => true, _ => false)`) makes `Unit` compatible ONLY
-with `Unit`. (`{}` vs `{}` works — empty-struct vs empty-struct unifies; both-bind works
-— both blocks are unit.) yo-self's OWN source uses `.None => {}` / `_ => {}` extensively
+(`.Unit => match(expected, .Unit => true, * => false)`) makes `Unit`compatible ONLY
+with`Unit`. (`{}`vs`{}`works — empty-struct vs empty-struct unifies; both-bind works
+— both blocks are unit.) yo-self's OWN source uses`.None => {}`/`\_ => {}` extensively
 expecting it to be unit-compatible.
 
 **Confirmed NOT a parser or anon-struct-eval divergence:** the TS parser
 (parser.ts:704-719) ALSO rewrites empty `{}` → `_()`, and TS's
 `evaluate_anonymous_struct` (anonymous-struct.ts:48) ALSO `createStructType`s it. So TS
-*creates* the same empty struct, yet `areTypesCompatible(unit, empty_struct)` is
+_creates_ the same empty struct, yet `areTypesCompatible(unit, empty_struct)` is
 effectively TRUE in TS (it compiles yo-self's `.None => {}` arms). **OPEN: the exact TS
 acceptance path is unpinned** — compatibility.ts has NO explicit unit↔empty-struct rule
 (grepped), so it is likely `convertComptimeTypeToRuntimeType` widening (cond.ts:395-410 /
