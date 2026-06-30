@@ -531,13 +531,13 @@ When implementing `Trace` for a new container, the rules are simply:
 | **Go (mark-sweep)**                   | O(heap)      | Yes                  | High        | 10-100ms STW       |
 | **Yo (QuickJS-style trial deletion)** | O(N/threads) | No (isolated)        | Low         | 0.5-5ms per thread |
 
-## Performance: full-heap scan vs. possible-roots (planned)
+## Performance: adaptive Bacon-Rajan (incremental + full-heap fallback)
 
-> **Status:** the collector described above scans the **entire** tracked set on
-> every collection. On allocation-heavy, mostly-live workloads with few real
-> cycles (most notably the compiler compiling itself) this becomes the dominant
-> cost. The optimization below is the planned fix; an env knob is the current
-> stopgap.
+> **Status:** IMPLEMENTED. The trial-deletion collector above is now the
+> _thorough_ path (explicit `Gc.collect()`); the auto-trigger uses an incremental
+> Bacon-Rajan collector with adaptive frequency. With GC on by default, the
+> self-compile-class workload (`check ./std`) runs in ~5.7s (≈ GC-disabled, and
+> faster than the TS host's 17s) instead of stalling.
 
 ### When the trial-deletion collector becomes a bottleneck
 
@@ -567,13 +567,14 @@ raise or disable auto-collection:
   allocation-heavy runs (e.g. the compiler) where cycles, if any, are reclaimed
   by the OS at process exit anyway.
 
-### Planned fix: Bacon-Rajan possible-roots (O(roots), not O(heap))
+### The fix: adaptive Bacon-Rajan possible-roots (auto) + full-heap (explicit)
 
-The proper fix is the **Bacon-Rajan synchronous cycle collection** algorithm. The
-key observation: only an object whose reference count is **decremented to a
-non-zero value** can be the root of a garbage _cycle_ (a "possible root"). So
-instead of scanning every tracked object, the collector processes only the
-**possible-roots buffer** and the subgraph reachable from it:
+The auto-trigger uses **Bacon-Rajan synchronous cycle collection**
+(`__yo_gc_collect_incremental`). The key observation: only an object whose
+reference count is **decremented to a non-zero value** can be the root of a
+garbage _cycle_ (a "possible root"). So instead of scanning every tracked object,
+the incremental collector processes only the **possible-roots buffer** and the
+subgraph reachable from it:
 
 1. **Buffer candidates in `__yo_decr_rc`.** When `--ref_count` leaves it `> 0`,
    add the object to a `possible_roots` list (an intrusive doubly-linked list so
@@ -591,13 +592,26 @@ instead of scanning every tracked object, the collector processes only the
      so a member's traversal never touches an already-freed sibling), then clears
      the buffer.
 
-This makes each collection **O(possible-roots + their reachable subgraph)** rather
-than O(all tracked), so cycle-poor workloads (the compiler) collect cheaply and
-the collector can stay on by default with no env override. It is a
-correctness-critical change (it touches the free path) and is validated against
-the cycle-collector tests (`tests/cycle_collector.test.yo`,
-`tests/codegen-bootstrap/*_self_cycle.yo`, `ref_enum_cycle.yo`) under
-AddressSanitizer before landing.
+Each incremental collection is **O(possible-roots + their reachable subgraph)**
+rather than O(all tracked). Because a cycle collection still traverses that
+reachable subgraph — which on a densely-connected, mostly-live heap (the compiler)
+is ≈O(heap) — the trigger threshold is **adaptive**: a pass that reclaims nothing
+grows it ×4 (capped), so dense cycle-poor workloads stop thrashing; a productive
+pass resets to the floor.
+
+**Move-formed cycles.** A cycle created purely by _moving_ a value into its own
+field (`a.child = .Some(a)` where the codegen elides the incr+decr) produces no
+"possible root" event, so the incremental collector cannot see it. The **explicit
+`Gc.collect()`** path (`__yo_gc_collect`) remains a full-heap trial-deletion scan
+and reclaims those; it also runs on demand. So the design is a hybrid: cheap
+incremental on the hot (auto) path, thorough full-heap on the explicit path.
+
+This keeps the collector on by default with no env override (the `YO_GC_THRESHOLD`
+knob remains as a floor/disable). It is correctness-critical (it touches the free
+path) and is validated against the cycle-collector tests
+(`tests/cycle_collector.test.yo`, `tests/codegen-bootstrap/*_self_cycle.yo`,
+`ref_enum_cycle.yo`) — 16/16 plus the `arc` / `closure_capture_rc_leak` /
+`continue_rc_cleanup` / `ref_enum` suites — under AddressSanitizer.
 
 ## Summary
 
