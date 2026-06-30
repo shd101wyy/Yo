@@ -67,6 +67,30 @@ since-reverted experiment, not the real inner type. Gap 1 is actually TWO layers
    the box call's EXPECTED type (dyn.ts:256) — yo-self's auto-box evaluates
    `box(..)` with no expected type, so `V` must be inferred and isn't.
 
+   **ATTEMPTED + REVERTED (2026-06-30) — blocker found.** Ported `createBoxedType`
+   → `_create_boxed_type` (looks up the prelude `Box` constructor and calls it via
+   `evaluate_comptime_fn_call` with the inner type — NO import cycle, confirmed)
+   and wired the validating-path auto-box to evaluate the synthetic `box(value)`
+   with the EXPECTED `Box(Sq)` so `V` binds. Result: `dyn(Sq)` then COMPILED (the
+   dyn itself resolved + the Gap-2/boxed-dyn path took over), but the ENCLOSING
+   expression regressed — `printf("…", use_shape(dyn(Sq(5))))` emitted
+   `// Failed to transpile printf(…)`, i.e. the printf lost its ExprInfo and main
+   compiled to a no-op (empty output instead of TS's `area=25`). Root: evaluating
+   the synthetic `box(eval_inner)` in the nested validating context THROWS (or
+   otherwise disrupts), and the throw unwinds past the enclosing `printf` to the
+   def-time trial wrapper, dropping printf's ExprInfo. Corpus stayed 91/91 (no
+   broad regression — only `dyn(valueStruct)` is affected), but turning a clean
+   "use box()" compile-error into a silent no-op is itself a regression, so the
+   change was reverted. NEXT: find why `box(eval_inner)` throws in the validating
+   pass (candidates: `box`'s `own(value)` flow/consume check on an already-
+   evaluated arg; or `_create_boxed_type`'s `evaluate_comptime_fn_call` throwing) —
+   then re-land the auto-box. The `_create_boxed_type` port + validating-path wiring
+   are correct scaffolding; only the box-call throw remains.
+
+   **Workaround available today:** `dyn(box(valueStruct))` (explicit `box`) works
+   end-to-end (layers 3-4 fixed), and `dyn(valueStruct)` errors cleanly directing
+   the user to `box()`. So the only divergence is the missing auto-box convenience.
+
 3. **vtable-wrapper emission for a boxed dyn — ✅ FIXED (commit 07e7fbba8).**
    `dyn(box(Sq(9)))` used to fail C compile with an undeclared
    `__yo_wrap_<box>_<dyn>_area`. Two coupled faithful-port gaps, both fixed:
